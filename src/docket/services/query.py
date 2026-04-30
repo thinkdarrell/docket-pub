@@ -205,42 +205,70 @@ def list_upcoming_meetings(days: int = 14, limit: int = 20) -> list[dict]:
 # --- Search -----------------------------------------------------------------
 
 
-def search_meetings(query: str, limit: int = 20, offset: int = 0) -> list[dict]:
-    """Full-text search across meeting titles, all cities."""
+def search_meetings(
+    query: str,
+    municipality_slug: str | None = None,
+    limit: int = 20,
+    offset: int = 0,
+) -> list[dict]:
+    """Full-text search across meeting titles.
+
+    Scoped to a single city by default. Pass municipality_slug=None for cross-city.
+    """
     with db_cursor() as cur:
+        where = "m.active = TRUE AND mt.search_vector @@ websearch_to_tsquery('english', %s)"
+        params: list = [query]
+
+        if municipality_slug:
+            where += " AND m.slug = %s"
+            params.append(municipality_slug)
+
         cur.execute(
-            """
+            f"""
             SELECT mt.*, m.name AS municipality_name, m.slug AS municipality_slug,
                    ts_rank(mt.search_vector, websearch_to_tsquery('english', %s)) AS rank
             FROM meetings mt
             JOIN municipalities m ON mt.municipality_id = m.id
-            WHERE m.active = TRUE
-              AND mt.search_vector @@ websearch_to_tsquery('english', %s)
+            WHERE {where}
             ORDER BY rank DESC, mt.meeting_date DESC
             LIMIT %s OFFSET %s
             """,
-            (query, query, limit, offset),
+            (query, *params, limit, offset),
         )
         return [dict(row) for row in cur.fetchall()]
 
 
-def search_agenda_items(query: str, limit: int = 20, offset: int = 0) -> list[dict]:
-    """Full-text search across agenda item titles and descriptions, all cities."""
+def search_agenda_items(
+    query: str,
+    municipality_slug: str | None = None,
+    limit: int = 20,
+    offset: int = 0,
+) -> list[dict]:
+    """Full-text search across agenda item titles and descriptions.
+
+    Scoped to a single city by default. Pass municipality_slug=None for cross-city.
+    """
     with db_cursor() as cur:
+        where = "m.active = TRUE AND ai.search_vector @@ websearch_to_tsquery('english', %s)"
+        params: list = [query]
+
+        if municipality_slug:
+            where += " AND m.slug = %s"
+            params.append(municipality_slug)
+
         cur.execute(
-            """
+            f"""
             SELECT ai.*, mt.title AS meeting_title, mt.meeting_date,
                    m.name AS municipality_name, m.slug AS municipality_slug,
                    ts_rank(ai.search_vector, websearch_to_tsquery('english', %s)) AS rank
             FROM agenda_items ai
             JOIN meetings mt ON ai.meeting_id = mt.id
             JOIN municipalities m ON mt.municipality_id = m.id
-            WHERE m.active = TRUE
-              AND ai.search_vector @@ websearch_to_tsquery('english', %s)
+            WHERE {where}
             ORDER BY rank DESC, mt.meeting_date DESC
             LIMIT %s OFFSET %s
             """,
-            (query, query, limit, offset),
+            (query, *params, limit, offset),
         )
         return [dict(row) for row in cur.fetchall()]
 
