@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+from docket.adapters.civicclerk import CivicClerkAdapter
+from docket.adapters.civicplus import CivicPlusAdapter
+from docket.adapters.generic_cms import GenericCMSAdapter
 from docket.adapters.granicus import GranicusAdapter
 
 ADAPTER_REGISTRY: dict[str, type] = {
     "GranicusAdapter": GranicusAdapter,
+    "CivicClerkAdapter": CivicClerkAdapter,
+    "CivicPlusAdapter": CivicPlusAdapter,
+    "GenericCMSAdapter": GenericCMSAdapter,
 }
 
 

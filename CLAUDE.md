@@ -26,6 +26,11 @@ docket-pub-dw-dev/
       001_initial.py       # Full multi-city PostgreSQL schema
       runner.py            # Migration runner (apply/rollback/status)
     adapters/              # Platform adapters (one per CMS type)
+      _helpers.py          # Shared classify_meeting(), is_consent_item()
+      granicus.py          # Birmingham (Granicus HTML scraper)
+      civicclerk.py        # Vestavia Hills, Mobile (CivicClerk REST API)
+      civicplus.py         # Stub for CivicPlus AgendaCenter sites
+      generic_cms.py       # Homewood (HTML archive page with PDF links)
     services/              # Business logic layer (ingest, query, search, etc.)
     web/                   # Flask blueprints (public, admin, API)
     analysis/              # Vote OCR pipeline (ported from al-municipal-meetings)
@@ -143,12 +148,14 @@ This repo (`docket-pub-dw-dev`) is a **test/dev fork** of the main `docket-pub` 
 | PostgreSQL schema + migrations | Done | 10 tables, FTS indexes, Birmingham seeded |
 | Adapter protocol + registry | Done | `MunicipalSourceAdapter` in `models/protocol.py` |
 | GranicusAdapter | Done | Verified with 1,001 live Birmingham meetings |
+| CivicClerkAdapter | Done | Vestavia Hills (108 events) + Mobile (69 agenda items verified) |
+| CivicPlusAdapter | Stubbed | Hoover AgendaCenter is empty; adapter exists but returns no data |
+| GenericCMSAdapter | Done | Homewood: 248 meetings (2016-present), agenda + minutes PDFs |
+| Shared adapter helpers | Done | `_helpers.py` with `classify_meeting()`, `is_consent_item()` |
+| Migration 002 | Done | Seeds Vestavia Hills, Mobile, Homewood |
 | Ingest service | Done | Scrapes meetings + agenda items via adapters |
 | Query service | Done | Reads meetings, items, votes, dashboard stats |
 | Vote OCR pipeline | Not ported | Lives in `al-municipal-meetings/src/muni/analysis/` |
-| CivicClerk adapter | Not ported | Source in `al-municipal-meetings/scrapers/civicclerk.py` |
-| CivicPlus adapter | Not built | Needed for Hoover |
-| Generic CMS adapter | Not built | Needed for Homewood |
 | Council roster scrapers | Not built | Scrape city council pages for member data |
 | Dollar extraction | Not built | Regex pipeline for `enrichment/dollars.py` |
 | Scoring stubs | Not built | 0-10 significance + consent placement scores |
@@ -163,7 +170,7 @@ This repo (`docket-pub-dw-dev`) is a **test/dev fork** of the main `docket-pub` 
 
 1. ~~Foundation (schema, Docker, models)~~ — DONE
 2. ~~Granicus adapter + services~~ — DONE
-3. Additional adapters (CivicClerk, CivicPlus, Generic)
+3. ~~Additional adapters (CivicClerk, GenericCMS)~~ — DONE (Hoover/Montgomery deferred — blocked)
 4. Data enrichment (dollars, scoring stubs, reconciliation)
 5. Search + public API
 6. Citizen frontend + admin monitoring

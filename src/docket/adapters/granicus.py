@@ -18,6 +18,7 @@ from datetime import date, datetime, timezone
 import requests
 from bs4 import BeautifulSoup
 
+from docket.adapters._helpers import classify_meeting, is_consent_item
 from docket.models.protocol import RawAgendaItem, RawMeeting, RawVote
 
 logger = logging.getLogger(__name__)
@@ -108,7 +109,7 @@ class GranicusAdapter:
                         title=description,
                         description=None,
                         section=None,
-                        is_consent=_is_consent_item(description),
+                        is_consent=is_consent_item(description),
                         sponsor=None,
                     )
                 )
@@ -202,7 +203,7 @@ class GranicusAdapter:
             municipality_slug=self.municipality_slug,
             title=title,
             meeting_date=meeting_date,
-            meeting_type=_classify_meeting(title),
+            meeting_type=classify_meeting(title),
             agenda_url=agenda_url,
             minutes_url=minutes_url,
             video_url=video_url,
@@ -223,28 +224,3 @@ class GranicusAdapter:
         return None
 
 
-# --- Helpers ----------------------------------------------------------------
-
-
-def _classify_meeting(title: str) -> str:
-    """Classify meeting type from its title."""
-    t = title.lower()
-    if "regular" in t:
-        return "council"
-    if "special" in t or "called" in t:
-        return "special"
-    if "budget" in t:
-        return "council"
-    if "work session" in t:
-        return "work_session"
-    if "committee" in t:
-        return "committee"
-    if "planning" in t or "bza" in t or "zoning" in t:
-        return "planning"
-    return "council"
-
-
-def _is_consent_item(description: str) -> bool:
-    """Guess if an agenda item is part of the consent agenda."""
-    d = description.lower()
-    return "consent" in d
