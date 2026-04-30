@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import argparse
 import importlib
-import sys
 
 from docket.db import db
 

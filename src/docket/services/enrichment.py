@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from decimal import Decimal
 
 from docket.db import db, db_cursor
 from docket.enrichment.dollars import extract_dollars

@@ -18,7 +18,7 @@ from datetime import date
 
 from docket.adapters import get_adapter
 from docket.db import db, db_cursor
-from docket.models.protocol import RawAgendaItem, RawMeeting
+from docket.models.protocol import RawMeeting
 from docket.services.enrichment import enrich_agenda_item
 
 logger = logging.getLogger(__name__)
