@@ -127,6 +127,22 @@ def meeting_detail(slug, meeting_id):
     )
 
 
+@bp.route("/al/<slug>/council/")
+def city_council(slug):
+    """Council member cards for a city."""
+    municipality = query.get_municipality(slug)
+    if not municipality:
+        abort(404)
+
+    members = query.list_council_members(slug)
+
+    return render_template(
+        "council.html",
+        municipality=municipality,
+        members=members,
+    )
+
+
 @bp.route("/search")
 def search():
     """Search results page — scoped to city or cross-city."""

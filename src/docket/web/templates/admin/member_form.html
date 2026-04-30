@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}{% if member %}Edit {{ member.name }}{% else %}Add Council Member{% endif %} — Admin — docket.pub{% endblock %}
+
+{% block content %}
+<h1>{% if member %}Edit {{ member.name }}{% else %}Add Council Member{% endif %}</h1>
+
+<form method="post">
+    {% if not member %}
+    <label>City:
+        <select name="municipality" required>
+            {% for m in municipalities %}
+            <option value="{{ m.slug }}">{{ m.name }}</option>
+            {% endfor %}
+        </select>
+    </label>
+
+    <label>District:
+        <input type="text" name="district" placeholder="e.g. District 1, Ward 2 (optional)">
+    </label>
+    {% endif %}
+
+    <label>Name:
+        <input type="text" name="name" value="{{ member.name if member else '' }}" required>
+    </label>
+
+    <label>Email:
+        <input type="email" name="email" value="{{ member.email if member and member.email else '' }}">
+    </label>
+
+    <label>Photo URL:
+        <input type="url" name="photo_url" value="{{ member.photo_url if member and member.photo_url else '' }}">
+    </label>
+
+    {% if member %}
+    <label>
+        <input type="checkbox" name="active" {% if member.active %}checked{% endif %}>
+        Active
+    </label>
+    {% endif %}
+
+    <button type="submit">{% if member %}Save{% else %}Add Member{% endif %}</button>
+    <a href="{{ url_for('admin.list_members') }}">Cancel</a>
+</form>
+{% endblock %}

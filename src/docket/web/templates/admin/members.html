@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Council Members — Admin — docket.pub{% endblock %}
+
+{% block content %}
+<h1>Council Member Management</h1>
+<p><a href="{{ url_for('admin.add_member') }}">+ Add Member</a></p>
+
+{% for slug, data in members_by_city.items() %}
+<section>
+    <h2>{{ data.municipality.name }}</h2>
+    {% if data.members %}
+    <table>
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>District</th>
+                <th>Email</th>
+                <th>Status</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for m in data.members %}
+            <tr{% if not m.active %} style="opacity: 0.5"{% endif %}>
+                <td>
+                    {{ m.name }}
+                    {% if m.photo_url %}📷{% endif %}
+                </td>
+                <td>{{ m.district_name or '—' }}</td>
+                <td>{{ m.email or '—' }}</td>
+                <td>{{ 'Active' if m.active else 'Inactive' }}</td>
+                <td>
+                    <a href="{{ url_for('admin.edit_member', member_id=m.id) }}">Edit</a>
+                    {% if m.active %}
+                    <form method="post" action="{{ url_for('admin.deactivate_member', member_id=m.id) }}" style="display:inline">
+                        <button type="submit">Deactivate</button>
+                    </form>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p>No members yet.</p>
+    {% endif %}
+</section>
+{% endfor %}
+{% endblock %}

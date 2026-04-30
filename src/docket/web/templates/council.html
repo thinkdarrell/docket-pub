@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Council — {{ municipality.name }} — docket.pub{% endblock %}
+
+{% block content %}
+<h1>{{ municipality.name }} Council</h1>
+
+<div class="council-grid">
+    {% for m in members %}
+    <div class="council-card">
+        {% if m.photo_url %}
+        <img src="{{ m.photo_url }}" alt="{{ m.name }}">
+        {% endif %}
+        <h3>{{ m.name }}</h3>
+        {% if m.district_name %}
+        <p>{{ m.district_name }}</p>
+        {% endif %}
+        {% if m.email %}
+        <p><a href="mailto:{{ m.email }}">{{ m.email }}</a></p>
+        {% endif %}
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}

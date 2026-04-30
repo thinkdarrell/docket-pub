@@ -158,6 +158,50 @@ def dashboard_stats() -> dict:
         }
 
 
+# --- Council members --------------------------------------------------------
+
+
+def list_council_members(municipality_slug: str, active_only: bool = True) -> list[dict]:
+    """Return council members for a municipality, with district info."""
+    with db_cursor() as cur:
+        where = "m.slug = %s"
+        params: list = [municipality_slug]
+        if active_only:
+            where += " AND cm.active = TRUE"
+
+        cur.execute(
+            f"""
+            SELECT cm.*, d.name AS district_name, d.number AS district_number,
+                   m.name AS municipality_name
+            FROM council_members cm
+            JOIN municipalities m ON cm.municipality_id = m.id
+            LEFT JOIN districts d ON cm.district_id = d.id
+            WHERE {where}
+            ORDER BY d.number NULLS FIRST, cm.name
+            """,
+            params,
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+
+def get_council_member(member_id: int) -> dict | None:
+    """Return a single council member by ID."""
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT cm.*, d.name AS district_name, d.number AS district_number,
+                   m.name AS municipality_name, m.slug AS municipality_slug
+            FROM council_members cm
+            JOIN municipalities m ON cm.municipality_id = m.id
+            LEFT JOIN districts d ON cm.district_id = d.id
+            WHERE cm.id = %s
+            """,
+            (member_id,),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
 # --- Cross-city queries ----------------------------------------------------
 
 

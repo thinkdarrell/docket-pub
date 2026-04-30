@@ -18,8 +18,10 @@ def create_app() -> Flask:
     app.config["SECRET_KEY"] = SECRET_KEY
 
     # Register blueprints
+    from docket.web.admin import bp as admin_bp
     from docket.web.public import bp as public_bp
 
     app.register_blueprint(public_bp)
+    app.register_blueprint(admin_bp)
 
     return app
