@@ -19,6 +19,7 @@ from datetime import date
 from docket.adapters import get_adapter
 from docket.db import db, db_cursor
 from docket.models.protocol import RawAgendaItem, RawMeeting
+from docket.services.enrichment import enrich_agenda_item
 
 logger = logging.getLogger(__name__)
 
@@ -183,22 +184,27 @@ def _ingest_agenda_items(
         _update_processing_status(meeting_id, agenda_items_scraped=True)
         return 0
 
-    # Insert agenda items
+    # Insert agenda items with enrichment
     with db() as conn:
         with conn.cursor() as cur:
             for item in raw_items:
+                enriched = enrich_agenda_item(item.title, item.description, item.is_consent)
                 cur.execute(
                     """
                     INSERT INTO agenda_items (
                         meeting_id, external_id, item_number, title,
-                        description, section, is_consent, sponsor
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                        description, section, is_consent, sponsor,
+                        dollars_amount, significance_score, consent_placement_score
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (meeting_id, external_id) DO NOTHING
                     """,
                     (
                         meeting_id, item.external_id, item.item_number,
                         item.title, item.description, item.section,
                         item.is_consent, item.sponsor,
+                        enriched["dollars_amount"],
+                        enriched["significance_score"],
+                        enriched["consent_placement_score"],
                     ),
                 )
 

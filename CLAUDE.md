@@ -32,10 +32,14 @@ docket-pub-dw-dev/
       civicplus.py         # Stub for CivicPlus AgendaCenter sites
       generic_cms.py       # Homewood (HTML archive page with PDF links)
     services/              # Business logic layer (ingest, query, search, etc.)
+      enrichment.py        # Enrichment service (inline + backfill)
     web/                   # Flask blueprints (public, admin, API)
     analysis/              # Vote OCR pipeline (ported from al-municipal-meetings)
     rosters/               # Council member rosters per city
     enrichment/            # Dollar extraction, scoring stubs
+      dollars.py           # Regex dollar extraction + tier classification
+      scoring.py           # Scoring stubs (AI deferred)
+      cli.py               # Backfill CLI: python -m docket.enrichment.cli
   tests/
     unit/
     integration/
@@ -153,12 +157,13 @@ This repo (`docket-pub-dw-dev`) is a **test/dev fork** of the main `docket-pub` 
 | GenericCMSAdapter | Done | Homewood: 248 meetings (2016-present), agenda + minutes PDFs |
 | Shared adapter helpers | Done | `_helpers.py` with `classify_meeting()`, `is_consent_item()` |
 | Migration 002 | Done | Seeds Vestavia Hills, Mobile, Homewood |
-| Ingest service | Done | Scrapes meetings + agenda items via adapters |
+| Ingest service | Done | Scrapes meetings + agenda items via adapters, enriches inline |
 | Query service | Done | Reads meetings, items, votes, dashboard stats |
+| Dollar extraction | Done | Regex pipeline in `enrichment/dollars.py`, tested against Mobile (24/69 items) |
+| Scoring stubs | Done | `enrichment/scoring.py` — returns None, ready for AI integration |
+| Enrichment service | Done | `services/enrichment.py` — inline + backfill, CLI at `enrichment/cli.py` |
 | Vote OCR pipeline | Not ported | Lives in `al-municipal-meetings/src/muni/analysis/` |
 | Council roster scrapers | Not built | Scrape city council pages for member data |
-| Dollar extraction | Not built | Regex pipeline for `enrichment/dollars.py` |
-| Scoring stubs | Not built | 0-10 significance + consent placement scores |
 | Source reconciliation | Not built | Compare video OCR vs official minutes |
 | Freshness checks | Not built | Nightly auto-check + manual trigger |
 | Search service | Not built | PostgreSQL FTS wrapper |
@@ -171,7 +176,7 @@ This repo (`docket-pub-dw-dev`) is a **test/dev fork** of the main `docket-pub` 
 1. ~~Foundation (schema, Docker, models)~~ — DONE
 2. ~~Granicus adapter + services~~ — DONE
 3. ~~Additional adapters (CivicClerk, GenericCMS)~~ — DONE (Hoover/Montgomery deferred — blocked)
-4. Data enrichment (dollars, scoring stubs, reconciliation)
+4. ~~Data enrichment (dollars, scoring stubs)~~ — DONE (vote OCR, reconciliation, freshness → Phase 4b)
 5. Search + public API
 6. Citizen frontend + admin monitoring
 
