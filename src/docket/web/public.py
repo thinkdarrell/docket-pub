@@ -56,13 +56,24 @@ def index():
 
 @bp.route("/al/<slug>/")
 def city_overview(slug):
-    """City landing page — recent meetings, stats."""
+    """City landing page — full overview with all sections."""
     municipality = query.get_municipality(slug)
     if not municipality:
         abort(404)
 
-    result = query.list_meetings(slug, limit=10)
+    from datetime import datetime
+
+    result = query.list_meetings(slug, limit=6)
     topics = query.topic_counts(municipality_slug=slug)
+    members = query.list_council_members(slug)
+    recent = query.list_recent_meetings(days=7, limit=4)
+    upcoming = query.list_upcoming_meetings(days=14, limit=4)
+    notable = query.list_high_dollar_items(municipality_slug=slug, limit=6)
+    stats = query.dashboard_stats()
+
+    # Filter timeline to this city
+    recent_city = [m for m in recent if m.get("municipality_slug") == slug]
+    upcoming_city = [m for m in upcoming if m.get("municipality_slug") == slug]
 
     return render_template(
         "city.html",
@@ -70,6 +81,12 @@ def city_overview(slug):
         meetings=result.meetings,
         meeting_count=result.total,
         topics=topics,
+        members=members,
+        recent_meetings=recent_city,
+        upcoming_meetings=upcoming_city,
+        notable_items=notable,
+        stats=stats,
+        now=datetime.now(),
     )
 
 
@@ -216,4 +233,49 @@ def topic_detail(topic):
         items=items,
         city=city,
         page=page,
+    )
+
+
+# --- HTMX rail partials (return HTML fragments, no base template) -----------
+
+
+@bp.route("/al/<slug>/_rail/default")
+def rail_default(slug):
+    """Source rail default state."""
+    municipality = query.get_municipality(slug)
+    if not municipality:
+        abort(404)
+    result = query.list_meetings(slug, limit=1)
+    return render_template(
+        "partials/rail_default.html",
+        municipality=municipality,
+        meeting_count=result.total,
+    )
+
+
+@bp.route("/al/<slug>/_rail/meeting/<int:meeting_id>")
+def rail_meeting(slug, meeting_id):
+    """Source rail for a selected meeting."""
+    municipality = query.get_municipality(slug)
+    meeting = query.get_meeting(meeting_id)
+    if not municipality or not meeting:
+        abort(404)
+    items = query.list_agenda_items(meeting_id)
+    return render_template(
+        "partials/rail_meeting.html",
+        municipality=municipality,
+        meeting=meeting,
+        item_count=len(items),
+    )
+
+
+@bp.route("/al/<slug>/_rail/member/<int:member_id>")
+def rail_member(slug, member_id):
+    """Source rail for a selected council member."""
+    member = query.get_council_member(member_id)
+    if not member:
+        abort(404)
+    return render_template(
+        "partials/rail_member.html",
+        member=member,
     )

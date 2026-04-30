@@ -4,25 +4,32 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}docket.pub{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='layout.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='councilmatic.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='tweaks.css') }}">
     <script src="https://unpkg.com/htmx.org@2.0.4"></script>
     {% block head %}{% endblock %}
 </head>
 <body>
-    <nav>
-        <a href="{{ url_for('public.index') }}">docket.pub</a>
-        <a href="{{ url_for('public.search') }}">Search</a>
-        <a href="{{ url_for('public.topics_index') }}">Topics</a>
-    </nav>
-
-    <main>
-        {% block content %}{% endblock %}
-    </main>
-
-    <footer>
-        <p>
-            <strong>Data Honesty:</strong> All data sourced directly from municipal websites.
-            <a href="https://docket.pub">docket.pub</a>
-        </p>
-    </footer>
+    {% block body %}
+    <div class="app">
+        <main class="app-main">
+            {% include "partials/masthead.html" %}
+            {% block content %}{% endblock %}
+            {% include "partials/footer.html" %}
+        </main>
+        <div class="app-rail">
+            <aside class="rail" aria-label="Source of truth" id="source-rail">
+                {% block rail %}
+                {% include "partials/rail_default.html" %}
+                {% endblock %}
+            </aside>
+        </div>
+    </div>
+    {% endblock %}
 </body>
 </html>

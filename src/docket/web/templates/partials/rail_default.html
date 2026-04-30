@@ -1,0 +1,41 @@
+<header class="rail-head">
+    <div class="rail-eyebrow t-mono">SOURCE OF TRUTH</div>
+    <div class="rail-pinned t-meta">Pinned · updates on click</div>
+</header>
+
+<div class="rail-body thin-scroll">
+    <div class="rail-section">
+        <div class="rail-kicker t-mono">[1] · CITY · {{ municipality.slug if municipality is defined else 'docket.pub' }}</div>
+        <h3 class="rail-title t-display">{{ municipality.name if municipality is defined else 'docket.pub' }}{% if municipality is defined %}, {{ municipality.state }}{% endif %}</h3>
+        <p class="rail-lede">
+            Provenance for everything you see on this page. Clicking any citation, dollar figure, or vote on the left
+            replaces this panel with the underlying source.
+        </p>
+
+        <div class="rail-empty-cta">
+            <div class="rail-empty-icon" aria-hidden="true">↰</div>
+            <div class="rail-empty-text">
+                <strong>Try it:</strong> click any number, name, or meeting on the left — this panel shows you the receipt.
+            </div>
+        </div>
+
+        {% if municipality is defined and municipality %}
+        <table class="rail-table">
+            <tbody>
+                <tr><td class="t-label">Platform</td><td class="rail-table-val">{{ municipality.adapter_class | replace('Adapter', '') }}</td><td class="t-meta">Public meeting publisher</td></tr>
+                <tr><td class="t-label">Adapter</td><td class="rail-table-val"><span class="t-mono">{{ municipality.adapter_class }}</span></td><td class="t-meta">src/docket/adapters/</td></tr>
+                <tr><td class="t-label">Records</td><td class="rail-table-val"><span class="t-tnum">{{ meeting_count | default(0) }} meetings</span></td><td class="t-meta">indexed</td></tr>
+            </tbody>
+        </table>
+        {% endif %}
+
+        <div class="rail-tip t-meta">
+            <span class="t-mono dim">tip</span> Click any meeting, agenda item, or council member to update this rail.
+        </div>
+    </div>
+</div>
+
+<footer class="rail-foot t-mono">
+    <span>docket.pub</span>
+    <span class="dim">v0.5 · pre-alpha</span>
+</footer>

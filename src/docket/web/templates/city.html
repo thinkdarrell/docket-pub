@@ -1,35 +1,276 @@
 {% extends "base.html" %}
-{% block title %}{{ municipality.name }} — docket.pub{% endblock %}
+{% block title %}{{ municipality.name }}, {{ municipality.state }} — docket.pub{% endblock %}
 
 {% block content %}
-<h1>{{ municipality.name }}, {{ municipality.state }}</h1>
-<p>{{ meeting_count }} meetings tracked</p>
+{# ── Hero ─────────────────────────────────────────── #}
+<section class="hero">
+    <div class="hero-top">
+        <div>
+            <div class="t-eyebrow">{{ municipality.council_type or 'City Council' }} · Pop. {{ municipality.county }} County</div>
+            <h1 class="hero-title t-display">{{ municipality.name }}, {{ municipality.state }}</h1>
+            <p class="hero-sub">
+                Tracking <strong>{{ meeting_count | default(0) }}</strong> meetings.
+                Source: <a class="link" href="#">City Council page</a>,
+                published via <span class="t-mono">{{ municipality.adapter_class | replace('Adapter', '') }}</span>.
+            </p>
+        </div>
+        <button class="freshness is-good">
+            <span class="dot"></span>
+            <div>
+                <div class="freshness-state t-mono">Live · feed active</div>
+                <div class="freshness-sub t-meta">{{ municipality.adapter_class }}</div>
+            </div>
+        </button>
+    </div>
 
-{% if topics %}
-<section>
-    <h2>Browse by Topic</h2>
-    {% for t in topics %}
-    <a href="{{ url_for('public.topic_detail', topic=t.topic, city=municipality.slug) }}">
-        {{ t.topic | topic_name }} ({{ t.count }})
-    </a>
-    {% endfor %}
+    <div class="kpi-grid">
+        <div class="kpi">
+            <div class="kpi-label t-label">Meetings</div>
+            <div class="kpi-value t-display t-tnum">{{ meeting_count | default(0) }}</div>
+            <div class="kpi-sub t-meta">total indexed</div>
+        </div>
+        <div class="kpi">
+            <div class="kpi-label t-label">Agenda items</div>
+            <div class="kpi-value t-display t-tnum">{{ stats.agenda_items | default(0) }}</div>
+            <div class="kpi-sub t-meta">across all meetings</div>
+        </div>
+        <div class="kpi">
+            <div class="kpi-label t-label">Council members</div>
+            <div class="kpi-value t-display t-tnum">{{ members | length }}</div>
+            <div class="kpi-sub t-meta">active</div>
+        </div>
+        <div class="kpi is-accent">
+            <div class="kpi-label t-label">Topics tracked</div>
+            <div class="kpi-value t-display t-tnum">{{ topics | length }}</div>
+            <div class="kpi-sub t-meta">keyword-classified</div>
+        </div>
+    </div>
+</section>
+
+{# ── This Week ────────────────────────────────────── #}
+{% if recent_meetings or upcoming_meetings %}
+<section class="tw">
+    <header class="tw-head">
+        <div>
+            <div class="t-eyebrow">This week</div>
+            <h2 class="feed-title t-display">On the agenda</h2>
+        </div>
+        <a href="{{ url_for('public.city_meetings', slug=municipality.slug) }}" class="t-mono tw-cal">All meetings →</a>
+    </header>
+    <div class="tw-strip">
+        {% for m in upcoming_meetings[:2] %}
+        <button class="tw-card tw-upcoming"
+                hx-get="{{ url_for('public.rail_meeting', slug=municipality.slug, meeting_id=m.id) }}"
+                hx-target="#source-rail"
+                hx-swap="innerHTML">
+            <div class="tw-when t-mono">
+                <span class="tw-dot tw-dot-upcoming"></span>
+                {{ m.meeting_date }}
+            </div>
+            <div class="tw-title">{{ m.title }}</div>
+            <div class="tw-venue t-meta">{{ m.municipality_name }}</div>
+        </button>
+        {% endfor %}
+        {% for m in recent_meetings[:2] %}
+        <button class="tw-card tw-past"
+                hx-get="{{ url_for('public.rail_meeting', slug=municipality.slug, meeting_id=m.id) }}"
+                hx-target="#source-rail"
+                hx-swap="innerHTML">
+            <div class="tw-when t-mono">
+                <span class="tw-dot tw-dot-past"></span>
+                {{ m.meeting_date }}
+            </div>
+            <div class="tw-title">{{ m.title }}</div>
+            <div class="tw-venue t-meta">{{ m.municipality_name }}</div>
+        </button>
+        {% endfor %}
+    </div>
 </section>
 {% endif %}
 
-<section>
-    <h2>Recent Meetings</h2>
-    <p><a href="{{ url_for('public.city_meetings', slug=municipality.slug) }}">View all →</a></p>
-    {% for m in meetings %}
-    <div>
-        <a href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=m.id) }}">
-            <span>{{ m.meeting_date }}</span>
-            <strong>{{ m.title }}</strong>
-        </a>
-        <span>{{ m.meeting_type }}</span>
-        {% if m.agenda_url %}<a href="{{ m.agenda_url }}">Agenda</a>{% endif %}
-        {% if m.minutes_url %}<a href="{{ m.minutes_url }}">Minutes</a>{% endif %}
-        {% if m.source_url %}<a href="{{ m.source_url }}">Source</a>{% endif %}
+{# ── Browse by Topic ──────────────────────────────── #}
+{% if topics %}
+<section class="topics">
+    <div class="topics-head">
+        <span class="t-eyebrow">Browse by topic</span>
+        <span class="t-meta dim t-mono">tags inferred from title + description</span>
     </div>
-    {% endfor %}
+    <div class="topic-row">
+        {% for t in topics %}
+        <a href="{{ url_for('public.topic_detail', topic=t.topic, city=municipality.slug) }}"
+           class="topic-chip">
+            <span class="topic-dot" style="background: var(--accent)"></span>
+            <span>{{ t.topic | topic_name }}</span>
+            <span class="t-mono topic-count">{{ t.count }}</span>
+        </a>
+        {% endfor %}
+    </div>
 </section>
+{% endif %}
+
+{# ── Notable / High-Dollar Items ─────────────────── #}
+{% if notable_items %}
+<section class="leg">
+    <header class="feed-head">
+        <div>
+            <div class="t-eyebrow">Legislation</div>
+            <h2 class="feed-title t-display">Notable items</h2>
+            <p class="t-meta" style="max-width:560px;margin-top:8px">
+                {{ notable_items | length }} items with extracted dollar amounts.
+            </p>
+        </div>
+        <div class="tier-key t-mono">
+            <span class="tier tier-green">&lt;$50K</span>
+            <span class="tier tier-yellow">$50K–$250K</span>
+            <span class="tier tier-orange">$250K–$1M</span>
+            <span class="tier tier-red">&gt;$1M</span>
+        </div>
+    </header>
+
+    <div class="leg-grid">
+        {% for it in notable_items %}
+        <button class="legc"
+                hx-get="{{ url_for('public.rail_meeting', slug=municipality.slug, meeting_id=it.meeting_id if it.meeting_id is defined else 0) }}"
+                hx-target="#source-rail"
+                hx-swap="innerHTML">
+            <div class="legc-top">
+                <div class="legc-status-row">
+                    {% if it.is_consent is defined and it.is_consent %}
+                    <span class="badge-consent">consent</span>
+                    {% endif %}
+                </div>
+                {% if it.item_number is defined and it.item_number %}
+                <div class="legc-num t-mono">#{{ it.item_number }}</div>
+                {% endif %}
+            </div>
+
+            {% if it.sponsor is defined and it.sponsor %}
+            <div class="legc-byline t-mono">
+                <span class="legc-byline-by">By</span>
+                <span class="legc-byline-who">{{ it.sponsor | upper }}</span>
+                {% if it.meeting_date is defined %}
+                <span class="legc-byline-sep"> — </span>
+                <span class="legc-byline-where">{{ it.meeting_date }}</span>
+                {% endif %}
+            </div>
+            {% endif %}
+
+            <div class="legc-title">{{ it.title }}</div>
+
+            <div class="legc-bottom">
+                {% if it.topic is defined and it.topic %}
+                <div class="legc-topic">
+                    <span class="topic-dot" style="background: var(--accent)"></span>
+                    <span class="t-mono">{{ it.topic | topic_name }}</span>
+                </div>
+                {% else %}
+                <div></div>
+                {% endif %}
+                <div class="legc-meta">
+                    {% if it.dollars_amount is defined and it.dollars_amount %}
+                    <div class="tier tier-{{ it.dollars_amount | dollar_tier }}">
+                        ${{ "{:,.0f}".format(it.dollars_amount) }}
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </button>
+        {% endfor %}
+    </div>
+
+    <div class="leg-foot">
+        <a href="{{ url_for('public.city_meetings', slug=municipality.slug) }}" class="leg-viewall t-mono">
+            View all meetings <span>→</span>
+        </a>
+    </div>
+</section>
+{% endif %}
+
+{# ── Council Members ─────────────────────────────── #}
+{% if members %}
+<section class="council">
+    <header class="feed-head">
+        <div>
+            <div class="t-eyebrow">Council members</div>
+            <h2 class="feed-title t-display">{{ municipality.name }} Council</h2>
+        </div>
+        <div class="t-mono t-meta">{{ members | length }} members</div>
+    </header>
+
+    <div class="council-grid">
+        {% for m in members %}
+        {% set hue = (m.id * 137) % 360 %}
+        <button class="cc"
+                hx-get="{{ url_for('public.rail_member', slug=municipality.slug, member_id=m.id) }}"
+                hx-target="#source-rail"
+                hx-swap="innerHTML">
+            <div class="cc-portrait" style="background: oklch(0.45 0.12 {{ hue }})">
+                <svg viewBox="0 0 100 100" class="cc-portrait-bg" aria-hidden="true">
+                    <defs>
+                        <pattern id="p{{ m.id }}" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(-30)">
+                            <line x1="0" y1="0" x2="0" y2="6" stroke="rgba(255,255,255,0.18)" stroke-width="2"/>
+                        </pattern>
+                    </defs>
+                    <rect width="100" height="100" fill="url(#p{{ m.id }})" />
+                </svg>
+                <div class="cc-initials t-display">{{ m.name.split()[0][0] }}{{ m.name.split()[-1][0] }}</div>
+                {% if not m.photo_url %}
+                <div class="cc-portrait-tag t-mono">photo · placeholder</div>
+                {% endif %}
+            </div>
+            <div class="cc-body">
+                <div class="cc-row1">
+                    <div class="cc-name">{{ m.name }}</div>
+                    <div class="cc-district t-mono">{{ m.district_name or 'At-Large' }}</div>
+                </div>
+
+                <div class="cc-foot t-mono">
+                    <span>View record →</span>
+                    <span class="cc-arrow">→</span>
+                </div>
+            </div>
+        </button>
+        {% endfor %}
+    </div>
+</section>
+{% endif %}
+
+{# ── Recent Meetings Table ────────────────────────── #}
+{% if meetings %}
+<section class="feed">
+    <header class="feed-head">
+        <div>
+            <div class="t-eyebrow">Meetings</div>
+            <h2 class="feed-title t-display">Recent meetings</h2>
+        </div>
+    </header>
+
+    <div class="feed-table">
+        <div class="feed-th t-label">
+            <span>Date</span><span>Meeting</span><span>Items</span><span>Type</span><span></span><span></span>
+        </div>
+        {% for m in meetings %}
+        <a href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=m.id) }}"
+           class="feed-row"
+           hx-get="{{ url_for('public.rail_meeting', slug=municipality.slug, meeting_id=m.id) }}"
+           hx-target="#source-rail"
+           hx-swap="innerHTML">
+            <div class="feed-date">
+                <div class="feed-date-d t-display t-tnum">{{ m.meeting_date.day if m.meeting_date.day is defined else m.meeting_date[-2:] }}</div>
+                <div class="feed-date-m t-mono">{{ m.meeting_date }}</div>
+            </div>
+            <div class="feed-meta">
+                <div class="feed-meeting-title">{{ m.title }}</div>
+            </div>
+            <div class="feed-num t-mono t-tnum">—</div>
+            <div class="feed-num t-mono t-tnum">{{ m.meeting_type }}</div>
+            <div class="feed-num t-mono t-tnum">
+                {% if m.source_url %}<span class="t-meta">source</span>{% endif %}
+            </div>
+            <div class="feed-arrow t-mono">→</div>
+        </a>
+        {% endfor %}
+    </div>
+</section>
+{% endif %}
 {% endblock %}

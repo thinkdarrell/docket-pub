@@ -1,0 +1,54 @@
+<header class="masthead">
+    <div class="masthead-row">
+        <div class="brand">
+            <div class="brand-mark" aria-hidden="true">
+                <svg viewBox="0 0 28 28" width="22" height="22"><rect x="2" y="6" width="24" height="18" fill="none" stroke="currentColor" stroke-width="1.6"/><line x1="2" y1="11" x2="26" y2="11" stroke="currentColor" stroke-width="1.6"/><line x1="9" y1="2" x2="9" y2="9" stroke="currentColor" stroke-width="1.6"/><line x1="19" y1="2" x2="19" y2="9" stroke="currentColor" stroke-width="1.6"/></svg>
+            </div>
+            <div>
+                <a href="{{ url_for('public.index') }}" class="brand-name t-display">docket<span class="dot">.</span>pub</a>
+                <div class="brand-tag t-mono">Public meeting intelligence</div>
+            </div>
+        </div>
+
+        {% if municipality is defined and municipality %}
+        <span class="brand-sep" aria-hidden="true">▸</span>
+        <div class="city-switcher">
+            <a href="{{ url_for('public.city_overview', slug=municipality.slug) }}" class="city-switcher-btn">
+                <span class="city-switcher-state t-mono">{{ municipality.state }}</span>
+                <span class="city-switcher-name t-display">{{ municipality.name }}</span>
+            </a>
+        </div>
+        {% endif %}
+
+        <nav class="topnav">
+            {% if municipality is defined and municipality %}
+            <a class="topnav-link{% if request.endpoint == 'public.city_overview' %} is-active{% endif %}" href="{{ url_for('public.city_overview', slug=municipality.slug) }}">Overview</a>
+            <a class="topnav-link{% if request.endpoint == 'public.city_meetings' %} is-active{% endif %}" href="{{ url_for('public.city_meetings', slug=municipality.slug) }}">Meetings</a>
+            <a class="topnav-link{% if request.endpoint == 'public.city_council' %} is-active{% endif %}" href="{{ url_for('public.city_council', slug=municipality.slug) }}">Members</a>
+            {% else %}
+            <a class="topnav-link{% if request.endpoint == 'public.index' %} is-active{% endif %}" href="{{ url_for('public.index') }}">Cities</a>
+            <a class="topnav-link{% if request.endpoint == 'public.topics_index' %} is-active{% endif %}" href="{{ url_for('public.topics_index') }}">Topics</a>
+            {% endif %}
+            <a class="topnav-link{% if request.endpoint == 'public.search' %} is-active{% endif %}" href="{{ url_for('public.search') }}">Search</a>
+        </nav>
+
+        <div class="topsearch">
+            <span class="topsearch-icon t-mono">⌕</span>
+            <form action="{{ url_for('public.search') }}" method="get" style="display:contents">
+                {% if municipality is defined and municipality %}
+                <input type="hidden" name="city" value="{{ municipality.slug }}">
+                {% endif %}
+                <input name="q" placeholder="Search agendas, votes, dollars…" value="{{ request.args.get('q', '') }}">
+            </form>
+            <kbd>/</kbd>
+        </div>
+    </div>
+
+    {% if municipality is defined and municipality %}
+    <div class="crumbs t-mono">
+        <a href="{{ url_for('public.index') }}">/al</a><span>/</span>
+        <a href="{{ url_for('public.city_overview', slug=municipality.slug) }}" class="is-current">{{ municipality.slug }}</a><span>/</span>
+        <span class="dim">{% block crumb %}overview{% endblock %}</span>
+    </div>
+    {% endif %}
+</header>

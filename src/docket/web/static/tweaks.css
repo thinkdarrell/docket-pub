@@ -1,0 +1,69 @@
+/* Production overrides — footnote, density, leg-foot, rail empty CTA */
+
+/* footnote */
+.footnote { padding: 64px 0 32px; }
+.footnote-cols {
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  gap: 32px;
+  padding-bottom: 32px;
+  border-bottom: 1px solid var(--rule);
+}
+.footnote-col .t-eyebrow { margin-bottom: 12px; }
+.footnote-links { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.footnote-links a { font-size: 13px; color: var(--ink-2); text-decoration: none; }
+.footnote-links a:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
+
+.footnote-rule { display: none; }
+
+.footnote-colophon { padding: 32px 0 24px; }
+.footnote-colophon .t-eyebrow { margin-bottom: 8px; }
+.footnote-body { max-width: 720px; font-size: 14px; color: var(--ink-2); margin: 8px 0 24px; line-height: 1.6; }
+.footnote-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  gap: 24px; padding: 16px 0; border-top: 1px solid var(--rule);
+  font-size: 11px;
+}
+.footnote-grid .t-label { display: block; margin-bottom: 6px; }
+
+.footnote-bottom {
+  display: flex; justify-content: space-between; align-items: center;
+  padding-top: 24px; border-top: 1px solid var(--rule);
+  font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase;
+}
+.footnote-bottom .dim { color: var(--ink-3); }
+
+/* leg-foot — "view all" CTA below legislation grid */
+.leg-foot {
+  display: flex; justify-content: space-between; align-items: baseline;
+  margin-top: 24px;
+  padding: 16px 0 8px;
+  border-top: 1px solid var(--rule);
+  gap: 24px;
+  flex-wrap: wrap;
+}
+.leg-viewall {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--ink); text-decoration: none;
+  padding: 8px 14px;
+  border: 1px solid var(--ink);
+  background: var(--paper);
+  transition: background .12s, color .12s;
+}
+.leg-viewall:hover { background: var(--ink); color: var(--paper); }
+
+/* rail empty-state CTA */
+.rail-empty-cta {
+  display: flex; gap: 10px; align-items: flex-start;
+  margin: 14px 0 18px;
+  padding: 12px 14px;
+  background: var(--paper-3);
+  border-left: 2px solid var(--accent, var(--ink));
+  font-size: 12px; line-height: 1.5; color: var(--ink-2);
+}
+.rail-empty-icon {
+  font-size: 20px; line-height: 1; color: var(--accent, var(--ink-2));
+  flex-shrink: 0;
+  transform: translateY(-1px);
+}
+.rail-empty-text strong { color: var(--ink); font-weight: 600; }

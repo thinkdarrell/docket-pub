@@ -1,0 +1,44 @@
+<header class="rail-head">
+    <div class="rail-eyebrow t-mono">SOURCE OF TRUTH</div>
+    <div class="rail-pinned t-meta">Council member · updates on click</div>
+</header>
+
+<div class="rail-body thin-scroll">
+    <div class="rail-section">
+        <div class="rail-kicker t-mono">[5] · COUNCIL_MEMBER · #{{ member.id }}</div>
+        <h3 class="rail-title t-display">{{ member.name }}</h3>
+        <div class="rail-subtitle t-mono">{{ member.district_name or 'At-Large' }}</div>
+
+        <table class="rail-table">
+            <tbody>
+                <tr><td class="t-label">Municipality</td><td class="rail-table-val">{{ member.municipality_name }}</td><td class="t-meta"></td></tr>
+                <tr><td class="t-label">District</td><td class="rail-table-val">{{ member.district_name or 'At-Large' }}</td><td class="t-meta"></td></tr>
+                <tr><td class="t-label">Status</td><td class="rail-table-val">{{ 'Active' if member.active else 'Inactive' }}</td><td class="t-meta"></td></tr>
+                {% if member.email %}
+                <tr><td class="t-label">Email</td><td class="rail-table-val">{{ member.email }}</td><td class="t-meta"></td></tr>
+                {% endif %}
+            </tbody>
+        </table>
+
+        <div class="callout callout-warn is-tight">
+            <div class="callout-title t-mono">Data note</div>
+            <div class="callout-body">Voting records and attendance require the vote OCR pipeline (not yet ported). Council member data is manually seeded.</div>
+        </div>
+
+        <div class="rail-links">
+            <a class="rail-link" href="#" rel="noreferrer">
+                <div><div class="rail-link-label">Voting history</div><div class="t-meta">coming soon</div></div>
+                <span class="t-mono">↗</span>
+            </a>
+            <a class="rail-link" href="#" rel="noreferrer">
+                <div><div class="rail-link-label">Sponsored agenda items</div><div class="t-meta">coming soon</div></div>
+                <span class="t-mono">↗</span>
+            </a>
+        </div>
+    </div>
+</div>
+
+<footer class="rail-foot t-mono">
+    <span>docket.pub</span>
+    <span class="dim">v0.5 · pre-alpha</span>
+</footer>

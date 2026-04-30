@@ -1,0 +1,62 @@
+<footer class="footnote">
+    <div class="footnote-cols">
+        <div class="footnote-col">
+            <div class="t-eyebrow">About</div>
+            <ul class="footnote-links">
+                <li><a href="#" class="link">About docket.pub</a></li>
+                <li><a href="#" class="link">How we read minutes</a></li>
+                <li><a href="#" class="link">Source &amp; methodology</a></li>
+                <li><a href="#" class="link">Corrections policy</a></li>
+            </ul>
+        </div>
+        <div class="footnote-col">
+            <div class="t-eyebrow">For citizens</div>
+            <ul class="footnote-links">
+                <li><a href="#" class="link">Find my councilor</a></li>
+                <li><a href="#" class="link">Subscribe by email</a></li>
+                <li><a href="#" class="link">Public records guide</a></li>
+                <li><a href="#" class="link">Speak at a meeting</a></li>
+            </ul>
+        </div>
+        <div class="footnote-col">
+            <div class="t-eyebrow">For developers</div>
+            <ul class="footnote-links">
+                <li><a href="#" class="link">API documentation</a></li>
+                <li><a href="#" class="link">Data dictionary</a></li>
+                <li><a href="#" class="link">Bulk downloads</a></li>
+                <li><a href="https://github.com/thinkdarrell/docket-pub" class="link">GitHub repository ↗</a></li>
+            </ul>
+        </div>
+        <div class="footnote-col">
+            <div class="t-eyebrow">Legal</div>
+            <ul class="footnote-links">
+                <li><a href="#" class="link">Privacy policy</a></li>
+                <li><a href="#" class="link">Terms of use</a></li>
+                <li><a href="#" class="link">Source data licenses</a></li>
+                <li><a href="#" class="link">Contact</a></li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="footnote-colophon">
+        <div class="t-eyebrow">Colophon</div>
+        <p class="footnote-body">
+            Docket.pub indexes public meeting records from Alabama municipalities. Every figure on this page is hyperlinked
+            back to its original document. Where automated extraction disagrees with official minutes, both readings are
+            preserved — never silently reconciled.
+        </p>
+        {% if municipality is defined and municipality %}
+        <div class="footnote-grid t-mono">
+            <div><span class="t-label">Adapter</span><div>{{ municipality.adapter_class }} · {{ municipality.adapter_class | replace('Adapter', '') }}</div></div>
+            <div><span class="t-label">Schema</span><div>10 tables · PostgreSQL 16 · FTS via tsvector</div></div>
+            <div><span class="t-label">Source</span><div>{{ municipality.name | lower }}al.gov · public domain</div></div>
+            <div><span class="t-label">Updated</span><div>{{ now.strftime('%b %d, %Y') if now is defined else 'N/A' }}</div></div>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="footnote-bottom">
+        <span class="t-mono">© 2026 docket.pub · An open-source civic transparency project</span>
+        <span class="t-mono dim">Built with public data · Made in Alabama</span>
+    </div>
+</footer>

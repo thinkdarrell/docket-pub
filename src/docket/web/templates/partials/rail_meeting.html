@@ -1,0 +1,46 @@
+<header class="rail-head">
+    <div class="rail-eyebrow t-mono">SOURCE OF TRUTH</div>
+    <div class="rail-pinned t-meta">Meeting · updates on click</div>
+</header>
+
+<div class="rail-body thin-scroll">
+    <div class="rail-section">
+        <div class="rail-kicker t-mono">[3] · MEETING · #{{ meeting.id }}</div>
+        <h3 class="rail-title t-display">{{ meeting.title }}</h3>
+        <div class="rail-subtitle t-mono">{{ meeting.meeting_date }}</div>
+
+        <table class="rail-table">
+            <tbody>
+                <tr><td class="t-label">external_id</td><td class="rail-table-val"><span class="t-mono">{{ meeting.external_id }}</span></td><td class="t-meta">platform event id</td></tr>
+                <tr><td class="t-label">meeting_type</td><td class="rail-table-val"><span class="t-mono">{{ meeting.meeting_type }}</span></td><td class="t-meta">classified by helpers</td></tr>
+                <tr><td class="t-label">agenda_items</td><td class="rail-table-val">{{ item_count | default('—') }}</td><td class="t-meta">scraped</td></tr>
+            </tbody>
+        </table>
+
+        <div class="rail-links">
+            {% if meeting.agenda_url %}
+            <a class="rail-link" href="{{ meeting.agenda_url }}" target="_blank" rel="noreferrer">
+                <div><div class="rail-link-label">Agenda</div><div class="t-meta">primary source</div></div>
+                <span class="t-mono">↗</span>
+            </a>
+            {% endif %}
+            {% if meeting.minutes_url %}
+            <a class="rail-link" href="{{ meeting.minutes_url }}" target="_blank" rel="noreferrer">
+                <div><div class="rail-link-label">Official minutes</div><div class="t-meta">if published</div></div>
+                <span class="t-mono">↗</span>
+            </a>
+            {% endif %}
+            {% if meeting.source_url %}
+            <a class="rail-link" href="{{ meeting.source_url }}" target="_blank" rel="noreferrer">
+                <div><div class="rail-link-label">View on city website</div><div class="t-meta">original source</div></div>
+                <span class="t-mono">↗</span>
+            </a>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<footer class="rail-foot t-mono">
+    <span>docket.pub</span>
+    <span class="dim">v0.5 · pre-alpha</span>
+</footer>
