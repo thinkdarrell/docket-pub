@@ -1,14 +1,26 @@
-"""Query service — read APIs for meetings, agenda items, votes.
+"""Query service — read APIs for meetings, agenda items, votes, search.
 
 Every read operation goes through this module. Returns dataclasses or dicts.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from docket.db import db_cursor
 from docket.models.agenda import AgendaItem
 from docket.models.meeting import Meeting
 from docket.models.vote import MemberVote, Vote
+
+
+@dataclass(frozen=True)
+class PaginatedMeetings:
+    """Meetings with pagination metadata."""
+
+    meetings: list[Meeting]
+    total: int
+    limit: int
+    offset: int
 
 
 def list_municipalities() -> list[dict]:
@@ -44,28 +56,37 @@ def list_meetings(
     since: str | None = None,
     limit: int = 20,
     offset: int = 0,
-) -> list[Meeting]:
-    """Return meetings for a municipality, newest first."""
+) -> PaginatedMeetings:
+    """Return meetings for a municipality, newest first, with total count."""
     with db_cursor() as cur:
-        query = """
-            SELECT mt.* FROM meetings mt
-            JOIN municipalities m ON mt.municipality_id = m.id
-            WHERE m.slug = %s
-        """
+        where = "m.slug = %s"
         params: list = [municipality_slug]
 
         if meeting_type:
-            query += " AND mt.meeting_type = %s"
+            where += " AND mt.meeting_type = %s"
             params.append(meeting_type)
         if since:
-            query += " AND mt.meeting_date >= %s"
+            where += " AND mt.meeting_date >= %s"
             params.append(since)
 
-        query += " ORDER BY mt.meeting_date DESC LIMIT %s OFFSET %s"
-        params.extend([limit, offset])
+        # Total count
+        cur.execute(
+            f"SELECT COUNT(*) AS count FROM meetings mt "
+            f"JOIN municipalities m ON mt.municipality_id = m.id WHERE {where}",
+            params,
+        )
+        total = cur.fetchone()["count"]
 
-        cur.execute(query, params)
-        return [Meeting.from_row(dict(row)) for row in cur.fetchall()]
+        # Paginated results
+        cur.execute(
+            f"SELECT mt.* FROM meetings mt "
+            f"JOIN municipalities m ON mt.municipality_id = m.id "
+            f"WHERE {where} ORDER BY mt.meeting_date DESC LIMIT %s OFFSET %s",
+            [*params, limit, offset],
+        )
+        meetings = [Meeting.from_row(dict(row)) for row in cur.fetchall()]
+
+        return PaginatedMeetings(meetings=meetings, total=total, limit=limit, offset=offset)
 
 
 def get_meeting(meeting_id: int) -> Meeting | None:
@@ -135,3 +156,182 @@ def dashboard_stats() -> dict:
             "agenda_items": item_count,
             "votes": vote_count,
         }
+
+
+# --- Cross-city queries ----------------------------------------------------
+
+
+def list_recent_meetings(days: int = 7, limit: int = 20) -> list[dict]:
+    """Return recent meetings across all cities, newest first.
+
+    Includes municipality name for display context.
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT mt.*, m.name AS municipality_name, m.slug AS municipality_slug
+            FROM meetings mt
+            JOIN municipalities m ON mt.municipality_id = m.id
+            WHERE m.active = TRUE
+              AND mt.meeting_date >= CURRENT_DATE - %s
+              AND mt.meeting_date <= CURRENT_DATE
+            ORDER BY mt.meeting_date DESC
+            LIMIT %s
+            """,
+            (days, limit),
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+
+def list_upcoming_meetings(days: int = 14, limit: int = 20) -> list[dict]:
+    """Return upcoming meetings across all cities, soonest first."""
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT mt.*, m.name AS municipality_name, m.slug AS municipality_slug
+            FROM meetings mt
+            JOIN municipalities m ON mt.municipality_id = m.id
+            WHERE m.active = TRUE
+              AND mt.meeting_date > CURRENT_DATE
+              AND mt.meeting_date <= CURRENT_DATE + %s
+            ORDER BY mt.meeting_date ASC
+            LIMIT %s
+            """,
+            (days, limit),
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+
+# --- Search -----------------------------------------------------------------
+
+
+def search_meetings(query: str, limit: int = 20, offset: int = 0) -> list[dict]:
+    """Full-text search across meeting titles, all cities."""
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT mt.*, m.name AS municipality_name, m.slug AS municipality_slug,
+                   ts_rank(mt.search_vector, websearch_to_tsquery('english', %s)) AS rank
+            FROM meetings mt
+            JOIN municipalities m ON mt.municipality_id = m.id
+            WHERE m.active = TRUE
+              AND mt.search_vector @@ websearch_to_tsquery('english', %s)
+            ORDER BY rank DESC, mt.meeting_date DESC
+            LIMIT %s OFFSET %s
+            """,
+            (query, query, limit, offset),
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+
+def search_agenda_items(query: str, limit: int = 20, offset: int = 0) -> list[dict]:
+    """Full-text search across agenda item titles and descriptions, all cities."""
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT ai.*, mt.title AS meeting_title, mt.meeting_date,
+                   m.name AS municipality_name, m.slug AS municipality_slug,
+                   ts_rank(ai.search_vector, websearch_to_tsquery('english', %s)) AS rank
+            FROM agenda_items ai
+            JOIN meetings mt ON ai.meeting_id = mt.id
+            JOIN municipalities m ON mt.municipality_id = m.id
+            WHERE m.active = TRUE
+              AND ai.search_vector @@ websearch_to_tsquery('english', %s)
+            ORDER BY rank DESC, mt.meeting_date DESC
+            LIMIT %s OFFSET %s
+            """,
+            (query, query, limit, offset),
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+
+# --- Topic browsing ---------------------------------------------------------
+
+
+def list_agenda_items_by_topic(
+    topic: str,
+    municipality_slug: str | None = None,
+    limit: int = 20,
+    offset: int = 0,
+) -> list[dict]:
+    """Return agenda items filtered by topic, optionally scoped to a city."""
+    with db_cursor() as cur:
+        where = "ai.topic = %s"
+        params: list = [topic]
+
+        if municipality_slug:
+            where += " AND m.slug = %s"
+            params.append(municipality_slug)
+
+        cur.execute(
+            f"""
+            SELECT ai.*, mt.title AS meeting_title, mt.meeting_date,
+                   m.name AS municipality_name, m.slug AS municipality_slug
+            FROM agenda_items ai
+            JOIN meetings mt ON ai.meeting_id = mt.id
+            JOIN municipalities m ON mt.municipality_id = m.id
+            WHERE m.active = TRUE AND {where}
+            ORDER BY mt.meeting_date DESC
+            LIMIT %s OFFSET %s
+            """,
+            [*params, limit, offset],
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+
+def topic_counts(municipality_slug: str | None = None) -> list[dict]:
+    """Return count of agenda items per topic, for browse-by-topic UI."""
+    with db_cursor() as cur:
+        where = "ai.topic IS NOT NULL"
+        params: list = []
+
+        if municipality_slug:
+            where += " AND m.slug = %s"
+            params.append(municipality_slug)
+
+        cur.execute(
+            f"""
+            SELECT ai.topic, COUNT(*) AS count
+            FROM agenda_items ai
+            JOIN meetings mt ON ai.meeting_id = mt.id
+            JOIN municipalities m ON mt.municipality_id = m.id
+            WHERE m.active = TRUE AND {where}
+            GROUP BY ai.topic
+            ORDER BY count DESC
+            """,
+            params,
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+
+# --- High-value item queries ------------------------------------------------
+
+
+def list_high_dollar_items(
+    min_dollars: float = 50000,
+    municipality_slug: str | None = None,
+    limit: int = 20,
+) -> list[dict]:
+    """Return agenda items with dollar amounts above a threshold."""
+    with db_cursor() as cur:
+        where = "ai.dollars_amount >= %s"
+        params: list = [min_dollars]
+
+        if municipality_slug:
+            where += " AND m.slug = %s"
+            params.append(municipality_slug)
+
+        cur.execute(
+            f"""
+            SELECT ai.*, mt.title AS meeting_title, mt.meeting_date,
+                   m.name AS municipality_name, m.slug AS municipality_slug
+            FROM agenda_items ai
+            JOIN meetings mt ON ai.meeting_id = mt.id
+            JOIN municipalities m ON mt.municipality_id = m.id
+            WHERE m.active = TRUE AND {where}
+            ORDER BY ai.dollars_amount DESC
+            LIMIT %s
+            """,
+            [*params, limit],
+        )
+        return [dict(row) for row in cur.fetchall()]
