@@ -1,0 +1,137 @@
+"""Query service — read APIs for meetings, agenda items, votes.
+
+Every read operation goes through this module. Returns dataclasses or dicts.
+"""
+
+from __future__ import annotations
+
+from docket.db import db_cursor
+from docket.models.agenda import AgendaItem
+from docket.models.meeting import Meeting
+from docket.models.vote import MemberVote, Vote
+
+
+def list_municipalities() -> list[dict]:
+    """Return all active municipalities with meeting counts."""
+    with db_cursor() as cur:
+        cur.execute("""
+            SELECT m.id, m.slug, m.name, m.state, m.county, m.council_type,
+                   COUNT(mt.id) AS meeting_count,
+                   MAX(mt.meeting_date) AS last_meeting_date
+            FROM municipalities m
+            LEFT JOIN meetings mt ON m.id = mt.municipality_id
+            WHERE m.active = TRUE
+            GROUP BY m.id
+            ORDER BY m.name
+        """)
+        return [dict(row) for row in cur.fetchall()]
+
+
+def get_municipality(slug: str) -> dict | None:
+    """Return a single municipality by slug."""
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT * FROM municipalities WHERE slug = %s AND active = TRUE",
+            (slug,),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def list_meetings(
+    municipality_slug: str,
+    meeting_type: str | None = None,
+    since: str | None = None,
+    limit: int = 20,
+    offset: int = 0,
+) -> list[Meeting]:
+    """Return meetings for a municipality, newest first."""
+    with db_cursor() as cur:
+        query = """
+            SELECT mt.* FROM meetings mt
+            JOIN municipalities m ON mt.municipality_id = m.id
+            WHERE m.slug = %s
+        """
+        params: list = [municipality_slug]
+
+        if meeting_type:
+            query += " AND mt.meeting_type = %s"
+            params.append(meeting_type)
+        if since:
+            query += " AND mt.meeting_date >= %s"
+            params.append(since)
+
+        query += " ORDER BY mt.meeting_date DESC LIMIT %s OFFSET %s"
+        params.extend([limit, offset])
+
+        cur.execute(query, params)
+        return [Meeting.from_row(dict(row)) for row in cur.fetchall()]
+
+
+def get_meeting(meeting_id: int) -> Meeting | None:
+    """Return a single meeting by ID."""
+    with db_cursor() as cur:
+        cur.execute("SELECT * FROM meetings WHERE id = %s", (meeting_id,))
+        row = cur.fetchone()
+        return Meeting.from_row(dict(row)) if row else None
+
+
+def list_agenda_items(meeting_id: int) -> list[AgendaItem]:
+    """Return agenda items for a meeting."""
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT * FROM agenda_items WHERE meeting_id = %s ORDER BY item_number",
+            (meeting_id,),
+        )
+        return [AgendaItem.from_row(dict(row)) for row in cur.fetchall()]
+
+
+def list_votes(meeting_id: int) -> list[Vote]:
+    """Return votes for a meeting, with member votes attached."""
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT * FROM votes WHERE meeting_id = %s ORDER BY id",
+            (meeting_id,),
+        )
+        votes = [Vote.from_row(dict(row)) for row in cur.fetchall()]
+
+        for vote in votes:
+            cur.execute(
+                "SELECT * FROM member_votes WHERE vote_id = %s ORDER BY id",
+                (vote.id,),
+            )
+            member_votes = [
+                MemberVote(
+                    member_name=row["member_name"],
+                    position=row["position"],
+                    council_member_id=row.get("council_member_id"),
+                )
+                for row in cur.fetchall()
+            ]
+            # Replace the empty list with loaded member votes
+            object.__setattr__(vote, "member_votes", member_votes)
+
+        return votes
+
+
+def dashboard_stats() -> dict:
+    """Return summary stats for the admin dashboard."""
+    with db_cursor() as cur:
+        cur.execute("SELECT COUNT(*) AS count FROM municipalities WHERE active = TRUE")
+        muni_count = cur.fetchone()["count"]
+
+        cur.execute("SELECT COUNT(*) AS count FROM meetings")
+        meeting_count = cur.fetchone()["count"]
+
+        cur.execute("SELECT COUNT(*) AS count FROM agenda_items")
+        item_count = cur.fetchone()["count"]
+
+        cur.execute("SELECT COUNT(*) AS count FROM votes")
+        vote_count = cur.fetchone()["count"]
+
+        return {
+            "municipalities": muni_count,
+            "meetings": meeting_count,
+            "agenda_items": item_count,
+            "votes": vote_count,
+        }
