@@ -189,20 +189,26 @@ def _ingest_agenda_items(
         with conn.cursor() as cur:
             for item in raw_items:
                 enriched = enrich_agenda_item(item.title, item.description, item.is_consent)
+                # Use enriched sponsor if found, fall back to adapter-provided sponsor
+                sponsor = enriched["sponsor"] or item.sponsor
+                # Use cleaned title (attribution parentheticals removed)
+                title = enriched["clean_title"] or item.title
                 cur.execute(
                     """
                     INSERT INTO agenda_items (
                         meeting_id, external_id, item_number, title,
                         description, section, is_consent, sponsor,
-                        dollars_amount, significance_score, consent_placement_score
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        dollars_amount, topic,
+                        significance_score, consent_placement_score
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (meeting_id, external_id) DO NOTHING
                     """,
                     (
                         meeting_id, item.external_id, item.item_number,
-                        item.title, item.description, item.section,
-                        item.is_consent, item.sponsor,
+                        title, item.description, item.section,
+                        item.is_consent, sponsor,
                         enriched["dollars_amount"],
+                        enriched["topic"],
                         enriched["significance_score"],
                         enriched["consent_placement_score"],
                     ),

@@ -34,7 +34,7 @@ class CivicClerkAdapter:
     def __init__(self, municipality_slug: str, config: dict):
         self.municipality_slug = municipality_slug
         self.tenant = config["tenant"]
-        self.category_id = config["category_id"]
+        self.category_id = config.get("category_id")  # None = all categories
         self.delay = config.get("delay", 0.5)
         self.base_url = f"https://{self.tenant}.api.civicclerk.com/v1"
 

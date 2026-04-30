@@ -20,6 +20,7 @@ class AgendaItem:
     is_consent: bool
     sponsor: str | None
     dollars_amount: Decimal | None
+    topic: str | None
     significance_score: float | None  # 0-10
     consent_placement_score: float | None  # 0-10
 
@@ -36,6 +37,7 @@ class AgendaItem:
             is_consent=bool(row.get("is_consent", False)),
             sponsor=row.get("sponsor"),
             dollars_amount=row.get("dollars_amount"),
+            topic=row.get("topic"),
             significance_score=row.get("significance_score"),
             consent_placement_score=row.get("consent_placement_score"),
         )

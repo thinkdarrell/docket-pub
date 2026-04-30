@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from collections import defaultdict
 from datetime import date
 from urllib.parse import unquote
@@ -38,37 +39,55 @@ class GenericCMSAdapter:
 
     def __init__(self, municipality_slug: str, config: dict):
         self.municipality_slug = municipality_slug
-        self.archive_url = config["archive_url"]
+        # Support both single URL and list of URLs
+        if "archive_urls" in config:
+            self.archive_urls = config["archive_urls"]
+        else:
+            self.archive_urls = [config["archive_url"]]
         self.video_channel = config.get("video_channel")
         self.delay = config.get("delay", 1.0)
 
     # --- Protocol methods ---------------------------------------------------
 
     def list_meetings(self, since: date | None = None) -> list[RawMeeting]:
-        """Scrape the archive page for PDF links, group by meeting date."""
-        logger.info("Fetching archive page: %s", self.archive_url)
-        resp = requests.get(
-            self.archive_url,
-            headers={"User-Agent": "Mozilla/5.0 (docket.pub civic data scraper)"},
-            timeout=30,
-        )
-        resp.raise_for_status()
+        """Scrape archive pages for PDF links, group by meeting date."""
+        all_links = []
 
-        soup = BeautifulSoup(resp.text, "html.parser")
-        links = soup.find_all("a", href=lambda h: h and ".pdf" in h.lower())
-        logger.info("Found %d PDF links", len(links))
+        for archive_url in self.archive_urls:
+            logger.info("Fetching archive page: %s", archive_url)
+            try:
+                resp = requests.get(
+                    archive_url,
+                    headers={"User-Agent": "Mozilla/5.0 (docket.pub civic data scraper)"},
+                    timeout=30,
+                )
+                resp.raise_for_status()
+                soup = BeautifulSoup(resp.text, "html.parser")
+                links = soup.find_all("a", href=lambda h: h and ".pdf" in h.lower())
+                # Tag each link with its source archive for context
+                for link in links:
+                    all_links.append((link, archive_url))
+                logger.info("  Found %d PDF links", len(links))
+            except requests.RequestException as e:
+                logger.warning("Failed to fetch %s: %s", archive_url, e)
 
-        # Group links by meeting date
+            if len(self.archive_urls) > 1:
+                time.sleep(self.delay)
+
+        links = all_links
+        logger.info("Found %d total PDF links across %d archives", len(links), len(self.archive_urls))
+
+        # Group links by meeting date + source archive
         meeting_groups: dict[str, dict] = defaultdict(lambda: {
             "meeting_date": None,
-            "title": "Council Meeting",
+            "title": "Meeting",
             "agenda_url": None,
             "minutes_url": None,
             "video_url": None,
-            "source_url": self.archive_url,
+            "source_url": None,
         })
 
-        for link in links:
+        for link, archive_url in links:
             href = link["href"]
             link_text = link.get_text(strip=True).upper()
             filename = unquote(href.split("/")[-1])
@@ -79,16 +98,21 @@ class GenericCMSAdapter:
             if since and meeting_date < since:
                 continue
 
-            key = meeting_date.isoformat()
+            # Derive meeting body from archive URL path
+            body = self._archive_body_name(archive_url)
+
+            # Use body + date as key so different bodies on same date stay separate
+            key = f"{meeting_date.isoformat()}-{body}"
             group = meeting_groups[key]
             group["meeting_date"] = meeting_date
+            group["source_url"] = archive_url
 
-            # Detect meeting type from filename
+            # Detect meeting title from archive body and filename
             fn_lower = filename.lower()
             if "special" in fn_lower:
-                group["title"] = "Special Called Council Meeting"
-            elif "work" in fn_lower and "session" in fn_lower:
-                group["title"] = "Council Work Session"
+                group["title"] = f"Special Called {body}"
+            elif group["title"] == "Meeting":
+                group["title"] = body
 
             # Assign URL by link text
             if "AGENDA" in link_text:
@@ -110,7 +134,7 @@ class GenericCMSAdapter:
                     agenda_url=group["agenda_url"],
                     minutes_url=group["minutes_url"],
                     video_url=group["video_url"],
-                    source_url=group["source_url"],
+                    source_url=group["source_url"] or self.archive_urls[0],
                 )
             )
 
@@ -130,6 +154,39 @@ class GenericCMSAdapter:
         return []
 
     # --- Internal helpers ---------------------------------------------------
+
+    @staticmethod
+    def _archive_body_name(archive_url: str) -> str:
+        """Derive a meeting body name from the archive page URL path.
+
+        Examples:
+            /city-council-archives -> "Council Meeting"
+            /bza-archives -> "Board of Zoning Adjustment"
+            /planning-commission-archives -> "Planning Commission"
+            /finance-committee-archives -> "Finance Committee"
+        """
+        path = archive_url.rstrip("/").split("/")[-1]
+        path = path.replace("-archives", "").replace("-2", "")
+
+        body_map = {
+            "city-council": "Council Meeting",
+            "precouncil": "Pre-Council Work Session",
+            "bza": "Board of Zoning Adjustment",
+            "planning-commission": "Planning Commission",
+            "finance-committee": "Finance Committee",
+            "public-safety-committee": "Public Safety Committee",
+            "public-works-committee": "Public Works Committee",
+            "planning---development-committee": "Planning & Development Committee",
+            "special-issues-committee": "Special Issues Committee",
+            "library-board": "Library Board",
+            "historic-preservation-commission": "Historic Preservation Commission",
+            "abatement-board": "Abatement Board",
+            "arts-council": "Arts Council",
+            "beautification-board": "Beautification Board",
+            "hec": "Homewood Environmental Commission",
+        }
+
+        return body_map.get(path, path.replace("-", " ").title())
 
     @staticmethod
     def _parse_date_from_filename(filename: str) -> date | None:

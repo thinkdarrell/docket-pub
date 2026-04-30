@@ -1,4 +1,4 @@
-"""Enrichment service — extract dollars and compute scores for agenda items.
+"""Enrichment service — extract dollars, sponsors, and compute scores.
 
 Provides both inline enrichment (called during ingest) and batch backfill
 (for existing data). All DB transactions owned here.
@@ -15,6 +15,8 @@ from docket.enrichment.scoring import (
     compute_consent_placement_score,
     compute_significance_score,
 )
+from docket.enrichment.sponsors import clean_title, extract_sponsor
+from docket.enrichment.topics import classify_topic
 
 logger = logging.getLogger(__name__)
 
@@ -32,10 +34,10 @@ def enrich_agenda_item(
     description: str | None,
     is_consent: bool,
 ) -> dict:
-    """Enrich a single agenda item with dollars and scores.
+    """Enrich a single agenda item with dollars, sponsor, and scores.
 
-    Returns a dict with keys: dollars_amount, significance_score,
-    consent_placement_score. Any value may be None.
+    Returns a dict with keys: dollars_amount, sponsor, clean_title,
+    significance_score, consent_placement_score. Any value may be None.
     """
     # Combine title and description for dollar extraction
     text = title
@@ -43,11 +45,17 @@ def enrich_agenda_item(
         text = f"{title} {description}"
 
     dollars = extract_dollars(text)
+    sponsor = extract_sponsor(title)
+    cleaned_title = clean_title(title)
+    topic = classify_topic(title, description)
     significance = compute_significance_score(title, description, dollars)
     consent_score = compute_consent_placement_score(title, description, is_consent)
 
     return {
         "dollars_amount": dollars,
+        "sponsor": sponsor,
+        "clean_title": cleaned_title,
+        "topic": topic,
         "significance_score": significance,
         "consent_placement_score": consent_score,
     }
@@ -100,18 +108,24 @@ def backfill_municipality(slug: str) -> BackfillResult:
                         """
                         UPDATE agenda_items
                         SET dollars_amount = %s,
+                            sponsor = %s,
+                            title = %s,
+                            topic = %s,
                             significance_score = %s,
                             consent_placement_score = %s
                         WHERE id = %s
                         """,
                         (
                             result["dollars_amount"],
+                            result["sponsor"],
+                            result["clean_title"],
+                            result["topic"],
                             result["significance_score"],
                             result["consent_placement_score"],
                             item["id"],
                         ),
                     )
-                    if result["dollars_amount"] is not None:
+                    if result["dollars_amount"] is not None or result["sponsor"] is not None:
                         enriched_count += 1
                 except Exception as e:
                     errors.append(f"Item {item['id']}: {e}")
