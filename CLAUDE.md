@@ -4,62 +4,121 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**docket.pub** — a municipal meeting intelligence platform that ingests, parses, and indexes public meeting records from Alabama cities (Birmingham, Mobile, Montgomery). The goal is civic transparency: make local government dockets searchable and link every AI-generated summary back to the original source document.
+**docket.pub** — a municipal meeting intelligence platform that ingests, parses, and indexes public meeting records from Alabama cities (Birmingham, Mobile, Montgomery, Hoover, Homewood, Vestavia Hills). The goal is civic transparency: make local government dockets searchable and link every data point back to the original source document.
 
-Domain: `docket.pub` | Status: **Private Development Phase**
+Domain: `docket.pub` | Status: **Private Development Phase** | Dev fork: `docket-pub-dw-dev`
 
 This project builds on work from the [al-municipal-meetings](https://github.com/thinkdarrell/al-municipal-meetings) repo (Birmingham-focused Granicus scraper with vote OCR). docket.pub generalizes that into a multi-city platform with a public-facing web interface.
 
 ## Layout
 
 ```
-docket-pub/
-  web/                 # Flask application + HTMX templates
-    __init__.py
-  scrapers/            # Per-city scraper modules
-    __init__.py
-  docs/                # Internal project documentation
+docket-pub-dw-dev/
+  src/docket/              # Main package
+    config.py              # Environment variable config
+    db.py                  # PostgreSQL connection manager (db() and db_cursor())
+    models/
+      protocol.py          # MunicipalSourceAdapter protocol + Raw* dataclasses
+      meeting.py           # Meeting dataclass
+      agenda.py            # AgendaItem dataclass
+      vote.py              # Vote + MemberVote dataclasses
+    migrations/
+      001_initial.py       # Full multi-city PostgreSQL schema
+      runner.py            # Migration runner (apply/rollback/status)
+    adapters/              # Platform adapters (one per CMS type)
+    services/              # Business logic layer (ingest, query, search, etc.)
+    web/                   # Flask blueprints (public, admin, API)
+    analysis/              # Vote OCR pipeline (ported from al-municipal-meetings)
+    rosters/               # Council member rosters per city
+    enrichment/            # Dollar extraction, scoring stubs
+  tests/
+    unit/
+    integration/
+  docs/
     Docket_pub_Project_Plan.md
-  requirements.txt     # Python dependencies
-  .env.example         # Environment variable template (copy to .env)
-  .gitignore           # Excludes .env, venv/, __pycache__/, IDE configs
+  docker-compose.yml       # PostgreSQL + app
+  Dockerfile
+  pyproject.toml
+  requirements.txt
+  .env.example
 ```
 
 ## Tech Stack
 
 - **Language:** Python 3.10+
-- **Web Framework:** Flask
-- **Frontend:** HTMX for dynamic UI without heavy JS
-- **Database:** PostgreSQL for structured meeting metadata + vector storage for semantic search
-- **Deployment target:** Hetzner or Railway
+- **Web Framework:** Flask + HTMX
+- **Database:** PostgreSQL 16 (via Docker)
+- **Search:** PostgreSQL full-text search (tsvector/tsquery with GIN indexes)
+- **Containerization:** Docker + docker-compose
+- **Deployment:** Deferred (Hetzner or Railway)
 
 ## Key Commands
 
 ```bash
-# Setup
+# Docker setup (PostgreSQL + app)
+docker-compose up -d
+
+# Local setup (without Docker app container)
 python -m venv venv
 source venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env   # then edit with real credentials
+pip install -e ".[dev]"
+cp .env.example .env
 
-# Run development server
+# Run migrations
+python -m docket.migrations.runner
+python -m docket.migrations.runner --status
+python -m docket.migrations.runner --down 1
+
+# Run dev server
 flask run
+
+# Tests
+pytest
 ```
 
-## Architecture Principles
+## Architecture
 
-- **Data Honesty Protocol:** Every AI-generated summary or insight MUST link directly back to the original source docket on the municipal server. No unsourced claims.
-- **Semantic routing:** URLs follow `/{state}/{city}/meetings/{date}-{slug}` pattern.
-- **API base:** `https://docket.pub/api/v1/`
-- **Silent Break monitoring:** Scrapers must detect and alert when a city website changes its layout, so data collection doesn't silently fail.
+### Adapter-per-platform pattern
+
+Every municipal data source is accessed through a platform adapter implementing `MunicipalSourceAdapter` (in `models/protocol.py`). The rest of the system never knows which CMS a city uses.
+
+Supported platforms: Granicus, CivicClerk, CivicPlus, Generic CMS.
+
+Adding a new city on a supported platform = one row in `municipalities` table + council member data.
+
+### Service layer is canonical
+
+Every entry point (Flask route, CLI, pipeline) calls into `docket.services.*`. Services own DB transactions. Adapters and analysis modules live underneath.
+
+### Data Honesty Protocol
+
+- Every data point links back to the original source on the city's website
+- Inline source badges on votes: "Video OCR - High confidence" / "Official Minutes" / "API"
+- Footer attribution with direct links to original documents
+- When video OCR and official minutes disagree, both are shown with a "Sources disagree" flag
+- Missing data is honestly reported, never hidden
+
+### Scoring model
+
+Two independent 0-10 scores on every agenda item (NULL until AI features enabled):
+- **Significance score:** How impactful is this item?
+- **Consent placement score:** Should this be on the consent agenda?
+
+### Dollar amount tiers
+
+All dollar amounts extracted, displayed with color-coded tiers:
+- Green: < $50K | Yellow: $50-250K | Orange: $250K-1M | Red: > $1M
 
 ## Conventions
 
-- Environment secrets (API keys, DB passwords) go in `.env`, never committed. Only `.env.example` with placeholders is tracked.
-- Scraper modules live in `scrapers/`, one module per city or data source.
-- Web routes live in `web/`. Keep routes thin — business logic belongs in service modules.
-- All Python modules use absolute imports.
+- Package name: `docket` (under `src/docket/`)
+- All Python modules use absolute imports rooted at `docket.*`
+- Environment secrets go in `.env`, never committed
+- Web routes are thin — business logic belongs in `services/`
+- Adapter modules live in `adapters/`, one module per platform type
+- PostgreSQL connection via `docket.db.db()` or `docket.db.db_cursor()`
 
 ## Related Repositories
 
-- [thinkdarrell/al-municipal-meetings](https://github.com/thinkdarrell/al-municipal-meetings) — Birmingham city council scraper with Granicus integration and vote OCR. The upstream data pipeline work that docket.pub builds on.
+- [thinkdarrell/docket-pub](https://github.com/thinkdarrell/docket-pub) — main repo (this is the dev fork)
+- [thinkdarrell/al-municipal-meetings](https://github.com/thinkdarrell/al-municipal-meetings) — Birmingham pipeline, code ported from here

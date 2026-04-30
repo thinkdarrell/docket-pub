@@ -11,6 +11,12 @@ venv/
 # Databases
 *.sqlite3
 
+# Eggs / build artifacts
+*.egg-info/
+dist/
+build/
+
 # IDEs
 .vscode/
 .idea/
+*.swp
