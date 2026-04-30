@@ -10,16 +10,16 @@ Docket.pub automates the collection, parsing, enrichment, and indexing of public
 
 ## What's Built
 
-The backend pipeline is complete through data enrichment. There is **no frontend yet** — that's the next phase.
+The backend pipeline, search, enrichment, and Flask routing are complete. Templates are unstyled skeletons — the UI team is designing the frontend in Claude Design.
 
 ### Cities Online
 
-| City | Platform | Adapter | Data Available |
-|---|---|---|---|
-| **Birmingham** | Granicus | `GranicusAdapter` | 1,001+ meetings, agenda items via HTML scraping |
-| **Vestavia Hills** | CivicClerk | `CivicClerkAdapter` | 108 events, structured agenda items via REST API |
-| **Mobile** | CivicClerk | `CivicClerkAdapter` | Meetings + 69 agenda items (with dollar amounts) |
-| **Homewood** | Generic CMS | `GenericCMSAdapter` | 248 meetings (2016-present), agenda + minutes PDFs |
+| City | Platform | Adapter | Meeting Types | Council Members |
+|---|---|---|---|---|
+| **Birmingham** | Granicus | `GranicusAdapter` | Council | 9 (districts) |
+| **Vestavia Hills** | CivicClerk | `CivicClerkAdapter` | Council, P&Z, BZA, Design Review, Parks, Library, Annexation | 5 (at-large) |
+| **Mobile** | CivicClerk | `CivicClerkAdapter` | Council | 7 (districts) |
+| **Homewood** | Generic CMS | `GenericCMSAdapter` | Council, Pre-Council, BZA, Planning Commission + 7 committees | 5 (wards + mayor) |
 
 ### Cities Deferred (Blocked)
 
@@ -28,19 +28,24 @@ The backend pipeline is complete through data enrichment. There is **no frontend
 | **Hoover** | CivicPlus AgendaCenter is empty — no documents published. Adapter stub exists. |
 | **Montgomery** | Website behind Cloudflare (403). Legistar portal exists but API not configured. |
 
-### Build Phases Completed
+### Build Phases
 
 1. **Foundation** — PostgreSQL schema (10 tables), Docker, models, migration runner
 2. **Granicus Adapter + Services** — Birmingham scraper, ingest service, query service
 3. **Additional Adapters** — CivicClerk (API), GenericCMS (HTML scraping), CivicPlus (stub)
-4. **Data Enrichment** — Dollar extraction (regex), scoring stubs (AI deferred)
-5. **Tests + Lint** — 76 unit tests, ruff clean
+4. **Data Enrichment** — Dollar extraction, sponsor extraction, topic classification (11 topics), scoring stubs
+5. **Search + Query** — PostgreSQL FTS, cross-city timeline, topic browse, high-dollar items
+6. **Flask App** — 12 routes (8 public + 4 admin), unstyled templates, HTMX-ready
+7. **Council Rosters** — 26 members seeded across 4 cities, admin UI for management
+8. **Tests + Docs** — 138 unit tests, security checklist, ruff clean
 
 ### What's Next
 
-- **Search + Frontend** — PostgreSQL FTS is wired in the schema (tsvector/tsquery with GIN indexes, auto-updated via triggers). Needs a search service wrapper and the HTMX-based citizen UI.
-- **Vote OCR Pipeline** — 8-module video analysis pipeline exists in [al-municipal-meetings](https://github.com/thinkdarrell/al-municipal-meetings), not yet ported.
-- **Admin Dashboard** — Health monitoring, "Silent Break" alerts when a city's data feed stops updating.
+- **Styled Frontend** — UI designs from Claude Design, drop into existing Flask templates
+- **Vote OCR Pipeline** — 8-module video analysis pipeline exists in [al-municipal-meetings](https://github.com/thinkdarrell/al-municipal-meetings), not yet ported
+- **Deployment** — Docker-based, Hetzner or Railway
+- **Admin Auth** — Session-based authentication for `/admin/` routes
+- **Freshness Checks** — Silent Break alerts when a city's data feed stops updating
 
 ---
 
@@ -71,7 +76,7 @@ City Website (Granicus / CivicClerk / Generic CMS)
   RawMeeting / RawAgendaItem   (protocol dataclasses — no DB knowledge)
        |
        v
-  Enrichment Layer          (dollar extraction, scoring stubs)
+  Enrichment Layer          (dollars, sponsors, topics, scoring stubs)
        |
        v
   Ingest Service            (upserts to PostgreSQL, tracks processing status)
@@ -83,7 +88,7 @@ City Website (Granicus / CivicClerk / Generic CMS)
   Query Service             (read APIs returning frozen dataclasses)
        |
        v
-  Flask Routes / HTMX UI   (NOT YET BUILT)
+  Flask Routes / HTMX UI   (skeleton built — 12 routes, unstyled templates)
 ```
 
 ### Adapter-per-Platform Pattern
@@ -143,18 +148,20 @@ id, municipality_id, external_id, title, meeting_date, meeting_type,
 agenda_url, minutes_url, video_url, source_url,
 search_vector (TSVECTOR, auto-updated), created_at, updated_at
 ```
-- `meeting_type`: `'council'` | `'work_session'` | `'bza'` | `'planning'` | `'special'` | `'committee'`
+- `meeting_type`: `'council'` | `'work_session'` | `'planning'` | `'special'` | `'committee'` | `'board'` | `'other'`
 - `source_url`: Always links back to the original page on the city's website
 
 #### `agenda_items`
 Individual items on a meeting's agenda. This is the richest table.
 ```
 id, meeting_id, external_id, item_number, title, description,
-section, is_consent, sponsor,
+section, is_consent, sponsor, topic,
 dollars_amount (NUMERIC 15,2), significance_score (REAL 0-10),
 consent_placement_score (REAL 0-10),
 search_vector (TSVECTOR, auto-updated), created_at
 ```
+- `sponsor`: Extracted from "(Submitted by ...)" or "(sponsored by ...)" patterns. NULL if not found.
+- `topic`: Keyword-classified topic slug. One of: `zoning`, `public_safety`, `public_works`, `budget`, `grants`, `contracts`, `legal`, `parks_culture`, `licensing`, `appointments`, `routine`. NULL if unclassified.
 - `dollars_amount`: Extracted via regex from title/description. The **largest** dollar amount in the text. NULL if none found.
 - `significance_score`: 0-10 scale. **Currently NULL** — AI scoring deferred.
 - `consent_placement_score`: 0-10 scale. **Currently NULL** — AI scoring deferred.
@@ -234,8 +241,9 @@ class AgendaItem:
     description: str | None       # Extended description (up to 300 chars)
     section: str | None           # "Consent Agenda", "New Business"
     is_consent: bool              # Was this on the consent agenda?
-    sponsor: str | None           # Council member who sponsored
+    sponsor: str | None           # "the Mayor", "Councilor Smith, Chair, Arts Committee"
     dollars_amount: Decimal | None      # Largest dollar figure found (e.g. 2300000.00)
+    topic: str | None                   # "zoning", "budget", "public_safety", etc.
     significance_score: float | None    # 0-10 (NULL until AI enabled)
     consent_placement_score: float | None  # 0-10 (NULL until AI enabled)
 ```
@@ -270,17 +278,43 @@ class MemberVote:
 
 ## Query Service API
 
-The query service (`src/docket/services/query.py`) provides the read layer. The frontend calls these functions — there are no REST endpoints yet.
+The query service (`src/docket/services/query.py`) provides the read layer. Flask routes call these — there are no REST endpoints.
+
+**Core reads:**
 
 | Function | Returns | Description |
 |---|---|---|
 | `list_municipalities()` | `list[dict]` | All active cities with meeting counts and last meeting date |
 | `get_municipality(slug)` | `dict \| None` | Single city by slug (e.g. `"birmingham"`) |
-| `list_meetings(slug, type, since, limit, offset)` | `list[Meeting]` | Paginated meetings for a city, newest first |
+| `list_meetings(slug, type, since, limit, offset)` | `PaginatedMeetings` | Paginated meetings with total count |
 | `get_meeting(meeting_id)` | `Meeting \| None` | Single meeting by ID |
 | `list_agenda_items(meeting_id)` | `list[AgendaItem]` | All items for a meeting, ordered by item_number |
 | `list_votes(meeting_id)` | `list[Vote]` | Votes with member_votes attached |
+| `list_council_members(slug, active_only)` | `list[dict]` | Council members with district info |
+| `get_council_member(id)` | `dict \| None` | Single member by ID |
 | `dashboard_stats()` | `dict` | Counts: municipalities, meetings, agenda_items, votes |
+
+**Cross-city / timeline:**
+
+| Function | Returns | Description |
+|---|---|---|
+| `list_recent_meetings(days, limit)` | `list[dict]` | "This week" — recent meetings across all cities |
+| `list_upcoming_meetings(days, limit)` | `list[dict]` | "Coming up" — future meetings across all cities |
+
+**Search (PostgreSQL FTS):**
+
+| Function | Returns | Description |
+|---|---|---|
+| `search_meetings(query, city?, limit, offset)` | `list[dict]` | FTS on meeting titles, city-scoped by default |
+| `search_agenda_items(query, city?, limit, offset)` | `list[dict]` | FTS on agenda item text, city-scoped by default |
+
+**Topic / dollar browsing:**
+
+| Function | Returns | Description |
+|---|---|---|
+| `list_agenda_items_by_topic(topic, city?, limit, offset)` | `list[dict]` | Filter by topic slug |
+| `topic_counts(city?)` | `list[dict]` | Topic distribution for browse-by-topic UI |
+| `list_high_dollar_items(min_dollars, city?, limit)` | `list[dict]` | Items above dollar threshold |
 
 ---
 
@@ -312,19 +346,34 @@ The scoring stubs exist at `docket.enrichment.scoring`. When AI features are ena
 
 ---
 
-## URL Routing (Suggested)
+## Flask Routes
 
-The project plan specifies semantic routing:
+### Public (8 routes)
 
 ```
-/                                          # Home — city picker + search
-/{state}/{city}/                           # City overview — recent meetings, stats
-/{state}/{city}/meetings/                  # Meeting list with filters
-/{state}/{city}/meetings/{date}-{slug}/    # Meeting detail — agenda items, votes
-/search?q=...                              # Cross-city search results
+GET  /                                  Homepage (cities, this week, upcoming)
+GET  /al/<slug>/                        City overview (meetings, topics, stats)
+GET  /al/<slug>/meetings/               Paginated meeting list with type filter
+GET  /al/<slug>/meetings/<id>/          Meeting detail (agenda items, dollars, votes)
+GET  /al/<slug>/council/                Council member cards
+GET  /search                            FTS search (city-scoped by default)
+GET  /topics/                           Browse by topic index
+GET  /topics/<topic>/                   Items for a specific topic
 ```
 
-Example: `/al/birmingham/meetings/2026-04-15-regular-council/`
+### Admin (4 routes — NOT authenticated yet)
+
+```
+GET       /admin/members/               List all council members
+GET|POST  /admin/members/add            Add a new member
+GET|POST  /admin/members/<id>/edit      Edit member details
+POST      /admin/members/<id>/deactivate  Deactivate member
+```
+
+### Jinja2 Template Filters
+
+- `{{ amount | dollar_tier }}` — returns `"green"`, `"yellow"`, `"orange"`, or `"red"`
+- `{{ slug | topic_name }}` — returns display name like `"Zoning & Land Use"`
 
 ---
 
@@ -343,6 +392,9 @@ docket-pub-dw-dev/
     migrations/
       001_initial.py             # Full schema: 10 tables, FTS, triggers, Birmingham seed
       002_seed_cities.py         # Seeds Vestavia Hills, Mobile, Homewood
+      003_add_topic.py           # Adds topic column + index to agenda_items
+      004_expand_meeting_types.py # Updates adapter configs for all meeting types
+      005_seed_council_rosters.py # Seeds 26 council members + districts across 4 cities
       runner.py                  # Migration runner (apply/rollback/status)
     adapters/
       __init__.py                # Adapter registry + get_adapter() factory
@@ -353,24 +405,34 @@ docket-pub-dw-dev/
       generic_cms.py             # HTML archive page scraper (PDF link extraction)
     services/
       ingest.py                  # Scrape + enrich + upsert pipeline
-      query.py                   # Read APIs (list_meetings, list_agenda_items, etc.)
-      enrichment.py              # Dollar enrichment service (inline + backfill)
+      query.py                   # Read APIs: meetings, search, topics, timeline, members
+      enrichment.py              # Enrichment service (inline + backfill)
     enrichment/
       dollars.py                 # Regex dollar extraction + tier classification
+      sponsors.py                # Sponsor extraction from (Submitted/sponsored by)
+      topics.py                  # Keyword-based topic classification (11 topics)
       scoring.py                 # Scoring stubs (returns None — AI deferred)
       cli.py                     # Backfill CLI: python -m docket.enrichment.cli
-    web/                         # Flask blueprints (NOT YET BUILT)
+    web/
+      __init__.py                # create_app() factory
+      public.py                  # 8 public routes (city, meetings, search, topics, council)
+      admin.py                   # 4 admin routes (council member CRUD)
+      templates/                 # Jinja2 templates (unstyled — UI team designs)
+      static/                    # CSS/JS assets (empty — UI team fills)
     analysis/                    # Vote OCR pipeline (NOT YET PORTED)
-    rosters/                     # Council member rosters (NOT YET BUILT)
+    rosters/                     # Reserved for future auto-scrapers
   tests/
     unit/
       test_dollars.py            # 31 tests — dollar extraction + tiers
-      test_helpers.py            # 17 tests — meeting classification, consent detection
+      test_helpers.py            # 22 tests — meeting classification, consent detection
       test_generic_cms.py        # 15 tests — date parsing from filenames
       test_civicclerk.py         # 13 tests — hierarchical agenda flattening
+      test_sponsors.py           # 26 tests — sponsor extraction + title cleaning
+      test_topics.py             # 31 tests — topic classification
     integration/                 # (empty — needs running PostgreSQL)
   docs/
     Docket_pub_Project_Plan.md   # High-level strategy document
+    SECURITY_CHECKLIST.md        # Pre-deployment security requirements
   docker-compose.yml             # PostgreSQL 16 + app container
   Dockerfile
   pyproject.toml                 # Package config, dependencies, pytest/ruff settings
