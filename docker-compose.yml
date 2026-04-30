@@ -20,7 +20,7 @@ services:
     ports:
       - "5000:5000"
     environment:
-      FLASK_APP: docket.web.app
+      FLASK_APP: "docket.web:create_app()"
       FLASK_ENV: development
       DATABASE_URL: postgresql://docket:docket_dev@db:5432/docket_db
       SECRET_KEY: dev-secret-change-in-production

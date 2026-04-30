@@ -15,6 +15,10 @@ from docket.db import db
 
 MIGRATIONS = [
     "docket.migrations.001_initial",
+    "docket.migrations.002_seed_cities",
+    "docket.migrations.003_add_topic",
+    "docket.migrations.004_expand_meeting_types",
+    "docket.migrations.005_seed_council_rosters",
 ]
 
 
