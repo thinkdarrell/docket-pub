@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Search{% if query %}: {{ query }}{% endif %} — docket.pub{% endblock %}
+
+{% block content %}
+<h1>Search</h1>
+
+<form method="get" action="{{ url_for('public.search') }}">
+    <input type="text" name="q" value="{{ query }}" placeholder="Search agenda items...">
+    <select name="city">
+        <option value="">All cities</option>
+        {% for m in municipalities %}
+        <option value="{{ m.slug }}" {% if city == m.slug %}selected{% endif %}>{{ m.name }}</option>
+        {% endfor %}
+    </select>
+    <button type="submit">Search</button>
+</form>
+
+{% if query %}
+<p>{{ results | length }} results for "{{ query }}"
+    {% if city %}in {{ city }}{% else %}across all cities{% endif %}
+</p>
+
+{% for item in results %}
+<div>
+    <strong>{{ item.title }}</strong>
+
+    {% if item.dollars_amount %}
+    <span>${{ "{:,.2f}".format(item.dollars_amount) }}</span>
+    {% endif %}
+
+    <p>
+        {{ item.municipality_name }}
+        · {{ item.meeting_date }}
+        · {{ item.meeting_title }}
+    </p>
+
+    {% if item.description %}
+    <p>{{ item.description }}</p>
+    {% endif %}
+</div>
+{% endfor %}
+{% endif %}
+{% endblock %}

@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}{{ municipality.name }} — docket.pub{% endblock %}
+
+{% block content %}
+<h1>{{ municipality.name }}, {{ municipality.state }}</h1>
+<p>{{ meeting_count }} meetings tracked</p>
+
+{% if topics %}
+<section>
+    <h2>Browse by Topic</h2>
+    {% for t in topics %}
+    <a href="{{ url_for('public.topic_detail', topic=t.topic, city=municipality.slug) }}">
+        {{ t.topic | topic_name }} ({{ t.count }})
+    </a>
+    {% endfor %}
+</section>
+{% endif %}
+
+<section>
+    <h2>Recent Meetings</h2>
+    <p><a href="{{ url_for('public.city_meetings', slug=municipality.slug) }}">View all →</a></p>
+    {% for m in meetings %}
+    <div>
+        <a href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=m.id) }}">
+            <span>{{ m.meeting_date }}</span>
+            <strong>{{ m.title }}</strong>
+        </a>
+        <span>{{ m.meeting_type }}</span>
+        {% if m.agenda_url %}<a href="{{ m.agenda_url }}">Agenda</a>{% endif %}
+        {% if m.minutes_url %}<a href="{{ m.minutes_url }}">Minutes</a>{% endif %}
+        {% if m.source_url %}<a href="{{ m.source_url }}">Source</a>{% endif %}
+    </div>
+    {% endfor %}
+</section>
+{% endblock %}

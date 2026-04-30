@@ -32,16 +32,24 @@ docket-pub-dw-dev/
       civicplus.py         # Stub for CivicPlus AgendaCenter sites
       generic_cms.py       # Homewood (HTML archive page with PDF links)
     services/              # Business logic layer (ingest, query, search, etc.)
+      ingest.py            # Scrape + enrich + upsert pipeline
+      query.py             # Read APIs: meetings, items, search, topics, timeline
       enrichment.py        # Enrichment service (inline + backfill)
-    web/                   # Flask blueprints (public, admin, API)
-    analysis/              # Vote OCR pipeline (ported from al-municipal-meetings)
-    rosters/               # Council member rosters per city
-    enrichment/            # Dollar extraction, scoring stubs
+    web/                   # Flask app factory + blueprints
+      __init__.py          # create_app() factory
+      public.py            # Citizen-facing routes (7 routes)
+      templates/           # Jinja2 templates (base + 7 page templates)
+      static/              # CSS/JS (empty — UI team fills this)
+    analysis/              # Vote OCR pipeline (not yet ported)
+    rosters/               # Council member rosters (not yet built)
+    enrichment/            # Dollar extraction, sponsors, topics, scoring
       dollars.py           # Regex dollar extraction + tier classification
+      sponsors.py          # Sponsor extraction from (Submitted/sponsored by)
+      topics.py            # Keyword-based topic classification (11 topics)
       scoring.py           # Scoring stubs (AI deferred)
       cli.py               # Backfill CLI: python -m docket.enrichment.cli
   tests/
-    unit/
+    unit/                  # 138 tests (dollars, helpers, sponsors, topics, civicclerk, generic_cms)
     integration/
   docs/
     Docket_pub_Project_Plan.md
@@ -160,15 +168,21 @@ This repo (`docket-pub-dw-dev`) is a **test/dev fork** of the main `docket-pub` 
 | Ingest service | Done | Scrapes meetings + agenda items via adapters, enriches inline |
 | Query service | Done | Reads meetings, items, votes, dashboard stats |
 | Dollar extraction | Done | Regex pipeline in `enrichment/dollars.py`, tested against Mobile (24/69 items) |
+| Sponsor extraction | Done | `enrichment/sponsors.py` — Birmingham + Mobile patterns |
+| Topic classification | Done | `enrichment/topics.py` — 11 keyword-based topics |
 | Scoring stubs | Done | `enrichment/scoring.py` — returns None, ready for AI integration |
 | Enrichment service | Done | `services/enrichment.py` — inline + backfill, CLI at `enrichment/cli.py` |
+| Search service | Done | `services/query.py` — FTS via websearch_to_tsquery, city-scoped |
+| Query service | Done | Timeline, topic browse, high-dollar items, pagination metadata |
+| Flask app + routes | Done | App factory, 7 routes, base templates (unstyled) |
+| Migration 003 | Done | Adds `topic` column to agenda_items |
+| Migration 004 | Done | Expands adapter configs for all meeting types |
 | Vote OCR pipeline | Not ported | Lives in `al-municipal-meetings/src/muni/analysis/` |
 | Council roster scrapers | Not built | Scrape city council pages for member data |
 | Source reconciliation | Not built | Compare video OCR vs official minutes |
 | Freshness checks | Not built | Nightly auto-check + manual trigger |
-| Search service | Not built | PostgreSQL FTS wrapper |
-| Public API | Not built | Flask blueprint for `/api/v1/` |
-| Citizen frontend | Not built | HTMX-based UI |
+| Public API | Not built | Flask blueprint for `/api/v1/` (deferred — security concern) |
+| Citizen frontend | Skeleton | Templates exist but unstyled — UI team will design |
 | Admin dashboard | Not built | Health monitoring + Silent Break alerts |
 
 ### Build phases (reference)
@@ -176,9 +190,9 @@ This repo (`docket-pub-dw-dev`) is a **test/dev fork** of the main `docket-pub` 
 1. ~~Foundation (schema, Docker, models)~~ — DONE
 2. ~~Granicus adapter + services~~ — DONE
 3. ~~Additional adapters (CivicClerk, GenericCMS)~~ — DONE (Hoover/Montgomery deferred — blocked)
-4. ~~Data enrichment (dollars, scoring stubs)~~ — DONE (vote OCR, reconciliation, freshness → Phase 4b)
-5. Search + public API
-6. Citizen frontend + admin monitoring
+4. ~~Data enrichment (dollars, sponsors, topics, scoring stubs)~~ — DONE (vote OCR, reconciliation → Phase 4b)
+5. ~~Search + query expansion~~ — DONE (FTS, timeline, topics, high-dollar; public REST API deferred)
+6. Citizen frontend — Skeleton routes + templates built, UI design in progress (Claude Design)
 
 ### Key decisions to preserve
 

@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}{{ topic_name }} — docket.pub{% endblock %}
+
+{% block content %}
+<h1>{{ topic_name }}</h1>
+
+{% for item in items %}
+<div>
+    <strong>{{ item.title }}</strong>
+
+    {% if item.dollars_amount %}
+    <span>${{ "{:,.2f}".format(item.dollars_amount) }}</span>
+    {% endif %}
+
+    <p>
+        {{ item.municipality_name }}
+        · {{ item.meeting_date }}
+        · {{ item.meeting_title }}
+    </p>
+</div>
+{% endfor %}
+
+{% if not items %}
+<p>No items found for this topic.</p>
+{% endif %}
+{% endblock %}

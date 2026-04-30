@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Meetings — {{ municipality.name }} — docket.pub{% endblock %}
+
+{% block content %}
+<h1>{{ municipality.name }} Meetings</h1>
+<p>{{ total }} meetings total · Page {{ page }} of {{ total_pages }}</p>
+
+{% for m in meetings %}
+<div>
+    <a href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=m.id) }}">
+        <span>{{ m.meeting_date }}</span>
+        <strong>{{ m.title }}</strong>
+    </a>
+    <span>{{ m.meeting_type }}</span>
+</div>
+{% endfor %}
+
+<nav>
+    {% if page > 1 %}
+    <a href="?page={{ page - 1 }}{% if meeting_type %}&type={{ meeting_type }}{% endif %}">← Previous</a>
+    {% endif %}
+    {% if page < total_pages %}
+    <a href="?page={{ page + 1 }}{% if meeting_type %}&type={{ meeting_type }}{% endif %}">Next →</a>
+    {% endif %}
+</nav>
+{% endblock %}

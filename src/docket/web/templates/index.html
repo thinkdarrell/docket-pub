@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}docket.pub — Alabama Municipal Meeting Intelligence{% endblock %}
+
+{% block content %}
+<h1>docket.pub</h1>
+<p>Municipal meeting intelligence for Alabama cities.</p>
+
+<section>
+    <h2>Cities</h2>
+    {% for m in municipalities %}
+    <div>
+        <a href="{{ url_for('public.city_overview', slug=m.slug) }}">
+            <strong>{{ m.name }}</strong>
+        </a>
+        — {{ m.meeting_count }} meetings
+        {% if m.last_meeting_date %}(last: {{ m.last_meeting_date }}){% endif %}
+    </div>
+    {% endfor %}
+</section>
+
+{% if recent_meetings %}
+<section>
+    <h2>This Week</h2>
+    {% for m in recent_meetings %}
+    <div>
+        <span>{{ m.meeting_date }}</span>
+        <strong>{{ m.municipality_name }}</strong>
+        {{ m.title }}
+    </div>
+    {% endfor %}
+</section>
+{% endif %}
+
+{% if upcoming_meetings %}
+<section>
+    <h2>Coming Up</h2>
+    {% for m in upcoming_meetings %}
+    <div>
+        <span>{{ m.meeting_date }}</span>
+        <strong>{{ m.municipality_name }}</strong>
+        {{ m.title }}
+    </div>
+    {% endfor %}
+</section>
+{% endif %}
+
+<section>
+    <h2>Platform Stats</h2>
+    <p>{{ stats.municipalities }} cities · {{ stats.meetings }} meetings · {{ stats.agenda_items }} agenda items</p>
+</section>
+{% endblock %}

@@ -1,0 +1,203 @@
+"""Public-facing routes — citizen UI.
+
+Thin routes that call into docket.services.query and render templates.
+Business logic stays in services, not here.
+"""
+
+from __future__ import annotations
+
+from flask import Blueprint, abort, render_template, request
+
+from docket.enrichment.dollars import classify_dollar_tier
+from docket.enrichment.topics import all_topics, get_topic_display_name
+from docket.services import query
+
+bp = Blueprint("public", __name__)
+
+
+# --- Template context helpers -----------------------------------------------
+
+
+@bp.app_template_filter("dollar_tier")
+def dollar_tier_filter(amount):
+    """Jinja2 filter: {{ item.dollars_amount | dollar_tier }}"""
+    if amount is None:
+        return ""
+    return classify_dollar_tier(amount)
+
+
+@bp.app_template_filter("topic_name")
+def topic_name_filter(slug):
+    """Jinja2 filter: {{ item.topic | topic_name }}"""
+    if not slug:
+        return ""
+    return get_topic_display_name(slug) or slug
+
+
+# --- Routes -----------------------------------------------------------------
+
+
+@bp.route("/")
+def index():
+    """Homepage — city picker, this week, upcoming."""
+    municipalities = query.list_municipalities()
+    recent = query.list_recent_meetings(days=7, limit=10)
+    upcoming = query.list_upcoming_meetings(days=14, limit=10)
+    stats = query.dashboard_stats()
+
+    return render_template(
+        "index.html",
+        municipalities=municipalities,
+        recent_meetings=recent,
+        upcoming_meetings=upcoming,
+        stats=stats,
+    )
+
+
+@bp.route("/al/<slug>/")
+def city_overview(slug):
+    """City landing page — recent meetings, stats."""
+    municipality = query.get_municipality(slug)
+    if not municipality:
+        abort(404)
+
+    result = query.list_meetings(slug, limit=10)
+    topics = query.topic_counts(municipality_slug=slug)
+
+    return render_template(
+        "city.html",
+        municipality=municipality,
+        meetings=result.meetings,
+        meeting_count=result.total,
+        topics=topics,
+    )
+
+
+@bp.route("/al/<slug>/meetings/")
+def city_meetings(slug):
+    """Meeting list with filters and pagination."""
+    municipality = query.get_municipality(slug)
+    if not municipality:
+        abort(404)
+
+    meeting_type = request.args.get("type")
+    page = max(1, request.args.get("page", 1, type=int))
+    per_page = 20
+    offset = (page - 1) * per_page
+
+    result = query.list_meetings(
+        slug,
+        meeting_type=meeting_type,
+        limit=per_page,
+        offset=offset,
+    )
+    total_pages = (result.total + per_page - 1) // per_page
+
+    return render_template(
+        "meetings.html",
+        municipality=municipality,
+        meetings=result.meetings,
+        total=result.total,
+        page=page,
+        total_pages=total_pages,
+        meeting_type=meeting_type,
+    )
+
+
+@bp.route("/al/<slug>/meetings/<int:meeting_id>/")
+def meeting_detail(slug, meeting_id):
+    """Meeting detail — agenda items, votes."""
+    municipality = query.get_municipality(slug)
+    if not municipality:
+        abort(404)
+
+    meeting = query.get_meeting(meeting_id)
+    if not meeting:
+        abort(404)
+
+    agenda_items = query.list_agenda_items(meeting_id)
+    votes = query.list_votes(meeting_id)
+
+    return render_template(
+        "meeting_detail.html",
+        municipality=municipality,
+        meeting=meeting,
+        agenda_items=agenda_items,
+        votes=votes,
+    )
+
+
+@bp.route("/search")
+def search():
+    """Search results page — scoped to city or cross-city."""
+    q = request.args.get("q", "").strip()
+    city = request.args.get("city")
+    page = max(1, request.args.get("page", 1, type=int))
+    per_page = 20
+    offset = (page - 1) * per_page
+
+    results = []
+    if q:
+        results = query.search_agenda_items(
+            q,
+            municipality_slug=city,
+            limit=per_page,
+            offset=offset,
+        )
+
+    municipalities = query.list_municipalities()
+
+    return render_template(
+        "search.html",
+        query=q,
+        results=results,
+        city=city,
+        municipalities=municipalities,
+        page=page,
+    )
+
+
+@bp.route("/topics/")
+def topics_index():
+    """Browse by topic — all topics with counts."""
+    city = request.args.get("city")
+    topics = query.topic_counts(municipality_slug=city)
+    all_topic_defs = all_topics()
+    municipalities = query.list_municipalities()
+
+    return render_template(
+        "topics.html",
+        topics=topics,
+        all_topics=all_topic_defs,
+        city=city,
+        municipalities=municipalities,
+    )
+
+
+@bp.route("/topics/<topic>/")
+def topic_detail(topic):
+    """Agenda items for a specific topic."""
+    city = request.args.get("city")
+    display_name = get_topic_display_name(topic)
+    if not display_name:
+        abort(404)
+
+    page = max(1, request.args.get("page", 1, type=int))
+    per_page = 20
+    offset = (page - 1) * per_page
+
+    items = query.list_agenda_items_by_topic(
+        topic,
+        municipality_slug=city,
+        limit=per_page,
+        offset=offset,
+    )
+
+    return render_template(
+        "topic_detail.html",
+        topic=topic,
+        topic_name=display_name,
+        items=items,
+        city=city,
+        page=page,
+    )
