@@ -118,6 +118,86 @@ All dollar amounts extracted, displayed with color-coded tiers:
 - Adapter modules live in `adapters/`, one module per platform type
 - PostgreSQL connection via `docket.db.db()` or `docket.db.db_cursor()`
 
+## Dev Fork Workflow
+
+This repo (`docket-pub-dw-dev`) is a **test/dev fork** of the main `docket-pub` repo. All active development happens here first.
+
+### Rules for this fork
+
+- **Build and test here freely.** This is the sandbox — experiment, iterate, break things.
+- **Do NOT push directly to `docket-pub` (main repo).** When work is ready to merge back, it goes via:
+  ```bash
+  cd /path/to/docket-pub
+  git remote add dev-fork git@github.com:thinkdarrell/docket-pub-dev.git
+  git fetch dev-fork
+  git merge dev-fork/main
+  ```
+- **Commit frequently with clear messages.** Each phase of work gets its own commit.
+- **Port code from `al-municipal-meetings`, don't copy blindly.** Adapt for PostgreSQL, multi-city, and the adapter protocol. The original repo uses SQLite and is Birmingham-only.
+- **Test against live data when possible.** The Granicus adapter should be tested against `bhamal.granicus.com`. Use polite delays (1s+) between requests.
+
+### What's been ported and what hasn't
+
+| Component | Status | Notes |
+|---|---|---|
+| PostgreSQL schema + migrations | Done | 10 tables, FTS indexes, Birmingham seeded |
+| Adapter protocol + registry | Done | `MunicipalSourceAdapter` in `models/protocol.py` |
+| GranicusAdapter | Done | Verified with 1,001 live Birmingham meetings |
+| Ingest service | Done | Scrapes meetings + agenda items via adapters |
+| Query service | Done | Reads meetings, items, votes, dashboard stats |
+| Vote OCR pipeline | Not ported | Lives in `al-municipal-meetings/src/muni/analysis/` |
+| CivicClerk adapter | Not ported | Source in `al-municipal-meetings/scrapers/civicclerk.py` |
+| CivicPlus adapter | Not built | Needed for Hoover |
+| Generic CMS adapter | Not built | Needed for Homewood |
+| Council roster scrapers | Not built | Scrape city council pages for member data |
+| Dollar extraction | Not built | Regex pipeline for `enrichment/dollars.py` |
+| Scoring stubs | Not built | 0-10 significance + consent placement scores |
+| Source reconciliation | Not built | Compare video OCR vs official minutes |
+| Freshness checks | Not built | Nightly auto-check + manual trigger |
+| Search service | Not built | PostgreSQL FTS wrapper |
+| Public API | Not built | Flask blueprint for `/api/v1/` |
+| Citizen frontend | Not built | HTMX-based UI |
+| Admin dashboard | Not built | Health monitoring + Silent Break alerts |
+
+### Build phases (reference)
+
+1. ~~Foundation (schema, Docker, models)~~ — DONE
+2. ~~Granicus adapter + services~~ — DONE
+3. Additional adapters (CivicClerk, CivicPlus, Generic)
+4. Data enrichment (dollars, scoring stubs, reconciliation)
+5. Search + public API
+6. Citizen frontend + admin monitoring
+
+### Key decisions to preserve
+
+- **PostgreSQL from day 1** — no SQLite fallback
+- **AI features deferred** — scoring columns exist in schema but are NULL
+- **Two scoring dimensions:** significance (0-10) + consent placement (0-10)
+- **Dollar tiers:** green <$50K, yellow $50-250K, orange $250K-1M, red >$1M
+- **Source overlap:** video OCR + official minutes coexist, flag discrepancies only
+- **Council rosters:** scrape council pages, don't manually seed
+- **Search:** PostgreSQL FTS (tsvector/tsquery), not a separate engine
+- **Data Honesty:** inline badges + footer attribution + discrepancy flags
+- **Silent Break alerts:** dashboard + email notifications
+- **Deployment:** Docker-based, hosting deferred (Hetzner or Railway)
+
+### Local PostgreSQL setup
+
+If not using Docker, PostgreSQL 16 can be run via Homebrew:
+```bash
+# Start
+/opt/homebrew/opt/postgresql@16/bin/pg_ctl -D /opt/homebrew/var/postgresql@16 start
+
+# Stop
+/opt/homebrew/opt/postgresql@16/bin/pg_ctl -D /opt/homebrew/var/postgresql@16 stop
+
+# Create DB (first time only)
+/opt/homebrew/opt/postgresql@16/bin/createuser -s docket
+/opt/homebrew/opt/postgresql@16/bin/createdb -O docket docket_db
+```
+
+Then set `DATABASE_URL=postgresql://docket@localhost:5432/docket_db` in `.env`.
+
 ## Related Repositories
 
 - [thinkdarrell/docket-pub](https://github.com/thinkdarrell/docket-pub) — main repo (this is the dev fork)
