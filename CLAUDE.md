@@ -37,9 +37,17 @@ docket-pub-dw-dev/
       enrichment.py        # Enrichment service (inline + backfill)
     web/                   # Flask app factory + blueprints
       __init__.py          # create_app() factory
-      public.py            # Citizen-facing routes (7 routes)
-      templates/           # Jinja2 templates (base + 7 page templates)
-      static/              # CSS/JS (empty — UI team fills this)
+      public.py            # Citizen-facing routes (11 routes + 3 HTMX partials)
+      admin.py             # Admin routes (4 routes — council member CRUD)
+      templates/           # Jinja2 templates (editorial design from Claude Design)
+        base.html          # App shell with rail sidebar, fonts, HTMX
+        city.html          # Birmingham overview (hero, KPIs, topics, legislation, council)
+        partials/          # HTMX fragments (masthead, footer, rail states)
+      static/              # Design system CSS (Source Serif + IBM Plex + JetBrains Mono)
+        styles.css         # Tokens, typography, chips, tiers, citations
+        layout.css         # Masthead, hero, KPIs, feed, council cards, rail
+        councilmatic.css   # This-week strip, topic browse, legislation cards
+        tweaks.css         # Footer, rail empty CTA
     analysis/              # Vote OCR pipeline (not yet ported)
     rosters/               # Council member rosters (not yet built)
     enrichment/            # Dollar extraction, sponsors, topics, scoring
@@ -173,17 +181,21 @@ This repo (`docket-pub-dw-dev`) is a **test/dev fork** of the main `docket-pub` 
 | Scoring stubs | Done | `enrichment/scoring.py` — returns None, ready for AI integration |
 | Enrichment service | Done | `services/enrichment.py` — inline + backfill, CLI at `enrichment/cli.py` |
 | Search service | Done | `services/query.py` — FTS via websearch_to_tsquery, city-scoped |
-| Query service | Done | Timeline, topic browse, high-dollar items, pagination metadata |
-| Flask app + routes | Done | App factory, 7 routes, base templates (unstyled) |
+| Query service | Done | Timeline, topic browse, high-dollar items, council members, pagination |
+| Flask app + routes | Done | 15 routes (11 public + 4 admin), HTMX rail partials |
 | Migration 003 | Done | Adds `topic` column to agenda_items |
 | Migration 004 | Done | Expands adapter configs for all meeting types |
+| Migration 005 | Done | Seeds 26 council members + districts across 4 cities |
+| Citizen frontend | Done | Editorial design from Claude Design — Source Serif + IBM Plex + HTMX |
+| Source-of-truth rail | Done | HTMX partials update on click (meeting, member, default) |
+| Council roster admin | Done | `/admin/members/` — add, edit, deactivate council members |
+| Security checklist | Done | `docs/SECURITY_CHECKLIST.md` — pre-deployment requirements |
 | Vote OCR pipeline | Not ported | Lives in `al-municipal-meetings/src/muni/analysis/` |
-| Council roster scrapers | Not built | Scrape city council pages for member data |
 | Source reconciliation | Not built | Compare video OCR vs official minutes |
 | Freshness checks | Not built | Nightly auto-check + manual trigger |
 | Public API | Not built | Flask blueprint for `/api/v1/` (deferred — security concern) |
-| Citizen frontend | Skeleton | Templates exist but unstyled — UI team will design |
-| Admin dashboard | Not built | Health monitoring + Silent Break alerts |
+| Admin auth | Not built | Session-based auth needed before deploy |
+| Deployment | Not done | Docker works locally, Railway target |
 
 ### Build phases (reference)
 
@@ -192,7 +204,8 @@ This repo (`docket-pub-dw-dev`) is a **test/dev fork** of the main `docket-pub` 
 3. ~~Additional adapters (CivicClerk, GenericCMS)~~ — DONE (Hoover/Montgomery deferred — blocked)
 4. ~~Data enrichment (dollars, sponsors, topics, scoring stubs)~~ — DONE (vote OCR, reconciliation → Phase 4b)
 5. ~~Search + query expansion~~ — DONE (FTS, timeline, topics, high-dollar; public REST API deferred)
-6. Citizen frontend — Skeleton routes + templates built, UI design in progress (Claude Design)
+6. ~~Citizen frontend~~ — DONE (editorial design from Claude Design, HTMX source rail, council cards)
+7. Deployment — Railway target, Docker ready, admin auth needed first
 
 ### Key decisions to preserve
 
