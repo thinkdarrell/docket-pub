@@ -80,16 +80,31 @@
         </div>
     </div>
 
+    {% set has_ocr = votes | selectattr('source', 'equalto', 'video_ocr') | list | length > 0 %}
+    {% set has_minutes = votes | selectattr('source', 'equalto', 'minutes_text') | list | length > 0 %}
+    {% if has_ocr %}
+    <div class="callout callout-warn is-tight" style="margin-bottom: 16px;">
+        <div class="callout-title t-mono">Video OCR source</div>
+        <div class="callout-body">
+            {% if has_minutes %}Some{% else %}All{% endif %} votes on this meeting were extracted from video via OCR, not from official minutes.
+            OCR results may contain errors — verify against the <a class="link" href="{{ meeting.video_url }}" target="_blank" rel="noreferrer">original video</a>.
+            Vote IDs are shown for reference if corrections are needed.
+        </div>
+    </div>
+    {% endif %}
+
     <div style="display: flex; flex-direction: column; gap: 12px;">
     {% for vote in votes %}
         <div class="vote-block {{ 'is-pass' if vote.result == 'passed' else 'is-fail' if vote.result == 'failed' else '' }}">
             <div class="vote-block-head">
                 <span class="vote-block-result">{{ vote.result }}</span>
-                <span class="vote-block-source t-meta">
-                    <span class="chip {{ 'is-good' if vote.confidence == 'high' else 'is-warn' }}">
-                        <span class="dot"></span>
-                        {{ vote.source | replace('_', ' ') }} · {{ vote.confidence }}
-                    </span>
+                <span style="display: flex; align-items: center; gap: 8px;">
+                    <span class="t-meta t-mono" style="font-size: 10px;">#{{ vote.id }}</span>
+                    {% if vote.source == 'video_ocr' %}
+                    <span class="chip is-warn"><span class="dot"></span>video OCR · {{ vote.confidence }}</span>
+                    {% else %}
+                    <span class="chip is-good"><span class="dot"></span>official minutes · {{ vote.confidence }}</span>
+                    {% endif %}
                 </span>
             </div>
             <div style="display: flex; gap: 16px; align-items: baseline;">

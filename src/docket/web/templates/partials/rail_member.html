@@ -37,8 +37,9 @@
             {% for v in vote_summary.recent[:10] %}
             <div class="rail-vote-row" style="padding: 0.35rem 0; border-bottom: 1px solid var(--rule, #e0d8cf);">
                 <div class="t-meta">{{ v.meeting_date.strftime('%b %-d, %Y') }}</div>
-                <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="display: flex; justify-content: space-between; align-items: center; gap: 6px;">
                     <span class="t-label" style="font-size: 0.8rem;">{{ v.result|capitalize }}</span>
+                    {% if v.source == 'video_ocr' %}<span class="t-meta t-mono" style="font-size: 9px; color: var(--warn);">OCR</span>{% endif %}
                     <span class="chip chip-{{ v.position }}">{{ v.position|upper }}</span>
                 </div>
             </div>
