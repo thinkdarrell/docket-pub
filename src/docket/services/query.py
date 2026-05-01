@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from docket.db import db_cursor
 from docket.models.agenda import AgendaItem
 from docket.models.meeting import Meeting
-from docket.models.vote import MemberVote, Vote
+from docket.models.vote import AgendaItemLink, MemberVote, Vote
 
 
 @dataclass(frozen=True)
@@ -107,36 +107,95 @@ def list_agenda_items(meeting_id: int) -> list[AgendaItem]:
         return [AgendaItem.from_row(dict(row)) for row in cur.fetchall()]
 
 
-def list_votes(meeting_id: int) -> list[Vote]:
-    """Return votes for a meeting, with member votes attached."""
+def list_votes(meeting_id: int, *, include_excerpts: bool = False) -> list[Vote]:
+    """Return votes for a meeting, with N:M agenda links and member votes.
+
+    Three queries: votes, vote_agenda_items joined to agenda_items, member_votes.
+    Grouped in Python — three round-trips per page regardless of vote count.
+
+    include_excerpts: when False (default), excerpt_context is NULL'd out in the
+    SELECT to keep payloads small. Templates and audit views that need the
+    snippet should pass include_excerpts=True.
+    """
+    excerpt_select = "vai.excerpt_context" if include_excerpts else "NULL AS excerpt_context"
+
     with db_cursor() as cur:
         cur.execute(
-            """SELECT v.*, ai.title AS agenda_item_title,
-                      ai.item_number AS agenda_item_number
-               FROM votes v
-               LEFT JOIN agenda_items ai ON v.agenda_item_id = ai.id
-               WHERE v.meeting_id = %s ORDER BY v.id""",
+            "SELECT * FROM votes WHERE meeting_id = %s ORDER BY id",
             (meeting_id,),
         )
-        votes = [Vote.from_row(dict(row)) for row in cur.fetchall()]
+        vote_rows = cur.fetchall()
+        if not vote_rows:
+            return []
 
-        for vote in votes:
-            cur.execute(
-                "SELECT * FROM member_votes WHERE vote_id = %s ORDER BY id",
-                (vote.id,),
-            )
-            member_votes = [
-                MemberVote(
-                    member_name=row["member_name"],
-                    position=row["position"],
-                    council_member_id=row.get("council_member_id"),
-                )
-                for row in cur.fetchall()
-            ]
-            # Replace the empty list with loaded member votes
-            object.__setattr__(vote, "member_votes", member_votes)
+        vote_ids = [r["id"] for r in vote_rows]
 
-        return votes
+        cur.execute(
+            f"""SELECT vai.id, vai.vote_id, vai.agenda_item_id,
+                       vai.association_type, vai.match_method, vai.match_confidence,
+                       vai.provisional, vai.is_manual, vai.is_active,
+                       {excerpt_select},
+                       ai.item_number, ai.title, ai.is_consent
+                FROM vote_agenda_items vai
+                JOIN agenda_items ai ON ai.id = vai.agenda_item_id
+                WHERE vai.vote_id = ANY(%s)
+                ORDER BY vai.vote_id, vai.match_confidence DESC, vai.id ASC""",
+            (vote_ids,),
+        )
+        link_rows = cur.fetchall()
+
+        cur.execute(
+            "SELECT * FROM member_votes WHERE vote_id = ANY(%s) ORDER BY vote_id, id",
+            (vote_ids,),
+        )
+        member_rows = cur.fetchall()
+
+    links_by_vote: dict[int, list[AgendaItemLink]] = {}
+    for r in link_rows:
+        links_by_vote.setdefault(r["vote_id"], []).append(AgendaItemLink(
+            id=r["id"],
+            agenda_item_id=r["agenda_item_id"],
+            item_number=r["item_number"],
+            title=r["title"],
+            is_consent=r["is_consent"],
+            association_type=r["association_type"],
+            match_method=r["match_method"],
+            match_confidence=r["match_confidence"],
+            excerpt_context=r["excerpt_context"],
+            provisional=r["provisional"],
+            is_manual=r["is_manual"],
+            is_active=r["is_active"],
+        ))
+
+    members_by_vote: dict[int, list[MemberVote]] = {}
+    for r in member_rows:
+        members_by_vote.setdefault(r["vote_id"], []).append(MemberVote(
+            member_name=r["member_name"],
+            position=r["position"],
+            council_member_id=r.get("council_member_id"),
+        ))
+
+    return [
+        Vote(
+            id=r["id"],
+            meeting_id=r["meeting_id"],
+            external_id=r.get("external_id"),
+            result=r.get("result", ""),
+            yeas=r.get("yeas"),
+            nays=r.get("nays"),
+            abstentions=r.get("abstentions"),
+            source=r.get("source", ""),
+            confidence=r.get("confidence", ""),
+            header_result=r.get("header_result"),
+            needs_review=bool(r.get("needs_review", False)),
+            review_reason=r.get("review_reason"),
+            resolution_number=r.get("resolution_number"),
+            video_timestamp=r.get("video_timestamp"),
+            agenda_links=links_by_vote.get(r["id"], []),
+            member_votes=members_by_vote.get(r["id"], []),
+        )
+        for r in vote_rows
+    ]
 
 
 def dashboard_stats() -> dict:
