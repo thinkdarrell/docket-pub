@@ -102,14 +102,14 @@ def _upsert_link(
 def match_votes_by_timestamp(meeting_id: int) -> int:
     """Match video OCR votes to agenda items by timestamp proximity.
 
+    Inserts to vote_agenda_items via _upsert_link.
     Returns number of votes matched.
     """
+    matched = 0
     with db() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            # Load agenda items with timestamps, sorted
             cur.execute(
-                """SELECT id, video_timestamp_seconds
-                   FROM agenda_items
+                """SELECT id, video_timestamp_seconds FROM agenda_items
                    WHERE meeting_id = %s AND video_timestamp_seconds IS NOT NULL
                    ORDER BY video_timestamp_seconds""",
                 (meeting_id,),
@@ -117,116 +117,105 @@ def match_votes_by_timestamp(meeting_id: int) -> int:
             items = cur.fetchall()
             if not items:
                 return 0
-
             item_timestamps = [r["video_timestamp_seconds"] for r in items]
             item_ids = [r["id"] for r in items]
 
-            # Load unmatched video OCR votes with timestamps
             cur.execute(
-                """SELECT id, video_timestamp, needs_review
-                   FROM votes
-                   WHERE meeting_id = %s AND source = 'video_ocr'
-                     AND video_timestamp IS NOT NULL
-                     AND agenda_item_id IS NULL""",
+                """SELECT v.id, v.video_timestamp, v.needs_review
+                   FROM votes v
+                   LEFT JOIN vote_agenda_items vai ON vai.vote_id = v.id AND vai.is_active
+                   WHERE v.meeting_id = %s AND v.source = 'video_ocr'
+                     AND v.video_timestamp IS NOT NULL
+                     AND vai.id IS NULL""",
                 (meeting_id,),
             )
             votes = cur.fetchall()
-            if not votes:
-                return 0
-
-            matched = 0
             for vote in votes:
                 vt = vote["video_timestamp"]
                 idx = bisect_right(item_timestamps, vt) - 1
                 if idx < 0:
                     continue
-
                 gap = vt - item_timestamps[idx]
                 conf = compute_confidence(gap, needs_review=vote["needs_review"])
                 if conf <= 0:
                     continue
-
-                cur.execute(
-                    """UPDATE votes
-                       SET agenda_item_id = %s,
-                           match_confidence = %s,
-                           match_method = 'timestamp'
-                       WHERE id = %s""",
-                    (item_ids[idx], conf, vote["id"]),
+                _upsert_link(
+                    cur,
+                    vote_id=vote["id"],
+                    agenda_item_id=item_ids[idx],
+                    association_type="explicit",
+                    match_method="timestamp",
+                    match_confidence=conf,
+                    excerpt_context=None,
+                    provisional=False,
                 )
                 matched += 1
-
+        conn.commit()
     return matched
 
 
-def match_votes_by_text(meeting_id: int) -> int:
-    """Match minutes-text votes to agenda items using text heuristics.
-
-    Three-tier strategy:
-    1. Resolution/ordinance number match (confidence 0.9)
-    2. Item number from context (confidence 0.7)
-    3. Keyword overlap (confidence 0.5)
-
-    Returns number of votes matched.
-    """
+def _match_substantive(meeting_id: int) -> int:
+    """Match substantive (1:1) minutes votes via 3-tier heuristics."""
+    matched = 0
     with db() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            # Load agenda items for this meeting
             cur.execute(
-                """SELECT id, item_number, title
-                   FROM agenda_items WHERE meeting_id = %s""",
+                "SELECT id, item_number, title, COALESCE(description, '') AS description "
+                "FROM agenda_items WHERE meeting_id = %s",
                 (meeting_id,),
             )
             items = cur.fetchall()
             if not items:
                 return 0
 
-            # Load unmatched minutes votes
             cur.execute(
-                """SELECT id, resolution_number, match_context
-                   FROM votes
-                   WHERE meeting_id = %s AND agenda_item_id IS NULL
-                     AND source = 'minutes_text'""",
+                """SELECT v.id, v.resolution_number, v.match_context, v.raw_text
+                   FROM votes v
+                   LEFT JOIN vote_agenda_items vai ON vai.vote_id = v.id AND vai.is_active
+                   WHERE v.meeting_id = %s AND v.source = 'minutes_text'
+                     AND vai.id IS NULL""",
                 (meeting_id,),
             )
             votes = cur.fetchall()
-            if not votes:
-                return 0
-
-            matched = 0
             for vote in votes:
-                result = _try_resolution_match(vote, items)
-                if not result:
-                    result = _try_item_number_match(vote, items)
-                if not result:
-                    result = _try_keyword_match(vote, items)
+                if _classify_vote(vote) != "substantive":
+                    continue
+                result = (
+                    _try_resolution_match(vote, items)
+                    or _try_item_number_match(vote, items)
+                    or _try_keyword_match(vote, items)
+                )
                 if result:
                     item_id, conf, method = result
-                    cur.execute(
-                        """UPDATE votes
-                           SET agenda_item_id = %s,
-                               match_confidence = %s,
-                               match_method = %s
-                           WHERE id = %s""",
-                        (item_id, conf, method, vote["id"]),
+                    _upsert_link(
+                        cur,
+                        vote_id=vote["id"],
+                        agenda_item_id=item_id,
+                        association_type="explicit",
+                        match_method=method,
+                        match_confidence=conf,
+                        excerpt_context=(vote.get("match_context") or "")[:300] or None,
+                        provisional=False,
                     )
                     matched += 1
-
+        conn.commit()
     return matched
 
 
+def _match_consent_block(meeting_id: int) -> int:
+    """Stub — implemented in Task 2.6."""
+    return 0
+
+
 def _try_resolution_match(vote, items) -> tuple[int, float, str] | None:
-    """Match by resolution/ordinance number in agenda item title."""
+    """Match by resolution/ordinance number in agenda item title or description."""
     res_num = vote["resolution_number"]
     if not res_num:
         return None
-
     for item in items:
-        title = item["title"] or ""
-        # Look for the resolution number in the title
-        if re.search(rf'\b{re.escape(res_num)}\b', title):
+        haystack = (item["title"] or "") + " " + (item.get("description") or "")
+        if re.search(rf"\b{re.escape(res_num)}\b", haystack):
             return (item["id"], 0.9, "resolution_number")
-
     return None
 
 
@@ -297,17 +286,20 @@ def _significant_words(text: str) -> set[str]:
 def match_votes_for_meeting(meeting_id: int) -> dict:
     """Run all matching strategies for a meeting."""
     ts_matched = match_votes_by_timestamp(meeting_id)
-    text_matched = match_votes_by_text(meeting_id)
-
-    # Mark meeting as matched
+    sub_matched = _match_substantive(meeting_id)
+    consent_matched = _match_consent_block(meeting_id)
     with db() as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        with conn.cursor() as cur:
             cur.execute(
                 "UPDATE processing_status SET votes_matched = TRUE WHERE meeting_id = %s",
                 (meeting_id,),
             )
-
-    return {"timestamp_matched": ts_matched, "text_matched": text_matched}
+        conn.commit()
+    return {
+        "timestamp_matched": ts_matched,
+        "substantive_matched": sub_matched,
+        "consent_matched": consent_matched,
+    }
 
 
 def match_all_unmatched() -> dict:
@@ -316,24 +308,28 @@ def match_all_unmatched() -> dict:
         cur.execute(
             """SELECT DISTINCT v.meeting_id
                FROM votes v
-               WHERE v.agenda_item_id IS NULL
+               LEFT JOIN vote_agenda_items vai ON vai.vote_id = v.id AND vai.is_active
+               WHERE vai.id IS NULL
                ORDER BY v.meeting_id"""
         )
         meeting_ids = [r["meeting_id"] for r in cur.fetchall()]
 
     total_ts = 0
-    total_text = 0
+    total_sub = 0
+    total_consent = 0
     for mid in meeting_ids:
         result = match_votes_for_meeting(mid)
         total_ts += result["timestamp_matched"]
-        total_text += result["text_matched"]
+        total_sub += result["substantive_matched"]
+        total_consent += result["consent_matched"]
 
     logger.info(
-        "Matched %d by timestamp, %d by text across %d meetings",
-        total_ts, total_text, len(meeting_ids),
+        "Matched %d by timestamp, %d substantive, %d consent across %d meetings",
+        total_ts, total_sub, total_consent, len(meeting_ids),
     )
     return {
         "meetings": len(meeting_ids),
         "timestamp_matched": total_ts,
-        "text_matched": total_text,
+        "substantive_matched": total_sub,
+        "consent_matched": total_consent,
     }

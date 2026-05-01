@@ -204,3 +204,37 @@ def test_classify_vote_consent_when_phrase_only_in_match_context():
 def test_classify_vote_substantive_when_both_empty():
     vote = {"raw_text": None, "match_context": None}
     assert _classify_vote(vote) == "substantive"
+
+
+def test_match_substantive_inserts_explicit_link_with_resolution_match(sample_vote_and_item):
+    """A substantive vote with a resolution number that appears in the agenda title
+    should produce an 'explicit' link with method='resolution_number' and confidence=0.9."""
+    with db() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            # Set up: agenda item title contains resolution 1854-25, vote has that resolution number
+            cur.execute(
+                "UPDATE agenda_items SET title = 'Resolution 1854-25 Test' WHERE id = %s",
+                (sample_vote_and_item["agenda_item_id"],),
+            )
+            cur.execute(
+                "UPDATE votes SET resolution_number = '1854-25', match_context = 'context' WHERE id = %s",
+                (sample_vote_and_item["vote_id"],),
+            )
+        conn.commit()
+
+    from docket.analysis.vote_matcher import match_votes_for_meeting
+    match_votes_for_meeting(sample_vote_and_item["meeting_id"])
+
+    from docket.db import db_cursor
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT * FROM vote_agenda_items WHERE vote_id = %s",
+            (sample_vote_and_item["vote_id"],),
+        )
+        row = cur.fetchone()
+
+    assert row is not None
+    assert row["association_type"] == "explicit"
+    assert row["match_method"] == "resolution_number"
+    assert row["match_confidence"] == pytest.approx(0.9)
+    assert row["provisional"] is False
