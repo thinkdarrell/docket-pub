@@ -21,15 +21,22 @@ _STANDARD_RE = re.compile(
 )
 
 # Pattern 2: Abbreviated millions — $1.2M, $1.2 million
+# Must not have cents (.XX) before M to avoid "$2,372.21, M..." false positives
 _MILLION_RE = re.compile(
-    r"\$\s*([\d,.]+)\s*(?:M\b|million)",
+    r"\$\s*([\d,]+(?:\.\d{1,2})?)\s*(?:million)",
     re.IGNORECASE,
+)
+_MILLION_SHORT_RE = re.compile(
+    r"\$\s*([\d,]+(?:\.\d)?)\s*M\b",
 )
 
 # Pattern 3: Abbreviated thousands — $500K, $500 thousand
 _THOUSAND_RE = re.compile(
-    r"\$\s*([\d,.]+)\s*(?:K\b|thousand)",
+    r"\$\s*([\d,]+(?:\.\d{1,2})?)\s*(?:thousand)",
     re.IGNORECASE,
+)
+_THOUSAND_SHORT_RE = re.compile(
+    r"\$\s*([\d,]+(?:\.\d)?)\s*K\b",
 )
 
 # Tier boundaries
@@ -54,7 +61,17 @@ def extract_dollars(text: str) -> Decimal | None:
         if amount is not None:
             amounts.append(amount * Decimal("1000000"))
 
+    for match in _MILLION_SHORT_RE.finditer(text):
+        amount = _parse_number(match.group(1))
+        if amount is not None:
+            amounts.append(amount * Decimal("1000000"))
+
     for match in _THOUSAND_RE.finditer(text):
+        amount = _parse_number(match.group(1))
+        if amount is not None:
+            amounts.append(amount * Decimal("1000"))
+
+    for match in _THOUSAND_SHORT_RE.finditer(text):
         amount = _parse_number(match.group(1))
         if amount is not None:
             amounts.append(amount * Decimal("1000"))
