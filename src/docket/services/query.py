@@ -158,6 +158,66 @@ def dashboard_stats() -> dict:
         }
 
 
+def list_recent_votes(municipality_slug: str, limit: int = 10) -> list[dict]:
+    """Return recent votes with member breakdown, newest first."""
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT v.id, v.result, v.yeas, v.nays, v.abstentions,
+                   v.source, v.confidence, v.needs_review,
+                   m.meeting_date, m.title, m.id as meeting_id
+            FROM votes v
+            JOIN meetings m ON v.meeting_id = m.id
+            JOIN municipalities mu ON m.municipality_id = mu.id
+            WHERE mu.slug = %s
+            ORDER BY m.meeting_date DESC, v.id DESC
+            LIMIT %s
+            """,
+            (municipality_slug, limit),
+        )
+        votes = [dict(r) for r in cur.fetchall()]
+
+        for vote in votes:
+            cur.execute(
+                """SELECT member_name, position FROM member_votes
+                   WHERE vote_id = %s ORDER BY id""",
+                (vote["id"],),
+            )
+            vote["member_votes"] = [dict(r) for r in cur.fetchall()]
+
+        return votes
+
+
+def list_contested_votes(municipality_slug: str, limit: int = 6) -> list[dict]:
+    """Return recent votes where nays > 0, newest first."""
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT v.id, v.result, v.yeas, v.nays, v.abstentions,
+                   v.source, v.confidence,
+                   m.meeting_date, m.title, m.id as meeting_id
+            FROM votes v
+            JOIN meetings m ON v.meeting_id = m.id
+            JOIN municipalities mu ON m.municipality_id = mu.id
+            WHERE mu.slug = %s AND v.nays > 0
+            ORDER BY m.meeting_date DESC, v.id DESC
+            LIMIT %s
+            """,
+            (municipality_slug, limit),
+        )
+        votes = [dict(r) for r in cur.fetchall()]
+
+        for vote in votes:
+            cur.execute(
+                """SELECT member_name, position FROM member_votes
+                   WHERE vote_id = %s ORDER BY id""",
+                (vote["id"],),
+            )
+            vote["member_votes"] = [dict(r) for r in cur.fetchall()]
+
+        return votes
+
+
 # --- Council members --------------------------------------------------------
 
 
@@ -429,6 +489,7 @@ def list_high_dollar_items(
     min_dollars: float = 50000,
     municipality_slug: str | None = None,
     limit: int = 20,
+    days: int | None = None,
 ) -> list[dict]:
     """Return notable high-dollar agenda items, balancing amount and recency.
 
@@ -443,6 +504,10 @@ def list_high_dollar_items(
         if municipality_slug:
             where += " AND m.slug = %s"
             params.append(municipality_slug)
+
+        if days:
+            where += " AND mt.meeting_date >= CURRENT_DATE - INTERVAL '%s days'"
+            params.append(days)
 
         cur.execute(
             f"""

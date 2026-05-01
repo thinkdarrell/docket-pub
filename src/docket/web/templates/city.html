@@ -88,6 +88,89 @@
 </section>
 {% endif %}
 
+{# ── Contested Votes ──────────────────────────────── #}
+{% if contested_votes %}
+<section class="feed">
+    <div class="feed-head">
+        <div>
+            <div class="t-eyebrow">Not unanimous</div>
+            <h2 class="feed-title t-display">Contested votes</h2>
+            <p class="t-meta" style="max-width:560px;margin-top:8px">
+                Recent votes where at least one council member voted nay.
+            </p>
+        </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 12px;">
+    {% for vote in contested_votes %}
+        <button class="vote-block {{ 'is-pass' if vote.result == 'passed' else 'is-fail' }}"
+                style="cursor: pointer; text-align: left; width: 100%;"
+                hx-get="{{ url_for('public.rail_meeting', slug=municipality.slug, meeting_id=vote.meeting_id) }}"
+                hx-target="#source-rail"
+                hx-swap="innerHTML">
+            <div class="vote-block-head">
+                <span class="vote-block-result">{{ vote.result }}</span>
+                <span class="t-meta">{{ vote.meeting_date.strftime('%b %-d, %Y') }} · {{ vote.title }}</span>
+            </div>
+            <div style="display: flex; gap: 16px; align-items: baseline;">
+                <span class="t-mono" style="font-size: 22px; font-weight: 500;">{{ vote.yeas }}–{{ vote.nays }}</span>
+                {% if vote.source == 'video_ocr' %}<span class="t-meta t-mono" style="font-size: 10px; color: var(--warn);">OCR</span>{% endif %}
+            </div>
+            {% if vote.member_votes %}
+            <div style="display: flex; flex-wrap: wrap; gap: 4px;">
+                {% for mv in vote.member_votes %}
+                {% set pos = 'yea' if mv.position in ('yea','yes') else 'nay' if mv.position in ('nay','no') else mv.position %}
+                <span class="chip chip-{{ pos }}" style="font-size: 10px; height: 20px; padding: 0 6px;">{{ mv.member_name.split('.')[-1]|trim }} · {{ pos[0]|upper }}</span>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </button>
+    {% endfor %}
+    </div>
+</section>
+{% endif %}
+
+{# ── Recent Votes ────────────────────────────────── #}
+{% if recent_votes %}
+<section class="feed">
+    <div class="feed-head">
+        <div>
+            <div class="t-eyebrow">Latest activity</div>
+            <h2 class="feed-title t-display">Recent votes</h2>
+        </div>
+    </div>
+
+    <div class="feed-table">
+        <div class="feed-th">
+            <span class="t-label">Date</span>
+            <span class="t-label">Meeting</span>
+            <span class="t-label" style="text-align: right;">Result</span>
+            <span class="t-label" style="text-align: right;">Tally</span>
+            <span class="t-label" style="text-align: right;">Source</span>
+            <span></span>
+        </div>
+        {% for vote in recent_votes %}
+        <button class="feed-row"
+                hx-get="{{ url_for('public.rail_meeting', slug=municipality.slug, meeting_id=vote.meeting_id) }}"
+                hx-target="#source-rail"
+                hx-swap="innerHTML">
+            <div class="feed-date">
+                <div class="feed-date-d t-display">{{ vote.meeting_date.day }}</div>
+                <div class="feed-date-m">{{ vote.meeting_date.strftime('%b %Y') }}</div>
+            </div>
+            <div class="feed-meeting-title">{{ vote.title }}</div>
+            <div class="feed-num">
+                <span class="chip chip-{{ 'yea' if vote.result == 'passed' else 'nay' if vote.result == 'failed' else 'abstain' }}" style="font-size: 10px; height: 20px; padding: 0 6px;">{{ vote.result|upper }}</span>
+            </div>
+            <div class="feed-num t-mono">{{ vote.yeas }}–{{ vote.nays }}</div>
+            <div class="feed-num t-meta">{{ vote.source | replace('_',' ') }}</div>
+            <div class="feed-arrow">→</div>
+        </button>
+        {% endfor %}
+    </div>
+</section>
+{% endif %}
+
 {# ── Browse by Topic ──────────────────────────────── #}
 {% if topics %}
 <section class="topics">

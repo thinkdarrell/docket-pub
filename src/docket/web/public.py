@@ -68,7 +68,9 @@ def city_overview(slug):
     members = query.list_council_members(slug)
     recent = query.list_recent_meetings(days=7, limit=4)
     upcoming = query.list_upcoming_meetings(days=14, limit=4)
-    notable = query.list_high_dollar_items(municipality_slug=slug, limit=6)
+    notable = query.list_high_dollar_items(municipality_slug=slug, limit=6, days=180)
+    contested = query.list_contested_votes(municipality_slug=slug, limit=6)
+    recent_votes = query.list_recent_votes(municipality_slug=slug, limit=8)
     stats = query.dashboard_stats()
 
     # Filter timeline to this city
@@ -85,6 +87,8 @@ def city_overview(slug):
         recent_meetings=recent_city,
         upcoming_meetings=upcoming_city,
         notable_items=notable,
+        contested_votes=contested,
+        recent_votes=recent_votes,
         stats=stats,
         now=datetime.now(),
     )
