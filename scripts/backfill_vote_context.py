@@ -62,12 +62,13 @@ def main():
             vote_ext_id = f"{ext_id}-vote-{j + 1}"
             cur.execute(
                 """UPDATE votes
-                   SET resolution_number = %s, match_context = %s
+                   SET resolution_number = %s, match_context = %s, raw_text = %s
                    WHERE meeting_id = %s AND external_id = %s
                      AND resolution_number IS NULL""",
                 (
                     vote.resolution_number,
                     vote.context[-200:] if vote.context else None,
+                    vote.raw_text or None,
                     meeting_id,
                     vote_ext_id,
                 ),

@@ -189,6 +189,7 @@ class GranicusAdapter:
                     confidence="high",
                     resolution_number=vote.resolution_number,
                     match_context=vote.context[-200:] if vote.context else None,
+                    raw_text=vote.raw_text or None,
                 )
             )
 
