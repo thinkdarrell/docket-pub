@@ -16,6 +16,8 @@ import logging
 import re
 from bisect import bisect_right
 
+import psycopg2.extras
+
 from docket.db import db, db_cursor
 
 logger = logging.getLogger(__name__)
@@ -45,7 +47,7 @@ def match_votes_by_timestamp(meeting_id: int) -> int:
     Returns number of votes matched.
     """
     with db() as conn:
-        with conn.cursor() as cur:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             # Load agenda items with timestamps, sorted
             cur.execute(
                 """SELECT id, video_timestamp_seconds
@@ -110,7 +112,7 @@ def match_votes_by_text(meeting_id: int) -> int:
     Returns number of votes matched.
     """
     with db() as conn:
-        with conn.cursor() as cur:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             # Load agenda items for this meeting
             cur.execute(
                 """SELECT id, item_number, title
@@ -241,7 +243,7 @@ def match_votes_for_meeting(meeting_id: int) -> dict:
 
     # Mark meeting as matched
     with db() as conn:
-        with conn.cursor() as cur:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
                 "UPDATE processing_status SET votes_matched = TRUE WHERE meeting_id = %s",
                 (meeting_id,),
