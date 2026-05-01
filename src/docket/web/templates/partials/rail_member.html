@@ -35,13 +35,29 @@
         <div class="rail-section">
             <div class="rail-kicker t-mono">RECENT VOTES</div>
             {% for v in vote_summary.recent[:10] %}
-            <div class="rail-vote-row" style="padding: 0.35rem 0; border-bottom: 1px solid var(--rule, #e0d8cf);">
-                <div class="t-meta">{{ v.meeting_date.strftime('%b %-d, %Y') }}</div>
+            {% set links = v.get('agenda_links', []) %}
+            {% set is_consent = links and links[0].association_type.startswith('consent_') %}
+            {% set is_provisional = links|selectattr('provisional')|list %}
+            <div class="rail-vote-row" style="padding: 0.5rem 0; border-bottom: 1px solid var(--rule, #e0d8cf);">
                 <div style="display: flex; justify-content: space-between; align-items: center; gap: 6px;">
-                    <span class="t-label" style="font-size: 0.8rem;">{{ v.result|capitalize }}</span>
-                    {% if v.source == 'video_ocr' %}<span class="t-meta t-mono" style="font-size: 9px; color: var(--warn);">OCR</span>{% endif %}
-                    <span class="chip chip-{{ v.position }}">{{ v.position|upper }}</span>
+                    <div class="t-meta">{{ v.meeting_date.strftime('%b %-d, %Y') }}</div>
+                    <div style="display: flex; align-items: center; gap: 6px;">
+                        <span class="t-label" style="font-size: 0.8rem;">{{ v.result|capitalize }}</span>
+                        {% if v.source == 'video_ocr' %}<span class="t-meta t-mono" style="font-size: 9px; color: var(--warn);">OCR</span>{% endif %}
+                        <span class="chip chip-{{ v.position }}">{{ v.position|upper }}</span>
+                    </div>
                 </div>
+                {% if is_consent %}
+                <div class="t-meta" style="margin-top: 4px; font-size: 11px; line-height: 1.35;">
+                    Consent vote · {{ links|length }} item{{ 's' if links|length != 1 else '' }}
+                    {% if is_provisional %}<span class="chip is-warn" style="font-size: 9px; height: 16px; padding: 0 4px; margin-left: 4px;" title="Council has not yet adopted these minutes">provisional</span>{% endif %}
+                </div>
+                {% elif links|length == 1 %}
+                {% set link = links[0] %}
+                <div class="t-meta" style="margin-top: 4px; font-size: 11px; line-height: 1.35;">
+                    {% if link.item_number %}<span class="t-mono">[{{ link.item_number }}]</span> {% endif %}{{ link.item_title|truncate(85) }}
+                </div>
+                {% endif %}
             </div>
             {% endfor %}
         </div>

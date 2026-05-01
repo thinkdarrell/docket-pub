@@ -327,7 +327,13 @@ def get_council_member(member_id: int) -> dict | None:
 
 
 def get_member_vote_summary(member_id: int) -> dict:
-    """Return vote summary stats and recent votes for a council member."""
+    """Return vote summary stats and recent votes for a council member.
+
+    Each recent-vote dict carries an `agenda_links` list of dicts (one per
+    linked agenda_item, filtered to is_active=TRUE) with item_number, title,
+    and association_type — so the UI can show what was voted on, with
+    consent-block votes rendered as a count rather than a single title.
+    """
     with db_cursor() as cur:
         cur.execute(
             """
@@ -345,11 +351,11 @@ def get_member_vote_summary(member_id: int) -> dict:
 
         cur.execute(
             """
-            SELECT v.result, v.source, v.yeas, v.nays,
+            SELECT v.id AS vote_id, v.result, v.source, v.yeas, v.nays,
                    CASE WHEN mv.position IN ('yea','yes') THEN 'yea'
                         WHEN mv.position IN ('nay','no') THEN 'nay'
                         ELSE mv.position END AS position,
-                   m.meeting_date, m.title
+                   m.id AS meeting_id, m.meeting_date, m.title
             FROM member_votes mv
             JOIN votes v ON mv.vote_id = v.id
             JOIN meetings m ON v.meeting_id = m.id
@@ -360,6 +366,23 @@ def get_member_vote_summary(member_id: int) -> dict:
             (member_id,),
         )
         recent = [dict(r) for r in cur.fetchall()]
+
+        if recent:
+            vote_ids = [r["vote_id"] for r in recent]
+            cur.execute(
+                """SELECT vai.vote_id, vai.association_type, vai.match_method,
+                          vai.provisional, ai.item_number, ai.title AS item_title
+                   FROM vote_agenda_items vai
+                   JOIN agenda_items ai ON ai.id = vai.agenda_item_id
+                   WHERE vai.vote_id = ANY(%s) AND vai.is_active
+                   ORDER BY vai.vote_id, vai.match_confidence DESC, vai.id ASC""",
+                (vote_ids,),
+            )
+            links_by_vote: dict = {}
+            for r in cur.fetchall():
+                links_by_vote.setdefault(r["vote_id"], []).append(dict(r))
+            for v in recent:
+                v["agenda_links"] = links_by_vote.get(v["vote_id"], [])
 
         total = sum(counts.values())
         return {
