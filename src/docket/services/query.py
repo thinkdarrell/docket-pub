@@ -384,7 +384,12 @@ def list_high_dollar_items(
     municipality_slug: str | None = None,
     limit: int = 20,
 ) -> list[dict]:
-    """Return agenda items with dollar amounts above a threshold."""
+    """Return notable high-dollar agenda items, balancing amount and recency.
+
+    Uses a composite score: items from the last 90 days are ranked purely by
+    dollar amount; older items are progressively discounted so that a $1M item
+    from last month outranks a $5M item from 2016.
+    """
     with db_cursor() as cur:
         where = "ai.dollars_amount >= %s"
         params: list = [min_dollars]
@@ -401,7 +406,10 @@ def list_high_dollar_items(
             JOIN meetings mt ON ai.meeting_id = mt.id
             JOIN municipalities m ON mt.municipality_id = m.id
             WHERE m.active = TRUE AND {where}
-            ORDER BY ai.dollars_amount DESC
+            ORDER BY
+                ai.dollars_amount
+                / GREATEST(1, EXTRACT(EPOCH FROM (NOW() - mt.meeting_date)) / 86400 / 90)
+                DESC
             LIMIT %s
             """,
             [*params, limit],
