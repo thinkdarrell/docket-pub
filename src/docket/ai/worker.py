@@ -59,3 +59,57 @@ def claim_meetings_sql() -> str:
         FOR UPDATE OF m SKIP LOCKED
         LIMIT %s
     """
+
+
+import json
+from psycopg2.extras import Json
+
+from docket.ai.prompts import ITEM_PROMPT_VERSION, MEETING_PROMPT_VERSION
+from docket.ai.results import ItemAIResult, MeetingAIResult
+
+
+def write_item_result(conn, item_id: int, result: ItemAIResult, *, model: str) -> None:
+    """Update an agenda_item row with AI output."""
+    metadata = {
+        "significance_rationale": result.significance_rationale,
+        "consent_placement_rationale": result.consent_placement_rationale,
+        "confidence": result.confidence,
+        "is_substantive": result.is_substantive,
+        "model": model,
+    }
+    with conn.cursor() as cur:
+        cur.execute("""
+            UPDATE agenda_items
+               SET summary                 = %s,
+                   significance_score      = %s,
+                   consent_placement_score = %s,
+                   ai_metadata             = %s,
+                   ai_prompt_version       = %s,
+                   ai_generated_at         = NOW()
+             WHERE id = %s
+        """, (
+            result.summary,
+            result.significance_score,
+            result.consent_placement_score,
+            Json(metadata),
+            ITEM_PROMPT_VERSION,
+            item_id,
+        ))
+
+
+def mark_item_failed(conn, item_id: int, reason: str) -> None:
+    """Permanently mark an item as completed_failed: summary stays NULL, version bumped."""
+    metadata = {
+        "confidence": "low",
+        "is_substantive": None,
+        "error": reason,
+        "model": None,
+    }
+    with conn.cursor() as cur:
+        cur.execute("""
+            UPDATE agenda_items
+               SET ai_metadata       = %s,
+                   ai_prompt_version = %s,
+                   ai_generated_at   = NOW()
+             WHERE id = %s
+        """, (Json(metadata), ITEM_PROMPT_VERSION, item_id))
