@@ -112,7 +112,7 @@ def test_mark_item_failed_keeps_summary_null(seed_item):
 
 
 from docket.ai.results import MeetingAIResult
-from docket.ai.worker import write_meeting_result, mark_meeting_empty
+from docket.ai.worker import write_meeting_result, mark_meeting_empty, mark_meeting_failed
 
 
 @pytest.fixture
@@ -191,5 +191,24 @@ def test_mark_meeting_empty(seed_meeting):
     assert row[0] is None
     assert row[1]["is_substantive"] is False
     assert row[1]["substantive_item_count"] == 0
+    assert row[1]["model"] is None
+    assert row[2] == 1
+
+
+def test_mark_meeting_failed_keeps_summary_null(seed_meeting):
+    """Permanent failure: prompt_version bumped (so not re-claimed forever),
+    executive_summary stays NULL, confidence=low, error preserved."""
+    with db() as conn:
+        mark_meeting_failed(conn, seed_meeting, "tool_use validation rejected")
+        conn.commit()
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT executive_summary, ai_metadata, ai_prompt_version
+                FROM meetings WHERE id = %s
+            """, (seed_meeting,))
+            row = cur.fetchone()
+    assert row[0] is None
+    assert row[1]["confidence"] == "low"
+    assert "error" in row[1]
     assert row[1]["model"] is None
     assert row[2] == 1

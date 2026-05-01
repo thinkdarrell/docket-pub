@@ -46,7 +46,6 @@ def cmd_status() -> None:
                  WHERE (
                    ((m.ai_prompt_version IS NULL OR m.ai_prompt_version < %s)
                     AND m.minutes_adopted_at IS NULL
-                    AND COALESCE(m.ai_metadata->>'phase', '') != 'provisional'
                     AND NOT EXISTS (
                       SELECT 1 FROM agenda_items ai
                        WHERE ai.meeting_id = m.id

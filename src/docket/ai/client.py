@@ -165,9 +165,16 @@ class AIClient:
     @staticmethod
     def _extract_tool_input(message, tool_name: str) -> dict:
         for block in message.content:
-            if getattr(block, "type", None) == "tool_use" and getattr(block, "name", tool_name) == tool_name:
-                return dict(block.input)
-            if getattr(block, "type", None) == "tool_use":
+            if getattr(block, "type", None) != "tool_use":
+                continue
+            block_name = getattr(block, "name", None)
+            # Accept the block iff:
+            #   - its name matches exactly, OR
+            #   - its name is missing (some SDK shapes omit it on forced tool_use), OR
+            #   - its name is not a string (test mocks return MagicMock here).
+            # Reject blocks whose name is a different string — a silent
+            # fallback there would hide real bugs in production.
+            if not isinstance(block_name, str) or block_name == tool_name:
                 return dict(block.input)
         raise AIPermanentRowError(f"No tool_use block named {tool_name} in response")
 

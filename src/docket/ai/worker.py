@@ -134,6 +134,26 @@ def write_meeting_result(conn, meeting_id: int, result: MeetingAIResult, *, mode
         """, (result.executive_summary, Json(metadata), MEETING_PROMPT_VERSION, meeting_id))
 
 
+def mark_meeting_failed(conn, meeting_id: int, reason: str) -> None:
+    """Permanently mark a meeting as completed_failed: executive_summary stays NULL,
+    ai_prompt_version bumped so the row is not re-claimed indefinitely."""
+    metadata = {
+        "phase": None,
+        "is_substantive": None,
+        "confidence": "low",
+        "error": reason,
+        "model": None,
+    }
+    with conn.cursor() as cur:
+        cur.execute("""
+            UPDATE meetings
+               SET ai_metadata       = %s,
+                   ai_prompt_version = %s,
+                   ai_generated_at   = NOW()
+             WHERE id = %s
+        """, (Json(metadata), MEETING_PROMPT_VERSION, meeting_id))
+
+
 def mark_meeting_empty(conn, meeting_id: int) -> None:
     """Skip Sonnet call: meeting has zero substantive items."""
     metadata = {
@@ -247,6 +267,17 @@ def run_once(*, stage: Literal["items", "meetings"],
     summary = RunSummary(stage=stage)
     model = client.item_model if stage == "items" else client.meeting_model
 
+    # Validate model is in PRICING before any API call so cost tracking
+    # cannot fail mid-batch with an unhandled KeyError. Misconfigured model
+    # is a fatal config error, not a transient one.
+    from docket.ai.pricing import PRICING
+    if model not in PRICING:
+        raise AIFatalError(
+            f"Model {model!r} has no entry in docket.ai.pricing.PRICING; "
+            f"add per-token rates before running. Configured models: "
+            f"AI_ITEM_MODEL={client.item_model!r}, AI_MEETING_MODEL={client.meeting_model!r}"
+        )
+
     with db() as conn:
         run_id = _open_run(conn, stage, model, notes)
         conn.commit()
@@ -349,7 +380,9 @@ def _process_meetings(conn, client: AIClient, limit: int, summary: RunSummary) -
         except AIPermanentRowError as e:
             log.error("Permanent failure on meeting %s: %s", meeting_id, e)
             conn.rollback()
+            mark_meeting_failed(conn, meeting_id, reason=str(e)[:200])
             summary.rows_failed += 1
+            conn.commit()
         except AIFatalError:
             conn.rollback()
             raise
