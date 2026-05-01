@@ -23,12 +23,15 @@ ON CONFLICT (vote_id, agenda_item_id) DO NOTHING;
 
 SQL_DOWN = """
 -- Reverse: remove the migrated rows. We identify them by association_type='explicit'
--- AND match_method matching the original simple matcher methods, AND provisional=FALSE.
--- This is approximate; if you've inserted other 'explicit' rows, this will catch them too.
+-- AND match_method matching one of the original matcher methods (or NULL, for
+-- legacy rows that pre-dated match_method tracking), AND provisional=FALSE.
+-- This is approximate; if you've inserted other 'explicit' rows that were not
+-- backfilled by SQL_UP, this DELETE may catch them too.
 -- For full safety, take a backup before running --down.
 DELETE FROM vote_agenda_items
 WHERE association_type = 'explicit'
   AND provisional = FALSE
   AND is_manual = FALSE
-  AND match_method IN ('resolution_number', 'item_number', 'text_similarity');
+  AND (match_method IS NULL
+       OR match_method IN ('resolution_number', 'item_number', 'text_similarity', 'timestamp'));
 """
