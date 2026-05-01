@@ -105,6 +105,14 @@ def ingest_municipality(slug: str, since: date | None = None) -> IngestResult:
 
     logger.info("Votes: %d inserted", total_votes)
 
+    # Stage 5: Sweep for adoption-pattern agenda items and resolve minutes_adopted_at
+    try:
+        from docket.services.minutes_adoption import sweep_adoptions
+        flipped = sweep_adoptions(municipality_id)
+        logger.info("adoption_sweep municipality_id=%s flipped=%d", municipality_id, len(flipped))
+    except Exception as e:
+        logger.warning("adoption_sweep failed for municipality %s: %s", municipality_id, e)
+
     return IngestResult(
         municipality_slug=slug,
         meetings_found=len(raw_meetings),
