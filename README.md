@@ -35,17 +35,20 @@ The backend pipeline, search, enrichment, and Flask routing are complete. Templa
 3. **Additional Adapters** — CivicClerk (API), GenericCMS (HTML scraping), CivicPlus (stub)
 4. **Data Enrichment** — Dollar extraction, sponsor extraction, topic classification (11 topics), scoring stubs
 5. **Search + Query** — PostgreSQL FTS, cross-city timeline, topic browse, high-dollar items
-6. **Flask App** — 12 routes (8 public + 4 admin), unstyled templates, HTMX-ready
+6. **Flask App** — 15 routes (11 public + 4 admin), editorial design, HTMX source rail
 7. **Council Rosters** — 26 members seeded across 4 cities, admin UI for management
-8. **Tests + Docs** — 138 unit tests, security checklist, ruff clean
+8. **Admin Auth** — Session-based login on all `/admin/*` routes
+9. **Railway Deployment** — Live at `docket-web-production-6110.up.railway.app`
+10. **Minutes Vote Parser** — PDF extraction of attendance + votes from Birmingham minutes (870 meetings)
+11. **Tests** — 140 unit tests, ruff clean
 
 ### What's Next
 
-- **Styled Frontend** — UI designs from Claude Design, drop into existing Flask templates
-- **Vote OCR Pipeline** — 8-module video analysis pipeline exists in [al-municipal-meetings](https://github.com/thinkdarrell/al-municipal-meetings), not yet ported
-- **Deployment** — Docker-based, Hetzner or Railway
-- **Admin Auth** — Session-based authentication for `/admin/` routes
+- **Push vote data to Railway** — batch ingestion of minutes votes running locally
+- **Video OCR for recent meetings** — 23 meetings after 12/30/2025 lack minutes; pipeline confirmed working
+- **Astro frontend evaluation** — considering migration from Flask/Jinja2+HTMX to Astro
 - **Freshness Checks** — Silent Break alerts when a city's data feed stops updating
+- **Custom domain** — connect `docket.pub` via Railway dashboard
 
 ---
 
@@ -58,7 +61,7 @@ The backend pipeline, search, enrichment, and Flask routing are complete. Templa
 | Database | PostgreSQL 16 |
 | Search | PostgreSQL full-text search (tsvector/tsquery with GIN indexes) |
 | Containerization | Docker + docker-compose |
-| Deployment | Deferred (Hetzner or Railway) |
+| Deployment | Railway (live) |
 
 ---
 
@@ -361,7 +364,7 @@ GET  /topics/                           Browse by topic index
 GET  /topics/<topic>/                   Items for a specific topic
 ```
 
-### Admin (4 routes — NOT authenticated yet)
+### Admin (4 routes — session-based auth required)
 
 ```
 GET       /admin/members/               List all council members

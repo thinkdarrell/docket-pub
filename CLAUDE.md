@@ -36,9 +36,11 @@ docket-pub-dw-dev/
       query.py             # Read APIs: meetings, items, search, topics, timeline
       enrichment.py        # Enrichment service (inline + backfill)
     web/                   # Flask app factory + blueprints
-      __init__.py          # create_app() factory
+      __init__.py          # create_app() factory (production cookie settings)
       public.py            # Citizen-facing routes (11 routes + 3 HTMX partials)
-      admin.py             # Admin routes (4 routes — council member CRUD)
+      admin.py             # Admin routes (4 routes — council member CRUD, auth-gated)
+      auth.py              # Auth blueprint — /admin/login, /admin/logout, login_required
+      create_admin.py      # CLI: python -m docket.web.create_admin <user> <pass>
       templates/           # Jinja2 templates (editorial design from Claude Design)
         base.html          # App shell with rail sidebar, fonts, HTMX
         city.html          # Birmingham overview (hero, KPIs, topics, legislation, council)
@@ -48,7 +50,8 @@ docket-pub-dw-dev/
         layout.css         # Masthead, hero, KPIs, feed, council cards, rail
         councilmatic.css   # This-week strip, topic browse, legislation cards
         tweaks.css         # Footer, rail empty CTA
-    analysis/              # Vote OCR pipeline (not yet ported)
+    analysis/
+      minutes_parser.py    # Birmingham minutes PDF → attendance + votes
     rosters/               # Council member rosters (not yet built)
     enrichment/            # Dollar extraction, sponsors, topics, scoring
       dollars.py           # Regex dollar extraction + tier classification
@@ -190,12 +193,14 @@ This repo (`docket-pub-dw-dev`) is a **test/dev fork** of the main `docket-pub` 
 | Source-of-truth rail | Done | HTMX partials update on click (meeting, member, default) |
 | Council roster admin | Done | `/admin/members/` — add, edit, deactivate council members |
 | Security checklist | Done | `docs/SECURITY_CHECKLIST.md` — pre-deployment requirements |
-| Vote OCR pipeline | Not ported | Lives in `al-municipal-meetings/src/muni/analysis/` |
+| Admin auth | Done | Session-based login, migration 006, `/admin/login`, `create_admin` CLI |
+| Deployment | Done | Railway — live at `docket-web-production-6110.up.railway.app` |
+| Minutes vote parser | Done | `analysis/minutes_parser.py` — PDF text extraction, attendance + votes |
+| Vote ingestion | Done | Ingest pipeline Stage 4 — parses minutes, inserts votes + member_votes |
+| Video OCR pipeline | Confirmed working | `al-municipal-meetings` pipeline runs from docket venv (ffmpeg + tesseract) |
 | Source reconciliation | Not built | Compare video OCR vs official minutes |
 | Freshness checks | Not built | Nightly auto-check + manual trigger |
 | Public API | Not built | Flask blueprint for `/api/v1/` (deferred — security concern) |
-| Admin auth | Not built | Session-based auth needed before deploy |
-| Deployment | Not done | Docker works locally, Railway target |
 
 ### Build phases (reference)
 
@@ -205,7 +210,10 @@ This repo (`docket-pub-dw-dev`) is a **test/dev fork** of the main `docket-pub` 
 4. ~~Data enrichment (dollars, sponsors, topics, scoring stubs)~~ — DONE (vote OCR, reconciliation → Phase 4b)
 5. ~~Search + query expansion~~ — DONE (FTS, timeline, topics, high-dollar; public REST API deferred)
 6. ~~Citizen frontend~~ — DONE (editorial design from Claude Design, HTMX source rail, council cards)
-7. Deployment — Railway target, Docker ready, admin auth needed first
+7. ~~Admin auth~~ — DONE (session-based login, migration 006)
+8. ~~Deployment~~ — DONE (Railway, gunicorn, production cookies)
+9. ~~Minutes vote extraction~~ — DONE (PDF parser for Birmingham, 870 meetings with minutes)
+10. Video OCR for post-12/30 meetings — 23 meetings, pipeline confirmed working
 
 ### Key decisions to preserve
 
@@ -218,7 +226,9 @@ This repo (`docket-pub-dw-dev`) is a **test/dev fork** of the main `docket-pub` 
 - **Search:** PostgreSQL FTS (tsvector/tsquery), not a separate engine
 - **Data Honesty:** inline badges + footer attribution + discrepancy flags
 - **Silent Break alerts:** dashboard + email notifications
-- **Deployment:** Docker-based, hosting deferred (Hetzner or Railway)
+- **Deployment:** Railway (live), gunicorn, production cookies, Procfile
+- **Vote sources:** Minutes PDF first (870 meetings), video OCR fallback (23 post-12/30 meetings)
+- **Video OCR:** Import `muni.analysis` from al-municipal-meetings (installed in venv), don't re-port
 
 ### Local PostgreSQL setup
 
