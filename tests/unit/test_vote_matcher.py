@@ -489,3 +489,90 @@ def test_consent_block_links_default_fill_provisional(consent_block_meeting):
 
     assert len(rows) == 3
     assert all(r["provisional"] for r in rows)
+
+
+def test_strict_reparse_promotes_provisional_to_official(consent_block_meeting):
+    """A provisional consent_implicit link, after strict re-parse with the item in the
+    enumerated list, becomes provisional=False, confidence=1.0, method=consent_enumerated."""
+    from docket.analysis.vote_matcher import match_votes_for_meeting, strict_reparse_meeting
+
+    match_votes_for_meeting(consent_block_meeting["meeting_id"])
+
+    enumerated_text = """
+    RESOLUTION 1854-25 A Resolution authorizing HCL Contracting paving services 9th Avenue
+    RESOLUTION 1855-25 A Resolution authorizing OLB Enterprises liquor license
+    RESOLUTION 1856-25 A Resolution authorizing East Side Lounge license
+    The resolutions and ordinances introduced as consent agenda matters were read by the
+    City Clerk... Ayes: Alexander, Smitherman, Williams, O'Quinn / Nays: None
+    """
+    strict_reparse_meeting(consent_block_meeting["meeting_id"], minutes_text=enumerated_text)
+
+    from docket.db import db_cursor
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT provisional, match_method, match_confidence, is_active "
+            "FROM vote_agenda_items WHERE vote_id = %s ORDER BY agenda_item_id",
+            (consent_block_meeting["vote_id"],),
+        )
+        rows = cur.fetchall()
+    assert all(not r["provisional"] for r in rows)
+    assert all(r["match_method"] == "consent_enumerated" for r in rows)
+    assert all(r["match_confidence"] == pytest.approx(1.0) for r in rows)
+    assert all(r["is_active"] for r in rows)
+
+
+def test_strict_reparse_deactivates_pulled_from_consent(consent_block_meeting):
+    """An item linked provisionally but NOT in the enumerated list becomes is_active=False."""
+    from docket.analysis.vote_matcher import match_votes_for_meeting, strict_reparse_meeting
+
+    match_votes_for_meeting(consent_block_meeting["meeting_id"])
+
+    # Enumerated list mentions only HCL and OLB. East Side Lounge is "pulled".
+    enumerated_text = """
+    RESOLUTION 1854-25 A Resolution authorizing HCL Contracting paving services 9th Avenue
+    RESOLUTION 1855-25 A Resolution authorizing OLB Enterprises liquor license
+    The resolutions and ordinances introduced as consent agenda matters were read by the
+    City Clerk... Ayes: Alexander, Smitherman, Williams / Nays: None
+    """
+    strict_reparse_meeting(consent_block_meeting["meeting_id"], minutes_text=enumerated_text)
+
+    east_side_id = consent_block_meeting["agenda_item_ids"][2]
+    from docket.db import db_cursor
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT is_active FROM vote_agenda_items WHERE vote_id = %s AND agenda_item_id = %s",
+            (consent_block_meeting["vote_id"], east_side_id),
+        )
+        row = cur.fetchone()
+    assert row["is_active"] is False
+
+
+def test_strict_reparse_respects_is_manual(consent_block_meeting):
+    """is_manual=True links must NOT be deactivated even if pulled from consent."""
+    from docket.analysis.vote_matcher import match_votes_for_meeting, strict_reparse_meeting
+
+    match_votes_for_meeting(consent_block_meeting["meeting_id"])
+
+    east_side_id = consent_block_meeting["agenda_item_ids"][2]
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE vote_agenda_items SET is_manual = TRUE "
+                "WHERE vote_id = %s AND agenda_item_id = %s",
+                (consent_block_meeting["vote_id"], east_side_id),
+            )
+        conn.commit()
+
+    enumerated_text = "RESOLUTION 1854-25 HCL Contracting"  # East Side missing — would normally deactivate
+    strict_reparse_meeting(consent_block_meeting["meeting_id"], minutes_text=enumerated_text)
+
+    from docket.db import db_cursor
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT is_active, is_manual FROM vote_agenda_items "
+            "WHERE vote_id = %s AND agenda_item_id = %s",
+            (consent_block_meeting["vote_id"], east_side_id),
+        )
+        row = cur.fetchone()
+    assert row["is_manual"] is True
+    assert row["is_active"] is True  # protected by manual shield

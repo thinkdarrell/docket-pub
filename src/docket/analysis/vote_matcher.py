@@ -408,6 +408,181 @@ def _significant_words(text: str) -> set[str]:
     return words - _STOP_WORDS
 
 
+_ENUM_RESOLUTION_RE = re.compile(
+    r"(?:RESOLUTION|ORDINANCE)\s+(?:NO\.\s*)?(?P<num>\d[\d-]*)\s+(?P<desc>[^\n\r]{0,200})",
+    re.IGNORECASE,
+)
+
+
+def _parse_enumerated_consent_list(minutes_text: str) -> list[tuple[str, str]]:
+    """Extract (resolution_number, description) tuples from the consent enumeration.
+
+    Looks for "RESOLUTION 1854-25 A Resolution authorizing..." lines that typically
+    appear in Birmingham minutes before the consent-vote roll call.
+    """
+    return [(m.group("num"), m.group("desc").strip()) for m in _ENUM_RESOLUTION_RE.finditer(minutes_text)]
+
+
+def _resolve_enumerated_to_agenda_items(
+    cur, meeting_id: int, enumerated: list[tuple[str, str]]
+) -> set[int]:
+    """For each enumerated entry, return matching agenda_item ids (is_consent=TRUE).
+
+    Match by resolution number occurrence in the title/description first;
+    otherwise by significant-word overlap with the description (>=3 words).
+    """
+    cur.execute(
+        "SELECT id, item_number, title, COALESCE(description, '') AS description "
+        "FROM agenda_items WHERE meeting_id = %s AND is_consent = TRUE",
+        (meeting_id,),
+    )
+    items = cur.fetchall()
+    resolved: set[int] = set()
+    for res_num, desc in enumerated:
+        # Resolution-number match
+        for item in items:
+            haystack = (item["title"] or "") + " " + item["description"]
+            if re.search(rf"\b{re.escape(res_num)}\b", haystack):
+                resolved.add(item["id"])
+                break
+        else:
+            # Keyword fallback
+            desc_words = _significant_words(desc)
+            if len(desc_words) < 3:
+                continue
+            best_id, best_overlap = None, 0
+            for item in items:
+                title_words = _significant_words(item["title"] or "")
+                overlap = len(desc_words & title_words)
+                if overlap >= 3 and overlap > best_overlap:
+                    best_overlap = overlap
+                    best_id = item["id"]
+            if best_id is not None:
+                resolved.add(best_id)
+    return resolved
+
+
+def _fetch_vote_for_classify(cur, vote_id: int) -> dict:
+    cur.execute("SELECT raw_text, match_context FROM votes WHERE id = %s", (vote_id,))
+    return cur.fetchone() or {}
+
+
+def strict_reparse_meeting(meeting_id: int, *, minutes_text: str | None = None) -> dict:
+    """Promote provisional consent links to official; deactivate pulled-from-consent links.
+
+    minutes_text: pass-through for tests. In production, callers fetch the PDF and pass the text.
+    Respects is_manual=TRUE on every UPDATE.
+    """
+    if minutes_text is None:
+        from docket.analysis.minutes_parser import (
+            download_minutes_pdf, extract_text_from_pdf,
+        )
+        with db_cursor() as cur:
+            cur.execute("SELECT minutes_url FROM meetings WHERE id = %s", (meeting_id,))
+            row = cur.fetchone()
+        if not row or not row["minutes_url"]:
+            logger.warning("strict_reparse: no minutes_url for meeting %s", meeting_id)
+            return {"promoted": 0, "deactivated": 0}
+        pdf = download_minutes_pdf(row["minutes_url"])
+        if not pdf:
+            return {"promoted": 0, "deactivated": 0}
+        minutes_text = extract_text_from_pdf(pdf)
+
+    enumerated = _parse_enumerated_consent_list(minutes_text)
+    if not enumerated:
+        logger.warning("strict_reparse: no enumerated list found for meeting %s", meeting_id)
+        return {"promoted": 0, "deactivated": 0}
+
+    promoted = 0
+    deactivated = 0
+    with db() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            target_item_ids = _resolve_enumerated_to_agenda_items(cur, meeting_id, enumerated)
+
+            cur.execute(
+                """SELECT vai.id, vai.vote_id, vai.agenda_item_id
+                   FROM vote_agenda_items vai
+                   JOIN votes v ON v.id = vai.vote_id
+                   WHERE v.meeting_id = %s
+                     AND vai.is_manual = FALSE
+                     AND vai.is_active = TRUE
+                     AND vai.association_type IN ('consent_named', 'consent_implicit')""",
+                (meeting_id,),
+            )
+            existing_links = cur.fetchall()
+            existing_by_item = {(r["vote_id"], r["agenda_item_id"]): r["id"] for r in existing_links}
+            _ = existing_by_item  # reserved for future audit logging
+
+            # Promote: items in enumerated set that are linked -> flip provisional
+            cur.execute(
+                """UPDATE vote_agenda_items
+                   SET provisional = FALSE,
+                       match_confidence = 1.0,
+                       match_method = 'consent_enumerated',
+                       association_type = 'consent_named',
+                       updated_at = NOW()
+                   FROM votes v
+                   WHERE v.id = vote_agenda_items.vote_id
+                     AND v.meeting_id = %s
+                     AND vote_agenda_items.is_manual = FALSE
+                     AND vote_agenda_items.agenda_item_id = ANY(%s)
+                     AND vote_agenda_items.association_type IN ('consent_named', 'consent_implicit')""",
+                (meeting_id, list(target_item_ids)),
+            )
+            promoted = cur.rowcount
+
+            # Deactivate: linked items NOT in enumerated set
+            cur.execute(
+                """UPDATE vote_agenda_items
+                   SET is_active = FALSE, updated_at = NOW()
+                   FROM votes v
+                   WHERE v.id = vote_agenda_items.vote_id
+                     AND v.meeting_id = %s
+                     AND vote_agenda_items.is_manual = FALSE
+                     AND vote_agenda_items.is_active = TRUE
+                     AND vote_agenda_items.association_type IN ('consent_named', 'consent_implicit')
+                     AND NOT (vote_agenda_items.agenda_item_id = ANY(%s))""",
+                (meeting_id, list(target_item_ids)),
+            )
+            deactivated = cur.rowcount
+
+            # Insert any enumerated items that weren't previously linked
+            for item_id in target_item_ids:
+                cur.execute(
+                    """SELECT v.id AS vote_id FROM votes v
+                       LEFT JOIN vote_agenda_items vai
+                         ON vai.vote_id = v.id AND vai.agenda_item_id = %s
+                       WHERE v.meeting_id = %s AND v.source = 'minutes_text'
+                         AND vai.id IS NULL""",
+                    (item_id, meeting_id),
+                )
+                for r in cur.fetchall():
+                    if _classify_vote(_fetch_vote_for_classify(cur, r["vote_id"])) == "consent_block":
+                        _upsert_link(
+                            cur, vote_id=r["vote_id"], agenda_item_id=item_id,
+                            association_type="consent_named",
+                            match_method="consent_enumerated",
+                            match_confidence=1.0,
+                            excerpt_context=None,
+                            provisional=False,
+                        )
+
+            # Substantive safety pass
+            cur.execute(
+                """UPDATE vote_agenda_items
+                   SET provisional = FALSE, updated_at = NOW()
+                   FROM votes v
+                   WHERE v.id = vote_agenda_items.vote_id
+                     AND v.meeting_id = %s
+                     AND vote_agenda_items.is_manual = FALSE
+                     AND vote_agenda_items.association_type = 'explicit'""",
+                (meeting_id,),
+            )
+        conn.commit()
+
+    return {"promoted": promoted, "deactivated": deactivated}
+
+
 def match_votes_for_meeting(meeting_id: int) -> dict:
     """Run all matching strategies for a meeting."""
     ts_matched = match_votes_by_timestamp(meeting_id)
