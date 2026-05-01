@@ -11,7 +11,7 @@ import psycopg2
 import requests
 from bs4 import BeautifulSoup
 
-PG_DSN = "postgresql://docket@localhost:5432/docket_db"
+from docket.config import DATABASE_URL
 GRANICUS_BASE = "https://bhamal.granicus.com"
 DELAY = 1.0
 
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 def main():
-    conn = psycopg2.connect(PG_DSN)
+    conn = psycopg2.connect(DATABASE_URL)
     cur = conn.cursor()
 
     # Find meetings with agenda items that lack timestamps

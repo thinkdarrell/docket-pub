@@ -4,17 +4,22 @@ Imports votes and member_votes for meetings after 2025-12-30 that don't
 already have votes in docket_db. Maps clip_id -> external_id to match meetings.
 """
 
+import os
 import sqlite3
 import psycopg2
 
-SQLITE_PATH = "/Users/darrellnance/projects/al-municipal-meetings/data/meetings.db"
-PG_DSN = "postgresql://docket@localhost:5432/docket_db"
+from docket.config import DATABASE_URL
+
+SQLITE_PATH = os.environ.get(
+    "MUNI_DB_PATH",
+    "/Users/darrellnance/projects/al-municipal-meetings/data/meetings.db",
+)
 
 
 def main():
     sq = sqlite3.connect(SQLITE_PATH)
     sq.row_factory = sqlite3.Row
-    pg = psycopg2.connect(PG_DSN)
+    pg = psycopg2.connect(DATABASE_URL)
     pgc = pg.cursor()
 
     # Get video OCR votes for post-12/30 meetings from SQLite

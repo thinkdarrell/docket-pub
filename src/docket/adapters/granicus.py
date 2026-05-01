@@ -231,6 +231,7 @@ class GranicusAdapter:
                     pass
 
         if meeting_date is None:
+            logger.warning("Could not parse date for meeting '%s', using today", title)
             meeting_date = date.today()
 
         # Extract clip_id from any link

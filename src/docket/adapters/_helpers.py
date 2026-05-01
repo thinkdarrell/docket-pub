@@ -25,6 +25,6 @@ def classify_meeting(title: str) -> str:
     return "other"
 
 
-def is_consent_item(description: str) -> bool:
+def is_consent_item(description: str | None) -> bool:
     """Guess if an agenda item is part of the consent agenda."""
-    return "consent" in description.lower()
+    return "consent" in (description or "").lower()

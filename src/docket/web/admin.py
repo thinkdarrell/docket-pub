@@ -60,27 +60,26 @@ def add_member():
         if not muni:
             abort(404)
 
-        with db() as conn:
-            with conn.cursor() as cur:
-                # Resolve district if provided
-                district_id = None
-                if district_name:
-                    cur.execute(
-                        "SELECT id FROM districts WHERE municipality_id = %s AND name = %s",
-                        (muni["id"], district_name),
-                    )
-                    row = cur.fetchone()
-                    if row:
-                        district_id = row["id"]
-
+        with db_cursor() as cur:
+            # Resolve district if provided
+            district_id = None
+            if district_name:
                 cur.execute(
-                    """
-                    INSERT INTO council_members
-                        (municipality_id, district_id, name, email, photo_url, active)
-                    VALUES (%s, %s, %s, %s, %s, TRUE)
-                    """,
-                    (muni["id"], district_id, name, email, photo_url),
+                    "SELECT id FROM districts WHERE municipality_id = %s AND name = %s",
+                    (muni["id"], district_name),
                 )
+                row = cur.fetchone()
+                if row:
+                    district_id = row["id"]
+
+            cur.execute(
+                """
+                INSERT INTO council_members
+                    (municipality_id, district_id, name, email, photo_url, active)
+                VALUES (%s, %s, %s, %s, %s, TRUE)
+                """,
+                (muni["id"], district_id, name, email, photo_url),
+            )
 
         return redirect(url_for("admin.list_members"))
 

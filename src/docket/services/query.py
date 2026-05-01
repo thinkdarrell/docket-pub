@@ -510,7 +510,7 @@ def list_high_dollar_items(
             params.append(municipality_slug)
 
         if days:
-            where += " AND mt.meeting_date >= CURRENT_DATE - INTERVAL '%s days'"
+            where += " AND mt.meeting_date >= CURRENT_DATE - %s * INTERVAL '1 day'"
             params.append(days)
 
         cur.execute(

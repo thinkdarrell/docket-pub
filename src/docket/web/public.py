@@ -133,7 +133,7 @@ def meeting_detail(slug, meeting_id):
         abort(404)
 
     meeting = query.get_meeting(meeting_id)
-    if not meeting:
+    if not meeting or meeting.municipality_id != municipality["id"]:
         abort(404)
 
     agenda_items = query.list_agenda_items(meeting_id)

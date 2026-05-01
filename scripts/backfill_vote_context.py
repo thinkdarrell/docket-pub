@@ -15,7 +15,7 @@ from docket.analysis.minutes_parser import (
     parse_minutes,
 )
 
-PG_DSN = "postgresql://docket@localhost:5432/docket_db"
+from docket.config import DATABASE_URL
 DELAY = 0.5
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 def main():
-    conn = psycopg2.connect(PG_DSN)
+    conn = psycopg2.connect(DATABASE_URL)
     cur = conn.cursor()
 
     # Find meetings with minutes_text votes missing context

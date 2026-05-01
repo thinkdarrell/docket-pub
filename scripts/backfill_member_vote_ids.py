@@ -9,7 +9,7 @@ council_members.name using last-name + first-initial matching.
 import re
 import psycopg2
 
-PG_DSN = "postgresql://docket@localhost:5432/docket_db"
+from docket.config import DATABASE_URL
 
 
 def build_name_index(cur):
@@ -111,7 +111,7 @@ def is_garbage_name(name):
 
 
 def main():
-    conn = psycopg2.connect(PG_DSN)
+    conn = psycopg2.connect(DATABASE_URL)
     cur = conn.cursor()
 
     name_index = build_name_index(cur)

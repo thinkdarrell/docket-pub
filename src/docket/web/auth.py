@@ -50,6 +50,9 @@ def login():
             session.clear()
             session["admin_user"] = user["username"]
             next_url = request.args.get("next", url_for("admin.list_members"))
+            # Prevent open redirect — only allow relative paths
+            if not next_url.startswith("/") or next_url.startswith("//"):
+                next_url = url_for("admin.list_members")
             return redirect(next_url)
 
         flash("Invalid username or password.", "error")

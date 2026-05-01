@@ -326,9 +326,10 @@ def _update_processing_status(meeting_id: int, **fields) -> None:
                 )
             else:
                 cols = ["meeting_id", "last_processed"] + list(fields.keys())
-                placeholders = ", ".join(["%s"] * len(cols))
+                val_parts = ["%s", "NOW()"] + ["%s"] * len(fields)
                 col_str = ", ".join(cols)
+                val_str = ", ".join(val_parts)
                 cur.execute(
-                    f"INSERT INTO processing_status ({col_str}) VALUES ({placeholders})",
-                    (meeting_id, None, *fields.values()),
+                    f"INSERT INTO processing_status ({col_str}) VALUES ({val_str})",
+                    (meeting_id, *fields.values()),
                 )
