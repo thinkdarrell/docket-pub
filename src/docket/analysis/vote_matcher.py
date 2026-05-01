@@ -270,38 +270,41 @@ def _match_consent_block(meeting_id: int) -> int:
                 if not vote_text.strip():
                     continue
 
+                # Hoisted: vote_text is constant per vote, so its significant words
+                # are computed once instead of once per consent agenda item.
+                text_words = _significant_words(vote_text)
+
                 # Named callout pass
                 named_ids: set[int] = set()
                 for item in consent_items:
                     title = item["title"] or ""
                     item_num = item["item_number"] or ""
 
-                    item_num_pattern = (
-                        rf"\b(?:item|ITEM)\s+(?:no\.?\s*)?{re.escape(item_num)}\b"
-                        if item_num else None
-                    )
-                    if item_num and item_num_pattern and re.search(item_num_pattern, vote_text, re.IGNORECASE):
-                        named_ids.add(item["id"])
-                        _upsert_link(
-                            cur, vote_id=vote["id"], agenda_item_id=item["id"],
-                            association_type="consent_named",
-                            match_method="consent_block_named",
-                            match_confidence=1.0,
-                            excerpt_context=_extract_snippet(vote.get("raw_text") or "", item_num),
-                            provisional=True,
-                        )
-                        matched += 1
-                        continue
+                    if item_num:
+                        item_num_pattern = rf"\b(?:item|ITEM)\s+(?:no\.?\s*)?{re.escape(item_num)}\b"
+                        if re.search(item_num_pattern, vote_text, re.IGNORECASE):
+                            named_ids.add(item["id"])
+                            _upsert_link(
+                                cur, vote_id=vote["id"], agenda_item_id=item["id"],
+                                association_type="consent_named",
+                                match_method="consent_block_named",
+                                match_confidence=1.0,
+                                excerpt_context=_extract_snippet(vote.get("raw_text") or "", item_num),
+                                provisional=True,
+                            )
+                            matched += 1
+                            continue
 
                     title_words = _significant_words(title)
                     threshold = _named_callout_threshold(len(title_words))
                     if threshold is None:
                         continue
-                    text_words = _significant_words(vote_text)
-                    overlap = len(title_words & text_words)
-                    if overlap >= threshold:
+                    overlap_words = title_words & text_words
+                    if len(overlap_words) >= threshold:
                         named_ids.add(item["id"])
-                        snippet_word = next(iter(title_words & text_words), None)
+                        # Deterministic snippet anchor: alphabetically first overlapping word
+                        # so excerpt_context is stable across runs (sets are unordered).
+                        snippet_word = min(overlap_words) if overlap_words else None
                         _upsert_link(
                             cur, vote_id=vote["id"], agenda_item_id=item["id"],
                             association_type="consent_named",
