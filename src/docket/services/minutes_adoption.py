@@ -94,14 +94,20 @@ def sweep_adoptions(municipality_id: int) -> list[int]:
     flipped: list[int] = []
     with db() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            # Use EXISTS rather than JOIN votes so each agenda item appears once,
+            # not once per passed vote in its meeting (which would replay the
+            # same adoption resolution 20-30 times per meeting and flood the
+            # warn-log with adoption_already_recorded events).
             cur.execute(
                 """SELECT ai.id AS agenda_item_id, ai.title, m.id AS meeting_id,
                           m.meeting_date AS adoption_meeting_date
                    FROM agenda_items ai
                    JOIN meetings m ON m.id = ai.meeting_id
-                   JOIN votes v ON v.meeting_id = m.id
                    WHERE m.municipality_id = %s
-                     AND v.result = 'passed'""",
+                     AND EXISTS (
+                       SELECT 1 FROM votes v
+                       WHERE v.meeting_id = m.id AND v.result = 'passed'
+                     )""",
                 (municipality_id,),
             )
             candidates = cur.fetchall()
