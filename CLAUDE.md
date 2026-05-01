@@ -24,6 +24,8 @@ docket-pub-dw-dev/
       vote.py              # Vote + MemberVote dataclasses
     migrations/
       001_initial.py       # Full multi-city PostgreSQL schema
+      007_council_terms_and_backfill.py  # Historical council members + term dates
+      008_vote_matching_support.py       # video_timestamp_seconds, resolution_number, match columns
       runner.py            # Migration runner (apply/rollback/status)
     adapters/              # Platform adapters (one per CMS type)
       _helpers.py          # Shared classify_meeting(), is_consent_item()
@@ -60,8 +62,14 @@ docket-pub-dw-dev/
       topics.py            # Keyword-based topic classification (11 topics)
       scoring.py           # Scoring stubs (AI deferred)
       cli.py               # Backfill CLI: python -m docket.enrichment.cli
+  scripts/                   # Data backfill and import scripts
+    import_video_ocr.py      # Import video OCR votes from al-municipal-meetings SQLite
+    backfill_member_vote_ids.py  # Dynamic name→council_member_id resolution using roster
+    backfill_agenda_timestamps.py  # Re-scrape Granicus for agenda item video timestamps
+    backfill_vote_context.py  # Re-parse minutes PDFs for resolution_number + match_context
+    run_vote_matching.py      # Batch runner for vote-to-agenda-item matching
   tests/
-    unit/                  # 138 tests (dollars, helpers, sponsors, topics, civicclerk, generic_cms)
+    unit/                  # 140 tests (dollars, helpers, sponsors, topics, civicclerk, generic_cms)
     integration/
   docs/
     Docket_pub_Project_Plan.md
