@@ -19,6 +19,11 @@ import requests
 from bs4 import BeautifulSoup
 
 from docket.adapters._helpers import classify_meeting, is_consent_item
+from docket.analysis.minutes_parser import (
+    download_minutes_pdf,
+    extract_text_from_pdf,
+    parse_minutes,
+)
 from docket.models.protocol import RawAgendaItem, RawMeeting, RawVote
 
 logger = logging.getLogger(__name__)
@@ -118,27 +123,79 @@ class GranicusAdapter:
         return items
 
     def fetch_minutes_text(self, meeting: RawMeeting) -> str | None:
-        """Fetch minutes text if available. Returns None if not available."""
+        """Download minutes PDF and extract text."""
         if meeting.minutes_url is None:
             return None
 
-        try:
-            resp = requests.get(meeting.minutes_url, timeout=30)
-            resp.raise_for_status()
-            soup = BeautifulSoup(resp.text, "html.parser")
-            content = soup.find("div", id="minutes-content") or soup.find("body")
-            return content.get_text(separator="\n", strip=True) if content else None
-        except requests.RequestException as e:
-            logger.warning("Failed to fetch minutes for %s: %s", meeting.external_id, e)
+        pdf_bytes = download_minutes_pdf(meeting.minutes_url)
+        if pdf_bytes is None:
             return None
 
-    def fetch_votes(self, meeting: RawMeeting) -> list[RawVote]:
-        """Granicus doesn't expose structured votes via HTML.
+        text = extract_text_from_pdf(pdf_bytes)
+        time.sleep(self.delay)
+        return text or None
 
-        Vote data for Granicus comes from video OCR (handled separately by
-        the analysis pipeline). This method returns an empty list.
+    def fetch_votes(self, meeting: RawMeeting) -> list[RawVote]:
+        """Extract votes from minutes PDF.
+
+        Downloads the minutes PDF, parses attendance and vote records,
+        and returns RawVote objects with member positions.
         """
-        return []
+        if meeting.minutes_url is None:
+            return []
+
+        pdf_bytes = download_minutes_pdf(meeting.minutes_url)
+        if pdf_bytes is None:
+            return []
+
+        text = extract_text_from_pdf(pdf_bytes)
+        if not text:
+            return []
+
+        result = parse_minutes(text)
+        time.sleep(self.delay)
+
+        raw_votes = []
+        for i, vote in enumerate(result.votes):
+            member_votes = []
+            for name in vote.ayes:
+                member_votes.append({"member": name, "vote": "yea"})
+            for name in vote.nays:
+                member_votes.append({"member": name, "vote": "nay"})
+            for name in vote.abstentions:
+                member_votes.append({"member": name, "vote": "abstain"})
+
+            # Mark absent members from attendance record
+            if result.attendance:
+                # Use the last attendance record (regular meeting, not pre-council)
+                att = result.attendance[-1]
+                voted_names = {n for n in vote.ayes + vote.nays + vote.abstentions}
+                for name in att.absent:
+                    if name not in voted_names:
+                        member_votes.append({"member": name, "vote": "absent"})
+
+            raw_votes.append(
+                RawVote(
+                    external_id=f"{meeting.external_id}-vote-{i + 1}",
+                    meeting_external_id=meeting.external_id,
+                    agenda_item_external_id=None,
+                    result=vote.result,
+                    yeas=len(vote.ayes),
+                    nays=len(vote.nays),
+                    abstentions=len(vote.abstentions),
+                    member_votes=member_votes,
+                    source="minutes_text",
+                    confidence="high",
+                )
+            )
+
+        logger.info(
+            "Parsed %d votes from minutes for %s (%s)",
+            len(raw_votes),
+            meeting.external_id,
+            meeting.meeting_date,
+        )
+        return raw_votes
 
     # --- Row parsing --------------------------------------------------------
 

@@ -31,6 +31,7 @@ class IngestResult:
     meetings_inserted: int
     meetings_updated: int
     agenda_items_inserted: int
+    votes_inserted: int
     errors: list[str]
 
     @property
@@ -90,12 +91,27 @@ def ingest_municipality(slug: str, since: date | None = None) -> IngestResult:
 
     logger.info("Agenda items: %d inserted", total_items)
 
+    # Stage 4: Extract votes from minutes (if adapter supports it)
+    total_votes = 0
+    for raw_meeting in raw_meetings:
+        if raw_meeting.minutes_url is None:
+            continue
+        try:
+            count = _ingest_votes(municipality_id, adapter, raw_meeting)
+            total_votes += count
+        except Exception as e:
+            errors.append(f"Votes for {raw_meeting.external_id}: {e}")
+            logger.error("  Failed to parse votes for %s: %s", raw_meeting.external_id, e)
+
+    logger.info("Votes: %d inserted", total_votes)
+
     return IngestResult(
         municipality_slug=slug,
         meetings_found=len(raw_meetings),
         meetings_inserted=inserted,
         meetings_updated=updated,
         agenda_items_inserted=total_items,
+        votes_inserted=total_votes,
         errors=errors,
     )
 
@@ -217,6 +233,75 @@ def _ingest_agenda_items(
     _update_processing_status(meeting_id, agenda_items_scraped=True)
     logger.info("  [%s] %s → %d items", raw_meeting.meeting_date, raw_meeting.title, len(raw_items))
     return len(raw_items)
+
+
+def _ingest_votes(
+    municipality_id: int,
+    adapter,
+    raw_meeting: RawMeeting,
+) -> int:
+    """Extract and insert votes from minutes for a meeting if not already done."""
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT m.id, ps.votes_scanned
+            FROM meetings m
+            LEFT JOIN processing_status ps ON m.id = ps.meeting_id
+            WHERE m.municipality_id = %s AND m.external_id = %s
+            """,
+            (municipality_id, raw_meeting.external_id),
+        )
+        row = cur.fetchone()
+
+    if row is None:
+        return 0
+
+    meeting_id = row["id"]
+    already_scanned = row.get("votes_scanned") or False
+
+    if already_scanned:
+        return 0
+
+    raw_votes = adapter.fetch_votes(raw_meeting)
+    if not raw_votes:
+        _update_processing_status(meeting_id, votes_scanned=True)
+        return 0
+
+    with db() as conn:
+        with conn.cursor() as cur:
+            for rv in raw_votes:
+                cur.execute(
+                    """
+                    INSERT INTO votes (
+                        meeting_id, external_id, result,
+                        yeas, nays, abstentions,
+                        source, confidence
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    RETURNING id
+                    """,
+                    (
+                        meeting_id, rv.external_id, rv.result,
+                        rv.yeas, rv.nays, rv.abstentions,
+                        rv.source, rv.confidence,
+                    ),
+                )
+                vote_id = cur.fetchone()[0]
+
+                for mv in rv.member_votes:
+                    cur.execute(
+                        """
+                        INSERT INTO member_votes (vote_id, member_name, position)
+                        VALUES (%s, %s, %s)
+                        """,
+                        (vote_id, mv["member"], mv["vote"]),
+                    )
+
+    _update_processing_status(meeting_id, votes_scanned=True)
+    logger.info(
+        "  [%s] %s → %d votes",
+        raw_meeting.meeting_date, raw_meeting.title, len(raw_votes),
+    )
+    return len(raw_votes)
 
 
 def _update_processing_status(meeting_id: int, **fields) -> None:

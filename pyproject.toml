@@ -12,6 +12,7 @@ dependencies = [
     "requests>=2.31",
     "beautifulsoup4>=4.12",
     "civic-scraper>=1.0",
+    "pdfplumber>=0.10",
     "psycopg2-binary>=2.9",
     "python-dotenv>=1.0",
 ]
