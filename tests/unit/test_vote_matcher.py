@@ -393,3 +393,99 @@ def test_match_votes_for_meeting_ignores_inactive_ghost_links(sample_vote_and_it
     # but won't render in UI; if we wanted to revive it, that would need a
     # follow-up patch to _upsert_link.
     assert row["is_active"] is False
+
+
+@pytest.fixture
+def consent_block_meeting():
+    """Create a meeting with one consent-block vote and three is_consent agenda items.
+
+    Idempotent setup with TEST_CONSENT title; ON DELETE CASCADE handles teardown.
+    """
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM meetings WHERE title = 'TEST_CONSENT' AND meeting_date = '2099-01-02'"
+            )
+        conn.commit()
+
+    with db() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """INSERT INTO meetings (municipality_id, title, meeting_date, meeting_type)
+                   SELECT id, 'TEST_CONSENT', '2099-01-02', 'council'
+                   FROM municipalities ORDER BY id LIMIT 1
+                   RETURNING id""",
+            )
+            mid = cur.fetchone()["id"]
+            ai_ids = []
+            for item_num, title in [
+                ("12", "A Resolution authorizing HCL Contracting paving services 9th Avenue"),
+                ("13", "A Resolution authorizing OLB Enterprises liquor license"),
+                ("14", "A Resolution authorizing East Side Lounge license"),
+            ]:
+                cur.execute(
+                    """INSERT INTO agenda_items (meeting_id, title, item_number, is_consent)
+                       VALUES (%s, %s, %s, TRUE) RETURNING id""",
+                    (mid, title, item_num),
+                )
+                ai_ids.append(cur.fetchone()["id"])
+            cur.execute(
+                """INSERT INTO votes (meeting_id, source, result, yeas, nays, abstentions,
+                                       confidence, needs_review, raw_text, match_context)
+                   VALUES (%s, 'minutes_text', 'passed', 5, 0, 0, 'high', FALSE, %s, %s)
+                   RETURNING id""",
+                (
+                    mid,
+                    "Some preamble mentioning HCL Contracting paving 9th Avenue. The resolutions "
+                    "and ordinances introduced as consent agenda matters were read by the City Clerk.",
+                    "consent agenda matters",
+                ),
+            )
+            vid = cur.fetchone()["id"]
+        conn.commit()
+    yield {"meeting_id": mid, "vote_id": vid, "agenda_item_ids": ai_ids}
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM meetings WHERE id = %s", (mid,))
+        conn.commit()
+
+
+def test_consent_block_links_named_item_with_confidence_1(consent_block_meeting):
+    """Items whose title keywords appear in the vote's raw_text get consent_named, conf=1.0."""
+    from docket.analysis.vote_matcher import match_votes_for_meeting
+    match_votes_for_meeting(consent_block_meeting["meeting_id"])
+
+    from docket.db import db_cursor
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT agenda_item_id, association_type, match_confidence FROM vote_agenda_items "
+            "WHERE vote_id = %s ORDER BY agenda_item_id",
+            (consent_block_meeting["vote_id"],),
+        )
+        rows = cur.fetchall()
+
+    by_item = {r["agenda_item_id"]: r for r in rows}
+    hcl_id = consent_block_meeting["agenda_item_ids"][0]
+    olb_id = consent_block_meeting["agenda_item_ids"][1]
+
+    assert by_item[hcl_id]["association_type"] == "consent_named"
+    assert by_item[hcl_id]["match_confidence"] == pytest.approx(1.0)
+    assert by_item[olb_id]["association_type"] == "consent_implicit"
+    assert by_item[olb_id]["match_confidence"] == pytest.approx(0.8)
+
+
+def test_consent_block_links_default_fill_provisional(consent_block_meeting):
+    """All consent-block links start provisional=True."""
+    from docket.analysis.vote_matcher import match_votes_for_meeting
+    match_votes_for_meeting(consent_block_meeting["meeting_id"])
+
+    from docket.db import db_cursor
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT provisional FROM vote_agenda_items WHERE vote_id = %s",
+            (consent_block_meeting["vote_id"],),
+        )
+        rows = cur.fetchall()
+
+    assert len(rows) == 3
+    assert all(r["provisional"] for r in rows)

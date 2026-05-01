@@ -13,6 +13,7 @@ Text matching (minutes text votes):
 from __future__ import annotations
 
 import logging
+import math
 import re
 from bisect import bisect_right
 
@@ -22,6 +23,37 @@ from docket.analysis.minutes_parser import CONSENT_BLOCK_PHRASES
 from docket.db import db, db_cursor
 
 logger = logging.getLogger(__name__)
+
+
+NAMED_CALLOUT_FLOOR = 2
+NAMED_CALLOUT_CAP = 3
+NAMED_CALLOUT_RATIO = 0.6
+
+
+def _named_callout_threshold(n_significant_words: int) -> int | None:
+    """Required word-overlap count for the consent named-callout heuristic.
+
+    Returns None if the title is too short (1 significant word) — skip keyword pass.
+    Otherwise: max(NAMED_CALLOUT_FLOOR, min(NAMED_CALLOUT_CAP, ceil(0.6 * N))).
+    """
+    if n_significant_words < 2:
+        return None
+    return max(
+        NAMED_CALLOUT_FLOOR,
+        min(NAMED_CALLOUT_CAP, math.ceil(NAMED_CALLOUT_RATIO * n_significant_words)),
+    )
+
+
+def _extract_snippet(haystack: str, needle: str, window: int = 100) -> str | None:
+    """Return ~200 chars of haystack centered on the first occurrence of needle (case-insensitive)."""
+    if not needle:
+        return None
+    idx = haystack.lower().find(needle.lower())
+    if idx == -1:
+        return None
+    start = max(0, idx - window)
+    end = min(len(haystack), idx + len(needle) + window)
+    return haystack[start:end]
 
 
 def _classify_vote(vote_row) -> str:
@@ -203,8 +235,98 @@ def _match_substantive(meeting_id: int) -> int:
 
 
 def _match_consent_block(meeting_id: int) -> int:
-    """Stub — implemented in Task 2.6."""
-    return 0
+    """Match consent-block (1:N) votes by named callout + default fill.
+
+    For each consent-block vote in the meeting, link to all is_consent=TRUE
+    agenda items: items named in the vote's raw_text get consent_named/1.0;
+    remaining is_consent items get consent_implicit/0.8. All start provisional.
+    """
+    matched = 0
+    with db() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                "SELECT id, item_number, title FROM agenda_items "
+                "WHERE meeting_id = %s AND is_consent = TRUE",
+                (meeting_id,),
+            )
+            consent_items = cur.fetchall()
+            if not consent_items:
+                return 0
+
+            cur.execute(
+                """SELECT v.id, v.raw_text, v.match_context, v.resolution_number
+                   FROM votes v
+                   LEFT JOIN vote_agenda_items vai ON vai.vote_id = v.id AND vai.is_active
+                   WHERE v.meeting_id = %s AND v.source = 'minutes_text'
+                     AND vai.id IS NULL""",
+                (meeting_id,),
+            )
+            votes = cur.fetchall()
+
+            for vote in votes:
+                if _classify_vote(vote) != "consent_block":
+                    continue
+                vote_text = ((vote.get("raw_text") or "") + " " + (vote.get("match_context") or "")).lower()
+                if not vote_text.strip():
+                    continue
+
+                # Named callout pass
+                named_ids: set[int] = set()
+                for item in consent_items:
+                    title = item["title"] or ""
+                    item_num = item["item_number"] or ""
+
+                    item_num_pattern = (
+                        rf"\b(?:item|ITEM)\s+(?:no\.?\s*)?{re.escape(item_num)}\b"
+                        if item_num else None
+                    )
+                    if item_num and item_num_pattern and re.search(item_num_pattern, vote_text, re.IGNORECASE):
+                        named_ids.add(item["id"])
+                        _upsert_link(
+                            cur, vote_id=vote["id"], agenda_item_id=item["id"],
+                            association_type="consent_named",
+                            match_method="consent_block_named",
+                            match_confidence=1.0,
+                            excerpt_context=_extract_snippet(vote.get("raw_text") or "", item_num),
+                            provisional=True,
+                        )
+                        matched += 1
+                        continue
+
+                    title_words = _significant_words(title)
+                    threshold = _named_callout_threshold(len(title_words))
+                    if threshold is None:
+                        continue
+                    text_words = _significant_words(vote_text)
+                    overlap = len(title_words & text_words)
+                    if overlap >= threshold:
+                        named_ids.add(item["id"])
+                        snippet_word = next(iter(title_words & text_words), None)
+                        _upsert_link(
+                            cur, vote_id=vote["id"], agenda_item_id=item["id"],
+                            association_type="consent_named",
+                            match_method="consent_block_named",
+                            match_confidence=1.0,
+                            excerpt_context=_extract_snippet(vote.get("raw_text") or "", snippet_word or ""),
+                            provisional=True,
+                        )
+                        matched += 1
+
+                # Default fill pass
+                for item in consent_items:
+                    if item["id"] in named_ids:
+                        continue
+                    _upsert_link(
+                        cur, vote_id=vote["id"], agenda_item_id=item["id"],
+                        association_type="consent_implicit",
+                        match_method="consent_block_default",
+                        match_confidence=0.8,
+                        excerpt_context=None,
+                        provisional=True,
+                    )
+                    matched += 1
+        conn.commit()
+    return matched
 
 
 def _try_resolution_match(vote, items) -> tuple[int, float, str] | None:
