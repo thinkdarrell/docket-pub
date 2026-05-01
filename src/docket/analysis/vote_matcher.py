@@ -41,6 +41,49 @@ def compute_confidence(gap_seconds: float, *, needs_review: bool = False) -> flo
     return base * 0.5 if needs_review else base
 
 
+def _upsert_link(
+    cur,
+    *,
+    vote_id: int,
+    agenda_item_id: int,
+    association_type: str,
+    match_method: str | None,
+    match_confidence: float,
+    excerpt_context: str | None,
+    provisional: bool,
+) -> None:
+    """Insert or update a vote_agenda_items row.
+
+    Respects the is_manual shield: app-level pre-check + DB-level WHERE
+    on the UPDATE branch. Manual edits never get overwritten.
+    """
+    cur.execute(
+        "SELECT is_manual FROM vote_agenda_items WHERE vote_id = %s AND agenda_item_id = %s",
+        (vote_id, agenda_item_id),
+    )
+    existing = cur.fetchone()
+    if existing and existing["is_manual"]:
+        return  # human-locked, leave alone
+
+    cur.execute(
+        """INSERT INTO vote_agenda_items
+            (vote_id, agenda_item_id, association_type, match_method,
+             match_confidence, excerpt_context, provisional)
+           VALUES (%s, %s, %s, %s, %s, %s, %s)
+           ON CONFLICT (vote_id, agenda_item_id) DO UPDATE
+             SET association_type = EXCLUDED.association_type,
+                 match_method = EXCLUDED.match_method,
+                 match_confidence = EXCLUDED.match_confidence,
+                 excerpt_context = EXCLUDED.excerpt_context,
+                 updated_at = NOW()
+             WHERE vote_agenda_items.is_manual = FALSE""",
+        (
+            vote_id, agenda_item_id, association_type, match_method,
+            match_confidence, excerpt_context, provisional,
+        ),
+    )
+
+
 def match_votes_by_timestamp(meeting_id: int) -> int:
     """Match video OCR votes to agenda items by timestamp proximity.
 
