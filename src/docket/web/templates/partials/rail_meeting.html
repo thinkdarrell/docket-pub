@@ -41,6 +41,18 @@
                         <span class="t-mono" style="font-size: 14px; font-weight: 500;">{{ vote.yeas }}–{{ vote.nays }}</span>
                     </span>
                 </div>
+                {# Linked agenda item(s) #}
+                {% if vote.is_consent_block %}
+                <div class="t-meta" style="margin-top: 6px; font-size: 11px; line-height: 1.35;">
+                    Consent vote · {{ vote.active_links|length }} item{{ 's' if vote.active_links|length != 1 else '' }}
+                    {% if vote.has_provisional_links %}<span class="chip is-warn" style="font-size: 9px; height: 16px; padding: 0 4px; margin-left: 4px;" title="Council has not yet adopted these minutes">provisional</span>{% endif %}
+                </div>
+                {% elif vote.primary_link %}
+                <div class="t-meta" style="margin-top: 6px; font-size: 11px; line-height: 1.35;">
+                    {% if vote.primary_link.item_number %}<span class="t-mono">[{{ vote.primary_link.item_number }}]</span> {% endif %}{{ vote.primary_link.title|truncate(90) }}
+                    {% if vote.primary_link.match_method %}<span class="chip" style="font-size: 9px; height: 16px; padding: 0 4px; margin-left: 4px;" title="Match method: {{ vote.primary_link.match_method }}">{{ vote.primary_link.match_method|replace('_', ' ') }}</span>{% endif %}
+                </div>
+                {% endif %}
                 {% if vote.member_votes %}
                 <div style="display: flex; flex-wrap: wrap; gap: 3px; margin-top: 6px;">
                     {% for mv in vote.member_votes %}
