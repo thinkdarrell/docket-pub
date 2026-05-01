@@ -91,14 +91,18 @@ def main():
     conn = psycopg2.connect(DATABASE_URL)
     cur = conn.cursor()
 
-    # Find meetings with minutes_text votes missing context
+    # Find meetings with minutes_text votes that need re-parsing.
+    # Predicate is `raw_text IS NULL` (not match_context/resolution_number) because
+    # raw_text was added in the parser-widening pass and is NULL for every vote
+    # ingested before that change. Re-parsing populates raw_text + refreshes
+    # resolution_number / match_context from the wider 1500-char context window
+    # (which can find resolution numbers the old 200-char window missed).
     cur.execute("""
         SELECT DISTINCT m.id, m.external_id, m.minutes_url
         FROM meetings m
         JOIN votes v ON v.meeting_id = m.id
         WHERE v.source = 'minutes_text'
-          AND v.resolution_number IS NULL
-          AND v.match_context IS NULL
+          AND v.raw_text IS NULL
           AND m.minutes_url IS NOT NULL
         ORDER BY m.id
     """)
@@ -156,11 +160,16 @@ def main():
 
         for j, vote in enumerate(cached["votes"]):
             vote_ext_id = f"{ext_id}-vote-{j + 1}"
+            # WHERE raw_text IS NULL guards against double-updating votes already
+            # backfilled. Idempotent: re-running this script is a no-op for any
+            # vote whose raw_text has been populated.
             cur.execute(
                 """UPDATE votes
-                   SET resolution_number = %s, match_context = %s, raw_text = %s
+                   SET resolution_number = COALESCE(%s, resolution_number),
+                       match_context = %s,
+                       raw_text = %s
                    WHERE meeting_id = %s AND external_id = %s
-                     AND resolution_number IS NULL""",
+                     AND raw_text IS NULL""",
                 (
                     vote["resolution_number"],
                     (vote["context"][-200:] if vote["context"] else None),
