@@ -8,8 +8,10 @@ Parse results are cached to data/minutes_cache/<meeting_id>.json for fast re-run
 
 import json
 import logging
+import os
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import psycopg2
@@ -21,6 +23,8 @@ from docket.analysis.minutes_parser import (
 )
 
 from docket.config import DATABASE_URL
+
+DEFAULT_WORKERS = 8
 
 DELAY = 0.5
 CACHE_DIR = Path("data/minutes_cache")
@@ -98,16 +102,55 @@ def main():
           AND m.minutes_url IS NOT NULL
         ORDER BY m.id
     """)
-    meetings = cur.fetchall()
-    logger.info(f"{len(meetings)} meetings need vote context backfill\n")
+    meetings_raw = cur.fetchall()
+
+    # Convert to list of dicts for cleaner parallel phase
+    meetings_to_process = [
+        {"id": m[0], "external_id": m[1], "minutes_url": m[2]}
+        for m in meetings_raw
+    ]
+
+    logger.info(f"{len(meetings_to_process)} meetings need vote context backfill\n")
+
+    # Phase 1: Warm the cache in parallel
+    workers = int(os.environ.get("BACKFILL_WORKERS", DEFAULT_WORKERS))
+    print(f"Phase 1: parsing {len(meetings_to_process)} meetings with {workers} workers...")
+
+    completed = 0
+    failed_phase1: list[int] = []
+    total = len(meetings_to_process)
+
+    def _warm_one(meeting):
+        """Worker: parse + cache one meeting. Returns (meeting_id, ok)."""
+        result = cached_parse(meeting["id"], meeting["minutes_url"])
+        return (meeting["id"], result is not None)
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {executor.submit(_warm_one, m): m for m in meetings_to_process}
+        for future in as_completed(futures):
+            meeting_id, ok = future.result()
+            completed += 1
+            if not ok:
+                failed_phase1.append(meeting_id)
+            if completed % 25 == 0 or completed == total:
+                print(f"  parsed {completed}/{total} ({len(failed_phase1)} failed)")
+
+    print(f"Phase 1 complete: {completed - len(failed_phase1)} cached, {len(failed_phase1)} failed\n")
+
+    # Phase 2: Serial DB UPDATEs
+    print("Phase 2: updating votes from cache...")
 
     updated_total = 0
-    failed = 0
+    failed_phase2 = 0
 
-    for i, (meeting_id, ext_id, minutes_url) in enumerate(meetings):
+    for i, meeting in enumerate(meetings_to_process):
+        meeting_id = meeting["id"]
+        ext_id = meeting["external_id"]
+        minutes_url = meeting["minutes_url"]
+
         cached = cached_parse(meeting_id, minutes_url)
         if not cached:
-            failed += 1
+            failed_phase2 += 1
             time.sleep(DELAY)
             continue
 
@@ -132,12 +175,12 @@ def main():
         conn.commit()
 
         if (i + 1) % 50 == 0:
-            logger.info(f"  Progress: {i + 1}/{len(meetings)} meetings, {updated_total} votes updated, {failed} failed")
+            logger.info(f"  Progress: {i + 1}/{len(meetings_to_process)} meetings, {updated_total} votes updated, {failed_phase2} failed")
 
         time.sleep(DELAY)
 
     conn.close()
-    logger.info(f"\nDone: {updated_total} votes updated with context, {failed} PDF failures")
+    logger.info(f"\nDone: {updated_total} votes updated with context, {failed_phase2} PDF failures")
 
 
 if __name__ == "__main__":
