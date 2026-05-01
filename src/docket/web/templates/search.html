@@ -2,42 +2,172 @@
 {% block title %}Search{% if query %}: {{ query }}{% endif %} — docket.pub{% endblock %}
 
 {% block content %}
-<h1>Search</h1>
+{# city is a slug string (or empty/None) — cross-city when falsy. #}
+{% set is_cross_city = not city %}
 
-<form method="get" action="{{ url_for('public.search') }}">
-    <input type="text" name="q" value="{{ query }}" placeholder="Search agenda items...">
-    <select name="city">
-        <option value="">All cities</option>
-        {% for m in municipalities %}
-        <option value="{{ m.slug }}" {% if city == m.slug %}selected{% endif %}>{{ m.name }}</option>
-        {% endfor %}
-    </select>
-    <button type="submit">Search</button>
-</form>
+{% set city_name = '' %}
+{% if city %}
+{% for mu in municipalities %}{% if mu.slug == city %}{% set city_name = mu.name %}{% endif %}{% endfor %}
+{% endif %}
 
-{% if query %}
-<p>{{ results | length }} results for "{{ query }}"
-    {% if city %}in {{ city }}{% else %}across all cities{% endif %}
-</p>
-
-{% for item in results %}
-<div>
-    <strong>{{ item.title }}</strong>
-
-    {% if item.dollars_amount %}
-    <span>${{ "{:,.2f}".format(item.dollars_amount) }}</span>
+{% set ns = namespace(total_dollars=0, dollar_items=0) %}
+{% for it in results %}
+    {% if it.dollars_amount %}
+    {% set ns.total_dollars = ns.total_dollars + it.dollars_amount %}
+    {% set ns.dollar_items = ns.dollar_items + 1 %}
     {% endif %}
-
-    <p>
-        {{ item.municipality_name }}
-        · {{ item.meeting_date }}
-        · {{ item.meeting_title }}
-    </p>
-
-    {% if item.description %}
-    <p>{{ item.description }}</p>
-    {% endif %}
-</div>
 {% endfor %}
+
+{# ── Hero ─────────────────────────────────────────── #}
+<section class="hero">
+    <div class="hero-top">
+        <div>
+            <div class="t-eyebrow">Full-text search · agenda items</div>
+            <h1 class="hero-title t-display">Search</h1>
+            <p class="hero-sub">
+                {% if query %}
+                Searching for <strong>'{{ query }}'</strong>
+                {% if city_name %}in <strong>{{ city_name }}</strong>{% elif city %}in <strong>{{ city }}</strong>{% else %}across all cities{% endif %}.
+                <strong>{{ results | length }}</strong> result{{ 's' if results | length != 1 else '' }} on this page.
+                {% else %}
+                Type a query to search across agenda items, dollar amounts, and topic tags.
+                {% endif %}
+            </p>
+        </div>
+    </div>
+
+    {% if query %}
+    <div class="kpi-grid">
+        <div class="kpi">
+            <div class="kpi-label t-label">Results</div>
+            <div class="kpi-value t-display t-tnum">{{ results | length }}</div>
+            <div class="kpi-sub t-meta">on this page</div>
+        </div>
+        <div class="kpi">
+            <div class="kpi-label t-label">With dollar amounts</div>
+            <div class="kpi-value t-display t-tnum">{{ ns.dollar_items }}</div>
+            <div class="kpi-sub t-meta">extracted</div>
+        </div>
+        <div class="kpi is-accent">
+            <div class="kpi-label t-label">Scope</div>
+            <div class="kpi-value t-display" style="font-size: 28px;">{{ city_name or (city if city else 'All cities') }}</div>
+            <div class="kpi-sub t-meta">{% if is_cross_city %}cross-city{% else %}city-scoped{% endif %}</div>
+        </div>
+    </div>
+    {% endif %}
+</section>
+
+{# ── Search form ─────────────────────────────────── #}
+<section class="feed" style="padding-top: 8px;">
+    <header class="feed-head">
+        <div>
+            <div class="t-eyebrow">Query</div>
+            <h2 class="feed-title t-display">Refine search</h2>
+        </div>
+    </header>
+
+    <form method="get" action="{{ url_for('public.search') }}"
+          style="background: var(--paper-2); padding: 20px; border-radius: 4px; display: flex; flex-wrap: wrap; gap: 12px; align-items: stretch;">
+        <input type="text"
+               name="q"
+               value="{{ query or '' }}"
+               placeholder="Search agenda items..."
+               style="flex: 2 1 280px; padding: 10px 12px; font-family: inherit; font-size: 15px; border: 1px solid var(--rule, #ddd); border-radius: 4px; background: var(--paper, #fff);">
+        <select name="city"
+                style="flex: 1 1 180px; padding: 10px 12px; font-family: inherit; font-size: 14px; border: 1px solid var(--rule, #ddd); border-radius: 4px; background: var(--paper, #fff);">
+            <option value="">All cities</option>
+            {% for m in municipalities %}
+            <option value="{{ m.slug }}" {% if city == m.slug %}selected{% endif %}>{{ m.name }}</option>
+            {% endfor %}
+        </select>
+        <button type="submit"
+                class="t-mono"
+                style="flex: 0 0 auto; padding: 10px 24px; font-size: 14px; font-weight: 500; border: 1px solid var(--ink, #111); background: var(--ink, #111); color: var(--paper, #fff); border-radius: 4px; cursor: pointer;">
+            Search →
+        </button>
+    </form>
+</section>
+
+{# ── Results ─────────────────────────────────────── #}
+{% if query %}
+    {% if results %}
+    <section class="feed">
+        <header class="feed-head">
+            <div>
+                <div class="t-eyebrow">Matches</div>
+                <h2 class="feed-title t-display">Results</h2>
+            </div>
+            <div class="t-mono t-meta">{{ results | length }} on this page</div>
+        </header>
+
+        <div class="feed-table">
+            <div class="feed-th t-label">
+                <span>Date</span>
+                <span>Title</span>
+                <span>Amount</span>
+                <span>{% if is_cross_city %}City{% else %}#{% endif %}</span>
+                <span>Meeting</span>
+                <span></span>
+            </div>
+            {% for item in results %}
+            <a href="{{ url_for('public.meeting_detail', slug=item.municipality_slug, meeting_id=item.meeting_id) }}#item-{{ item.id }}"
+               class="feed-row"
+               hx-get="{{ url_for('public.rail_meeting', slug=item.municipality_slug, meeting_id=item.meeting_id) }}"
+               hx-target="#source-rail"
+               hx-swap="innerHTML">
+                <div class="feed-date">
+                    <div class="feed-date-d t-display t-tnum">{{ item.meeting_date.day if item.meeting_date and item.meeting_date.day is defined else (item.meeting_date[-2:] if item.meeting_date else '—') }}</div>
+                    <div class="feed-date-m t-mono">{{ item.meeting_date }}</div>
+                </div>
+                <div class="feed-meta">
+                    <div class="feed-meeting-title">
+                        {{ item.title[:120] }}{% if item.title | length > 120 %}…{% endif %}
+                    </div>
+                </div>
+                <div class="feed-num">
+                    {% if item.dollars_amount %}
+                    <span class="chip chip-{{ item.dollars_amount | dollar_tier }}">${{ "{:,.0f}".format(item.dollars_amount) }}</span>
+                    {% else %}
+                    <span class="t-meta t-mono">—</span>
+                    {% endif %}
+                </div>
+                <div class="feed-num t-mono t-meta">
+                    {% if is_cross_city %}{{ item.municipality_name }}{% elif item.item_number %}#{{ item.item_number }}{% else %}—{% endif %}
+                </div>
+                <div class="feed-num t-mono t-meta">{{ item.meeting_title[:40] }}{% if item.meeting_title | length > 40 %}…{% endif %}</div>
+                <div class="feed-arrow t-mono">→</div>
+            </a>
+            {% endfor %}
+        </div>
+    </section>
+    {% else %}
+    <section class="feed">
+        <div class="feed-head">
+            <div>
+                <div class="t-eyebrow">No matches</div>
+                <h2 class="feed-title t-display">No results</h2>
+                <p class="t-meta" style="max-width: 560px; margin-top: 8px;">
+                    Nothing matched <strong>'{{ query }}'</strong>
+                    {% if city_name %}in <strong>{{ city_name }}</strong>{% elif city %}in <strong>{{ city }}</strong>{% endif %}.
+                    Try different keywords{% if city %} or
+                    <a class="link" href="{{ url_for('public.search', q=query) }}">search across all cities</a>{% endif %}.
+                </p>
+            </div>
+        </div>
+    </section>
+    {% endif %}
+{% else %}
+<section class="feed">
+    <div class="feed-head">
+        <div>
+            <div class="t-eyebrow">Get started</div>
+            <h2 class="feed-title t-display">Type a query above to search</h2>
+            <p class="t-meta" style="max-width: 560px; margin-top: 8px;">
+                Search agenda item titles and descriptions across every indexed meeting.
+                Use the city dropdown to scope your search.
+            </p>
+        </div>
+    </div>
+</section>
 {% endif %}
 {% endblock %}
