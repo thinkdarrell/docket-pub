@@ -32,9 +32,10 @@ def claim_meetings_sql() -> str:
     """Returns the SELECT SQL. Args: (current_meeting_version, current_item_version, limit).
 
     A meeting is claimable if EITHER:
-      (a) provisional pass:  ai_prompt_version != current AND minutes_adopted_at IS NULL
+      (a) provisional pass:  ai_prompt_version < current AND minutes_adopted_at IS NULL
                              AND all items at current item version
-                             AND ai_metadata.phase != 'provisional'
+                             (version check alone gates re-runs; phase guard removed so
+                              prompt-version bumps re-cascade through already-provisional rows)
       (b) adopted pass:      minutes_adopted_at IS NOT NULL AND ai_metadata.phase != 'adopted'
     """
     return """
@@ -44,7 +45,6 @@ def claim_meetings_sql() -> str:
             -- (a) provisional pass
             ((m.ai_prompt_version IS NULL OR m.ai_prompt_version < %s)
              AND m.minutes_adopted_at IS NULL
-             AND COALESCE(m.ai_metadata->>'phase', '') != 'provisional'
              AND NOT EXISTS (
                SELECT 1 FROM agenda_items ai
                WHERE ai.meeting_id = m.id
