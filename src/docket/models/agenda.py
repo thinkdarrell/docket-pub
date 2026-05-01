@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 
 
@@ -23,6 +24,10 @@ class AgendaItem:
     topic: str | None
     significance_score: float | None  # 0-10
     consent_placement_score: float | None  # 0-10
+    summary: str | None = None
+    ai_metadata: dict | None = None
+    ai_prompt_version: int | None = None
+    ai_generated_at: datetime | None = None
 
     @classmethod
     def from_row(cls, row: dict) -> AgendaItem:
@@ -40,4 +45,8 @@ class AgendaItem:
             topic=row.get("topic"),
             significance_score=row.get("significance_score"),
             consent_placement_score=row.get("consent_placement_score"),
+            summary=row.get("summary"),
+            ai_metadata=row.get("ai_metadata"),
+            ai_prompt_version=row.get("ai_prompt_version"),
+            ai_generated_at=row.get("ai_generated_at"),
         )
