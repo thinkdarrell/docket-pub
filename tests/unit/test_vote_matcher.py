@@ -9,7 +9,19 @@ from docket.analysis.vote_matcher import _upsert_link
 
 @pytest.fixture
 def sample_vote_and_item():
-    """Create a vote and agenda item, yield their IDs, clean up after."""
+    """Create a vote and agenda item, yield their IDs, clean up after.
+
+    Performs an idempotent sweep of TEST_FIXTURE rows on entry so a previously
+    failed run cannot leave stale data in the dev DB. ON DELETE CASCADE on the
+    meetings → votes/agenda_items chain handles transitive cleanup.
+    """
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM meetings WHERE title = 'TEST_FIXTURE' AND meeting_date = '2099-01-01'"
+            )
+        conn.commit()
+
     with db() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
@@ -122,5 +134,45 @@ def test_upsert_link_respects_manual_shield(sample_vote_and_item):
             row = cur.fetchone()
         conn.commit()
     assert row["is_manual"] is True
+    assert row["match_method"] == "manual_correction"
+    assert row["match_confidence"] == pytest.approx(1.0)
+
+
+def test_upsert_link_db_shield_blocks_update_when_app_check_bypassed(sample_vote_and_item):
+    """Belt-and-suspenders: if the app pre-check is ever skipped (race, refactor,
+    direct caller), the DB-level WHERE on the UPDATE branch must still protect
+    is_manual rows. Exercises the SQL directly to prove the WHERE clause works
+    even without _upsert_link's pre-check.
+    """
+    with db() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """INSERT INTO vote_agenda_items
+                    (vote_id, agenda_item_id, association_type, match_method,
+                     match_confidence, provisional, is_manual, is_active)
+                   VALUES (%s, %s, 'explicit', 'manual_correction', 1.0, FALSE, TRUE, TRUE)""",
+                (sample_vote_and_item["vote_id"], sample_vote_and_item["agenda_item_id"]),
+            )
+            cur.execute(
+                """INSERT INTO vote_agenda_items
+                    (vote_id, agenda_item_id, association_type, match_method,
+                     match_confidence, excerpt_context, provisional)
+                   VALUES (%s, %s, 'consent_implicit', 'consent_block_default',
+                           0.8, NULL, TRUE)
+                   ON CONFLICT (vote_id, agenda_item_id) DO UPDATE
+                     SET association_type = EXCLUDED.association_type,
+                         match_method = EXCLUDED.match_method,
+                         match_confidence = EXCLUDED.match_confidence,
+                         excerpt_context = EXCLUDED.excerpt_context,
+                         updated_at = NOW()
+                     WHERE vote_agenda_items.is_manual = FALSE""",
+                (sample_vote_and_item["vote_id"], sample_vote_and_item["agenda_item_id"]),
+            )
+            cur.execute(
+                "SELECT match_method, match_confidence FROM vote_agenda_items WHERE vote_id = %s",
+                (sample_vote_and_item["vote_id"],),
+            )
+            row = cur.fetchone()
+        conn.commit()
     assert row["match_method"] == "manual_correction"
     assert row["match_confidence"] == pytest.approx(1.0)
