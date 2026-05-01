@@ -156,9 +156,9 @@ Two passes:
 1. **Named callout pass.** For each agenda item where `is_consent=TRUE` for the meeting, scan the vote's `raw_text` for any of:
    - The agenda item's resolution number (if present), as `\bRES_NUM\b`
    - The agenda item's item number, as `\b(Item|ITEM)\s+(?:No\.?\s*)?ITEM_NUM\b` or `#ITEM_NUM\b`
-   - **Strong title-keyword overlap**: at least 3 distinct significant words (using the existing `_significant_words` helper — 4+ chars, not stop words) from the agenda title appearing in `raw_text`
+   - **Strong title-keyword overlap**: a scaled threshold that adapts to title length. Let N = count of significant words in the title (using the existing `_significant_words` helper — 4+ chars, not stop words). Required word count = `max(2, min(3, ceil(0.6 * N)))`. If N=1 (single-word title), skip the keyword pass for this item. This means a 3-word title like "Sewer Repair Contract" requires 2 of 3 words present, while a 10-word title still caps at 3 required matches.
 
-   Hits → `_upsert_link()` with `association_type='consent_named'`, `match_confidence=1.0`, `match_method='consent_block_named'`, `excerpt_context=<the surrounding 200-char snippet>`, `provisional=TRUE`. The 3-word minimum is the named-callout threshold and is a tunable constant.
+   Hits → `_upsert_link()` with `association_type='consent_named'`, `match_confidence=1.0`, `match_method='consent_block_named'`, `excerpt_context=<the surrounding 200-char snippet>`, `provisional=TRUE`. The threshold formula is a tunable constant.
 2. **Default consent fill.** For each remaining `is_consent=TRUE` agenda item not already linked → `_upsert_link()` with `association_type='consent_implicit'`, `match_confidence=0.8`, `match_method='consent_block_default'`, `excerpt_context=NULL`, `provisional=TRUE`.
 
 ### `_upsert_link()` — manual shield + idempotency
@@ -275,6 +275,8 @@ For each match in passed votes:
    - 0 candidates → debug log, leave for next sweep run.
    - 1 candidate → set `minutes_adopted_at = adoption_meeting.meeting_date` (semantic: the legal adoption date, not our scrape time). Skip if already non-NULL (idempotent — never overwrite). On attempted overwrite, warn-log with both meeting IDs.
    - 2+ candidates → warn-log with title and candidate IDs, **skip**. Don't guess.
+
+**Multi-match observability.** Birmingham clerks frequently adopt minutes for a Regular Meeting and a Work Session that share a date in one combined agenda line ("Approval of minutes from the Regular Meeting and Work Session of December 5, 2024"). Without meeting-type disambiguation, those land in the 2+ candidates branch and get skipped. The sweep emits a structured log entry on every multi-match skip (`event=adoption_multi_match`, `municipality_id`, `agenda_item_id`, `parsed_date`, `candidate_meeting_ids`). If the skip rate exceeds ~10% of adoption agenda items in production, that's the signal to upgrade the regex to extract meeting types ("Regular Meeting and Work Session") and resolve all referenced meetings rather than skipping. For MVP: log + skip + iterate if the data demands.
 
 The sweep runs at the end of `services/ingest.py`'s ingest pipeline. Stateless, no queue, no extra columns, idempotent.
 
