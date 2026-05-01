@@ -10,13 +10,13 @@ Docket.pub automates the collection, parsing, enrichment, and indexing of public
 
 ## What's Built
 
-The backend pipeline, search, enrichment, and Flask routing are complete. Templates are unstyled skeletons — the UI team is designing the frontend in Claude Design.
+The full pipeline is live: scraping, enrichment, vote extraction (from both official minutes and video OCR), vote-to-agenda-item matching, and an editorial-design frontend. Deployed to Railway.
 
 ### Cities Online
 
 | City | Platform | Adapter | Meeting Types | Council Members |
 |---|---|---|---|---|
-| **Birmingham** | Granicus | `GranicusAdapter` | Council | 9 (districts) |
+| **Birmingham** | Granicus | `GranicusAdapter` | Council | 9 active + 3 prior-term (districts) |
 | **Vestavia Hills** | CivicClerk | `CivicClerkAdapter` | Council, P&Z, BZA, Design Review, Parks, Library, Annexation | 5 (at-large) |
 | **Mobile** | CivicClerk | `CivicClerkAdapter` | Council | 7 (districts) |
 | **Homewood** | Generic CMS | `GenericCMSAdapter` | Council, Pre-Council, BZA, Planning Commission + 7 committees | 5 (wards + mayor) |
@@ -39,16 +39,19 @@ The backend pipeline, search, enrichment, and Flask routing are complete. Templa
 7. **Council Rosters** — 26 members seeded across 4 cities, admin UI for management
 8. **Admin Auth** — Session-based login on all `/admin/*` routes
 9. **Railway Deployment** — Live at `docket-web-production-6110.up.railway.app`
-10. **Minutes Vote Parser** — PDF extraction of attendance + votes from Birmingham minutes (870 meetings)
-11. **Tests** — 140 unit tests, ruff clean
+10. **Minutes Vote Parser** — PDF extraction of attendance + votes from Birmingham minutes (870 meetings, ~6,800 votes)
+11. **Video OCR** — Imported Jan–Apr 2026 votes from al-municipal-meetings, ran fresh OCR for April meetings (77 votes)
+12. **Vote-to-Item Matching** — Timestamp proximity (video OCR) + text heuristics (resolution number, item number, keyword overlap). Ported from al-municipal-meetings.
+13. **Council Member Linking** — member_votes linked to council_members via FK, with term date awareness for old/new council transitions
+14. **Landing Page** — Contested votes, recent votes table, notable items (180-day recency), topic browse
+15. **Tests** — 140 unit tests, ruff clean
 
 ### What's Next
 
-- **Push vote data to Railway** — batch ingestion of minutes votes running locally
-- **Video OCR for recent meetings** — 23 meetings after 12/30/2025 lack minutes; pipeline confirmed working
 - **Astro frontend evaluation** — considering migration from Flask/Jinja2+HTMX to Astro
 - **Freshness Checks** — Silent Break alerts when a city's data feed stops updating
 - **Custom domain** — connect `docket.pub` via Railway dashboard
+- **Source reconciliation** — compare video OCR vs official minutes when both exist
 
 ---
 
@@ -161,6 +164,7 @@ id, meeting_id, external_id, item_number, title, description,
 section, is_consent, sponsor, topic,
 dollars_amount (NUMERIC 15,2), significance_score (REAL 0-10),
 consent_placement_score (REAL 0-10),
+video_timestamp_seconds (REAL),
 search_vector (TSVECTOR, auto-updated), created_at
 ```
 - `sponsor`: Extracted from "(Submitted by ...)" or "(sponsored by ...)" patterns. NULL if not found.
@@ -176,7 +180,9 @@ Vote outcomes tied to agenda items.
 id, meeting_id, agenda_item_id, external_id, result,
 yeas, nays, abstentions,
 source, confidence, header_result, needs_review, review_reason,
-video_timestamp, raw_text, created_at
+video_timestamp, raw_text,
+resolution_number, match_context, match_confidence (REAL 0-1), match_method,
+created_at
 ```
 - `result`: `'passed'` | `'failed'` | `'tabled'`
 - `source`: `'video_ocr'` | `'minutes_text'` | `'api'` | `'manual'`
@@ -194,7 +200,7 @@ id, vote_id, council_member_id, member_name, position
 
 | Table | Purpose |
 |---|---|
-| `council_members` | Elected officials per city (name, district, term dates, photo) |
+| `council_members` | Elected officials per city (name, district, term_start, term_end, active) |
 | `districts` | Wards/districts per city |
 | `processing_status` | Pipeline stage tracking per meeting (agenda scraped, PDF downloaded, votes scanned, votes matched) |
 | `source_checks` | Freshness monitoring per city (last checked, last found, status) |

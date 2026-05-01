@@ -52,6 +52,7 @@ docket-pub-dw-dev/
         tweaks.css         # Footer, rail empty CTA
     analysis/
       minutes_parser.py    # Birmingham minutes PDF → attendance + votes
+      vote_matcher.py      # Vote-to-agenda-item matching (timestamp + text heuristics)
     rosters/               # Council member rosters (not yet built)
     enrichment/            # Dollar extraction, sponsors, topics, scoring
       dollars.py           # Regex dollar extraction + tier classification
@@ -195,12 +196,17 @@ This repo (`docket-pub-dw-dev`) is a **test/dev fork** of the main `docket-pub` 
 | Security checklist | Done | `docs/SECURITY_CHECKLIST.md` — pre-deployment requirements |
 | Admin auth | Done | Session-based login, migration 006, `/admin/login`, `create_admin` CLI |
 | Deployment | Done | Railway — live at `docket-web-production-6110.up.railway.app` |
-| Minutes vote parser | Done | `analysis/minutes_parser.py` — PDF text extraction, attendance + votes |
-| Vote ingestion | Done | Ingest pipeline Stage 4 — parses minutes, inserts votes + member_votes |
-| Video OCR pipeline | Confirmed working | `al-municipal-meetings` pipeline runs from docket venv (ffmpeg + tesseract) |
+| Minutes vote parser | Done | `analysis/minutes_parser.py` — PDF text extraction, attendance + votes (curly apostrophe fix for O'Quinn) |
+| Vote ingestion | Done | Ingest pipeline Stage 4 — parses minutes, inserts votes + member_votes with resolution_number + match_context |
+| Video OCR pipeline | Done | Imported Jan–Apr 2026 votes from al-municipal-meetings, ran fresh OCR for April meetings |
+| Video OCR import | Done | `scripts/import_video_ocr.py` — maps al-municipal-meetings SQLite → docket PostgreSQL |
+| Vote-to-item matching | Done | `analysis/vote_matcher.py` — timestamp matching (bisect, ported from al-municipal-meetings) + text heuristics (resolution number, item number, keyword overlap) |
+| Council member linking | Done | Migration 007 (term dates), `scripts/backfill_member_vote_ids.py` (dynamic roster-based), query uses council_member_id FK |
+| Landing page | Done | Contested votes, recent votes table, notable items (180-day limit), topic browse |
 | Source reconciliation | Not built | Compare video OCR vs official minutes |
 | Freshness checks | Not built | Nightly auto-check + manual trigger |
 | Public API | Not built | Flask blueprint for `/api/v1/` (deferred — security concern) |
+| Astro frontend | Deferred | Evaluate Astro as Flask/Jinja2+HTMX replacement |
 
 ### Build phases (reference)
 
@@ -213,7 +219,11 @@ This repo (`docket-pub-dw-dev`) is a **test/dev fork** of the main `docket-pub` 
 7. ~~Admin auth~~ — DONE (session-based login, migration 006)
 8. ~~Deployment~~ — DONE (Railway, gunicorn, production cookies)
 9. ~~Minutes vote extraction~~ — DONE (PDF parser for Birmingham, 870 meetings with minutes)
-10. Video OCR for post-12/30 meetings — 23 meetings, pipeline confirmed working
+10. ~~Video OCR for post-12/30 meetings~~ — DONE (imported from al-municipal-meetings + fresh April OCR)
+11. ~~Vote-to-item matching~~ — DONE (migration 008, timestamp + text matching, backfill scripts)
+12. ~~Council member linking~~ — DONE (migration 007, dynamic backfill, FK-based queries)
+13. ~~Landing page refresh~~ — DONE (contested votes, recent votes, 180-day notable items)
+14. Astro frontend evaluation — DEFERRED
 
 ### Key decisions to preserve
 
@@ -227,8 +237,12 @@ This repo (`docket-pub-dw-dev`) is a **test/dev fork** of the main `docket-pub` 
 - **Data Honesty:** inline badges + footer attribution + discrepancy flags
 - **Silent Break alerts:** dashboard + email notifications
 - **Deployment:** Railway (live), gunicorn, production cookies, Procfile
-- **Vote sources:** Minutes PDF first (870 meetings), video OCR fallback (23 post-12/30 meetings)
+- **Vote sources:** Minutes PDF (~6,800 votes across 870 meetings), video OCR (77 votes, Jan–Apr 2026)
+- **Vote matching:** Timestamp proximity for OCR votes (bisect, ported from al-municipal-meetings), text heuristics for minutes votes (resolution number, item number, keyword overlap)
 - **Video OCR:** Import `muni.analysis` from al-municipal-meetings (installed in venv), don't re-port
+- **Council member linking:** Dynamic name→ID resolution using roster + term dates, not hardcoded maps
+- **Deploy:** `railway up --detach` (NOT `railway redeploy` which restarts old build without new code)
+- **Minutes parser:** Must handle curly apostrophes (U+2019) in name regex — O'Quinn fix
 
 ### Local PostgreSQL setup
 
