@@ -67,7 +67,7 @@ def main():
                      AND resolution_number IS NULL""",
                 (
                     vote.resolution_number,
-                    vote.context[:200] if vote.context else None,
+                    vote.context[-200:] if vote.context else None,
                     meeting_id,
                     vote_ext_id,
                 ),
