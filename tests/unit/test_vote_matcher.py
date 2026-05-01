@@ -4,7 +4,7 @@ import pytest
 import psycopg2.extras
 
 from docket.db import db
-from docket.analysis.vote_matcher import _upsert_link
+from docket.analysis.vote_matcher import _classify_vote, _upsert_link
 
 
 @pytest.fixture
@@ -176,3 +176,31 @@ def test_upsert_link_db_shield_blocks_update_when_app_check_bypassed(sample_vote
         conn.commit()
     assert row["match_method"] == "manual_correction"
     assert row["match_confidence"] == pytest.approx(1.0)
+
+
+def test_classify_vote_substantive_when_no_phrase():
+    vote = {"raw_text": "A standalone resolution. The resolution was read by the City Clerk.",
+            "match_context": "A standalone resolution."}
+    assert _classify_vote(vote) == "substantive"
+
+
+def test_classify_vote_consent_when_phrase_in_raw_text():
+    vote = {
+        "raw_text": "...the resolutions and ordinances introduced as consent agenda matters were read by the City Clerk...",
+        "match_context": "trailing only",
+    }
+    assert _classify_vote(vote) == "consent_block"
+
+
+def test_classify_vote_consent_when_phrase_only_in_match_context():
+    """Falls back to match_context for legacy votes with empty raw_text."""
+    vote = {
+        "raw_text": None,
+        "match_context": "items on consent agenda matters were read by the City Clerk",
+    }
+    assert _classify_vote(vote) == "consent_block"
+
+
+def test_classify_vote_substantive_when_both_empty():
+    vote = {"raw_text": None, "match_context": None}
+    assert _classify_vote(vote) == "substantive"

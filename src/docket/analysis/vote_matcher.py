@@ -18,9 +18,24 @@ from bisect import bisect_right
 
 import psycopg2.extras
 
+from docket.analysis.minutes_parser import CONSENT_BLOCK_PHRASES
 from docket.db import db, db_cursor
 
 logger = logging.getLogger(__name__)
+
+
+def _classify_vote(vote_row) -> str:
+    """Return 'substantive' or 'consent_block' for a vote.
+
+    Reads raw_text first (preferred), falls back to match_context for
+    legacy votes ingested before the parser was widened. Accepts dict-like
+    or psycopg2 RealDictRow.
+    """
+    haystack = (vote_row.get("raw_text") or "") + " " + (vote_row.get("match_context") or "")
+    haystack = haystack.lower()
+    if any(phrase in haystack for phrase in CONSENT_BLOCK_PHRASES):
+        return "consent_block"
+    return "substantive"
 
 
 def compute_confidence(gap_seconds: float, *, needs_review: bool = False) -> float:
