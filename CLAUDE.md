@@ -21,11 +21,13 @@ docket-pub-dw-dev/
       protocol.py          # MunicipalSourceAdapter protocol + Raw* dataclasses
       meeting.py           # Meeting dataclass
       agenda.py            # AgendaItem dataclass
-      vote.py              # Vote + MemberVote dataclasses
+      vote.py              # Vote + MemberVote + AgendaItemLink dataclasses (N:M shape)
     migrations/
       001_initial.py       # Full multi-city PostgreSQL schema
       007_council_terms_and_backfill.py  # Historical council members + term dates
       008_vote_matching_support.py       # video_timestamp_seconds, resolution_number, match columns
+      009_vote_agenda_items.py           # N:M join table + meetings.minutes_adopted_at
+      010_backfill_vote_agenda_items.py  # Copies legacy votes.agenda_item_id rows into the join table
       runner.py            # Migration runner (apply/rollback/status)
     adapters/              # Platform adapters (one per CMS type)
       _helpers.py          # Shared classify_meeting(), is_consent_item()
@@ -34,9 +36,10 @@ docket-pub-dw-dev/
       civicplus.py         # Stub for CivicPlus AgendaCenter sites
       generic_cms.py       # Homewood (HTML archive page with PDF links)
     services/              # Business logic layer (ingest, query, search, etc.)
-      ingest.py            # Scrape + enrich + upsert pipeline
-      query.py             # Read APIs: meetings, items, search, topics, timeline
+      ingest.py            # Scrape + enrich + upsert pipeline (calls sweep_adoptions at end of each run)
+      query.py             # Read APIs: meetings, items, search, topics, timeline; list_votes uses 3-query N:M reader
       enrichment.py        # Enrichment service (inline + backfill)
+      minutes_adoption.py  # Adoption-pattern detection + sweep_adoptions; dual-trigger contract with strict_reparse_meeting
     web/                   # Flask app factory + blueprints
       __init__.py          # create_app() factory (production cookie settings)
       public.py            # Citizen-facing routes (11 routes + 3 HTMX partials)
@@ -46,15 +49,19 @@ docket-pub-dw-dev/
       templates/           # Jinja2 templates (editorial design from Claude Design)
         base.html          # App shell with rail sidebar, fonts, HTMX
         city.html          # Birmingham overview (hero, KPIs, topics, legislation, council)
-        partials/          # HTMX fragments (masthead, footer, rail states)
+        meeting_detail.html # Renders the N:M vote shape: substantive 1:1, consent block collapse, provisional/adopted pills
+        partials/          # HTMX fragments
+          masthead.html, footer.html
+          rail_default.html, rail_meeting.html, rail_member.html  # Rail states (member rail shows linked agenda items + source-doc deep links)
+          council_card.html  # Shared council member card (used by city.html + council.html)
       static/              # Design system CSS (Source Serif + IBM Plex + JetBrains Mono)
         styles.css         # Tokens, typography, chips, tiers, citations
         layout.css         # Masthead, hero, KPIs, feed, council cards, rail
         councilmatic.css   # This-week strip, topic browse, legislation cards
         tweaks.css         # Footer, rail empty CTA
     analysis/
-      minutes_parser.py    # Birmingham minutes PDF → attendance + votes
-      vote_matcher.py      # Vote-to-agenda-item matching (timestamp + text heuristics)
+      minutes_parser.py    # Birmingham minutes PDF → attendance + votes (1500-char pre-vote window, persists raw_text, sets is_likely_consent)
+      vote_matcher.py      # N:M matcher: classify substantive vs consent_block, run substantive 3-tier + consent_block (named-callout + default-fill) matchers, strict_reparse_meeting for adoption promotion. _upsert_link enforces the manual shield (app-level + DB-level WHERE is_manual=FALSE).
     rosters/               # Council member rosters (not yet built)
     enrichment/            # Dollar extraction, sponsors, topics, scoring
       dollars.py           # Regex dollar extraction + tier classification
@@ -211,6 +218,12 @@ This repo (`docket-pub-dw-dev`) is a **test/dev fork** of the main `docket-pub` 
 | Vote-to-item matching | Done | `analysis/vote_matcher.py` — timestamp matching (bisect, ported from al-municipal-meetings) + text heuristics (resolution number, item number, keyword overlap) |
 | Council member linking | Done | Migration 007 (term dates), `scripts/backfill_member_vote_ids.py` (dynamic roster-based), query uses council_member_id FK |
 | Landing page | Done | Contested votes, recent votes table, notable items (180-day limit), topic browse |
+| `vote_agenda_items` join table | Done | Migration 009 — N:M shape with `association_type`, `provisional`, `is_manual`, `is_active` |
+| Adoption sweep + strict re-parse | Done | `services/minutes_adoption.py` (sweep) + `analysis/vote_matcher.py:strict_reparse_meeting` — promotes provisional consent links to official after council adopts the minutes |
+| N:M reader rewrite | Done | `services/query.py:list_votes(meeting_id, *, include_excerpts=False)` — 3-query pattern (votes + vote_agenda_items + member_votes) |
+| `meeting_detail.html` N:M render | Done | Substantive vs consent-block branching, consent-block collapse, provisional/adopted pills |
+| Council member rail with linked items | Done | `rail_member.html` — shows what each vote was about, with source-document deep links |
+| Editorial design pass on remaining templates | Done | meetings list, topics index, topic detail, search, council pages |
 | Source reconciliation | Not built | Compare video OCR vs official minutes |
 | Freshness checks | Not built | Nightly auto-check + manual trigger |
 | Public API | Not built | Flask blueprint for `/api/v1/` (deferred — security concern) |
@@ -231,7 +244,9 @@ This repo (`docket-pub-dw-dev`) is a **test/dev fork** of the main `docket-pub` 
 11. ~~Vote-to-item matching~~ — DONE (migration 008, timestamp + text matching, backfill scripts)
 12. ~~Council member linking~~ — DONE (migration 007, dynamic backfill, FK-based queries)
 13. ~~Landing page refresh~~ — DONE (contested votes, recent votes, 180-day notable items)
-14. Astro frontend evaluation — DEFERRED
+14. ~~Vote-to-item matching N:M redesign~~ — DONE (vote_agenda_items join table, substantive + consent matchers, strict re-parse, dual-trigger adoption lifecycle)
+15. ~~Editorial design pass on remaining templates~~ — DONE (meetings/topics/topic_detail/search/council)
+16. Astro frontend evaluation — DEFERRED
 
 ### Key decisions to preserve
 
@@ -245,12 +260,18 @@ This repo (`docket-pub-dw-dev`) is a **test/dev fork** of the main `docket-pub` 
 - **Data Honesty:** inline badges + footer attribution + discrepancy flags
 - **Silent Break alerts:** dashboard + email notifications
 - **Deployment:** Railway (live), gunicorn, production cookies, Procfile
-- **Vote sources:** Minutes PDF (~6,800 votes across 870 meetings), video OCR (77 votes, Jan–Apr 2026)
-- **Vote matching:** Timestamp proximity for OCR votes (bisect, ported from al-municipal-meetings), text heuristics for minutes votes (resolution number, item number, keyword overlap)
+- **Vote sources:** Minutes PDF (~6,800 votes across 870 meetings), video OCR (77 votes, Jan–Apr 2026). Consent-block votes get 1:N coverage (one vote → many items), and that's now the dominant link source — total active links across Birmingham land at ~36K after the backfill.
+- **Vote matching:** Timestamp proximity for OCR votes (bisect, ported from al-municipal-meetings), text heuristics for minutes votes (resolution number, item number, keyword overlap). Each vote is first classified substantive vs consent_block; substantive runs 3-tier matching, consent_block runs named-callout + default-fill passes.
+- **N:M vote↔agenda links:** `vote_agenda_items` join table — one consent vote can link to many items. Named callouts get `match_confidence=1.0`, default consent fill gets `0.8`.
+- **Provisional → Official lifecycle:** `consent_named` and `consent_implicit` links insert with `provisional=TRUE`. They flip to `FALSE` when council adopts the minutes (sweep_adoptions sets `meetings.minutes_adopted_at`, then strict re-parse promotes the links). Substantive (`explicit`) links insert with `provisional=FALSE` directly.
+- **Manual shield:** `is_manual=TRUE` on a `vote_agenda_items` row protects it from automated overwrite — enforced both by an app-level pre-check in `_upsert_link` and a DB-level `WHERE is_manual = FALSE` predicate on every UPDATE.
+- **Active vs ghost links:** `is_active=FALSE` marks links to items that were on the consent agenda at meeting time but pulled out and voted separately. Kept for audit; hidden from the default reader (`Vote.active_links`).
+- **Strict re-parse safety:** when the enumerated consent list resolves to zero target agenda items, `strict_reparse_meeting` aborts (does NOT mass-deactivate). Protects against PDF/OCR glitches that could otherwise wipe every active consent link in the meeting.
+- **Dual-trigger contract:** `strict_reparse_meeting` fires from both the matcher (when matching a meeting whose `minutes_adopted_at` is already non-NULL) and the sweep (when newly flipping a meeting NULL → adopted). Order independent — either path lands the same end state.
 - **Video OCR:** Import `muni.analysis` from al-municipal-meetings (installed in venv), don't re-port
 - **Council member linking:** Dynamic name→ID resolution using roster + term dates, not hardcoded maps
 - **Deploy:** `railway up --detach` (NOT `railway redeploy` which restarts old build without new code)
-- **Minutes parser:** Must handle curly apostrophes (U+2019) in name regex — O'Quinn fix
+- **Minutes parser:** Must handle curly apostrophes (U+2019) in name regex — O'Quinn fix. Pre-vote window is 1500 chars (was 500, last 200) so the resolution body is captured into `votes.raw_text`.
 
 ### Local PostgreSQL setup
 
