@@ -1,6 +1,6 @@
 """Tests for minutes parser context capture and consent-phrase detection."""
 
-from docket.analysis.minutes_parser import parse_minutes, ParsedVote, _contains_consent_phrase
+from docket.analysis.minutes_parser import parse_minutes, _contains_consent_phrase
 
 
 CONSENT_BLOCK_TEXT = """

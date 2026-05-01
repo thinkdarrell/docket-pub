@@ -1,6 +1,6 @@
 """Tests for AgendaItemLink and Vote dataclass shape."""
 
-from docket.models.vote import AgendaItemLink
+from docket.models.vote import AgendaItemLink, Vote
 
 
 def test_agenda_item_link_required_fields():
@@ -38,9 +38,6 @@ def test_agenda_item_link_is_frozen():
         pass
     else:
         raise AssertionError("AgendaItemLink should be frozen")
-
-
-from docket.models.vote import Vote, MemberVote
 
 
 def _make_link(**overrides):
