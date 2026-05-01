@@ -202,6 +202,62 @@ def get_council_member(member_id: int) -> dict | None:
         return dict(row) if row else None
 
 
+def get_member_vote_summary(member_id: int) -> dict:
+    """Return vote summary stats and recent votes for a council member."""
+    with db_cursor() as cur:
+        # Get the member's name to match against member_votes
+        cur.execute("SELECT name FROM council_members WHERE id = %s", (member_id,))
+        row = cur.fetchone()
+        if not row:
+            return {"total": 0, "yea": 0, "nay": 0, "abstain": 0, "absent": 0, "recent": []}
+
+        member_name = row["name"]
+        # Match on full name or last name (OCR uses "I. Lastname" format)
+        last_name = member_name.split()[-1] if member_name else ""
+
+        cur.execute(
+            """
+            SELECT CASE WHEN mv.position IN ('yea','yes') THEN 'yea'
+                        WHEN mv.position IN ('nay','no') THEN 'nay'
+                        ELSE mv.position END AS pos,
+                   COUNT(*) as cnt
+            FROM member_votes mv
+            WHERE mv.member_name ILIKE %s OR mv.member_name ILIKE %s
+            GROUP BY pos
+            """,
+            (f"%{last_name}", f"%{member_name}%"),
+        )
+        counts = {r["pos"]: r["cnt"] for r in cur.fetchall()}
+
+        cur.execute(
+            """
+            SELECT v.result, v.source, v.yeas, v.nays,
+                   CASE WHEN mv.position IN ('yea','yes') THEN 'yea'
+                        WHEN mv.position IN ('nay','no') THEN 'nay'
+                        ELSE mv.position END AS position,
+                   m.meeting_date, m.title
+            FROM member_votes mv
+            JOIN votes v ON mv.vote_id = v.id
+            JOIN meetings m ON v.meeting_id = m.id
+            WHERE mv.member_name ILIKE %s OR mv.member_name ILIKE %s
+            ORDER BY m.meeting_date DESC, v.id DESC
+            LIMIT 20
+            """,
+            (f"%{last_name}", f"%{member_name}%"),
+        )
+        recent = [dict(r) for r in cur.fetchall()]
+
+        total = sum(counts.values())
+        return {
+            "total": total,
+            "yea": counts.get("yea", 0),
+            "nay": counts.get("nay", 0),
+            "abstain": counts.get("abstain", 0),
+            "absent": counts.get("absent", 0),
+            "recent": recent,
+        }
+
+
 # --- Cross-city queries ----------------------------------------------------
 
 

@@ -20,21 +20,38 @@
             </tbody>
         </table>
 
+        {% if vote_summary and vote_summary.total > 0 %}
+        <table class="rail-table">
+            <tbody>
+                <tr><td class="t-label">Total votes</td><td class="rail-table-val">{{ vote_summary.total }}</td><td class="t-meta"></td></tr>
+                <tr><td class="t-label">Yea</td><td class="rail-table-val">{{ vote_summary.yea }}</td><td class="t-meta">{{ "%.0f"|format(vote_summary.yea / vote_summary.total * 100) }}%</td></tr>
+                <tr><td class="t-label">Nay</td><td class="rail-table-val">{{ vote_summary.nay }}</td><td class="t-meta">{{ "%.0f"|format(vote_summary.nay / vote_summary.total * 100) }}%</td></tr>
+                <tr><td class="t-label">Abstain</td><td class="rail-table-val">{{ vote_summary.abstain }}</td><td class="t-meta"></td></tr>
+                <tr><td class="t-label">Absent</td><td class="rail-table-val">{{ vote_summary.absent }}</td><td class="t-meta"></td></tr>
+            </tbody>
+        </table>
+
+        {% if vote_summary.recent %}
+        <div class="rail-section">
+            <div class="rail-kicker t-mono">RECENT VOTES</div>
+            {% for v in vote_summary.recent[:10] %}
+            <div class="rail-vote-row" style="padding: 0.35rem 0; border-bottom: 1px solid var(--rule, #e0d8cf);">
+                <div class="t-meta">{{ v.meeting_date.strftime('%b %-d, %Y') }}</div>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span class="t-label" style="font-size: 0.8rem;">{{ v.result|capitalize }}</span>
+                    <span class="chip chip-{{ v.position }}">{{ v.position|upper }}</span>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% else %}
         <div class="callout callout-warn is-tight">
             <div class="callout-title t-mono">Data note</div>
-            <div class="callout-body">Voting records and attendance require the vote OCR pipeline (not yet ported). Council member data is manually seeded.</div>
+            <div class="callout-body">No voting records found for this member yet.</div>
         </div>
-
-        <div class="rail-links">
-            <a class="rail-link" href="#" rel="noreferrer">
-                <div><div class="rail-link-label">Voting history</div><div class="t-meta">coming soon</div></div>
-                <span class="t-mono">↗</span>
-            </a>
-            <a class="rail-link" href="#" rel="noreferrer">
-                <div><div class="rail-link-label">Sponsored agenda items</div><div class="t-meta">coming soon</div></div>
-                <span class="t-mono">↗</span>
-            </a>
-        </div>
+        {% endif %}
     </div>
 </div>
 

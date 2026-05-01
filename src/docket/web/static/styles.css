@@ -100,6 +100,12 @@ body {
 .chip.is-warn .dot { background: var(--warn); }
 .chip.is-bad  .dot { background: var(--bad); }
 
+/* vote position chips */
+.chip-yea     { background: oklch(0.92 0.04 145); color: oklch(0.35 0.10 145); border-color: oklch(0.78 0.08 145); }
+.chip-nay     { background: oklch(0.92 0.04 25);  color: oklch(0.40 0.14 25);  border-color: oklch(0.78 0.10 25); }
+.chip-abstain { background: var(--paper-2); color: var(--ink-3); }
+.chip-absent  { background: var(--paper-3); color: var(--ink-4); }
+
 .tier {
   display: inline-flex;
   align-items: baseline;

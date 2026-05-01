@@ -275,7 +275,9 @@ def rail_member(slug, member_id):
     member = query.get_council_member(member_id)
     if not member:
         abort(404)
+    vote_summary = query.get_member_vote_summary(member_id)
     return render_template(
         "partials/rail_member.html",
         member=member,
+        vote_summary=vote_summary,
     )
