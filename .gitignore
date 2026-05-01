@@ -23,3 +23,4 @@ build/
 
 # Minutes parse cache — populated by scripts/backfill_vote_context.py
 data/minutes_cache/
+.DS_Store
