@@ -81,3 +81,82 @@ def test_summarize_meeting_success(mock_anthropic_cls):
     client = AIClient(api_key="test-key")
     result, usage = client.summarize_meeting(_meeting_ctx())
     assert result.executive_summary == "Council considered two items."
+
+
+import httpx
+from anthropic import APIStatusError
+
+
+def _make_status_error(code: int):
+    """Construct an APIStatusError with a given status code.
+
+    anthropic >= 0.39 requires APIStatusError(message, *, response, body) where
+    response is an httpx.Response. The response itself needs an associated
+    httpx.Request or the SDK raises RuntimeError on attribute access.
+    """
+    req = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    response = httpx.Response(status_code=code, request=req)
+    return APIStatusError(message="x", response=response, body=None)
+
+
+@patch("docket.ai.client.Anthropic")
+def test_401_raises_fatal(mock_anthropic_cls):
+    mock_client = MagicMock()
+    mock_anthropic_cls.return_value = mock_client
+    mock_client.messages.create.side_effect = _make_status_error(401)
+    with pytest.raises(AIFatalError):
+        AIClient(api_key="bad").summarize_item(_item_ctx())
+
+
+@patch("docket.ai.client.Anthropic")
+def test_400_raises_permanent(mock_anthropic_cls):
+    mock_client = MagicMock()
+    mock_anthropic_cls.return_value = mock_client
+    mock_client.messages.create.side_effect = _make_status_error(400)
+    with pytest.raises(AIPermanentRowError):
+        AIClient(api_key="ok").summarize_item(_item_ctx())
+
+
+@patch("docket.ai.client.Anthropic")
+@patch("docket.ai.client.time.sleep", lambda _: None)
+def test_5xx_retries_then_transient(mock_anthropic_cls):
+    mock_client = MagicMock()
+    mock_anthropic_cls.return_value = mock_client
+    mock_client.messages.create.side_effect = _make_status_error(503)
+    with pytest.raises(AITransientError):
+        AIClient(api_key="ok").summarize_item(_item_ctx())
+    assert mock_client.messages.create.call_count == 3
+
+
+@patch("docket.ai.client.Anthropic")
+@patch("docket.ai.client.time.sleep", lambda _: None)
+def test_5xx_then_success(mock_anthropic_cls):
+    mock_client = MagicMock()
+    mock_anthropic_cls.return_value = mock_client
+    success_msg = _stub_anthropic_message({
+        "is_substantive": True, "significance_rationale": "ok", "significance_score": 5.0,
+        "consent_placement_rationale": "ok", "consent_placement_score": 5.0,
+        "summary": "ok", "confidence": "high",
+    })
+    mock_client.messages.create.side_effect = [_make_status_error(503), success_msg]
+    result, _ = AIClient(api_key="ok").summarize_item(_item_ctx())
+    assert result.summary == "ok"
+    assert mock_client.messages.create.call_count == 2
+
+
+@patch("docket.ai.client.Anthropic")
+def test_validation_error_is_permanent(mock_anthropic_cls):
+    mock_client = MagicMock()
+    mock_anthropic_cls.return_value = mock_client
+    mock_client.messages.create.return_value = _stub_anthropic_message({
+        "is_substantive": True, "significance_rationale": "x", "significance_score": None,
+        "consent_placement_rationale": "x", "consent_placement_score": None,
+        "summary": "ok", "confidence": "high",
+    })
+    with pytest.raises(AIPermanentRowError):
+        AIClient(api_key="ok").summarize_item(_item_ctx())
+
+
+def test_no_api_key_raises_fatal():
+    with pytest.raises(AIFatalError):
+        AIClient(api_key="")
