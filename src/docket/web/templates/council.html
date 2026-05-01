@@ -2,22 +2,25 @@
 {% block title %}Council — {{ municipality.name }} — docket.pub{% endblock %}
 
 {% block content %}
-<h1>{{ municipality.name }} Council</h1>
-
-<div class="council-grid">
-    {% for m in members %}
-    <div class="council-card">
-        {% if m.photo_url %}
-        <img src="{{ m.photo_url }}" alt="{{ m.name }}">
-        {% endif %}
-        <h3>{{ m.name }}</h3>
-        {% if m.district_name %}
-        <p>{{ m.district_name }}</p>
-        {% endif %}
-        {% if m.email %}
-        <p><a href="mailto:{{ m.email }}">{{ m.email }}</a></p>
-        {% endif %}
+<section class="hero" style="padding-bottom: 24px;">
+    <div class="hero-top">
+        <div>
+            <div class="t-eyebrow">{{ municipality.council_type or 'City Council' }} · {{ municipality.name }}</div>
+            <h1 class="hero-title t-display">{{ municipality.name }} Council</h1>
+            <p class="hero-sub">{{ members | length }} member{{ 's' if members | length != 1 else '' }}</p>
+        </div>
     </div>
-    {% endfor %}
-</div>
+</section>
+
+{% if members %}
+<section class="council">
+    <div class="council-grid">
+        {% for m in members %}
+        {% include "partials/council_card.html" %}
+        {% endfor %}
+    </div>
+</section>
+{% else %}
+<p class="t-meta">No council members on record for {{ municipality.name }}.</p>
+{% endif %}
 {% endblock %}
