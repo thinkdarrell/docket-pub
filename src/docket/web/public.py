@@ -79,9 +79,10 @@ def city_overview(slug):
     recent = query.list_recent_meetings(days=7, limit=4)
     upcoming = query.list_upcoming_meetings(days=14, limit=4)
     notable = query.list_high_dollar_items(municipality_slug=slug, limit=6, days=180)
-    contested = query.list_contested_votes(municipality_slug=slug, limit=6)
-    recent_votes = query.list_recent_votes(municipality_slug=slug, limit=8)
     stats = query.dashboard_stats()
+    # TODO: precompute these — too heavy for cold page loads on Railway
+    contested = []
+    recent_votes = []
 
     # Filter timeline to this city
     recent_city = [m for m in recent if m.get("municipality_slug") == slug]
