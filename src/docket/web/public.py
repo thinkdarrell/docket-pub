@@ -261,11 +261,13 @@ def rail_meeting(slug, meeting_id):
     if not municipality or not meeting:
         abort(404)
     items = query.list_agenda_items(meeting_id)
+    votes = query.list_votes(meeting_id)
     return render_template(
         "partials/rail_meeting.html",
         municipality=municipality,
         meeting=meeting,
         item_count=len(items),
+        votes=votes,
     )
 
 
