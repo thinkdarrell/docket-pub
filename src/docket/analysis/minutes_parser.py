@@ -145,7 +145,7 @@ def _extract_names(text: str) -> list[str]:
     for part in parts:
         name = part.strip()
         # Valid last name: starts with uppercase letter, may contain apostrophe
-        if name and re.match(r"^[A-Z][A-Za-z'-]+$", name):
+        if name and re.match(r"^[A-Z][A-Za-z'\u2019\u2018'-]+$", name):
             names.append(name)
 
     return names
@@ -249,6 +249,6 @@ def _parse_vote_names(raw: str) -> list[str]:
     names = []
     for part in parts:
         name = part.strip().rstrip(",.")
-        if name and re.match(r"^[A-Z][A-Za-z'-]+$", name):
+        if name and re.match(r"^[A-Z][A-Za-z'\u2019\u2018'-]+$", name):
             names.append(name)
     return names
