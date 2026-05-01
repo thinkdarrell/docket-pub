@@ -2,81 +2,205 @@
 {% block title %}{{ meeting.title }} — {{ municipality.name }} — docket.pub{% endblock %}
 
 {% block content %}
-<h1>{{ meeting.title }}</h1>
-<p>
-    <a href="{{ url_for('public.city_overview', slug=municipality.slug) }}">{{ municipality.name }}</a>
-    · {{ meeting.meeting_date }}
-    · {{ meeting.meeting_type }}
-</p>
+{# ── Hero ─────────────────────────────────────────── #}
+<section class="hero">
+    <div class="hero-top">
+        <div>
+            <div class="t-eyebrow">{{ meeting.meeting_type or 'meeting' }} · {{ municipality.name }}</div>
+            <h1 class="hero-title t-display" style="font-size: 48px;">{{ meeting.title }}</h1>
+            <p class="hero-sub">
+                {{ meeting.meeting_date.strftime('%A, %B %-d, %Y') if meeting.meeting_date else '' }}
+                · <strong>{{ agenda_items | length }}</strong> agenda items
+                · <strong>{{ votes | length }}</strong> vote{{ 's' if votes | length != 1 else '' }} recorded
+            </p>
+        </div>
+    </div>
 
-<div>
-    {% if meeting.agenda_url %}<a href="{{ meeting.agenda_url }}">View Agenda</a>{% endif %}
-    {% if meeting.minutes_url %}<a href="{{ meeting.minutes_url }}">View Minutes</a>{% endif %}
-    {% if meeting.video_url %}<a href="{{ meeting.video_url }}">Watch Video</a>{% endif %}
-    {% if meeting.source_url %}<a href="{{ meeting.source_url }}">Original Source</a>{% endif %}
-</div>
+    <div class="kpi-grid" style="grid-template-columns: repeat(4, 1fr);">
+        <div class="kpi">
+            <div class="kpi-label t-label">Agenda items</div>
+            <div class="kpi-value t-display t-tnum">{{ agenda_items | length }}</div>
+            <div class="kpi-sub t-meta">{{ consent_items | length }} consent · {{ regular_items | length }} regular</div>
+        </div>
+        <div class="kpi">
+            <div class="kpi-label t-label">Votes</div>
+            <div class="kpi-value t-display t-tnum">{{ votes | length }}</div>
+            <div class="kpi-sub t-meta">{% if votes %}{{ votes[0].source | replace('_', ' ') }}{% else %}none recorded{% endif %}</div>
+        </div>
+        <div class="kpi">
+            <div class="kpi-label t-label">Dollar items</div>
+            <div class="kpi-value t-display t-tnum">{{ dollar_count }}</div>
+            <div class="kpi-sub t-meta">with amounts</div>
+        </div>
+        <div class="kpi is-accent">
+            <div class="kpi-label t-label">Topics</div>
+            <div class="kpi-value t-display t-tnum">{{ topic_count }}</div>
+            <div class="kpi-sub t-meta">classified</div>
+        </div>
+    </div>
+</section>
 
-{% if agenda_items %}
-<section>
-    <h2>Agenda Items ({{ agenda_items | length }})</h2>
-    {% for item in agenda_items %}
-    <div>
-        {% if item.item_number %}<span>{{ item.item_number }}</span>{% endif %}
-        <strong>{{ item.title }}</strong>
-
-        {% if item.dollars_amount %}
-        <span class="dollar-{{ item.dollars_amount | dollar_tier }}">
-            ${{ "{:,.2f}".format(item.dollars_amount) }}
-        </span>
+{# ── Source links ─────────────────────────────────── #}
+<section class="mtg-sources">
+    <div class="rail-links" style="flex-direction: row; flex-wrap: wrap; gap: 8px; padding: 24px 0;">
+        {% if meeting.agenda_url %}
+        <a class="rail-link" href="{{ meeting.agenda_url }}" target="_blank" rel="noreferrer" style="flex: 1; min-width: 180px;">
+            <div><div class="rail-link-label">Agenda</div><div class="t-meta">primary source</div></div>
+            <span class="t-mono">↗</span>
+        </a>
         {% endif %}
-
-        {% if item.topic %}
-        <span class="topic">{{ item.topic | topic_name }}</span>
+        {% if meeting.minutes_url %}
+        <a class="rail-link" href="{{ meeting.minutes_url }}" target="_blank" rel="noreferrer" style="flex: 1; min-width: 180px;">
+            <div><div class="rail-link-label">Official minutes</div><div class="t-meta">published</div></div>
+            <span class="t-mono">↗</span>
+        </a>
         {% endif %}
-
-        {% if item.sponsor %}
-        <span class="sponsor">{{ item.sponsor }}</span>
+        {% if meeting.video_url %}
+        <a class="rail-link" href="{{ meeting.video_url }}" target="_blank" rel="noreferrer" style="flex: 1; min-width: 180px;">
+            <div><div class="rail-link-label">Watch video</div><div class="t-meta">Granicus player</div></div>
+            <span class="t-mono">↗</span>
+        </a>
         {% endif %}
-
-        {% if item.is_consent %}
-        <span class="consent">Consent</span>
-        {% endif %}
-
-        {% if item.description %}
-        <p>{{ item.description }}</p>
+        {% if meeting.source_url %}
+        <a class="rail-link" href="{{ meeting.source_url }}" target="_blank" rel="noreferrer" style="flex: 1; min-width: 180px;">
+            <div><div class="rail-link-label">Original source</div><div class="t-meta">city website</div></div>
+            <span class="t-mono">↗</span>
+        </a>
         {% endif %}
     </div>
+</section>
+
+{# ── Votes ────────────────────────────────────────── #}
+{% if votes %}
+<section class="feed" style="padding-bottom: 32px;">
+    <div class="feed-head">
+        <div>
+            <div class="t-eyebrow">Roll call</div>
+            <h2 class="feed-title t-display" style="font-size: 28px;">Votes ({{ votes | length }})</h2>
+        </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 12px;">
+    {% for vote in votes %}
+        <div class="vote-block {{ 'is-pass' if vote.result == 'passed' else 'is-fail' if vote.result == 'failed' else '' }}">
+            <div class="vote-block-head">
+                <span class="vote-block-result">{{ vote.result }}</span>
+                <span class="vote-block-source t-meta">
+                    <span class="chip {{ 'is-good' if vote.confidence == 'high' else 'is-warn' }}">
+                        <span class="dot"></span>
+                        {{ vote.source | replace('_', ' ') }} · {{ vote.confidence }}
+                    </span>
+                </span>
+            </div>
+            <div style="display: flex; gap: 16px; align-items: baseline;">
+                <span class="t-mono" style="font-size: 20px; font-weight: 500;">{{ vote.yeas }}–{{ vote.nays }}</span>
+                {% if vote.abstentions %}<span class="t-meta">{{ vote.abstentions }} abstain</span>{% endif %}
+            </div>
+            {% if vote.member_votes %}
+            <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                {% for mv in vote.member_votes %}
+                <span class="chip chip-{{ mv.position }}">{{ mv.member_name }} · {{ mv.position | upper }}</span>
+                {% endfor %}
+            </div>
+            {% endif %}
+            {% if vote.needs_review %}
+            <div class="callout callout-warn is-tight" style="margin-top: 4px;">
+                <div class="callout-title t-mono">Needs review</div>
+                <div class="callout-body">{{ vote.review_reason }}</div>
+            </div>
+            {% endif %}
+        </div>
     {% endfor %}
+    </div>
 </section>
 {% endif %}
 
-{% if votes %}
-<section>
-    <h2>Votes ({{ votes | length }})</h2>
-    {% for vote in votes %}
-    <div>
-        <strong>{{ vote.result | upper }}</strong>
-        {% if vote.yeas is not none %}{{ vote.yeas }} yea{% endif %}
-        {% if vote.nays is not none %} / {{ vote.nays }} nay{% endif %}
-        {% if vote.abstentions is not none %} / {{ vote.abstentions }} abstain{% endif %}
-
-        <span class="source">Source: {{ vote.source }}
-            {% if vote.confidence %}({{ vote.confidence }}){% endif %}
-        </span>
-
-        {% if vote.needs_review %}
-        <span class="review">Needs review: {{ vote.review_reason }}</span>
-        {% endif %}
-
-        {% if vote.member_votes %}
-        <ul>
-            {% for mv in vote.member_votes %}
-            <li>{{ mv.member_name }}: {{ mv.position }}</li>
-            {% endfor %}
-        </ul>
-        {% endif %}
+{# ── Regular agenda items ─────────────────────────── #}
+{% if regular_items %}
+<section class="notable">
+    <div class="feed-head">
+        <div>
+            <div class="t-eyebrow">Business</div>
+            <h2 class="feed-title t-display" style="font-size: 28px;">Regular Agenda ({{ regular_items | length }})</h2>
+        </div>
     </div>
-    {% endfor %}
+
+    <div class="notable-list">
+        {% for item in regular_items %}
+        <div class="notable-row" style="cursor: default;">
+            <div class="notable-num t-mono">
+                {% if item.item_number %}{{ item.item_number }}{% else %}—{% endif %}
+            </div>
+            <div>
+                <div class="notable-title">{{ item.title }}</div>
+                <div class="notable-meta">
+                    {% if item.topic %}
+                    <span class="chip"><span class="dot"></span>{{ item.topic | topic_name }}</span>
+                    {% endif %}
+                    {% if item.sponsor %}
+                    <span class="t-meta">{{ item.sponsor }}</span>
+                    {% endif %}
+                </div>
+                {% if item.description %}
+                <div class="t-meta" style="margin-top: 6px; line-height: 1.5;">{{ item.description }}</div>
+                {% endif %}
+            </div>
+            <div class="notable-right">
+                {% if item.dollars_amount %}
+                <span class="tier tier-{{ item.dollars_amount | dollar_tier }}">
+                    ${{ "{:,.0f}".format(item.dollars_amount) }}
+                </span>
+                {% endif %}
+                {% if item.is_consent %}
+                <span class="badge-consent">Consent</span>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</section>
+{% endif %}
+
+{# ── Consent agenda ───────────────────────────────── #}
+{% if consent_items %}
+<section class="notable" style="padding-top: 32px;">
+    <div class="feed-head">
+        <div>
+            <div class="t-eyebrow">Consent calendar</div>
+            <h2 class="feed-title t-display" style="font-size: 28px;">Consent Agenda ({{ consent_items | length }})</h2>
+            <p class="t-meta" style="margin-top: 8px; max-width: 600px;">
+                Items passed as a group without individual discussion unless pulled by a council member.
+            </p>
+        </div>
+    </div>
+
+    <div class="notable-list">
+        {% for item in consent_items %}
+        <div class="notable-row" style="cursor: default;">
+            <div class="notable-num t-mono">
+                {% if item.item_number %}{{ item.item_number }}{% else %}—{% endif %}
+            </div>
+            <div>
+                <div class="notable-title" style="font-size: 13px; font-weight: 400; color: var(--ink-2);">{{ item.title }}</div>
+                <div class="notable-meta">
+                    {% if item.topic %}
+                    <span class="chip"><span class="dot"></span>{{ item.topic | topic_name }}</span>
+                    {% endif %}
+                    {% if item.sponsor %}
+                    <span class="t-meta">{{ item.sponsor }}</span>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="notable-right">
+                {% if item.dollars_amount %}
+                <span class="tier tier-{{ item.dollars_amount | dollar_tier }}">
+                    ${{ "{:,.0f}".format(item.dollars_amount) }}
+                </span>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
 </section>
 {% endif %}
 {% endblock %}

@@ -134,13 +134,21 @@ def meeting_detail(slug, meeting_id):
 
     agenda_items = query.list_agenda_items(meeting_id)
     votes = query.list_votes(meeting_id)
+    consent_items = [i for i in agenda_items if i.is_consent]
+    regular_items = [i for i in agenda_items if not i.is_consent]
+    dollar_count = sum(1 for i in agenda_items if i.dollars_amount)
+    topic_count = len({i.topic for i in agenda_items if i.topic})
 
     return render_template(
         "meeting_detail.html",
         municipality=municipality,
         meeting=meeting,
         agenda_items=agenda_items,
+        consent_items=consent_items,
+        regular_items=regular_items,
         votes=votes,
+        dollar_count=dollar_count,
+        topic_count=topic_count,
     )
 
 
