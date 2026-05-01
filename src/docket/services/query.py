@@ -180,15 +180,7 @@ def list_recent_votes(municipality_slug: str, limit: int = 10) -> list[dict]:
             (municipality_slug, limit),
         )
         votes = [dict(r) for r in cur.fetchall()]
-
-        for vote in votes:
-            cur.execute(
-                """SELECT member_name, position FROM member_votes
-                   WHERE vote_id = %s ORDER BY id""",
-                (vote["id"],),
-            )
-            vote["member_votes"] = [dict(r) for r in cur.fetchall()]
-
+        _attach_member_votes(cur, votes)
         return votes
 
 
@@ -210,16 +202,25 @@ def list_contested_votes(municipality_slug: str, limit: int = 6) -> list[dict]:
             (municipality_slug, limit),
         )
         votes = [dict(r) for r in cur.fetchall()]
-
-        for vote in votes:
-            cur.execute(
-                """SELECT member_name, position FROM member_votes
-                   WHERE vote_id = %s ORDER BY id""",
-                (vote["id"],),
-            )
-            vote["member_votes"] = [dict(r) for r in cur.fetchall()]
-
+        _attach_member_votes(cur, votes)
         return votes
+
+
+def _attach_member_votes(cur, votes: list[dict]) -> None:
+    """Batch-load member_votes for a list of vote dicts (single query instead of N+1)."""
+    if not votes:
+        return
+    vote_ids = [v["id"] for v in votes]
+    cur.execute(
+        """SELECT vote_id, member_name, position FROM member_votes
+           WHERE vote_id = ANY(%s) ORDER BY vote_id, id""",
+        (vote_ids,),
+    )
+    by_vote: dict[int, list] = {}
+    for r in cur.fetchall():
+        by_vote.setdefault(r["vote_id"], []).append(dict(r))
+    for v in votes:
+        v["member_votes"] = by_vote.get(v["id"], [])
 
 
 # --- Council members --------------------------------------------------------
