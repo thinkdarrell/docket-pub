@@ -224,6 +224,7 @@ This repo (`docket-pub-dw-dev`) is a **test/dev fork** of the main `docket-pub` 
 | `meeting_detail.html` N:M render | Done | Substantive vs consent-block branching, consent-block collapse, provisional/adopted pills |
 | Council member rail with linked items | Done | `rail_member.html` — shows what each vote was about, with source-document deep links |
 | Editorial design pass on remaining templates | Done | meetings list, topics index, topic detail, search, council pages |
+| AI summaries + scoring | Done | `src/docket/ai/` — Haiku item summaries, Sonnet meeting executive summaries, two-phase lifecycle keyed off `minutes_adopted_at`, `ai_runs` cost telemetry, async batch worker + CLI (`python -m docket.ai.cli`) |
 | Source reconciliation | Not built | Compare video OCR vs official minutes |
 | Freshness checks | Not built | Nightly auto-check + manual trigger |
 | Public API | Not built | Flask blueprint for `/api/v1/` (deferred — security concern) |
@@ -246,12 +247,13 @@ This repo (`docket-pub-dw-dev`) is a **test/dev fork** of the main `docket-pub` 
 13. ~~Landing page refresh~~ — DONE (contested votes, recent votes, 180-day notable items)
 14. ~~Vote-to-item matching N:M redesign~~ — DONE (vote_agenda_items join table, substantive + consent matchers, strict re-parse, dual-trigger adoption lifecycle)
 15. ~~Editorial design pass on remaining templates~~ — DONE (meetings/topics/topic_detail/search/council)
-16. Astro frontend evaluation — DEFERRED
+16. ~~AI summaries + scoring~~ — DONE (migration 012, `src/docket/ai/` package, Haiku items + Sonnet meetings, two-phase lifecycle, ai_runs telemetry, admin panel)
+17. Astro frontend evaluation — DEFERRED
 
 ### Key decisions to preserve
 
 - **PostgreSQL from day 1** — no SQLite fallback
-- **AI features deferred** — scoring columns exist in schema but are NULL
+- **AI summaries + scoring:** items use Haiku 4.5, meetings use Sonnet 4.6. Two-phase meeting lifecycle keyed off `minutes_adopted_at` (provisional → adopted overwrites the executive summary). NULL `topic` renders as `"Uncategorized"` in prompts (never the literal `"None"`). Daily budget gate via `AI_DAILY_BUDGET_USD`; bumping `ITEM_PROMPT_VERSION` re-cascades both stages automatically. Worker writes per-row using `SELECT FOR UPDATE SKIP LOCKED` so multiple instances are safe.
 - **Two scoring dimensions:** significance (0-10) + consent placement (0-10)
 - **Dollar tiers:** green <$50K, yellow $50-250K, orange $250K-1M, red >$1M
 - **Source overlap:** video OCR + official minutes coexist, flag discrepancies only
