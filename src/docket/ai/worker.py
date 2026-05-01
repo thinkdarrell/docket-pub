@@ -113,3 +113,41 @@ def mark_item_failed(conn, item_id: int, reason: str) -> None:
                    ai_generated_at   = NOW()
              WHERE id = %s
         """, (Json(metadata), ITEM_PROMPT_VERSION, item_id))
+
+
+def write_meeting_result(conn, meeting_id: int, result: MeetingAIResult, *, model: str) -> None:
+    metadata = {
+        "phase": result.phase,
+        "is_substantive": result.is_substantive,
+        "substantive_item_count": result.substantive_item_count,
+        "confidence": result.confidence,
+        "model": model,
+    }
+    with conn.cursor() as cur:
+        cur.execute("""
+            UPDATE meetings
+               SET executive_summary = %s,
+                   ai_metadata       = %s,
+                   ai_prompt_version = %s,
+                   ai_generated_at   = NOW()
+             WHERE id = %s
+        """, (result.executive_summary, Json(metadata), MEETING_PROMPT_VERSION, meeting_id))
+
+
+def mark_meeting_empty(conn, meeting_id: int) -> None:
+    """Skip Sonnet call: meeting has zero substantive items."""
+    metadata = {
+        "phase": "provisional",
+        "is_substantive": False,
+        "substantive_item_count": 0,
+        "confidence": "high",
+        "model": None,
+    }
+    with conn.cursor() as cur:
+        cur.execute("""
+            UPDATE meetings
+               SET ai_metadata       = %s,
+                   ai_prompt_version = %s,
+                   ai_generated_at   = NOW()
+             WHERE id = %s
+        """, (Json(metadata), MEETING_PROMPT_VERSION, meeting_id))

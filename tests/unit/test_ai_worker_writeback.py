@@ -109,3 +109,87 @@ def test_mark_item_failed_keeps_summary_null(seed_item):
     assert row[1] == ITEM_PROMPT_VERSION
     assert row[2]["confidence"] == "low"
     assert "error" in row[2]
+
+
+from docket.ai.results import MeetingAIResult
+from docket.ai.worker import write_meeting_result, mark_meeting_empty
+
+
+@pytest.fixture
+def seed_meeting():
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO municipalities (slug, name, state, adapter_class, active)
+                VALUES ('test_mwb', 'Test', 'AL', 'granicus', TRUE)
+                ON CONFLICT (slug) DO UPDATE SET active = TRUE
+                RETURNING id
+            """)
+            muni = cur.fetchone()[0]
+            cur.execute("""
+                INSERT INTO meetings (municipality_id, meeting_type, meeting_date, source_url, title)
+                VALUES (%s, 'Council', CURRENT_DATE, 'x', 'test mwb meeting') RETURNING id
+            """, (muni,))
+            mid = cur.fetchone()[0]
+        conn.commit()
+    yield mid
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM meetings WHERE id = %s", (mid,))
+        conn.commit()
+
+
+def test_write_meeting_result_provisional(seed_meeting):
+    result = MeetingAIResult(
+        is_substantive=True, substantive_item_count=3,
+        executive_summary="Council considered three items.",
+        phase="provisional", confidence="high",
+    )
+    with db() as conn:
+        write_meeting_result(conn, seed_meeting, result, model="claude-sonnet-4-6")
+        conn.commit()
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT executive_summary, ai_metadata, ai_prompt_version
+                FROM meetings WHERE id = %s
+            """, (seed_meeting,))
+            row = cur.fetchone()
+    assert row[0] == "Council considered three items."
+    assert row[1]["phase"] == "provisional"
+    assert row[1]["substantive_item_count"] == 3
+    assert row[2] == 1
+
+
+def test_write_meeting_result_adopted_overwrites(seed_meeting):
+    """Adopted pass overwrites a previous provisional summary."""
+    prov = MeetingAIResult(is_substantive=True, substantive_item_count=2,
+                           executive_summary="prov", phase="provisional", confidence="high")
+    adopted = MeetingAIResult(is_substantive=True, substantive_item_count=2,
+                              executive_summary="adopted", phase="adopted", confidence="high")
+    with db() as conn:
+        write_meeting_result(conn, seed_meeting, prov, model="claude-sonnet-4-6")
+        conn.commit()
+        write_meeting_result(conn, seed_meeting, adopted, model="claude-sonnet-4-6")
+        conn.commit()
+        with conn.cursor() as cur:
+            cur.execute("SELECT executive_summary, ai_metadata FROM meetings WHERE id = %s", (seed_meeting,))
+            row = cur.fetchone()
+    assert row[0] == "adopted"
+    assert row[1]["phase"] == "adopted"
+
+
+def test_mark_meeting_empty(seed_meeting):
+    with db() as conn:
+        mark_meeting_empty(conn, seed_meeting)
+        conn.commit()
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT executive_summary, ai_metadata, ai_prompt_version
+                FROM meetings WHERE id = %s
+            """, (seed_meeting,))
+            row = cur.fetchone()
+    assert row[0] is None
+    assert row[1]["is_substantive"] is False
+    assert row[1]["substantive_item_count"] == 0
+    assert row[1]["model"] is None
+    assert row[2] == 1
