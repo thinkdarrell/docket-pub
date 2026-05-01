@@ -185,7 +185,7 @@ search_vector (TSVECTOR, auto-updated), created_at
 - `is_consent`: Boolean flag — was this item on the consent agenda?
 
 #### `votes`
-Vote outcomes recorded at a meeting. Links to agenda items now live in the `vote_agenda_items` join table — the singular `agenda_item_id` / `match_method` / `match_confidence` columns on `votes` are deprecated and will be dropped in a follow-up migration.
+Vote outcomes recorded at a meeting. Links to agenda items live in the `vote_agenda_items` join table; the legacy singular `agenda_item_id` / `match_method` / `match_confidence` columns were dropped in migration 011 after the N:M reader was verified live.
 ```
 id, meeting_id, external_id, result,
 yeas, nays, abstentions,
