@@ -13,7 +13,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 RUN pip install --no-cache-dir -e .
 
-EXPOSE 5000
+EXPOSE ${PORT:-5000}
 
-# Run migrations then start Flask
-CMD ["sh", "-c", "python -m docket.migrations.runner && flask run --host=0.0.0.0"]
+# Run migrations then start gunicorn
+CMD ["sh", "-c", "python -m docket.migrations.runner && gunicorn 'docket.web:create_app()' --bind 0.0.0.0:${PORT:-5000}"]

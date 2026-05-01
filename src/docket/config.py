@@ -16,3 +16,5 @@ DATABASE_URL: str = os.environ.get(
 SECRET_KEY: str = os.environ.get("SECRET_KEY", "dev-secret-change-in-production")
 
 DOMAIN_NAME: str = os.environ.get("DOMAIN_NAME", "docket.pub")
+
+FLASK_ENV: str = os.environ.get("FLASK_ENV", "development")

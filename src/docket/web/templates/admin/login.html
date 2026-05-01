@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Admin Login — docket.pub{% endblock %}
+
+{% block content %}
+<div style="max-width: 360px; margin: 4rem auto;">
+    <h1>Admin Login</h1>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+    {% for category, message in messages %}
+    <p style="color: var(--red-tier, #c0392b); font-weight: 600;">{{ message }}</p>
+    {% endfor %}
+    {% endif %}
+    {% endwith %}
+
+    <form method="post">
+        <label>Username:
+            <input type="text" name="username" required autofocus
+                   style="width: 100%; padding: 0.5rem; margin-bottom: 1rem;">
+        </label>
+
+        <label>Password:
+            <input type="password" name="password" required
+                   style="width: 100%; padding: 0.5rem; margin-bottom: 1rem;">
+        </label>
+
+        <button type="submit" style="width: 100%; padding: 0.5rem;">Sign In</button>
+    </form>
+</div>
+{% endblock %}

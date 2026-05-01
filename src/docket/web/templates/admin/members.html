@@ -2,7 +2,12 @@
 {% block title %}Council Members — Admin — docket.pub{% endblock %}
 
 {% block content %}
-<h1>Council Member Management</h1>
+<div style="display: flex; justify-content: space-between; align-items: center;">
+    <h1>Council Member Management</h1>
+    <form method="post" action="{{ url_for('auth.logout') }}" style="margin: 0;">
+        <button type="submit" style="font-size: 0.85rem;">Sign Out ({{ session.get('admin_user', '') }})</button>
+    </form>
+</div>
 <p><a href="{{ url_for('admin.add_member') }}">+ Add Member</a></p>
 
 {% for slug, data in members_by_city.items() %}

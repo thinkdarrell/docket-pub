@@ -1,9 +1,4 @@
-"""Admin routes — roster management and data operations.
-
-These routes are NOT authenticated yet. Before deployment, add
-session-based auth or restrict access by network/IP.
-See docs/SECURITY_CHECKLIST.md.
-"""
+"""Admin routes — roster management and data operations."""
 
 from __future__ import annotations
 
@@ -13,6 +8,17 @@ from docket.db import db, db_cursor
 from docket.services import query
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
+
+
+@bp.before_request
+def require_login():
+    """All admin routes require authentication."""
+    # Auth blueprint handles /admin/login and /admin/logout itself
+    from flask import session
+
+    if request.endpoint and request.endpoint.startswith("admin."):
+        if "admin_user" not in session:
+            return redirect(url_for("auth.login", next=request.path))
 
 
 # --- Council member management ----------------------------------------------

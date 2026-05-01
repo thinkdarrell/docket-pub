@@ -19,6 +19,7 @@ MIGRATIONS = [
     "docket.migrations.003_add_topic",
     "docket.migrations.004_expand_meeting_types",
     "docket.migrations.005_seed_council_rosters",
+    "docket.migrations.006_admin_users",
 ]
 
 

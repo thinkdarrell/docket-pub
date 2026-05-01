@@ -8,6 +8,7 @@ version = "0.1.0"
 requires-python = ">=3.10"
 dependencies = [
     "flask>=3.0",
+    "gunicorn>=22.0",
     "requests>=2.31",
     "beautifulsoup4>=4.12",
     "civic-scraper>=1.0",
