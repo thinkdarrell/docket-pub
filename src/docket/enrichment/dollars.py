@@ -109,10 +109,22 @@ def classify_dollar_tier(amount: Decimal) -> str:
 
 
 def _parse_number(raw: str) -> Decimal | None:
-    """Parse a number string (with possible commas) into a Decimal."""
-    cleaned = raw.replace(",", "").strip()
-    if not cleaned:
+    """Parse a number string (with possible commas) into a Decimal.
+
+    Handles a common OCR/scraping artifact where the decimal point appears
+    as a comma: ``$225,000,00`` means ``$225,000.00``, not ``$22,500,000``.
+    If the string ends with a comma followed by exactly 2 digits and has no
+    decimal point, treat those last 2 digits as cents.
+    """
+    stripped = raw.strip()
+    if not stripped:
         return None
+
+    # Detect trailing ,XX (cents written with comma instead of period)
+    if re.match(r".*,\d{2}$", stripped) and "." not in stripped:
+        stripped = stripped[:-3] + "." + stripped[-2:]
+
+    cleaned = stripped.replace(",", "")
     try:
         value = Decimal(cleaned)
         if value <= 0:
