@@ -54,6 +54,10 @@ def index():
     )
 
 
+_overview_cache: dict[str, tuple] = {}
+_CACHE_TTL = 300  # 5 minutes
+
+
 @bp.route("/al/<slug>/")
 def city_overview(slug):
     """City landing page — full overview with all sections."""
@@ -62,6 +66,12 @@ def city_overview(slug):
         abort(404)
 
     from datetime import datetime
+    import time
+
+    now_ts = time.time()
+    cached = _overview_cache.get(slug)
+    if cached and (now_ts - cached[0]) < _CACHE_TTL:
+        return cached[1]
 
     result = query.list_meetings(slug, limit=6)
     topics = query.topic_counts(municipality_slug=slug)
@@ -77,7 +87,7 @@ def city_overview(slug):
     recent_city = [m for m in recent if m.get("municipality_slug") == slug]
     upcoming_city = [m for m in upcoming if m.get("municipality_slug") == slug]
 
-    return render_template(
+    rendered = render_template(
         "city.html",
         municipality=municipality,
         meetings=result.meetings,
@@ -92,6 +102,8 @@ def city_overview(slug):
         stats=stats,
         now=datetime.now(),
     )
+    _overview_cache[slug] = (now_ts, rendered)
+    return rendered
 
 
 @bp.route("/al/<slug>/meetings/")
