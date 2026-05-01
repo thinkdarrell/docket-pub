@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}AI Pipeline — Admin — docket.pub{% endblock %}
+
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center;">
+    <h1>AI Pipeline</h1>
+    <form method="post" action="{{ url_for('auth.logout') }}" style="margin: 0;">
+        <button type="submit" style="font-size: 0.85rem;">Sign Out ({{ session.get('admin_user', '') }})</button>
+    </form>
+</div>
+
+<p><a href="{{ url_for('admin.list_members') }}">← Council Members</a></p>
+
+<div class="kpi-grid" style="grid-template-columns: repeat(5, 1fr); margin-bottom: 24px;">
+    <div class="kpi">
+        <div class="kpi-label t-label">Items pending</div>
+        <div class="kpi-value t-display t-tnum">{{ "{:,}".format(items_pending) }}</div>
+    </div>
+    <div class="kpi">
+        <div class="kpi-label t-label">Meetings pending</div>
+        <div class="kpi-value t-display t-tnum">{{ "{:,}".format(meetings_pending) }}</div>
+    </div>
+    <div class="kpi">
+        <div class="kpi-label t-label">7-day cost</div>
+        <div class="kpi-value t-display t-tnum">${{ "%.4f"|format(seven_day.total) }}</div>
+    </div>
+    <div class="kpi">
+        <div class="kpi-label t-label">Cache reads (7d)</div>
+        <div class="kpi-value t-display t-tnum">{{ "{:,}".format(seven_day.cache_reads) }}</div>
+    </div>
+    <div class="kpi is-accent">
+        <div class="kpi-label t-label">Daily budget</div>
+        <div class="kpi-value t-display t-tnum">${{ "%.2f"|format(budget) }}</div>
+    </div>
+</div>
+
+<p class="t-meta">
+    Item prompt version: <code>{{ item_version }}</code>
+    &middot; Meeting prompt version: <code>{{ meeting_version }}</code>
+</p>
+
+<h2>Recent runs</h2>
+{% if runs %}
+<table>
+    <thead>
+        <tr>
+            <th>#</th>
+            <th>Started</th>
+            <th>Stage</th>
+            <th>Model</th>
+            <th>Processed</th>
+            <th>Failed</th>
+            <th>Cost</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for r in runs %}
+        <tr>
+            <td>{{ r.id }}</td>
+            <td class="t-mono" style="font-size: 12px;">{{ r.started_at.strftime('%Y-%m-%d %H:%M') }}</td>
+            <td>{{ r.stage }}</td>
+            <td><code>{{ r.model }}</code></td>
+            <td>{{ r.rows_processed }}</td>
+            <td>{{ r.rows_failed }}</td>
+            <td class="t-mono">${{ "%.4f"|format(r.cost_usd | float) }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>No AI runs yet. Trigger a batch with <code>python -m docket.ai.cli --items</code>.</p>
+{% endif %}
+{% endblock %}
