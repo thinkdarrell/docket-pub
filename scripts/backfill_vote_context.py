@@ -11,7 +11,7 @@ import logging
 import os
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
 import psycopg2
@@ -87,6 +87,15 @@ def cached_parse(meeting_id: int, minutes_url: str) -> dict | None:
     return payload
 
 
+def _warm_one(meeting):
+    """Worker (module-scope so ProcessPoolExecutor can pickle it).
+
+    Parse + cache one meeting. Returns (meeting_id, ok).
+    """
+    result = cached_parse(meeting["id"], meeting["minutes_url"])
+    return (meeting["id"], result is not None)
+
+
 def main():
     conn = psycopg2.connect(DATABASE_URL)
     cur = conn.cursor()
@@ -124,12 +133,7 @@ def main():
     failed_phase1: list[int] = []
     total = len(meetings_to_process)
 
-    def _warm_one(meeting):
-        """Worker: parse + cache one meeting. Returns (meeting_id, ok)."""
-        result = cached_parse(meeting["id"], meeting["minutes_url"])
-        return (meeting["id"], result is not None)
-
-    with ThreadPoolExecutor(max_workers=workers) as executor:
+    with ProcessPoolExecutor(max_workers=workers) as executor:
         futures = {executor.submit(_warm_one, m): m for m in meetings_to_process}
         for future in as_completed(futures):
             meeting_id, ok = future.result()
