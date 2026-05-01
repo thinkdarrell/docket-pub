@@ -592,17 +592,34 @@ def match_votes_for_meeting(meeting_id: int) -> dict:
     ts_matched = match_votes_by_timestamp(meeting_id)
     sub_matched = _match_substantive(meeting_id)
     consent_matched = _match_consent_block(meeting_id)
+
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 "UPDATE processing_status SET votes_matched = TRUE WHERE meeting_id = %s",
                 (meeting_id,),
             )
+            cur.execute(
+                "SELECT minutes_adopted_at FROM meetings WHERE id = %s",
+                (meeting_id,),
+            )
+            row = cur.fetchone()
         conn.commit()
+
+    reparse_result = {"promoted": 0, "deactivated": 0}
+    if row and row[0] is not None:
+        # Adoption already recorded — promote provisional links immediately
+        try:
+            reparse_result = strict_reparse_meeting(meeting_id)
+        except Exception as e:
+            logger.warning("strict_reparse failed for meeting %s: %s", meeting_id, e)
+
     return {
         "timestamp_matched": ts_matched,
         "substantive_matched": sub_matched,
         "consent_matched": consent_matched,
+        "promoted": reparse_result["promoted"],
+        "deactivated": reparse_result["deactivated"],
     }
 
 
