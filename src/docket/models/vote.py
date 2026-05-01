@@ -15,6 +15,30 @@ class MemberVote:
 
 
 @dataclass(frozen=True)
+class AgendaItemLink:
+    """A single link between a vote and an agenda item, with link-level metadata.
+
+    Stored in the vote_agenda_items join table. One vote can have many links
+    (consent block) or one (substantive). is_active=False marks a "ghost"
+    link kept for audit only — items pulled from a consent agenda before
+    the vote.
+    """
+
+    id: int
+    agenda_item_id: int
+    item_number: str | None
+    title: str
+    is_consent: bool
+    association_type: str  # 'explicit' | 'consent_named' | 'consent_implicit' | 'positional'
+    match_method: str | None
+    match_confidence: float
+    excerpt_context: str | None
+    provisional: bool
+    is_manual: bool
+    is_active: bool
+
+
+@dataclass(frozen=True)
 class Vote:
     """A persisted vote row."""
 
