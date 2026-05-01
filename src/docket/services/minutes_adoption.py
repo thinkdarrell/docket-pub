@@ -161,4 +161,15 @@ def sweep_adoptions(municipality_id: int) -> list[int]:
                 flipped.append(target_id)
         conn.commit()
 
+    # Trigger strict re-parse on each newly-flipped meeting (outside the txn).
+    # Each meeting may have provisional consent links to promote; failures are
+    # logged but do not break the overall sweep.
+    if flipped:
+        from docket.analysis.vote_matcher import strict_reparse_meeting
+        for mid in flipped:
+            try:
+                strict_reparse_meeting(mid)
+            except Exception as e:
+                logger.warning("strict_reparse failed for meeting %s after sweep: %s", mid, e)
+
     return flipped
