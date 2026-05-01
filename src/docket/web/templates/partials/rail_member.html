@@ -38,9 +38,23 @@
             {% set links = v.get('agenda_links', []) %}
             {% set is_consent = links and links[0].association_type.startswith('consent_') %}
             {% set is_provisional = links|selectattr('provisional')|list %}
+            {# Pick best external source link for this vote. Video OCR votes prefer the
+               video player; minutes_text votes prefer the minutes PDF. Falls back through
+               agenda_url and source_url; if none are present, render the date as plain text. #}
+            {% if v.source == 'video_ocr' %}
+                {% set source_url = v.video_url or v.minutes_url or v.agenda_url or v.source_url %}
+                {% set source_label = 'video' if v.video_url else 'agenda' if v.agenda_url else 'source' %}
+            {% else %}
+                {% set source_url = v.minutes_url or v.agenda_url or v.source_url %}
+                {% set source_label = 'minutes' if v.minutes_url else 'agenda' if v.agenda_url else 'source' %}
+            {% endif %}
             <div class="rail-vote-row" style="padding: 0.5rem 0; border-bottom: 1px solid var(--rule, #e0d8cf);">
                 <div style="display: flex; justify-content: space-between; align-items: center; gap: 6px;">
+                    {% if source_url %}
+                    <a class="t-meta link" href="{{ source_url }}" target="_blank" rel="noreferrer" title="Open {{ source_label }}">{{ v.meeting_date.strftime('%b %-d, %Y') }} <span class="t-mono" style="font-size: 9px;">↗</span></a>
+                    {% else %}
                     <div class="t-meta">{{ v.meeting_date.strftime('%b %-d, %Y') }}</div>
+                    {% endif %}
                     <div style="display: flex; align-items: center; gap: 6px;">
                         <span class="t-label" style="font-size: 0.8rem;">{{ v.result|capitalize }}</span>
                         {% if v.source == 'video_ocr' %}<span class="t-meta t-mono" style="font-size: 9px; color: var(--warn);">OCR</span>{% endif %}

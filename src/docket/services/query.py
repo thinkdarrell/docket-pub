@@ -355,7 +355,8 @@ def get_member_vote_summary(member_id: int) -> dict:
                    CASE WHEN mv.position IN ('yea','yes') THEN 'yea'
                         WHEN mv.position IN ('nay','no') THEN 'nay'
                         ELSE mv.position END AS position,
-                   m.id AS meeting_id, m.meeting_date, m.title
+                   m.id AS meeting_id, m.meeting_date, m.title,
+                   m.minutes_url, m.video_url, m.agenda_url, m.source_url
             FROM member_votes mv
             JOIN votes v ON mv.vote_id = v.id
             JOIN meetings m ON v.meeting_id = m.id
