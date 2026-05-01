@@ -149,6 +149,7 @@ def meeting_detail(slug, meeting_id):
         votes=votes,
         dollar_count=dollar_count,
         topic_count=topic_count,
+        item_count=len(agenda_items),
     )
 
 
