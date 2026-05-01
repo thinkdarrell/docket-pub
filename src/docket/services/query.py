@@ -212,25 +212,36 @@ def get_member_vote_summary(member_id: int) -> dict:
             return {"total": 0, "yea": 0, "nay": 0, "abstain": 0, "absent": 0, "recent": []}
 
         member_name = row["name"]
-        # Match on full name or last name (OCR uses "I. Lastname" format)
+        # Match on last name — strip apostrophes/hyphens for OCR variants
+        # e.g. "O'Quinn" should match "OQuinn", "Quinn", "O'Quinn"
         last_name = member_name.split()[-1] if member_name else ""
+        last_name_stripped = last_name.replace("'", "").replace("-", "")
+        # Build patterns: "%Quinn", "%OQuinn", "%O'Quinn"
+        # Also strip down to the base after common prefixes (O', Mc, Mac)
+        patterns = [f"%{last_name}", f"%{last_name_stripped}"]
+        for prefix in ("O'", "O'", "Mc", "Mac"):
+            if last_name.startswith(prefix):
+                patterns.append(f"%{last_name[len(prefix):]}")
+        patterns = list(set(patterns))  # deduplicate
+
+        where_clause = " OR ".join(["mv.member_name ILIKE %s"] * len(patterns))
 
         cur.execute(
-            """
+            f"""
             SELECT CASE WHEN mv.position IN ('yea','yes') THEN 'yea'
                         WHEN mv.position IN ('nay','no') THEN 'nay'
                         ELSE mv.position END AS pos,
                    COUNT(*) as cnt
             FROM member_votes mv
-            WHERE mv.member_name ILIKE %s OR mv.member_name ILIKE %s
+            WHERE {where_clause}
             GROUP BY pos
             """,
-            (f"%{last_name}", f"%{member_name}%"),
+            patterns,
         )
         counts = {r["pos"]: r["cnt"] for r in cur.fetchall()}
 
         cur.execute(
-            """
+            f"""
             SELECT v.result, v.source, v.yeas, v.nays,
                    CASE WHEN mv.position IN ('yea','yes') THEN 'yea'
                         WHEN mv.position IN ('nay','no') THEN 'nay'
@@ -239,11 +250,11 @@ def get_member_vote_summary(member_id: int) -> dict:
             FROM member_votes mv
             JOIN votes v ON mv.vote_id = v.id
             JOIN meetings m ON v.meeting_id = m.id
-            WHERE mv.member_name ILIKE %s OR mv.member_name ILIKE %s
+            WHERE {where_clause}
             ORDER BY m.meeting_date DESC, v.id DESC
             LIMIT 20
             """,
-            (f"%{last_name}", f"%{member_name}%"),
+            patterns,
         )
         recent = [dict(r) for r in cur.fetchall()]
 
