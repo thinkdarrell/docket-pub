@@ -31,6 +31,11 @@ class Vote:
     header_result: str | None
     needs_review: bool
     review_reason: str | None
+    video_timestamp: float | None = None
+    match_confidence: float | None = None
+    match_method: str | None = None
+    agenda_item_title: str | None = None
+    agenda_item_number: str | None = None
     member_votes: list[MemberVote] = field(default_factory=list)
 
     @classmethod
@@ -49,4 +54,9 @@ class Vote:
             header_result=row.get("header_result"),
             needs_review=bool(row.get("needs_review", False)),
             review_reason=row.get("review_reason"),
+            video_timestamp=row.get("video_timestamp"),
+            match_confidence=row.get("match_confidence"),
+            match_method=row.get("match_method"),
+            agenda_item_title=row.get("agenda_item_title"),
+            agenda_item_number=row.get("agenda_item_number"),
         )

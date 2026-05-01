@@ -21,6 +21,7 @@ MIGRATIONS = [
     "docket.migrations.005_seed_council_rosters",
     "docket.migrations.006_admin_users",
     "docket.migrations.007_council_terms_and_backfill",
+    "docket.migrations.008_vote_matching_support",
 ]
 
 

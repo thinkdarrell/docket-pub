@@ -215,8 +215,9 @@ def _ingest_agenda_items(
                         meeting_id, external_id, item_number, title,
                         description, section, is_consent, sponsor,
                         dollars_amount, topic,
-                        significance_score, consent_placement_score
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        significance_score, consent_placement_score,
+                        video_timestamp_seconds
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (meeting_id, external_id) DO NOTHING
                     """,
                     (
@@ -227,6 +228,7 @@ def _ingest_agenda_items(
                         enriched["topic"],
                         enriched["significance_score"],
                         enriched["consent_placement_score"],
+                        item.video_timestamp_seconds,
                     ),
                 )
 
@@ -275,14 +277,16 @@ def _ingest_votes(
                     INSERT INTO votes (
                         meeting_id, external_id, result,
                         yeas, nays, abstentions,
-                        source, confidence
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                        source, confidence,
+                        resolution_number, match_context
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING id
                     """,
                     (
                         meeting_id, rv.external_id, rv.result,
                         rv.yeas, rv.nays, rv.abstentions,
                         rv.source, rv.confidence,
+                        rv.resolution_number, rv.match_context,
                     ),
                 )
                 vote_id = cur.fetchone()[0]

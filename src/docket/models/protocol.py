@@ -34,6 +34,7 @@ class RawAgendaItem:
     section: str | None  # 'Consent Agenda', 'New Business', etc.
     is_consent: bool
     sponsor: str | None
+    video_timestamp_seconds: float | None = None
 
 
 @dataclass
@@ -51,6 +52,8 @@ class RawVote:
     # Each dict: {"member": "...", "vote": "yea|nay|abstain|absent"}
     source: str = "api"  # 'video_ocr' | 'minutes_text' | 'api' | 'manual'
     confidence: str = "high"  # 'high' | 'medium' | 'low'
+    resolution_number: str | None = None
+    match_context: str | None = None
 
 
 class MunicipalSourceAdapter(Protocol):

@@ -111,6 +111,17 @@
                     {% endif %}
                 </span>
             </div>
+            {% if vote.agenda_item_title %}
+            <div style="margin-top: 4px; padding: 6px 10px; background: var(--paper-2); border-radius: 4px; border-left: 2px solid var(--accent);">
+                <span class="t-meta">Re: </span>
+                <span style="font-size: 13px; font-weight: 500;">
+                    {% if vote.agenda_item_number %}#{{ vote.agenda_item_number }}. {% endif %}{{ vote.agenda_item_title[:120] }}{% if vote.agenda_item_title|length > 120 %}…{% endif %}
+                </span>
+                {% if vote.match_method %}
+                <span class="chip" style="font-size: 9px; height: 16px; padding: 0 5px; margin-left: 4px;">{{ vote.match_method | replace('_', ' ') }}{% if vote.match_confidence %} · {{ "%.0f"|format(vote.match_confidence * 100) }}%{% endif %}</span>
+                {% endif %}
+            </div>
+            {% endif %}
             <div style="display: flex; gap: 16px; align-items: baseline;">
                 <span class="t-mono" style="font-size: 20px; font-weight: 500;">{{ vote.yeas }}–{{ vote.nays }}</span>
                 {% if vote.abstentions %}<span class="t-meta">{{ vote.abstentions }} abstain</span>{% endif %}

@@ -111,7 +111,11 @@ def list_votes(meeting_id: int) -> list[Vote]:
     """Return votes for a meeting, with member votes attached."""
     with db_cursor() as cur:
         cur.execute(
-            "SELECT * FROM votes WHERE meeting_id = %s ORDER BY id",
+            """SELECT v.*, ai.title AS agenda_item_title,
+                      ai.item_number AS agenda_item_number
+               FROM votes v
+               LEFT JOIN agenda_items ai ON v.agenda_item_id = ai.id
+               WHERE v.meeting_id = %s ORDER BY v.id""",
             (meeting_id,),
         )
         votes = [Vote.from_row(dict(row)) for row in cur.fetchall()]

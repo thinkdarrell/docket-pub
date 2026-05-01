@@ -116,6 +116,7 @@ class GranicusAdapter:
                         section=None,
                         is_consent=is_consent_item(description),
                         sponsor=None,
+                        video_timestamp_seconds=float(timestamp),
                     )
                 )
 
@@ -186,6 +187,8 @@ class GranicusAdapter:
                     member_votes=member_votes,
                     source="minutes_text",
                     confidence="high",
+                    resolution_number=vote.resolution_number,
+                    match_context=vote.context[:200] if vote.context else None,
                 )
             )
 
