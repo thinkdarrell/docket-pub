@@ -221,6 +221,9 @@
                     {% if it.is_consent is defined and it.is_consent %}
                     <span class="badge-consent">consent</span>
                     {% endif %}
+                    {% if it.meeting_date is defined and it.meeting_date %}
+                    <span class="t-meta t-mono" style="font-size: 10px;">{{ it.meeting_date.strftime('%b %-d, %Y') if it.meeting_date.strftime is defined else it.meeting_date }}</span>
+                    {% endif %}
                 </div>
                 {% if it.item_number is defined and it.item_number %}
                 <div class="legc-num t-mono">#{{ it.item_number }}</div>
@@ -231,10 +234,6 @@
             <div class="legc-byline t-mono">
                 <span class="legc-byline-by">By</span>
                 <span class="legc-byline-who">{{ it.sponsor | upper }}</span>
-                {% if it.meeting_date is defined %}
-                <span class="legc-byline-sep"> — </span>
-                <span class="legc-byline-where">{{ it.meeting_date }}</span>
-                {% endif %}
             </div>
             {% endif %}
 

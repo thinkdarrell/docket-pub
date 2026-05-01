@@ -11,31 +11,48 @@
 
         <table class="rail-table">
             <tbody>
-                <tr><td class="t-label">external_id</td><td class="rail-table-val"><span class="t-mono">{{ meeting.external_id }}</span></td><td class="t-meta">platform event id</td></tr>
-                <tr><td class="t-label">meeting_type</td><td class="rail-table-val"><span class="t-mono">{{ meeting.meeting_type }}</span></td><td class="t-meta">classified by helpers</td></tr>
+                <tr><td class="t-label">meeting_type</td><td class="rail-table-val"><span class="t-mono">{{ meeting.meeting_type }}</span></td><td class="t-meta"></td></tr>
                 <tr><td class="t-label">agenda_items</td><td class="rail-table-val">{{ item_count | default('—') }}</td><td class="t-meta">scraped</td></tr>
-                <tr><td class="t-label">votes</td><td class="rail-table-val">{{ votes|length if votes else '—' }}</td><td class="t-meta">{% if votes %}{{ votes[0].source }}{% endif %}</td></tr>
+                <tr><td class="t-label">votes</td><td class="rail-table-val">{{ votes|length if votes else '—' }}</td><td class="t-meta">{% if votes %}{{ votes[0].source | replace('_',' ') }}{% endif %}</td></tr>
             </tbody>
         </table>
 
+        {# ── View full meeting link ── #}
+        <a class="rail-cta" href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=meeting.id) }}">
+            View full meeting detail <span>→</span>
+        </a>
+
         {% if votes %}
-        <div class="rail-section">
-            <div class="rail-kicker t-mono">VOTES</div>
+        <div class="rail-section" style="margin-top: 8px;">
+            <div class="rail-kicker t-mono">VOTES ({{ votes|length }})</div>
+
+            {% if votes|selectattr('source','equalto','video_ocr')|list %}
+            <div class="callout callout-warn is-tight" style="margin-bottom: 8px;">
+                <div class="callout-body">Extracted from video via OCR — may contain errors.</div>
+            </div>
+            {% endif %}
+
             {% for vote in votes[:8] %}
-            <div style="padding: 0.3rem 0; border-bottom: 1px solid var(--rule, #e0d8cf);">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <span class="chip chip-{{ 'yea' if vote.result == 'passed' else 'nay' if vote.result == 'failed' else 'abstain' }}">{{ vote.result|upper }}</span>
-                    <span class="t-mono" style="font-size: 0.75rem;">{{ vote.yeas }}–{{ vote.nays }}</span>
+            <div class="vote-block {{ 'is-pass' if vote.result == 'passed' else 'is-fail' if vote.result == 'failed' else '' }}" style="padding: 10px 12px;">
+                <div class="vote-block-head">
+                    <span class="vote-block-result">{{ vote.result }}</span>
+                    <span style="display: flex; align-items: center; gap: 6px;">
+                        <span class="t-meta t-mono" style="font-size: 10px;">vote {{ loop.index }}/{{ votes|length }}</span>
+                        <span class="t-mono" style="font-size: 14px; font-weight: 500;">{{ vote.yeas }}–{{ vote.nays }}</span>
+                    </span>
                 </div>
                 {% if vote.member_votes %}
-                <div class="t-meta" style="font-size: 0.7rem; margin-top: 0.15rem;">
-                    {% for mv in vote.member_votes %}{{ mv.member_name.split('.')[-1]|trim }}: <span class="chip chip-{{ mv.position }}" style="font-size: 0.6rem; height: 16px; padding: 0 5px;">{{ mv.position[0]|upper }}</span>{% if not loop.last %} {% endif %}{% endfor %}
+                <div style="display: flex; flex-wrap: wrap; gap: 3px; margin-top: 6px;">
+                    {% for mv in vote.member_votes %}
+                    {% set pos = 'yea' if mv.position in ('yea','yes') else 'nay' if mv.position in ('nay','no') else mv.position %}
+                    <span class="chip chip-{{ pos }}" style="font-size: 9px; height: 18px; padding: 0 5px;">{{ mv.member_name.split('.')[-1]|trim }} {{ pos[0]|upper }}</span>
+                    {% endfor %}
                 </div>
                 {% endif %}
             </div>
             {% endfor %}
             {% if votes|length > 8 %}
-            <div class="t-meta" style="padding-top: 0.3rem;">+ {{ votes|length - 8 }} more</div>
+            <div class="t-meta" style="padding-top: 0.3rem;">+ {{ votes|length - 8 }} more — <a class="link" href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=meeting.id) }}">view all</a></div>
             {% endif %}
         </div>
         {% endif %}
@@ -49,7 +66,7 @@
             {% endif %}
             {% if meeting.minutes_url %}
             <a class="rail-link" href="{{ meeting.minutes_url }}" target="_blank" rel="noreferrer">
-                <div><div class="rail-link-label">Official minutes</div><div class="t-meta">if published</div></div>
+                <div><div class="rail-link-label">Official minutes</div><div class="t-meta">published</div></div>
                 <span class="t-mono">↗</span>
             </a>
             {% endif %}
