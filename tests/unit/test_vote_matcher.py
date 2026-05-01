@@ -576,3 +576,87 @@ def test_strict_reparse_respects_is_manual(consent_block_meeting):
         row = cur.fetchone()
     assert row["is_manual"] is True
     assert row["is_active"] is True  # protected by manual shield
+
+
+def test_strict_reparse_short_circuits_on_empty_target_set(consent_block_meeting):
+    """If the enumerated text has resolutions but none resolve to is_consent agenda items
+    (resolution numbers absent from titles, descriptions too short for keyword fallback),
+    the deactivate UPDATE's NOT (... = ANY(empty_array)) would erase every active link.
+    The function must short-circuit instead and leave links intact."""
+    from docket.analysis.vote_matcher import match_votes_for_meeting, strict_reparse_meeting
+
+    match_votes_for_meeting(consent_block_meeting["meeting_id"])
+
+    # Snapshot pre-state: 3 active provisional consent links
+    from docket.db import db_cursor
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT COUNT(*) AS c FROM vote_agenda_items "
+            "WHERE vote_id = %s AND is_active = TRUE",
+            (consent_block_meeting["vote_id"],),
+        )
+        before_active = cur.fetchone()["c"]
+    assert before_active == 3
+
+    # Enumerated parses 1 resolution, but the number doesn't appear in any agenda title
+    # and "X" is too short for the keyword fallback's ≥3-word threshold.
+    # _resolve_enumerated_to_agenda_items returns an empty set.
+    enumerated_text = "RESOLUTION 9999-99 X"
+    result = strict_reparse_meeting(
+        consent_block_meeting["meeting_id"], minutes_text=enumerated_text
+    )
+    assert result == {"promoted": 0, "deactivated": 0}
+
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT COUNT(*) AS c FROM vote_agenda_items "
+            "WHERE vote_id = %s AND is_active = TRUE",
+            (consent_block_meeting["vote_id"],),
+        )
+        after_active = cur.fetchone()["c"]
+    assert after_active == 3, "Empty target set must NOT mass-deactivate active links"
+
+
+def test_strict_reparse_inserts_missing_enumerated_link(consent_block_meeting):
+    """An enumerated item that has no existing link must be created by strict re-parse
+    as consent_named/consent_enumerated/provisional=FALSE. Exercises the per-row
+    insert-missing branch."""
+    from docket.analysis.vote_matcher import match_votes_for_meeting, strict_reparse_meeting
+
+    match_votes_for_meeting(consent_block_meeting["meeting_id"])
+
+    # Delete the OLB link so strict_reparse must re-insert it
+    olb_id = consent_block_meeting["agenda_item_ids"][1]
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM vote_agenda_items WHERE vote_id = %s AND agenda_item_id = %s",
+                (consent_block_meeting["vote_id"], olb_id),
+            )
+        conn.commit()
+
+    # OLB title has 4 significant words ("resolution authorizing OLB Enterprises liquor license"
+    # → significant words 4+ chars excluding stop words = {resolution, authorizing, enterprises,
+    # liquor, license}). The enumerated description must overlap on ≥3 of those for the
+    # description-keyword fallback in _resolve_enumerated_to_agenda_items to find OLB.
+    enumerated_text = """
+    RESOLUTION 1854-25 A Resolution authorizing HCL Contracting paving services 9th Avenue
+    RESOLUTION 1855-25 A Resolution authorizing OLB Enterprises liquor license
+    RESOLUTION 1856-25 A Resolution authorizing East Side Lounge license
+    """
+    strict_reparse_meeting(consent_block_meeting["meeting_id"], minutes_text=enumerated_text)
+
+    from docket.db import db_cursor
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT association_type, match_method, match_confidence, provisional, is_active "
+            "FROM vote_agenda_items WHERE vote_id = %s AND agenda_item_id = %s",
+            (consent_block_meeting["vote_id"], olb_id),
+        )
+        row = cur.fetchone()
+    assert row is not None, "OLB link must have been re-inserted by strict_reparse"
+    assert row["association_type"] == "consent_named"
+    assert row["match_method"] == "consent_enumerated"
+    assert row["match_confidence"] == pytest.approx(1.0)
+    assert row["provisional"] is False
+    assert row["is_active"] is True

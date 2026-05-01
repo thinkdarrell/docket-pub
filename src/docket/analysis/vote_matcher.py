@@ -499,19 +499,18 @@ def strict_reparse_meeting(meeting_id: int, *, minutes_text: str | None = None) 
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             target_item_ids = _resolve_enumerated_to_agenda_items(cur, meeting_id, enumerated)
 
-            cur.execute(
-                """SELECT vai.id, vai.vote_id, vai.agenda_item_id
-                   FROM vote_agenda_items vai
-                   JOIN votes v ON v.id = vai.vote_id
-                   WHERE v.meeting_id = %s
-                     AND vai.is_manual = FALSE
-                     AND vai.is_active = TRUE
-                     AND vai.association_type IN ('consent_named', 'consent_implicit')""",
-                (meeting_id,),
-            )
-            existing_links = cur.fetchall()
-            existing_by_item = {(r["vote_id"], r["agenda_item_id"]): r["id"] for r in existing_links}
-            _ = existing_by_item  # reserved for future audit logging
+            # Critical safety check: if the enumerated list resolved to NO agenda items
+            # (e.g., resolution numbers don't appear in any agenda title and the
+            # description-keyword fallback couldn't find ≥3-word overlaps), short-circuit.
+            # Otherwise the deactivate UPDATE's NOT (... = ANY(empty_array)) would evaluate
+            # TRUE for every active consent link, silently deactivating all of them.
+            if not target_item_ids:
+                logger.warning(
+                    "strict_reparse: parsed %d enumerated entries but none resolved to "
+                    "agenda_items for meeting %s — aborting reconciliation to avoid mass deactivation",
+                    len(enumerated), meeting_id,
+                )
+                return {"promoted": 0, "deactivated": 0}
 
             # Promote: items in enumerated set that are linked -> flip provisional
             cur.execute(
@@ -531,7 +530,7 @@ def strict_reparse_meeting(meeting_id: int, *, minutes_text: str | None = None) 
             )
             promoted = cur.rowcount
 
-            # Deactivate: linked items NOT in enumerated set
+            # Deactivate: linked items NOT in enumerated set (pulled from consent)
             cur.execute(
                 """UPDATE vote_agenda_items
                    SET is_active = FALSE, updated_at = NOW()
@@ -567,7 +566,11 @@ def strict_reparse_meeting(meeting_id: int, *, minutes_text: str | None = None) 
                             provisional=False,
                         )
 
-            # Substantive safety pass
+            # Substantive safety pass — defensive no-op for healthy data.
+            # Substantive matches are inserted with provisional=FALSE in the first place,
+            # so this UPDATE typically affects 0 rows. It exists as a guardrail in case
+            # a future code path ever inserts an explicit link as provisional; this
+            # ensures the meeting reaches a consistent post-adoption state.
             cur.execute(
                 """UPDATE vote_agenda_items
                    SET provisional = FALSE, updated_at = NOW()
@@ -575,7 +578,8 @@ def strict_reparse_meeting(meeting_id: int, *, minutes_text: str | None = None) 
                    WHERE v.id = vote_agenda_items.vote_id
                      AND v.meeting_id = %s
                      AND vote_agenda_items.is_manual = FALSE
-                     AND vote_agenda_items.association_type = 'explicit'""",
+                     AND vote_agenda_items.association_type = 'explicit'
+                     AND vote_agenda_items.provisional = TRUE""",
                 (meeting_id,),
             )
         conn.commit()
