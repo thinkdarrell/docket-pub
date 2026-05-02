@@ -51,7 +51,7 @@ class MeetingAIResult(BaseModel):
 
     is_substantive: bool
     substantive_item_count: int = Field(ge=0)
-    executive_summary: str = Field(max_length=800)
+    executive_summary: str = Field(max_length=1500)
     phase: MeetingPhase
     confidence: Confidence
 

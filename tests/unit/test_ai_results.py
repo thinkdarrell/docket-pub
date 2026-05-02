@@ -101,12 +101,12 @@ def test_confidence_enum():
 
 
 def test_meeting_summary_length_cap():
-    """Meeting summary > 800 chars rejected."""
+    """Meeting summary > 1500 chars rejected."""
     with pytest.raises(ValidationError):
         MeetingAIResult(
             is_substantive=True,
             substantive_item_count=5,
-            executive_summary="x" * 801,
+            executive_summary="x" * 1501,
             phase="provisional",
             confidence="high",
         )
