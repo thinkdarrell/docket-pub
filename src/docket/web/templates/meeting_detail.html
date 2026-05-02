@@ -230,8 +230,6 @@
                 {% if item.ai_metadata and item.ai_metadata.confidence == 'low' %}
                 <span class="badge badge-review badge-inline">Auto summary — under review</span>
                 {% endif %}
-                {% elif item.ai_prompt_version %}
-                <p class="item-summary item-summary-unavailable">Auto summary unavailable</p>
                 {% endif %}
                 <div class="notable-meta">
                     {% if item.topic %}
@@ -287,8 +285,6 @@
                 {% if item.ai_metadata and item.ai_metadata.confidence == 'low' %}
                 <span class="badge badge-review badge-inline">Auto summary — under review</span>
                 {% endif %}
-                {% elif item.ai_prompt_version %}
-                <p class="item-summary item-summary-unavailable">Auto summary unavailable</p>
                 {% endif %}
                 <div class="notable-meta">
                     {% if item.topic %}

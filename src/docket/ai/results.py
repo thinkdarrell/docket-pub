@@ -12,14 +12,20 @@ MeetingPhase = Literal["provisional", "adopted"]
 
 
 class ItemAIResult(BaseModel):
-    """Structured output for one agenda-item AI call."""
+    """Structured output for one agenda-item AI call.
+
+    Substantive items must have non-null scores, non-empty rationales, and a
+    non-empty summary. Procedural items (is_substantive=False) intentionally
+    have null scores and empty summary + rationales — the agenda title is
+    self-explanatory and a paraphrase would be noise.
+    """
 
     # NOTE: rationales are listed BEFORE scores so the model produces them first
     # (rationales-first prompting / chain-of-thought grounding).
     is_substantive: bool
-    significance_rationale: str = Field(min_length=1, max_length=600)
+    significance_rationale: str = Field(max_length=600)
     significance_score: Optional[float] = Field(default=None, ge=0.0, le=10.0)
-    consent_placement_rationale: str = Field(min_length=1, max_length=600)
+    consent_placement_rationale: str = Field(max_length=600)
     consent_placement_score: Optional[float] = Field(default=None, ge=0.0, le=10.0)
     summary: str = Field(max_length=400)
     confidence: Confidence
@@ -31,9 +37,12 @@ class ItemAIResult(BaseModel):
                 raise ValueError("is_substantive=True requires non-null scores")
             if not self.summary.strip():
                 raise ValueError("is_substantive=True requires a non-empty summary")
+            if not self.significance_rationale.strip() or not self.consent_placement_rationale.strip():
+                raise ValueError("is_substantive=True requires non-empty rationales")
         else:
             if self.significance_score is not None or self.consent_placement_score is not None:
                 raise ValueError("is_substantive=False requires both scores to be null")
+            # summary and rationales may be empty (and should be) for procedural items
         return self
 
 

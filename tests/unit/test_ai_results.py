@@ -122,3 +122,34 @@ def test_meeting_non_substantive():
         confidence="high",
     )
     assert result.executive_summary == ""
+
+
+def test_item_non_substantive_allows_empty_summary_and_rationales():
+    """Procedural items: empty summary + empty rationales + null scores is the desired shape.
+    Title is self-explanatory; a paraphrase would be noise. (Prompt v2 behavior.)"""
+    result = ItemAIResult(
+        is_substantive=False,
+        significance_rationale="",
+        significance_score=None,
+        consent_placement_rationale="",
+        consent_placement_score=None,
+        summary="",
+        confidence="high",
+    )
+    assert result.summary == ""
+    assert result.significance_rationale == ""
+    assert result.consent_placement_rationale == ""
+
+
+def test_item_substantive_requires_non_empty_rationales():
+    """Substantive items must have non-empty rationales (chain-of-thought grounding)."""
+    with pytest.raises(ValidationError, match="non-empty rationales"):
+        ItemAIResult(
+            is_substantive=True,
+            significance_rationale="",
+            significance_score=5.0,
+            consent_placement_rationale="",
+            consent_placement_score=5.0,
+            summary="ok",
+            confidence="high",
+        )
