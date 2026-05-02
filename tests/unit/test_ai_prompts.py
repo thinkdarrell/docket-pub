@@ -48,8 +48,11 @@ def test_item_user_template_renders():
 def test_meeting_user_template_renders():
     rendered = MEETING_USER_TEMPLATE.format(
         meeting_type="Council", meeting_date="2026-04-01", phase="provisional",
-        count=2, items_block="- a\n- b",
+        distinctive_count=2, distinctive_block="- a\n- b",
+        routine_count=3, routine_block="- 3 public_safety items",
     )
     assert "Council" in rendered
     assert "2026-04-01" in rendered
     assert "- a" in rendered
+    assert "DISTINCTIVE items (2)" in rendered
+    assert "ROUTINE items (3" in rendered

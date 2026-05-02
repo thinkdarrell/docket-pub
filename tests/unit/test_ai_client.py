@@ -40,7 +40,9 @@ def _item_ctx() -> AgendaItemContext:
 def _meeting_ctx() -> MeetingContext:
     return MeetingContext(
         meeting_id=1, meeting_type="Council", meeting_date=date(2026, 4, 1),
-        phase="provisional", item_summaries=["item summary 1", "item summary 2"],
+        phase="provisional",
+        distinctive_items=("item summary 1", "item summary 2"),
+        routine_clusters=(),
     )
 
 

@@ -341,26 +341,31 @@ def _process_meetings(conn, client: AIClient, limit: int, summary: RunSummary) -
         meeting_id, meeting_type, meeting_date, minutes_adopted_at, ai_metadata = row
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT summary
+                SELECT summary, significance_score, topic, title
                   FROM agenda_items
                  WHERE meeting_id = %s
                    AND COALESCE(ai_metadata->>'is_substantive', '') = 'true'
                    AND summary IS NOT NULL
-                 ORDER BY id
+                 ORDER BY significance_score DESC NULLS LAST, id
             """, (meeting_id,))
-            item_summaries = [r[0] for r in cur.fetchall()]
+            item_rows = [
+                {"summary": r[0], "significance_score": r[1], "topic": r[2], "title": r[3]}
+                for r in cur.fetchall()
+            ]
 
-        if not item_summaries:
+        if not item_rows:
             mark_meeting_empty(conn, meeting_id)
             conn.commit()
             summary.rows_processed += 1
             continue
 
         phase = "adopted" if minutes_adopted_at else "provisional"
-        ctx = MeetingContext(
-            meeting_id=meeting_id, meeting_type=meeting_type,
-            meeting_date=meeting_date, phase=phase,
-            item_summaries=item_summaries,
+        ctx = MeetingContext.from_meeting_items(
+            meeting_id=meeting_id,
+            meeting_type=meeting_type,
+            meeting_date=meeting_date,
+            phase=phase,
+            rows=item_rows,
         )
         try:
             result, usage = client.summarize_meeting(ctx)

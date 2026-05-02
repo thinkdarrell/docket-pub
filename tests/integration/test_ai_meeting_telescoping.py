@@ -57,10 +57,11 @@ def test_meeting_prompt_includes_item_summaries(seeded, monkeypatch):
 
     def fake_summarize_item(self, ctx):
         idx = 0 if "road" in ctx.title.lower() else 1
+        # Score >= 6 so items are classified as DISTINCTIVE in the meeting prompt
         return ItemAIResult(
             is_substantive=True,
-            significance_rationale="r", significance_score=5.0,
-            consent_placement_rationale="r", consent_placement_score=5.0,
+            significance_rationale="r", significance_score=7.0,
+            consent_placement_rationale="r", consent_placement_score=7.0,
             summary=item_summaries[idx], confidence="high",
         ), Usage(100, 0, 0, 50)
 

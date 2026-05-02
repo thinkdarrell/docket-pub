@@ -76,7 +76,7 @@ def test_end_to_end(seeded_e2e, monkeypatch):
     fake_client.item_model = "claude-haiku-4-5-20251001"
     fake_client.meeting_model = "claude-sonnet-4-6"
     fake_client.summarize_item.side_effect = lambda ctx: _stub_item()
-    fake_client.summarize_meeting.side_effect = lambda ctx: _stub_meeting(ctx.item_summaries)
+    fake_client.summarize_meeting.side_effect = lambda ctx: _stub_meeting(list(ctx.distinctive_items))
 
     monkeypatch.setattr("docket.ai.worker._make_client", lambda: fake_client)
     # Raise the batch cap so our seeded rows (highest IDs in a large DB) are reached

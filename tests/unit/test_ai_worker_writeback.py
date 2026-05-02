@@ -111,6 +111,7 @@ def test_mark_item_failed_keeps_summary_null(seed_item):
     assert "error" in row[2]
 
 
+from docket.ai.prompts import MEETING_PROMPT_VERSION
 from docket.ai.results import MeetingAIResult
 from docket.ai.worker import write_meeting_result, mark_meeting_empty, mark_meeting_failed
 
@@ -157,7 +158,7 @@ def test_write_meeting_result_provisional(seed_meeting):
     assert row[0] == "Council considered three items."
     assert row[1]["phase"] == "provisional"
     assert row[1]["substantive_item_count"] == 3
-    assert row[2] == 1
+    assert row[2] == MEETING_PROMPT_VERSION
 
 
 def test_write_meeting_result_adopted_overwrites(seed_meeting):
@@ -192,7 +193,7 @@ def test_mark_meeting_empty(seed_meeting):
     assert row[1]["is_substantive"] is False
     assert row[1]["substantive_item_count"] == 0
     assert row[1]["model"] is None
-    assert row[2] == 1
+    assert row[2] == MEETING_PROMPT_VERSION
 
 
 def test_mark_meeting_failed_keeps_summary_null(seed_meeting):
@@ -211,4 +212,4 @@ def test_mark_meeting_failed_keeps_summary_null(seed_meeting):
     assert row[1]["confidence"] == "low"
     assert "error" in row[1]
     assert row[1]["model"] is None
-    assert row[2] == 1
+    assert row[2] == MEETING_PROMPT_VERSION

@@ -46,11 +46,12 @@ def test_sonnet_meeting_smoke(client):
         meeting_type="Council Meeting",
         meeting_date=date(2026, 4, 1),
         phase="provisional",
-        item_summaries=[
+        distinctive_items=(
             "Approves $4.2M road resurfacing contract.",
             "Authorizes 3-year IT support agreement worth $850K.",
             "Defers vote on short-term rental ordinance to next meeting.",
-        ],
+        ),
+        routine_clusters=(),
     )
     result, usage = client.summarize_meeting(ctx)
     assert result.is_substantive

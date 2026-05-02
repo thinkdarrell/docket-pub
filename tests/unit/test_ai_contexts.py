@@ -44,20 +44,22 @@ def test_item_consent_flag_rendering():
     assert "Yes" in yes_ctx.render_user_prompt()
 
 
-def test_meeting_renders_item_summaries():
-    """Meeting context must render item AI summaries (telescoping)."""
+def test_meeting_renders_distinctive_items():
+    """Distinctive item summaries appear in the rendered prompt (telescoping)."""
     ctx = MeetingContext(
         meeting_id=10,
         meeting_type="Council Meeting",
         meeting_date=date(2026, 4, 1),
         phase="provisional",
-        item_summaries=[
+        distinctive_items=(
             "Approves $4.2M road resurfacing contract.",
             "Authorizes 3-year IT support agreement.",
-        ],
+        ),
+        routine_clusters=(),
     )
     rendered = ctx.render_user_prompt()
     assert "Approves $4.2M road resurfacing contract." in rendered
     assert "Authorizes 3-year IT support agreement." in rendered
     assert "Phase: provisional" in rendered
-    assert "(2)" in rendered
+    assert "DISTINCTIVE items (2)" in rendered
+    assert "ROUTINE items (0" in rendered

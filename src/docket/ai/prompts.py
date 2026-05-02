@@ -8,7 +8,7 @@ explaining why the rubric changed when bumping a version.
 from __future__ import annotations
 
 ITEM_PROMPT_VERSION = 2  # v2: skip summary/rationales on procedural items
-MEETING_PROMPT_VERSION = 1
+MEETING_PROMPT_VERSION = 2  # v2: split distinctive vs routine items, lead with distinctive
 
 
 ITEM_SYSTEM = """You are summarizing a single agenda item from a municipal
@@ -50,24 +50,45 @@ Topic: {topic}
 Is on consent agenda: {is_consent}"""
 
 
-MEETING_SYSTEM = """You are writing a 2-3 sentence executive summary of a
-municipal meeting. You will only see substantive agenda items from this
-meeting (each represented by its own AI-generated summary).
+MEETING_SYSTEM = """You are writing a 2-4 sentence executive summary of a
+municipal meeting for citizens reading docket.pub.
 
-If phase is "adopted": lead with what the council DECIDED (votes are final).
-If phase is "provisional": lead with what the council CONSIDERED (votes
-not yet ratified).
+The input separates the meeting's substantive items into TWO groups:
 
-Do not invent facts not present in the items. Do not list every item —
-identify the 1-3 most consequential decisions or debates and frame the
-meeting around those.
+- DISTINCTIVE items: those scored higher significance. These are what
+  makes this specific meeting newsworthy — major contracts, ordinances,
+  policy decisions, settlements, large appropriations, citywide rezones.
+  LEAD with these. Mention specific dollar amounts, names, and
+  outcomes when present.
 
-Confidence: "high" if items are clear and substantive; "medium" if items
-are vague; "low" if synthesis required guessing.
+- ROUTINE items: the recurring business that happens at most meetings —
+  building demolitions of unsafe structures, abatement of inoperable
+  vehicles or weeds, routine procurement amendments. The input gives
+  you these as counts grouped by category. DO NOT lead with these even
+  if they are numerically the largest set of votes. They get at MOST
+  one closing sentence framed as background, like "The Council also
+  handled X demolition orders, Y vehicle abatements, and Z routine
+  procurement matters." If there are no routine items, omit that
+  sentence entirely.
+
+Phase rules:
+- phase="adopted": lead with what the council DECIDED (votes are final).
+- phase="provisional": lead with what the council CONSIDERED (votes
+  not yet ratified).
+
+Do not invent facts not present in the items.
+
+Confidence: "high" if distinctive items are clear and specific;
+"medium" if items are vague or sparse; "low" if synthesis required
+guessing or the meeting was almost entirely routine.
 """
 
 
 MEETING_USER_TEMPLATE = """Meeting: {meeting_type} on {meeting_date}
 Phase: {phase}
-Substantive items ({count}):
-{items_block}"""
+
+DISTINCTIVE items ({distinctive_count}):
+{distinctive_block}
+
+ROUTINE items ({routine_count}, grouped by topic):
+{routine_block}"""
