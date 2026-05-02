@@ -166,7 +166,8 @@ def mark_meeting_empty(conn, meeting_id: int) -> None:
     with conn.cursor() as cur:
         cur.execute("""
             UPDATE meetings
-               SET ai_metadata       = %s,
+               SET executive_summary = NULL,
+                   ai_metadata       = %s,
                    ai_prompt_version = %s,
                    ai_generated_at   = NOW()
              WHERE id = %s
