@@ -23,9 +23,9 @@ class ItemAIResult(BaseModel):
     # NOTE: rationales are listed BEFORE scores so the model produces them first
     # (rationales-first prompting / chain-of-thought grounding).
     is_substantive: bool
-    significance_rationale: str = Field(max_length=600)
+    significance_rationale: str = Field(max_length=1500)
     significance_score: Optional[float] = Field(default=None, ge=0.0, le=10.0)
-    consent_placement_rationale: str = Field(max_length=600)
+    consent_placement_rationale: str = Field(max_length=1500)
     consent_placement_score: Optional[float] = Field(default=None, ge=0.0, le=10.0)
     summary: str = Field(max_length=400)
     confidence: Confidence
