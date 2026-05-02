@@ -14,7 +14,11 @@ The full pipeline is live: scraping, enrichment, vote extraction (from both offi
 
 **N:M vote-to-agenda-item matching.** Every vote can link to one substantive agenda item or many consent-block items. Each vote is classified as substantive (1:1) or consent block (1:N); substantive matches run the existing three-tier heuristics (resolution number, item number, keyword overlap), while consent matches link to all `is_consent=TRUE` items for the meeting with named callouts upgraded to confidence 1.0. A strict re-parse promotes provisional consent links to official after council formally adopts the minutes. ~36,000 active links across Birmingham as of the most recent backfill.
 
-**AI summaries + scoring (v1 implemented, awaiting deploy).** Per-item summaries and 0–10 significance + consent-placement scores via Haiku 4.5; per-meeting executive summaries via Sonnet 4.6. Two-phase meeting lifecycle keyed off `minutes_adopted_at` (provisional summary first, adopted overwrites). Async batch worker (`python -m docket.ai.cli --items|--meetings`) decoupled from ingest; `SELECT FOR UPDATE SKIP LOCKED` claim semantics, per-row commits, exponential-backoff retry, daily budget cap. Cost telemetry in `ai_runs` tracks all four Anthropic billing dimensions (regular/cached input + output). Spec at `docs/superpowers/specs/2026-05-01-summaries-and-scoring-design.md`. Migration 012 pending on Railway.
+**AI summaries + scoring (v2 live in production).** Per-item summaries and 0–10 significance + consent-placement scores via Haiku 4.5; per-meeting executive summaries via Sonnet 4.6. Two-phase meeting lifecycle keyed off `minutes_adopted_at` (provisional summary first, adopted overwrites). Async batch worker (`python -m docket.ai.cli --items|--meetings`) decoupled from ingest; `SELECT FOR UPDATE SKIP LOCKED` claim semantics, per-row commits, exponential-backoff retry, daily budget cap. Cost telemetry in `ai_runs` tracks all four Anthropic billing dimensions (regular/cached input + output). Spec at `docs/superpowers/specs/2026-05-01-summaries-and-scoring-design.md`. Live at `/admin/ai` and as inline summaries on meeting detail pages. Cron-driven backfill is the last remaining piece (configured in Railway dashboard).
+
+**Prompt v2 design choices (validated in pilot):**
+- Procedural items (Roll Call, Pledge, Invocation, "minutes not ready", etc.) get `is_substantive=false` with empty summary + empty rationales — title is self-explanatory and a paraphrase would be noise. Template renders nothing extra for these items.
+- Meeting summaries split items into **distinctive** (sig ≥ 6) and **routine** (sig < 6) before feeding Sonnet. Distinctive items render in full and Sonnet leads with them. Routine items are grouped by topic with counts ("33 demolition orders, 18 public_safety items, 12 contracts") and Sonnet treats them as one closing background sentence at most. Without this split, Sonnet's framing was dominated by recurring abatement / demolition / weed-clearance volume, hiding the distinctive policy decisions citizens want to know about.
 
 ### Cities Online
 
@@ -50,13 +54,12 @@ The full pipeline is live: scraping, enrichment, vote extraction (from both offi
 14. **Landing Page** — Contested votes, recent votes table, notable items (180-day recency), topic browse
 15. **Vote-to-Item Matching N:M Redesign** — `vote_agenda_items` join table (migration 009), substantive + consent-block classifier and matchers, strict re-parse, dual-trigger adoption lifecycle
 16. **Editorial Design Pass** — meetings list, topics index, topic detail, search, council pages all migrated to the editorial card design
-17. **AI Summaries + Scoring** — `src/docket/ai/` package (migration 012, branch `feat/ai-summaries-scoring`). Item summaries via Haiku 4.5, meeting executive summaries via Sonnet 4.6, two-phase lifecycle, async batch worker + CLI, admin dashboard at `/admin/ai`, Pydantic-validated structured output, prompt caching. Awaiting prod deploy.
-18. **Tests** — 237 tests (236 unit + integration; 2 live tests gated on `ANTHROPIC_API_KEY`)
+17. **AI Summaries + Scoring** — `src/docket/ai/` package (migration 012, branch `feat/ai-summaries-scoring`). Item summaries via Haiku 4.5, meeting executive summaries via Sonnet 4.6, two-phase lifecycle, async batch worker + CLI, admin dashboard at `/admin/ai`, Pydantic-validated structured output, prompt caching. **Live on Railway prod** as of 2026-05-02. ITEM_PROMPT_VERSION=2 (procedural-skip), MEETING_PROMPT_VERSION=2 (distinctive-vs-routine).
+18. **Tests** — 240 tests (238 unit + integration; 2 live tests gated on `ANTHROPIC_API_KEY`)
 
 ### What's Next
 
-- **Deploy AI pipeline to Railway** — apply migration 012, push branch, set `ANTHROPIC_API_KEY`, run first batch with `--dry-run --items --limit 20`, ramp after manual QA
-- **Cron-schedule the AI worker on Railway** — `*/15 * * * * --items --limit 200` and `*/30 * * * * --meetings --limit 50`
+- **Cron-schedule the AI worker on Railway** — `*/15 * * * * --items --limit 200` and `*/30 * * * * --meetings --limit 50`. Pilot batches (~330 items + 10 meetings) ran cleanly at 99.5% success rate, ~$1 of $10/day budget; full backfill projected at $140 over ~14 days at the daily cap.
 - **Per-claim citations + discrepancy-aware summaries** — Phase 2 of the AI pipeline; v1 uses source-bounded grounding only
 - **Council member rollups** — separate brainstorm; deferred from v1 of AI summaries
 - **Astro frontend evaluation** — considering migration from Flask/Jinja2+HTMX to Astro
