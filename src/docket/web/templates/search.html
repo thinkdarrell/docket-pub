@@ -66,25 +66,20 @@
         </div>
     </header>
 
-    <form method="get" action="{{ url_for('public.search') }}"
-          style="background: var(--paper-2); padding: 20px; border-radius: 4px; display: flex; flex-wrap: wrap; gap: 12px; align-items: stretch;">
-        <input type="text"
-               name="q"
-               value="{{ query or '' }}"
-               placeholder="Search agenda items..."
-               style="flex: 2 1 280px; padding: 10px 12px; font-family: inherit; font-size: 15px; border: 1px solid var(--rule, #ddd); border-radius: 4px; background: var(--paper, #fff);">
-        <select name="city"
-                style="flex: 1 1 180px; padding: 10px 12px; font-family: inherit; font-size: 14px; border: 1px solid var(--rule, #ddd); border-radius: 4px; background: var(--paper, #fff);">
-            <option value="">All cities</option>
-            {% for m in municipalities %}
-            <option value="{{ m.slug }}" {% if city == m.slug %}selected{% endif %}>{{ m.name }}</option>
-            {% endfor %}
-        </select>
-        <button type="submit"
-                class="t-mono"
-                style="flex: 0 0 auto; padding: 10px 24px; font-size: 14px; font-weight: 500; border: 1px solid var(--ink, #111); background: var(--ink, #111); color: var(--paper, #fff); border-radius: 4px; cursor: pointer;">
-            Search →
-        </button>
+    <form method="get" action="{{ url_for('public.search') }}" class="search-form">
+        <div class="topsearch" style="width: 100%;">
+            <span class="topsearch-icon t-mono">⌕</span>
+            <input type="text" name="q" value="{{ query or '' }}" placeholder="Search agenda items, votes, dollars…">
+        </div>
+        <div class="search-form-row">
+            <select name="city" class="search-select">
+                <option value="">All cities</option>
+                {% for m in municipalities %}
+                <option value="{{ m.slug }}" {% if city == m.slug %}selected{% endif %}>{{ m.name }}, {{ m.state }}</option>
+                {% endfor %}
+            </select>
+            <button type="submit" class="leg-viewall t-mono">Search →</button>
+        </div>
     </form>
 </section>
 

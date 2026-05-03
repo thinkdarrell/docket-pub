@@ -1,0 +1,567 @@
+/* docket.pub — mobile responsive layer
+ * Single breakpoint: <768px triggers the full mobile layout.
+ * Above 768px, the existing desktop layout (layout.css/councilmatic.css/tweaks.css) applies untouched.
+ *
+ * Floor: 375px wide (iPhone SE / small Android). Tested at 375 / 414 / 768.
+ */
+
+/* ── ALWAYS-ON: components used only at mobile width but referenced from desktop markup ── */
+/* Hide the bottom tab bar, source sheet, view-source pill, mobile search, and more-sheet on desktop. */
+.bottom-tabs,
+.view-source-pill,
+.mobile-search-btn,
+#source-sheet,
+#more-sheet { display: none; }
+
+@media (max-width: 768px) {
+  /* ── 1. App shell — collapse the desktop rail; full width main column ───────── */
+  .app {
+    display: block;
+    min-height: 100%;
+  }
+  .app-main {
+    padding: 0 16px 96px; /* 96px bottom = 68px tabs + safe-area + breathing room */
+    padding-bottom: calc(96px + env(safe-area-inset-bottom, 0));
+  }
+  .app-rail { display: none; }
+
+  /* ── 2. Masthead — collapse 5-col grid to single row ──────────────────────── */
+  .masthead {
+    padding: 0 14px;
+    padding-top: env(safe-area-inset-top, 0);
+  }
+  .masthead-row {
+    grid-template-columns: 1fr auto auto;
+    gap: 8px;
+    height: 52px;
+  }
+  /* Hide elements that don't fit on mobile chrome */
+  .masthead .brand-sep,
+  .masthead .brand-tag,
+  .masthead .topnav,
+  .masthead .topsearch,
+  .masthead .city-switcher-pop { display: none; }
+  /* Compact city switcher: state badge + caret only, no full city name */
+  .masthead .city-switcher-name { display: none; }
+  .masthead .city-switcher-btn {
+    padding: 5px 8px;
+    gap: 6px;
+  }
+  .brand-mark { width: 30px; height: 30px; }
+  .brand-name { font-size: 17px; }
+  /* Crumbs row hidden on mobile — its info is implicit from the city switcher */
+  .masthead .crumbs { display: none; }
+
+  /* Mobile-only search icon trigger (rendered by masthead.html under .mobile-search-btn) */
+  .mobile-search-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px; height: 36px;
+    border: 1px solid var(--rule-strong);
+    border-radius: 4px;
+    background: var(--paper);
+    color: var(--ink-2);
+    font-size: 16px;
+    cursor: pointer;
+  }
+  .mobile-search-btn:hover { border-color: var(--ink-3); }
+
+  /* ── 3. Hero — smaller serif, balanced wrap, looser top ───────────────────── */
+  .hero { padding: 24px 0 28px; }
+  .hero-top {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  .hero-title {
+    font-size: 44px !important; /* override desktop inline 48/72 */
+    line-height: 0.96;
+    letter-spacing: -0.025em;
+    margin: 8px 0 12px;
+    text-wrap: balance;
+  }
+  .hero-sub { font-size: 14px; line-height: 1.55; }
+  .freshness { padding: 8px 12px; }
+
+  /* ── 4. KPI strip → horizontal scroll-snap carousel ───────────────────────── */
+  .kpi-grid {
+    display: flex !important;          /* override grid */
+    grid-template-columns: none !important;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    border-top: 1px solid var(--rule);
+    border-bottom: 2px solid var(--ink);
+    /* edge bleed so cards run to the screen edge but content has rhythm */
+    margin: 0 -16px;
+    padding: 0 16px;
+    scrollbar-width: none;
+  }
+  .kpi-grid::-webkit-scrollbar { display: none; }
+  .kpi {
+    flex: 0 0 130px;
+    scroll-snap-align: start;
+    padding: 14px 14px 16px;
+    border-right: 1px solid var(--rule);
+    border-top: 0 !important; /* override mid-density wrap row */
+  }
+  .kpi:last-child { border-right: 0; }
+  .kpi-label { font-size: 9px; }
+  .kpi-value { font-size: 26px; }
+  .kpi-sub { font-size: 11px; }
+
+  /* ── 5. "This week" strip → horizontal scroll-snap carousel ───────────────── */
+  .tw { padding: 24px 0 28px; }
+  .tw-head { margin-bottom: 14px; gap: 12px; }
+  .tw-strip {
+    display: flex !important;
+    grid-template-columns: none !important;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    margin: 0 -16px;
+    padding: 0 16px;
+    gap: 10px;
+    scrollbar-width: none;
+  }
+  .tw-strip::-webkit-scrollbar { display: none; }
+  .tw-card {
+    flex: 0 0 220px;
+    scroll-snap-align: start;
+    padding: 14px 16px;
+  }
+
+  /* ── 6. Topic chips — horizontal scroll row ───────────────────────────────── */
+  .topics { padding: 18px 0 6px; }
+  .topic-row {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    margin: 0 -16px;
+    padding: 4px 16px 8px;
+    gap: 5px;
+    scrollbar-width: none;
+  }
+  .topic-row::-webkit-scrollbar { display: none; }
+  .topic-chip {
+    flex-shrink: 0;
+    padding: 6px 10px 6px 8px;
+    font-size: 12px;
+  }
+
+  /* ── 7. Legislation cards — single column, 1px rule between ──────────────── */
+  .leg { padding: 24px 0 28px; }
+  .leg-grid {
+    grid-template-columns: 1fr !important;
+    gap: 0;
+    padding-top: 8px;
+  }
+  .legc {
+    border: 0;
+    border-bottom: 1px solid var(--rule);
+    border-radius: 0;
+    padding: 14px 0;
+    min-height: 0;
+  }
+  .legc:hover { transform: none; box-shadow: none; }
+  .legc-title { font-size: 17px; }
+  .legc-byline { font-size: 9px; }
+
+  /* ── 8. Council list — 3-column tile grid (3x3 for 9-member councils) ─────── */
+  .council { padding: 24px 0 28px; }
+  .council-grid {
+    display: grid !important;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+  /* Compact card: portrait fills card width, body underneath has name + district */
+  .cc {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    padding: 0;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    background: var(--paper);
+    overflow: hidden;
+    text-align: left;
+    min-width: 0;
+  }
+  .cc:hover { transform: none; box-shadow: none; }
+  .cc-portrait {
+    flex: 0 0 auto;
+    aspect-ratio: 1;
+    border-radius: 0;
+  }
+  .cc-portrait-tag { display: none; }
+  .cc-initials { font-size: 28px; text-shadow: 0 1px 4px rgba(0,0,0,0.18); }
+  .cc-body {
+    flex: 0 0 auto;
+    padding: 8px 8px 9px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+  }
+  .cc-row1 {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
+  }
+  .cc-name {
+    font-size: 12px;
+    line-height: 1.2;
+    /* Cap to 2 lines so card heights stay even */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .cc-district { font-size: 9px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cc-term, .cc-stats, .cc-foot { display: none; }
+
+  /* ── 9. Feed (meetings list) — flex row, keep most cells inline ───────────── */
+  .feed { padding: 24px 0 28px; }
+  .feed-head { flex-direction: column; gap: 10px; align-items: flex-start; }
+  .feed-title { font-size: 22px; }
+  .feed-th { display: none; } /* table header hidden — card stack doesn't need column labels */
+  .feed-row, .feed-table .feed-row {
+    display: flex !important;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 10px;
+    padding: 14px 0;
+    grid-template-columns: none !important;
+  }
+  .feed-row > .feed-date {
+    flex: 0 0 auto;
+    line-height: 1;
+  }
+  .feed-row > .feed-meta,
+  .feed-row > .feed-meeting-title {
+    flex: 1 1 0;
+    min-width: 100px;
+    font-size: 14px;
+    line-height: 1.35;
+  }
+  /* The .feed-num cells contain meeting_type, vote tally, source label, etc.
+     Show them inline as small mono chips. The "—" placeholders are filtered
+     visually by the small typeface and naturally fade into the row. */
+  .feed-row > .feed-num {
+    flex: 0 0 auto;
+    font-size: 10px;
+    color: var(--ink-3);
+    white-space: nowrap;
+    text-align: right;
+  }
+  .feed-row > .feed-arrow {
+    flex: 0 0 auto;
+    margin-left: 4px;
+    font-size: 14px;
+    color: var(--ink-4);
+  }
+  .feed-meeting-title { font-size: 15px; }
+  .feed-meeting-sub { font-size: 12px; }
+  .feed-date-d { font-size: 22px; }
+  .feed-date-m { font-size: 9px; }
+  .feed-filters { flex-wrap: wrap; }
+
+  /* ── 10. Notable / regular agenda items — single column ───────────────────── */
+  .notable { padding: 24px 0 28px; }
+  .notable-row {
+    grid-template-columns: 50px 1fr auto;
+    gap: 12px;
+    padding: 12px 0;
+  }
+  .notable-title { font-size: 15px; line-height: 1.35; }
+  .notable-meta { font-size: 10px; gap: 4px; }
+  .notable-num { font-size: 11px; }
+
+  /* ── 11. Vote blocks — let chips wrap, shrink type ────────────────────────── */
+  .vote-block {
+    padding: 10px 12px;
+    gap: 8px;
+  }
+  .vote-block-head {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .vote-block .chip,
+  .vote-block .chip-yea,
+  .vote-block .chip-nay,
+  .vote-block .chip-abstain,
+  .vote-block .chip-absent {
+    font-size: 10px !important;
+    height: 20px;
+    padding: 0 6px;
+  }
+  .vote-result { font-size: 11px; }
+
+  /* Result chips inside feed rows shrink */
+  .feed-row .chip { font-size: 10px; height: 20px; padding: 0 6px; }
+
+  /* ── 12. Tier-key (legend strip) wraps ────────────────────────────────────── */
+  .tier-key { flex-wrap: wrap; gap: 4px; }
+  .tier-key .tier { font-size: 9px; padding: 1px 5px; }
+
+  /* ── 13. Footer accordion ─────────────────────────────────────────────────── */
+  .footnote { padding: 28px 0 16px; }
+  .footnote-cols {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    padding-bottom: 8px;
+    border-bottom: 0;
+  }
+  .footnote-col {
+    border-top: 1px solid var(--rule);
+    padding: 0;
+  }
+  .footnote-col:last-child { border-bottom: 1px solid var(--rule); }
+  .footnote-col .t-eyebrow {
+    margin: 0;
+    padding: 14px 4px;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    user-select: none;
+  }
+  .footnote-col .t-eyebrow::after {
+    content: "▾";
+    font-size: 11px;
+    color: var(--ink-4);
+    transition: transform .15s;
+  }
+  .footnote-col[data-open="true"] .t-eyebrow::after {
+    transform: rotate(180deg);
+  }
+  .footnote-col .footnote-links {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height .2s ease, padding .2s ease;
+    padding: 0 4px;
+  }
+  .footnote-col[data-open="true"] .footnote-links {
+    max-height: 600px;
+    padding: 0 4px 14px;
+  }
+  .footnote-colophon { padding: 18px 0 12px; }
+  .footnote-body { font-size: 13px; }
+  .footnote-grid { grid-template-columns: 1fr 1fr; gap: 12px; font-size: 10px; }
+  .footnote-bottom {
+    flex-direction: column;
+    gap: 6px;
+    align-items: flex-start;
+    text-align: left;
+    font-size: 9px;
+  }
+
+  /* ── 14. Hide demo ribbon ─────────────────────────────────────────────────── */
+  .demo-ribbon { display: none !important; }
+
+  /* ── 15. Bottom tab bar ───────────────────────────────────────────────────── */
+  .bottom-tabs {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    height: calc(56px + env(safe-area-inset-bottom, 12px));
+    padding-bottom: env(safe-area-inset-bottom, 0);
+    background: color-mix(in oklab, var(--paper) 88%, transparent);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border-top: 1px solid var(--rule);
+    z-index: 40;
+  }
+  .bottom-tab {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    color: oklch(0.62 0.008 250); /* #9a958a-equivalent inactive tint */
+    font-family: var(--font-ui);
+    font-size: 10px;
+    font-weight: 400;
+    background: transparent;
+    border: 0;
+    padding: 6px 4px 8px;
+    text-decoration: none;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .bottom-tab:hover { color: var(--ink-2); }
+  .bottom-tab[aria-current="page"] {
+    color: var(--ink);
+    font-weight: 600;
+  }
+  .bottom-tab svg {
+    width: 22px;
+    height: 22px;
+    flex-shrink: 0;
+    stroke-width: 1.6;
+  }
+
+  /* ── 16. View-source pill (persistent, mobile-only) ───────────────────────── */
+  .view-source-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    position: fixed;
+    right: 14px;
+    bottom: calc(56px + env(safe-area-inset-bottom, 12px) + 14px);
+    z-index: 30;
+    height: 36px;
+    padding: 0 14px;
+    border: 1px solid var(--ink);
+    border-radius: 999px;
+    background: var(--ink);
+    color: var(--paper);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    cursor: pointer;
+    box-shadow: 0 4px 12px -4px oklch(0.2 0.01 250 / 0.32);
+    -webkit-tap-highlight-color: transparent;
+  }
+  .view-source-pill:active { transform: scale(0.97); }
+  .view-source-pill .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 30%, transparent);
+  }
+
+  /* ── 17. Source sheet + More sheet (mobile-only, native <dialog>) ─────────── */
+  #source-sheet,
+  #more-sheet {
+    display: block;
+    position: fixed;
+    inset: 0;
+    border: 0;
+    padding: 0;
+    margin: 0;
+    width: 100%;
+    max-width: 100%;
+    max-height: 100%;
+    height: 100%;
+    background: transparent;
+    color: inherit;
+    overflow: visible;
+  }
+  #source-sheet:not([open]),
+  #more-sheet:not([open]) { display: none; }
+  #source-sheet::backdrop,
+  #more-sheet::backdrop {
+    background: oklch(0.2 0.01 250 / 0.45);
+    backdrop-filter: blur(2px);
+  }
+  .source-sheet-shell {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    height: 92%;
+    display: flex;
+    flex-direction: column;
+    background: var(--paper);
+    border-top-left-radius: 16px;
+    border-top-right-radius: 16px;
+    box-shadow: 0 -8px 24px oklch(0.2 0.01 250 / 0.18);
+    overflow: hidden;
+    /* No slide-up animation in v1 — native <dialog>'s display:none↔block switch
+       breaks transitions reliably. Plan B reintroduces this with snap points. */
+  }
+  .source-sheet-handle-area {
+    flex: 0 0 auto;
+    padding: 8px 0 0;
+    display: flex;
+    justify-content: center;
+    cursor: grab;
+    /* 44px hit area for the drag handle */
+    min-height: 24px;
+  }
+  .source-sheet-handle {
+    width: 40px;
+    height: 4px;
+    background: var(--rule-strong);
+    border-radius: 999px;
+  }
+  .source-sheet-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 6px 16px 12px;
+    border-bottom: 1px solid var(--rule);
+    flex: 0 0 auto;
+  }
+  .source-sheet-eyebrow {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent-ink);
+  }
+  .source-sheet-close {
+    width: 30px; height: 30px;
+    /* 44px hit area via padding */
+    padding: 7px;
+    margin: -7px;
+    border: 0;
+    background: transparent;
+    color: var(--ink-3);
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+    border-radius: 6px;
+  }
+  .source-sheet-close:hover { background: var(--paper-3); color: var(--ink); }
+  .source-sheet-body {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 16px;
+  }
+  /* Inside the sheet, the rail's sticky/100vh/grid styles must not apply.
+     Reset .rail-* so the partial renders as a plain scrolling document. */
+  .source-sheet-body .rail {
+    position: static;
+    height: auto;
+    background: transparent;
+  }
+  .source-sheet-body .rail-head {
+    padding: 0 0 12px;
+    border-bottom: 1px solid var(--rule);
+    margin-bottom: 16px;
+  }
+  .source-sheet-body .rail-body {
+    padding: 0;
+    overflow: visible;
+  }
+  .source-sheet-body .rail-foot {
+    background: transparent;
+    padding: 12px 0 0;
+    margin-top: 16px;
+  }
+  .source-sheet-body .rail-title { font-size: 22px; }
+
+  /* Body locked-scroll utility — toggled by sheet.js */
+  body.source-sheet-open { overflow: hidden; }
+  /* While the sheet is open, hide the pill + tab bar so the sheet owns the screen. */
+  body.source-sheet-open .view-source-pill,
+  body.source-sheet-open .bottom-tabs { display: none; }
+
+  /* ── 18. Type scale — section titles + cards ──────────────────────────────── */
+  .feed-title { font-size: 22px !important; }
+  .legc-title { font-size: 17px; }
+
+  /* ── 19. Source-link rail row inside meeting hero stays stacked ───────────── */
+  .mtg-sources .rail-link { flex: 1 1 100% !important; min-width: 0 !important; }
+
+  /* ── 20. Inline overrides used in templates with style="..." should still work ── */
+  /* Many existing pages use inline style="font-size: 28px" on .feed-title. The !important above wins. */
+}
