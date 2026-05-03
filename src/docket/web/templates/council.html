@@ -2,22 +2,58 @@
 {% block title %}Council — {{ municipality.name }} — docket.pub{% endblock %}
 
 {% block content %}
-<h1>{{ municipality.name }} Council</h1>
-
-<div class="council-grid">
-    {% for m in members %}
-    <div class="council-card">
-        {% if m.photo_url %}
-        <img src="{{ m.photo_url }}" alt="{{ m.name }}">
-        {% endif %}
-        <h3>{{ m.name }}</h3>
-        {% if m.district_name %}
-        <p>{{ m.district_name }}</p>
-        {% endif %}
-        {% if m.email %}
-        <p><a href="mailto:{{ m.email }}">{{ m.email }}</a></p>
-        {% endif %}
+<section class="hero">
+    <div class="hero-top">
+        <div>
+            <div class="t-eyebrow">{{ municipality.name }}, {{ municipality.state }}</div>
+            <h1 class="hero-title t-display">Council Members</h1>
+            <p class="hero-sub">
+                <strong>{{ members | length }}</strong> active member{{ 's' if members | length != 1 else '' }}
+                — voting records linked to source documents.
+            </p>
+        </div>
     </div>
-    {% endfor %}
-</div>
+</section>
+
+<section class="council">
+    <div class="council-grid">
+        {% for m in members %}
+        {% set hue = (m.id * 137) % 360 %}
+        <button class="cc"
+                hx-get="{{ url_for('public.rail_member', slug=municipality.slug, member_id=m.id) }}"
+                hx-target="#source-rail"
+                hx-swap="innerHTML">
+            <div class="cc-portrait" style="background: oklch(0.45 0.12 {{ hue }})">
+                {% if m.photo_url %}
+                <img src="{{ m.photo_url }}" alt="" class="cc-portrait-bg" style="object-fit: cover;">
+                {% else %}
+                <svg viewBox="0 0 100 100" class="cc-portrait-bg" aria-hidden="true">
+                    <defs>
+                        <pattern id="p{{ m.id }}" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(-30)">
+                            <line x1="0" y1="0" x2="0" y2="6" stroke="rgba(255,255,255,0.18)" stroke-width="2"/>
+                        </pattern>
+                    </defs>
+                    <rect width="100" height="100" fill="url(#p{{ m.id }})" />
+                </svg>
+                <div class="cc-initials t-display">{{ m.name.split()[0][0] }}{{ m.name.split()[-1][0] }}</div>
+                <div class="cc-portrait-tag t-mono">photo · placeholder</div>
+                {% endif %}
+            </div>
+            <div class="cc-body">
+                <div class="cc-row1">
+                    <div class="cc-name">{{ m.name }}</div>
+                    <div class="cc-district t-mono">{{ m.district_name or 'At-Large' }}</div>
+                </div>
+                {% if m.email %}
+                <div class="t-meta" style="font-size: 11px;"><a class="link" href="mailto:{{ m.email }}">{{ m.email }}</a></div>
+                {% endif %}
+                <div class="cc-foot t-mono">
+                    <span>View record →</span>
+                    <span class="cc-arrow">→</span>
+                </div>
+            </div>
+        </button>
+        {% endfor %}
+    </div>
+</section>
 {% endblock %}

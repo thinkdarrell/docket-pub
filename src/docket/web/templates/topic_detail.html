@@ -2,25 +2,66 @@
 {% block title %}{{ topic_name }} — docket.pub{% endblock %}
 
 {% block content %}
-<h1>{{ topic_name }}</h1>
+<section class="hero">
+    <div class="hero-top">
+        <div>
+            <div class="t-eyebrow">Topic</div>
+            <h1 class="hero-title t-display">{{ topic_name }}</h1>
+            <p class="hero-sub">
+                <strong>{{ items | length }}</strong> agenda item{{ 's' if items | length != 1 else '' }} classified under this topic.
+                {% if city %}Filtered to <strong>{{ city }}</strong>.{% else %}Across all cities.{% endif %}
+            </p>
+        </div>
+    </div>
+</section>
 
-{% for item in items %}
-<div>
-    <strong>{{ item.title }}</strong>
+{% if items %}
+<section class="notable">
+    <div class="feed-head">
+        <div>
+            <div class="t-eyebrow">Items</div>
+            <h2 class="feed-title t-display">All matches</h2>
+        </div>
+        <div class="tier-key t-mono">
+            <span class="tier tier-green">&lt;$50K</span>
+            <span class="tier tier-yellow">$50K–$250K</span>
+            <span class="tier tier-orange">$250K–$1M</span>
+            <span class="tier tier-red">&gt;$1M</span>
+        </div>
+    </div>
 
-    {% if item.dollars_amount %}
-    <span>${{ "{:,.2f}".format(item.dollars_amount) }}</span>
-    {% endif %}
-
-    <p>
-        {{ item.municipality_name }}
-        · {{ item.meeting_date }}
-        · {{ item.meeting_title }}
-    </p>
-</div>
-{% endfor %}
-
-{% if not items %}
-<p>No items found for this topic.</p>
+    <div class="notable-list">
+        {% for item in items %}
+        <div class="notable-row" style="cursor: default;">
+            <div class="notable-num t-mono">
+                {% if item.item_number %}{{ item.item_number }}{% else %}—{% endif %}
+            </div>
+            <div>
+                <div class="notable-title">{{ item.title }}</div>
+                <div class="notable-meta">
+                    <span class="t-meta">{{ item.municipality_name }}</span>
+                    <span class="dim">·</span>
+                    <span class="t-meta">{{ item.meeting_date }}</span>
+                    {% if item.meeting_title %}
+                    <span class="dim">·</span>
+                    <span class="t-meta">{{ item.meeting_title }}</span>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="notable-right">
+                {% if item.dollars_amount %}
+                <span class="tier tier-{{ item.dollars_amount | dollar_tier }}">
+                    ${{ "{:,.0f}".format(item.dollars_amount) }}
+                </span>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</section>
+{% else %}
+<section class="notable">
+    <p class="t-meta" style="padding: 24px 0;">No items found for this topic.</p>
+</section>
 {% endif %}
 {% endblock %}

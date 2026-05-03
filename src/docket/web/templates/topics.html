@@ -2,14 +2,30 @@
 {% block title %}Browse by Topic — docket.pub{% endblock %}
 
 {% block content %}
-<h1>Browse by Topic</h1>
+<section class="hero">
+    <div class="hero-top">
+        <div>
+            <div class="t-eyebrow">Cross-city browse</div>
+            <h1 class="hero-title t-display">Topics</h1>
+            <p class="hero-sub">
+                Agenda items grouped by topic, inferred from titles and descriptions.
+                {% if city %}Filtered to <strong>{{ city }}</strong>.{% endif %}
+            </p>
+        </div>
+    </div>
+</section>
 
-{% for t in all_topics %}
-{% set count = 0 %}
-{% for tc in topics if tc.topic == t.slug %}{% set count = tc.count %}{% endfor %}
-<a href="{{ url_for('public.topic_detail', topic=t.slug, city=city) }}">
-    <strong>{{ t.name }}</strong>
-    {% if count %}<span>({{ count }})</span>{% endif %}
-</a>
-{% endfor %}
+<section class="topics" style="padding: 28px 0 36px;">
+    <div class="topic-row">
+        {% for t in all_topics %}
+        {% set count = 0 %}
+        {% for tc in topics if tc.topic == t.slug %}{% set count = tc.count %}{% endfor %}
+        <a href="{{ url_for('public.topic_detail', topic=t.slug, city=city) }}" class="topic-chip">
+            <span class="topic-dot" style="background: var(--accent)"></span>
+            <span>{{ t.name }}</span>
+            {% if count %}<span class="t-mono topic-count">{{ count }}</span>{% endif %}
+        </a>
+        {% endfor %}
+    </div>
+</section>
 {% endblock %}

@@ -8,16 +8,9 @@
         <div class="rail-kicker t-mono">[1] · CITY · {{ municipality.slug if municipality is defined else 'docket.pub' }}</div>
         <h3 class="rail-title t-display">{{ municipality.name if municipality is defined else 'docket.pub' }}{% if municipality is defined %}, {{ municipality.state }}{% endif %}</h3>
         <p class="rail-lede">
-            Provenance for everything you see on this page. Clicking any citation, dollar figure, or vote on the left
-            replaces this panel with the underlying source.
+            Provenance for everything you see on this page. Tap any vote, dollar figure, or meeting card to see the
+            underlying source — agenda PDF, official minutes, or the city's CMS.
         </p>
-
-        <div class="rail-empty-cta">
-            <div class="rail-empty-icon" aria-hidden="true">↰</div>
-            <div class="rail-empty-text">
-                <strong>Try it:</strong> click any number, name, or meeting on the left — this panel shows you the receipt.
-            </div>
-        </div>
 
         {% if municipality is defined and municipality %}
         <table class="rail-table">
@@ -27,11 +20,23 @@
                 <tr><td class="t-label">Records</td><td class="rail-table-val"><span class="t-tnum">{{ meeting_count | default(0) }} meetings</span></td><td class="t-meta">indexed</td></tr>
             </tbody>
         </table>
-        {% endif %}
 
-        <div class="rail-tip t-meta">
-            <span class="t-mono dim">tip</span> Click any meeting, agenda item, or council member to update this rail.
+        <div class="rail-section-h t-eyebrow" style="margin-top: 16px;">Source documents</div>
+        <div class="rail-links">
+            <a class="rail-link" href="{{ url_for('public.city_meetings', slug=municipality.slug) }}">
+                <div><div class="rail-link-label">Browse all meetings</div><div class="t-meta">{{ meeting_count | default(0) }} indexed</div></div>
+                <span class="t-mono">→</span>
+            </a>
+            <a class="rail-link" href="{{ url_for('public.city_council', slug=municipality.slug) }}">
+                <div><div class="rail-link-label">Council members</div><div class="t-meta">voting records</div></div>
+                <span class="t-mono">→</span>
+            </a>
         </div>
+        {% else %}
+        <div class="rail-tip t-meta">
+            <span class="t-mono dim">tip</span> Pick a city to see its sourced meeting data.
+        </div>
+        {% endif %}
     </div>
 </div>
 

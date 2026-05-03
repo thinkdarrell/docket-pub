@@ -2,25 +2,55 @@
 {% block title %}Meetings — {{ municipality.name }} — docket.pub{% endblock %}
 
 {% block content %}
-<h1>{{ municipality.name }} Meetings</h1>
-<p>{{ total }} meetings total · Page {{ page }} of {{ total_pages }}</p>
+<section class="hero">
+    <div class="hero-top">
+        <div>
+            <div class="t-eyebrow">{{ municipality.name }}, {{ municipality.state }}</div>
+            <h1 class="hero-title t-display">Meetings</h1>
+            <p class="hero-sub">
+                <strong>{{ total }}</strong> meeting{{ 's' if total != 1 else '' }} indexed
+                · Page {{ page }} of {{ total_pages }}
+            </p>
+        </div>
+    </div>
+</section>
 
-{% for m in meetings %}
-<div>
-    <a href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=m.id) }}">
-        <span>{{ m.meeting_date }}</span>
-        <strong>{{ m.title }}</strong>
-    </a>
-    <span>{{ m.meeting_type }}</span>
-</div>
-{% endfor %}
+<section class="feed">
+    <div class="feed-table">
+        {% for m in meetings %}
+        <a href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=m.id) }}"
+           class="feed-row"
+           hx-get="{{ url_for('public.rail_meeting', slug=municipality.slug, meeting_id=m.id) }}"
+           hx-target="#source-rail"
+           hx-swap="innerHTML">
+            <div class="feed-date">
+                <div class="feed-date-d t-display t-tnum">{{ m.meeting_date.day if m.meeting_date.day is defined else m.meeting_date[-2:] }}</div>
+                <div class="feed-date-m t-mono">{{ m.meeting_date.strftime('%b %Y') if m.meeting_date.strftime is defined else m.meeting_date }}</div>
+            </div>
+            <div class="feed-meta">
+                <div class="feed-meeting-title">{{ m.title }}</div>
+                <div class="feed-meeting-sub t-meta">{{ m.meeting_type }}</div>
+            </div>
+            <div class="feed-num t-mono t-tnum">—</div>
+            <div class="feed-num t-mono t-tnum">{{ m.meeting_type }}</div>
+            <div class="feed-num t-mono t-tnum">
+                {% if m.source_url %}<span class="t-meta">source</span>{% endif %}
+            </div>
+            <div class="feed-arrow t-mono">→</div>
+        </a>
+        {% endfor %}
+    </div>
 
-<nav>
-    {% if page > 1 %}
-    <a href="?page={{ page - 1 }}{% if meeting_type %}&type={{ meeting_type }}{% endif %}">← Previous</a>
-    {% endif %}
-    {% if page < total_pages %}
-    <a href="?page={{ page + 1 }}{% if meeting_type %}&type={{ meeting_type }}{% endif %}">Next →</a>
-    {% endif %}
-</nav>
+    <div class="leg-foot">
+        <div class="t-meta">Page {{ page }} of {{ total_pages }}</div>
+        <div style="display: flex; gap: 8px;">
+            {% if page > 1 %}
+            <a href="?page={{ page - 1 }}{% if meeting_type %}&type={{ meeting_type }}{% endif %}" class="leg-viewall t-mono">← Previous</a>
+            {% endif %}
+            {% if page < total_pages %}
+            <a href="?page={{ page + 1 }}{% if meeting_type %}&type={{ meeting_type }}{% endif %}" class="leg-viewall t-mono">Next →</a>
+            {% endif %}
+        </div>
+    </div>
+</section>
 {% endblock %}
