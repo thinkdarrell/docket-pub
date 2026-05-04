@@ -54,6 +54,7 @@ class RawVote:
     confidence: str = "high"  # 'high' | 'medium' | 'low'
     resolution_number: str | None = None
     match_context: str | None = None
+    raw_text: str | None = None
 
 
 class MunicipalSourceAdapter(Protocol):

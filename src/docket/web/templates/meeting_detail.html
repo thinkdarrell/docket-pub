@@ -99,11 +99,16 @@
 
     <div style="display: flex; flex-direction: column; gap: 12px;">
     {% for vote in votes %}
-        <div class="vote-block {{ 'is-pass' if vote.result == 'passed' else 'is-fail' if vote.result == 'failed' else '' }}">
+        <div class="vote-block {{ 'is-pass' if vote.result == 'passed' else 'is-fail' if vote.result == 'failed' else '' }} {{ 'is-consent-block' if vote.is_consent_block else 'is-substantive' }}">
             <div class="vote-block-head">
                 <span class="vote-block-result">{{ vote.result }}</span>
                 <span style="display: flex; align-items: center; gap: 8px;">
                     <span class="t-meta t-mono" style="font-size: 10px;">#{{ vote.id }}</span>
+                    {% if vote.has_provisional_links %}
+                    <span class="chip is-warn" title="Council has not yet adopted these minutes"><span class="dot"></span>provisional</span>
+                    {% elif vote.is_consent_block %}
+                    <span class="chip is-good" title="Minutes adopted by council"><span class="dot"></span>adopted</span>
+                    {% endif %}
                     {% if vote.source == 'video_ocr' %}
                     <span class="chip is-warn"><span class="dot"></span>video OCR · {{ vote.confidence }}</span>
                     {% else %}
@@ -111,17 +116,56 @@
                     {% endif %}
                 </span>
             </div>
-            {% if vote.agenda_item_title %}
-            <div style="margin-top: 4px; padding: 6px 10px; background: var(--paper-2); border-radius: 4px; border-left: 2px solid var(--accent);">
-                <span class="t-meta">Re: </span>
-                <span style="font-size: 13px; font-weight: 500;">
-                    {% if vote.agenda_item_number %}#{{ vote.agenda_item_number }}. {% endif %}{{ vote.agenda_item_title[:120] }}{% if vote.agenda_item_title|length > 120 %}…{% endif %}
-                </span>
-                {% if vote.match_method %}
-                <span class="chip" style="font-size: 9px; height: 16px; padding: 0 5px; margin-left: 4px;">{{ vote.match_method | replace('_', ' ') }}{% if vote.match_confidence %} · {{ "%.0f"|format(vote.match_confidence * 100) }}%{% endif %}</span>
+
+            {% if vote.is_consent_block %}
+                {% set active_links = vote.active_links %}
+                <details style="margin-top: 4px; padding: 6px 10px; background: var(--paper-2); border-radius: 4px; border-left: 2px solid var(--accent);">
+                    <summary style="cursor: pointer; font-size: 13px; font-weight: 500;">
+                        Consent vote — covers {{ active_links | length }} item{{ 's' if active_links | length != 1 else '' }}
+                    </summary>
+                    <ul style="margin: 8px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px;">
+                        {% for link in active_links %}
+                        <li>
+                            <span class="t-mono t-meta">[{{ link.item_number or '?' }}]</span>
+                            <span style="font-size: 13px;">{{ link.title }}</span>
+                            {% if link.association_type == 'consent_named' %}
+                            <span class="chip" style="font-size: 9px; height: 16px; padding: 0 5px;">named in vote</span>
+                            {% else %}
+                            <span class="chip" style="font-size: 9px; height: 16px; padding: 0 5px;">consent default</span>
+                            {% endif %}
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </details>
+                {% if vote.excluded_links %}
+                <div style="margin-top: 4px; padding: 6px 10px; background: var(--paper-2); border-radius: 4px; border-left: 2px solid var(--warn, #c60);">
+                    <em class="t-meta">Pulled from consent — voted separately:</em>
+                    <ul style="margin: 4px 0 0; padding-left: 18px;">
+                        {% for link in vote.excluded_links %}
+                        <li>
+                            <span class="t-mono t-meta">[{{ link.item_number or '?' }}]</span>
+                            <span style="font-size: 13px;">{{ link.title }}</span>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </div>
                 {% endif %}
-            </div>
+            {% elif vote.primary_link %}
+                <div style="margin-top: 4px; padding: 6px 10px; background: var(--paper-2); border-radius: 4px; border-left: 2px solid var(--accent);">
+                    <span class="t-meta">Re: </span>
+                    <span style="font-size: 13px; font-weight: 500;">
+                        {% if vote.primary_link.item_number %}#{{ vote.primary_link.item_number }}. {% endif %}{{ vote.primary_link.title[:120] }}{% if vote.primary_link.title | length > 120 %}…{% endif %}
+                    </span>
+                    {% if vote.primary_link.match_method %}
+                    <span class="chip" style="font-size: 9px; height: 16px; padding: 0 5px; margin-left: 4px;">{{ vote.primary_link.match_method | replace('_', ' ') }}{% if vote.primary_link.match_confidence %} · {{ "%.0f"|format(vote.primary_link.match_confidence * 100) }}%{% endif %}</span>
+                    {% endif %}
+                </div>
+            {% else %}
+                <div style="margin-top: 4px; padding: 6px 10px;">
+                    <em class="t-meta">No agenda item linked.</em>
+                </div>
             {% endif %}
+
             <div style="display: flex; gap: 16px; align-items: baseline;">
                 <span class="t-mono" style="font-size: 20px; font-weight: 500;">{{ vote.yeas }}–{{ vote.nays }}</span>
                 {% if vote.abstentions %}<span class="t-meta">{{ vote.abstentions }} abstain</span>{% endif %}

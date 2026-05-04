@@ -19,6 +19,23 @@ import requests
 logger = logging.getLogger(__name__)
 
 
+PRE_VOTE_WINDOW = 1500
+POST_VOTE_WINDOW = 200
+
+CONSENT_BLOCK_PHRASES = (
+    "the resolutions and ordinances introduced as consent agenda matters",
+    "consent agenda matters were read by the city clerk",
+    "all items on the consent agenda",
+    "items on consent",
+)
+
+
+def _contains_consent_phrase(text: str) -> bool:
+    """True if the text contains any canonical consent-block phrase."""
+    lowered = text.lower()
+    return any(phrase in lowered for phrase in CONSENT_BLOCK_PHRASES)
+
+
 @dataclass
 class AttendanceRecord:
     """Roll call attendance for a meeting."""
@@ -37,7 +54,9 @@ class ParsedVote:
     abstentions: list[str]
     result: str  # 'passed' | 'failed' | 'tabled'
     resolution_number: str | None = None
-    context: str = ""  # text before the vote for matching
+    context: str = ""        # full pre-vote window (was: trailing 200 chars)
+    raw_text: str = ""       # full pre + vote block + post window
+    is_likely_consent: bool = False
 
 
 @dataclass
@@ -204,7 +223,6 @@ def _parse_votes(text: str) -> list[ParsedVote]:
 
 
 def _build_vote(text: str, match: re.Match) -> ParsedVote | None:
-    """Build a ParsedVote from a regex match."""
     ayes_raw = match.group(1).strip().rstrip(",")
     nays_raw = match.group(2).strip().rstrip(",")
     abstain_raw = (match.group(3) or "").strip().rstrip(",")
@@ -216,7 +234,6 @@ def _build_vote(text: str, match: re.Match) -> ParsedVote | None:
     if not ayes and not nays:
         return None
 
-    # Determine result
     if len(ayes) > len(nays):
         result = "passed"
     elif len(nays) > len(ayes):
@@ -224,9 +241,11 @@ def _build_vote(text: str, match: re.Match) -> ParsedVote | None:
     else:
         result = "passed"  # ties go to passed in Birmingham (president breaks)
 
-    # Look for resolution/ordinance number in preceding text
-    context_start = max(0, match.start() - 500)
-    context = text[context_start : match.start()]
+    pre_start = max(0, match.start() - PRE_VOTE_WINDOW)
+    post_end = min(len(text), match.end() + POST_VOTE_WINDOW)
+    context = text[pre_start:match.start()].strip()
+    raw_text = text[pre_start:post_end].strip()
+
     res_matches = _RESOLUTION_RE.findall(context)
     resolution_number = res_matches[-1] if res_matches else None
 
@@ -236,7 +255,9 @@ def _build_vote(text: str, match: re.Match) -> ParsedVote | None:
         abstentions=abstentions,
         result=result,
         resolution_number=resolution_number,
-        context=context[-200:].strip(),
+        context=context,
+        raw_text=raw_text,
+        is_likely_consent=_contains_consent_phrase(raw_text),
     )
 
 

@@ -22,6 +22,9 @@ MIGRATIONS = [
     "docket.migrations.006_admin_users",
     "docket.migrations.007_council_terms_and_backfill",
     "docket.migrations.008_vote_matching_support",
+    "docket.migrations.009_vote_agenda_items",
+    "docket.migrations.010_backfill_vote_agenda_items",
+    "docket.migrations.011_drop_deprecated_vote_columns",
 ]
 
 

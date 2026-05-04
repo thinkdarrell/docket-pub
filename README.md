@@ -10,7 +10,9 @@ Docket.pub automates the collection, parsing, enrichment, and indexing of public
 
 ## What's Built
 
-The full pipeline is live: scraping, enrichment, vote extraction (from both official minutes and video OCR), vote-to-agenda-item matching, and an editorial-design frontend. Deployed to Railway.
+The full pipeline is live: scraping, enrichment, vote extraction (from both official minutes and video OCR), N:M vote-to-agenda-item matching with a provisional/adopted lifecycle, and an editorial-design frontend. Deployed to Railway.
+
+**N:M vote-to-agenda-item matching.** Every vote can link to one substantive agenda item or many consent-block items. Each vote is classified as substantive (1:1) or consent block (1:N); substantive matches run the existing three-tier heuristics (resolution number, item number, keyword overlap), while consent matches link to all `is_consent=TRUE` items for the meeting with named callouts upgraded to confidence 1.0. A strict re-parse promotes provisional consent links to official after council formally adopts the minutes. ~36,000 active links across Birmingham as of the most recent backfill.
 
 ### Cities Online
 
@@ -44,11 +46,15 @@ The full pipeline is live: scraping, enrichment, vote extraction (from both offi
 12. **Vote-to-Item Matching** — Timestamp proximity (video OCR) + text heuristics (resolution number, item number, keyword overlap). Ported from al-municipal-meetings.
 13. **Council Member Linking** — member_votes linked to council_members via FK, with term date awareness for old/new council transitions
 14. **Landing Page** — Contested votes, recent votes table, notable items (180-day recency), topic browse
-15. **Tests** — 140 unit tests, ruff clean
+15. **Vote-to-Item Matching N:M Redesign** — `vote_agenda_items` join table (migration 009), substantive + consent-block classifier and matchers, strict re-parse, dual-trigger adoption lifecycle
+16. **Editorial Design Pass** — meetings list, topics index, topic detail, search, council pages all migrated to the editorial card design
+17. **Tests** — 140 unit tests, ruff clean
 
 ### What's Next
 
 - **Astro frontend evaluation** — considering migration from Flask/Jinja2+HTMX to Astro
+- **Manual link-correction admin UI** — the `is_manual` column on `vote_agenda_items` is ready to shield human edits from the automated matcher; the form/route is deferred to a separate spec
+- **Per-route caching for the new data shape** — only if observed perf demands it
 - **Freshness Checks** — Silent Break alerts when a city's data feed stops updating
 - **Custom domain** — connect `docket.pub` via Railway dashboard
 - **Source reconciliation** — compare video OCR vs official minutes when both exist
@@ -79,7 +85,7 @@ City Website (Granicus / CivicClerk / Generic CMS)
   Platform Adapter          (one per CMS type — implements MunicipalSourceAdapter protocol)
        |
        v
-  RawMeeting / RawAgendaItem   (protocol dataclasses — no DB knowledge)
+  RawMeeting / RawAgendaItem / RawVote   (protocol dataclasses — no DB knowledge)
        |
        v
   Enrichment Layer          (dollars, sponsors, topics, scoring stubs)
@@ -88,13 +94,16 @@ City Website (Granicus / CivicClerk / Generic CMS)
   Ingest Service            (upserts to PostgreSQL, tracks processing status)
        |
        v
-  PostgreSQL                (10 tables, FTS indexes, auto-updated search vectors)
+  Vote Matcher              (classify each vote → substantive 1:1 OR consent block 1:N)
+       |                     (writes to vote_agenda_items via _upsert_link with manual shield)
+       v
+  Strict Re-parse           (after adoption: promote provisional → official, deactivate ghosts)
        |
        v
-  Query Service             (read APIs returning frozen dataclasses)
+  Query Service             (3-query reader: votes + vote_agenda_items + member_votes)
        |
        v
-  Flask Routes / HTMX UI   (skeleton built — 12 routes, unstyled templates)
+  Flask Routes / HTMX UI    (editorial design — meeting detail with consent collapse, rails with deep links)
 ```
 
 ### Adapter-per-Platform Pattern
@@ -151,11 +160,12 @@ council_type, timezone, active, created_at, updated_at
 One row per meeting (council session, work session, etc.).
 ```
 id, municipality_id, external_id, title, meeting_date, meeting_type,
-agenda_url, minutes_url, video_url, source_url,
+agenda_url, minutes_url, video_url, source_url, minutes_adopted_at,
 search_vector (TSVECTOR, auto-updated), created_at, updated_at
 ```
 - `meeting_type`: `'council'` | `'work_session'` | `'planning'` | `'special'` | `'committee'` | `'board'` | `'other'`
 - `source_url`: Always links back to the original page on the city's website
+- `minutes_adopted_at`: TIMESTAMPTZ NULL until council formally adopts the minutes for this meeting at a later meeting; set by `services.minutes_adoption.sweep_adoptions`. Used to gate the strict re-parse that promotes provisional consent links to official.
 
 #### `agenda_items`
 Individual items on a meeting's agenda. This is the richest table.
@@ -175,19 +185,34 @@ search_vector (TSVECTOR, auto-updated), created_at
 - `is_consent`: Boolean flag — was this item on the consent agenda?
 
 #### `votes`
-Vote outcomes tied to agenda items.
+Vote outcomes recorded at a meeting. Links to agenda items live in the `vote_agenda_items` join table; the legacy singular `agenda_item_id` / `match_method` / `match_confidence` columns were dropped in migration 011 after the N:M reader was verified live.
 ```
-id, meeting_id, agenda_item_id, external_id, result,
+id, meeting_id, external_id, result,
 yeas, nays, abstentions,
 source, confidence, header_result, needs_review, review_reason,
 video_timestamp, raw_text,
-resolution_number, match_context, match_confidence (REAL 0-1), match_method,
+resolution_number, match_context,
 created_at
 ```
 - `result`: `'passed'` | `'failed'` | `'tabled'`
 - `source`: `'video_ocr'` | `'minutes_text'` | `'api'` | `'manual'`
 - `confidence`: `'high'` | `'medium'` | `'low'`
 - `needs_review`: Flag for votes with extraction issues
+- `raw_text`: Up-to-1500-char pre-vote window plus the vote block — preserved so the matcher and the strict re-parse can re-derive links without re-downloading the PDF.
+
+#### `vote_agenda_items`
+The N:M join table linking votes to agenda items. One substantive vote → one row; one consent-block vote → many rows.
+```
+id, vote_id, agenda_item_id,
+association_type, match_method, match_confidence (REAL 0-1),
+excerpt_context, provisional, is_manual, is_active,
+created_at, updated_at
+```
+- `association_type`: `'explicit'` (substantive 1:1) | `'consent_named'` (consent block, item explicitly named in the vote text) | `'consent_implicit'` (consent block, inferred from the agenda's `is_consent` flag) | `'positional'` (reserved).
+- `match_method`: Free-form text describing the heuristic that produced the link — `resolution_number`, `item_number`, `text_similarity`, `consent_block_named`, `consent_block_default`, `consent_enumerated`, `timestamp`. Free-form (not enum) for forward extensibility.
+- `provisional`: `TRUE` for fresh consent links, `FALSE` for substantive (`explicit`) links and for consent links promoted by the strict re-parse after the council adopts the minutes.
+- `is_manual`: A human edited this link — the automated matcher must not overwrite it. Enforced both at the app level (pre-check in `_upsert_link`) and the DB level (`WHERE is_manual = FALSE` on every UPDATE).
+- `is_active`: `FALSE` marks "ghost" links — items that were on the consent agenda at meeting time but were pulled out and voted separately. Kept for audit, hidden by the default reader.
 
 #### `member_votes`
 How each council member voted on each vote.
@@ -263,7 +288,6 @@ class AgendaItem:
 class Vote:
     id: int
     meeting_id: int
-    agenda_item_id: int | None
     external_id: str | None
     result: str              # "passed", "failed", "tabled"
     yeas: int | None
@@ -274,7 +298,37 @@ class Vote:
     header_result: str | None
     needs_review: bool       # True if extraction had issues
     review_reason: str | None  # "extraction_failed", "counts_mismatch", etc.
-    member_votes: list[MemberVote]
+    resolution_number: str | None = None
+    video_timestamp: float | None = None
+    agenda_links: list[AgendaItemLink] = field(default_factory=list)
+    member_votes: list[MemberVote] = field(default_factory=list)
+
+    # Convenience properties for templates:
+    @property
+    def active_links(self) -> list[AgendaItemLink]: ...      # links where is_active=True
+    @property
+    def is_consent_block(self) -> bool: ...                  # any active link is consent_*
+    @property
+    def has_provisional_links(self) -> bool: ...             # any active link is provisional
+    @property
+    def primary_link(self) -> AgendaItemLink | None: ...     # the single active link, if exactly one
+    @property
+    def excluded_links(self) -> list[AgendaItemLink]: ...    # is_active=False (ghost) links
+
+@dataclass(frozen=True)
+class AgendaItemLink:
+    id: int
+    agenda_item_id: int
+    item_number: str | None
+    title: str
+    is_consent: bool
+    association_type: str       # 'explicit' | 'consent_named' | 'consent_implicit' | 'positional'
+    match_method: str | None
+    match_confidence: float
+    excerpt_context: str | None # populated only when list_votes(include_excerpts=True)
+    provisional: bool
+    is_manual: bool
+    is_active: bool
 
 @dataclass(frozen=True)
 class MemberVote:
@@ -298,7 +352,7 @@ The query service (`src/docket/services/query.py`) provides the read layer. Flas
 | `list_meetings(slug, type, since, limit, offset)` | `PaginatedMeetings` | Paginated meetings with total count |
 | `get_meeting(meeting_id)` | `Meeting \| None` | Single meeting by ID |
 | `list_agenda_items(meeting_id)` | `list[AgendaItem]` | All items for a meeting, ordered by item_number |
-| `list_votes(meeting_id)` | `list[Vote]` | Votes with member_votes attached |
+| `list_votes(meeting_id, *, include_excerpts=False)` | `list[Vote]` | Votes with `agenda_links: list[AgendaItemLink]` and `member_votes` attached. Three round-trips per page (votes + vote_agenda_items + member_votes). Pass `include_excerpts=True` to populate `AgendaItemLink.excerpt_context` for views that need the source snippet. |
 | `list_council_members(slug, active_only)` | `list[dict]` | Council members with district info |
 | `get_council_member(id)` | `dict \| None` | Single member by ID |
 | `dashboard_stats()` | `dict` | Counts: municipalities, meetings, agenda_items, votes |

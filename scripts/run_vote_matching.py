@@ -8,5 +8,6 @@ logging.basicConfig(level=logging.INFO, format="%(message)s")
 if __name__ == "__main__":
     result = match_all_unmatched()
     print(f"\nMatched across {result['meetings']} meetings:")
-    print(f"  Timestamp matches: {result['timestamp_matched']}")
-    print(f"  Text matches: {result['text_matched']}")
+    print(f"  Timestamp matches:   {result['timestamp_matched']}")
+    print(f"  Substantive matches: {result['substantive_matched']}")
+    print(f"  Consent matches:     {result['consent_matched']}")

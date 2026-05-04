@@ -105,6 +105,14 @@ def ingest_municipality(slug: str, since: date | None = None) -> IngestResult:
 
     logger.info("Votes: %d inserted", total_votes)
 
+    # Stage 5: Sweep for adoption-pattern agenda items and resolve minutes_adopted_at
+    try:
+        from docket.services.minutes_adoption import sweep_adoptions
+        flipped = sweep_adoptions(municipality_id)
+        logger.info("adoption_sweep municipality_id=%s flipped=%d", municipality_id, len(flipped))
+    except Exception as e:
+        logger.warning("adoption_sweep failed for municipality %s: %s", municipality_id, e)
+
     return IngestResult(
         municipality_slug=slug,
         meetings_found=len(raw_meetings),
@@ -278,15 +286,15 @@ def _ingest_votes(
                         meeting_id, external_id, result,
                         yeas, nays, abstentions,
                         source, confidence,
-                        resolution_number, match_context
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        resolution_number, match_context, raw_text
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING id
                     """,
                     (
                         meeting_id, rv.external_id, rv.result,
                         rv.yeas, rv.nays, rv.abstentions,
                         rv.source, rv.confidence,
-                        rv.resolution_number, rv.match_context,
+                        rv.resolution_number, rv.match_context, rv.raw_text,
                     ),
                 )
                 vote_id = cur.fetchone()[0]
