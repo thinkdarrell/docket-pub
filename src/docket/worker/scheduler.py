@@ -99,7 +99,8 @@ def main() -> None:
     sched = build_scheduler(timezone=tz)
     log.info("docket.pub worker starting timezone=%s jobs=%d", tz, len(sched.get_jobs()))
     for job in sched.get_jobs():
-        log.info("  job=%s next_run=%s", job.id, job.next_run_time)
+        next_run = getattr(job, "next_run_time", None)
+        log.info("  job=%s next_run=%s", job.id, next_run)
     sched.start()  # blocks
 
 
