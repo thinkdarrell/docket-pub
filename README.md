@@ -197,7 +197,7 @@ search_vector (TSVECTOR, auto-updated), created_at
 - `summary`, `ai_metadata`, `ai_prompt_version`, `ai_generated_at`: AI-generated 1-2 sentence item summary + metadata (rationales, confidence, model, is_substantive) + prompt versioning. NULL until processed. See `docs/superpowers/specs/2026-05-01-summaries-and-scoring-design.md`.
 
 #### `votes`
-Vote outcomes recorded at a meeting. Links to agenda items now live in the `vote_agenda_items` join table — the singular `agenda_item_id` / `match_method` / `match_confidence` columns on `votes` are deprecated and will be dropped in a follow-up migration.
+Vote outcomes recorded at a meeting. Links to agenda items live in the `vote_agenda_items` join table; the legacy singular `agenda_item_id` / `match_method` / `match_confidence` columns were dropped in migration 011 after the N:M reader was verified live.
 ```
 id, meeting_id, external_id, result,
 yeas, nays, abstentions,

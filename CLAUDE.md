@@ -28,6 +28,7 @@ docket-pub-dw-dev/
       008_vote_matching_support.py       # video_timestamp_seconds, resolution_number, match columns
       009_vote_agenda_items.py           # N:M join table + meetings.minutes_adopted_at
       010_backfill_vote_agenda_items.py  # Copies legacy votes.agenda_item_id rows into the join table
+      011_drop_deprecated_vote_columns.py  # Drops votes.agenda_item_id / match_method / match_confidence (PR2)
       runner.py            # Migration runner (apply/rollback/status)
     adapters/              # Platform adapters (one per CMS type)
       _helpers.py          # Shared classify_meeting(), is_consent_item()
@@ -267,7 +268,7 @@ This repo (`docket-pub-dw-dev`) is a **test/dev fork** of the main `docket-pub` 
 - **Data Honesty:** inline badges + footer attribution + discrepancy flags
 - **Silent Break alerts:** dashboard + email notifications
 - **Deployment:** Railway (live), gunicorn, production cookies, Procfile
-- **Vote sources:** Minutes PDF (~6,800 votes across 870 meetings), video OCR (77 votes, Jan–Apr 2026). Consent-block votes get 1:N coverage (one vote → many items), and that's now the dominant link source — total active links across Birmingham land at ~36K after the backfill.
+- **Vote sources:** Minutes PDF (~9,934 minutes_text votes across 788 meetings), video OCR (77 votes, Jan–Apr 2026). Consent-block votes get 1:N coverage (one vote → many items), and that's the dominant link source — **33,303 active links** across Birmingham post-backfill (21,695 consent_block_named + 10,688 consent_block_default + 606 consent_enumerated + 162 resolution_number + 77 timestamp + 57 text_similarity + 18 item_number). 32,383 are provisional, 920 are official; 96 meetings have `minutes_adopted_at` set. Vote-level match rate is 10.7% (1,067 of 9,934) — the rest are substantive votes whose minutes don't reference a resolution/item number or carry strong title-keyword overlap, a known data limitation.
 - **Vote matching:** Timestamp proximity for OCR votes (bisect, ported from al-municipal-meetings), text heuristics for minutes votes (resolution number, item number, keyword overlap). Each vote is first classified substantive vs consent_block; substantive runs 3-tier matching, consent_block runs named-callout + default-fill passes.
 - **N:M vote↔agenda links:** `vote_agenda_items` join table — one consent vote can link to many items. Named callouts get `match_confidence=1.0`, default consent fill gets `0.8`.
 - **Provisional → Official lifecycle:** `consent_named` and `consent_implicit` links insert with `provisional=TRUE`. They flip to `FALSE` when council adopts the minutes (sweep_adoptions sets `meetings.minutes_adopted_at`, then strict re-parse promotes the links). Substantive (`explicit`) links insert with `provisional=FALSE` directly.
