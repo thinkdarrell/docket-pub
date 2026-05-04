@@ -145,8 +145,11 @@ def ping(task: str, status: str, body: str | None = None) -> None:
         url += "/fail"
     try:
         requests.post(url, data=(body or "").encode("utf-8"), timeout=10)
-    except Exception:
-        logger.warning("healthcheck ping failed task=%s status=%s", task, status)
+    except Exception as e:
+        # Network blip to Healthchecks.io shouldn't crash the worker, but it
+        # should be visible in Railway logs so an operator doesn't mistake
+        # "no ping arrived" for "the job didn't run."
+        logger.warning("healthcheck ping failed task=%s status=%s err=%s", task, status, e)
 ```
 
 A Healthchecks.io grace-period configuration per task (e.g., 1h grace on daily jobs, 6h on weekly) catches both "the cron didn't fire" and "the task started but never completed."
