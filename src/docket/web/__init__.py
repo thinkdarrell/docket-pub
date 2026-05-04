@@ -32,4 +32,16 @@ def create_app() -> Flask:
     app.register_blueprint(auth_bp)
     app.register_blueprint(admin_bp)
 
+    # Strict-Transport-Security: pin browsers to HTTPS once they've successfully
+    # connected. 1 year (31536000s). includeSubDomains is intentionally omitted
+    # until www.docket.pub is also Railway-served with its own cert; otherwise
+    # browsers would force-upgrade www to HTTPS and fail to connect.
+    if FLASK_ENV != "development":
+        @app.after_request
+        def _add_hsts(response):
+            response.headers.setdefault(
+                "Strict-Transport-Security", "max-age=31536000"
+            )
+            return response
+
     return app
