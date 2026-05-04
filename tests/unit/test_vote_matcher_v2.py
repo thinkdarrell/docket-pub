@@ -138,3 +138,132 @@ def test_structured_fact_tier_tied_proper_nouns_no_match():
     vote = _make_vote()
     result = _try_structured_fact_match(vote, items, council_surnames=set())
     assert result is None
+
+
+def test_rank_aware_keyword_rejects_close_runner_up():
+    """Best 1.0 vs second 1.0 (exact tie with title-recall) → no match (margin gate)."""
+    from docket.analysis.vote_matcher import _try_keyword_match
+
+    vote = {
+        "raw_text": "alpha beta gamma delta epsilon zeta eta theta iota kappa",
+        "match_context": "",
+    }
+    items = [
+        {"id": 1, "item_number": "1",
+         "title": "alpha beta gamma delta",
+         "description": ""},
+        {"id": 2, "item_number": "2",
+         "title": "alpha beta gamma kappa",
+         "description": ""},
+    ]
+    result = _try_keyword_match(vote, items)
+    assert result is None, "near-tie should not commit"
+
+
+def test_rank_aware_keyword_accepts_clear_winner():
+    """Best clearly beats second → match."""
+    from docket.analysis.vote_matcher import _try_keyword_match
+
+    vote = {
+        "raw_text": "alpha beta gamma delta epsilon zeta eta theta",
+        "match_context": "",
+    }
+    items = [
+        {"id": 1, "item_number": "1",
+         "title": "alpha beta gamma delta epsilon",
+         "description": ""},
+        {"id": 2, "item_number": "2",
+         "title": "completely different unrelated text",
+         "description": ""},
+    ]
+    result = _try_keyword_match(vote, items)
+    assert result is not None
+    item_id, _conf, _method = result
+    assert item_id == 1
+
+
+def test_rank_aware_keyword_single_candidate_falls_back_to_absolute_threshold():
+    """Single-item meeting has no second-best; use today's 0.3 floor."""
+    from docket.analysis.vote_matcher import _try_keyword_match
+
+    vote = {
+        "raw_text": "alpha beta gamma delta",
+        "match_context": "",
+    }
+    items = [
+        {"id": 1, "item_number": "1",
+         "title": "alpha beta gamma",
+         "description": ""},
+    ]
+    result = _try_keyword_match(vote, items)
+    assert result is not None
+
+
+def test_upsert_link_respects_manual_shield_after_v2_changes():
+    """A vote_agenda_items row with is_manual=TRUE must not be overwritten
+    even when one of the new tiers (structured-fact) would otherwise commit
+    a different link."""
+    from docket.analysis.vote_matcher import _upsert_link
+    from docket.db import db_cursor
+
+    # This test uses real DB but ephemeral fixture rows. Wrap in cleanup.
+    MEETING_ID = 99500
+    VOTE_ID = 995000
+    ITEM_ID = 995100
+    try:
+        with db_cursor() as cur:
+            cur.execute("SELECT id FROM municipalities WHERE slug = 'birmingham' LIMIT 1")
+            muni = cur.fetchone()
+            cur.execute(
+                """INSERT INTO meetings (id, municipality_id, meeting_date, title, source_url)
+                   VALUES (%s, %s, '2025-01-01', 't', '') ON CONFLICT (id) DO NOTHING""",
+                (MEETING_ID, muni["id"]),
+            )
+            cur.execute(
+                """INSERT INTO agenda_items (id, meeting_id, item_number, title, description, is_consent)
+                   VALUES (%s, %s, '1', 'manual title', '', FALSE)
+                   ON CONFLICT (id) DO NOTHING""",
+                (ITEM_ID, MEETING_ID),
+            )
+            cur.execute(
+                """INSERT INTO votes (id, meeting_id, source, raw_text, yeas, nays, abstentions, result)
+                   VALUES (%s, %s, 'minutes_text', 'irrelevant', 5, 0, 0, 'passed')
+                   ON CONFLICT (id) DO NOTHING""",
+                (VOTE_ID, MEETING_ID),
+            )
+            # Insert a manually-locked link first
+            cur.execute(
+                """INSERT INTO vote_agenda_items
+                    (vote_id, agenda_item_id, association_type, match_method,
+                     match_confidence, is_manual, is_active, provisional)
+                   VALUES (%s, %s, 'explicit', 'manual', 1.0, TRUE, TRUE, FALSE)""",
+                (VOTE_ID, ITEM_ID),
+            )
+
+            # Now try to overwrite via _upsert_link (simulating any v2 tier)
+            _upsert_link(
+                cur,
+                vote_id=VOTE_ID,
+                agenda_item_id=ITEM_ID,
+                association_type="explicit",
+                match_method="structured_fact",
+                match_confidence=0.9,
+                excerpt_context="should not appear",
+                provisional=False,
+            )
+
+            cur.execute(
+                "SELECT match_method, match_confidence, excerpt_context FROM vote_agenda_items "
+                "WHERE vote_id = %s AND agenda_item_id = %s",
+                (VOTE_ID, ITEM_ID),
+            )
+            row = cur.fetchone()
+            assert row["match_method"] == "manual", "manual shield was breached"
+            assert row["match_confidence"] == 1.0
+            assert row["excerpt_context"] != "should not appear"
+    finally:
+        with db_cursor() as cur:
+            cur.execute("DELETE FROM vote_agenda_items WHERE vote_id = %s", (VOTE_ID,))
+            cur.execute("DELETE FROM votes WHERE id = %s", (VOTE_ID,))
+            cur.execute("DELETE FROM agenda_items WHERE id = %s", (ITEM_ID,))
+            cur.execute("DELETE FROM meetings WHERE id = %s", (MEETING_ID,))

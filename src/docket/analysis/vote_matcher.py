@@ -438,11 +438,14 @@ def _try_structured_fact_match(
 
 
 def _try_keyword_match(vote, items) -> tuple[int, float, str] | None:
-    """Match by keyword overlap between vote raw_text and agenda item title.
+    """Match by keyword overlap (title-recall), rank-aware.
 
-    Rank-aware: requires the best item to beat the second-best by margin,
-    else defers (Task 8 implements this; for Tier 0 alone, today's behavior
-    is preserved).
+    Commits only when:
+      - best score >= 0.25 (lowered floor; rank gate provides safety), AND
+      - best >= 1.5 * second_best  OR  best - second_best >= 0.15
+
+    Single-candidate meetings fall back to the v1 absolute threshold (>= 0.3).
+    Overlap is title-recall: len(text_words & title_words) / len(title_words).
     """
     text = vote.get("raw_text") or vote.get("match_context") or ""
     if not text:
@@ -452,23 +455,44 @@ def _try_keyword_match(vote, items) -> tuple[int, float, str] | None:
     if len(text_words) < 3:
         return None
 
-    best_item_id = None
-    best_overlap = 0.0
-
+    scored: list[tuple[float, int]] = []
     for item in items:
         title = item["title"] or ""
         title_words = _significant_words(title)
         if not title_words:
             continue
         overlap = len(text_words & title_words) / len(title_words)
-        if overlap > best_overlap:
-            best_overlap = overlap
-            best_item_id = item["id"]
+        scored.append((overlap, item["id"]))
 
-    if best_overlap >= 0.3 and best_item_id is not None:
-        return (best_item_id, round(min(0.5 + best_overlap * 0.3, 0.8), 2), "text_similarity")
+    if not scored:
+        return None
 
-    return None
+    scored.sort(reverse=True)
+
+    best_score, best_id = scored[0]
+
+    # Single-candidate fallback: use absolute threshold.
+    if len(scored) == 1:
+        if best_score >= 0.3:
+            return (best_id, round(min(0.5 + best_score * 0.3, 0.75), 2), "text_similarity")
+        return None
+
+    second_score = scored[1][0]
+
+    if best_score < 0.25:
+        return None
+
+    margin_ratio_ok = best_score >= second_score * 1.5
+    margin_abs_ok = (best_score - second_score) >= 0.15
+    if not (margin_ratio_ok or margin_abs_ok):
+        logger.debug(
+            "keyword tier deferred: best=%.3f second=%.3f no margin", best_score, second_score
+        )
+        return None
+
+    margin = best_score - second_score
+    conf = round(min(0.5 + best_score * 0.3 + margin * 0.5, 0.75), 2)
+    return (best_id, conf, "text_similarity")
 
 
 _STOP_WORDS = frozenset(
