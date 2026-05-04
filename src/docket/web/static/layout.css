@@ -469,3 +469,73 @@
   .kpi:nth-child(n+4) { border-top: 1px solid var(--rule); }
   .kpi:nth-child(5) { border-right: 0; }
 }
+
+/* ── Executive summary block on meeting detail ──────── */
+.exec-summary {
+  background: var(--paper-2);
+  border-left: 3px solid var(--accent);
+  padding: 1rem 1.25rem;
+  margin: 1.5rem 0;
+}
+.exec-summary-heading {
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin: 0 0 0.5rem;
+  letter-spacing: 0.01em;
+}
+.exec-summary-body {
+  font-family: var(--font-display);
+  margin: 0 0 0.5rem;
+  line-height: 1.55;
+}
+.exec-summary-meta {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+}
+
+/* ── Per-item summary inside agenda list ─────────────── */
+.item-summary {
+  color: var(--ink-2);
+  font-size: 0.92rem;
+  margin: 0.25rem 0 0.5rem;
+  font-family: var(--font-display);
+  line-height: 1.45;
+}
+.item-summary-unavailable {
+  font-style: italic;
+  opacity: 0.55;
+}
+
+/* ── AI status badges ────────────────────────────────── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+.badge.badge-provisional {
+  background: rgba(212, 165, 50, 0.18);
+  color: #8a6a00;
+}
+.badge.badge-adopted {
+  background: rgba(60, 130, 90, 0.18);
+  color: #2f6149;
+}
+.badge.badge-review {
+  background: rgba(176, 74, 0, 0.14);
+  color: #b04a00;
+}
+.badge.badge-inline {
+  display: inline-block;
+  margin-left: 0.5rem;
+  font-size: 0.75rem;
+}

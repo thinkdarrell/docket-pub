@@ -225,6 +225,7 @@ This repo (`docket-pub-dw-dev`) is a **test/dev fork** of the main `docket-pub` 
 | `meeting_detail.html` N:M render | Done | Substantive vs consent-block branching, consent-block collapse, provisional/adopted pills |
 | Council member rail with linked items | Done | `rail_member.html` — shows what each vote was about, with source-document deep links |
 | Editorial design pass on remaining templates | Done | meetings list, topics index, topic detail, search, council pages |
+| AI summaries + scoring | Done | `src/docket/ai/` — Haiku item summaries, Sonnet meeting executive summaries, two-phase lifecycle keyed off `minutes_adopted_at`, `ai_runs` cost telemetry, async batch worker + CLI (`python -m docket.ai.cli`). **Live on Railway as of 2026-05-02.** Item prompt v2 (procedural-skip), meeting prompt v2 (distinctive-vs-routine split at sig=6). 240 tests. Cron jobs not yet configured (T27 — final remaining piece). |
 | Source reconciliation | Not built | Compare video OCR vs official minutes |
 | Freshness checks | Not built | Nightly auto-check + manual trigger |
 | Public API | Not built | Flask blueprint for `/api/v1/` (deferred — security concern) |
@@ -247,12 +248,18 @@ This repo (`docket-pub-dw-dev`) is a **test/dev fork** of the main `docket-pub` 
 13. ~~Landing page refresh~~ — DONE (contested votes, recent votes, 180-day notable items)
 14. ~~Vote-to-item matching N:M redesign~~ — DONE (vote_agenda_items join table, substantive + consent matchers, strict re-parse, dual-trigger adoption lifecycle)
 15. ~~Editorial design pass on remaining templates~~ — DONE (meetings/topics/topic_detail/search/council)
-16. Astro frontend evaluation — DEFERRED
+16. ~~AI summaries + scoring~~ — DONE (migration 012, `src/docket/ai/` package, Haiku items + Sonnet meetings, two-phase lifecycle, ai_runs telemetry, admin panel)
+17. Astro frontend evaluation — DEFERRED
 
 ### Key decisions to preserve
 
 - **PostgreSQL from day 1** — no SQLite fallback
-- **AI features deferred** — scoring columns exist in schema but are NULL
+- **AI summaries + scoring:** items use Haiku 4.5, meetings use Sonnet 4.6. Two-phase meeting lifecycle keyed off `minutes_adopted_at` (provisional → adopted overwrites the executive summary). NULL `topic` renders as `"Uncategorized"` in prompts (never the literal `"None"`). Daily budget gate via `AI_DAILY_BUDGET_USD`; bumping `ITEM_PROMPT_VERSION` re-cascades both stages automatically. Worker writes per-row using `SELECT FOR UPDATE SKIP LOCKED` so multiple instances are safe.
+- **Procedural items (item prompt v2):** Roll Call, Pledge, Invocation, "Minutes Not Ready" notices etc. get `is_substantive=false`, null scores, empty summary, and empty rationales. Title is the source of truth — a paraphrase would be noise. Template renders nothing extra for these.
+- **Distinctive vs routine in meeting summaries (meeting prompt v2):** worker pre-classifies items by `significance_score` before feeding Sonnet. Sig ≥ 6 → distinctive, rendered in full and Sonnet leads with them. Sig < 6 → routine, grouped by topic with counts ("33 demolitions, 18 public_safety, 12 contracts") so Sonnet treats the cluster as one closing background sentence at most. Without this split, recurring abatements/demolitions dominated the framing.
+- **Schema length caps:** rationales 1500 chars, item summaries 400 chars, executive summaries 1500 chars. Original 600/800 caps were rejecting Haiku/Sonnet's longer-but-correct outputs.
+- **Cost expectation:** ~$0.0026/item (Haiku, with cache), ~$0.0085/meeting (Sonnet). 57K item backfill ≈ $140, ~14 days at default $10/day cap.
+- **Local CLI runs against prod DB:** use `DATABASE_URL=$(railway variables --service docket-web --kv | grep DATABASE_PUBLIC_URL | cut -d= -f2-) ANTHROPIC_API_KEY=$(railway variables --service docket-web --kv | grep '^ANTHROPIC_API_KEY=' | cut -d= -f2-) venv/bin/python -m docket.ai.cli ...`. The internal `postgres.railway.internal` hostname only resolves inside Railway's VPC.
 - **Two scoring dimensions:** significance (0-10) + consent placement (0-10)
 - **Dollar tiers:** green <$50K, yellow $50-250K, orange $250K-1M, red >$1M
 - **Source overlap:** video OCR + official minutes coexist, flag discrepancies only

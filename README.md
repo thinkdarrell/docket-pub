@@ -14,6 +14,12 @@ The full pipeline is live: scraping, enrichment, vote extraction (from both offi
 
 **N:M vote-to-agenda-item matching.** Every vote can link to one substantive agenda item or many consent-block items. Each vote is classified as substantive (1:1) or consent block (1:N); substantive matches run the existing three-tier heuristics (resolution number, item number, keyword overlap), while consent matches link to all `is_consent=TRUE` items for the meeting with named callouts upgraded to confidence 1.0. A strict re-parse promotes provisional consent links to official after council formally adopts the minutes. ~36,000 active links across Birmingham as of the most recent backfill.
 
+**AI summaries + scoring (v2 live in production).** Per-item summaries and 0–10 significance + consent-placement scores via Haiku 4.5; per-meeting executive summaries via Sonnet 4.6. Two-phase meeting lifecycle keyed off `minutes_adopted_at` (provisional summary first, adopted overwrites). Async batch worker (`python -m docket.ai.cli --items|--meetings`) decoupled from ingest; `SELECT FOR UPDATE SKIP LOCKED` claim semantics, per-row commits, exponential-backoff retry, daily budget cap. Cost telemetry in `ai_runs` tracks all four Anthropic billing dimensions (regular/cached input + output). Spec at `docs/superpowers/specs/2026-05-01-summaries-and-scoring-design.md`. Live at `/admin/ai` and as inline summaries on meeting detail pages. Cron-driven backfill is the last remaining piece (configured in Railway dashboard).
+
+**Prompt v2 design choices (validated in pilot):**
+- Procedural items (Roll Call, Pledge, Invocation, "minutes not ready", etc.) get `is_substantive=false` with empty summary + empty rationales — title is self-explanatory and a paraphrase would be noise. Template renders nothing extra for these items.
+- Meeting summaries split items into **distinctive** (sig ≥ 6) and **routine** (sig < 6) before feeding Sonnet. Distinctive items render in full and Sonnet leads with them. Routine items are grouped by topic with counts ("33 demolition orders, 18 public_safety items, 12 contracts") and Sonnet treats them as one closing background sentence at most. Without this split, Sonnet's framing was dominated by recurring abatement / demolition / weed-clearance volume, hiding the distinctive policy decisions citizens want to know about.
+
 ### Cities Online
 
 | City | Platform | Adapter | Meeting Types | Council Members |
@@ -48,10 +54,14 @@ The full pipeline is live: scraping, enrichment, vote extraction (from both offi
 14. **Landing Page** — Contested votes, recent votes table, notable items (180-day recency), topic browse
 15. **Vote-to-Item Matching N:M Redesign** — `vote_agenda_items` join table (migration 009), substantive + consent-block classifier and matchers, strict re-parse, dual-trigger adoption lifecycle
 16. **Editorial Design Pass** — meetings list, topics index, topic detail, search, council pages all migrated to the editorial card design
-17. **Tests** — 140 unit tests, ruff clean
+17. **AI Summaries + Scoring** — `src/docket/ai/` package (migration 012, branch `feat/ai-summaries-scoring`). Item summaries via Haiku 4.5, meeting executive summaries via Sonnet 4.6, two-phase lifecycle, async batch worker + CLI, admin dashboard at `/admin/ai`, Pydantic-validated structured output, prompt caching. **Live on Railway prod** as of 2026-05-02. ITEM_PROMPT_VERSION=2 (procedural-skip), MEETING_PROMPT_VERSION=2 (distinctive-vs-routine).
+18. **Tests** — 240 tests (238 unit + integration; 2 live tests gated on `ANTHROPIC_API_KEY`)
 
 ### What's Next
 
+- **Cron-schedule the AI worker on Railway** — `*/15 * * * * --items --limit 200` and `*/30 * * * * --meetings --limit 50`. Pilot batches (~330 items + 10 meetings) ran cleanly at 99.5% success rate, ~$1 of $10/day budget; full backfill projected at $140 over ~14 days at the daily cap.
+- **Per-claim citations + discrepancy-aware summaries** — Phase 2 of the AI pipeline; v1 uses source-bounded grounding only
+- **Council member rollups** — separate brainstorm; deferred from v1 of AI summaries
 - **Astro frontend evaluation** — considering migration from Flask/Jinja2+HTMX to Astro
 - **Manual link-correction admin UI** — the `is_manual` column on `vote_agenda_items` is ready to shield human edits from the automated matcher; the form/route is deferred to a separate spec
 - **Per-route caching for the new data shape** — only if observed perf demands it
@@ -165,7 +175,8 @@ search_vector (TSVECTOR, auto-updated), created_at, updated_at
 ```
 - `meeting_type`: `'council'` | `'work_session'` | `'planning'` | `'special'` | `'committee'` | `'board'` | `'other'`
 - `source_url`: Always links back to the original page on the city's website
-- `minutes_adopted_at`: TIMESTAMPTZ NULL until council formally adopts the minutes for this meeting at a later meeting; set by `services.minutes_adoption.sweep_adoptions`. Used to gate the strict re-parse that promotes provisional consent links to official.
+- `minutes_adopted_at`: TIMESTAMPTZ NULL until council formally adopts the minutes for this meeting at a later meeting; set by `services.minutes_adoption.sweep_adoptions`. Used to gate the strict re-parse that promotes provisional consent links to official, and to flip the AI meeting summary from `phase=provisional` to `phase=adopted`.
+- `executive_summary`, `ai_metadata`, `ai_prompt_version`, `ai_generated_at`: AI-generated 2-3 sentence executive summary + metadata (phase, is_substantive, substantive_item_count, confidence, model) + prompt versioning. NULL until processed. Two-pass: provisional summary when items are processed; adopted summary overwrites after `minutes_adopted_at` is set.
 
 #### `agenda_items`
 Individual items on a meeting's agenda. This is the richest table.
@@ -180,9 +191,10 @@ search_vector (TSVECTOR, auto-updated), created_at
 - `sponsor`: Extracted from "(Submitted by ...)" or "(sponsored by ...)" patterns. NULL if not found.
 - `topic`: Keyword-classified topic slug. One of: `zoning`, `public_safety`, `public_works`, `budget`, `grants`, `contracts`, `legal`, `parks_culture`, `licensing`, `appointments`, `routine`. NULL if unclassified.
 - `dollars_amount`: Extracted via regex from title/description. The **largest** dollar amount in the text. NULL if none found.
-- `significance_score`: 0-10 scale. **Currently NULL** — AI scoring deferred.
-- `consent_placement_score`: 0-10 scale. **Currently NULL** — AI scoring deferred.
+- `significance_score`: 0-10 scale. Populated by `docket.ai` Haiku worker. NULL on procedural items (`is_substantive=False`) by design.
+- `consent_placement_score`: 0-10 scale. Populated by `docket.ai` Haiku worker. NULL on procedural items by design.
 - `is_consent`: Boolean flag — was this item on the consent agenda?
+- `summary`, `ai_metadata`, `ai_prompt_version`, `ai_generated_at`: AI-generated 1-2 sentence item summary + metadata (rationales, confidence, model, is_substantive) + prompt versioning. NULL until processed. See `docs/superpowers/specs/2026-05-01-summaries-and-scoring-design.md`.
 
 #### `votes`
 Vote outcomes recorded at a meeting. Links to agenda items live in the `vote_agenda_items` join table; the legacy singular `agenda_item_id` / `match_method` / `match_confidence` columns were dropped in migration 011 after the N:M reader was verified live.
@@ -261,6 +273,10 @@ class Meeting:
     minutes_url: str | None       # Link to minutes on city's website
     video_url: str | None         # Link to video (if available)
     source_url: str | None        # Canonical link back to original source
+    executive_summary: str | None # 2-3 sentence AI summary (Sonnet 4.6)
+    ai_metadata: dict | None      # phase, is_substantive, substantive_item_count, confidence, model
+    ai_prompt_version: int | None
+    ai_generated_at: datetime | None
 ```
 
 ### AgendaItem
@@ -278,8 +294,12 @@ class AgendaItem:
     sponsor: str | None           # "the Mayor", "Councilor Smith, Chair, Arts Committee"
     dollars_amount: Decimal | None      # Largest dollar figure found (e.g. 2300000.00)
     topic: str | None                   # "zoning", "budget", "public_safety", etc.
-    significance_score: float | None    # 0-10 (NULL until AI enabled)
-    consent_placement_score: float | None  # 0-10 (NULL until AI enabled)
+    significance_score: float | None    # 0-10 (NULL on procedural items by design)
+    consent_placement_score: float | None  # 0-10 (NULL on procedural items by design)
+    summary: str | None                 # 1-2 sentence AI summary (Haiku 4.5)
+    ai_metadata: dict | None            # rationales, confidence, is_substantive, model
+    ai_prompt_version: int | None       # bump prompts.py version → re-cascades
+    ai_generated_at: datetime | None
 ```
 
 ### Vote
@@ -398,14 +418,33 @@ Items with no dollar amount (`dollars_amount IS NULL`) should display normally w
 
 ---
 
-## Scoring (Future)
+## AI Summaries + Scoring
 
-Two scores are reserved on every agenda item but are **currently NULL**:
+Two scores reserved on every agenda item, populated by the `docket.ai` Haiku 4.5 worker:
 
 - **Significance Score (0-10):** How impactful is this item to residents? A $16M road contract scores higher than approving meeting minutes.
 - **Consent Placement Score (0-10):** Does this item belong on the consent agenda? High-dollar or controversial items on the consent agenda score low (suggesting they shouldn't be there).
 
-The scoring stubs exist at `docket.enrichment.scoring`. When AI features are enabled, these functions will return real scores. The UI should handle NULL gracefully (hide the score, don't show "0").
+**Procedural items** (motion to adjourn, approval of prior minutes) have `is_substantive=False` and both scores are NULL by design — the AI is instructed to refuse rather than guess. UI hides scores when NULL.
+
+**Item summaries.** 1-2 sentence prose summary stored in `agenda_items.summary`. Rationales for both scores stored in `ai_metadata` JSONB.
+
+**Meeting executive summaries.** 2-3 sentence summary stored in `meetings.executive_summary` via Sonnet 4.6. Two-phase: a *provisional* summary lands when all items are processed and minutes haven't been formally adopted; an *adopted* summary overwrites once `minutes_adopted_at` is set. Phase tracked in `ai_metadata.phase`.
+
+**Operator interface.**
+```bash
+python -m docket.ai.cli --status                    # queue depth + recent runs + cost
+python -m docket.ai.cli --dry-run --items --limit 5
+python -m docket.ai.cli --items --limit 200
+python -m docket.ai.cli --meetings --limit 50
+python -m docket.ai.cli --force --meeting-id 42     # re-process a single meeting
+```
+
+**Cost telemetry.** `ai_runs` table records per-batch cost broken down by Anthropic's four billing dimensions (regular input, cache creation, cache read, output). Daily budget cap (`AI_DAILY_BUDGET_USD`, default $10) enforced before any API call; override with `--force-budget`.
+
+**Versioning.** Bumping `ITEM_PROMPT_VERSION` or `MEETING_PROMPT_VERSION` constants in `src/docket/ai/prompts.py` re-cascades the affected stage automatically — items first, then meetings (gated on items being current). Git history of `prompts.py` is the audit trail.
+
+Full design at `docs/superpowers/specs/2026-05-01-summaries-and-scoring-design.md`.
 
 ---
 
@@ -424,13 +463,14 @@ GET  /topics/                           Browse by topic index
 GET  /topics/<topic>/                   Items for a specific topic
 ```
 
-### Admin (4 routes — session-based auth required)
+### Admin (5 routes — session-based auth required)
 
 ```
 GET       /admin/members/               List all council members
 GET|POST  /admin/members/add            Add a new member
 GET|POST  /admin/members/<id>/edit      Edit member details
 POST      /admin/members/<id>/deactivate  Deactivate member
+GET       /admin/ai                     AI pipeline dashboard (queue depth, 7-day cost, recent runs)
 ```
 
 ### Jinja2 Template Filters
@@ -458,6 +498,13 @@ docket-pub-dw-dev/
       003_add_topic.py           # Adds topic column + index to agenda_items
       004_expand_meeting_types.py # Updates adapter configs for all meeting types
       005_seed_council_rosters.py # Seeds 26 council members + districts across 4 cities
+      006_admin_users.py         # Admin auth (session-based)
+      007_council_terms_and_backfill.py  # Term dates for old/new council linking
+      008_vote_matching_support.py       # video_timestamp_seconds, resolution_number, match cols
+      009_vote_agenda_items.py           # N:M join table + meetings.minutes_adopted_at
+      010_backfill_vote_agenda_items.py  # Copies legacy votes.agenda_item_id rows into the join
+      011_drop_deprecated_vote_columns.py # Drops singular FK columns from votes (idempotent)
+      012_ai_summaries_and_scoring.py    # AI columns on agenda_items + meetings + ai_runs table
       runner.py                  # Migration runner (apply/rollback/status)
     adapters/
       __init__.py                # Adapter registry + get_adapter() factory
@@ -474,8 +521,17 @@ docket-pub-dw-dev/
       dollars.py                 # Regex dollar extraction + tier classification
       sponsors.py                # Sponsor extraction from (Submitted/sponsored by)
       topics.py                  # Keyword-based topic classification (11 topics)
-      scoring.py                 # Scoring stubs (returns None — AI deferred)
+      scoring.py                 # Scoring stubs (kept; real scoring lives in ai/)
       cli.py                     # Backfill CLI: python -m docket.enrichment.cli
+    ai/
+      prompts.py                 # Versioned prompt strings + version constants
+      contexts.py                # AgendaItemContext / MeetingContext (DB row → prompt)
+      results.py                 # ItemAIResult / MeetingAIResult (Pydantic, validated)
+      pricing.py                 # Per-model rates for the four Anthropic billing dimensions
+      exceptions.py              # AIRateLimited / AITransientError / AIFatalError / AIPermanentRowError
+      client.py                  # Anthropic SDK wrapper: tool_use, retries, cost tracking
+      worker.py                  # Batch processor: claim queries, write-back, run loop, budget
+      cli.py                     # Operator CLI: --status / --dry-run / --items / --meetings / --force
     web/
       __init__.py                # create_app() factory
       public.py                  # 8 public routes (city, meetings, search, topics, council)
@@ -485,14 +541,33 @@ docket-pub-dw-dev/
     analysis/                    # Vote OCR pipeline (NOT YET PORTED)
     rosters/                     # Reserved for future auto-scrapers
   tests/
-    unit/
-      test_dollars.py            # 31 tests — dollar extraction + tiers
-      test_helpers.py            # 22 tests — meeting classification, consent detection
-      test_generic_cms.py        # 15 tests — date parsing from filenames
-      test_civicclerk.py         # 13 tests — hierarchical agenda flattening
-      test_sponsors.py           # 26 tests — sponsor extraction + title cleaning
-      test_topics.py             # 31 tests — topic classification
-    integration/                 # (empty — needs running PostgreSQL)
+    unit/                        # 200+ unit tests
+      test_dollars.py            # dollar extraction + tiers
+      test_helpers.py            # meeting classification, consent detection
+      test_generic_cms.py        # date parsing from filenames
+      test_civicclerk.py         # hierarchical agenda flattening
+      test_sponsors.py           # sponsor extraction + title cleaning
+      test_topics.py             # topic classification
+      test_minutes_parser.py     # PDF text extraction, attendance + votes
+      test_minutes_adoption.py   # adoption-pattern detection + sweep_adoptions
+      test_vote_matcher.py       # N:M matcher (substantive + consent matchers, strict re-parse)
+      test_vote_dataclass.py     # Vote / AgendaItemLink / MemberVote shapes + properties
+      test_query_list_votes.py   # 3-query N:M reader
+      test_ai_pricing.py         # cost math (cache-aware)
+      test_ai_results.py         # Pydantic validation (substantive ↔ score consistency)
+      test_ai_contexts.py        # AgendaItemContext NULL handling at prompt boundary
+      test_ai_prompts.py         # version constants + rationales-first ordering
+      test_ai_client.py          # success path + retry/error/fatal paths
+      test_ai_worker_claim.py    # claim queries (debounce, two-phase meeting gates)
+      test_ai_worker_writeback.py # write-back (success / completed_failed / empty / phase)
+      test_ai_worker_run.py      # run loop + ai_runs telemetry + budget gate
+    integration/                 # 4 AI pipeline e2e tests (real Postgres + mocked AIClient)
+      test_ai_pipeline_e2e.py    # mixed substantive/empty/cancelled meetings
+      test_ai_meeting_telescoping.py # meeting prompt sees item summaries, not raw titles
+      test_ai_phase_lifecycle.py # provisional → adopted overwrites
+      test_ai_prompt_version_bump.py # version bump cascades items + meetings
+    live/                        # gated by `pytest -m live` + ANTHROPIC_API_KEY
+      test_ai_live_smoke.py      # one real Haiku + one real Sonnet call
   docs/
     Docket_pub_Project_Plan.md   # High-level strategy document
     SECURITY_CHECKLIST.md        # Pre-deployment security requirements

@@ -74,6 +74,24 @@
     </div>
 </section>
 
+{# ── Executive Summary ────────────────────────────── #}
+{% if meeting.executive_summary %}
+<section class="exec-summary">
+  <h2 class="exec-summary-heading">Executive Summary</h2>
+  <p class="exec-summary-body">{{ meeting.executive_summary }}</p>
+  <div class="exec-summary-meta">
+    {% if meeting.ai_metadata and meeting.ai_metadata.phase == 'provisional' %}
+    <span class="badge badge-provisional">Provisional · minutes not yet adopted</span>
+    {% elif meeting.ai_metadata and meeting.ai_metadata.phase == 'adopted' %}
+    <span class="badge badge-adopted">Adopted</span>
+    {% endif %}
+    {% if meeting.ai_metadata and meeting.ai_metadata.confidence == 'low' %}
+    <span class="badge badge-review">Auto summary — under review</span>
+    {% endif %}
+  </div>
+</section>
+{% endif %}
+
 {# ── Votes ────────────────────────────────────────── #}
 {% if votes %}
 <section class="feed" style="padding-bottom: 32px;">
@@ -207,6 +225,12 @@
             </div>
             <div>
                 <div class="notable-title">{{ item.title }}</div>
+                {% if item.summary %}
+                <p class="item-summary">{{ item.summary }}</p>
+                {% if item.ai_metadata and item.ai_metadata.confidence == 'low' %}
+                <span class="badge badge-review badge-inline">Auto summary — under review</span>
+                {% endif %}
+                {% endif %}
                 <div class="notable-meta">
                     {% if item.topic %}
                     <span class="chip"><span class="dot"></span>{{ item.topic | topic_name }}</span>
@@ -256,6 +280,12 @@
             </div>
             <div>
                 <div class="notable-title" style="font-size: 13px; font-weight: 400; color: var(--ink-2);">{{ item.title }}</div>
+                {% if item.summary %}
+                <p class="item-summary">{{ item.summary }}</p>
+                {% if item.ai_metadata and item.ai_metadata.confidence == 'low' %}
+                <span class="badge badge-review badge-inline">Auto summary — under review</span>
+                {% endif %}
+                {% endif %}
                 <div class="notable-meta">
                     {% if item.topic %}
                     <span class="chip"><span class="dot"></span>{{ item.topic | topic_name }}</span>

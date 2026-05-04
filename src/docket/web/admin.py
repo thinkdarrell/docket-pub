@@ -147,3 +147,75 @@ def deactivate_member(member_id):
             )
 
     return redirect(url_for("admin.list_members"))
+
+
+# --- AI pipeline dashboard --------------------------------------------------
+
+
+@bp.route("/ai")
+def ai_panel():
+    """AI pipeline dashboard — pending counts, cost telemetry, recent runs."""
+    from docket.ai.prompts import ITEM_PROMPT_VERSION, MEETING_PROMPT_VERSION
+    from docket.config import AI_DAILY_BUDGET_USD, AI_ITEM_DEBOUNCE_MINUTES
+
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT COUNT(*) AS pending FROM agenda_items
+             WHERE (ai_prompt_version IS NULL OR ai_prompt_version < %s)
+               AND created_at < NOW() - (%s || ' minutes')::interval
+            """,
+            (ITEM_PROMPT_VERSION, AI_ITEM_DEBOUNCE_MINUTES),
+        )
+        items_pending = cur.fetchone()["pending"]
+
+        cur.execute(
+            """
+            SELECT COUNT(*) AS pending FROM meetings m
+             WHERE (
+               ((m.ai_prompt_version IS NULL OR m.ai_prompt_version < %s)
+                AND m.minutes_adopted_at IS NULL
+                AND NOT EXISTS (
+                  SELECT 1 FROM agenda_items ai
+                   WHERE ai.meeting_id = m.id
+                     AND (ai.ai_prompt_version IS NULL OR ai.ai_prompt_version < %s)
+                ))
+               OR (m.minutes_adopted_at IS NOT NULL
+                   AND COALESCE(m.ai_metadata->>'phase', '') != 'adopted')
+             )
+            """,
+            (MEETING_PROMPT_VERSION, ITEM_PROMPT_VERSION),
+        )
+        meetings_pending = cur.fetchone()["pending"]
+
+        cur.execute(
+            """
+            SELECT COALESCE(SUM(cost_usd), 0)::float AS total,
+                   COALESCE(SUM((usage->>'cache_read_input_tokens')::int), 0) AS cache_reads,
+                   COALESCE(SUM((usage->>'input_tokens')::int), 0) AS regular_reads
+              FROM ai_runs
+             WHERE started_at > NOW() - INTERVAL '7 days'
+            """
+        )
+        seven_day = dict(cur.fetchone())
+
+        cur.execute(
+            """
+            SELECT id, started_at, stage, model, rows_processed, rows_failed, cost_usd
+              FROM ai_runs
+             ORDER BY id DESC
+             LIMIT 20
+            """
+        )
+        runs = [dict(row) for row in cur.fetchall()]
+
+    return render_template(
+        "admin/ai_panel.html",
+        items_pending=items_pending,
+        meetings_pending=meetings_pending,
+        seven_day=seven_day,
+        runs=runs,
+        budget=AI_DAILY_BUDGET_USD,
+        item_version=ITEM_PROMPT_VERSION,
+        meeting_version=MEETING_PROMPT_VERSION,
+    )

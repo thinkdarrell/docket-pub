@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 
 
 @dataclass(frozen=True)
@@ -17,6 +18,10 @@ class Meeting:
     minutes_url: str | None
     video_url: str | None
     source_url: str | None
+    executive_summary: str | None = None
+    ai_metadata: dict | None = None
+    ai_prompt_version: int | None = None
+    ai_generated_at: datetime | None = None
 
     @classmethod
     def from_row(cls, row: dict) -> Meeting:
@@ -31,4 +36,8 @@ class Meeting:
             minutes_url=row.get("minutes_url"),
             video_url=row.get("video_url"),
             source_url=row.get("source_url"),
+            executive_summary=row.get("executive_summary"),
+            ai_metadata=row.get("ai_metadata"),
+            ai_prompt_version=row.get("ai_prompt_version"),
+            ai_generated_at=row.get("ai_generated_at"),
         )
