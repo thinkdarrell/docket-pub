@@ -73,6 +73,8 @@ silently bypass observability.
 4. Once fixed, re-trigger the task with `--run-once` from Railway to clear the
    "down" state on the corresponding Healthcheck.
 
+**Note**: A green `docket-ingest` ping does not guarantee every city succeeded — `ingest_all` aggregates all five cities under a single check. If a specific municipality's data looks stale despite green pings, check Railway logs for per-city `ingest failed for <slug>` exceptions; per-city failures are caught and logged but do not fail the overall task.
+
 ## 18-month AI backfill (one-shot, separate from the worker)
 
 The worker handles steady-state. To populate AI summaries/scoring for the

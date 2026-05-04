@@ -104,6 +104,14 @@ def test_ai_items_swallows_budget_exceeded():
         tasks._do_ai_items()  # must not raise
 
 
+def test_ai_meetings_swallows_budget_exceeded():
+    """BudgetExceededError is expected behavior, not a failure for Healthchecks."""
+    from docket.ai.worker import BudgetExceededError
+    with patch("docket.worker.tasks.run_once",
+               side_effect=BudgetExceededError("over cap")):
+        tasks._do_ai_meetings()  # must not raise
+
+
 def test_vote_matching_invokes_match_all_unmatched():
     with patch("docket.worker.tasks.match_all_unmatched") as mock_match:
         mock_match.return_value = {
