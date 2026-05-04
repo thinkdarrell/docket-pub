@@ -16,6 +16,8 @@ from dataclasses import dataclass, field
 import pdfplumber
 import requests
 
+from docket.analysis.vote_resolution_extractor import extract_resolution_number
+
 logger = logging.getLogger(__name__)
 
 
@@ -248,6 +250,13 @@ def _build_vote(text: str, match: re.Match) -> ParsedVote | None:
 
     res_matches = _RESOLUTION_RE.findall(context)
     resolution_number = res_matches[-1] if res_matches else None
+
+    # Fallback: the narrow _RESOLUTION_RE only matches digit-only numbers and scans
+    # just the pre-vote context window. Use the broader extractor on raw_text to
+    # catch letter-prefixed numbers (e.g. R-2024-0419) and any other patterns it
+    # handles. Only fill if the narrow extractor didn't already produce a value.
+    if not resolution_number:
+        resolution_number = extract_resolution_number(raw_text)
 
     return ParsedVote(
         ayes=ayes,

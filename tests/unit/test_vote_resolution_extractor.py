@@ -71,3 +71,31 @@ def test_does_not_glue_onto_adjacent_text():
     text = "RESOLUTION 1854-25.adopted"
     # Stops at .adopted — not a separator
     assert extract_resolution_number(text) == "1854-25"
+
+
+def test_minutes_parser_populates_resolution_number_from_raw_text():
+    """When the parser builds a vote whose raw_text contains a letter-prefixed
+    resolution number (e.g. R-2024-0419), resolution_number is populated.
+
+    The parser's narrow _RESOLUTION_RE requires digits immediately after the keyword
+    and therefore misses letter-prefixed patterns like "RESOLUTION R-2024-0419".
+    The broader extract_resolution_number fallback catches these. This test verifies
+    the wired-up fallback fires for a pattern the narrow extractor would miss.
+    """
+    from docket.analysis.minutes_parser import parse_minutes
+
+    # "RESOLUTION R-2024-0419" — the narrow extractor requires a digit right after
+    # the keyword so it will not match "R-2024-0419"; the broader extractor will.
+    synthetic_minutes = (
+        "RESOLUTION R-2024-0419 A Resolution honoring the fire department. "
+        "Upon the roll being called, the vote was as follows:\n"
+        "Ayes: Smith\n"
+        "Nays: None\n"
+    )
+
+    result = parse_minutes(synthetic_minutes)
+    assert len(result.votes) == 1, f"expected 1 vote, got {len(result.votes)}"
+    vote = result.votes[0]
+    assert vote.resolution_number == "R-2024-0419", (
+        f"expected resolution_number='R-2024-0419', got {vote.resolution_number!r}"
+    )
