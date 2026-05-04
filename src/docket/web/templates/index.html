@@ -2,50 +2,100 @@
 {% block title %}docket.pub — Alabama Municipal Meeting Intelligence{% endblock %}
 
 {% block content %}
-<h1>docket.pub</h1>
-<p>Municipal meeting intelligence for Alabama cities.</p>
+<section class="hero">
+    <div class="hero-top">
+        <div>
+            <div class="t-eyebrow">Alabama · public meeting intelligence</div>
+            <h1 class="hero-title t-display">docket.pub</h1>
+            <p class="hero-sub">
+                Searchable, source-linked municipal meeting records. Every figure on this site is hyperlinked
+                back to its original document.
+            </p>
+        </div>
+    </div>
 
-<section>
-    <h2>Cities</h2>
-    {% for m in municipalities %}
-    <div>
-        <a href="{{ url_for('public.city_overview', slug=m.slug) }}">
-            <strong>{{ m.name }}</strong>
+    {% if stats %}
+    <div class="kpi-grid" style="grid-template-columns: repeat(3, 1fr);">
+        <div class="kpi">
+            <div class="kpi-label t-label">Cities</div>
+            <div class="kpi-value t-display t-tnum">{{ stats.municipalities }}</div>
+            <div class="kpi-sub t-meta">Alabama municipalities</div>
+        </div>
+        <div class="kpi">
+            <div class="kpi-label t-label">Meetings</div>
+            <div class="kpi-value t-display t-tnum">{{ stats.meetings }}</div>
+            <div class="kpi-sub t-meta">indexed</div>
+        </div>
+        <div class="kpi is-accent">
+            <div class="kpi-label t-label">Agenda items</div>
+            <div class="kpi-value t-display t-tnum">{{ stats.agenda_items }}</div>
+            <div class="kpi-sub t-meta">extracted</div>
+        </div>
+    </div>
+    {% endif %}
+</section>
+
+<section class="feed">
+    <div class="feed-head">
+        <div>
+            <div class="t-eyebrow">Cities</div>
+            <h2 class="feed-title t-display">Browse by city</h2>
+        </div>
+    </div>
+
+    <div class="feed-table">
+        {% for m in municipalities %}
+        <a href="{{ url_for('public.city_overview', slug=m.slug) }}" class="feed-row">
+            <div class="feed-date">
+                <div class="feed-date-d t-display">{{ m.name[:1] }}</div>
+                <div class="feed-date-m t-mono">{{ m.state }}</div>
+            </div>
+            <div class="feed-meta">
+                <div class="feed-meeting-title">{{ m.name }}</div>
+                <div class="feed-meeting-sub t-meta">
+                    {{ m.meeting_count }} meeting{{ 's' if m.meeting_count != 1 else '' }}
+                    {% if m.last_meeting_date %} · last {{ m.last_meeting_date }}{% endif %}
+                </div>
+            </div>
+            <div class="feed-num t-mono t-tnum">{{ m.meeting_count }}</div>
+            <div class="feed-num t-mono t-tnum">—</div>
+            <div class="feed-num t-mono t-tnum">—</div>
+            <div class="feed-arrow t-mono">→</div>
         </a>
-        — {{ m.meeting_count }} meetings
-        {% if m.last_meeting_date %}(last: {{ m.last_meeting_date }}){% endif %}
+        {% endfor %}
     </div>
-    {% endfor %}
 </section>
 
-{% if recent_meetings %}
-<section>
-    <h2>This Week</h2>
-    {% for m in recent_meetings %}
-    <div>
-        <span>{{ m.meeting_date }}</span>
-        <strong>{{ m.municipality_name }}</strong>
-        {{ m.title }}
+{% if upcoming_meetings or recent_meetings %}
+<section class="tw">
+    <header class="tw-head">
+        <div>
+            <div class="t-eyebrow">This week</div>
+            <h2 class="feed-title t-display">On the agenda</h2>
+        </div>
+    </header>
+    <div class="tw-strip">
+        {% for m in upcoming_meetings[:4] %}
+        <div class="tw-card tw-upcoming">
+            <div class="tw-when t-mono">
+                <span class="tw-dot tw-dot-upcoming"></span>
+                {{ m.meeting_date }}
+            </div>
+            <div class="tw-title">{{ m.title }}</div>
+            <div class="tw-venue t-meta">{{ m.municipality_name }}</div>
+        </div>
+        {% endfor %}
+        {% for m in recent_meetings[:4] %}
+        <div class="tw-card tw-past">
+            <div class="tw-when t-mono">
+                <span class="tw-dot tw-dot-past"></span>
+                {{ m.meeting_date }}
+            </div>
+            <div class="tw-title">{{ m.title }}</div>
+            <div class="tw-venue t-meta">{{ m.municipality_name }}</div>
+        </div>
+        {% endfor %}
     </div>
-    {% endfor %}
 </section>
 {% endif %}
-
-{% if upcoming_meetings %}
-<section>
-    <h2>Coming Up</h2>
-    {% for m in upcoming_meetings %}
-    <div>
-        <span>{{ m.meeting_date }}</span>
-        <strong>{{ m.municipality_name }}</strong>
-        {{ m.title }}
-    </div>
-    {% endfor %}
-</section>
-{% endif %}
-
-<section>
-    <h2>Platform Stats</h2>
-    <p>{{ stats.municipalities }} cities · {{ stats.meetings }} meetings · {{ stats.agenda_items }} agenda items</p>
-</section>
 {% endblock %}

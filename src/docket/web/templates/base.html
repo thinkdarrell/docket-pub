@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#fafaf7">
     <title>{% block title %}docket.pub{% endblock %}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -11,6 +12,8 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='layout.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='councilmatic.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='tweaks.css') }}">
+    {# mobile.css must load LAST so its @media (max-width:768px) rules win at narrow widths #}
+    <link rel="stylesheet" href="{{ url_for('static', filename='mobile.css') }}">
     <script src="https://unpkg.com/htmx.org@2.0.4"></script>
     {% block head %}{% endblock %}
 </head>
@@ -30,6 +33,12 @@
             </aside>
         </div>
     </div>
+
+    {# ── Mobile-only chrome (hidden via CSS at >=769px) ────────────────────── #}
+    {% include "partials/source_sheet.html" %}
+    {% include "partials/bottom_tabs.html" %}
     {% endblock %}
+
+    <script src="{{ url_for('static', filename='sheet.js') }}" defer></script>
 </body>
 </html>
