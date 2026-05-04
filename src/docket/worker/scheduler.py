@@ -21,7 +21,6 @@ import os
 import sys
 
 from apscheduler.schedulers.blocking import BlockingScheduler
-from apscheduler.schedulers.base import SchedulerAlreadyRunningError, SchedulerNotRunningError
 from apscheduler.triggers.cron import CronTrigger
 
 from docket.worker.tasks import TASKS
@@ -29,20 +28,9 @@ from docket.worker.tasks import TASKS
 log = logging.getLogger(__name__)
 
 
-class GracefulBlockingScheduler(BlockingScheduler):
-    """BlockingScheduler that allows shutdown even if not running (for testing)."""
-
-    def shutdown(self, wait=True):
-        """Shutdown the scheduler, ignoring SchedulerNotRunningError."""
-        try:
-            super().shutdown(wait=wait)
-        except SchedulerNotRunningError:
-            pass
-
-
-def build_scheduler(timezone: str = "America/Chicago") -> GracefulBlockingScheduler:
+def build_scheduler(timezone: str = "America/Chicago") -> BlockingScheduler:
     """Build a scheduler with all five jobs registered. Does not start it."""
-    sched = GracefulBlockingScheduler(timezone=timezone)
+    sched = BlockingScheduler(timezone=timezone)
 
     sched.add_job(
         TASKS["repair_empty_agendas"],

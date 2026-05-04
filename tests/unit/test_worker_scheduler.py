@@ -14,14 +14,12 @@ def test_build_scheduler_registers_five_jobs():
     assert job_ids == {
         "ingest_all", "ai_items", "ai_meetings", "vote_matching", "repair_empty_agendas",
     }
-    sched.shutdown(wait=False)
 
 
 def test_build_scheduler_uses_supplied_timezone():
     sched = scheduler.build_scheduler(timezone="America/Chicago")
     job = sched.get_job("ingest_all")
     assert str(job.trigger.timezone) == "America/Chicago"
-    sched.shutdown(wait=False)
 
 
 @pytest.mark.parametrize("job_id,expected_hour", [
@@ -36,7 +34,6 @@ def test_build_scheduler_job_hours(job_id, expected_hour):
     job = sched.get_job(job_id)
     fields = {f.name: str(f) for f in job.trigger.fields}
     assert fields["hour"] == str(expected_hour)
-    sched.shutdown(wait=False)
 
 
 def test_build_scheduler_repair_runs_only_on_monday():
@@ -45,7 +42,6 @@ def test_build_scheduler_repair_runs_only_on_monday():
     fields = {f.name: str(f) for f in job.trigger.fields}
     # APScheduler day_of_week is 0=mon..6=sun
     assert fields["day_of_week"] == "0"
-    sched.shutdown(wait=False)
 
 
 def test_run_once_task_invokes_named_task():
