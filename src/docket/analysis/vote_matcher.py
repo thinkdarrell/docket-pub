@@ -345,15 +345,14 @@ def _try_resolution_match(vote, items) -> tuple[int, float, str] | None:
 
 
 def _try_item_number_match(vote, items) -> tuple[int, float, str] | None:
-    """Match by item number patterns found in vote context."""
-    context = vote["match_context"]
-    if not context:
+    """Match by item number patterns found in vote raw_text."""
+    text = vote.get("raw_text") or vote.get("match_context") or ""
+    if not text:
         return None
 
-    # Look for "Item N", "ITEM N", "#N" patterns
-    m = re.search(r'(?:Item|ITEM)\s+(?:No\.?\s*)?(\d+)', context)
+    m = re.search(r'(?:Item|ITEM)\s+(?:No\.?\s*)?(\d+)', text)
     if not m:
-        m = re.search(r'#(\d+)', context)
+        m = re.search(r'#(\d+)', text)
     if not m:
         return None
 
@@ -366,13 +365,18 @@ def _try_item_number_match(vote, items) -> tuple[int, float, str] | None:
 
 
 def _try_keyword_match(vote, items) -> tuple[int, float, str] | None:
-    """Match by keyword overlap between vote context and agenda item title."""
-    context = vote["match_context"]
-    if not context:
+    """Match by keyword overlap between vote raw_text and agenda item title.
+
+    Rank-aware: requires the best item to beat the second-best by margin,
+    else defers (Task 8 implements this; for Tier 0 alone, today's behavior
+    is preserved).
+    """
+    text = vote.get("raw_text") or vote.get("match_context") or ""
+    if not text:
         return None
 
-    context_words = _significant_words(context)
-    if len(context_words) < 3:
+    text_words = _significant_words(text)
+    if len(text_words) < 3:
         return None
 
     best_item_id = None
@@ -383,8 +387,7 @@ def _try_keyword_match(vote, items) -> tuple[int, float, str] | None:
         title_words = _significant_words(title)
         if not title_words:
             continue
-
-        overlap = len(context_words & title_words) / max(len(context_words), len(title_words))
+        overlap = len(text_words & title_words) / len(title_words)
         if overlap > best_overlap:
             best_overlap = overlap
             best_item_id = item["id"]
@@ -398,7 +401,11 @@ def _try_keyword_match(vote, items) -> tuple[int, float, str] | None:
 _STOP_WORDS = frozenset(
     "a an the of to in for on and or by at is was be are with that this from"
     " it its no not but as has had have been do does did will shall may can"
-    " upon said being hereby".split()
+    " upon said being hereby"
+    # v2: procedural noise from the wider raw_text window
+    " councilmember councilmembers motion seconded ordinance resolution mayor"
+    " ayes nays council presiding officer chairperson whereupon thereupon"
+    " adopted approved granted item agenda".split()
 )
 
 
