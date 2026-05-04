@@ -209,12 +209,29 @@ def _match_substantive(meeting_id: int) -> int:
                 (meeting_id,),
             )
             votes = cur.fetchall()
+
+            # Build council_surnames for the structured-fact tier.
+            # council_members.name is a full name; take the last word as the surname.
+            cur.execute(
+                """SELECT cm.name FROM council_members cm
+                   JOIN meetings m ON m.municipality_id = cm.municipality_id
+                   WHERE m.id = %s
+                     AND cm.active = TRUE
+                     AND (cm.term_start IS NULL OR cm.term_start <= m.meeting_date)
+                     AND (cm.term_end IS NULL OR cm.term_end >= m.meeting_date)""",
+                (meeting_id,),
+            )
+            council_surnames = {
+                r["name"].split()[-1] for r in cur.fetchall() if r["name"] and r["name"].split()
+            }
+
             for vote in votes:
                 if _classify_vote(vote) != "substantive":
                     continue
                 result = (
                     _try_resolution_match(vote, items)
                     or _try_item_number_match(vote, items)
+                    or _try_structured_fact_match(vote, items, council_surnames=council_surnames)
                     or _try_keyword_match(vote, items)
                 )
                 if result:
@@ -345,15 +362,14 @@ def _try_resolution_match(vote, items) -> tuple[int, float, str] | None:
 
 
 def _try_item_number_match(vote, items) -> tuple[int, float, str] | None:
-    """Match by item number patterns found in vote context."""
-    context = vote["match_context"]
-    if not context:
+    """Match by item number patterns found in vote raw_text."""
+    text = vote.get("raw_text") or vote.get("match_context") or ""
+    if not text:
         return None
 
-    # Look for "Item N", "ITEM N", "#N" patterns
-    m = re.search(r'(?:Item|ITEM)\s+(?:No\.?\s*)?(\d+)', context)
+    m = re.search(r'(?:Item|ITEM)\s+(?:No\.?\s*)?(\d+)', text)
     if not m:
-        m = re.search(r'#(\d+)', context)
+        m = re.search(r'#(\d+)', text)
     if not m:
         return None
 
@@ -365,40 +381,128 @@ def _try_item_number_match(vote, items) -> tuple[int, float, str] | None:
     return None
 
 
-def _try_keyword_match(vote, items) -> tuple[int, float, str] | None:
-    """Match by keyword overlap between vote context and agenda item title."""
-    context = vote["match_context"]
-    if not context:
+def _try_structured_fact_match(
+    vote, items, *, council_surnames: set[str]
+) -> tuple[int, float, str] | None:
+    """Match by proper-noun + optional dollar overlap.
+
+    High-precision tier requiring at least one proper-noun anchor.
+    Returns (item_id, confidence, method) or None.
+    """
+    from docket.analysis.structured_facts import (
+        extract_dollar_amounts,
+        extract_proper_nouns,
+    )
+
+    text = vote.get("raw_text") or vote.get("match_context") or ""
+    if not text:
         return None
 
-    context_words = _significant_words(context)
-    if len(context_words) < 3:
+    vote_proper_nouns = extract_proper_nouns(text, council_surnames=council_surnames)
+    if not vote_proper_nouns:
         return None
+    vote_dollars = extract_dollar_amounts(text)
 
     best_item_id = None
-    best_overlap = 0.0
+    best_proper_noun_count = 0
+    best_has_dollar = False
 
+    for item in items:
+        haystack = (item["title"] or "") + " " + (item.get("description") or "")
+        item_proper_nouns = extract_proper_nouns(haystack, council_surnames=council_surnames)
+        item_dollars = extract_dollar_amounts(haystack)
+
+        proper_noun_overlap = vote_proper_nouns & item_proper_nouns
+        if not proper_noun_overlap:
+            continue
+
+        has_dollar = bool(vote_dollars & item_dollars)
+
+        # Prefer more proper-noun overlap; tie-breaker is dollar match.
+        if (
+            len(proper_noun_overlap) > best_proper_noun_count
+            or (len(proper_noun_overlap) == best_proper_noun_count and has_dollar and not best_has_dollar)
+        ):
+            best_item_id = item["id"]
+            best_proper_noun_count = len(proper_noun_overlap)
+            best_has_dollar = has_dollar
+        elif len(proper_noun_overlap) == best_proper_noun_count and has_dollar == best_has_dollar:
+            # Genuine tie — defer.
+            return None
+
+    if best_item_id is None:
+        return None
+
+    conf = 0.9 if best_has_dollar else 0.8
+    return (best_item_id, conf, "structured_fact")
+
+
+def _try_keyword_match(vote, items) -> tuple[int, float, str] | None:
+    """Match by keyword overlap (title-recall), rank-aware.
+
+    Commits only when:
+      - best score >= 0.25 (lowered floor; rank gate provides safety), AND
+      - best >= 1.5 * second_best  OR  best - second_best >= 0.15
+
+    Single-candidate meetings fall back to the v1 absolute threshold (>= 0.3).
+    Overlap is title-recall: len(text_words & title_words) / len(title_words).
+    """
+    text = vote.get("raw_text") or vote.get("match_context") or ""
+    if not text:
+        return None
+
+    text_words = _significant_words(text)
+    if len(text_words) < 3:
+        return None
+
+    scored: list[tuple[float, int]] = []
     for item in items:
         title = item["title"] or ""
         title_words = _significant_words(title)
         if not title_words:
             continue
+        overlap = len(text_words & title_words) / len(title_words)
+        scored.append((overlap, item["id"]))
 
-        overlap = len(context_words & title_words) / max(len(context_words), len(title_words))
-        if overlap > best_overlap:
-            best_overlap = overlap
-            best_item_id = item["id"]
+    if not scored:
+        return None
 
-    if best_overlap >= 0.3 and best_item_id is not None:
-        return (best_item_id, round(min(0.5 + best_overlap * 0.3, 0.8), 2), "text_similarity")
+    scored.sort(reverse=True)
 
-    return None
+    best_score, best_id = scored[0]
+
+    # Single-candidate fallback: use absolute threshold.
+    if len(scored) == 1:
+        if best_score >= 0.3:
+            return (best_id, round(min(0.5 + best_score * 0.3, 0.75), 2), "text_similarity")
+        return None
+
+    second_score = scored[1][0]
+
+    if best_score < 0.25:
+        return None
+
+    margin_ratio_ok = best_score >= second_score * 1.5
+    margin_abs_ok = (best_score - second_score) >= 0.15
+    if not (margin_ratio_ok or margin_abs_ok):
+        logger.debug(
+            "keyword tier deferred: best=%.3f second=%.3f no margin", best_score, second_score
+        )
+        return None
+
+    margin = best_score - second_score
+    conf = round(min(0.5 + best_score * 0.3 + margin * 0.5, 0.75), 2)
+    return (best_id, conf, "text_similarity")
 
 
 _STOP_WORDS = frozenset(
     "a an the of to in for on and or by at is was be are with that this from"
     " it its no not but as has had have been do does did will shall may can"
-    " upon said being hereby".split()
+    " upon said being hereby"
+    # v2: procedural noise from the wider raw_text window
+    " councilmember councilmembers motion seconded ordinance resolution mayor"
+    " ayes nays council presiding officer chairperson whereupon thereupon"
+    " adopted approved granted item agenda".split()
 )
 
 
