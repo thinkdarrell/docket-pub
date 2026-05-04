@@ -71,3 +71,70 @@ def test_stop_words_filter_procedural_noise():
     }]
     result = _try_keyword_match(vote, items)
     assert result is None, "procedural overlap alone should not produce a match"
+
+
+def test_structured_fact_tier_matches_proper_noun_plus_dollar():
+    """Vote 1342 baseline: proper noun + dollar match → conf 0.9."""
+    from docket.analysis.vote_matcher import _try_structured_fact_match
+
+    vote = _make_vote()
+    items = [AGENDA_ITEM_1256] + DISTRACTOR_AGENDA_ITEMS
+    result = _try_structured_fact_match(
+        vote, items,
+        council_surnames={"Gunn", "Smith", "Smitherman", "Williams", "Woods", "Tate", "Alexander"},
+    )
+    assert result is not None
+    item_id, conf, method = result
+    assert item_id == 1256
+    assert method == "structured_fact"
+    assert conf == 0.9
+
+
+def test_structured_fact_tier_proper_noun_only_lower_confidence():
+    """Item title without the dollar amount → conf 0.8."""
+    from docket.analysis.vote_matcher import _try_structured_fact_match
+
+    items = [{
+        "id": 200,
+        "item_number": "1",
+        "title": "An Ordinance about Shield Property Solutions activities",
+        "description": "",
+    }]
+    vote = _make_vote()  # raw_text contains both proper noun and dollar
+    result = _try_structured_fact_match(vote, items, council_surnames=set())
+    assert result is not None
+    item_id, conf, method = result
+    assert item_id == 200
+    assert conf == 0.8
+
+
+def test_structured_fact_tier_dollar_only_no_match():
+    """Same dollar amount in two unrelated items must not match by dollar alone."""
+    from docket.analysis.vote_matcher import _try_structured_fact_match
+
+    items = [{
+        "id": 300,
+        "item_number": "1",
+        "title": "A Resolution paying $11,155.25 to a totally unrelated vendor",
+        "description": "",
+    }]
+    vote = _make_vote()
+    result = _try_structured_fact_match(vote, items, council_surnames=set())
+    assert result is None
+
+
+def test_structured_fact_tier_tied_proper_nouns_no_match():
+    """If two items share the proper noun, defer."""
+    from docket.analysis.vote_matcher import _try_structured_fact_match
+
+    items = [
+        {"id": 401, "item_number": "1",
+         "title": "Item about Shield Property Solutions",
+         "description": ""},
+        {"id": 402, "item_number": "2",
+         "title": "Another Shield Property Solutions matter",
+         "description": ""},
+    ]
+    vote = _make_vote()
+    result = _try_structured_fact_match(vote, items, council_surnames=set())
+    assert result is None

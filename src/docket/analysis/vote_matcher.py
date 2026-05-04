@@ -209,12 +209,29 @@ def _match_substantive(meeting_id: int) -> int:
                 (meeting_id,),
             )
             votes = cur.fetchall()
+
+            # Build council_surnames for the structured-fact tier.
+            # council_members.name is a full name; take the last word as the surname.
+            cur.execute(
+                """SELECT cm.name FROM council_members cm
+                   JOIN meetings m ON m.municipality_id = cm.municipality_id
+                   WHERE m.id = %s
+                     AND cm.active = TRUE
+                     AND (cm.term_start IS NULL OR cm.term_start <= m.meeting_date)
+                     AND (cm.term_end IS NULL OR cm.term_end >= m.meeting_date)""",
+                (meeting_id,),
+            )
+            council_surnames = {
+                r["name"].split()[-1] for r in cur.fetchall() if r["name"] and r["name"].split()
+            }
+
             for vote in votes:
                 if _classify_vote(vote) != "substantive":
                     continue
                 result = (
                     _try_resolution_match(vote, items)
                     or _try_item_number_match(vote, items)
+                    or _try_structured_fact_match(vote, items, council_surnames=council_surnames)
                     or _try_keyword_match(vote, items)
                 )
                 if result:
@@ -362,6 +379,62 @@ def _try_item_number_match(vote, items) -> tuple[int, float, str] | None:
             return (item["id"], 0.7, "item_number")
 
     return None
+
+
+def _try_structured_fact_match(
+    vote, items, *, council_surnames: set[str]
+) -> tuple[int, float, str] | None:
+    """Match by proper-noun + optional dollar overlap.
+
+    High-precision tier requiring at least one proper-noun anchor.
+    Returns (item_id, confidence, method) or None.
+    """
+    from docket.analysis.structured_facts import (
+        extract_dollar_amounts,
+        extract_proper_nouns,
+    )
+
+    text = vote.get("raw_text") or vote.get("match_context") or ""
+    if not text:
+        return None
+
+    vote_proper_nouns = extract_proper_nouns(text, council_surnames=council_surnames)
+    if not vote_proper_nouns:
+        return None
+    vote_dollars = extract_dollar_amounts(text)
+
+    best_item_id = None
+    best_proper_noun_count = 0
+    best_has_dollar = False
+
+    for item in items:
+        haystack = (item["title"] or "") + " " + (item.get("description") or "")
+        item_proper_nouns = extract_proper_nouns(haystack, council_surnames=council_surnames)
+        item_dollars = extract_dollar_amounts(haystack)
+
+        proper_noun_overlap = vote_proper_nouns & item_proper_nouns
+        if not proper_noun_overlap:
+            continue
+
+        has_dollar = bool(vote_dollars & item_dollars)
+
+        # Prefer more proper-noun overlap; tie-breaker is dollar match.
+        if (
+            len(proper_noun_overlap) > best_proper_noun_count
+            or (len(proper_noun_overlap) == best_proper_noun_count and has_dollar and not best_has_dollar)
+        ):
+            best_item_id = item["id"]
+            best_proper_noun_count = len(proper_noun_overlap)
+            best_has_dollar = has_dollar
+        elif len(proper_noun_overlap) == best_proper_noun_count and has_dollar == best_has_dollar:
+            # Genuine tie — defer.
+            return None
+
+    if best_item_id is None:
+        return None
+
+    conf = 0.9 if best_has_dollar else 0.8
+    return (best_item_id, conf, "structured_fact")
 
 
 def _try_keyword_match(vote, items) -> tuple[int, float, str] | None:
