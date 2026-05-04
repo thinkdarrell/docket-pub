@@ -4,7 +4,7 @@
 
 Docket.pub automates the collection, parsing, enrichment, and indexing of public meeting records from local governments. The goal is civic transparency: make every agenda item, vote, and dollar amount searchable — and link every data point back to its original source on the city's website.
 
-**Domain:** [docket.pub](https://docket.pub) | **Status:** Private Development | **Repo:** Dev fork (`docket-pub-dw-dev`)
+**Domain:** [docket.pub](https://docket.pub) | **Status:** Private Development | **Repo:** [`thinkdarrell/docket-pub`](https://github.com/thinkdarrell/docket-pub)
 
 ---
 
@@ -14,7 +14,9 @@ The full pipeline is live: scraping, enrichment, vote extraction (from both offi
 
 **N:M vote-to-agenda-item matching.** Every vote can link to one substantive agenda item or many consent-block items. Each vote is classified as substantive (1:1) or consent block (1:N); substantive matches run the existing three-tier heuristics (resolution number, item number, keyword overlap), while consent matches link to all `is_consent=TRUE` items for the meeting with named callouts upgraded to confidence 1.0. A strict re-parse promotes provisional consent links to official after council formally adopts the minutes. ~36,000 active links across Birmingham as of the most recent backfill.
 
-**AI summaries + scoring (v2 live in production).** Per-item summaries and 0–10 significance + consent-placement scores via Haiku 4.5; per-meeting executive summaries via Sonnet 4.6. Two-phase meeting lifecycle keyed off `minutes_adopted_at` (provisional summary first, adopted overwrites). Async batch worker (`python -m docket.ai.cli --items|--meetings`) decoupled from ingest; `SELECT FOR UPDATE SKIP LOCKED` claim semantics, per-row commits, exponential-backoff retry, daily budget cap. Cost telemetry in `ai_runs` tracks all four Anthropic billing dimensions (regular/cached input + output). Spec at `docs/superpowers/specs/2026-05-01-summaries-and-scoring-design.md`. Live at `/admin/ai` and as inline summaries on meeting detail pages. Cron-driven backfill is the last remaining piece (configured in Railway dashboard).
+**AI summaries + scoring (v2 live in production).** Per-item summaries and 0–10 significance + consent-placement scores via Haiku 4.5; per-meeting executive summaries via Sonnet 4.6. Two-phase meeting lifecycle keyed off `minutes_adopted_at` (provisional summary first, adopted overwrites). Async batch worker (`python -m docket.ai.cli --items|--meetings`) decoupled from ingest; `SELECT FOR UPDATE SKIP LOCKED` claim semantics, per-row commits, exponential-backoff retry, daily budget cap. Cost telemetry in `ai_runs` tracks all four Anthropic billing dimensions (regular/cached input + output). Spec at `docs/superpowers/specs/2026-05-01-summaries-and-scoring-design.md`. Live at `/admin/ai` and as inline summaries on meeting detail pages.
+
+**Cron worker (live in production as of 2026-05-04).** Railway `worker` service runs APScheduler with five scheduled tasks in `America/Chicago`: `repair_empty_agendas` (Mon 05:00) clears stuck `agenda_items_scraped` flags so the next ingest re-fetches; `ingest_all` (06:00 daily) loops the `municipalities` table with per-city failure isolation; `ai_items` (07:00) and `ai_meetings` (08:00) drive the AI pipeline within the daily budget cap; `vote_matching` (09:00) closes the loop on legislative action. Each task pings Healthchecks.io start/success/fail with the traceback as the alert body — silent data rot is impossible. Manual triggers via `railway ssh --service worker` then `python -m docket.worker.scheduler --run-once <task>`. Spec at `docs/superpowers/specs/2026-05-04-cron-worker-design.md`; runbook at `docs/runbooks/cron-worker.md`.
 
 **Prompt v2 design choices (validated in pilot):**
 - Procedural items (Roll Call, Pledge, Invocation, "minutes not ready", etc.) get `is_substantive=false` with empty summary + empty rationales — title is self-explanatory and a paraphrase would be noise. Template renders nothing extra for these items.
@@ -59,7 +61,7 @@ The full pipeline is live: scraping, enrichment, vote extraction (from both offi
 
 ### What's Next
 
-- **Cron-schedule the AI worker on Railway** — `*/15 * * * * --items --limit 200` and `*/30 * * * * --meetings --limit 50`. Pilot batches (~330 items + 10 meetings) ran cleanly at 99.5% success rate, ~$1 of $10/day budget; full backfill projected at $140 over ~14 days at the daily cap.
+- **18-month AI backfill (one-shot, manual)** — ~4,500 unprocessed items in the rolling 18-month window, ~$12 at current pricing. Run from a laptop with `--force-budget` so a corrupted PDF tracebacks visibly rather than getting buried in worker logs. See the runbook for the exact command.
 - **Per-claim citations + discrepancy-aware summaries** — Phase 2 of the AI pipeline; v1 uses source-bounded grounding only
 - **Council member rollups** — separate brainstorm; deferred from v1 of AI summaries
 - **Astro frontend evaluation** — considering migration from Flask/Jinja2+HTMX to Astro
@@ -483,7 +485,7 @@ GET       /admin/ai                     AI pipeline dashboard (queue depth, 7-da
 ## Project Structure
 
 ```
-docket-pub-dw-dev/
+docket-pub/
   src/docket/                    # Main package ("docket")
     config.py                    # Environment variable config
     db.py                        # PostgreSQL connection (db() and db_cursor() context managers)
@@ -532,6 +534,12 @@ docket-pub-dw-dev/
       client.py                  # Anthropic SDK wrapper: tool_use, retries, cost tracking
       worker.py                  # Batch processor: claim queries, write-back, run loop, budget
       cli.py                     # Operator CLI: --status / --dry-run / --items / --meetings / --force
+    worker/
+      scheduler.py               # APScheduler BlockingScheduler entry point + --run-once <task> flag
+      tasks.py                   # 5 task wrappers (ingest_all, ai_items, ai_meetings, vote_matching, repair_empty_agendas) — _safe_run handles Healthchecks ping + exception swallow
+      health.py                  # Healthchecks.io ping helper (no-ops when UUID env var unset)
+    services/
+      maintenance.py             # repair_empty_agendas() — clears stuck agenda_items_scraped flags weekly
     web/
       __init__.py                # create_app() factory
       public.py                  # 8 public routes (city, meetings, search, topics, council)
@@ -641,7 +649,7 @@ print(f'{len(meetings)} meetings')
 
 | Repo | Description |
 |---|---|
-| [thinkdarrell/docket-pub](https://github.com/thinkdarrell/docket-pub) | Main repo (this is the dev fork) |
-| [thinkdarrell/docket-pub-dw-dev](https://github.com/thinkdarrell/docket-pub-dw-dev) | Active dev fork — all work happens here first |
+| [thinkdarrell/docket-pub](https://github.com/thinkdarrell/docket-pub) | This repo — single canonical (consolidated 2026-05-03 from prior `docket-pub` + `docket-pub-dw-dev` split) |
+| [thinkdarrell/docket-pub-archived](https://github.com/thinkdarrell/docket-pub-archived) | Read-only — abandoned skeleton from before the consolidation |
 | [thinkdarrell/al-municipal-meetings](https://github.com/thinkdarrell/al-municipal-meetings) | Original Birmingham pipeline with vote OCR — code ported from here |
 | [thinkdarrell/docket-pub-site](https://github.com/thinkdarrell/docket-pub-site) | Landing page for docket.pub |

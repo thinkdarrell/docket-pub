@@ -40,7 +40,12 @@ docket-pub/
       ingest.py            # Scrape + enrich + upsert pipeline (calls sweep_adoptions at end of each run)
       query.py             # Read APIs: meetings, items, search, topics, timeline; list_votes uses 3-query N:M reader
       enrichment.py        # Enrichment service (inline + backfill)
+      maintenance.py       # repair_empty_agendas() — clears agenda_items_scraped flag for stuck meetings, called weekly by the cron worker
       minutes_adoption.py  # Adoption-pattern detection + sweep_adoptions; dual-trigger contract with strict_reparse_meeting
+    worker/                # Cron worker (Railway `worker` service, runs `python -m docket.worker.scheduler`)
+      scheduler.py         # APScheduler BlockingScheduler entry point + --run-once <task> flag
+      tasks.py             # 5 task wrappers (ingest_all, ai_items, ai_meetings, vote_matching, repair_empty_agendas) calling existing services; _safe_run handles Healthchecks ping + exception swallow
+      health.py            # Healthchecks.io ping helper (no-ops when UUID env var unset)
     web/                   # Flask app factory + blueprints
       __init__.py          # create_app() factory (production cookie settings)
       public.py            # Citizen-facing routes (11 routes + 3 HTMX partials)
@@ -77,10 +82,13 @@ docket-pub/
     backfill_vote_context.py  # Re-parse minutes PDFs for resolution_number + match_context
     run_vote_matching.py      # Batch runner for vote-to-agenda-item matching
   tests/
-    unit/                  # 140 tests (dollars, helpers, sponsors, topics, civicclerk, generic_cms)
-    integration/
+    unit/                  # ~270 tests (dollars, helpers, sponsors, topics, civicclerk, generic_cms, ai/*, worker/*)
+    integration/           # AI pipeline e2e + maintenance repair
+    live/                  # Gated on ANTHROPIC_API_KEY (real Haiku/Sonnet smoke tests)
   docs/
     Docket_pub_Project_Plan.md
+    runbooks/
+      cron-worker.md       # Healthchecks setup, deploy, --run-once verification, alert response, 18-month backfill
   docker-compose.yml       # PostgreSQL + app
   Dockerfile
   pyproject.toml
@@ -221,7 +229,8 @@ Single repo: `thinkdarrell/docket-pub`. `main` is the source of truth and what R
 | `meeting_detail.html` N:M render | Done | Substantive vs consent-block branching, consent-block collapse, provisional/adopted pills |
 | Council member rail with linked items | Done | `rail_member.html` — shows what each vote was about, with source-document deep links |
 | Editorial design pass on remaining templates | Done | meetings list, topics index, topic detail, search, council pages |
-| AI summaries + scoring | Done | `src/docket/ai/` — Haiku item summaries, Sonnet meeting executive summaries, two-phase lifecycle keyed off `minutes_adopted_at`, `ai_runs` cost telemetry, async batch worker + CLI (`python -m docket.ai.cli`). **Live on Railway as of 2026-05-02.** Item prompt v2 (procedural-skip), meeting prompt v2 (distinctive-vs-routine split at sig=6). 240 tests. Cron jobs not yet configured (T27 — final remaining piece). |
+| AI summaries + scoring | Done | `src/docket/ai/` — Haiku item summaries, Sonnet meeting executive summaries, two-phase lifecycle keyed off `minutes_adopted_at`, `ai_runs` cost telemetry, async batch worker + CLI (`python -m docket.ai.cli`). **Live on Railway as of 2026-05-02.** Item prompt v2 (procedural-skip), meeting prompt v2 (distinctive-vs-routine split at sig=6). 240 tests. |
+| Cron worker (T27) | Done | `src/docket/worker/` — APScheduler `BlockingScheduler` running 5 daily/weekly tasks (ingest, AI items, AI meetings, vote matching, weekly empty-agenda repair) with Healthchecks.io heartbeats per task. Multi-city by default; per-city ingest failures isolated. **Live on Railway `worker` service as of 2026-05-04.** Runbook at `docs/runbooks/cron-worker.md`. 36 tests. |
 | Source reconciliation | Not built | Compare video OCR vs official minutes |
 | Freshness checks | Not built | Nightly auto-check + manual trigger |
 | Public API | Not built | Flask blueprint for `/api/v1/` (deferred — security concern) |
@@ -245,7 +254,8 @@ Single repo: `thinkdarrell/docket-pub`. `main` is the source of truth and what R
 14. ~~Vote-to-item matching N:M redesign~~ — DONE (vote_agenda_items join table, substantive + consent matchers, strict re-parse, dual-trigger adoption lifecycle)
 15. ~~Editorial design pass on remaining templates~~ — DONE (meetings/topics/topic_detail/search/council)
 16. ~~AI summaries + scoring~~ — DONE (migration 012, `src/docket/ai/` package, Haiku items + Sonnet meetings, two-phase lifecycle, ai_runs telemetry, admin panel)
-17. Astro frontend evaluation — DEFERRED
+17. ~~Cron worker (T27)~~ — DONE (`src/docket/worker/` package, APScheduler on Railway `worker` service, 5 scheduled tasks, Healthchecks.io heartbeats, runbook)
+18. Astro frontend evaluation — DEFERRED
 
 ### Key decisions to preserve
 
@@ -276,6 +286,8 @@ Single repo: `thinkdarrell/docket-pub`. `main` is the source of truth and what R
 - **Council member linking:** Dynamic name→ID resolution using roster + term dates, not hardcoded maps
 - **Deploy:** `railway up --detach` (NOT `railway redeploy` which restarts old build without new code)
 - **Minutes parser:** Must handle curly apostrophes (U+2019) in name regex — O'Quinn fix. Pre-vote window is 1500 chars (was 500, last 200) so the resolution body is captured into `votes.raw_text`.
+- **Cron worker:** Railway `worker` service (separate from `docket-web`, same image) runs `python -m docket.worker.scheduler` 24/7. Five tasks staggered hourly in `America/Chicago`: `repair_empty_agendas` Mon 05:00, `ingest_all` 06:00, `ai_items` 07:00, `ai_meetings` 08:00, `vote_matching` 09:00. Each pings Healthchecks.io start/success/fail with traceback body on exception (5 UUIDs in env vars). `BudgetExceededError` swallowed in AI tasks — expected behavior, not failure. Per-city ingest failures isolated (Birmingham failing won't block Mobile). Manual triggers via `railway ssh --service worker` then `python -m docket.worker.scheduler --run-once <task>` — NOT `railway run` (which executes locally where `postgres.railway.internal` doesn't resolve). Runbook at `docs/runbooks/cron-worker.md`.
+- **Procfile multi-process gotcha:** Railway only runs the `web:` line by default. The `worker:` line in Procfile is informational; the actual worker is a separate Railway service whose Custom Start Command overrides Procfile. One-time setup via dashboard (Empty Service → Custom Start Command → copy env vars from `docket-web`). Re-deploy with `railway up --service worker --detach` from `~/docket-pub`.
 
 ### Local PostgreSQL setup
 
