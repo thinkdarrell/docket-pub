@@ -6,14 +6,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **docket.pub** — a municipal meeting intelligence platform that ingests, parses, and indexes public meeting records from Alabama cities (Birmingham, Mobile, Montgomery, Hoover, Homewood, Vestavia Hills). The goal is civic transparency: make local government dockets searchable and link every data point back to the original source document.
 
-Domain: `docket.pub` | Status: **Private Development Phase** | Dev fork: `docket-pub-dw-dev`
+Domain: `docket.pub` | Status: **Private Development Phase** | Repo: `thinkdarrell/docket-pub`
 
 This project builds on work from the [al-municipal-meetings](https://github.com/thinkdarrell/al-municipal-meetings) repo (Birmingham-focused Granicus scraper with vote OCR). docket.pub generalizes that into a multi-city platform with a public-facing web interface.
 
 ## Layout
 
 ```
-docket-pub-dw-dev/
+docket-pub/
   src/docket/              # Main package
     config.py              # Environment variable config
     db.py                  # PostgreSQL connection manager (db() and db_cursor())
@@ -163,23 +163,19 @@ All dollar amounts extracted, displayed with color-coded tiers:
 - Adapter modules live in `adapters/`, one module per platform type
 - PostgreSQL connection via `docket.db.db()` or `docket.db.db_cursor()`
 
-## Dev Fork Workflow
+## Development Workflow
 
-This repo (`docket-pub-dw-dev`) is a **test/dev fork** of the main `docket-pub` repo. All active development happens here first.
+Single repo: `thinkdarrell/docket-pub`. `main` is the source of truth and what Railway deploys. Feature work goes on `feat/*` branches and merges back via PR.
 
-### Rules for this fork
+(Historical note: this used to be a "dev fork" workflow split across `docket-pub` and `docket-pub-dw-dev`. As of 2026-05-03 those were consolidated; the abandoned skeleton lives at `thinkdarrell/docket-pub-archived` for history. Pre-consolidation safety tags `pre-consolidation/*` are preserved on `origin`.)
 
-- **Build and test here freely.** This is the sandbox — experiment, iterate, break things.
-- **Do NOT push directly to `docket-pub` (main repo).** When work is ready to merge back, it goes via:
-  ```bash
-  cd /path/to/docket-pub
-  git remote add dev-fork git@github.com:thinkdarrell/docket-pub-dev.git
-  git fetch dev-fork
-  git merge dev-fork/main
-  ```
+### Rules
+
+- **Build and test here freely.** Feature branches are the sandbox.
 - **Commit frequently with clear messages.** Each phase of work gets its own commit.
 - **Port code from `al-municipal-meetings`, don't copy blindly.** Adapt for PostgreSQL, multi-city, and the adapter protocol. The original repo uses SQLite and is Birmingham-only.
 - **Test against live data when possible.** The Granicus adapter should be tested against `bhamal.granicus.com`. Use polite delays (1s+) between requests.
+- **Deploy: `railway up --detach` from `main`** — Railway has no GitHub auto-deploy here; deploys are CLI-pushed Docker images. (Don't use `railway redeploy` — restarts the old build.)
 
 ### What's been ported and what hasn't
 
@@ -300,5 +296,7 @@ Then set `DATABASE_URL=postgresql://docket@localhost:5432/docket_db` in `.env`.
 
 ## Related Repositories
 
-- [thinkdarrell/docket-pub](https://github.com/thinkdarrell/docket-pub) — main repo (this is the dev fork)
+- [thinkdarrell/docket-pub](https://github.com/thinkdarrell/docket-pub) — this repo (single canonical)
+- [thinkdarrell/docket-pub-site](https://github.com/thinkdarrell/docket-pub-site) — public landing page (separate)
+- [thinkdarrell/docket-pub-archived](https://github.com/thinkdarrell/docket-pub-archived) — abandoned skeleton from before consolidation; read-only
 - [thinkdarrell/al-municipal-meetings](https://github.com/thinkdarrell/al-municipal-meetings) — Birmingham pipeline, code ported from here
