@@ -247,15 +247,17 @@ class GranicusAdapter:
         has_minutes = bool(
             row.find("td", headers="Minutes") and row.find("td", headers="Minutes").find("a")
         )
-        has_video = bool(row.find("a", onclick=re.compile(r"MediaPlayer")))
+        # Two ways the publisher row can advertise a video: a MediaPlayer onclick,
+        # or a direct .mp4 link to archive-video.granicus.com. Either way, we link
+        # the citizen UI to the player page — direct .mp4 / DownloadFile.php URLs
+        # trigger a browser download instead of embedded playback.
+        has_video = (
+            bool(row.find("a", onclick=re.compile(r"MediaPlayer")))
+            or bool(row.find("a", href=re.compile(r"archive-video\.granicus\.com")))
+        )
 
         # Build URLs
-        video_url = None
-        mp4_link = row.find("a", href=re.compile(r"archive-video\.granicus\.com"))
-        if mp4_link:
-            video_url = mp4_link["href"]
-        elif has_video:
-            video_url = self._download_url(clip_id)
+        video_url = self._player_url(clip_id) if has_video else None
 
         agenda_url = self._agenda_url(clip_id) if has_agenda else None
         minutes_url = self._minutes_url(clip_id) if has_minutes else None
