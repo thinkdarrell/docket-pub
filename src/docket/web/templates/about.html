@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}About — docket.pub{% endblock %}
+
+{% block content %}
+<section class="hero">
+    <div class="hero-top">
+        <div>
+            <div class="t-eyebrow">About</div>
+            <h1 class="hero-title t-display">About docket.pub</h1>
+            <p class="hero-sub">
+                Docket.pub is a civic transparency project that indexes public meeting records
+                from Alabama municipalities and makes them searchable, citable, and easy to read.
+            </p>
+        </div>
+    </div>
+</section>
+
+<section class="feed">
+    <header class="feed-head">
+        <div>
+            <div class="t-eyebrow">What it is</div>
+            <h2 class="feed-title t-display">Public records, made readable</h2>
+        </div>
+    </header>
+    <p class="hero-sub">
+        Every Alabama city of any size posts agendas, minutes, and meeting videos online — but the
+        information lives in scattered PDFs, video archives, and platform-specific portals. Docket.pub
+        pulls those records together, links every figure back to its original source, and lets you
+        search across cities and years.
+    </p>
+    <p class="hero-sub">
+        Today the project covers <strong>Birmingham</strong>, <strong>Mobile</strong>,
+        <strong>Vestavia Hills</strong>, and <strong>Homewood</strong>, with more cities planned.
+    </p>
+</section>
+
+<section class="feed">
+    <header class="feed-head">
+        <div>
+            <div class="t-eyebrow">Who it is for</div>
+            <h2 class="feed-title t-display">Residents, reporters, researchers</h2>
+        </div>
+    </header>
+    <p class="hero-sub">
+        If you want to know how your council voted on a contract, what was on the consent agenda
+        last Tuesday, or how often a particular topic comes up — that information is public, and
+        this site is built to surface it.
+    </p>
+</section>
+
+<section class="feed">
+    <header class="feed-head">
+        <div>
+            <div class="t-eyebrow">Status</div>
+            <h2 class="feed-title t-display">Private development</h2>
+        </div>
+    </header>
+    <p class="hero-sub">
+        Docket.pub is in active development and not yet publicly launched. Coverage gaps,
+        parsing errors, and rough edges are expected. If you find one, please
+        <a class="link" href="{{ url_for('public.about_corrections') }}">tell us</a>.
+    </p>
+</section>
+{% endblock %}
