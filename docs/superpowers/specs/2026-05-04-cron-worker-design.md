@@ -233,7 +233,7 @@ Integration smoke (manual, not CI): after deploy, `railway run --service worker 
 These were surfaced during brainstorming and are already handled by existing code; the worker does not need to add logic for them, but operators should be aware:
 
 - **Cancelled meetings** — `repair_empty_agendas` filters them via title regex; otherwise they'd retry every Monday forever.
-- **10.7% vote-level match rate** — known data ceiling for now (a separate fix is in flight to improve this). The matcher handles it correctly; don't relax thresholds in pursuit of a higher number.
+- **Vote-level match rate is improving rapidly** — was 10.7% at brainstorm time, ~44% as of 2026-05-04 with the in-flight matcher v2 work, and another pass is queued to push it higher. The cron's `vote_matching` job picks up whatever the current matcher version produces; threshold work belongs in `analysis/vote_matcher.py`, not this layer.
 - **Curly apostrophe in member names** — handled in `minutes_parser.py`; new members with punctuated names should be tested against the existing regex.
 - **Council member roster gaps** — votes outside known term ranges resolve to NULL `council_member_id`. Backfill scripts handle this; the cron does not need to.
 - **Strict re-parse zero-target safeguard** — `strict_reparse_meeting` aborts rather than mass-deactivating consent links if the enumerated list resolves to zero items. Don't "fix" it if it ever fires.
@@ -252,10 +252,14 @@ These were surfaced during brainstorming and are already handled by existing cod
 
 None — all surfaced questions resolved during brainstorming.
 
+## Future Enhancements
+
+- **Chained job execution.** The current design uses one-hour staggers between `ingest_all → ai_items → ai_meetings → vote_matching`, which is simple to monitor and gives each task an independent Healthchecks schedule. As the municipalities table grows and `ingest_all` runtime stretches, the natural upgrade is to fire each downstream task from an APScheduler `EVENT_JOB_EXECUTED` listener on its predecessor, replacing the wall-clock cron triggers for jobs 2–4 with event-driven triggers. About a 10-line refactor when needed; designing for it now would be premature.
+
 ## References
 
 - `src/docket/services/ingest.py:42` — `ingest_municipality(slug, since)`
-- `src/docket/ai/cli.py:131` — current AI CLI entry point (will be refactored to expose `run_items` / `run_meetings` as importable functions)
+- `src/docket/ai/worker.py:251` — `run_once(stage, limit, notes, force_budget)` already importable; the cron worker calls it directly, no refactor of `ai/cli.py` needed
 - `src/docket/analysis/vote_matcher.py:730` — `match_all_unmatched()`
 - `src/docket/analysis/vote_matcher.py:91` — `_upsert_link()` with manual-shield enforcement
 - `Procfile` — current single-line web declaration
