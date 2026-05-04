@@ -233,6 +233,31 @@ def topics_index():
     )
 
 
+@bp.route("/about/")
+def about():
+    """About docket.pub — project overview."""
+    return render_template("about.html")
+
+
+@bp.route("/about/how-we-read-minutes/")
+def about_methodology():
+    """How docket.pub reads agendas, minutes, and votes."""
+    return render_template("about_methodology.html")
+
+
+@bp.route("/about/corrections/")
+def about_corrections():
+    """Corrections policy."""
+    return render_template("about_corrections.html")
+
+
+@bp.route("/councilors/")
+def councilors_index():
+    """City picker for finding your councilor."""
+    municipalities = query.list_municipalities()
+    return render_template("councilors.html", municipalities=municipalities)
+
+
 @bp.route("/topics/<topic>/")
 def topic_detail(topic):
     """Agenda items for a specific topic."""

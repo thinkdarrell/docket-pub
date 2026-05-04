@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}How we read minutes — docket.pub{% endblock %}
+
+{% block content %}
+<section class="hero">
+    <div class="hero-top">
+        <div>
+            <div class="t-eyebrow">Methodology</div>
+            <h1 class="hero-title t-display">How we read minutes</h1>
+            <p class="hero-sub">
+                Every figure on docket.pub links back to the original document. This page
+                describes how that data gets here and where it can go wrong.
+            </p>
+        </div>
+    </div>
+</section>
+
+<section class="feed">
+    <header class="feed-head">
+        <div>
+            <div class="t-eyebrow">Sources</div>
+            <h2 class="feed-title t-display">Where the data comes from</h2>
+        </div>
+    </header>
+    <p class="hero-sub">
+        Each city publishes meeting records on a content management platform — Granicus,
+        CivicClerk, CivicPlus, or a generic CMS. Docket.pub uses a platform-specific adapter
+        to fetch agendas, minutes PDFs, and (where available) meeting videos directly from
+        the city's public site. No data is sourced from third parties.
+    </p>
+</section>
+
+<section class="feed">
+    <header class="feed-head">
+        <div>
+            <div class="t-eyebrow">Pipeline</div>
+            <h2 class="feed-title t-display">From PDF to searchable record</h2>
+        </div>
+    </header>
+    <ol class="hero-sub" style="padding-left: 20px;">
+        <li><strong>Ingest.</strong> An adapter polls the city's portal and downloads new agendas, minutes, and (for Birmingham) video.</li>
+        <li><strong>Parse.</strong> Agenda items, sponsors, dollar amounts, and topics are extracted from the source documents.</li>
+        <li><strong>Vote extraction.</strong> Roll-call votes are read from minutes PDFs and, where available, from on-screen captions in meeting video.</li>
+        <li><strong>Match.</strong> Each vote is linked to the agenda item it acted on. Consent-agenda votes link to every item adopted in the block.</li>
+        <li><strong>Summarize.</strong> Item-level and meeting-level summaries are generated and tied back to the source text they describe.</li>
+    </ol>
+</section>
+
+<section class="feed">
+    <header class="feed-head">
+        <div>
+            <div class="t-eyebrow">Honesty protocol</div>
+            <h2 class="feed-title t-display">What we do when sources disagree</h2>
+        </div>
+    </header>
+    <p class="hero-sub">
+        Video captions and official minutes don't always match. When they disagree, both readings
+        are preserved and the conflict is flagged — never silently reconciled.
+    </p>
+    <p class="hero-sub">
+        Some votes are marked <em>provisional</em> until the council formally adopts the minutes
+        from that meeting. Once adopted, those records are promoted and the source link updates
+        accordingly.
+    </p>
+</section>
+
+<section class="feed">
+    <header class="feed-head">
+        <div>
+            <div class="t-eyebrow">Limits</div>
+            <h2 class="feed-title t-display">What we can't do</h2>
+        </div>
+    </header>
+    <p class="hero-sub">
+        Not every vote can be confidently matched to an agenda item. Many minutes refer to motions
+        only by floor description ("approve the resolution") without a resolution number or
+        identifying detail. Where the match isn't clear, the vote is recorded but left unlinked
+        rather than guessed.
+    </p>
+    <p class="hero-sub">
+        Coverage is also uneven across cities. Birmingham has the deepest history; other cities
+        have less data simply because their portals expose less.
+    </p>
+</section>
+{% endblock %}

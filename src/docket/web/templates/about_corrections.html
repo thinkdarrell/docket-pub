@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Corrections — docket.pub{% endblock %}
+
+{% block content %}
+<section class="hero">
+    <div class="hero-top">
+        <div>
+            <div class="t-eyebrow">Corrections</div>
+            <h1 class="hero-title t-display">Corrections policy</h1>
+            <p class="hero-sub">
+                Docket.pub indexes thousands of records automatically, and some of them will be
+                wrong. If you spot an error, we want to fix it.
+            </p>
+        </div>
+    </div>
+</section>
+
+<section class="feed">
+    <header class="feed-head">
+        <div>
+            <div class="t-eyebrow">What counts as an error</div>
+            <h2 class="feed-title t-display">Anything that doesn't match the source</h2>
+        </div>
+    </header>
+    <p class="hero-sub">
+        A wrong vote tally, a misattributed sponsor, a misread dollar amount, an item linked to
+        the wrong meeting, a council member's term shown incorrectly — anything that doesn't
+        match the original public document.
+    </p>
+    <p class="hero-sub">
+        Editorial summaries are generated from the source text and may paraphrase imperfectly.
+        If a summary materially misrepresents what an item or meeting was about, that's an error
+        too.
+    </p>
+</section>
+
+<section class="feed">
+    <header class="feed-head">
+        <div>
+            <div class="t-eyebrow">How to report</div>
+            <h2 class="feed-title t-display">Open an issue or send a note</h2>
+        </div>
+    </header>
+    <p class="hero-sub">
+        The fastest way to report an error is to
+        <a class="link" href="https://github.com/thinkdarrell/docket-pub/issues" target="_blank" rel="noopener">open an issue on GitHub ↗</a>.
+        Please include a link to the page you saw the error on and, where possible, a link to the
+        original source document so we can verify.
+    </p>
+    <p class="hero-sub">
+        If GitHub isn't an option, email <a class="link" href="mailto:hello@docket.pub">hello@docket.pub</a>.
+    </p>
+</section>
+
+<section class="feed">
+    <header class="feed-head">
+        <div>
+            <div class="t-eyebrow">What happens next</div>
+            <h2 class="feed-title t-display">We fix it, or we explain why we can't</h2>
+        </div>
+    </header>
+    <p class="hero-sub">
+        If the source document supports the correction, the record is updated. If the underlying
+        public document is itself incorrect or ambiguous, the discrepancy is preserved and
+        annotated rather than rewritten — docket.pub does not silently reconcile disagreements
+        between sources.
+    </p>
+</section>
+{% endblock %}

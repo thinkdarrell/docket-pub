@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Find my councilor — docket.pub{% endblock %}
+
+{% block content %}
+<section class="hero">
+    <div class="hero-top">
+        <div>
+            <div class="t-eyebrow">Find my councilor</div>
+            <h1 class="hero-title t-display">Pick your city</h1>
+            <p class="hero-sub">
+                Docket.pub tracks council members and their voting records city by city.
+                Pick your city to see who represents you and how they've voted.
+            </p>
+        </div>
+    </div>
+</section>
+
+{% if municipalities %}
+<section class="feed">
+    <header class="feed-head">
+        <div>
+            <div class="t-eyebrow">Cities</div>
+            <h2 class="feed-title t-display">Covered cities</h2>
+        </div>
+        <div class="t-mono t-meta">{{ municipalities | length }} cities</div>
+    </header>
+
+    <div class="council-grid">
+        {% for mu in municipalities %}
+        <a class="cc" href="{{ url_for('public.city_council', slug=mu.slug) }}">
+            <div class="cc-body">
+                <div class="cc-row1">
+                    <div class="cc-name">{{ mu.name }}</div>
+                    <div class="cc-district t-mono">{{ mu.state }}</div>
+                </div>
+                <div class="cc-foot t-mono">
+                    <span>View council →</span>
+                    <span class="cc-arrow">→</span>
+                </div>
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+</section>
+{% endif %}
+{% endblock %}
