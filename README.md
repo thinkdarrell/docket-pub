@@ -4,7 +4,7 @@
 
 Docket.pub automates the collection, parsing, enrichment, and indexing of public meeting records from local governments. The goal is civic transparency: make every agenda item, vote, and dollar amount searchable — and link every data point back to its original source on the city's website.
 
-**Domain:** [docket.pub](https://docket.pub) | **Status:** Private Development | **Repo:** [`thinkdarrell/docket-pub`](https://github.com/thinkdarrell/docket-pub)
+**Domain:** live at [https://docket.pub](https://docket.pub) (apex, Let's Encrypt via Railway) | **Status:** Private Development | **Repo:** [`thinkdarrell/docket-pub`](https://github.com/thinkdarrell/docket-pub)
 
 ---
 
@@ -61,7 +61,8 @@ The full pipeline is live: scraping, enrichment, vote extraction (from both offi
 
 ### What's Next
 
-- **18-month AI backfill (one-shot, manual)** — ~4,500 unprocessed items in the rolling 18-month window, ~$12 at current pricing. Run from a laptop with `--force-budget` so a corrupted PDF tracebacks visibly rather than getting buried in worker logs. See the runbook for the exact command.
+- **Move `www.docket.pub` to Railway** — apex (`docket.pub`) is live with HSTS; `www.docket.pub` currently routes through a Namecheap URL Redirect Record which only works over HTTP, so `https://www.docket.pub` fails. Plan: delete the Namecheap URL Redirect, add `www.docket.pub` as a second Railway custom domain, swap to a CNAME at Namecheap, then tighten HSTS to `includeSubDomains` and optionally add `preload`. Apex Flask redirect from www → docket.pub follows.
+- **18-month AI backfill (one-shot, manual)** — ~4,500 unprocessed items in the rolling 18-month window, ~$12 at current pricing. Run from a laptop with `--force-budget` so a corrupted PDF tracebacks visibly rather than getting buried in worker logs. See the runbook for the exact command. *(In progress: see `scripts/backfill_ai_since.py`.)*
 - **Per-claim citations + discrepancy-aware summaries** — Phase 2 of the AI pipeline; v1 uses source-bounded grounding only
 - **Council member rollups** — separate brainstorm; deferred from v1 of AI summaries
 - **Astro frontend evaluation** — considering migration from Flask/Jinja2+HTMX to Astro
