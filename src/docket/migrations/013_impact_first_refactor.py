@@ -209,6 +209,66 @@ CREATE TABLE processing_status_audit (
     payload         JSONB,
     occurred_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- 7. Indexes
+
+CREATE INDEX idx_agenda_items_processing_status
+    ON agenda_items (processing_status)
+    WHERE processing_status NOT IN ('completed', 'failed_permanent');
+
+CREATE INDEX idx_agenda_items_extraction_version
+    ON agenda_items (ai_extraction_version);
+
+CREATE INDEX idx_agenda_items_rewrite_version
+    ON agenda_items (ai_rewrite_version);
+
+CREATE INDEX idx_agenda_items_backfill_session
+    ON agenda_items (backfill_session_id)
+    WHERE backfill_session_id IS NOT NULL;
+
+CREATE INDEX idx_agenda_items_data_debt
+    ON agenda_items (data_debt_priority, meeting_id)
+    WHERE data_quality IS NOT NULL AND data_quality != 'ok';
+
+CREATE INDEX idx_agenda_items_counterparty_trgm
+    ON agenda_items USING gin ((extracted_facts->>'counterparty') gin_trgm_ops);
+
+CREATE INDEX idx_agenda_item_badges_slug
+    ON agenda_item_badges (badge_slug, kind);
+
+CREATE INDEX idx_agenda_item_badges_item
+    ON agenda_item_badges (agenda_item_id);
+
+CREATE INDEX idx_priority_badges_config_city
+    ON priority_badges_config (city_id) WHERE enabled = TRUE;
+
+CREATE INDEX idx_badge_audit_recent
+    ON agenda_item_badges_audit (occurred_at DESC, badge_slug, action)
+    WHERE actor_role = 'admin';
+
+CREATE INDEX idx_ai_batches_status
+    ON ai_batches (status, submitted_at DESC)
+    WHERE status IN ('submitted', 'in_progress');
+
+CREATE INDEX idx_mayoral_terms_city
+    ON mayoral_terms (city_id, term_start DESC);
+
+-- Decision #92: composite index for category landing pages (significance gate is render-time)
+CREATE INDEX idx_agenda_item_badges_city_slug_conf
+    ON agenda_item_badges (city_id, badge_slug, confidence DESC);
+
+-- Cache lookup hot path
+CREATE INDEX idx_ai_response_cache_accessed
+    ON ai_response_cache (accessed_at);
+
+-- Audit log lookup by item
+CREATE INDEX idx_processing_status_audit_item
+    ON processing_status_audit (agenda_item_id, occurred_at DESC);
+
+-- Conflict resolution queue: open items only, sorted recent-first
+CREATE INDEX idx_processing_status_audit_open_conflicts
+    ON processing_status_audit (occurred_at DESC)
+    WHERE action IN ('accept_stage1', 'accept_stage2', 're_prompted', 'edit_stage1');
 """
 
 SQL_DOWN = r"""
