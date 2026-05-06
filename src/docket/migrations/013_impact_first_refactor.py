@@ -93,6 +93,122 @@ UPDATE agenda_items SET search_vector = to_tsvector('english',
   COALESCE(description, '') || ' ' ||
   COALESCE(summary, '')
 );
+
+-- 6. New tables in dependency order
+
+CREATE TABLE priority_badge_templates (
+    slug                  TEXT PRIMARY KEY,
+    name                  TEXT NOT NULL,
+    description           TEXT NOT NULL,
+    icon                  TEXT NOT NULL,
+    kind                  TEXT NOT NULL CHECK (kind IN ('process', 'policy')),
+    default_matcher_hints JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE priority_badges_config (
+    id                     SERIAL PRIMARY KEY,
+    city_id                INT NOT NULL REFERENCES municipalities(id) ON DELETE CASCADE,
+    template_slug          TEXT NOT NULL REFERENCES priority_badge_templates(slug) ON DELETE CASCADE,
+    name_override          TEXT,
+    description_override   TEXT,
+    matcher_hints_override JSONB,
+    enabled                BOOLEAN NOT NULL DEFAULT TRUE,
+    added_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    added_by               TEXT,
+    notes                  TEXT,
+    UNIQUE (city_id, template_slug)
+);
+
+CREATE TABLE agenda_item_badges (
+    id                SERIAL PRIMARY KEY,
+    agenda_item_id    INT NOT NULL REFERENCES agenda_items(id) ON DELETE CASCADE,
+    city_id           INT NOT NULL REFERENCES municipalities(id),
+    badge_slug        TEXT NOT NULL,
+    kind              TEXT NOT NULL CHECK (kind IN ('process', 'policy')),
+    confidence        NUMERIC(3, 2),
+    source            TEXT NOT NULL CHECK (source IN ('deterministic', 'llm', 'both', 'manual')),
+    matching_metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    detected_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (agenda_item_id, badge_slug)
+);
+
+CREATE TABLE agenda_item_badges_audit (
+    id              SERIAL PRIMARY KEY,
+    agenda_item_id  INT NOT NULL REFERENCES agenda_items(id),
+    badge_slug      TEXT NOT NULL,
+    action          TEXT NOT NULL CHECK (action IN ('added', 'removed', 'modified')),
+    actor           TEXT,
+    actor_role      TEXT NOT NULL CHECK (actor_role IN ('admin', 'cron', 'on_write')),
+    reason          TEXT,
+    occurred_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE city_score_floor_overrides (
+    city_id                   INT NOT NULL REFERENCES municipalities(id),
+    trigger_name              TEXT NOT NULL,
+    override_threshold_amount NUMERIC,
+    override_min_score        INT,
+    reason                    TEXT,
+    added_by                  TEXT,
+    added_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (city_id, trigger_name)
+);
+
+CREATE TABLE ai_batches (
+    id                 SERIAL PRIMARY KEY,
+    anthropic_batch_id TEXT NOT NULL UNIQUE,
+    stage              TEXT NOT NULL CHECK (stage IN ('stage1', 'stage2')),
+    wave               TEXT NOT NULL,
+    item_count         INT NOT NULL,
+    submitted_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    completed_at       TIMESTAMPTZ,
+    cost_usd           NUMERIC(10, 4),
+    status             TEXT NOT NULL CHECK (
+                         status IN ('submitted', 'in_progress', 'ended', 'failed', 'expired')
+                       )
+);
+
+CREATE TABLE ai_batch_items (
+    batch_id        INT NOT NULL REFERENCES ai_batches(id) ON DELETE CASCADE,
+    agenda_item_id  INT NOT NULL REFERENCES agenda_items(id) ON DELETE CASCADE,
+    custom_id       TEXT NOT NULL,
+    result_status   TEXT CHECK (result_status IN ('succeeded', 'errored', 'expired')),
+    PRIMARY KEY (batch_id, agenda_item_id)
+);
+
+CREATE TABLE mayoral_terms (
+    id           SERIAL PRIMARY KEY,
+    city_id      INT NOT NULL REFERENCES municipalities(id),
+    mayor_name   TEXT NOT NULL,
+    party        TEXT,
+    term_start   DATE NOT NULL,
+    term_end     DATE
+);
+
+-- Decision #91: DB-backed AI response cache (replaces file cache)
+CREATE TABLE ai_response_cache (
+    cache_key       TEXT PRIMARY KEY,
+    model           TEXT NOT NULL,
+    prompt_version  INT NOT NULL,
+    response_json   JSONB NOT NULL,
+    cached_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    accessed_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Decision #93: status-change audit (separate from agenda_item_badges_audit which is badge-only)
+CREATE TABLE processing_status_audit (
+    id              SERIAL PRIMARY KEY,
+    agenda_item_id  INT NOT NULL REFERENCES agenda_items(id),
+    from_status     processing_status_enum,
+    to_status       processing_status_enum NOT NULL,
+    action          TEXT NOT NULL,
+    actor           TEXT,
+    actor_role      TEXT NOT NULL CHECK (actor_role IN ('admin', 'cron', 'on_write')),
+    reason          TEXT,
+    payload         JSONB,
+    occurred_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 """
 
 SQL_DOWN = r"""
@@ -105,6 +221,17 @@ BEGIN
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+
+DROP TABLE IF EXISTS processing_status_audit;
+DROP TABLE IF EXISTS ai_response_cache;
+DROP TABLE IF EXISTS mayoral_terms;
+DROP TABLE IF EXISTS ai_batch_items;
+DROP TABLE IF EXISTS ai_batches;
+DROP TABLE IF EXISTS city_score_floor_overrides;
+DROP TABLE IF EXISTS agenda_item_badges_audit;
+DROP TABLE IF EXISTS agenda_item_badges;
+DROP TABLE IF EXISTS priority_badges_config;
+DROP TABLE IF EXISTS priority_badge_templates;
 
 ALTER TABLE municipalities DROP COLUMN IF EXISTS master_calendar_url;
 
