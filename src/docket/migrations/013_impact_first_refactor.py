@@ -61,9 +61,51 @@ ALTER TABLE agenda_items
 -- 4. New column on municipalities
 ALTER TABLE municipalities
   ADD COLUMN master_calendar_url TEXT DEFAULT NULL;
+
+-- 5. Upgrade search vector function to cover v2 (summary) AND v3
+-- (headline + why_it_matters) content fields so search remains reliable
+-- across the transition. Decision #83.
+--
+-- Migration 001 already created agenda_items.search_vector, idx_agenda_items_search,
+-- agenda_items_search_update() (title+description only), and agenda_items_search_trigger.
+-- We REPLACE the function body to extend what gets indexed; column / index /
+-- trigger are reused unchanged.
+
+CREATE OR REPLACE FUNCTION agenda_items_search_update() RETURNS trigger AS $$
+BEGIN
+  NEW.search_vector := to_tsvector('english',
+    COALESCE(NEW.title, '')          || ' ' ||
+    COALESCE(NEW.description, '')    || ' ' ||
+    COALESCE(NEW.headline, '')       || ' ' ||
+    COALESCE(NEW.why_it_matters, '') || ' ' ||
+    COALESCE(NEW.summary, '')
+  );
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- One-time refresh so existing rows pick up the summary content.
+-- (v3 fields headline / why_it_matters are NULL at this point;
+-- COALESCE handles that. Migration 014 will replace this function
+-- again to drop NEW.summary when the column itself is dropped.)
+UPDATE agenda_items SET search_vector = to_tsvector('english',
+  COALESCE(title, '') || ' ' ||
+  COALESCE(description, '') || ' ' ||
+  COALESCE(summary, '')
+);
 """
 
 SQL_DOWN = r"""
+-- Restore Migration 001's search function (title + description only)
+CREATE OR REPLACE FUNCTION agenda_items_search_update() RETURNS trigger AS $$
+BEGIN
+  NEW.search_vector := to_tsvector('english',
+    COALESCE(NEW.title, '') || ' ' || COALESCE(NEW.description, '')
+  );
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
 ALTER TABLE municipalities DROP COLUMN IF EXISTS master_calendar_url;
 
 ALTER TABLE agenda_items
