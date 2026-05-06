@@ -14,10 +14,17 @@ sections 2.1, 2.2, 7.1, decision #78.
 
 from __future__ import annotations
 
+import logging
 import re
-from typing import Literal, Protocol
+from collections import Counter
+from dataclasses import dataclass, field
+from types import SimpleNamespace
+from typing import Iterable, Literal, Protocol
 
 from docket.ai._priority import _is_big_fish, _priority_from_title
+from docket.db import db
+
+log = logging.getLogger(__name__)
 
 DataQuality = Literal['ok', 'no_text_layer', 'no_agenda_text', 'empty', 'foreign_language']
 DataDebtPriority = Literal['low', 'normal', 'high']
@@ -119,16 +126,6 @@ def is_procedural(title: str | None) -> bool:
     return False
 
 
-import logging
-from collections import Counter
-from dataclasses import dataclass, field
-from typing import Iterable
-
-from docket.db import db
-
-log = logging.getLogger(__name__)
-
-
 @dataclass
 class Wave0Report:
     """Classification counts after a Wave 0 run."""
@@ -137,7 +134,13 @@ class Wave0Report:
 
 
 def run_wave_0(city_ids: Iterable[int]) -> Wave0Report:
-    """Run Stage 0a + 0b across all agenda items in the given cities.
+    """Classify every unprocessed agenda item in the given cities.
+
+    Per-item ordering inverts the spec's section numbering: Stage 0b
+    (procedural regex) runs before Stage 0a (data-quality gate) because
+    procedural items are content-free by construction — gating them on
+    body presence would mis-classify "Roll Call" as `no_agenda_text`.
+    Both gates still run; only the order changed.
 
     Sets `data_quality`, `data_debt_priority`, and `processing_status`
     for every item. No LLM calls. Idempotent — safe to re-run after
@@ -176,14 +179,13 @@ def run_wave_0(city_ids: Iterable[int]) -> Wave0Report:
                     len(city_id_list),
                 )
 
+                # N+1 UPDATEs are intentional. Wave 0 is a daily cron;
+                # latency isn't critical, and per-row UPDATEs keep the
+                # routing logic readable. Revisit with UPDATE...FROM
+                # (VALUES) only if batch sizes exceed ~100K.
                 for row in rows:
                     item_id, title, description = row
 
-                    # Stage 0b — procedural regex runs FIRST.
-                    # Procedural items (Roll Call, Pledge, etc.) are
-                    # definitionally content-free; requiring a body would
-                    # mis-route them to data_quality_skipped. Title is the
-                    # authoritative signal here — no body needed.
                     if is_procedural(title):
                         cur.execute("""
                             UPDATE agenda_items
@@ -195,15 +197,12 @@ def run_wave_0(city_ids: Iterable[int]) -> Wave0Report:
                         report.counts['procedural_skipped'] += 1
                         continue
 
-                    # Build a minimal item view for Stage 0a
-                    view = type('view', (), {
-                        'title': title,
-                        'description': description,
-                        'raw_text': None,
-                        'source_type': 'pdf',
-                    })()
-
-                    # Stage 0a — data-quality gate (with Big Fish Override)
+                    view = SimpleNamespace(
+                        title=title,
+                        description=description,
+                        raw_text=None,
+                        source_type='pdf',
+                    )
                     quality, priority = evaluate_data_quality(view)
 
                     if quality != 'ok':
@@ -217,22 +216,26 @@ def run_wave_0(city_ids: Iterable[int]) -> Wave0Report:
                         report.counts['data_quality_skipped'] += 1
                         continue
 
-                    # Survives both gates — eligible for Wave 1+
-                    cur.execute("""
-                        UPDATE agenda_items
-                        SET data_quality = 'ok'::data_quality_enum,
-                            data_debt_priority = %s::data_debt_priority_enum,
-                            processing_status = 'pending'::processing_status_enum
-                        WHERE id = %s
-                    """, [priority, item_id])
-                    report.counts['pending'] += 1
-                    report.items_processed += 1
+                    if quality == 'ok':
+                        cur.execute("""
+                            UPDATE agenda_items
+                            SET data_quality = 'ok'::data_quality_enum,
+                                data_debt_priority = %s::data_debt_priority_enum,
+                                processing_status = 'pending'::processing_status_enum
+                            WHERE id = %s
+                        """, [priority, item_id])
+                        report.counts['pending'] += 1
+                        report.items_processed += 1
+                    else:
+                        # Unreachable by construction; tripwire for future refactors.
+                        log.error("wave_0: item %s missed all branches (quality=%r)", item_id, quality)
+                        report.counts['unknown'] += 1
 
-                cur.execute("SELECT pg_advisory_unlock(hashtext('docket.wave_0'))")
                 log.info("wave_0 complete: %s", dict(report.counts))
             except Exception:
-                cur.execute("SELECT pg_advisory_unlock(hashtext('docket.wave_0'))")
                 log.exception("wave_0 failed")
                 raise
+            finally:
+                cur.execute("SELECT pg_advisory_unlock(hashtext('docket.wave_0'))")
 
     return report

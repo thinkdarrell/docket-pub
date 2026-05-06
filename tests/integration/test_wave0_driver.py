@@ -1,11 +1,24 @@
-"""Tests for Wave 0 main driver."""
+"""Integration tests for Wave 0 main driver.
+
+WARNING: These tests classify all unprocessed agenda items in the
+configured database. The prod-DB guard below skips when DATABASE_URL
+points at Railway — accidentally running this against production would
+overwrite tens of thousands of items' classifications.
+"""
 
 from __future__ import annotations
 
 import pytest
 
 from docket.ai.wave0 import Wave0Report, run_wave_0
+from docket.config import DATABASE_URL
 from docket.db import db
+
+
+pytestmark = pytest.mark.skipif(
+    "railway.internal" in DATABASE_URL or "railway.app" in DATABASE_URL,
+    reason="Wave 0 integration test mutates ~30K rows; refusing to run against Railway.",
+)
 
 
 @pytest.fixture
