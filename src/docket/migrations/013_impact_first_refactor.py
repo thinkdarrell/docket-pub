@@ -288,6 +288,112 @@ GROUP BY m.city_id, aib.badge_slug, month
 WITH NO DATA;
 
 CREATE UNIQUE INDEX ON mv_badge_volume_monthly (city_id, badge_slug, month);
+
+-- 9. Seed: process badge templates (Section 4.2)
+INSERT INTO priority_badge_templates (slug, name, description, icon, kind) VALUES
+  ('hidden_on_consent', 'Hidden on consent',
+   'Item the AI judged should NOT be on consent (high public interest), but is on consent anyway.',
+   '💰', 'process'),
+  ('sole_source', 'Sole-source / no-bid',
+   'Procurement that bypassed competitive bidding.',
+   '🤝', 'process'),
+  ('legal_settlement', 'Legal settlement',
+   'Item resolves a legal claim — often closed-session-resolved.',
+   '⚖️', 'process'),
+  ('split_vote', 'Split vote',
+   'Council was not unanimous — at least one no or abstain.',
+   '🪧', 'process'),
+  ('contested', 'Contested',
+   'Genuinely divided — 2+ dissenters and >20% of votes cast.',
+   '🔥', 'process'),
+  ('amends_prior_contract', 'Amends prior contract',
+   'Modifies a prior contract with this vendor; may or may not increase total cost.',
+   '↩️', 'process'),
+  ('emergency_action', 'Emergency action',
+   'Declared emergency or emergency procurement; usually skips standard procurement rules.',
+   '🚨', 'process');
+
+-- 10. Seed: Birmingham 2026 policy badge templates (Section 5.2)
+INSERT INTO priority_badge_templates
+  (slug, name, description, icon, kind, default_matcher_hints) VALUES
+  (
+    'blight_accountability',
+    'Blight Accountability',
+    'Blighted property registration, demolition orders, tax penalties on neglected property, BPRA enforcement.',
+    '🏚️',
+    'policy',
+    '{
+      "keywords": ["blight", "blighted", "blighted property", "BPRA", "Blighted Property Registration",
+                   "condemnation order", "unsafe structure", "nuisance abatement", "demolition order",
+                   "tax penalty for neglect", "code enforcement"],
+      "action_types": ["demolition", "weed_abatement"],
+      "topics": ["blight"],
+      "excluded_action_types": ["liquor_license", "proclamation", "appointment_advisory", "right_of_way"],
+      "min_significance": 3
+    }'::jsonb
+  ),
+  (
+    'housing_stability',
+    'Housing Stability',
+    'Housing Trust Fund allocations, affordable-housing initiatives, eviction protections, tenant rights.',
+    '🏠',
+    'policy',
+    '{
+      "keywords": ["housing trust", "affordable housing", "eviction protection", "tenant rights",
+                   "down payment assistance", "rental assistance", "low income housing",
+                   "fair housing", "homestead exemption"],
+      "action_types": ["appropriation", "ordinance"],
+      "topics": ["housing"],
+      "excluded_action_types": ["liquor_license", "proclamation", "appointment_advisory"],
+      "min_significance": 3
+    }'::jsonb
+  ),
+  (
+    'property_recovery',
+    'Property Recovery',
+    'Land Bank Act acquisitions, tax-delinquency reclamation, derelict-parcel return to productive use.',
+    '🏗️',
+    'policy',
+    '{
+      "keywords": ["Land Bank", "Jefferson County Land Bank", "tax delinquent", "tax sale",
+                   "redevelopment authority", "quiet title", "derelict parcel", "tax foreclosure"],
+      "action_types": ["resolution", "ordinance"],
+      "topics": ["land", "property"],
+      "excluded_action_types": ["liquor_license", "proclamation", "appointment_advisory"],
+      "min_significance": 3
+    }'::jsonb
+  ),
+  (
+    'public_safety_tech_privacy',
+    'Public-Safety Tech & Privacy',
+    'Surveillance deployments, police technology, body cameras, predictive policing, facial recognition, ALPRs.',
+    '🛡️',
+    'policy',
+    '{
+      "keywords": ["Flock", "ALPR", "license plate reader", "body cam", "body-worn camera",
+                   "predictive policing", "facial recognition", "surveillance camera",
+                   "audit log", "gunshot detection", "ShotSpotter", "Axon"],
+      "action_types": ["contract_award", "contract_amendment", "ordinance", "appropriation"],
+      "topics": ["public_safety"],
+      "excluded_action_types": ["liquor_license", "proclamation", "appointment_advisory"],
+      "min_significance": 3
+    }'::jsonb
+  );
+
+-- 11. Seed: opt Birmingham into all 4 policy badges (Section 5.2)
+INSERT INTO priority_badges_config (city_id, template_slug, enabled, added_by, notes)
+SELECT m.id, t.slug, TRUE, 'migration_013', 'BHM 2026 v1 priority list'
+FROM municipalities m
+CROSS JOIN priority_badge_templates t
+WHERE m.slug = 'birmingham'
+  AND t.slug IN ('blight_accountability', 'housing_stability',
+                 'property_recovery', 'public_safety_tech_privacy');
+
+-- 12. Seed: Birmingham mayoral terms (for SVG overlay on category landing pages)
+INSERT INTO mayoral_terms (city_id, mayor_name, party, term_start, term_end)
+SELECT id, 'William Bell', 'Democrat',  '2010-01-26', '2017-11-28' FROM municipalities WHERE slug = 'birmingham'
+UNION ALL
+SELECT id, 'Randall Woodfin', 'Democrat', '2017-11-28', NULL FROM municipalities WHERE slug = 'birmingham';
 """
 
 SQL_DOWN = r"""
