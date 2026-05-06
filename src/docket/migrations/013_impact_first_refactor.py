@@ -269,9 +269,30 @@ CREATE INDEX idx_processing_status_audit_item
 CREATE INDEX idx_processing_status_audit_open_conflicts
     ON processing_status_audit (occurred_at DESC)
     WHERE action IN ('accept_stage1', 'accept_stage2', 're_prompted', 'edit_stage1');
+
+-- 8. Materialized view for category-page volume timelines (with consent split, decision #68)
+CREATE MATERIALIZED VIEW mv_badge_volume_monthly AS
+SELECT
+    m.city_id,
+    aib.badge_slug,
+    DATE_TRUNC('month', m.meeting_date)::date AS month,
+    COUNT(*)                                          AS n_items,
+    COUNT(*) FILTER (WHERE ai.is_consent = TRUE)     AS n_consent,
+    COUNT(*) FILTER (WHERE ai.is_consent = FALSE)    AS n_substantive,
+    COALESCE(SUM(ai.dollars_amount), 0)              AS total_dollars
+FROM agenda_item_badges aib
+JOIN agenda_items ai ON ai.id = aib.agenda_item_id
+JOIN meetings m ON m.id = ai.meeting_id
+WHERE aib.confidence >= 0.6
+GROUP BY m.city_id, aib.badge_slug, month
+WITH NO DATA;
+
+CREATE UNIQUE INDEX ON mv_badge_volume_monthly (city_id, badge_slug, month);
 """
 
 SQL_DOWN = r"""
+DROP MATERIALIZED VIEW IF EXISTS mv_badge_volume_monthly;
+
 -- Restore Migration 001's search function (title + description only)
 CREATE OR REPLACE FUNCTION agenda_items_search_update() RETURNS trigger AS $$
 BEGIN
