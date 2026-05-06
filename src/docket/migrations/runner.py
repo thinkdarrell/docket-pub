@@ -26,6 +26,7 @@ MIGRATIONS = [
     "docket.migrations.010_backfill_vote_agenda_items",
     "docket.migrations.011_drop_deprecated_vote_columns",
     "docket.migrations.012_ai_summaries_and_scoring",
+    "docket.migrations.013_impact_first_refactor",
 ]
 
 

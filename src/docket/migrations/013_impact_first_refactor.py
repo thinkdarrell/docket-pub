@@ -69,7 +69,7 @@ ALTER TABLE municipalities
 -- Migration 001 already created agenda_items.search_vector, idx_agenda_items_search,
 -- agenda_items_search_update() (title+description only), and agenda_items_search_trigger.
 -- We REPLACE the function body to extend what gets indexed; column / index /
--- trigger are reused unchanged.
+-- trigger are ensured to exist (idempotent DROP/CREATE in case they were lost).
 
 CREATE OR REPLACE FUNCTION agenda_items_search_update() RETURNS trigger AS $$
 BEGIN
@@ -83,6 +83,12 @@ BEGIN
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+
+-- Ensure trigger exists (idempotent — safe even if migration 001 already created it).
+DROP TRIGGER IF EXISTS agenda_items_search_trigger ON agenda_items;
+CREATE TRIGGER agenda_items_search_trigger
+    BEFORE INSERT OR UPDATE ON agenda_items
+    FOR EACH ROW EXECUTE FUNCTION agenda_items_search_update();
 
 -- One-time refresh so existing rows pick up the summary content.
 -- (v3 fields headline / why_it_matters are NULL at this point;
@@ -273,7 +279,7 @@ CREATE INDEX idx_processing_status_audit_open_conflicts
 -- 8. Materialized view for category-page volume timelines (with consent split, decision #68)
 CREATE MATERIALIZED VIEW mv_badge_volume_monthly AS
 SELECT
-    m.city_id,
+    m.municipality_id AS city_id,
     aib.badge_slug,
     DATE_TRUNC('month', m.meeting_date)::date AS month,
     COUNT(*)                                          AS n_items,
@@ -284,7 +290,7 @@ FROM agenda_item_badges aib
 JOIN agenda_items ai ON ai.id = aib.agenda_item_id
 JOIN meetings m ON m.id = ai.meeting_id
 WHERE aib.confidence >= 0.6
-GROUP BY m.city_id, aib.badge_slug, month
+GROUP BY m.municipality_id, aib.badge_slug, month
 WITH NO DATA;
 
 CREATE UNIQUE INDEX ON mv_badge_volume_monthly (city_id, badge_slug, month);
@@ -391,9 +397,9 @@ WHERE m.slug = 'birmingham'
 
 -- 12. Seed: Birmingham mayoral terms (for SVG overlay on category landing pages)
 INSERT INTO mayoral_terms (city_id, mayor_name, party, term_start, term_end)
-SELECT id, 'William Bell', 'Democrat',  '2010-01-26', '2017-11-28' FROM municipalities WHERE slug = 'birmingham'
+SELECT id, 'William Bell', 'Democrat',  '2010-01-26'::date, '2017-11-28'::date FROM municipalities WHERE slug = 'birmingham'
 UNION ALL
-SELECT id, 'Randall Woodfin', 'Democrat', '2017-11-28', NULL FROM municipalities WHERE slug = 'birmingham';
+SELECT id, 'Randall Woodfin', 'Democrat', '2017-11-28'::date, NULL FROM municipalities WHERE slug = 'birmingham';
 """
 
 SQL_DOWN = r"""
