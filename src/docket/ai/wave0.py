@@ -74,3 +74,46 @@ def evaluate_data_quality(item: _ItemView) -> tuple[DataQuality, DataDebtPriorit
         return ('foreign_language', _priority_from_title(item.title))
 
     return ('ok', _priority_from_title(item.title))
+
+
+PROCEDURAL_TITLE_PATTERNS = (
+    r'^\s*roll\s+call',
+    r'^\s*(call\s+to|opening\s+of)\s+(public\s+)?comments?',
+    r'^\s*pledge\s+of\s+allegiance',
+    r'^\s*invocation',
+    r'^\s*moment\s+of\s+silence',
+    r'^\s*motion\s+to\s+adjourn',
+    r'^\s*adjournment',
+    r'^\s*recess',
+    r'^\s*approval\s+of\s+(prior|previous|the)?\s*minutes',
+    r'minutes\s+(not\s+)?(yet\s+)?(ready|available|received)',
+    r'^\s*reading\s+of\s+(the\s+)?minutes',
+    r'^\s*proclamations?\s*$',
+    r'^\s*public\s+comment\s+period',
+    r'^\s*executive\s+session',
+    # Alabama council common patterns:
+    r'^\s*(vouchers?|bills?|payroll)\s+for\s+payment',
+    r'^\s*approval\s+of\s+claims',
+    r'^\s*recognition\s+of\s+(visitors?|guests?)',
+    r'^\s*awards?\s+and\s+presentations?',
+    r'^\s*reading\s+of\s+(communications?|petitions?)',
+)
+
+_compiled_patterns = [re.compile(p, re.IGNORECASE) for p in PROCEDURAL_TITLE_PATTERNS]
+
+
+def is_procedural(title: str | None) -> bool:
+    """Stage 0b: title-only regex check for procedural items.
+
+    Returns True if the title matches any of the known procedural
+    patterns (roll call, pledge, vouchers for payment, etc.). The
+    telemetry loop (decision #26) tracks items that pass this check
+    but are later judged procedural by Stage 2 — admins expand the
+    pattern list over time.
+    """
+    if not title:
+        return False
+    for pattern in _compiled_patterns:
+        if pattern.search(title):
+            return True
+    return False
