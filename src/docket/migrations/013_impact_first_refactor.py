@@ -30,9 +30,62 @@ CREATE TYPE processing_status_enum AS ENUM (
     'extracted', 'rewritten', 'badged', 'completed',
     'failed_retry', 'failed_permanent', 'cross_stage_conflict'
 );
+
+-- 3. New columns on agenda_items
+ALTER TABLE agenda_items
+  ADD COLUMN extracted_facts        JSONB                       DEFAULT NULL,
+  ADD COLUMN headline               TEXT                        DEFAULT NULL,
+  ADD COLUMN why_it_matters         TEXT                        DEFAULT NULL,
+  ADD COLUMN source_anchor          JSONB                       DEFAULT NULL,
+  ADD COLUMN data_quality           data_quality_enum           DEFAULT NULL,
+  ADD COLUMN data_debt_priority     data_debt_priority_enum     DEFAULT NULL,
+  ADD COLUMN processing_status      processing_status_enum      DEFAULT 'pending',
+  ADD COLUMN processing_attempts    INT                         DEFAULT 0,
+  ADD COLUMN last_error_at          TIMESTAMPTZ                 DEFAULT NULL,
+  ADD COLUMN last_error_message     TEXT                        DEFAULT NULL,
+  ADD COLUMN score_overrides        JSONB                       DEFAULT NULL,
+  ADD COLUMN ai_extraction_version  INT                         DEFAULT NULL,
+  ADD COLUMN ai_rewrite_version     INT                         DEFAULT NULL,
+  ADD COLUMN ai_confidence          TEXT                        DEFAULT NULL,
+  ADD COLUMN backfill_session_id    UUID                        DEFAULT NULL,
+  ADD CONSTRAINT chk_ai_confidence CHECK (
+      ai_confidence IS NULL OR ai_confidence IN ('high', 'medium', 'low')
+  ),
+  ADD CONSTRAINT chk_headline_length CHECK (
+      headline IS NULL OR length(headline) <= 60
+  ),
+  ADD CONSTRAINT chk_why_it_matters_length CHECK (
+      why_it_matters IS NULL OR length(why_it_matters) <= 200
+  );
+
+-- 4. New column on municipalities
+ALTER TABLE municipalities
+  ADD COLUMN master_calendar_url TEXT DEFAULT NULL;
 """
 
 SQL_DOWN = r"""
+ALTER TABLE municipalities DROP COLUMN IF EXISTS master_calendar_url;
+
+ALTER TABLE agenda_items
+  DROP CONSTRAINT IF EXISTS chk_why_it_matters_length,
+  DROP CONSTRAINT IF EXISTS chk_headline_length,
+  DROP CONSTRAINT IF EXISTS chk_ai_confidence,
+  DROP COLUMN IF EXISTS backfill_session_id,
+  DROP COLUMN IF EXISTS ai_confidence,
+  DROP COLUMN IF EXISTS ai_rewrite_version,
+  DROP COLUMN IF EXISTS ai_extraction_version,
+  DROP COLUMN IF EXISTS score_overrides,
+  DROP COLUMN IF EXISTS last_error_message,
+  DROP COLUMN IF EXISTS last_error_at,
+  DROP COLUMN IF EXISTS processing_attempts,
+  DROP COLUMN IF EXISTS processing_status,
+  DROP COLUMN IF EXISTS data_debt_priority,
+  DROP COLUMN IF EXISTS data_quality,
+  DROP COLUMN IF EXISTS source_anchor,
+  DROP COLUMN IF EXISTS why_it_matters,
+  DROP COLUMN IF EXISTS headline,
+  DROP COLUMN IF EXISTS extracted_facts;
+
 DROP TYPE IF EXISTS processing_status_enum;
 DROP TYPE IF EXISTS data_debt_priority_enum;
 DROP TYPE IF EXISTS data_quality_enum;
