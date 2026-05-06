@@ -46,6 +46,9 @@ class TestIsProcedural:
         "Resolution authorizing emergency repair",
         "Annual report on police staffing",
         "Award of liquor license for 234 Elm St",
+        # Pattern #10 false-positive guards: substantive items mentioning minutes
+        "Approval of meeting minutes available online",
+        "Resolution to make minutes available for download",
     ])
     def test_substantive_titles_dont_match(self, title: str):
         assert not is_procedural(title), f"Should NOT match: {title!r}"

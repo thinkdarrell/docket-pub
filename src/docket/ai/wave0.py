@@ -86,7 +86,7 @@ PROCEDURAL_TITLE_PATTERNS = (
     r'^\s*adjournment',
     r'^\s*recess',
     r'^\s*approval\s+of\s+(prior|previous|the)?\s*minutes',
-    r'minutes\s+(not\s+)?(yet\s+)?(ready|available|received)',
+    r'^\s*minutes\s+(not\s+)?(yet\s+)?(ready|available|received)\s*$',
     r'^\s*reading\s+of\s+(the\s+)?minutes',
     r'^\s*proclamations?\s*$',
     r'^\s*public\s+comment\s+period',
