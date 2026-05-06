@@ -114,7 +114,7 @@ SQL_UP = r"""
 -- Update the search-vector trigger to drop the summary term BEFORE
 -- dropping the column itself (otherwise the trigger fires on the
 -- implicit row update and references the missing column).
-CREATE OR REPLACE FUNCTION agenda_items_search_vector_update()
+CREATE OR REPLACE FUNCTION agenda_items_search_update()
 RETURNS trigger AS $$
 BEGIN
   NEW.search_vector := to_tsvector('english',
@@ -141,7 +141,7 @@ ALTER TABLE agenda_items ADD COLUMN summary TEXT;
 
 -- Restore the search trigger to include the summary term (in case the
 -- caller plans to repopulate).
-CREATE OR REPLACE FUNCTION agenda_items_search_vector_update()
+CREATE OR REPLACE FUNCTION agenda_items_search_update()
 RETURNS trigger AS $$
 BEGIN
   NEW.search_vector := to_tsvector('english',
@@ -242,84 +242,84 @@ from __future__ import annotations
 
 import pytest
 
-from docket.db import db, db_cursor
+from docket.db import db
 from docket.migrations.runner import apply_migrations, verify_v3_complete
 
 
 def test_014_refuses_if_legacy_completed_items_remain():
     """Migration 014 raises if any completed items are not at v3."""
-    conn = db()
-    apply_migrations(conn)  # ensure 013 is applied
+    with db() as conn:
+        apply_migrations(conn)  # ensure 013 is applied
 
-    # Insert a fake legacy completed item
-    with db_cursor() as cur:
-        cur.execute("SELECT id FROM meetings LIMIT 1")
-        meeting_id = cur.fetchone()[0]
-        cur.execute("""
-            INSERT INTO agenda_items
-              (meeting_id, title, description, processing_status, ai_rewrite_version)
-            VALUES
-              (%s, 'legacy item', 'desc', 'completed'::processing_status_enum, 2)
-            RETURNING id
-        """, [meeting_id])
-        bad_id = cur.fetchone()[0]
+        # Insert a fake legacy completed item
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM meetings LIMIT 1")
+            meeting_id = cur.fetchone()[0]
+            cur.execute("""
+                INSERT INTO agenda_items
+                  (meeting_id, title, description, processing_status, ai_rewrite_version)
+                VALUES
+                  (%s, 'legacy item', 'desc', 'completed'::processing_status_enum, 2)
+                RETURNING id
+            """, [meeting_id])
+            bad_id = cur.fetchone()[0]
 
-    with pytest.raises(RuntimeError, match="Refusing to apply migration 014"):
-        verify_v3_complete(conn)
+        with pytest.raises(RuntimeError, match="Refusing to apply migration 014"):
+            verify_v3_complete(conn)
 
-    # Cleanup
-    with db_cursor() as cur:
-        cur.execute("DELETE FROM agenda_items WHERE id = %s", [bad_id])
+        # Cleanup
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM agenda_items WHERE id = %s", [bad_id])
 
 
 def test_014_applies_when_all_v3():
     """Migration 014 applies cleanly when all completed items are at v3."""
-    conn = db()
-    apply_migrations(conn)  # ensure 013 is applied
+    with db() as conn:
+        apply_migrations(conn)  # ensure 013 is applied
 
-    # Ensure no legacy completed items
-    with db_cursor() as cur:
-        cur.execute("""
-            UPDATE agenda_items
-            SET ai_rewrite_version = 3
-            WHERE processing_status = 'completed'
-              AND ai_rewrite_version != 3
-        """)
+        # Ensure no legacy completed items
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE agenda_items
+                SET ai_rewrite_version = 3
+                WHERE processing_status = 'completed'
+                  AND ai_rewrite_version != 3
+            """)
 
-    # Now run the verification — should pass
-    verify_v3_complete(conn)
+        # Now run the verification — should pass
+        verify_v3_complete(conn)
 
-    # Apply (assuming 014 not yet applied; run via the migration runner pattern)
-    # ... if this test is the gate that triggers 014 in CI, scope accordingly.
+        # Apply (assuming 014 not yet applied; run via the migration runner pattern)
+        # ... if this test is the gate that triggers 014 in CI, scope accordingly.
 
 
 def test_014_search_vector_no_longer_references_summary():
     """After 014 applies, the trigger function omits summary from to_tsvector."""
-    conn = db()
-    apply_migrations(conn)
+    with db() as conn:
+        apply_migrations(conn)
 
-    with db_cursor() as cur:
-        cur.execute("""
-            SELECT prosrc FROM pg_proc
-            WHERE proname = 'agenda_items_search_vector_update'
-        """)
-        body = cur.fetchone()[0]
-        assert 'summary' not in body.lower(), (
-            "search_vector trigger function still references summary column"
-        )
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT prosrc FROM pg_proc
+                WHERE proname = 'agenda_items_search_update'
+            """)
+            body = cur.fetchone()[0]
+            assert 'summary' not in body.lower(), (
+                "search_vector trigger function still references summary column"
+            )
 
 
 def test_014_summary_column_dropped():
     """After 014 applies, agenda_items.summary doesn't exist."""
-    conn = db()
-    apply_migrations(conn)
+    with db() as conn:
+        apply_migrations(conn)
 
-    with db_cursor() as cur:
-        cur.execute("""
-            SELECT column_name FROM information_schema.columns
-            WHERE table_name = 'agenda_items' AND column_name = 'summary'
-        """)
-        assert cur.fetchone() is None, "agenda_items.summary column still exists"
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'agenda_items' AND column_name = 'summary'
+            """)
+            assert cur.fetchone() is None, "agenda_items.summary column still exists"
 ```
 
 - [ ] **Step 1.5: Run tests locally before applying to Railway**

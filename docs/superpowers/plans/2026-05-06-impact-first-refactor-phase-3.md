@@ -16,6 +16,21 @@
 
 ---
 
+## Operator Setup (read first)
+
+Phase 3 invokes the AI CLI from your **local laptop** against the Railway DB many times. `railway run` injects the *internal* `DATABASE_URL` (`postgres.railway.internal`) which doesn't resolve outside the Railway VPC, so a `railway run venv/bin/python -m docket.ai.cli ...` invocation fails locally.
+
+**Source these into your shell once at the start of each Phase 3 work session:**
+
+```bash
+export DATABASE_URL="$(railway variables --service docket-web --kv | grep '^DATABASE_PUBLIC_URL=' | cut -d= -f2-)"
+export ANTHROPIC_API_KEY="$(railway variables --service docket-web --kv | grep '^ANTHROPIC_API_KEY=' | cut -d= -f2-)"
+```
+
+After that, every `venv/bin/python -m docket.ai.cli ...` command in this plan runs locally with the right env. (For commands explicitly meant to run inside the Railway container — e.g., for VPC-only operations — the plan calls them out with `railway ssh --service docket-web`.)
+
+---
+
 ## File Structure
 
 **No new code files.** Phase 3 is operations on top of Phase 2's machinery.
@@ -77,7 +92,7 @@ Record this number — it's the input to all subsequent cost projections. (Likel
 Verify `anthropic.Anthropic` is being instantiated with `max_retries=0` so 429 errors bubble up to `AdaptiveWorkerPool` instead of being silently retried by the SDK.
 
 ```bash
-railway run venv/bin/python -c "
+venv/bin/python -c "
 from docket.ai.extraction import anthropic_client
 print('extraction max_retries:', anthropic_client.max_retries)
 from docket.ai.rewrite import anthropic_client as rw
@@ -121,7 +136,7 @@ Expected: `total_cached` is nonzero (the live `ai_items` task has been hitting i
 Sanity-check that `_strip_markdown_fences` is wired up in both extraction and rewrite paths.
 
 ```bash
-railway run venv/bin/python -c "
+venv/bin/python -c "
 from docket.ai.extraction import _strip_markdown_fences
 print(_strip_markdown_fences('\`\`\`json\n{\"x\": 1}\n\`\`\`') == '{\"x\": 1}')
 "
@@ -137,7 +152,7 @@ Expected: `True`. If the helper is missing or the import fails, Wave 0.5 can hit
 - [ ] **Step 1.1: Verify the wave's eligible item count and projected cost**
 
 ```bash
-railway run venv/bin/python -m docket.ai.cli --wave 0.5 --dry-run
+venv/bin/python -m docket.ai.cli --wave 0.5 --dry-run
 ```
 
 Expected output:
@@ -154,7 +169,7 @@ If the count is way outside the ~500-1500 range, investigate before proceeding.
 - [ ] **Step 1.2: Run Wave 0.5**
 
 ```bash
-railway run venv/bin/python -m docket.ai.cli --wave 0.5
+venv/bin/python -m docket.ai.cli --wave 0.5
 ```
 
 This kicks off the synchronous burst. Should complete in ~1-4 hours. The CLI will tail progress logs. Watch for:
@@ -276,7 +291,7 @@ railway up --service worker --detach
 - [ ] **Step 3.3: Re-run Wave 0.5 with the new prompt**
 
 ```bash
-railway run venv/bin/python -m docket.ai.cli --wave 0.5 --reprocess
+venv/bin/python -m docket.ai.cli --wave 0.5 --reprocess
 ```
 
 `--reprocess` flag tells the driver to re-process items where `ai_rewrite_version < CURRENT_VERSION`. Cost: ~$8 again. Spot-check (Task 2) again.
@@ -294,7 +309,7 @@ Repeat Tasks 2 + 3 until Wave 0.5 outputs pass spot-check. Don't proceed to Wave
 - [ ] **Step 4.1: Verify the Wave 1 working set**
 
 ```bash
-railway run venv/bin/python -m docket.ai.cli --wave 1 --dry-run
+venv/bin/python -m docket.ai.cli --wave 1 --dry-run
 ```
 
 Expected:
@@ -309,7 +324,7 @@ Wave 1 dry run:
 - [ ] **Step 4.2: Submit Wave 1**
 
 ```bash
-railway run venv/bin/python -m docket.ai.cli --wave 1 --submit
+venv/bin/python -m docket.ai.cli --wave 1 --submit
 ```
 
 This creates `ai_batches` rows and submits to Anthropic. Returns the session_id and batch IDs.
@@ -370,7 +385,7 @@ LIMIT 10;
 If any batch shows `status='failed'` or `'expired'`, OR if any batch is `'in_progress'` for >36 hours:
 
 ```bash
-railway run venv/bin/python -m docket.ai.cli --batch-status <anthropic_batch_id>
+venv/bin/python -m docket.ai.cli --batch-status <anthropic_batch_id>
 ```
 
 Anthropic's API will explain. Common failures: rate limit / billing issue / malformed request. Fix root cause and resubmit (see runbook).
@@ -471,9 +486,9 @@ Look for unexpected errors. If anything looks off, immediately set `SMART_BREVIT
 - [ ] **Step 8.1: Dry-run + submit**
 
 ```bash
-railway run venv/bin/python -m docket.ai.cli --wave 2 --dry-run
+venv/bin/python -m docket.ai.cli --wave 2 --dry-run
 # Verify count and cost
-railway run venv/bin/python -m docket.ai.cli --wave 2 --submit
+venv/bin/python -m docket.ai.cli --wave 2 --submit
 ```
 
 - [ ] **Step 8.2: Daily monitoring (4-7 days)**
@@ -497,8 +512,8 @@ Same query shape as Task 6.1, scoped to `meeting_date BETWEEN '2021-01-01' AND '
 - [ ] **Step 9.1: Dry-run + submit**
 
 ```bash
-railway run venv/bin/python -m docket.ai.cli --wave 3 --dry-run
-railway run venv/bin/python -m docket.ai.cli --wave 3 --submit
+venv/bin/python -m docket.ai.cli --wave 3 --dry-run
+venv/bin/python -m docket.ai.cli --wave 3 --submit
 ```
 
 - [ ] **Step 9.2: Daily monitoring (2-4 days)**
@@ -559,7 +574,7 @@ Each should show 5-50+ items spanning multiple years. The volume timeline should
 - [ ] **Step 10.4: Refresh materialized view one more time**
 
 ```bash
-railway run venv/bin/python -c "
+venv/bin/python -c "
 from docket.db import db_cursor
 with db_cursor() as cur:
     cur.execute('REFRESH MATERIALIZED VIEW CONCURRENTLY mv_badge_volume_monthly')
@@ -635,6 +650,6 @@ git push origin refactor-impact-first-phase-3-shipped
 |---|---|---|
 | Wave produces bad outputs (prompt regression) | Calibration alerts spike, spot-checks fail | Bump `ITEM_PROMPT_VERSION`. `UPDATE … WHERE backfill_session_id=:uuid` to clear the bad outputs. Re-run the wave with the new version. |
 | Citizens hit broken UI after `SMART_BREVITY_UI=true` | Sentry / user reports | Set `SMART_BREVITY_UI=false`; redeploy. v2 UI returns immediately. Investigate without time pressure. |
-| Anthropic Batches API rate-limited at scale | `ai_batches.status='failed'` | Adaptive concurrency self-corrects; if persistent, halt the driver via `railway run venv/bin/python -m docket.ai.cli --backfill-pause`. Resume next day. |
+| Anthropic Batches API rate-limited at scale | `ai_batches.status='failed'` | Adaptive concurrency self-corrects; if persistent, halt the driver via `venv/bin/python -m docket.ai.cli --backfill-pause`. Resume next day. |
 | Cross-stage-conflict rate climbs >2% | Calibration query | Bump prompt version (see Task 3); re-run the affected wave. |
 | Cost overrun mid-wave | Daily budget gate (`AI_DAILY_BUDGET_USD`) breach | Soft cap auto-pauses new submissions. Increase the cap with `--force-budget` if urgent, otherwise resume next day. |

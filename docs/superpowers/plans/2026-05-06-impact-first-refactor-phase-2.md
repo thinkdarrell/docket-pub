@@ -402,13 +402,13 @@ def test_cache_get_updates_accessed_at():
     payload = {'response': {'x': 1}}
     cache_put(key, model='claude-haiku-4-5-20251001', prompt_version=3, payload=payload)
 
-    with db_cursor() as cur:
+    with db() as conn, conn.cursor() as cur:
         cur.execute("SELECT accessed_at FROM ai_response_cache WHERE cache_key = %s", [key])
         before = cur.fetchone()[0]
 
     cache_get(key)
 
-    with db_cursor() as cur:
+    with db() as conn, conn.cursor() as cur:
         cur.execute("SELECT accessed_at FROM ai_response_cache WHERE cache_key = %s", [key])
         after = cur.fetchone()[0]
 
@@ -434,7 +434,7 @@ def test_cache_cleanup_removes_old_entries():
     n_deleted = cache_cleanup(max_age_days=90)
     assert n_deleted >= 1
 
-    with db_cursor() as cur:
+    with db() as conn, conn.cursor() as cur:
         cur.execute("SELECT COUNT(*) FROM ai_response_cache WHERE cache_key = 'cleanup_test_old'")
         assert cur.fetchone()[0] == 0
 ```
@@ -1361,12 +1361,12 @@ git commit -m "feat(ai): per-item pipeline orchestrator (Stages 0-2.5 + reconcil
 
 Each query is the SQL from spec §4.4 (Hidden on consent, Sole-source, Legal settlement, Split vote, Contested, Amends prior contract with v6 noise filter + decision #89 negative regex, Emergency action).
 
-**IMPORTANT — decision #92 modification:** every INSERT must include `city_id` resolved via the JOIN to `meetings`. Add `JOIN meetings m ON m.id = ai.meeting_id` to the SELECT side and `m.city_id` to the column list. Example template:
+**IMPORTANT — decision #92 modification:** every INSERT must include `city_id` resolved via the JOIN to `meetings`. Add `JOIN meetings m ON m.id = ai.meeting_id` to the SELECT side and `m.municipality_id` to the column list (the `meetings` table FK column is named `municipality_id`, but the new `agenda_item_badges.city_id` column receives it). Example template:
 
 ```sql
 INSERT INTO agenda_item_badges
   (agenda_item_id, city_id, badge_slug, kind, confidence, source)
-SELECT ai.id, m.city_id, 'sole_source', 'process', 1.0, 'deterministic'
+SELECT ai.id, m.municipality_id, 'sole_source', 'process', 1.0, 'deterministic'
 FROM agenda_items ai
 JOIN meetings m ON m.id = ai.meeting_id
 WHERE ai.extracted_facts->>'procurement_method' IN ('sole_source', 'no_bid')
@@ -1429,9 +1429,9 @@ def process_badges_task() -> None:
     """Nightly recompute of process badges. Manual badges preserved
     (decision #57). Decision #78 — runs after vote_matching at 09:00."""
     from docket.ai.badges_process import PROCESS_BADGE_QUERIES
-    from docket.db import db_cursor
+    from docket.db import db
 
-    with db_cursor() as cur:
+    with db() as conn, conn.cursor() as cur:
         # Advisory lock
         cur.execute("SELECT pg_try_advisory_lock(hashtext('docket.process_badges'))")
         if not cur.fetchone()[0]:
@@ -2122,7 +2122,7 @@ def accept_stage_1(item_id: int, *, manual_headline: str, manual_why_it_matters:
                     actor: str) -> str:
     """Admin says: 'this IS substantive — here's what it should say.'
     Sets headline/why_it_matters from admin input, marks completed."""
-    with db_cursor() as cur:
+    with db() as conn, conn.cursor() as cur:
         cur.execute("""
             UPDATE agenda_items
             SET headline = %s,
@@ -2142,7 +2142,7 @@ def accept_stage_1(item_id: int, *, manual_headline: str, manual_why_it_matters:
 def accept_stage_2(item_id: int, *, actor: str, reason: str | None = None) -> str:
     """Admin says: 'Stage 2 was right — this IS procedural.'
     Clears Stage 1 facts that confused things; marks completed as procedural."""
-    with db_cursor() as cur:
+    with db() as conn, conn.cursor() as cur:
         cur.execute("""
             UPDATE agenda_items
             SET extracted_facts = NULL,
@@ -2161,9 +2161,9 @@ def accept_stage_2(item_id: int, *, actor: str, reason: str | None = None) -> st
 def re_prompt_stage_2(item_id: int, *, override_instruction: str, actor: str) -> str:
     """Admin writes a one-liner override; system re-runs Stage 2 with it.
     If conflicts again, item stays in cross_stage_conflict for another pass."""
-    with db_cursor() as cur:
+    with db() as conn, conn.cursor() as cur:
         cur.execute("""
-            SELECT ai.*, m.city_id FROM agenda_items ai
+            SELECT ai.*, m.municipality_id AS city_id FROM agenda_items ai
             JOIN meetings m ON m.id = ai.meeting_id
             WHERE ai.id = %s
         """, [item_id])
@@ -2179,7 +2179,7 @@ def edit_stage_1_facts(item_id: int, *, new_facts_json: dict, actor: str,
                         reason: str | None = None) -> str:
     """Admin corrects misclassified facts (e.g., counterparty was wrong).
     System re-runs Stage 2 with corrected facts → reconcile."""
-    with db_cursor() as cur:
+    with db() as conn, conn.cursor() as cur:
         # Validate the new facts via Pydantic
         facts = StructuredFacts.model_validate(new_facts_json)
         cur.execute("""
@@ -2207,11 +2207,11 @@ def review_conflicts():
             SELECT ai.id, ai.title, ai.description, ai.extracted_facts,
                    ai.headline, ai.why_it_matters,
                    ai.score_overrides, ai.updated_at,
-                   m.city_id, m.meeting_date,
+                   m.municipality_id AS city_id, m.meeting_date,
                    c.slug AS city_slug, c.name AS city_name
             FROM agenda_items ai
             JOIN meetings m ON m.id = ai.meeting_id
-            JOIN municipalities c ON c.id = m.city_id
+            JOIN municipalities c ON c.id = m.municipality_id
             WHERE ai.processing_status = 'cross_stage_conflict'
             ORDER BY ai.data_debt_priority DESC, ai.updated_at DESC
             LIMIT 100
