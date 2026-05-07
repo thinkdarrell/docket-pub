@@ -103,3 +103,47 @@ def cache_clear_for_city(city_id: int) -> None:
     """
     get_enabled_policy_slugs.cache_clear()
     list_enabled_policy_badges.cache_clear()
+
+
+def record_badge_action(
+    cur,
+    agenda_item_id: int,
+    badge_slug: str,
+    action: str,
+    actor_role: str,
+    *,
+    actor: str | None = None,
+    reason: str | None = None,
+) -> None:
+    """Insert one row into agenda_item_badges_audit.
+
+    Caller controls the transaction. `cur` is a psycopg cursor.
+
+    Args:
+      agenda_item_id: FK to agenda_items.id
+      badge_slug: badge slug (e.g. 'sole_source', 'blight')
+      action: 'added' | 'removed' | 'modified'
+      actor_role: 'admin' | 'cron' | 'on_write'
+      actor: optional human/automation identifier (e.g. admin email, 'process_badges_task')
+      reason: optional free-text rationale (e.g. 'manual override: misclassified')
+
+    Raises ValueError on unknown action / actor_role to fail loud at the
+    Python layer instead of at the DB CHECK constraint.
+    """
+    if action not in ('added', 'removed', 'modified'):
+        raise ValueError(
+            f"action must be one of added|removed|modified, got {action!r}"
+        )
+    if actor_role not in ('admin', 'cron', 'on_write'):
+        raise ValueError(
+            f"actor_role must be one of admin|cron|on_write, got {actor_role!r}"
+        )
+
+    cur.execute(
+        """
+        INSERT INTO agenda_item_badges_audit
+          (agenda_item_id, badge_slug, action, actor, actor_role, reason)
+        VALUES (%s, %s, %s, %s, %s, %s)
+        """,
+        [agenda_item_id, badge_slug, action, actor, actor_role, reason],
+    )
