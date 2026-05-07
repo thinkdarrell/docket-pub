@@ -23,6 +23,11 @@ def create_app() -> Flask:
         app.config["SESSION_COOKIE_HTTPONLY"] = True
         app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
+    # Register Jinja filters (order_badges, etc.)
+    from docket.web import filters
+
+    filters.register(app)
+
     # Register blueprints
     from docket.web.admin import bp as admin_bp
     from docket.web.auth import bp as auth_bp

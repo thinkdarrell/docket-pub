@@ -14,10 +14,26 @@
       ⚠️ Verification in progress
     </span>
 
-    {# TODO E2: badge chips row (process-first, +N more collapse) — same as full smart_brevity #}
-    <div class="badge-row">
-      {# TODO E2: render badges from item.badges via order_badges, with ✨ verification spark on confidence>=1.0 #}
-    </div>
+    {# E2: badge chips row — same shape as the full smart_brevity card.
+       Process-first via `order_badges`, top-3 inline, remaining behind a
+       +N more HTMX expander. Verification Spark + AI-verified title
+       suffix render inside badge_chip when chip.confidence >= 1.0. #}
+    {% if item.badges %}
+      {% set ordered = item.badges | order_badges %}
+      <div class="badge-row">
+        {% for chip in ordered[:3] %}
+          {% include 'partials/badge_chip.html' %}
+        {% endfor %}
+        {% if ordered|length > 3 %}
+          <button class="badge-more"
+                  hx-get="/items/{{ item.id }}/badges"
+                  hx-target="this"
+                  hx-swap="outerHTML">
+            +{{ ordered|length - 3 }} more
+          </button>
+        {% endif %}
+      </div>
+    {% endif %}
   </header>
 
   <h3 class="smart-brevity-card__headline">{{ item.headline or item.title }}</h3>
