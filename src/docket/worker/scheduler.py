@@ -5,7 +5,7 @@ Two modes:
   python -m docket.worker.scheduler                   # daemon mode (Railway worker)
   python -m docket.worker.scheduler --run-once <task> # foreground one-shot
 
-The daemon registers all five jobs with the timezone in $WORKER_TIMEZONE
+The daemon registers all six jobs with the timezone in $WORKER_TIMEZONE
 (default America/Chicago) and calls scheduler.start(), which blocks.
 
 The one-shot mode runs a single named task in the foreground using the same
@@ -64,6 +64,13 @@ def build_scheduler(timezone: str = "America/Chicago") -> BlockingScheduler:
         TASKS["vote_matching"],
         CronTrigger(hour=9, minute=0, timezone=timezone),
         id="vote_matching",
+        coalesce=True,
+        max_instances=1,
+    )
+    sched.add_job(
+        TASKS["process_badges"],
+        CronTrigger(hour=9, minute=30, timezone=timezone),
+        id="process_badges",
         coalesce=True,
         max_instances=1,
     )
