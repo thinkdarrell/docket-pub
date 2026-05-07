@@ -17,6 +17,14 @@ from docket.ai.floors import SUBJECT_MATTER_PATTERNS
 from docket.ai.rewrite_schema import ItemRewrite
 
 
+HIGH_ATTENTION_ACTION_TYPES = frozenset({
+    'settlement', 'tax_abatement', 'annexation',
+    'emergency_procurement', 'liquor_license',
+    'right_of_way', 'zoning',
+    'appointment_executive', 'appointment_board',
+})
+
+
 @dataclass
 class ReconciliationResult:
     action: Literal['accept', 'retry_stage2_with_override', 'mark_cross_stage_conflict']
@@ -40,10 +48,7 @@ def reconcile_stages(facts: StructuredFacts,
             conflicts.append('stage1_has_funding_source_but_stage2_procedural')
         if (item.dollars_amount or 0) >= 50_000:  # Yellow tier or above
             conflicts.append('yellow_tier_dollars_but_stage2_procedural')
-        if facts.action_type in ('settlement', 'tax_abatement', 'annexation',
-                                   'emergency_procurement', 'liquor_license',
-                                   'right_of_way', 'zoning',
-                                   'appointment_executive', 'appointment_board'):
+        if facts.action_type in HIGH_ATTENTION_ACTION_TYPES:
             conflicts.append(f'high_attention_action_type_but_stage2_procedural:{facts.action_type}')
 
         # Subject-matter regex check — surveillance/police/eminent-domain titles

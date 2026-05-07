@@ -16,7 +16,7 @@ from __future__ import annotations
 import pytest
 
 from docket.ai.extraction_schema import NextSteps, StructuredFacts
-from docket.ai.reconcile import ReconciliationResult, reconcile_stages
+from docket.ai.reconcile import HIGH_ATTENTION_ACTION_TYPES, ReconciliationResult, reconcile_stages
 from docket.ai.rewrite_schema import ItemRewrite
 
 
@@ -214,10 +214,7 @@ def test_conflict_action_type_settlement():
                for c in result.conflicts)
 
 
-@pytest.mark.parametrize('action_type', [
-    'settlement', 'tax_abatement', 'annexation', 'emergency_procurement',
-    'liquor_license', 'right_of_way', 'zoning', 'appointment_executive', 'appointment_board',
-])
+@pytest.mark.parametrize('action_type', sorted(HIGH_ATTENTION_ACTION_TYPES))
 def test_conflict_all_high_attention_action_types(action_type):
     """Every action_type in the high-attention list triggers a conflict."""
     item = make_item(title='Roll Call', description='')
