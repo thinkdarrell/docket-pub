@@ -87,3 +87,27 @@ class TestItemRewriteProcedural:
                 suggested_badge_slugs=[],
                 confidence='medium',
             )
+
+
+class TestItemRewriteScoreTypes:
+    """Scores are float so the schema accepts decimal LLM output (e.g. 7.5)
+    without rejecting an already-billed Anthropic response."""
+
+    def test_decimal_significance_score_accepted(self):
+        d = base_substantive()
+        d['significance_score'] = 7.5
+        m = ItemRewrite(**d)
+        assert m.significance_score == 7.5
+
+    def test_decimal_consent_score_accepted(self):
+        d = base_substantive()
+        d['consent_placement_score'] = 2.5
+        m = ItemRewrite(**d)
+        assert m.consent_placement_score == 2.5
+
+    def test_integer_score_still_accepted(self):
+        """Integer values must continue to parse — most LLM output is integer-shaped."""
+        d = base_substantive()
+        d['significance_score'] = 7
+        m = ItemRewrite(**d)
+        assert m.significance_score == 7.0

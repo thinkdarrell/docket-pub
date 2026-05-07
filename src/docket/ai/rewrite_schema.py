@@ -15,9 +15,9 @@ class ItemRewrite(BaseModel):
     headline: str | None = Field(None, max_length=60)
     why_it_matters: str | None = Field(None, max_length=200)
     significance_rationale: str = Field("", max_length=1500)
-    significance_score: int | None = Field(None, ge=0, le=10)
+    significance_score: float | None = Field(None, ge=0.0, le=10.0)
     consent_placement_rationale: str = Field("", max_length=1500)
-    consent_placement_score: int | None = Field(None, ge=0, le=10)
+    consent_placement_score: float | None = Field(None, ge=0.0, le=10.0)
     suggested_badge_slugs: list[str] = Field(default_factory=list)
     confidence: Literal['high', 'medium', 'low']
 
