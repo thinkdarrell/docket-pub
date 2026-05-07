@@ -11,8 +11,9 @@ from docket.ai.extraction import (
     EXTRACTION_PROMPT_VERSION,
     build_user_message,
     extract_facts_for_item,
+    persist_extraction,
 )
-from docket.ai.extraction_schema import StructuredFacts
+from docket.ai.extraction_schema import NextSteps, StructuredFacts
 
 
 def make_item(**kw):
@@ -125,3 +126,29 @@ def test_strip_markdown_fences_passthrough():
     """Bare JSON is unchanged."""
     from docket.ai.extraction import _strip_markdown_fences
     assert _strip_markdown_fences('{"x": 1}') == '{"x": 1}'
+
+
+def test_persist_extraction_writes_jsonb_and_version():
+    """persist_extraction updates extracted_facts JSONB and bumps the version."""
+    facts = StructuredFacts(
+        funding_source='general_fund',
+        counterparty='Acme HVAC',
+        procurement_method='competitive',
+        location=None,
+        action_type='contract_award',
+        next_steps=NextSteps(),
+        parcels_affected=None,
+        acres_affected=None,
+    )
+
+    mock_cur = MagicMock()
+    persist_extraction(mock_cur, item_id=42, facts=facts, version=1)
+
+    # Verify the SQL parameters — flexible matching of UPDATE shape
+    args, kwargs = mock_cur.execute.call_args
+    sql, params = args
+    assert "UPDATE agenda_items" in sql
+    assert "extracted_facts" in sql
+    assert "ai_extraction_version" in sql
+    # Last param is item_id; first param is the JSON
+    assert params[-1] == 42

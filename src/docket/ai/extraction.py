@@ -132,3 +132,20 @@ def extract_facts_for_item(item, *, model: str = "claude-haiku-4-5-20251001") ->
               payload={'response': parsed, 'model': served_model})
 
     return facts, served_model
+
+
+def persist_extraction(cur, item_id: int, facts: StructuredFacts, version: int) -> None:
+    """Write Stage 1 output to agenda_items.extracted_facts.
+
+    Caller controls the transaction. `cur` is a psycopg cursor.
+    """
+    cur.execute(
+        """
+        UPDATE agenda_items
+        SET extracted_facts = %s::jsonb,
+            ai_extraction_version = %s,
+            processing_status = 'extracted'::processing_status_enum
+        WHERE id = %s
+        """,
+        [facts.model_dump_json(), version, item_id],
+    )
