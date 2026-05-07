@@ -11,7 +11,7 @@
        and the link is omitted entirely. #}
 {% if item.source_anchor and item.source_anchor.url %}
   {% set _url = item.source_anchor.url %}
-  {% if _url.startswith('http://') or _url.startswith('https://') or _url.startswith('/') %}
+  {% if _url.startswith('http://') or _url.startswith('https://') or (_url.startswith('/') and not _url.startswith('//')) %}
     <a class="view-source" href="{{ _url }}" target="_blank" rel="noopener noreferrer">View original →</a>
   {% endif %}
 {% endif %}

@@ -410,6 +410,21 @@ class TestSourceLinkSchemeValidation:
         assert "data:text/html" not in html
         assert "view-source" not in html
 
+    def test_protocol_relative_url_is_omitted(self, app):
+        """Protocol-relative //host/path URLs resolve off-origin on HTTPS
+        pages — same XSS/phishing risk as javascript: and data:. The
+        allowlist must reject them even though they start with '/'."""
+        item = {
+            "id": 205,
+            "title": "Item with protocol-relative URL",
+            "processing_status": "failed_permanent",
+            "source_anchor": {"url": "//evil.example/x"},
+        }
+        html = _render(app, item)
+        _assert_only_variant(html, "failed")
+        assert 'href="//evil.example' not in html
+        assert "view-source" not in html
+
 
 class TestVerificationPendingContent:
     """Per spec §6.1, the verification-pending variant DOES render the
