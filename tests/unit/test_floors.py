@@ -340,21 +340,23 @@ class TestSurveillanceAlprSignificance:
     def test_badge_slug_fires(self):
         """public_safety_tech_privacy badge triggers the floor even without keyword."""
         item = make_item(title='Technology purchase', description='No keywords here.')
-        # Inject the badge via a duck-typed object with suggested_badge_slugs
-        facts_with_badge = type('FactsWithBadge', (), {
-            'funding_source': 'general_fund',
-            'counterparty': None,
-            'procurement_method': 'competitive',
-            'location': None,
-            'action_type': 'contract_award',
-            'parcels_affected': None,
-            'acres_affected': None,
-            'suggested_badge_slugs': ['public_safety_tech_privacy'],
-        })()
+        facts = make_facts()
+        # Badge slug lives on ItemRewrite (Stage 2 output), not StructuredFacts (Stage 1)
         ai = make_ai(significance_score=2)
+        ai = ItemRewrite(
+            is_substantive=True,
+            headline='A headline of sufficient length',
+            why_it_matters='Why it matters content',
+            significance_rationale='rationale',
+            significance_score=2,
+            consent_placement_rationale='rationale',
+            consent_placement_score=8,
+            suggested_badge_slugs=['public_safety_tech_privacy'],
+            confidence='high',
+        )
         cur = mock_cursor_no_override()
 
-        result = apply_score_floors(cur, item, facts_with_badge, ai, city_id=1)
+        result = apply_score_floors(cur, item, facts, ai, city_id=1)
 
         assert result.final_significance >= 7
         fired_names = [t['trigger'] for t in result.triggers]

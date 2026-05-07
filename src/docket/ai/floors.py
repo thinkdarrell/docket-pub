@@ -37,7 +37,7 @@ class ScoreOverrides:
 @dataclass
 class FloorTrigger:
     name: str  # human-readable identifier, e.g. "red_tier_dollars"
-    predicate: Callable[[Any, StructuredFacts], bool]
+    predicate: Callable[[Any, StructuredFacts, ItemRewrite], bool]
     score_field: Literal['significance', 'consent_placement']
     bound: int  # MIN for significance, MAX for consent_placement
 
@@ -48,47 +48,47 @@ class FloorTrigger:
 
 SIGNIFICANCE_FLOORS: list[FloorTrigger] = [
     # Dollar tiers
-    FloorTrigger("red_plus_10m", lambda i, f: (i.dollars_amount or 0) >= 10_000_000,
+    FloorTrigger("red_plus_10m", lambda i, f, a: (i.dollars_amount or 0) >= 10_000_000,
                  'significance', 9),
-    FloorTrigger("red_1m", lambda i, f: (i.dollars_amount or 0) >= 1_000_000,
+    FloorTrigger("red_1m", lambda i, f, a: (i.dollars_amount or 0) >= 1_000_000,
                  'significance', 7),
     # Orange tier × triggers
     FloorTrigger("orange_sole_source",
-                 lambda i, f: (i.dollars_amount or 0) >= 250_000
+                 lambda i, f, a: (i.dollars_amount or 0) >= 250_000
                               and f.procurement_method == 'sole_source',
                  'significance', 7),
     FloorTrigger("orange_settlement",
-                 lambda i, f: (i.dollars_amount or 0) >= 250_000
+                 lambda i, f, a: (i.dollars_amount or 0) >= 250_000
                               and f.action_type == 'settlement',
                  'significance', 8),
     # Yellow tier × triggers
     FloorTrigger("yellow_sole_source",
-                 lambda i, f: (i.dollars_amount or 0) >= 50_000
+                 lambda i, f, a: (i.dollars_amount or 0) >= 50_000
                               and f.procurement_method == 'sole_source',
                  'significance', 6),
     FloorTrigger("yellow_settlement",
-                 lambda i, f: (i.dollars_amount or 0) >= 50_000
+                 lambda i, f, a: (i.dollars_amount or 0) >= 50_000
                               and f.action_type == 'settlement',
                  'significance', 6),
     # Action-type-only triggers
-    FloorTrigger("any_settlement", lambda i, f: f.action_type == 'settlement',
+    FloorTrigger("any_settlement", lambda i, f, a: f.action_type == 'settlement',
                  'significance', 6),
     FloorTrigger("zoning_large",
-                 lambda i, f: f.action_type == 'zoning'
+                 lambda i, f, a: f.action_type == 'zoning'
                               and ((f.parcels_affected or 0) >= 5
                                    or (f.acres_affected or 0) >= 10),
                  'significance', 7),
     FloorTrigger("emergency_proc",
-                 lambda i, f: f.action_type == 'emergency_procurement',
+                 lambda i, f, a: f.action_type == 'emergency_procurement',
                  'significance', 7),
     FloorTrigger("appt_executive",
-                 lambda i, f: f.action_type == 'appointment_executive',
+                 lambda i, f, a: f.action_type == 'appointment_executive',
                  'significance', 7),
     FloorTrigger("appt_board",
-                 lambda i, f: f.action_type == 'appointment_board',
+                 lambda i, f, a: f.action_type == 'appointment_board',
                  'significance', 5),
     FloorTrigger("tax_abatement_orange",
-                 lambda i, f: f.action_type == 'tax_abatement'
+                 lambda i, f, a: f.action_type == 'tax_abatement'
                               and (i.dollars_amount or 0) >= 250_000,
                  'significance', 7),
 ]
@@ -119,40 +119,40 @@ SUBJECT_MATTER_PATTERNS = {
 
 SUBJECT_MATTER_FLOORS: list[FloorTrigger] = [
     FloorTrigger("surveillance_alpr_significance",
-                 lambda i, f: (
+                 lambda i, f, a: (
                      SUBJECT_MATTER_PATTERNS['surveillance_alpr'].search(
                          f"{i.title or ''} {i.description or ''}"
                      ) is not None
-                     or 'public_safety_tech_privacy' in (getattr(f, 'suggested_badge_slugs', None) or [])
+                     or 'public_safety_tech_privacy' in (a.suggested_badge_slugs or [])
                  ),
                  'significance', 7),
     FloorTrigger("surveillance_alpr_consent",
-                 lambda i, f: i.is_consent and (
+                 lambda i, f, a: i.is_consent and (
                      SUBJECT_MATTER_PATTERNS['surveillance_alpr'].search(
                          f"{i.title or ''} {i.description or ''}"
                      ) is not None
-                     or 'public_safety_tech_privacy' in (getattr(f, 'suggested_badge_slugs', None) or [])
+                     or 'public_safety_tech_privacy' in (a.suggested_badge_slugs or [])
                  ),
                  'consent_placement', 2),
 
     FloorTrigger("police_oversight_significance",
-                 lambda i, f: SUBJECT_MATTER_PATTERNS['police_oversight'].search(
+                 lambda i, f, a: SUBJECT_MATTER_PATTERNS['police_oversight'].search(
                      f"{i.title or ''} {i.description or ''}"
                  ) is not None,
                  'significance', 8),
     FloorTrigger("police_oversight_consent",
-                 lambda i, f: i.is_consent and SUBJECT_MATTER_PATTERNS['police_oversight'].search(
+                 lambda i, f, a: i.is_consent and SUBJECT_MATTER_PATTERNS['police_oversight'].search(
                      f"{i.title or ''} {i.description or ''}"
                  ) is not None,
                  'consent_placement', 2),
 
     FloorTrigger("eminent_domain_significance",
-                 lambda i, f: SUBJECT_MATTER_PATTERNS['eminent_domain'].search(
+                 lambda i, f, a: SUBJECT_MATTER_PATTERNS['eminent_domain'].search(
                      f"{i.title or ''} {i.description or ''}"
                  ) is not None,
                  'significance', 8),
     FloorTrigger("eminent_domain_consent",
-                 lambda i, f: i.is_consent and SUBJECT_MATTER_PATTERNS['eminent_domain'].search(
+                 lambda i, f, a: i.is_consent and SUBJECT_MATTER_PATTERNS['eminent_domain'].search(
                      f"{i.title or ''} {i.description or ''}"
                  ) is not None,
                  'consent_placement', 2),
@@ -165,16 +165,16 @@ SUBJECT_MATTER_FLOORS: list[FloorTrigger] = [
 
 CONSENT_PLACEMENT_CEILINGS: list[FloorTrigger] = [
     FloorTrigger("red_consent",
-                 lambda i, f: (i.dollars_amount or 0) >= 1_000_000 and i.is_consent,
+                 lambda i, f, a: (i.dollars_amount or 0) >= 1_000_000 and i.is_consent,
                  'consent_placement', 2),
     FloorTrigger("sole_source_consent",
-                 lambda i, f: f.procurement_method == 'sole_source' and i.is_consent,
+                 lambda i, f, a: f.procurement_method == 'sole_source' and i.is_consent,
                  'consent_placement', 2),
     FloorTrigger("settlement_consent",
-                 lambda i, f: f.action_type == 'settlement' and i.is_consent,
+                 lambda i, f, a: f.action_type == 'settlement' and i.is_consent,
                  'consent_placement', 1),
     FloorTrigger("appt_executive_consent",
-                 lambda i, f: f.action_type == 'appointment_executive' and i.is_consent,
+                 lambda i, f, a: f.action_type == 'appointment_executive' and i.is_consent,
                  'consent_placement', 2),
 ]
 
@@ -238,7 +238,7 @@ def apply_score_floors(
     for trig in SIGNIFICANCE_FLOORS + SUBJECT_MATTER_FLOORS:
         if trig.score_field != 'significance':
             continue
-        if trig.predicate(item, facts):
+        if trig.predicate(item, facts, ai):
             _, effective_bound = _resolve_threshold(
                 cur, city_id, trig.name, None, trig.bound
             )
@@ -256,7 +256,7 @@ def apply_score_floors(
     for trig in CONSENT_PLACEMENT_CEILINGS + SUBJECT_MATTER_FLOORS:
         if trig.score_field != 'consent_placement':
             continue
-        if trig.predicate(item, facts):
+        if trig.predicate(item, facts, ai):
             _, effective_bound = _resolve_threshold(
                 cur, city_id, trig.name, None, trig.bound
             )
