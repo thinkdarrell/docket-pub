@@ -17,12 +17,14 @@ import anthropic
 
 from docket.ai.extraction import (
     SYSTEM_PROMPT as EXTRACTION_SYSTEM_PROMPT,
+    STAGE1_TOOL,
     EXTRACTION_PROMPT_VERSION,  # noqa: F401 — imported for future B5 wiring
     build_user_message as build_extraction_user_message,
 )
 from docket.ai.extraction_schema import StructuredFacts
 from docket.ai.rewrite import (
     SYSTEM_PROMPT as REWRITE_SYSTEM_PROMPT,
+    STAGE2_TOOL,
     ITEM_REWRITE_PROMPT_VERSION,  # noqa: F401 — imported for future B5 wiring
     build_user_message as build_rewrite_user_message,
 )
@@ -47,6 +49,8 @@ def build_stage1_request(item, *, model: str = "claude-haiku-4-5-20251001") -> d
     return {
         'model': model,
         'max_tokens': 1024,
+        'tools': [STAGE1_TOOL],
+        'tool_choice': {'type': 'tool', 'name': STAGE1_TOOL['name']},
         'system': [
             {"type": "text", "text": EXTRACTION_SYSTEM_PROMPT,
              "cache_control": {"type": "ephemeral"}},
@@ -66,6 +70,8 @@ def build_stage2_request(
     return {
         'model': model,
         'max_tokens': 1024,
+        'tools': [STAGE2_TOOL],
+        'tool_choice': {'type': 'tool', 'name': STAGE2_TOOL['name']},
         'system': [
             {"type": "text", "text": REWRITE_SYSTEM_PROMPT,
              "cache_control": {"type": "ephemeral"}},

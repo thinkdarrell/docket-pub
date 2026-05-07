@@ -1,7 +1,7 @@
 """Stage 2 — Smart Brevity LLM rewrite worker.
 
-Receives a single agenda item + Stage 1 StructuredFacts, calls Haiku 4.5,
-parses the JSON response into an ItemRewrite Pydantic model, and returns
+Receives a single agenda item + Stage 1 StructuredFacts, calls Haiku 4.5
+using Anthropic's tool-use API to enforce the ItemRewrite schema, and returns
 the validated rewrite + the exact model ID Anthropic served.
 
 The `extra_instruction` parameter is used by the reconcile auto-retry path
@@ -19,7 +19,7 @@ import logging
 import anthropic
 
 from docket.ai.cache import cache_get, cache_key, cache_put
-from docket.ai.extraction import _strip_markdown_fences
+from docket.ai.exceptions import AIPermanentRowError
 from docket.ai.extraction_schema import StructuredFacts
 from docket.ai.rewrite_schema import ItemRewrite
 
@@ -30,6 +30,35 @@ ITEM_REWRITE_PROMPT_VERSION = 3
 # Decision #94(a): max_retries=0 so 429s bubble up to AdaptiveWorkerPool
 # instead of being silently retried by the SDK.
 anthropic_client = anthropic.Anthropic(max_retries=0)
+
+
+STAGE2_TOOL = {
+    "name": "submit_item_rewrite",
+    "description": "Submit the citizen-facing rewrite for one agenda item.",
+    "input_schema": {
+        "type": "object",
+        "required": [
+            "is_substantive", "headline", "why_it_matters",
+            "significance_rationale", "significance_score",
+            "consent_placement_rationale", "consent_placement_score",
+            "suggested_badge_slugs", "confidence",
+        ],
+        "properties": {
+            "is_substantive": {"type": "boolean"},
+            "headline": {"type": ["string", "null"]},
+            "why_it_matters": {"type": ["string", "null"]},
+            "significance_rationale": {"type": "string"},
+            "significance_score": {"type": ["number", "null"]},
+            "consent_placement_rationale": {"type": "string"},
+            "consent_placement_score": {"type": ["number", "null"]},
+            "suggested_badge_slugs": {
+                "type": "array",
+                "items": {"type": "string"},
+            },
+            "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+        },
+    },
+}
 
 
 SYSTEM_PROMPT = """You are rewriting a single agenda item for citizens reading docket.pub.
@@ -146,6 +175,24 @@ are populated; "medium" if title is clear but details are sparse;
 """
 
 
+def _extract_tool_input(response, tool_name: str) -> dict:
+    """Extract the input dict from the matching tool_use block in the response.
+
+    Mirrors client.py AIClient._extract_tool_input.
+    """
+    for block in response.content:
+        if getattr(block, "type", None) != "tool_use":
+            continue
+        block_name = getattr(block, "name", None)
+        # Accept the block iff:
+        #   - its name matches exactly, OR
+        #   - its name is missing (some SDK shapes omit it on forced tool_use), OR
+        #   - its name is not a string (test mocks return MagicMock here).
+        if not isinstance(block_name, str) or block_name == tool_name:
+            return dict(block.input)
+    raise AIPermanentRowError(f"No tool_use block named {tool_name} in response")
+
+
 def build_user_message(
     item,
     facts: StructuredFacts,
@@ -212,10 +259,12 @@ def rewrite_item(
         # Re-validate via Pydantic in case schema tightened across versions
         return ItemRewrite.model_validate(cached['response']), cached['model']
 
-    # Cache miss — call the API
+    # Cache miss — call the API using tool-use to enforce the ItemRewrite schema
     response = anthropic_client.messages.create(
         model=model,
         max_tokens=1024,
+        tools=[STAGE2_TOOL],
+        tool_choice={"type": "tool", "name": STAGE2_TOOL["name"]},
         system=[
             {"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}},
         ],
@@ -225,15 +274,8 @@ def rewrite_item(
     # Anthropic may serve a slightly different model variant; key off that
     served_model = response.model
 
-    raw_text = response.content[0].text
-    # Decision #94(b): strip markdown fences before json.loads
-    raw_text = _strip_markdown_fences(raw_text)
-    try:
-        parsed = json.loads(raw_text)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"Stage 2 returned non-JSON: {raw_text[:200]!r}") from e
-
-    rewrite = ItemRewrite.model_validate(parsed)
+    payload = _extract_tool_input(response, STAGE2_TOOL["name"])
+    rewrite = ItemRewrite.model_validate(payload)
 
     # Cache against the served model id (decision #42).
     # Guarded: a transient DB error here would otherwise drop an
@@ -241,7 +283,7 @@ def rewrite_item(
     real_key = cache_key(served_model, ITEM_REWRITE_PROMPT_VERSION, user_msg)
     try:
         cache_put(real_key, model=served_model, prompt_version=ITEM_REWRITE_PROMPT_VERSION,
-                  payload={'response': parsed, 'model': served_model})
+                  payload={'response': payload, 'model': served_model})
     except Exception:
         log.warning("stage 2 cache_put failed for item %s; result still returned",
                     getattr(item, 'id', '?'), exc_info=True)

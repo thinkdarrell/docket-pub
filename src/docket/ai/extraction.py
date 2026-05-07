@@ -1,8 +1,12 @@
 """Stage 1 — Structured fact extraction.
 
-Calls Haiku 4.5 with a system prompt + user message, parses the JSON
-response into a StructuredFacts Pydantic model, and returns the
-validated facts + the exact model ID Anthropic served.
+Calls Haiku 4.5 using Anthropic's tool-use API to enforce the StructuredFacts
+schema, then validates the returned dict through Pydantic.
+
+Using tools= + tool_choice= forces Anthropic to return input matching the
+declared input_schema — the same pattern used in the v2 pipeline (client.py).
+Without this, Haiku invents its own schema (e.g. returning vendor_name /
+dollar_amount / project_name / action_type='procurement_award').
 
 Spec: docs/superpowers/specs/2026-05-05-impact-first-refactor-design.md
 section 2.3, decisions #36-39, #87, #91, #94.
@@ -10,13 +14,12 @@ section 2.3, decisions #36-39, #87, #91, #94.
 
 from __future__ import annotations
 
-import json
 import logging
-import re
 
 import anthropic
 
 from docket.ai.cache import cache_get, cache_key, cache_put
+from docket.ai.exceptions import AIPermanentRowError
 from docket.ai.extraction_schema import StructuredFacts
 
 log = logging.getLogger(__name__)
@@ -28,24 +31,71 @@ EXTRACTION_PROMPT_VERSION = 1
 anthropic_client = anthropic.Anthropic(max_retries=0)
 
 
-_MARKDOWN_FENCE_RE = re.compile(r'^```(?:json)?\s*\n?', re.MULTILINE)
-_MARKDOWN_FENCE_END_RE = re.compile(r'\n?```\s*$', re.MULTILINE)
-
-
-def _strip_markdown_fences(text: str) -> str:
-    """Decision #94(b): strip ```json or ``` wrappers before json.loads().
-
-    Some Haiku responses wrap JSON in markdown fences despite the system
-    prompt asking for raw JSON. This avoids JSONDecodeErrors.
-    """
-    text = text.strip()
-    text = _MARKDOWN_FENCE_RE.sub('', text, count=1)
-    text = _MARKDOWN_FENCE_END_RE.sub('', text, count=1)
-    return text.strip()
+STAGE1_TOOL = {
+    "name": "submit_extracted_facts",
+    "description": "Submit the structured facts extracted from one agenda item.",
+    "input_schema": {
+        "type": "object",
+        "required": [
+            "funding_source", "counterparty", "procurement_method", "location",
+            "action_type", "next_steps", "parcels_affected", "acres_affected",
+        ],
+        "properties": {
+            "funding_source": {
+                "type": "string",
+                "enum": [
+                    "general_fund", "arpa", "esser", "cares", "state_grant",
+                    "federal_grant", "bond", "special_tax", "private", "sponsorship",
+                    "tif", "capital_improvement", "mixed", "unknown",
+                ],
+            },
+            "counterparty": {"type": ["string", "null"]},
+            "procurement_method": {
+                "type": "string",
+                "enum": [
+                    "competitive", "sole_source", "no_bid", "rfp",
+                    "emergency", "unknown", "not_applicable",
+                ],
+            },
+            "location": {
+                "type": ["object", "null"],
+                "properties": {
+                    "ward_or_district": {"type": ["string", "null"]},
+                    "neighborhood": {"type": ["string", "null"]},
+                    "address": {"type": ["string", "null"]},
+                    "parcel_id": {"type": ["string", "null"]},
+                },
+            },
+            "action_type": {
+                "type": "string",
+                "enum": [
+                    "contract_award", "contract_amendment", "ordinance", "resolution",
+                    "appointment_executive", "appointment_board", "appointment_advisory",
+                    "zoning", "demolition", "weed_abatement", "tax_abatement",
+                    "settlement", "emergency_procurement", "appropriation",
+                    "budget_amendment", "proclamation", "public_hearing_set",
+                    "annexation", "liquor_license", "right_of_way", "bid_rejection",
+                    "other",
+                ],
+            },
+            "next_steps": {
+                "type": "object",
+                "properties": {
+                    "committee_referral": {"type": ["string", "null"]},
+                    "public_hearing_date": {"type": ["string", "null"]},
+                    "public_hearing_time": {"type": ["string", "null"]},
+                    "comment_period_end": {"type": ["string", "null"]},
+                    "implementation_date": {"type": ["string", "null"]},
+                },
+            },
+            "parcels_affected": {"type": ["integer", "null"]},
+            "acres_affected": {"type": ["number", "null"]},
+        },
+    },
+}
 
 
 SYSTEM_PROMPT = """You extract structured facts from a single municipal-government agenda item.
-You output JSON matching the schema below — no prose, no markdown, no commentary.
 
 Do not invent facts. If a field cannot be determined from the input, return null.
 
@@ -66,6 +116,24 @@ do not populate public_hearing_date.
 
 Return ALL the schema's keys; use null when unknown.
 """
+
+
+def _extract_tool_input(response, tool_name: str) -> dict:
+    """Extract the input dict from the matching tool_use block in the response.
+
+    Mirrors client.py AIClient._extract_tool_input.
+    """
+    for block in response.content:
+        if getattr(block, "type", None) != "tool_use":
+            continue
+        block_name = getattr(block, "name", None)
+        # Accept the block iff:
+        #   - its name matches exactly, OR
+        #   - its name is missing (some SDK shapes omit it on forced tool_use), OR
+        #   - its name is not a string (test mocks return MagicMock here).
+        if not isinstance(block_name, str) or block_name == tool_name:
+            return dict(block.input)
+    raise AIPermanentRowError(f"No tool_use block named {tool_name} in response")
 
 
 def build_user_message(item) -> str:
@@ -103,10 +171,12 @@ def extract_facts_for_item(item, *, model: str = "claude-haiku-4-5-20251001") ->
         # Re-validate via Pydantic in case schema tightened across versions
         return StructuredFacts.model_validate(cached['response']), cached['model']
 
-    # Cache miss — call the API
+    # Cache miss — call the API using tool-use to enforce the StructuredFacts schema
     response = anthropic_client.messages.create(
         model=model,
         max_tokens=1024,
+        tools=[STAGE1_TOOL],
+        tool_choice={"type": "tool", "name": STAGE1_TOOL["name"]},
         system=[
             {"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}},
         ],
@@ -116,15 +186,8 @@ def extract_facts_for_item(item, *, model: str = "claude-haiku-4-5-20251001") ->
     # Anthropic may serve a slightly different model variant; key off that
     served_model = response.model
 
-    raw_text = response.content[0].text
-    # Decision #94(b): strip markdown fences before json.loads
-    raw_text = _strip_markdown_fences(raw_text)
-    try:
-        parsed = json.loads(raw_text)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"Stage 1 returned non-JSON: {raw_text[:200]!r}") from e
-
-    facts = StructuredFacts.model_validate(parsed)
+    payload = _extract_tool_input(response, STAGE1_TOOL["name"])
+    facts = StructuredFacts.model_validate(payload)
 
     # Cache against the served model id (decision #42).
     # Guarded: a transient DB error here would otherwise drop an
@@ -132,7 +195,7 @@ def extract_facts_for_item(item, *, model: str = "claude-haiku-4-5-20251001") ->
     real_key = cache_key(served_model, EXTRACTION_PROMPT_VERSION, user_msg)
     try:
         cache_put(real_key, model=served_model, prompt_version=EXTRACTION_PROMPT_VERSION,
-                  payload={'response': parsed, 'model': served_model})
+                  payload={'response': payload, 'model': served_model})
     except Exception:
         log.warning("stage 1 cache_put failed for item %s; result still returned",
                     getattr(item, 'id', '?'), exc_info=True)

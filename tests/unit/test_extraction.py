@@ -31,6 +31,37 @@ def make_item(**kw):
     return type('Item', (), defaults)()
 
 
+def _make_tool_response(input_dict: dict, model: str = 'claude-haiku-4-5-20251001') -> MagicMock:
+    """Build a mock Anthropic messages.create response shaped like a tool_use response."""
+    mock_block = MagicMock()
+    mock_block.type = 'tool_use'
+    mock_block.name = 'submit_extracted_facts'
+    mock_block.input = input_dict
+
+    mock_response = MagicMock()
+    mock_response.model = model
+    mock_response.content = [mock_block]
+    return mock_response
+
+
+VALID_FACTS_DICT = {
+    'funding_source': 'general_fund',
+    'counterparty': 'Acme HVAC Inc.',
+    'procurement_method': 'competitive',
+    'location': None,
+    'action_type': 'contract_award',
+    'next_steps': {
+        'committee_referral': None,
+        'public_hearing_date': None,
+        'public_hearing_time': None,
+        'comment_period_end': None,
+        'implementation_date': None,
+    },
+    'parcels_affected': None,
+    'acres_affected': None,
+}
+
+
 def test_build_user_message_includes_required_fields():
     item = make_item()
     msg = build_user_message(item)
@@ -40,33 +71,12 @@ def test_build_user_message_includes_required_fields():
 
 
 def test_extract_facts_returns_validated_pydantic():
-    """With a mocked Anthropic response, extract_facts_for_item returns a StructuredFacts."""
+    """With a mocked tool_use response, extract_facts_for_item returns a StructuredFacts."""
     item = make_item()
-
-    mock_response = MagicMock()
-    mock_response.model = 'claude-haiku-4-5-20251001'
-    mock_response.content = [
-        MagicMock(text=json.dumps({
-            'funding_source': 'general_fund',
-            'counterparty': 'Acme HVAC Inc.',
-            'procurement_method': 'competitive',
-            'location': None,
-            'action_type': 'contract_award',
-            'next_steps': {
-                'committee_referral': None,
-                'public_hearing_date': None,
-                'public_hearing_time': None,
-                'comment_period_end': None,
-                'implementation_date': None,
-            },
-            'parcels_affected': None,
-            'acres_affected': None,
-        }))
-    ]
+    mock_response = _make_tool_response(VALID_FACTS_DICT)
 
     with patch('docket.ai.extraction.anthropic_client') as mock_client:
         mock_client.messages.create.return_value = mock_response
-        # Avoid real DB writes by mocking the cache helpers
         with patch('docket.ai.extraction.cache_get', return_value=None), \
              patch('docket.ai.extraction.cache_put'):
             facts, model_id = extract_facts_for_item(item)
@@ -77,27 +87,11 @@ def test_extract_facts_returns_validated_pydantic():
     assert model_id == 'claude-haiku-4-5-20251001'
 
 
-def test_extract_facts_raises_on_invalid_json():
-    item = make_item()
-    mock_response = MagicMock()
-    mock_response.model = 'claude-haiku-4-5-20251001'
-    mock_response.content = [MagicMock(text="not json {{{")]
-
-    with patch('docket.ai.extraction.anthropic_client') as mock_client:
-        mock_client.messages.create.return_value = mock_response
-        with patch('docket.ai.extraction.cache_get', return_value=None), \
-             patch('docket.ai.extraction.cache_put'):
-            with pytest.raises(ValueError):  # JSON parse error
-                extract_facts_for_item(item)
-
-
 def test_extract_facts_raises_on_schema_violation():
-    """Pydantic validation error if the model returns a bad enum value."""
+    """Pydantic validation error if the tool_use block input has a bad enum value."""
     item = make_item()
-    mock_response = MagicMock()
-    mock_response.model = 'claude-haiku-4-5-20251001'
-    mock_response.content = [MagicMock(text=json.dumps({
-        'funding_source': 'WRONG_VALUE',
+    bad_input = {
+        'funding_source': 'WRONG_VALUE',  # not in enum
         'counterparty': None,
         'procurement_method': 'not_applicable',
         'location': None,
@@ -105,27 +99,39 @@ def test_extract_facts_raises_on_schema_violation():
         'next_steps': {},
         'parcels_affected': None,
         'acres_affected': None,
-    }))]
+    }
+    mock_response = _make_tool_response(bad_input)
 
     with patch('docket.ai.extraction.anthropic_client') as mock_client:
         mock_client.messages.create.return_value = mock_response
         with patch('docket.ai.extraction.cache_get', return_value=None), \
              patch('docket.ai.extraction.cache_put'):
-            with pytest.raises(Exception):  # Pydantic ValidationError or wrapper
+            with pytest.raises(Exception):  # Pydantic ValidationError
                 extract_facts_for_item(item)
 
 
-def test_strip_markdown_fences_removes_json_wrapper():
-    """Decision #94(b): the strip helper handles ```json ... ``` wrappers."""
-    from docket.ai.extraction import _strip_markdown_fences
-    wrapped = '```json\n{"x": 1}\n```'
-    assert _strip_markdown_fences(wrapped) == '{"x": 1}'
+def test_extract_facts_api_call_uses_tool_use():
+    """The API call must include tools= and tool_choice= (enforces structured output)."""
+    item = make_item()
+    mock_response = _make_tool_response(VALID_FACTS_DICT)
+    captured_calls = []
 
+    def capture_create(**kwargs):
+        captured_calls.append(kwargs)
+        return mock_response
 
-def test_strip_markdown_fences_passthrough():
-    """Bare JSON is unchanged."""
-    from docket.ai.extraction import _strip_markdown_fences
-    assert _strip_markdown_fences('{"x": 1}') == '{"x": 1}'
+    with patch('docket.ai.extraction.anthropic_client') as mock_client:
+        mock_client.messages.create.side_effect = capture_create
+        with patch('docket.ai.extraction.cache_get', return_value=None), \
+             patch('docket.ai.extraction.cache_put'):
+            extract_facts_for_item(item)
+
+    assert captured_calls, "API was not called"
+    call = captured_calls[0]
+    assert 'tools' in call, "tools= must be passed to messages.create"
+    assert 'tool_choice' in call, "tool_choice= must be passed to messages.create"
+    assert call['tool_choice']['type'] == 'tool'
+    assert call['tool_choice']['name'] == 'submit_extracted_facts'
 
 
 def test_persist_extraction_writes_jsonb_and_version():
@@ -160,21 +166,7 @@ def test_persist_extraction_writes_jsonb_and_version():
 def test_extract_facts_returns_result_even_if_cache_put_fails():
     """A transient DB error during cache_put must not drop an already-billed result."""
     item = make_item()
-
-    mock_response = MagicMock()
-    mock_response.model = 'claude-haiku-4-5-20251001'
-    mock_response.content = [
-        MagicMock(text=json.dumps({
-            'funding_source': 'general_fund',
-            'counterparty': 'Acme HVAC Inc.',
-            'procurement_method': 'competitive',
-            'location': None,
-            'action_type': 'contract_award',
-            'next_steps': {},
-            'parcels_affected': None,
-            'acres_affected': None,
-        }))
-    ]
+    mock_response = _make_tool_response(VALID_FACTS_DICT)
 
     with patch('docket.ai.extraction.anthropic_client') as mock_client:
         mock_client.messages.create.return_value = mock_response
@@ -186,3 +178,42 @@ def test_extract_facts_returns_result_even_if_cache_put_fails():
     assert isinstance(facts, StructuredFacts)
     assert facts.counterparty == 'Acme HVAC Inc.'
     assert model_id == 'claude-haiku-4-5-20251001'
+
+
+def test_extract_facts_cache_hit_skips_api():
+    """On cache hit, the Anthropic API is NOT called."""
+    item = make_item()
+    cached_payload = {
+        'response': VALID_FACTS_DICT,
+        'model': 'claude-haiku-4-5-20251001',
+    }
+
+    with patch('docket.ai.extraction.anthropic_client') as mock_client, \
+         patch('docket.ai.extraction.cache_get', return_value=cached_payload), \
+         patch('docket.ai.extraction.cache_put'):
+        facts, model_id = extract_facts_for_item(item)
+        mock_client.messages.create.assert_not_called()
+
+    assert isinstance(facts, StructuredFacts)
+    assert facts.counterparty == 'Acme HVAC Inc.'
+    assert model_id == 'claude-haiku-4-5-20251001'
+
+
+def test_extract_facts_served_model_used_for_cache_put():
+    """cache_put is called with the served model id (decision #42)."""
+    item = make_item()
+    served = 'claude-haiku-4-5-20251001-variant'
+    mock_response = _make_tool_response(VALID_FACTS_DICT, model=served)
+    captured_puts = []
+
+    with patch('docket.ai.extraction.anthropic_client') as mock_client, \
+         patch('docket.ai.extraction.cache_get', return_value=None), \
+         patch('docket.ai.extraction.cache_put',
+               side_effect=lambda *a, **kw: captured_puts.append(kw)):
+        mock_client.messages.create.return_value = mock_response
+        _, model_id = extract_facts_for_item(item)
+
+    assert model_id == served
+    assert captured_puts, "cache_put was not called"
+    assert captured_puts[0]['model'] == served
+    assert captured_puts[0]['prompt_version'] == EXTRACTION_PROMPT_VERSION

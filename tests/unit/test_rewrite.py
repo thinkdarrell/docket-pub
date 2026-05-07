@@ -75,10 +75,15 @@ VALID_PROCEDURAL_RESPONSE = {
 
 
 def _mock_api_response(payload: dict, model: str = 'claude-haiku-4-5-20251001') -> MagicMock:
-    """Build a mock Anthropic messages.create response."""
+    """Build a mock Anthropic messages.create response shaped like a tool_use response."""
+    mock_block = MagicMock()
+    mock_block.type = 'tool_use'
+    mock_block.name = 'submit_item_rewrite'
+    mock_block.input = payload
+
     mock_response = MagicMock()
     mock_response.model = model
-    mock_response.content = [MagicMock(text=json.dumps(payload))]
+    mock_response.content = [mock_block]
     return mock_response
 
 
@@ -130,7 +135,7 @@ class TestBuildUserMessage:
 
 class TestRewriteItemHappyPathSubstantive:
     def test_returns_itemrewrite_and_model_id(self):
-        """With mocked Anthropic, rewrite_item returns a valid ItemRewrite."""
+        """With mocked tool_use response, rewrite_item returns a valid ItemRewrite."""
         item = make_item()
         facts = make_facts()
 
@@ -147,6 +152,30 @@ class TestRewriteItemHappyPathSubstantive:
         assert rewrite.headline == 'Council awards $4.2M HVAC contract to Acme'
         assert rewrite.significance_score == 7
         assert model_id == 'claude-haiku-4-5-20251001'
+
+    def test_api_call_uses_tool_use(self):
+        """The API call must include tools= and tool_choice= (enforces structured output)."""
+        item = make_item()
+        facts = make_facts()
+        mock_response = _mock_api_response(VALID_SUBSTANTIVE_RESPONSE)
+        captured_calls = []
+
+        def capture_create(**kwargs):
+            captured_calls.append(kwargs)
+            return mock_response
+
+        with patch('docket.ai.rewrite.anthropic_client') as mock_client, \
+             patch('docket.ai.rewrite.cache_get', return_value=None), \
+             patch('docket.ai.rewrite.cache_put'):
+            mock_client.messages.create.side_effect = capture_create
+            rewrite_item(item, facts, [])
+
+        assert captured_calls, "API was not called"
+        call = captured_calls[0]
+        assert 'tools' in call, "tools= must be passed to messages.create"
+        assert 'tool_choice' in call, "tool_choice= must be passed to messages.create"
+        assert call['tool_choice']['type'] == 'tool'
+        assert call['tool_choice']['name'] == 'submit_item_rewrite'
 
     def test_passes_badge_slugs_to_user_message(self):
         """enabled_policy_badges appear in the user message sent to the API."""
@@ -219,46 +248,9 @@ class TestRewriteItemHappyPathProcedural:
         assert rewrite.suggested_badge_slugs == []
 
 
-class TestRewriteItemMarkdownFences:
-    def test_markdown_fence_stripped_before_parse(self):
-        """```json ... ``` wrapper is stripped and JSON still parses correctly."""
-        item = make_item()
-        facts = make_facts()
-
-        wrapped_text = f"```json\n{json.dumps(VALID_SUBSTANTIVE_RESPONSE)}\n```"
-        mock_response = MagicMock()
-        mock_response.model = 'claude-haiku-4-5-20251001'
-        mock_response.content = [MagicMock(text=wrapped_text)]
-
-        with patch('docket.ai.rewrite.anthropic_client') as mock_client, \
-             patch('docket.ai.rewrite.cache_get', return_value=None), \
-             patch('docket.ai.rewrite.cache_put'):
-            mock_client.messages.create.return_value = mock_response
-            rewrite, _ = rewrite_item(item, facts, [])
-
-        assert isinstance(rewrite, ItemRewrite)
-        assert rewrite.headline == 'Council awards $4.2M HVAC contract to Acme'
-
-
 class TestRewriteItemErrorPaths:
-    def test_raises_on_invalid_json(self):
-        """Non-JSON response raises ValueError."""
-        item = make_item()
-        facts = make_facts()
-
-        mock_response = MagicMock()
-        mock_response.model = 'claude-haiku-4-5-20251001'
-        mock_response.content = [MagicMock(text="not json {{{")]
-
-        with patch('docket.ai.rewrite.anthropic_client') as mock_client, \
-             patch('docket.ai.rewrite.cache_get', return_value=None), \
-             patch('docket.ai.rewrite.cache_put'):
-            mock_client.messages.create.return_value = mock_response
-            with pytest.raises(ValueError, match="Stage 2 returned non-JSON"):
-                rewrite_item(item, facts, [])
-
     def test_raises_on_schema_violation(self):
-        """Pydantic ValidationError if shape violates ItemRewrite constraints."""
+        """Pydantic ValidationError if tool_use block input violates ItemRewrite constraints."""
         item = make_item()
         facts = make_facts()
 

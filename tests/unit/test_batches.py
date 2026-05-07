@@ -102,6 +102,12 @@ class TestBuildRequest:
 
         assert req['model'] == 'claude-haiku-4-5-20251001'
         assert req['max_tokens'] == 1024
+        # tool-use enforcement
+        assert 'tools' in req, "tools= must be present for schema enforcement"
+        assert len(req['tools']) == 1
+        assert req['tools'][0]['name'] == 'submit_extracted_facts'
+        assert 'tool_choice' in req, "tool_choice= must be present for schema enforcement"
+        assert req['tool_choice'] == {'type': 'tool', 'name': 'submit_extracted_facts'}
         # system is a list with cache_control
         assert isinstance(req['system'], list)
         assert len(req['system']) == 1
@@ -123,6 +129,13 @@ class TestBuildRequest:
 
         assert req['model'] == 'claude-haiku-4-5-20251001'
         assert req['max_tokens'] == 1024
+        # tool-use enforcement
+        assert 'tools' in req, "tools= must be present for schema enforcement"
+        assert len(req['tools']) == 1
+        assert req['tools'][0]['name'] == 'submit_item_rewrite'
+        assert 'tool_choice' in req, "tool_choice= must be present for schema enforcement"
+        assert req['tool_choice'] == {'type': 'tool', 'name': 'submit_item_rewrite'}
+        # system + messages
         assert isinstance(req['system'], list)
         assert req['system'][0]['cache_control'] == {'type': 'ephemeral'}
         assert req['messages'][0]['role'] == 'user'
