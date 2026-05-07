@@ -55,7 +55,7 @@
     {% endif %}
 
     {% if city and city.master_calendar_url %}
-      • <a href="{{ city.master_calendar_url }}" rel="noopener">
+      • <a href="{{ city.master_calendar_url }}" target="_blank" rel="noopener noreferrer">
         📅 City master calendar →
       </a>
     {% endif %}
@@ -63,14 +63,17 @@
 
 {# Context-aware: action_type hints at upcoming hearing but date is null (decision #70) #}
 {% elif facts.action_type == 'public_hearing_set' and not ns.public_hearing_date %}
+  {%- set _subject = "Missing hearing date for item " ~ (item.id | int) -%}
+  {%- set _item_url = url_for('public.item_detail', city=city.slug, item_id=(item.id | int), _external=True) -%}
+  {%- set _body = "Item URL: " ~ _item_url ~ "\r\n\r\nThis item has action_type=public_hearing_set but no hearing date is shown." -%}
   <div class="engagement-strip engagement-strip--awaiting">
     Awaiting hearing date —
     <a href="{{ url_for('public.upcoming_hearings_rss', city=city.slug) }}"
-       rel="noopener">
+       target="_blank" rel="noopener noreferrer">
       📅 Subscribe to upcoming hearings RSS →
     </a>
     <span class="report-issue-link">
-      <a href="mailto:{{ config.ADMIN_EMAIL }}?subject=Missing hearing date for item {{ item.id }}&body=Item URL: {{ url_for('public.item_detail', city=city.slug, item_id=item.id, _external=True) }}%0D%0A%0D%0AThis item has action_type=public_hearing_set but no hearing date is shown.">
+      <a href="mailto:{{ config.ADMIN_EMAIL }}?subject={{ _subject | urlencode }}&body={{ _body | urlencode }}">
         Report missing date
       </a>
     </span>
@@ -78,7 +81,7 @@
 
 {% elif city and city.master_calendar_url %}
   <div class="engagement-strip engagement-strip--fallback">
-    <a href="{{ city.master_calendar_url }}" rel="noopener">
+    <a href="{{ city.master_calendar_url }}" target="_blank" rel="noopener noreferrer">
       📅 Check {{ city.name }}'s master calendar →
     </a>
   </div>

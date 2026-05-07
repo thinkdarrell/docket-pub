@@ -84,11 +84,17 @@ def format_date(value: date | datetime | str | None) -> str:
 
     - ``None`` → ``""`` (empty string, so the template emits no text).
     - ``date`` / ``datetime`` → formatted directly via ``strftime``.
-    - ``str`` → parsed as ISO-8601 (``YYYY-MM-DD`` or full datetime). If
-      parsing fails, the original string is returned untouched so the
-      reader at least sees the raw value rather than a crash or empty
-      cell. JSONB next_steps fields can round-trip through psycopg as
-      ISO-8601 strings depending on the driver, so this is a real path.
+    - ``str`` → parsed as ISO-8601: tries ``date.fromisoformat`` first
+      (handles ``YYYY-MM-DD``), then falls back to
+      ``datetime.fromisoformat`` (handles full datetimes). The
+      date-first order matters on Python 3.10, where
+      ``datetime.fromisoformat`` rejects bare date strings — see
+      https://docs.python.org/3.10/library/datetime.html#datetime.datetime.fromisoformat.
+      If both parses fail the original string is returned untouched so
+      the reader at least sees the raw value rather than a crash or
+      empty cell. JSONB next_steps fields can round-trip through psycopg
+      as ISO-8601 strings depending on the driver, so this is a real
+      path.
 
     Other types (int, etc.) fall through to ``str(value)`` for safety.
     """
@@ -98,10 +104,13 @@ def format_date(value: date | datetime | str | None) -> str:
         return value.strftime("%B %-d, %Y")
     if isinstance(value, str):
         try:
-            parsed = datetime.fromisoformat(value)
+            return date.fromisoformat(value).strftime("%B %-d, %Y")
+        except ValueError:
+            pass
+        try:
+            return datetime.fromisoformat(value).strftime("%B %-d, %Y")
         except ValueError:
             return value
-        return parsed.strftime("%B %-d, %Y")
     return str(value)
 
 

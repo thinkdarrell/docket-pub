@@ -145,12 +145,16 @@ class TestEngagementStripStates:
         assert "Subscribe to upcoming hearings RSS" in html
 
         # mailto: link with ADMIN_EMAIL + item id in the subject.
+        # Subject and body are RFC 6068 compliant (urlencoded) so spaces
+        # become %20, colons become %3A, etc.
         assert "mailto:ops@docket.test" in html
-        assert "Missing hearing date for item 99" in html
+        assert "subject=Missing%20hearing%20date%20for%20item%2099" in html
         assert "Report missing date" in html
 
-        # _external=True item_detail URL appears in the body.
-        assert "https://docket.test/mobile/items/99" in html
+        # _external=True item_detail URL appears (urlencoded) in the body.
+        # CRLF separators become %0D%0A%0D%0A through Jinja's urlencode.
+        assert "body=Item%20URL%3A%20https%3A//docket.test/mobile/items/99" in html
+        assert "%0D%0A%0D%0A" in html
 
     def test_state_3_master_calendar_fallback(self, app):
         """No next_steps + no awaiting context → just calendar fallback."""
@@ -285,3 +289,163 @@ class TestEngagementStripEdges:
         # No crash — falls through to fallback branch (state 3).
         html = _render(app, item, city)
         assert "engagement-strip--fallback" in html
+
+    def test_state_1_emoji_and_bullet_fidelity(self, app):
+        """Spec §6.3 fidelity check: state 1 must surface the four emoji
+        markers (📅 hearing, 🏛️ committee, 📝 comment, ▶️ impl) in order
+        and use ``•`` bullet separators between fields. Locks the visual
+        contract that the spec-compliance review flagged as a test gap."""
+        item = {
+            "id": 11,
+            "next_steps": {
+                "public_hearing_date": date(2026, 5, 15),
+                "committee_referral": "Planning Committee",
+                "comment_period_end": date(2026, 5, 10),
+                "implementation_date": date(2026, 6, 1),
+            },
+            "extracted_facts": None,
+        }
+        city = {
+            "slug": "birmingham",
+            "name": "Birmingham",
+            "master_calendar_url": None,
+        }
+        html = _render(app, item, city)
+
+        # All four emoji markers present.
+        assert "📅" in html
+        assert "🏛️" in html
+        assert "📝" in html
+        assert "▶️" in html
+
+        # Order in source matches spec: hearing → committee → comment → impl.
+        idx_cal = html.index("📅")
+        idx_committee = html.index("🏛️")
+        idx_comment = html.index("📝")
+        idx_impl = html.index("▶️")
+        assert idx_cal < idx_committee < idx_comment < idx_impl
+
+        # Bullet separators appear between fields (3 bullets for 4 fields).
+        assert html.count("•") >= 3
+
+    def test_empty_next_steps_dict_falls_through(self, app):
+        """``next_steps={}`` should be treated identically to ``None`` —
+        ``has_any`` is falsy on every empty key, so without action_type
+        context or a calendar URL we land on state 4 (no markup)."""
+        item = {"id": 1, "next_steps": {}, "extracted_facts": None}
+        city = {"slug": "x", "name": "X", "master_calendar_url": None}
+        html = _render(app, item, city)
+        assert "engagement-strip" not in html
+
+    def test_action_type_public_hearing_set_with_only_committee_referral_lands_state_1(
+        self, app
+    ):
+        """If facts.action_type=public_hearing_set AND committee_referral
+        is set but public_hearing_date is null, state 1 still wins
+        (``has_any`` covers any of the four next_steps fields)."""
+        item = {
+            "id": 1,
+            "next_steps": {"committee_referral": "Planning Committee"},
+            "extracted_facts": {"action_type": "public_hearing_set"},
+        }
+        city = {
+            "slug": "bham",
+            "name": "Birmingham",
+            "master_calendar_url": None,
+        }
+        html = _render(app, item, city)
+        assert 'class="engagement-strip"' in html
+        assert "engagement-strip--awaiting" not in html
+        assert "Planning Committee" in html
+
+    def test_external_links_open_in_new_tab_with_full_rel(self, app):
+        """All external links (state 1 calendar tail, state 2 RSS,
+        state 3 calendar) carry ``target="_blank"`` plus
+        ``rel="noopener noreferrer"`` — production parity with
+        meeting_detail.html, _source_link_stub.html, footer.html. The
+        mailto: link must NOT carry target/rel."""
+        # State 1: master-calendar tail link.
+        item = {
+            "id": 1,
+            "next_steps": {"committee_referral": "Planning"},
+            "extracted_facts": None,
+        }
+        city = {
+            "slug": "bham",
+            "name": "Birmingham",
+            "master_calendar_url": "https://birminghamal.gov/calendar",
+        }
+        html = _render(app, item, city)
+        assert 'target="_blank"' in html
+        assert 'rel="noopener noreferrer"' in html
+
+        # State 2: RSS link.
+        item2 = {
+            "id": 99,
+            "next_steps": None,
+            "extracted_facts": {"action_type": "public_hearing_set"},
+        }
+        city2 = {"slug": "mobile", "name": "Mobile", "master_calendar_url": None}
+        html2 = _render(app, item2, city2)
+        assert 'target="_blank"' in html2
+        assert 'rel="noopener noreferrer"' in html2
+        # The mailto: link must NOT have target or rel.
+        # Find the mailto: anchor and verify its tag has neither attr.
+        mailto_idx = html2.index("mailto:")
+        # Walk back to opening "<a" of that anchor.
+        anchor_open = html2.rfind("<a ", 0, mailto_idx)
+        anchor_close = html2.index(">", mailto_idx)
+        mailto_tag = html2[anchor_open : anchor_close + 1]
+        assert "target=" not in mailto_tag
+        assert "rel=" not in mailto_tag
+
+        # State 3: fallback calendar link.
+        item3 = {"id": 1, "next_steps": None, "extracted_facts": None}
+        city3 = {
+            "slug": "homewood",
+            "name": "Homewood",
+            "master_calendar_url": "https://homewoodal.org/cal",
+        }
+        html3 = _render(app, item3, city3)
+        assert 'target="_blank"' in html3
+        assert 'rel="noopener noreferrer"' in html3
+
+
+# ---------------------------------------------------------------------------
+# format_date direct unit tests (decision #70 docstring contract)
+# ---------------------------------------------------------------------------
+
+
+class TestFormatDateFilter:
+    """Direct unit tests for ``docket.web.filters.format_date`` covering
+    the defensive contract documented in its docstring: ``None`` → ``""``,
+    malformed strings fall through unchanged, ISO date-only strings are
+    parsed correctly on Python 3.10+ (where ``datetime.fromisoformat``
+    rejects bare ``YYYY-MM-DD``)."""
+
+    def test_none_returns_empty_string(self):
+        from docket.web.filters import format_date
+
+        assert format_date(None) == ""
+
+    def test_malformed_string_falls_through_unchanged(self):
+        from docket.web.filters import format_date
+
+        assert format_date("not-a-date") == "not-a-date"
+
+    def test_iso_date_only_string_parses_on_python_3_10(self):
+        """``datetime.fromisoformat('2026-07-04')`` raises ValueError on
+        Python 3.10. Verify the date-first parse order recovers."""
+        from docket.web.filters import format_date
+
+        assert format_date("2026-07-04") == "July 4, 2026"
+
+    def test_iso_datetime_string_still_parses(self):
+        from docket.web.filters import format_date
+
+        assert format_date("2026-07-04T13:45:00") == "July 4, 2026"
+
+    def test_date_object_formats_directly(self):
+        from docket.web.filters import format_date
+
+        assert format_date(date(2026, 5, 15)) == "May 15, 2026"
