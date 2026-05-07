@@ -268,7 +268,7 @@ Applies to all 7 worker tasks.
 ### Cost & cadence
 
 - ~$0.005/item raw (sync API); with Stage 0 procedural skip (~10-15%) effective ~$0.0042-0.0045/item
-- Backfill: ~75K items × 4 cities, after Wave 0 procedural skip ≈ ~50K LLM-processed items ≈ **~$119 via Anthropic Batches API** (50% discount). Sync-API alternative would be ~$287. See Section 7.1 for the full wave-by-wave breakdown. (**Actual Wave 0 result on Railway 2026-05-06:** only ~1,981 LLM-eligible items, not 50K — 22× fewer because most agenda items have empty bodies. Revised backfill cost: ~$5–$10. See §7.1.)
+- Backfill: ~75K items × 4 cities, after Wave 0 procedural skip ≈ ~50K LLM-processed items ≈ **~$119 via Anthropic Batches API** (50% discount). Sync-API alternative would be ~$287. See Section 7.1 for the full wave-by-wave breakdown. (**Actual Wave 0 result on Railway 2026-05-07:** 37,475 LLM-eligible items (65%), close to the 50K projection. Revised backfill cost: ~$100. See §7.1.)
 - Worker tasks evolve:
   - `ai_items` does Stages 0→2.5 in sequence per item (atomic commit)
   - New `process_badges` task (cheap SQL pass)
@@ -3303,21 +3303,29 @@ items via Batches API in checkpointed date-range blocks.
 | Wave 3 | Stage 1+2 on 2017-2020 `pending` items via Batches API | ~16,000 | ~$36 | 2-4 days |
 | **Total (original projection)** | **Wave 0 + 0.5 + Waves 1-3** | **~50,000 LLM-processed** | **~$119** | **7-14 days** |
 
-**Actual Wave 0 result (Railway, 2026-05-06):** out of 57,553 agenda
-items across 4 cities, classification was:
+**Actual Wave 0 result (Railway, 2026-05-07, after title-fallback fix):**
+out of 57,553 agenda items across 4 cities, classification is:
 
-- `data_quality_skipped`: **51,663 (89.8%)** — empty/missing description
-  bodies. These items have only a title; no agenda body to extract from.
+- `pending` (LLM-eligible): **37,475 (65.1%)** — input to Waves 0.5/1/2/3.
+  Birmingham dominates: 36,940 of 37,475.
+- `data_quality_skipped`: **16,169 (28.1%)** — items where neither
+  description nor a substantive title (>=120 chars) was available.
 - `procedural_skipped`: **3,909 (6.8%)** — Stage 0b regex matches.
-- `pending` (LLM-eligible): **1,981 (3.4%)** — input to Waves 0.5/1/2/3.
 
-This is **~22× fewer LLM-eligible items than projected**. Revised Phase 3
-budget: **~$5–$10 total** (1,981 items × ~$0.0045/item × Batches discount
-+ Wave 0.5 sync burst). Calendar time drops from 7–14 days to **1–3
-days**. The Birmingham archive dominates (1,875 of 1,981 pending). The
-huge `data_quality_skipped` pool (51K items) is the new Phase 3-tail
-focus: it's the data-debt queue that admins triage as bodies get back-
-filled by the document parser improvements (Phase 4+ work).
+**First-run note (kept for the timeline):** the initial Wave 0 run on
+2026-05-06 misclassified 51,663 items as `data_quality_skipped` because
+`evaluate_data_quality` only checked `description` and `raw_text`. The
+Granicus adapter (Birmingham) writes the full agenda body into the
+`title` column and leaves `description` NULL — the data was always
+there, just in the wrong field. Fix: when description and raw_text are
+both empty AND `title` is >= 120 chars, treat title as body. Wave 0
+re-ran on Railway 2026-05-07 with the corrected gate; numbers above
+reflect the post-fix distribution.
+
+**Revised Phase 3 budget:** ~37,475 LLM-eligible items × ~$0.0024/item
+effective (Haiku 4.5 + cache + Batches discount) = **~$90 for Stage 1+2**,
+plus Wave 0.5 sync burst (~$8) = **~$100 total**. Calendar time stays
+roughly **7–14 days** dominated by Anthropic Batches API turnaround.
 
 **Homewood anomaly (note for future ingest fix):** 1,085 Homewood
 meetings have agenda URLs but **0 agenda_items** — the Generic CMS

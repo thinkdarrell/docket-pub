@@ -85,7 +85,7 @@ WHERE processing_status = 'pending';
 "
 ```
 
-Record this number — it's the input to all subsequent cost projections. **(Actual Wave 0 result on Railway 2026-05-06: ~1,981 pending — far below the original 40–50K spec projection because most agenda_items rows have empty `description` bodies and got `data_quality_skipped`. Revised Phase 3 budget: ~$5–$10 total, 1–3 calendar days. See spec §7.1 actuals table.)**
+Record this number — it's the input to all subsequent cost projections. **(Actual Wave 0 result on Railway 2026-05-07 after title-fallback fix: 37,475 pending — close to the 50K spec projection. Revised Phase 3 budget: ~$100 total, 7–14 calendar days. See spec §7.1 actuals table.)**
 
 - [ ] **Step 0.5: SDK calibration check (decision #94)**
 
