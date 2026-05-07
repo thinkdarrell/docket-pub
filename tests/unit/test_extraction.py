@@ -155,3 +155,34 @@ def test_persist_extraction_writes_jsonb_and_version():
     json_blob = json.loads(params[0])
     assert json_blob.get('counterparty') == 'Acme HVAC'
     assert params[1] == 1
+
+
+def test_extract_facts_returns_result_even_if_cache_put_fails():
+    """A transient DB error during cache_put must not drop an already-billed result."""
+    item = make_item()
+
+    mock_response = MagicMock()
+    mock_response.model = 'claude-haiku-4-5-20251001'
+    mock_response.content = [
+        MagicMock(text=json.dumps({
+            'funding_source': 'general_fund',
+            'counterparty': 'Acme HVAC Inc.',
+            'procurement_method': 'competitive',
+            'location': None,
+            'action_type': 'contract_award',
+            'next_steps': {},
+            'parcels_affected': None,
+            'acres_affected': None,
+        }))
+    ]
+
+    with patch('docket.ai.extraction.anthropic_client') as mock_client:
+        mock_client.messages.create.return_value = mock_response
+        with patch('docket.ai.extraction.cache_get', return_value=None), \
+             patch('docket.ai.extraction.cache_put',
+                   side_effect=RuntimeError("simulated DB hiccup")):
+            facts, model_id = extract_facts_for_item(item)
+
+    assert isinstance(facts, StructuredFacts)
+    assert facts.counterparty == 'Acme HVAC Inc.'
+    assert model_id == 'claude-haiku-4-5-20251001'

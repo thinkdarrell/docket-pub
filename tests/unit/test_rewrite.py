@@ -352,3 +352,20 @@ class TestRewriteItemCacheBehavior:
         assert len(cache_keys_seen) == 2
         assert cache_keys_seen[0] != cache_keys_seen[1], \
             "extra_instruction must produce a distinct cache key"
+
+    def test_returns_result_even_if_cache_put_fails(self):
+        """A transient DB error during cache_put must not drop an already-billed result."""
+        item = make_item()
+        facts = make_facts()
+        mock_response = _mock_api_response(VALID_SUBSTANTIVE_RESPONSE)
+
+        with patch('docket.ai.rewrite.anthropic_client') as mock_client, \
+             patch('docket.ai.rewrite.cache_get', return_value=None), \
+             patch('docket.ai.rewrite.cache_put',
+                   side_effect=RuntimeError("simulated DB hiccup")):
+            mock_client.messages.create.return_value = mock_response
+            rewrite, model_id = rewrite_item(item, facts, [])
+
+        assert isinstance(rewrite, ItemRewrite)
+        assert rewrite.is_substantive is True
+        assert model_id == 'claude-haiku-4-5-20251001'

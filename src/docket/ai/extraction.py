@@ -126,10 +126,16 @@ def extract_facts_for_item(item, *, model: str = "claude-haiku-4-5-20251001") ->
 
     facts = StructuredFacts.model_validate(parsed)
 
-    # Cache against the served model id (decision #42)
+    # Cache against the served model id (decision #42).
+    # Guarded: a transient DB error here would otherwise drop an
+    # already-billed Anthropic result on the floor.
     real_key = cache_key(served_model, EXTRACTION_PROMPT_VERSION, user_msg)
-    cache_put(real_key, model=served_model, prompt_version=EXTRACTION_PROMPT_VERSION,
-              payload={'response': parsed, 'model': served_model})
+    try:
+        cache_put(real_key, model=served_model, prompt_version=EXTRACTION_PROMPT_VERSION,
+                  payload={'response': parsed, 'model': served_model})
+    except Exception:
+        log.warning("stage 1 cache_put failed for item %s; result still returned",
+                    getattr(item, 'id', '?'), exc_info=True)
 
     return facts, served_model
 
