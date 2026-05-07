@@ -117,3 +117,43 @@ class TestStructuredFacts:
                 acres_affected=None,
             )
             assert f.funding_source == fs
+
+    def test_forbids_extra_keys(self):
+        """Schema drift guard — unknown keys must raise (decision #94)."""
+        with pytest.raises(ValidationError):
+            StructuredFacts(
+                funding_source='unknown',
+                counterparty=None,
+                procurement_method='not_applicable',
+                location=None,
+                action_type='other',
+                next_steps=NextSteps(),
+                parcels_affected=None,
+                acres_affected=None,
+                bond_rating='AAA',  # not in schema
+            )
+
+    def test_negative_parcels_rejected(self):
+        """Hallucination guard — negative parcel/acres counts must raise."""
+        with pytest.raises(ValidationError):
+            StructuredFacts(
+                funding_source='unknown',
+                counterparty=None,
+                procurement_method='not_applicable',
+                location=None,
+                action_type='other',
+                next_steps=NextSteps(),
+                parcels_affected=-5,
+                acres_affected=None,
+            )
+        with pytest.raises(ValidationError):
+            StructuredFacts(
+                funding_source='unknown',
+                counterparty=None,
+                procurement_method='not_applicable',
+                location=None,
+                action_type='other',
+                next_steps=NextSteps(),
+                parcels_affected=None,
+                acres_affected=-12.0,
+            )

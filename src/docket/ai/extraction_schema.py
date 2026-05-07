@@ -58,8 +58,8 @@ class StructuredFacts(BaseModel):
     location: LocationDetail | None
     action_type: ActionType
     next_steps: NextSteps
-    parcels_affected: int | None
-    acres_affected: float | None
+    parcels_affected: int | None = Field(default=None, ge=0)
+    acres_affected: float | None = Field(default=None, ge=0)
 
     model_config = {
         'extra': 'forbid',  # Reject unknown keys to catch schema drift early
