@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from flask import Flask
 
-from docket.config import FLASK_ENV, SECRET_KEY
+from docket.config import ADMIN_EMAIL, FLASK_ENV, SECRET_KEY
 
 
 def create_app() -> Flask:
@@ -16,6 +16,7 @@ def create_app() -> Flask:
     )
 
     app.config["SECRET_KEY"] = SECRET_KEY
+    app.config["ADMIN_EMAIL"] = ADMIN_EMAIL
 
     # Production cookie security
     if FLASK_ENV != "development":

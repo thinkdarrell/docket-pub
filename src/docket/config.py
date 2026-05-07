@@ -19,6 +19,11 @@ DOMAIN_NAME: str = os.environ.get("DOMAIN_NAME", "docket.pub")
 
 FLASK_ENV: str = os.environ.get("FLASK_ENV", "development")
 
+# Admin contact email — surfaced in citizen-facing templates as a
+# `mailto:` target for "report missing data" links (decision #77 retired
+# the `data_issue_reports` schema in favor of email-based reporting).
+ADMIN_EMAIL: str = os.environ.get("ADMIN_EMAIL", "admin@docket.pub")
+
 # AI pipeline (summaries + scoring)
 ANTHROPIC_API_KEY: str | None = os.environ.get("ANTHROPIC_API_KEY")
 AI_ITEM_MODEL: str = os.environ.get("AI_ITEM_MODEL", "claude-haiku-4-5-20251001")

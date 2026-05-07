@@ -12,13 +12,22 @@ Currently exposes:
   but uses dict-style access since ``BadgeChip`` rows are served via
   psycopg's ``RealDictCursor``.
 
+- ``format_date(value)`` — Render a ``date`` / ``datetime`` (or ``None``)
+  as a human-readable "Month D, YYYY" string (e.g. "May 15, 2026").
+  Returns the empty string for ``None`` so missing values produce no
+  text rather than crashing the template. Used by the engagement strip
+  partial (spec §6.3) for ``next_steps.public_hearing_date``,
+  ``comment_period_end``, and ``implementation_date``.
+
 The module exposes :func:`register` which the Flask app factory calls
-to wire ``order_badges`` into ``app.jinja_env.filters``.
+to wire ``order_badges`` and ``format_date`` into
+``app.jinja_env.filters``.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from datetime import date, datetime
 
 from flask import Flask
 
@@ -68,6 +77,35 @@ def order_badges(badges: Sequence[Mapping]) -> list[Mapping]:
     return process + policy
 
 
+def format_date(value: date | datetime | str | None) -> str:
+    """Return ``value`` rendered as ``"%B %-d, %Y"`` (e.g. "May 15, 2026").
+
+    Defensive against missing or malformed inputs:
+
+    - ``None`` → ``""`` (empty string, so the template emits no text).
+    - ``date`` / ``datetime`` → formatted directly via ``strftime``.
+    - ``str`` → parsed as ISO-8601 (``YYYY-MM-DD`` or full datetime). If
+      parsing fails, the original string is returned untouched so the
+      reader at least sees the raw value rather than a crash or empty
+      cell. JSONB next_steps fields can round-trip through psycopg as
+      ISO-8601 strings depending on the driver, so this is a real path.
+
+    Other types (int, etc.) fall through to ``str(value)`` for safety.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, (date, datetime)):
+        return value.strftime("%B %-d, %Y")
+    if isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value)
+        except ValueError:
+            return value
+        return parsed.strftime("%B %-d, %Y")
+    return str(value)
+
+
 def register(app: Flask) -> None:
     """Register custom Jinja filters on ``app``."""
     app.jinja_env.filters["order_badges"] = order_badges
+    app.jinja_env.filters["format_date"] = format_date
