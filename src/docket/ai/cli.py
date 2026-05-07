@@ -102,6 +102,23 @@ def cmd_dry_run(stage: str, limit: int) -> None:
             conn.rollback()
 
 
+def cmd_wave_0() -> None:
+    """Run Wave 0 (non-LLM pre-pass) across all configured cities."""
+    from docket.ai.wave0 import run_wave_0
+
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id, slug FROM municipalities ORDER BY slug")
+            rows = cur.fetchall()
+
+    city_ids = [r[0] for r in rows]
+    print(f"Running Wave 0 across {len(city_ids)} cities: {[r[1] for r in rows]}")
+    report = run_wave_0(city_ids)
+    print("Wave 0 complete:")
+    for status, count in sorted(report.counts.items()):
+        print(f"  {status}: {count}")
+
+
 def cmd_force_meeting(meeting_id: int) -> None:
     """Reset a single meeting's prompt version so it'll be re-claimed."""
     with db() as conn:
@@ -134,6 +151,13 @@ def main() -> None:
     group.add_argument("--status", action="store_true")
     group.add_argument("--items", action="store_true", help="Process pending items")
     group.add_argument("--meetings", action="store_true", help="Process pending meetings")
+    group.add_argument(
+        "--wave",
+        type=str,
+        choices=['0'],   # Phase 1 only knows about wave 0; later phases extend
+        default=None,
+        help="Run a backfill wave. '0' = Stage 0a + 0b non-LLM pre-pass (decision #78).",
+    )
     parser.add_argument("--limit", type=int, default=AI_MAX_BATCH_SIZE)
     parser.add_argument("--dry-run", action="store_true",
                         help="Show what would be processed without calling AI")
@@ -149,6 +173,10 @@ def main() -> None:
         level=logging.DEBUG if args.debug else logging.INFO,
         format="%(levelname)s %(name)s: %(message)s",
     )
+
+    if args.wave == '0':
+        cmd_wave_0()
+        return
 
     if args.status:
         cmd_status()
