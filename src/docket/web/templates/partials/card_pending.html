@@ -17,8 +17,6 @@
 
   <footer class="smart-brevity-card__footer">
     {# TODO E4: source-anchor adaptive button #}
-    {% if item.source_anchor and item.source_anchor.url %}
-      <a class="view-source" href="{{ item.source_anchor.url }}" rel="noopener">View original →</a>
-    {% endif %}
+    {% include 'partials/_source_link_stub.html' %}
   </footer>
 </article>

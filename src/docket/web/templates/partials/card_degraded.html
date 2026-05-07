@@ -25,9 +25,7 @@
 
   <footer class="smart-brevity-card__footer">
     {# TODO E4: source-anchor adaptive button #}
-    {% if item.source_anchor and item.source_anchor.url %}
-      <a class="view-source" href="{{ item.source_anchor.url }}" rel="noopener">View original PDF →</a>
-    {% endif %}
+    {% include 'partials/_source_link_stub.html' %}
     {# TODO E3 / F5: Report-this-issue mailto link #}
     {# TODO E2: data_debt_priority='high' admin chip (visible to logged-in admins only) #}
   </footer>

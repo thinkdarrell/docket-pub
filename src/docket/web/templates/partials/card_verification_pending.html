@@ -1,8 +1,11 @@
 {# variant: verification_pending — processing_status == 'cross_stage_conflict'
    (spec §6.1; decisions #45, #72, #76).
    Tooltip-only pill (NOT a modal — modal-based UX was retired). Renders
-   the v3 outputs with the pill prepended; once Stage 1 / Stage 2
-   reconcile resolves, status flips to 'completed' and the pill is gone. #}
+   the v3 outputs (headline + why_it_matters + facts strip + source link)
+   with the verification pill prepended; only the pill itself is
+   tooltip-only — the content is full-fidelity per spec §6.1. Once
+   Stage 1 / Stage 2 reconcile resolves, status flips to 'completed' and
+   the pill is gone. #}
 <article class="smart-brevity-card smart-brevity-card--verification-pending" data-variant="verification_pending">
   <header class="smart-brevity-card__header">
     <span class="verification-pill"
@@ -23,9 +26,7 @@
     <p class="smart-brevity-card__why">{{ item.why_it_matters }}</p>
   {% endif %}
 
-  <div class="smart-brevity-card__facts">
-    {# TODO E5: facts strip — counterparty, dollars (with tier + WCAG), funding, location, action_type #}
-  </div>
+  {% include 'partials/_facts_strip.html' %}
 
   <p class="smart-brevity-card__verification-note">
     Note: Our automated reading of this item is being double-checked.
@@ -34,5 +35,6 @@
 
   <footer class="smart-brevity-card__footer">
     {# TODO E4: source-anchor adaptive button #}
+    {% include 'partials/_source_link_stub.html' %}
   </footer>
 </article>

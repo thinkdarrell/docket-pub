@@ -1,0 +1,17 @@
+{# Shared "View original" link used by every Smart Brevity Card variant
+   that surfaces a source link. Temporary stub until E4 lands the
+   adaptive source-anchor button (PDF page anchor, video timestamp,
+   HTML anchor, or fallback). Kept as a single file so changes to
+   target/rel/scheme handling happen in one place.
+
+   Inputs (via implicit `item` context):
+     - item.source_anchor.url — string. Validated against an allowlist
+       of safe schemes (http://, https://, /relative). Anything else
+       (notably javascript: from PDF/HTML scrape edge cases) is rejected
+       and the link is omitted entirely. #}
+{% if item.source_anchor and item.source_anchor.url %}
+  {% set _url = item.source_anchor.url %}
+  {% if _url.startswith('http://') or _url.startswith('https://') or _url.startswith('/') %}
+    <a class="view-source" href="{{ _url }}" target="_blank" rel="noopener noreferrer">View original →</a>
+  {% endif %}
+{% endif %}

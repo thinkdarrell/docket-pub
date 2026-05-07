@@ -2,7 +2,12 @@
    ai_rewrite_version != 3 but item.summary is set. Renders the v2 summary
    directly; no headline available. The "summary updating" chip is a small
    grey pill, honest about state. This variant disappears once Migration
-   014 drops the `summary` column. #}
+   014 drops the `summary` column.
+
+   Restored fields from pre-E1 meeting_detail.html (topic, sponsor,
+   description, dollars_amount with tier color) — production today is
+   overwhelmingly v2, so this is the dominant rendering case and these
+   fields must not silently disappear before v3 lands. #}
 <article class="smart-brevity-card smart-brevity-card--v2-fallback" data-variant="v2_fallback">
   <header class="smart-brevity-card__header">
     <span class="chip chip-updating" title="Smart Brevity rewrite in progress; legacy summary shown for now.">
@@ -18,10 +23,26 @@
     <span class="badge badge-review badge-inline">Auto summary — under review</span>
   {% endif %}
 
+  <div class="smart-brevity-card__meta">
+    {% if item.topic %}
+      <span class="chip"><span class="dot"></span>{{ item.topic | topic_name }}</span>
+    {% endif %}
+    {% if item.sponsor %}
+      <span class="t-meta">{{ item.sponsor }}</span>
+    {% endif %}
+    {% if item.dollars_amount %}
+      <span class="tier tier-{{ item.dollars_amount | dollar_tier }}">
+        ${{ "{:,.0f}".format(item.dollars_amount) }}
+      </span>
+    {% endif %}
+  </div>
+
+  {% if item.description %}
+    <div class="smart-brevity-card__description t-meta">{{ item.description }}</div>
+  {% endif %}
+
   <footer class="smart-brevity-card__footer">
     {# TODO E4: source-anchor adaptive button #}
-    {% if item.source_anchor and item.source_anchor.url %}
-      <a class="view-source" href="{{ item.source_anchor.url }}" rel="noopener">View original →</a>
-    {% endif %}
+    {% include 'partials/_source_link_stub.html' %}
   </footer>
 </article>

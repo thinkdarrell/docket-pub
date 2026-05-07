@@ -287,3 +287,166 @@ class TestDispatcher:
         }
         html = _render(app, item)
         _assert_only_variant(html, "degraded")
+
+
+# --- Review-fix coverage -----------------------------------------------------
+
+
+class TestV2FallbackFields:
+    """v2 fallback must render the pre-E1 fields (topic / sponsor /
+    description / dollars_amount with tier color). Production today is
+    overwhelmingly v2, so this is the dominant rendering case — the
+    E1 partial regressed it by only showing title + summary."""
+
+    def test_v2_fallback_renders_topic_sponsor_description_dollars(self, app):
+        item = {
+            "id": 100,
+            "title": "Resolution authorizing payment to ABC Construction Inc.",
+            "processing_status": "completed",
+            "data_quality": "ok",
+            "ai_rewrite_version": 2,
+            "summary": "Payment for landscape services.",
+            "topic": "contracts",
+            "sponsor": "Council President Smith",
+            "description": "ABC Construction completed grounds maintenance for Q1.",
+            "dollars_amount": 75000,
+        }
+        html = _render(app, item)
+        _assert_only_variant(html, "v2_fallback")
+        # Topic chip
+        assert "contracts" in html
+        # Sponsor line
+        assert "Council President Smith" in html
+        # Description text
+        assert "ABC Construction completed grounds maintenance for Q1." in html
+        # Dollars + tier color (75K → yellow tier)
+        assert "75,000" in html
+        assert "tier-yellow" in html
+
+    def test_v2_fallback_omits_optional_fields_when_absent(self, app):
+        """When topic/sponsor/description/dollars are missing, v2 fallback
+        should still render cleanly (no 'None' placeholders, no broken markup)."""
+        item = {
+            "id": 101,
+            "title": "Bare-bones v2 item",
+            "processing_status": "completed",
+            "data_quality": "ok",
+            "ai_rewrite_version": 2,
+            "summary": "Short v2 summary.",
+        }
+        html = _render(app, item)
+        _assert_only_variant(html, "v2_fallback")
+        assert "Short v2 summary." in html
+        # Don't leak None
+        assert "None" not in html
+
+
+class TestSourceLinkSchemeValidation:
+    """The `_source_link_stub.html` partial must reject any URL whose
+    scheme isn't http://, https://, or / (relative). javascript: URLs
+    are an XSS vector — they must be omitted entirely (not rendered as
+    a clickable link)."""
+
+    def test_javascript_url_is_omitted(self, app):
+        item = {
+            "id": 200,
+            "title": "Item with malicious source URL",
+            "processing_status": "failed_permanent",
+            "source_anchor": {"url": "javascript:alert(1)"},
+        }
+        html = _render(app, item)
+        _assert_only_variant(html, "failed")
+        # Link must not be emitted at all
+        assert 'href="javascript:' not in html
+        assert "javascript:alert" not in html
+        assert "view-source" not in html
+
+    def test_https_url_is_rendered_with_target_blank(self, app):
+        item = {
+            "id": 201,
+            "title": "Item with valid https source URL",
+            "processing_status": "failed_permanent",
+            "source_anchor": {"url": "https://example.com/agenda.pdf"},
+        }
+        html = _render(app, item)
+        _assert_only_variant(html, "failed")
+        assert 'href="https://example.com/agenda.pdf"' in html
+        assert 'target="_blank"' in html
+        assert 'rel="noopener noreferrer"' in html
+        assert "view-source" in html
+
+    def test_http_url_is_rendered(self, app):
+        item = {
+            "id": 202,
+            "title": "Item with http source",
+            "processing_status": "pending",
+            "source_anchor": {"url": "http://example.com/doc"},
+        }
+        html = _render(app, item)
+        _assert_only_variant(html, "pending")
+        assert 'href="http://example.com/doc"' in html
+
+    def test_relative_url_is_rendered(self, app):
+        item = {
+            "id": 203,
+            "title": "Item with site-relative source",
+            "processing_status": "pending",
+            "source_anchor": {"url": "/uploads/agenda-2024.pdf"},
+        }
+        html = _render(app, item)
+        _assert_only_variant(html, "pending")
+        assert 'href="/uploads/agenda-2024.pdf"' in html
+
+    def test_data_url_is_omitted(self, app):
+        """data: URLs are also not in the allowlist — must be omitted."""
+        item = {
+            "id": 204,
+            "title": "Item with data: URL",
+            "processing_status": "pending",
+            "source_anchor": {"url": "data:text/html,<script>alert(1)</script>"},
+        }
+        html = _render(app, item)
+        _assert_only_variant(html, "pending")
+        assert "data:text/html" not in html
+        assert "view-source" not in html
+
+
+class TestVerificationPendingContent:
+    """Per spec §6.1, the verification-pending variant DOES render the
+    v3 outputs (headline + why_it_matters + facts strip + source link).
+    Only the verification PILL is tooltip-only — the content is
+    full-fidelity. The original E1 partial left the facts/source as
+    TODO comments, which broke citizen click-through."""
+
+    def test_verification_pending_renders_facts_and_source_link(self, app):
+        item = {
+            "id": 300,
+            "title": "Flock contract amendment",
+            "headline": "Sole-source: Flock licenses extended 5 years for $1.8M",
+            "why_it_matters": "Higher per-camera rates affect surveillance budget.",
+            "processing_status": "cross_stage_conflict",
+            "data_quality": "ok",
+            "ai_rewrite_version": 3,
+            "dollars_amount": 1800000,
+            "extracted_facts": {
+                "counterparty": "Flock Safety Inc.",
+                "funding_source": "general_fund",
+                "action_type": "contract_amendment",
+            },
+            "source_anchor": {"url": "https://example.com/flock-amendment.pdf"},
+        }
+        html = _render(app, item)
+        _assert_only_variant(html, "verification_pending")
+        # Pill stays
+        assert "Verification in progress" in html
+        # Facts strip rendered (counterparty, dollars, funding)
+        assert "Flock Safety Inc." in html
+        assert "1,800,000" in html
+        assert "General Fund" in html
+        # Source link rendered with target / rel
+        assert 'href="https://example.com/flock-amendment.pdf"' in html
+        assert 'target="_blank"' in html
+        assert 'rel="noopener noreferrer"' in html
+        assert "view-source" in html
+        # Still no modal / hx-get
+        assert "hx-get" not in html
