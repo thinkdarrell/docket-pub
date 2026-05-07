@@ -17,8 +17,12 @@ import json
 
 import pytest
 
+import importlib
+
 from docket.db import db
 from docket.migrations.runner import apply_migrations
+
+_m015 = importlib.import_module("docket.migrations.015_search_vector_v3")
 
 
 # ---------------------------------------------------------------------------
@@ -73,10 +77,20 @@ def _matches(cur, item_id: int, query_term: str) -> bool:
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(autouse=True)
-def apply_all_migrations():
-    """Ensure all migrations including 015 are applied before each test."""
+def ensure_v3_trigger():
+    """Ensure the v3 trigger function is installed before each test.
+
+    apply_migrations() is not enough on its own: test_013_up_down_up_cycle
+    (in test_migration_013.py) rolls back migration 013 and re-applies it,
+    which overwrites the trigger function body back to 013's version.
+    Migration 015 is still recorded as applied in schema_migrations so the
+    runner skips it on subsequent calls. We force-install the v3 function
+    body directly so our tests always see the trigger they're testing.
+    """
     with db() as conn:
         apply_migrations(conn)
+        with conn.cursor() as cur:
+            cur.execute(_m015.SQL_UP)
 
 
 # ---------------------------------------------------------------------------
