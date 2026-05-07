@@ -155,6 +155,36 @@ def task_process_badges() -> None:
     _safe_run("process_badges", _do_process_badges)
 
 
+def _do_calibration_report() -> None:
+    """Daily calibration: 4 queries summarizing AI scoring drift + cache cleanup.
+
+    Logs a single structured line with counters; admins can re-query
+    individual sections from the cache_cleanup-aware admin dashboard later.
+    Spec §3.5 + decision #91.
+    """
+    from docket.ai.cache import cache_cleanup
+    from docket.ai.calibration import run_calibration_queries
+
+    with db_cursor() as cur:
+        counts = run_calibration_queries(cur)
+
+    n_cache_deleted = cache_cleanup(max_age_days=90)
+
+    log.info(
+        "calibration_report: divergence=%d underscoring=%d overscoring=%d "
+        "drift_alerts=%d cache_cleanup=%d",
+        counts['divergence_count'],
+        counts['underscoring_categories'],
+        counts['overscoring_categories'],
+        counts['drift_alerts'],
+        n_cache_deleted,
+    )
+
+
+def task_calibration_report() -> None:
+    _safe_run("calibration_report", _do_calibration_report)
+
+
 # --- registry — used by scheduler.py and the --run-once flag -----------------
 
 TASKS: dict[str, Callable[[], None]] = {
@@ -164,4 +194,5 @@ TASKS: dict[str, Callable[[], None]] = {
     "vote_matching":        task_vote_matching,
     "repair_empty_agendas": task_repair_empty_agendas,
     "process_badges":       task_process_badges,
+    "calibration_report":   task_calibration_report,
 }

@@ -1,7 +1,7 @@
 # Cron Worker Runbook
 
 The Railway `worker` service runs `python -m docket.worker.scheduler` and fires
-six scheduled tasks (see the design spec at
+seven scheduled tasks (see the design spec at
 `docs/superpowers/specs/2026-05-04-cron-worker-design.md`).
 
 **Status:** Live in production as of 2026-05-04. Five Healthchecks.io UUIDs are wired into the `worker` service env vars; first verification run (`repair_empty_agendas`) completed cleanly with a green ping.
@@ -9,17 +9,18 @@ six scheduled tasks (see the design spec at
 ## Healthchecks.io setup (initial provisioning, retained for reference)
 
 1. Sign up at https://healthchecks.io (free tier covers this entirely).
-2. Create six checks. For each, copy the UUID from the ping URL
+2. Create seven checks. For each, copy the UUID from the ping URL
    (`https://hc-ping.com/<UUID>`).
 
-   | Check name              | Schedule      | Grace |
-   |-------------------------|---------------|-------|
-   | docket-ingest           | Daily 06:00   | 2h    |
-   | docket-ai-items         | Daily 07:00   | 2h    |
-   | docket-ai-meetings      | Daily 08:00   | 2h    |
-   | docket-vote-matching    | Daily 09:00   | 2h    |
-   | docket-process-badges   | Daily 09:30   | 2h    |
-   | docket-repair           | Mon 05:00     | 24h   |
+   | Check name                   | Schedule      | Grace |
+   |------------------------------|---------------|-------|
+   | docket-ingest                | Daily 06:00   | 2h    |
+   | docket-ai-items              | Daily 07:00   | 2h    |
+   | docket-ai-meetings           | Daily 08:00   | 2h    |
+   | docket-vote-matching         | Daily 09:00   | 2h    |
+   | docket-process-badges        | Daily 09:30   | 2h    |
+   | docket-calibration-report    | Daily 11:00   | 2h    |
+   | docket-repair                | Mon 05:00     | 24h   |
 
 3. Set Railway env vars (use `railway variables --set` with the actual UUIDs):
 
@@ -29,8 +30,13 @@ six scheduled tasks (see the design spec at
    railway variables --service worker --set HEALTHCHECK_AI_MEETINGS_UUID=<uuid>
    railway variables --service worker --set HEALTHCHECK_VOTE_MATCH_UUID=<uuid>
    railway variables --service worker --set HEALTHCHECK_PROCESS_BADGES_UUID=<uuid>
+   railway variables --service worker --set HEALTHCHECK_CALIBRATION_REPORT_UUID=<uuid>
    railway variables --service worker --set HEALTHCHECK_REPAIR_UUID=<uuid>
    ```
+
+   **Post-deploy**: `HEALTHCHECK_CALIBRATION_REPORT_UUID` must be set on the Railway
+   `worker` service after deploy. The task will run safely with the UUID unset (health
+   pings become no-ops), but alerts won't fire until the var is configured.
 
 4. (Optional) Configure notification channels in Healthchecks.io
    (email, Slack, etc.).
@@ -62,6 +68,7 @@ railway ssh --service worker
 python -m docket.worker.scheduler --run-once repair_empty_agendas
 python -m docket.worker.scheduler --run-once vote_matching
 python -m docket.worker.scheduler --run-once process_badges
+python -m docket.worker.scheduler --run-once calibration_report
 python -m docket.worker.scheduler --run-once ingest_all
 python -m docket.worker.scheduler --run-once ai_items
 python -m docket.worker.scheduler --run-once ai_meetings
