@@ -182,6 +182,7 @@ def submit_batch(
     """
     client = anthropic.Anthropic(api_key=os.environ['ANTHROPIC_API_KEY'])
 
+    submitted_items = []
     requests = []
     for item in items:
         if stage == 'stage1':
@@ -199,9 +200,13 @@ def submit_batch(
             'custom_id': f'item-{item.id}-{stage}',
             'params': req,
         })
+        submitted_items.append(item)
+
+    if not requests:
+        raise ValueError("submit_batch: no items to submit (all skipped or empty input)")
 
     batch = client.messages.batches.create(requests=requests)
-    record_batch(batch.id, stage, wave, [i.id for i in items])
+    record_batch(batch.id, stage, wave, [i.id for i in submitted_items])
     return batch.id
 
 

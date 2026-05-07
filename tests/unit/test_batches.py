@@ -249,6 +249,22 @@ class TestSubmitBatch:
                 meeting_ids.append(m_id)
                 item_ids.append(i_id)
 
+                # Provide extracted_facts so the stage2 item is not skipped
+                facts_dict = {
+                    'funding_source': 'general_fund',
+                    'counterparty': 'CustomIDVendor',
+                    'procurement_method': 'competitive',
+                    'location': None,
+                    'action_type': 'contract_award',
+                    'next_steps': {},
+                    'parcels_affected': None,
+                    'acres_affected': None,
+                }
+                cur.execute(
+                    "UPDATE agenda_items SET extracted_facts = %s::jsonb WHERE id = %s",
+                    [json.dumps(facts_dict), i_id],
+                )
+
             items = [make_item(id=item_ids[0])]
 
             mock_batch = MagicMock()
@@ -279,6 +295,134 @@ class TestSubmitBatch:
                     "DELETE FROM ai_batches WHERE anthropic_batch_id = %s",
                     [_batch_id],
                 )
+                if item_ids:
+                    cur.execute("DELETE FROM agenda_items WHERE id = ANY(%s)", [item_ids])
+                if meeting_ids:
+                    cur.execute("DELETE FROM meetings WHERE id = ANY(%s)", [meeting_ids])
+                cur.execute(
+                    "DELETE FROM municipalities WHERE slug = 'test_batches_muni'"
+                )
+
+    def test_stage2_skips_items_without_facts_and_records_only_submitted_count(self):
+        """record_batch receives only actually-submitted items when some stage2 items lack facts."""
+        _batch_id = f'msgbatch_skip_count_{id(object())}'
+        meeting_ids = []
+        item_ids = []
+
+        try:
+            with db() as conn, conn.cursor() as cur:
+                # item_with_facts
+                m_id1, i_id1 = _insert_meeting_and_item(cur, "Skip count item WITH facts")
+                meeting_ids.append(m_id1)
+                item_ids.append(i_id1)
+
+                facts_dict = {
+                    'funding_source': 'general_fund',
+                    'counterparty': 'SkipTestVendor',
+                    'procurement_method': 'competitive',
+                    'location': None,
+                    'action_type': 'contract_award',
+                    'next_steps': {},
+                    'parcels_affected': None,
+                    'acres_affected': None,
+                }
+                cur.execute(
+                    "UPDATE agenda_items SET extracted_facts = %s::jsonb WHERE id = %s",
+                    [json.dumps(facts_dict), i_id1],
+                )
+
+                # item_without_facts (extracted_facts remains NULL)
+                m_id2, i_id2 = _insert_meeting_and_item(cur, "Skip count item WITHOUT facts")
+                meeting_ids.append(m_id2)
+                item_ids.append(i_id2)
+
+            item_with_facts = make_item(id=item_ids[0])
+            item_without_facts = make_item(id=item_ids[1])
+
+            mock_batch = MagicMock()
+            mock_batch.id = _batch_id
+
+            with patch('docket.ai.batches.anthropic.Anthropic') as mock_cls, \
+                 patch.dict('os.environ', {'ANTHROPIC_API_KEY': 'test-key'}):
+                mock_cls.return_value.messages.batches.create.return_value = mock_batch
+                submit_batch([item_with_facts, item_without_facts], 'stage2', 'wave2')
+
+            with db() as conn, conn.cursor() as cur:
+                # item_count must reflect only the 1 submitted item, not 2
+                cur.execute(
+                    "SELECT item_count FROM ai_batches WHERE anthropic_batch_id = %s",
+                    [_batch_id],
+                )
+                row = cur.fetchone()
+            assert row is not None
+            assert row[0] == 1, f"Expected item_count=1, got {row[0]}"
+
+            with db() as conn, conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT abi.agenda_item_id FROM ai_batch_items abi
+                    JOIN ai_batches ab ON ab.id = abi.batch_id
+                    WHERE ab.anthropic_batch_id = %s
+                    """,
+                    [_batch_id],
+                )
+                rows = cur.fetchall()
+
+            # Exactly one ai_batch_items row
+            assert len(rows) == 1, f"Expected 1 ai_batch_items row, got {len(rows)}"
+            # The row references the item that HAD facts
+            assert rows[0][0] == item_ids[0], (
+                f"Expected agenda_item_id={item_ids[0]}, got {rows[0][0]}"
+            )
+
+        finally:
+            with db() as conn, conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM ai_batches WHERE anthropic_batch_id = %s",
+                    [_batch_id],
+                )
+                if item_ids:
+                    cur.execute("DELETE FROM agenda_items WHERE id = ANY(%s)", [item_ids])
+                if meeting_ids:
+                    cur.execute("DELETE FROM meetings WHERE id = ANY(%s)", [meeting_ids])
+                cur.execute(
+                    "DELETE FROM municipalities WHERE slug = 'test_batches_muni'"
+                )
+
+    def test_submit_batch_raises_when_all_items_skipped(self):
+        """submit_batch raises ValueError when every stage2 item lacks Stage 1 facts."""
+        meeting_ids = []
+        item_ids = []
+
+        try:
+            with db() as conn, conn.cursor() as cur:
+                m_id, i_id = _insert_meeting_and_item(cur, "All-skipped test item")
+                meeting_ids.append(m_id)
+                item_ids.append(i_id)
+                # extracted_facts intentionally left NULL
+
+            item_no_facts = make_item(id=item_ids[0])
+
+            with patch('docket.ai.batches.anthropic.Anthropic') as mock_cls, \
+                 patch.dict('os.environ', {'ANTHROPIC_API_KEY': 'test-key'}):
+                mock_cls.return_value.messages.batches.create.return_value = MagicMock()
+
+                with pytest.raises(ValueError, match="no items to submit"):
+                    submit_batch([item_no_facts], 'stage2', 'wave2')
+
+            # No ai_batches row must have been created
+            with db() as conn, conn.cursor() as cur:
+                cur.execute(
+                    "SELECT COUNT(*) FROM ai_batches WHERE anthropic_batch_id LIKE 'msgbatch%'"
+                    " AND stage = 'stage2' AND wave = 'wave2'"
+                    " AND item_count = 0",
+                )
+                # The real check: Anthropic create was never called so no batch_id to look up.
+                # Verify the mock create was NOT called.
+            mock_cls.return_value.messages.batches.create.assert_not_called()
+
+        finally:
+            with db() as conn, conn.cursor() as cur:
                 if item_ids:
                     cur.execute("DELETE FROM agenda_items WHERE id = ANY(%s)", [item_ids])
                 if meeting_ids:
