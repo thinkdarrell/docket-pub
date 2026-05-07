@@ -63,6 +63,15 @@ def evaluate_data_quality(item: _ItemView) -> tuple[DataQuality, DataDebtPriorit
 
     body = item.description or item.raw_text or ''
     body_clean = body.strip()
+    body_from_title_fallback = False
+
+    # Body fallback to title for adapters (e.g., Granicus/Birmingham) that
+    # write the full agenda body into `title` and leave `description` NULL.
+    # A substantive title (>= 120 chars) is treated as the body when no other
+    # body is available — the agenda text is there, just in the wrong column.
+    if not body_clean and len(item.title.strip()) >= 120:
+        body_clean = item.title.strip()
+        body_from_title_fallback = True
 
     # No body
     if not body_clean:
@@ -72,8 +81,11 @@ def evaluate_data_quality(item: _ItemView) -> tuple[DataQuality, DataDebtPriorit
     if len(body_clean) < 50 and (item.source_type == 'pdf'):
         return ('no_text_layer', _priority_from_title(item.title))
 
-    # Body equals title (PDF parser fell back to title-only)
-    if (body_clean.lower() == (item.title or '').lower().strip()
+    # Body equals title (PDF parser fell back to title-only).
+    # Skip this check when we *intentionally* used title as body — that's
+    # not a parser failure, it's an adapter quirk we already accommodated.
+    if (not body_from_title_fallback
+            and body_clean.lower() == (item.title or '').lower().strip()
             and len(body_clean) < 200):
         return ('no_text_layer', _priority_from_title(item.title))
 

@@ -80,3 +80,27 @@ class TestEvaluateDataQuality:
         quality, priority = evaluate_data_quality(item)
         assert quality == 'ok'
         assert priority == 'high'  # via _priority_from_title's dollar regex
+
+    def test_long_title_with_empty_description_treats_title_as_body(self):
+        """Granicus/Birmingham case: full agenda body sits in title, description is NULL.
+        A substantive title (>=120 chars) should classify as 'ok', not 'no_agenda_text'."""
+        item = FakeItem(
+            title=(
+                "A Resolution determining that the building or structure located at "
+                "1701 Madison Avenue S.W., Birmingham, to be unsafe, a public nuisance, "
+                "and directing that it be demolished. (Recommended by the Director of Planning)"
+            ),
+            description=None,
+        )
+        quality, priority = evaluate_data_quality(item)
+        assert quality == 'ok'
+
+    def test_short_title_with_empty_description_still_no_agenda_text(self):
+        """A short title (e.g., 'CONSENT ITEM 38.') with empty body remains no_agenda_text —
+        the title fallback only kicks in for titles long enough to be substantive."""
+        item = FakeItem(
+            title="CONSENT ITEM 38.",  # 16 chars — below the 120 threshold
+            description=None,
+        )
+        quality, priority = evaluate_data_quality(item)
+        assert quality == 'no_agenda_text'
