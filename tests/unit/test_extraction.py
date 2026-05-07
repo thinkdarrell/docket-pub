@@ -152,3 +152,6 @@ def test_persist_extraction_writes_jsonb_and_version():
     assert "ai_extraction_version" in sql
     # Last param is item_id; first param is the JSON
     assert params[-1] == 42
+    json_blob = json.loads(params[0])
+    assert json_blob.get('counterparty') == 'Acme HVAC'
+    assert params[1] == 1
