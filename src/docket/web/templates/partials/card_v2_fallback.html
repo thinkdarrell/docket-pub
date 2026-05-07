@@ -1,0 +1,27 @@
+{# variant: v2_fallback — legacy v2 (spec §6.1).
+   ai_rewrite_version != 3 but item.summary is set. Renders the v2 summary
+   directly; no headline available. The "summary updating" chip is a small
+   grey pill, honest about state. This variant disappears once Migration
+   014 drops the `summary` column. #}
+<article class="smart-brevity-card smart-brevity-card--v2-fallback" data-variant="v2_fallback">
+  <header class="smart-brevity-card__header">
+    <span class="chip chip-updating" title="Smart Brevity rewrite in progress; legacy summary shown for now.">
+      ⏳ summary updating
+    </span>
+  </header>
+
+  <h3 class="smart-brevity-card__title">{{ item.title }}</h3>
+
+  <p class="smart-brevity-card__body item-summary">{{ item.summary }}</p>
+
+  {% if item.ai_metadata and item.ai_metadata.confidence == 'low' %}
+    <span class="badge badge-review badge-inline">Auto summary — under review</span>
+  {% endif %}
+
+  <footer class="smart-brevity-card__footer">
+    {# TODO E4: source-anchor adaptive button #}
+    {% if item.source_anchor and item.source_anchor.url %}
+      <a class="view-source" href="{{ item.source_anchor.url }}" rel="noopener">View original →</a>
+    {% endif %}
+  </footer>
+</article>

@@ -1,0 +1,24 @@
+{# variant: pending — no AI output yet, no v2 summary either (spec §6.1).
+   processing_status='pending' (default), no headline / why_it_matters,
+   no summary. Surface the title verbatim and signal that the smart
+   summary is en route. #}
+<article class="smart-brevity-card smart-brevity-card--pending" data-variant="pending">
+  <header class="smart-brevity-card__header">
+    <span class="chip chip-pending" title="This item is queued for automated extraction; check back soon.">
+      ⏳ awaiting summary
+    </span>
+  </header>
+
+  <h3 class="smart-brevity-card__title">{{ item.title }}</h3>
+
+  {% if item.description %}
+    <p class="smart-brevity-card__body t-meta">{{ item.description }}</p>
+  {% endif %}
+
+  <footer class="smart-brevity-card__footer">
+    {# TODO E4: source-anchor adaptive button #}
+    {% if item.source_anchor and item.source_anchor.url %}
+      <a class="view-source" href="{{ item.source_anchor.url }}" rel="noopener">View original →</a>
+    {% endif %}
+  </footer>
+</article>

@@ -1,0 +1,86 @@
+{# variant: smart_brevity — full v3 card (spec §6.1).
+   ai_rewrite_version == 3, processing_status implied 'completed'.
+   Structure: header (badge chips) → headline → why_it_matters →
+   facts strip → engagement strip → source-anchor button. Sub-components
+   (badge chips, dollar tier, engagement strip, source anchor) are E2/E3/
+   E4/E5 territory — this partial leaves TODO markers where they slot in.
+
+   extracted_facts JSONB shape comes from src/docket/ai/extraction_schema.py
+   (StructuredFacts): funding_source, counterparty, procurement_method,
+   location{ward_or_district, neighborhood, address, parcel_id}, action_type,
+   next_steps{committee_referral, public_hearing_date, public_hearing_time,
+   comment_period_end, implementation_date}, parcels_affected, acres_affected.
+#}
+{% set facts = item.extracted_facts or {} %}
+<article class="smart-brevity-card smart-brevity-card--full" data-variant="smart_brevity">
+  <header class="smart-brevity-card__header">
+    {# TODO E2: badge chips row — process-first ordering, ✨ verification spark on confidence>=1.0, +N more collapse #}
+    <div class="badge-row">
+      {# Placeholder until E2 lands. Iterate item.badges through `order_badges`
+         once that filter exists. #}
+    </div>
+  </header>
+
+  {% if item.headline %}
+    <h3 class="smart-brevity-card__headline">{{ item.headline }}</h3>
+  {% else %}
+    <h3 class="smart-brevity-card__headline">{{ item.title }}</h3>
+  {% endif %}
+
+  {% if item.why_it_matters %}
+    <p class="smart-brevity-card__why">{{ item.why_it_matters }}</p>
+  {% endif %}
+
+  <div class="smart-brevity-card__facts">
+    {# Facts strip pulls from extracted_facts (and dollars_amount on the row).
+       Empty fields are omitted — no "Counterparty: not specified" placeholders. #}
+    <ul class="facts-strip">
+      {% if facts.counterparty %}
+        <li class="fact fact--counterparty">🏢 Counterparty: {{ facts.counterparty }}</li>
+      {% endif %}
+
+      {% if item.dollars_amount %}
+        {# TODO E5: dollar_tier partial with WCAG markup (color + symbol + sr-only label) #}
+        <li class="fact fact--cost">
+          💵 Cost:
+          <span class="tier tier-{{ item.dollars_amount | dollar_tier }}">
+            ${{ "{:,.0f}".format(item.dollars_amount) }}
+          </span>
+        </li>
+      {% endif %}
+
+      {% if facts.funding_source and facts.funding_source != 'unknown' %}
+        <li class="fact fact--funding">🏛️ Funding: {{ facts.funding_source | replace('_', ' ') | title }}</li>
+      {% endif %}
+
+      {% if facts.location %}
+        {% set loc = facts.location %}
+        {% set loc_parts = [] %}
+        {% if loc.ward_or_district %}{% set _ = loc_parts.append(loc.ward_or_district) %}{% endif %}
+        {% if loc.neighborhood %}{% set _ = loc_parts.append(loc.neighborhood) %}{% endif %}
+        {% if loc.address %}{% set _ = loc_parts.append(loc.address) %}{% endif %}
+        {% if loc_parts %}
+          <li class="fact fact--location">📍 Location: {{ loc_parts | join(' · ') }}</li>
+        {% endif %}
+      {% endif %}
+
+      {% if facts.action_type and facts.action_type != 'other' %}
+        <li class="fact fact--action">📋 Action:
+          {{ facts.action_type | replace('_', ' ') | title }}{% if facts.procurement_method and facts.procurement_method not in ('not_applicable', 'unknown') %} ({{ facts.procurement_method | replace('_', ' ') }}){% endif %}
+        </li>
+      {% endif %}
+    </ul>
+  </div>
+
+  <div class="smart-brevity-card__engagement">
+    {# TODO E3: engagement strip partial (committee_referral, public_hearing_date,
+       comment_period_end, implementation_date, master-calendar fallback). #}
+  </div>
+
+  <footer class="smart-brevity-card__footer">
+    {# TODO E4: source-anchor adaptive button (PDF page anchor, video timestamp, HTML anchor, or fallback). #}
+    {% if item.source_anchor and item.source_anchor.url %}
+      <a class="view-source" href="{{ item.source_anchor.url }}" rel="noopener">View Source →</a>
+    {% endif %}
+  </footer>
+</article>

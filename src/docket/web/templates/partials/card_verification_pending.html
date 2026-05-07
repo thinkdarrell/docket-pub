@@ -1,0 +1,38 @@
+{# variant: verification_pending — processing_status == 'cross_stage_conflict'
+   (spec §6.1; decisions #45, #72, #76).
+   Tooltip-only pill (NOT a modal — modal-based UX was retired). Renders
+   the v3 outputs with the pill prepended; once Stage 1 / Stage 2
+   reconcile resolves, status flips to 'completed' and the pill is gone. #}
+<article class="smart-brevity-card smart-brevity-card--verification-pending" data-variant="verification_pending">
+  <header class="smart-brevity-card__header">
+    <span class="verification-pill"
+          title="Our automated systems read this item in two passes (facts and summary). When those disagree we hold the result for manual review. Most resolve within a day; the summary above is best-effort."
+          aria-label="Verification in progress: dual-pass review pending; summary is best-effort">
+      ⚠️ Verification in progress
+    </span>
+
+    {# TODO E2: badge chips row (process-first, +N more collapse) — same as full smart_brevity #}
+    <div class="badge-row">
+      {# TODO E2: render badges from item.badges via order_badges, with ✨ verification spark on confidence>=1.0 #}
+    </div>
+  </header>
+
+  <h3 class="smart-brevity-card__headline">{{ item.headline or item.title }}</h3>
+
+  {% if item.why_it_matters %}
+    <p class="smart-brevity-card__why">{{ item.why_it_matters }}</p>
+  {% endif %}
+
+  <div class="smart-brevity-card__facts">
+    {# TODO E5: facts strip — counterparty, dollars (with tier + WCAG), funding, location, action_type #}
+  </div>
+
+  <p class="smart-brevity-card__verification-note">
+    Note: Our automated reading of this item is being double-checked.
+    The summary above is best-effort while verification is pending.
+  </p>
+
+  <footer class="smart-brevity-card__footer">
+    {# TODO E4: source-anchor adaptive button #}
+  </footer>
+</article>
