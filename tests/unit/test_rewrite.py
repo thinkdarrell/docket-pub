@@ -1,0 +1,354 @@
+"""Tests for Stage 2 rewrite worker (`docket.ai.rewrite`)."""
+
+from __future__ import annotations
+
+import json
+from unittest.mock import MagicMock, patch
+
+import pytest
+from pydantic import ValidationError
+
+from docket.ai.rewrite import (
+    ITEM_REWRITE_PROMPT_VERSION,
+    build_user_message,
+    rewrite_item,
+)
+from docket.ai.rewrite_schema import ItemRewrite
+from docket.ai.extraction_schema import NextSteps, StructuredFacts
+
+
+def make_item(**kw):
+    """Lightweight fixture for an item view (mirrors test_extraction.py)."""
+    defaults = {
+        'id': 1,
+        'city_name': 'Birmingham',
+        'title': "Award of HVAC contract to Acme Industries",
+        'description': "Long valid body content with full agenda item description text.",
+        'sponsor': None,
+        'dollars_amount': 4200000,
+        'topic': 'contracts',
+        'is_consent': False,
+    }
+    defaults.update(kw)
+    return type('Item', (), defaults)()
+
+
+def make_facts(**kw) -> StructuredFacts:
+    """Minimal valid StructuredFacts for use in tests."""
+    defaults = dict(
+        funding_source='general_fund',
+        counterparty='Acme Industries',
+        procurement_method='competitive',
+        location=None,
+        action_type='contract_award',
+        next_steps=NextSteps(),
+        parcels_affected=None,
+        acres_affected=None,
+    )
+    defaults.update(kw)
+    return StructuredFacts(**defaults)
+
+
+VALID_SUBSTANTIVE_RESPONSE = {
+    'is_substantive': True,
+    'headline': 'Council awards $4.2M HVAC contract to Acme',
+    'why_it_matters': 'Better climate control in public buildings starting fall 2026.',
+    'significance_rationale': 'Major capital expenditure with long-term operational impact.',
+    'significance_score': 7,
+    'consent_placement_rationale': 'High-dollar contract warrants full council debate.',
+    'consent_placement_score': 2,
+    'suggested_badge_slugs': [],
+    'confidence': 'high',
+}
+
+VALID_PROCEDURAL_RESPONSE = {
+    'is_substantive': False,
+    'headline': None,
+    'why_it_matters': None,
+    'significance_rationale': '',
+    'significance_score': None,
+    'consent_placement_rationale': '',
+    'consent_placement_score': None,
+    'suggested_badge_slugs': [],
+    'confidence': 'high',
+}
+
+
+def _mock_api_response(payload: dict, model: str = 'claude-haiku-4-5-20251001') -> MagicMock:
+    """Build a mock Anthropic messages.create response."""
+    mock_response = MagicMock()
+    mock_response.model = model
+    mock_response.content = [MagicMock(text=json.dumps(payload))]
+    return mock_response
+
+
+class TestBuildUserMessage:
+    def test_includes_city_name(self):
+        item = make_item()
+        msg = build_user_message(item, make_facts(), [])
+        assert "City: Birmingham" in msg
+
+    def test_includes_title(self):
+        item = make_item()
+        msg = build_user_message(item, make_facts(), [])
+        assert "Award of HVAC contract" in msg
+
+    def test_includes_badge_slugs(self):
+        item = make_item()
+        msg = build_user_message(item, make_facts(), ['police-oversight', 'contracts'])
+        assert "police-oversight" in msg
+        assert "contracts" in msg
+
+    def test_includes_facts_json(self):
+        item = make_item()
+        facts = make_facts()
+        msg = build_user_message(item, facts, [])
+        assert "Stage 1 structured facts:" in msg
+        assert "Acme Industries" in msg  # counterparty appears in JSON
+
+    def test_extra_instruction_appended(self):
+        item = make_item()
+        msg = build_user_message(item, make_facts(), [],
+                                  extra_instruction="RETRY: Force is_substantive=true.")
+        assert "RETRY: Force is_substantive=true." in msg
+
+    def test_no_extra_instruction_no_trailing_blank(self):
+        item = make_item()
+        msg = build_user_message(item, make_facts(), [])
+        assert not msg.endswith("\n")
+        assert not msg.endswith(" ")
+
+    def test_city_name_fallback_when_attribute_missing(self):
+        """Items without city_name fall back to 'Unknown' gracefully."""
+        item = type('Item', (), {
+            'id': 99, 'title': 'Test', 'description': '', 'sponsor': None,
+            'dollars_amount': 0, 'topic': None, 'is_consent': False,
+        })()
+        msg = build_user_message(item, make_facts(), [])
+        assert "City: Unknown" in msg
+
+
+class TestRewriteItemHappyPathSubstantive:
+    def test_returns_itemrewrite_and_model_id(self):
+        """With mocked Anthropic, rewrite_item returns a valid ItemRewrite."""
+        item = make_item()
+        facts = make_facts()
+
+        mock_response = _mock_api_response(VALID_SUBSTANTIVE_RESPONSE)
+
+        with patch('docket.ai.rewrite.anthropic_client') as mock_client, \
+             patch('docket.ai.rewrite.cache_get', return_value=None), \
+             patch('docket.ai.rewrite.cache_put'):
+            mock_client.messages.create.return_value = mock_response
+            rewrite, model_id = rewrite_item(item, facts, [])
+
+        assert isinstance(rewrite, ItemRewrite)
+        assert rewrite.is_substantive is True
+        assert rewrite.headline == 'Council awards $4.2M HVAC contract to Acme'
+        assert rewrite.significance_score == 7
+        assert model_id == 'claude-haiku-4-5-20251001'
+
+    def test_passes_badge_slugs_to_user_message(self):
+        """enabled_policy_badges appear in the user message sent to the API."""
+        item = make_item()
+        facts = make_facts()
+        badges = ['police-oversight', 'tax-abatement']
+
+        mock_response = _mock_api_response(VALID_SUBSTANTIVE_RESPONSE)
+        captured_calls = []
+
+        def capture_create(**kwargs):
+            captured_calls.append(kwargs)
+            return mock_response
+
+        with patch('docket.ai.rewrite.anthropic_client') as mock_client, \
+             patch('docket.ai.rewrite.cache_get', return_value=None), \
+             patch('docket.ai.rewrite.cache_put'):
+            mock_client.messages.create.side_effect = capture_create
+            rewrite_item(item, facts, badges)
+
+        assert captured_calls, "API was not called"
+        user_content = captured_calls[0]['messages'][0]['content']
+        assert 'police-oversight' in user_content
+
+    def test_served_model_used_for_cache_put(self):
+        """cache_put is called with the served model id (decision #42)."""
+        item = make_item()
+        facts = make_facts()
+
+        served = 'claude-haiku-4-5-20251001-variant'
+        mock_response = _mock_api_response(VALID_SUBSTANTIVE_RESPONSE, model=served)
+        captured_puts = []
+
+        with patch('docket.ai.rewrite.anthropic_client') as mock_client, \
+             patch('docket.ai.rewrite.cache_get', return_value=None), \
+             patch('docket.ai.rewrite.cache_put', side_effect=lambda *a, **kw: captured_puts.append(kw)):
+            mock_client.messages.create.return_value = mock_response
+            _, model_id = rewrite_item(item, facts, [])
+
+        assert model_id == served
+        assert captured_puts, "cache_put was not called"
+        assert captured_puts[0]['model'] == served
+        assert captured_puts[0]['prompt_version'] == ITEM_REWRITE_PROMPT_VERSION
+
+
+class TestRewriteItemHappyPathProcedural:
+    def test_procedural_returns_valid_itemrewrite(self):
+        """Procedural shape (is_substantive=false) passes Pydantic validation."""
+        item = make_item(
+            title="Roll Call",
+            description="",
+            dollars_amount=0,
+            topic=None,
+        )
+        facts = make_facts(action_type='other', counterparty=None)
+        mock_response = _mock_api_response(VALID_PROCEDURAL_RESPONSE)
+
+        with patch('docket.ai.rewrite.anthropic_client') as mock_client, \
+             patch('docket.ai.rewrite.cache_get', return_value=None), \
+             patch('docket.ai.rewrite.cache_put'):
+            mock_client.messages.create.return_value = mock_response
+            rewrite, model_id = rewrite_item(item, facts, [])
+
+        assert isinstance(rewrite, ItemRewrite)
+        assert rewrite.is_substantive is False
+        assert rewrite.headline is None
+        assert rewrite.why_it_matters is None
+        assert rewrite.significance_score is None
+        assert rewrite.consent_placement_score is None
+        assert rewrite.suggested_badge_slugs == []
+
+
+class TestRewriteItemMarkdownFences:
+    def test_markdown_fence_stripped_before_parse(self):
+        """```json ... ``` wrapper is stripped and JSON still parses correctly."""
+        item = make_item()
+        facts = make_facts()
+
+        wrapped_text = f"```json\n{json.dumps(VALID_SUBSTANTIVE_RESPONSE)}\n```"
+        mock_response = MagicMock()
+        mock_response.model = 'claude-haiku-4-5-20251001'
+        mock_response.content = [MagicMock(text=wrapped_text)]
+
+        with patch('docket.ai.rewrite.anthropic_client') as mock_client, \
+             patch('docket.ai.rewrite.cache_get', return_value=None), \
+             patch('docket.ai.rewrite.cache_put'):
+            mock_client.messages.create.return_value = mock_response
+            rewrite, _ = rewrite_item(item, facts, [])
+
+        assert isinstance(rewrite, ItemRewrite)
+        assert rewrite.headline == 'Council awards $4.2M HVAC contract to Acme'
+
+
+class TestRewriteItemErrorPaths:
+    def test_raises_on_invalid_json(self):
+        """Non-JSON response raises ValueError."""
+        item = make_item()
+        facts = make_facts()
+
+        mock_response = MagicMock()
+        mock_response.model = 'claude-haiku-4-5-20251001'
+        mock_response.content = [MagicMock(text="not json {{{")]
+
+        with patch('docket.ai.rewrite.anthropic_client') as mock_client, \
+             patch('docket.ai.rewrite.cache_get', return_value=None), \
+             patch('docket.ai.rewrite.cache_put'):
+            mock_client.messages.create.return_value = mock_response
+            with pytest.raises(ValueError, match="Stage 2 returned non-JSON"):
+                rewrite_item(item, facts, [])
+
+    def test_raises_on_schema_violation(self):
+        """Pydantic ValidationError if shape violates ItemRewrite constraints."""
+        item = make_item()
+        facts = make_facts()
+
+        # Substantive item with headline too short (< 10 chars) — violates decision #87
+        bad_payload = {
+            'is_substantive': True,
+            'headline': 'Approved',  # 8 chars — fails >= 10 check
+            'why_it_matters': 'Some impact.',
+            'significance_rationale': 'Minor.',
+            'significance_score': 5,
+            'consent_placement_rationale': 'Routine.',
+            'consent_placement_score': 8,
+            'suggested_badge_slugs': [],
+            'confidence': 'medium',
+        }
+        mock_response = _mock_api_response(bad_payload)
+
+        with patch('docket.ai.rewrite.anthropic_client') as mock_client, \
+             patch('docket.ai.rewrite.cache_get', return_value=None), \
+             patch('docket.ai.rewrite.cache_put'):
+            mock_client.messages.create.return_value = mock_response
+            with pytest.raises(Exception):  # Pydantic ValidationError
+                rewrite_item(item, facts, [])
+
+    def test_procedural_with_headline_raises(self):
+        """Procedural item with non-null headline violates procedural_consistency."""
+        item = make_item(title="Approval of Minutes")
+        facts = make_facts()
+
+        bad_payload = {
+            'is_substantive': False,
+            'headline': 'Should be null',  # violates procedural constraint
+            'why_it_matters': None,
+            'significance_rationale': '',
+            'significance_score': None,
+            'consent_placement_rationale': '',
+            'consent_placement_score': None,
+            'suggested_badge_slugs': [],
+            'confidence': 'high',
+        }
+        mock_response = _mock_api_response(bad_payload)
+
+        with patch('docket.ai.rewrite.anthropic_client') as mock_client, \
+             patch('docket.ai.rewrite.cache_get', return_value=None), \
+             patch('docket.ai.rewrite.cache_put'):
+            mock_client.messages.create.return_value = mock_response
+            with pytest.raises(Exception):  # ValidationError from procedural_consistency
+                rewrite_item(item, facts, [])
+
+
+class TestRewriteItemCacheBehavior:
+    def test_cache_hit_skips_api_call(self):
+        """On cache hit, the Anthropic API is NOT called."""
+        item = make_item()
+        facts = make_facts()
+
+        cached_payload = {
+            'response': VALID_SUBSTANTIVE_RESPONSE,
+            'model': 'claude-haiku-4-5-20251001',
+        }
+
+        with patch('docket.ai.rewrite.anthropic_client') as mock_client, \
+             patch('docket.ai.rewrite.cache_get', return_value=cached_payload), \
+             patch('docket.ai.rewrite.cache_put'):
+            rewrite, model_id = rewrite_item(item, facts, [])
+            mock_client.messages.create.assert_not_called()
+
+        assert isinstance(rewrite, ItemRewrite)
+        assert rewrite.is_substantive is True
+        assert model_id == 'claude-haiku-4-5-20251001'
+
+    def test_extra_instruction_changes_cache_key(self):
+        """extra_instruction changes user_msg, which changes the cache key."""
+        item = make_item()
+        facts = make_facts()
+        mock_response = _mock_api_response(VALID_SUBSTANTIVE_RESPONSE)
+
+        cache_keys_seen = []
+
+        def capture_cache_get(key):
+            cache_keys_seen.append(key)
+            return None
+
+        with patch('docket.ai.rewrite.anthropic_client') as mock_client, \
+             patch('docket.ai.rewrite.cache_get', side_effect=capture_cache_get), \
+             patch('docket.ai.rewrite.cache_put'):
+            mock_client.messages.create.return_value = mock_response
+            rewrite_item(item, facts, [])
+            rewrite_item(item, facts, [], extra_instruction="RETRY: override")
+
+        assert len(cache_keys_seen) == 2
+        assert cache_keys_seen[0] != cache_keys_seen[1], \
+            "extra_instruction must produce a distinct cache key"
