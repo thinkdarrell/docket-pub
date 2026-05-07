@@ -4,7 +4,7 @@
   font-size: 0.875em; font-weight: 600;
 }
 .badge-chip.badge-conf-medium { background: rgba(0,0,0,0.05); }
-.badge-chip.badge-conf-high { background: var(--brand-color); color: white; }
+.badge-chip.badge-conf-high { background: var(--accent, #2c5f6f); color: var(--paper, #fff); }
 .badge-spark { font-size: 0.875em; }
 
 /* Mobile carousel — Brevity-First (decision #66) */

@@ -24,7 +24,7 @@ def create_app() -> Flask:
         app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
     # Register Jinja filters (order_badges, etc.)
-    from docket.web import filters
+    from . import filters
 
     filters.register(app)
 

@@ -13,26 +13,7 @@
 #}
 <article class="smart-brevity-card smart-brevity-card--full" data-variant="smart_brevity">
   <header class="smart-brevity-card__header">
-    {# E2: badge chips row — process-first via `order_badges`, top-3 inline,
-       remaining behind a +N more HTMX expander. Verification Spark (✨)
-       and AI-verified title suffix render automatically inside badge_chip
-       when chip.confidence >= 1.0 (decision #67). #}
-    {% if item.badges %}
-      {% set ordered = item.badges | order_badges %}
-      <div class="badge-row">
-        {% for chip in ordered[:3] %}
-          {% include 'partials/badge_chip.html' %}
-        {% endfor %}
-        {% if ordered|length > 3 %}
-          <button class="badge-more"
-                  hx-get="/items/{{ item.id }}/badges"
-                  hx-target="this"
-                  hx-swap="outerHTML">
-            +{{ ordered|length - 3 }} more
-          </button>
-        {% endif %}
-      </div>
-    {% endif %}
+    {% include 'partials/_badge_row.html' %}
   </header>
 
   {% if item.headline %}

@@ -136,6 +136,40 @@ def test_order_badges_mixed_keeps_groups_separate():
     assert out[1]["kind"] == "policy"
 
 
+def test_order_badges_tolerates_malformed_rows():
+    """A single row missing kind/slug/confidence must not crash the sort.
+
+    Defensive contract (I2): rows whose ``kind`` is neither 'process' nor
+    'policy' (including missing ``kind``) are dropped — the badge_chip
+    template can't render them anyway. Process/policy rows with missing
+    ``slug`` or ``confidence`` are kept and treated as None / 0 / empty.
+    """
+    badges = [
+        {},  # missing kind — dropped
+        {"kind": "process"},  # missing slug — kept, ranked 999
+        {"kind": "process", "slug": "unknown_slug"},  # unknown slug — ranked 999
+        {"kind": "process", "slug": "contested", "confidence": 1.0},  # known
+        {"kind": "policy", "slug": "climate_resilience"},  # missing confidence
+        {"kind": "policy", "slug": "affordable_housing", "confidence": 0.9},
+    ]
+    # Should not raise.
+    out = order_badges(badges)
+
+    # Empty {} dropped; the other five survive.
+    assert len(out) == 5
+
+    # Process group comes first; 'contested' (known, rank 2) before the two
+    # rank-999 entries.
+    kinds = [b.get("kind") for b in out]
+    assert kinds == ["process", "process", "process", "policy", "policy"]
+    assert out[0].get("slug") == "contested"
+
+    # Policy: confidence=0.9 ('affordable_housing') beats missing-confidence
+    # ('climate_resilience' coerced to 0).
+    assert out[3].get("slug") == "affordable_housing"
+    assert out[4].get("slug") == "climate_resilience"
+
+
 # ---------------------------------------------------------------------------
 # partials/badge_chip.html render
 # ---------------------------------------------------------------------------
@@ -253,3 +287,23 @@ def test_chip_class_includes_kind_and_slug(jinja_env):
     html = _render_chip(jinja_env, chip)
     assert "badge-process" in html
     assert "badge-slug-contested" in html
+
+
+def test_chip_none_confidence_renders_medium_no_spark(jinja_env):
+    """I1 defensive: a chip with confidence=None must not crash the
+    >= 1.0 comparison. It should render as `badge-conf-medium`, no
+    Verification Spark, and no `· AI-verified` title suffix."""
+    chip = {
+        "kind": "policy",
+        "slug": "climate_resilience",
+        "confidence": None,
+        "name": "Climate",
+        "icon": "🌿",
+        "description": "Affects climate goals",
+    }
+    html = _render_chip(jinja_env, chip)
+    assert "badge-conf-medium" in html
+    assert "badge-conf-high" not in html
+    assert "badge-spark" not in html
+    assert "✨" not in html
+    assert "AI-verified" not in html

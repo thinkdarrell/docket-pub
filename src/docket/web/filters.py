@@ -18,7 +18,7 @@ to wire ``order_badges`` into ``app.jinja_env.filters``.
 
 from __future__ import annotations
 
-from typing import Mapping, Sequence
+from collections.abc import Mapping, Sequence
 
 from flask import Flask
 
@@ -36,6 +36,12 @@ process_alarm_order: list[str] = [
     "amends_prior_contract",
 ]
 
+# O(1) lookup built once at import — saves a linear ``list.index`` scan per
+# badge per render. Private; tests rely on ``process_alarm_order``.
+_PROCESS_RANK: dict[str, int] = {
+    slug: i for i, slug in enumerate(process_alarm_order)
+}
+
 
 def order_badges(badges: Sequence[Mapping]) -> list[Mapping]:
     """Return ``badges`` sorted process-first, then policy.
@@ -44,18 +50,20 @@ def order_badges(badges: Sequence[Mapping]) -> list[Mapping]:
     (unknown slugs go to position 999). Policy badges sort by
     ``(-confidence, slug)`` — highest confidence first, ties broken
     alphabetically.
+
+    Defensive against malformed rows: missing ``kind`` / ``slug`` /
+    ``confidence`` keys are tolerated (treated as None / 0 / empty) so a
+    single bad row from the DB does not crash the entire feed render.
+    Rows without a recognised ``kind`` (neither 'process' nor 'policy')
+    are dropped entirely — the badge_chip template can't render them.
     """
     process = sorted(
-        [b for b in badges if b["kind"] == "process"],
-        key=lambda b: (
-            process_alarm_order.index(b["slug"])
-            if b["slug"] in process_alarm_order
-            else 999
-        ),
+        [b for b in badges if b.get("kind") == "process"],
+        key=lambda b: _PROCESS_RANK.get(b.get("slug"), 999),
     )
     policy = sorted(
-        [b for b in badges if b["kind"] == "policy"],
-        key=lambda b: (-b["confidence"], b["slug"]),
+        [b for b in badges if b.get("kind") == "policy"],
+        key=lambda b: (-(b.get("confidence") or 0), b.get("slug") or ""),
     )
     return process + policy
 
