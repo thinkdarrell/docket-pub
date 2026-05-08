@@ -49,6 +49,12 @@ class AgendaItem:
     # in services/query.py for the jsonb_extract_path SELECT and the
     # Python-side reconstruction.
     extracted_facts: dict | None = None
+    # Top-level alias for ``extracted_facts.next_steps`` so
+    # ``partials/engagement_strip.html`` (which reads ``item.next_steps``)
+    # works against the dataclass without traversing the full JSONB blob.
+    # Mirrors the ``headline`` / ``why_it_matters`` top-level pattern.
+    # Populated by ``from_row()`` from ``extracted_facts->'next_steps'``.
+    next_steps: dict | None = None
     # Aggregated agenda_item_badges rows — list of dicts shaped like
     # BadgeChip (kind, slug, name, icon, description, confidence). Empty
     # list when no badges; None when the query was run without badges.
@@ -56,6 +62,12 @@ class AgendaItem:
 
     @classmethod
     def from_row(cls, row: dict) -> AgendaItem:
+        extracted_facts = row.get("extracted_facts")
+        # Lift extracted_facts.next_steps to a top-level field so the
+        # engagement_strip partial (item.next_steps) renders without
+        # traversing the JSONB blob. None when missing/null — Jinja's
+        # `or {}` guard handles either falsy form.
+        next_steps = (extracted_facts or {}).get("next_steps") if isinstance(extracted_facts, dict) else None
         return cls(
             id=row["id"],
             meeting_id=row["meeting_id"],
@@ -83,6 +95,7 @@ class AgendaItem:
             headline=row.get("headline"),
             why_it_matters=row.get("why_it_matters"),
             source_anchor=row.get("source_anchor"),
-            extracted_facts=row.get("extracted_facts"),
+            extracted_facts=extracted_facts,
+            next_steps=next_steps,
             badges=row.get("badges") or [],
         )

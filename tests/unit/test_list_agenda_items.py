@@ -118,6 +118,7 @@ class TestAgendaItemDataclass:
         assert item.why_it_matters is None
         assert item.source_anchor is None
         assert item.extracted_facts is None
+        assert item.next_steps is None
         assert item.badges == []  # never None — sentinel for "no badges"
 
     def test_from_row_maps_v3_columns_when_present(self):
@@ -150,6 +151,62 @@ class TestAgendaItemDataclass:
         assert item.extracted_facts["counterparty"] == "Flock Safety Inc."
         assert len(item.badges) == 1
         assert item.badges[0]["slug"] == "sole_source"
+
+    def test_next_steps_exposed_at_top_level_for_engagement_strip(self):
+        """Bug fix: ``partials/engagement_strip.html`` reads
+        ``item.next_steps`` directly. Without lifting the sub-key onto
+        the dataclass, the strip would never render against an
+        ``AgendaItem`` instance even when the data is present in the
+        lean ``extracted_facts`` projection.
+        """
+        row = {
+            "id": 9,
+            "meeting_id": 1,
+            "title": "Hearing-bearing item",
+            "is_consent": False,
+            "extracted_facts": {
+                "public_hearing_date": "2026-06-01",  # ignored — not under next_steps
+                "next_steps": {
+                    "public_hearing_date": "2026-06-01",
+                    "comment_period_end": "2026-05-25",
+                },
+            },
+        }
+        item = AgendaItem.from_row(row)
+        assert item.next_steps == {
+            "public_hearing_date": "2026-06-01",
+            "comment_period_end": "2026-05-25",
+        }
+        # extracted_facts itself is left intact (the lean projection still
+        # lives there too — top-level field is an alias, not a move).
+        assert item.extracted_facts["next_steps"]["comment_period_end"] == "2026-05-25"
+
+    def test_next_steps_none_when_extracted_facts_missing_subkey(self):
+        """``extracted_facts`` populated but no ``next_steps`` key —
+        ``item.next_steps`` is None so Jinja's ``{% if item.next_steps %}``
+        guard collapses cleanly to falsy."""
+        row = {
+            "id": 10,
+            "meeting_id": 1,
+            "title": "Cost-only item",
+            "is_consent": False,
+            "extracted_facts": {"counterparty": "Acme Corp."},
+        }
+        item = AgendaItem.from_row(row)
+        assert item.next_steps is None
+
+    def test_next_steps_none_when_extracted_facts_null(self):
+        """``extracted_facts`` is None (Wave 0 / pre-v3 row) —
+        ``next_steps`` must default to None without raising."""
+        row = {
+            "id": 11,
+            "meeting_id": 1,
+            "title": "Pre-v3 item",
+            "is_consent": False,
+            "extracted_facts": None,
+        }
+        item = AgendaItem.from_row(row)
+        assert item.next_steps is None
 
 
 # ---------------------------------------------------------------------------
@@ -260,6 +317,69 @@ class TestDispatcherWithAgendaItemDataclass:
         assert "PDF page 12" in html
         # Dollar tier (red for $1.8M)
         assert "dollars--red" in html
+
+
+# ---------------------------------------------------------------------------
+# Engagement strip integration: a constructed AgendaItem (no DB) flows
+# through ``partials/engagement_strip.html`` and renders the next_steps
+# fields. Locks the bug fix — without the top-level ``next_steps``
+# alias, the partial would silently render empty.
+# ---------------------------------------------------------------------------
+
+
+class TestEngagementStripWithAgendaItemDataclass:
+    def test_engagement_strip_renders_with_next_steps_populated(self, app):
+        """An AgendaItem whose extracted_facts.next_steps carries a
+        public_hearing_date renders the hearing date through the
+        engagement strip via the top-level ``next_steps`` alias."""
+        from flask import Blueprint, render_template
+
+        # Register the stub public blueprint on this app if not already
+        # present (the dispatcher fixture above doesn't include it).
+        if "public" not in app.blueprints:
+            public_bp = Blueprint("public", __name__)
+
+            @public_bp.route("/<city>/upcoming-hearings.rss")
+            def upcoming_hearings_rss(city):  # pragma: no cover
+                return ""
+
+            @public_bp.route("/<city>/items/<int:item_id>")
+            def item_detail(city, item_id):  # pragma: no cover
+                return ""
+
+            app.register_blueprint(public_bp)
+            app.config["SERVER_NAME"] = "docket.test"
+            app.config["PREFERRED_URL_SCHEME"] = "https"
+            app.config["ADMIN_EMAIL"] = "ops@docket.test"
+
+        item = AgendaItem.from_row({
+            "id": 42,
+            "meeting_id": 1,
+            "title": "Public hearing item",
+            "is_consent": False,
+            "extracted_facts": {
+                "next_steps": {"public_hearing_date": "2026-07-04"},
+            },
+        })
+        # Sanity: top-level alias populated.
+        assert item.next_steps == {"public_hearing_date": "2026-07-04"}
+
+        city = {
+            "slug": "birmingham",
+            "name": "Birmingham",
+            "master_calendar_url": None,
+        }
+        with app.app_context():
+            html = render_template(
+                "partials/engagement_strip.html", item=item, city=city
+            )
+        # State-1 markup — populated branch — and the formatted hearing
+        # date (format_date filter renders ISO strings as "Month D, YYYY").
+        assert 'class="engagement-strip"' in html
+        assert "engagement-strip--awaiting" not in html
+        assert "engagement-strip--fallback" not in html
+        assert "Public hearing" in html
+        assert "July 4, 2026" in html
 
 
 # ---------------------------------------------------------------------------
@@ -450,6 +570,20 @@ class TestListAgendaItemsDB:
         # Extra keys must NOT have leaked
         assert "parcels_affected" not in v3.extracted_facts
         assert "acres_affected" not in v3.extracted_facts
+
+    def test_v3_item_next_steps_lifted_to_top_level(self, meeting_with_v3_items):
+        """Round-trip: the lean ``extracted_facts.next_steps`` sub-dict
+        is also exposed at ``item.next_steps`` so the engagement strip
+        partial works against the dataclass."""
+        items = list_agenda_items(meeting_with_v3_items["meeting_id"])
+        v3 = next(i for i in items if i.item_number == "1")
+        assert v3.next_steps == {"public_hearing_date": "2099-03-01"}
+
+        # Items without a next_steps sub-key get None at the top level.
+        degraded = next(i for i in items if i.item_number == "2")
+        assert degraded.next_steps is None
+        bare = next(i for i in items if i.item_number == "4")
+        assert bare.next_steps is None
 
     def test_v3_item_badges_aggregated(self, meeting_with_v3_items):
         items = list_agenda_items(meeting_with_v3_items["meeting_id"])
