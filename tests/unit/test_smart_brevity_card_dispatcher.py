@@ -37,15 +37,15 @@ def app():
         template_folder="src/docket/web/templates",
     )
 
-    # The card_smart_brevity partial uses the `dollar_tier` filter.
-    from docket.enrichment.dollars import classify_dollar_tier
+    # Register the real Jinja filters (order_badges, format_date,
+    # format_timestamp, format_dollars, dollar_tier) — production parity.
+    # E5 added ``format_dollars`` + reshaped ``dollar_tier`` to return a
+    # NamedTuple; the new ``_facts_strip.html`` partial pulls in the
+    # WCAG dollar tier sub-partial which requires both filters.
     from docket.web import source_security
+    from docket.web.filters import register as register_filters
 
-    @flask_app.template_filter("dollar_tier")
-    def _dollar_tier(amount):
-        if amount is None:
-            return ""
-        return classify_dollar_tier(amount)
+    register_filters(flask_app)
 
     @flask_app.template_filter("topic_name")
     def _topic_name(slug):
@@ -215,8 +215,13 @@ class TestDispatcher:
         assert "Title fallback" not in html
         # Facts strip pulls from extracted_facts
         assert "Flock Safety Inc." in html
-        # Dollar tier rendered (red tier for $1.8M)
-        assert "1,800,000" in html
+        # Dollar tier rendered (red tier for $1.8M).
+        # E5 changed the rendered format: amounts >= $1M abbreviate to
+        # ``$N.NM`` (decision #71). Triple-redundant WCAG signal: color
+        # class + symbol + sr-only label.
+        assert "dollars--red" in html
+        assert "$1.8M" in html
+        assert "($$$$)" in html
 
     def test_v3_smart_brevity_falls_back_to_title_when_no_headline(self, app):
         """ai_rewrite_version=3 but headline missing — render title in headline slot."""
@@ -465,9 +470,13 @@ class TestVerificationPendingContent:
         _assert_only_variant(html, "verification_pending")
         # Pill stays
         assert "Verification in progress" in html
-        # Facts strip rendered (counterparty, dollars, funding)
+        # Facts strip rendered (counterparty, dollars, funding).
+        # E5: dollar amounts >= $1M abbreviate to ``$N.NM`` and now
+        # carry WCAG markup (color class + symbol + sr-only label).
         assert "Flock Safety Inc." in html
-        assert "1,800,000" in html
+        assert "dollars--red" in html
+        assert "$1.8M" in html
+        assert "($$$$)" in html
         assert "General Fund" in html
         # Source link rendered with target / rel
         assert 'href="https://example.com/flock-amendment.pdf"' in html

@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from flask import Blueprint, abort, render_template, request
 
-from docket.enrichment.dollars import classify_dollar_tier
 from docket.enrichment.topics import all_topics, get_topic_display_name
 from docket.services import query
 
@@ -16,14 +15,14 @@ bp = Blueprint("public", __name__)
 
 
 # --- Template context helpers -----------------------------------------------
-
-
-@bp.app_template_filter("dollar_tier")
-def dollar_tier_filter(amount):
-    """Jinja2 filter: {{ item.dollars_amount | dollar_tier }}"""
-    if amount is None:
-        return ""
-    return classify_dollar_tier(amount)
+#
+# The ``dollar_tier`` filter used to live here as a thin wrapper around
+# ``classify_dollar_tier`` returning the colour string. It moved to
+# :mod:`docket.web.filters` in E5 (Phase 2 v3 partials) where it now
+# returns a :class:`~docket.web.filters.DollarTier` NamedTuple. Backward
+# compatibility for v2 templates is preserved via ``DollarTier.__str__``
+# returning ``self.color`` — ``class="tier tier-{{ amt | dollar_tier }}"``
+# still renders ``tier-green``. See ``filters.py`` for the rationale.
 
 
 @bp.app_template_filter("topic_name")

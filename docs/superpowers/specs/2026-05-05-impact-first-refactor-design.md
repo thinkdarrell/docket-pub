@@ -2518,27 +2518,50 @@ Facts strip pulls from `extracted_facts` JSONB. Empty fields are omitted
 
 **Dollar-tier accessibility (decisions #71 + #75):** facts strip renders
 dollar amounts with both color tier AND symbolic suffix AND a
-visually-hidden screen-reader label:
+visually-hidden screen-reader label. Implemented in
+`partials/dollar_tier.html` (E5):
 
 ```jinja
 {# partials/dollar_tier.html #}
-<span class="dollars dollars--{{ tier }}"
-      aria-label="{{ amount | format_dollars }}, {{ tier|title }} tier ({{ tier_description }})">
-  {{ amount | format_dollars }}
-  ({{ tier_symbol }})<span class="sr-only">, {{ tier|title }} tier</span>
+{%- set tier_data = amount | dollar_tier -%}
+{%- if tier_data -%}
+<span class="dollars dollars--{{ tier_data.color }}"
+      aria-label="{{ amount | format_dollars }}, {{ tier_data.color|title }} tier ({{ tier_data.description }})">{{ amount | format_dollars }}
+  ({{ tier_data.symbol }})<span class="sr-only">, {{ tier_data.color|title }} tier</span>
 </span>
+{%- endif -%}
 ```
+
+The `dollar_tier` filter (`docket.web.filters.dollar_tier`) returns a
+`DollarTier` NamedTuple `(color, symbol, description)` so the partial
+reads `tier_data.color` instead of three separate context variables.
+NamedTuple `__str__` returns `self.color` so legacy v2 templates that
+write `class="tier tier-{{ amt | dollar_tier }}"` continue to render
+`tier-green` etc. — no v2 template churn at the v2/v3 cutover.
 
 Where:
 - Green (<$50K) → `$87,500 ($)` + sr-only ", Green tier"
 - Yellow ($50K-$250K) → `$120,000 ($$)` + sr-only ", Yellow tier"
 - Orange ($250K-$1M) → `$640,000 ($$$)` + sr-only ", Orange tier"
-- Red (>$1M) → `$1,800,000 ($$$$)` + sr-only ", Red tier"
+- Red (≥$1M) → `$1.8M ($$$$)` + sr-only ", Red tier" — the visible
+  amount abbreviates to `$N.NM` (one decimal place) at the $1M
+  threshold, matching decision #71's example markup. Sub-$1M renders
+  full precision (`$87,500`) for legibility; the abbreviation only
+  kicks in for Red-tier amounts where `$1,800,000` vs `$1.8M` is a
+  scannability call. The `format_dollars` filter
+  (`docket.web.filters.format_dollars`) owns this contract.
 
-`tier_description` for the parent `aria-label` adds the threshold
-context (e.g., "over $1 million"). Triple-redundant signal: color +
-symbol + screen-reader text. WCAG 2.1 AA compliant; tier perception
-works without color, without sight, and on monochrome printouts.
+The parent `aria-label` carries the threshold context (e.g., "over
+$1 million") so a screen-reader user gets full tier semantics without
+needing to traverse the visible children. The visible
+`($$$$)` + `<span class="sr-only">, Red tier</span>` covers SRs that
+ignore `aria-label` and traverse children. Decision #75 chose
+double-coverage so neither SR contract is left uncovered; the
+trade-off is a possible double-announcement on SRs that do both.
+
+Triple-redundant signal: color + symbol + screen-reader text. WCAG 2.1
+AA compliant; tier perception works without color, without sight, and
+on monochrome printouts.
 
 **Mobile Brevity-First layout (decision #66):** below 768px viewport,
 badge chips collapse to a horizontal scroll-snap row ABOVE the headline.

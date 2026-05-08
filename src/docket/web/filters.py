@@ -25,17 +25,42 @@ Currently exposes:
   Returns the empty string for ``None`` / negative / non-numeric input
   so a malformed anchor doesn't crash the page.
 
+- ``format_dollars(amount)`` — Render a ``Decimal`` / ``float`` / ``int``
+  (or ``None``) as a US-formatted dollar string. Amounts under $1,000,000
+  render at full precision (``$87,500``); amounts ≥ $1M abbreviate to
+  ``$N.NM`` (``$1.8M``) for scannability — matches decision #71's
+  example markup. Returns the empty string for ``None`` / 0 / negative /
+  ``bool`` / ``NaN`` / ``Infinity`` / non-numeric input. Used by the
+  dollar-tier partial (spec §6.1, decisions #71 + #75).
+
+- ``dollar_tier(amount)`` — Return a :class:`DollarTier` NamedTuple
+  ``(color, symbol, description)`` for use by ``partials/dollar_tier.html``,
+  or ``None`` for missing/invalid input so the partial can short-circuit.
+  Reuses :func:`docket.enrichment.dollars.classify_dollar_tier` for the
+  color so the threshold constants live in one place.
+
+  Backward compatibility: ``DollarTier.__str__`` returns ``self.color``
+  so existing v2 templates that use ``{{ amt | dollar_tier }}`` inside
+  a CSS class (``class="tier tier-{{ amt | dollar_tier }}"``) continue
+  to render ``tier-green`` etc. — no template churn needed at the v2/v3
+  cutover. New v3 partial uses dotted attribute access
+  (``tier_data.color``).
+
 The module exposes :func:`register` which the Flask app factory calls
-to wire ``order_badges``, ``format_date``, and ``format_timestamp`` into
-``app.jinja_env.filters``.
+to wire all filters into ``app.jinja_env.filters``.
 """
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime
+from decimal import Decimal, InvalidOperation
+from typing import NamedTuple
 
 from flask import Flask
+
+from docket.enrichment.dollars import classify_dollar_tier
 
 
 # Process-badge alarm ordering (decision #64). Lower index = higher alarm.
@@ -172,8 +197,201 @@ def format_timestamp(value: int | float | str | None) -> str:
     return f"{minutes}:{seconds:02d}"
 
 
+# Million-dollar abbreviation threshold. Amounts >= this render as ``$N.NM``
+# instead of full precision. Chosen at $1M because:
+#  - it matches decision #71's example (``$1.8M ($$$$)``),
+#  - it aligns with the Red-tier boundary so abbreviation only kicks in for
+#    the highest-impact items (where one decimal place is enough to convey
+#    scale and the extra digits hurt scannability in a card layout),
+#  - the spec text on line 2536 shows full precision for $1.8M but
+#    decision #71 (the canonical entry in the decisions log) shows
+#    ``$1.8M``; decisions trump prose examples.
+# Stored as a Decimal so equality boundaries with Decimal inputs are exact
+# (no float rounding surprises).
+_ABBREVIATE_AT = Decimal("1000000")
+
+
+def _coerce_amount(value: object) -> Decimal | None:
+    """Coerce an arbitrary value to a usable positive ``Decimal`` or None.
+
+    Shared between :func:`format_dollars` and :func:`dollar_tier` so both
+    apply the exact same defensive contract:
+
+    - ``None`` → None.
+    - ``bool`` → None (Python booleans are ints; ``format_dollars(True)``
+      would otherwise render ``$1`` and look real — same trap as
+      ``format_timestamp``).
+    - ``Decimal('NaN')`` / ``Decimal('Infinity')`` → None
+      (``Decimal.is_finite`` catches both with a single guard).
+    - ``float('nan')`` / ``float('inf')`` → None (``math.isfinite``).
+    - Numeric string → coerced via ``Decimal(stripped)``. JSONB
+      driver paths can hand back numerics as strings.
+    - Non-numeric string → None.
+    - ``int`` / ``float`` / ``Decimal`` → coerced to Decimal.
+    - Zero / negative → None. A negative dollar amount on an agenda
+      item is nonsensical; zero means "no dollar info" not "$0 line
+      item" — the column is NULL when extraction found nothing, but
+      defending against 0 as well covers buggy enrichment runs.
+    """
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, Decimal):
+        amount = value
+    elif isinstance(value, int):
+        amount = Decimal(value)
+    elif isinstance(value, float):
+        if not math.isfinite(value):
+            return None
+        # Round-trip through str to avoid float-binary-repr noise
+        # (Decimal(0.1) is verbose; Decimal(str(0.1)) is exact).
+        try:
+            amount = Decimal(str(value))
+        except InvalidOperation:
+            return None
+    elif isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return None
+        try:
+            amount = Decimal(stripped)
+        except InvalidOperation:
+            return None
+    else:
+        return None
+
+    if not amount.is_finite():
+        return None
+    if amount <= 0:
+        return None
+    return amount
+
+
+def format_dollars(value: Decimal | float | int | str | None) -> str:
+    """Return ``value`` rendered as a US-formatted dollar string.
+
+    - Amounts < $1,000,000 render at full integer precision:
+      ``Decimal("87500")`` → ``"$87,500"``.
+    - Amounts ≥ $1,000,000 abbreviate to one decimal place:
+      ``Decimal("1800000")`` → ``"$1.8M"``,
+      ``Decimal("1000000")`` → ``"$1.0M"``,
+      ``Decimal("12500000")`` → ``"$12.5M"``.
+
+    The $1M abbreviation threshold matches decision #71's canonical
+    example markup. See the ``_ABBREVIATE_AT`` module constant for the
+    rationale.
+
+    Cents are intentionally dropped — agenda-item dollar amounts are
+    not invoiced totals; a $87,500.42 contract reads as $87,500 to a
+    reader scanning a feed. The structured ``extracted_facts`` JSONB
+    preserves precision if it ever matters.
+
+    Defensive contract (delegates to :func:`_coerce_amount`):
+
+    - ``None`` → ``""`` (empty string, consistent with
+      :func:`format_date`'s missing-value contract).
+    - ``0`` / ``Decimal("0")`` / negative → ``""``.
+    - ``bool`` → ``""``.
+    - ``Decimal("NaN")`` / ``Decimal("Infinity")`` / ``float('inf')``
+      → ``""``.
+    - Empty / non-numeric string → ``""``.
+    - Numeric string → coerced.
+
+    Used by :file:`partials/dollar_tier.html` (spec §6.1, decision #71).
+    """
+    amount = _coerce_amount(value)
+    if amount is None:
+        return ""
+    if amount >= _ABBREVIATE_AT:
+        # quantize keeps Decimal arithmetic exact (no float intermediate)
+        # and drops the trailing zeros only when integer-valued; otherwise
+        # one decimal place. ``$1,000,000 → $1.0M`` (not $1M) because
+        # the ".0" is a deliberate scale signal — readers see "$1M" as
+        # ambiguous (could be $1.499M rounded down).
+        millions = amount / _ABBREVIATE_AT
+        return f"${millions:.1f}M"
+    # Full precision for sub-$1M, dropping cents. ``:,`` adds thousands
+    # separators; ``int(...)`` truncates fractional dollars.
+    return f"${int(amount):,}"
+
+
+class DollarTier(NamedTuple):
+    """Tier metadata for a dollar amount — color, symbol, threshold prose.
+
+    Returned by :func:`dollar_tier`. NamedTuple (not a plain 3-tuple)
+    so the partial reads ``{{ tier_data.color }}`` instead of
+    ``{{ tier_data[0] }}`` — easier to grep, easier to extend if a
+    fourth dimension (e.g. WCAG contrast ratio) ever lands. Still
+    tuple-unpackable in tests: ``color, symbol, desc = dollar_tier(amt)``.
+
+    ``__str__`` returns ``self.color`` so the legacy v2 template idiom
+    ``class="tier tier-{{ amt | dollar_tier }}"`` keeps working. v3
+    partials use attribute access.
+    """
+
+    color: str         # 'green' | 'yellow' | 'orange' | 'red'
+    symbol: str        # '$' | '$$' | '$$$' | '$$$$'
+    description: str   # 'under $50,000', '$50,000 to $250,000', etc.
+
+    def __str__(self) -> str:  # pragma: no cover - exercised via Jinja
+        return self.color
+
+
+# Tier symbol + threshold prose, keyed by the colour string returned from
+# :func:`docket.enrichment.dollars.classify_dollar_tier`. Single source of
+# truth for the threshold constants lives in ``enrichment/dollars.py``;
+# this dict only carries the WCAG-presentation metadata layered on top.
+_TIER_METADATA: dict[str, tuple[str, str]] = {
+    "green":  ("$",    "under $50,000"),
+    "yellow": ("$$",   "$50,000 to $250,000"),
+    "orange": ("$$$",  "$250,000 to $1 million"),
+    "red":    ("$$$$", "over $1 million"),
+}
+
+
+def dollar_tier(value: Decimal | float | int | str | None) -> DollarTier | None:
+    """Return tier metadata for ``value`` as a :class:`DollarTier`, or None.
+
+    Reuses :func:`docket.enrichment.dollars.classify_dollar_tier` to
+    map the amount to a colour (so the threshold constants live in one
+    place — see ``enrichment/dollars.py``). This filter layers the
+    WCAG-presentation metadata on top: tier symbol (``$``/``$$``/``$$$``/
+    ``$$$$``) and human-readable threshold description (used as the
+    parenthetical in the parent ``aria-label``).
+
+    Boundary semantics (inherited from ``classify_dollar_tier``):
+
+    - amount < $50,000           → ``("green",  "$",    "under $50,000")``
+    - $50,000 ≤ a < $250,000     → ``("yellow", "$$",   "$50,000 to $250,000")``
+    - $250,000 ≤ a < $1,000,000  → ``("orange", "$$$",  "$250,000 to $1 million")``
+    - a ≥ $1,000,000             → ``("red",    "$$$$", "over $1 million")``
+
+    Defensive contract (delegates to :func:`_coerce_amount`): same
+    rejection rules as :func:`format_dollars` — ``None`` / 0 /
+    negative / ``bool`` / ``NaN`` / ``Infinity`` / non-numeric strings
+    all return ``None`` so :file:`partials/dollar_tier.html` can
+    short-circuit with ``{% if tier_data %}``.
+
+    Used by :file:`partials/dollar_tier.html` (spec §6.1, decisions
+    #71 + #75).
+    """
+    amount = _coerce_amount(value)
+    if amount is None:
+        return None
+    color = classify_dollar_tier(amount)
+    metadata = _TIER_METADATA.get(color)
+    if metadata is None:
+        # Defence in depth — if a future change to classify_dollar_tier
+        # adds a new tier without updating this map, fail closed
+        # (no render) rather than emit a broken aria-label.
+        return None
+    symbol, description = metadata
+    return DollarTier(color=color, symbol=symbol, description=description)
+
+
 def register(app: Flask) -> None:
     """Register custom Jinja filters on ``app``."""
     app.jinja_env.filters["order_badges"] = order_badges
     app.jinja_env.filters["format_date"] = format_date
     app.jinja_env.filters["format_timestamp"] = format_timestamp
+    app.jinja_env.filters["format_dollars"] = format_dollars
+    app.jinja_env.filters["dollar_tier"] = dollar_tier

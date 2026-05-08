@@ -11,12 +11,18 @@
     {% endif %}
 
     {% if item.dollars_amount %}
-      {# TODO E5: dollar_tier partial with WCAG markup (color + symbol + sr-only label) #}
+      {# E5: WCAG 2.1 dollar tier — color + symbol + sr-only label
+         (spec §6.1, decisions #71 + #75). Pass ``amount`` explicitly
+         to the partial — its only input is the dollar value, decoupled
+         from the parent ``item`` shape so the same partial can render
+         dollar amounts from elsewhere later (e.g. meeting-level totals).
+         The partial silently no-renders on None / 0 / invalid input,
+         but we keep the outer ``{% if item.dollars_amount %}`` guard
+         so the surrounding ``<li>`` doesn't render at all when the
+         column is NULL — leaving the strip layout cleaner. #}
       <li class="fact fact--cost">
         💵 Cost:
-        <span class="tier tier-{{ item.dollars_amount | dollar_tier }}">
-          ${{ "{:,.0f}".format(item.dollars_amount) }}
-        </span>
+        {% with amount = item.dollars_amount %}{% include 'partials/dollar_tier.html' %}{% endwith %}
       </li>
     {% endif %}
 

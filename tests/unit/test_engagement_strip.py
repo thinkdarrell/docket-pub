@@ -487,10 +487,16 @@ class TestCardPartialCityAlias:
         flask_app.config["SERVER_NAME"] = "docket.test"
         flask_app.config["PREFERRED_URL_SCHEME"] = "https"
 
-        from docket.enrichment.dollars import classify_dollar_tier
         from docket.web import source_security
         from docket.web.filters import register as register_filters
 
+        # ``register_filters`` wires order_badges, format_date,
+        # format_timestamp, format_dollars, and dollar_tier — production
+        # parity. E5 reshaped ``dollar_tier`` to return a NamedTuple
+        # (with ``__str__`` returning the colour for v2-template
+        # backcompat) and added ``format_dollars``; both are needed
+        # by the WCAG dollar-tier sub-partial pulled in via
+        # ``_facts_strip.html``.
         register_filters(flask_app)
 
         # The card_smart_brevity partial transitively includes
@@ -503,12 +509,6 @@ class TestCardPartialCityAlias:
                 frozenset({"example.com", "birminghamal.gov"}),
             )
         )
-
-        @flask_app.template_filter("dollar_tier")
-        def _dollar_tier(amount):
-            if amount is None:
-                return ""
-            return classify_dollar_tier(amount)
 
         @flask_app.template_filter("topic_name")
         def _topic_name(slug):
