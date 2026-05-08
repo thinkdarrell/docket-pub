@@ -20,6 +20,7 @@ Pure UI: no Anthropic, no DB, no integration setup.
 from __future__ import annotations
 
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 from flask import Flask, render_template
@@ -248,6 +249,26 @@ class TestDollarTierFilter:
         assert dollar_tier([1, 2, 3]) is None
         assert dollar_tier({"amount": 100}) is None
 
+    def test_eq_returns_false_when_compared_to_color_string(self):
+        """``DollarTier.__str__`` returns the color, but the tuple
+        itself is NOT equal to the color string — equality compares
+        as a 3-tuple. This documents the silent-False trap so tests
+        catch any future template/code that writes
+        ``dollar_tier(amount) == 'green'`` (which always returns False
+        and silently never renders the green branch). The correct
+        idiom is ``str(dollar_tier(amount)) == 'green'`` or
+        ``dollar_tier(amount).color == 'green'``."""
+        from docket.web.filters import dollar_tier
+
+        result = dollar_tier(Decimal("100"))
+        assert result is not None
+        # The trap: equality with a bare string returns False even
+        # though str(result) == 'green'.
+        assert result != "green"
+        # The two safe idioms:
+        assert str(result) == "green"
+        assert result.color == "green"
+
 
 # ---------------------------------------------------------------------------
 # Filter: format_dollars
@@ -316,17 +337,15 @@ class TestFormatDollarsFilter:
         assert format_dollars(Decimal("2000000")) == "$2.0M"
 
     def test_1_25m_rounds_to_one_decimal(self):
-        """Decimal quantize via ``f"{:.1f}"`` rounds half-even by default
-        (Decimal context); $1,250,000 → $1.2M (banker's rounding) on most
-        Python builds. We assert the formatted output rather than the
-        rounding mode — the user-visible contract is one decimal place."""
+        """Decimal quantize via ``f"{:.1f}"`` uses ``ROUND_HALF_EVEN`` from
+        the Decimal context, so $1,250,000 → $1.2M (banker's rounding —
+        rounds to the nearest even). Pinned exactly so a future change
+        to the formatter (e.g., switching to f-string of float, which
+        uses different rounding) trips this test rather than silently
+        shifting the user-visible output."""
         from docket.web.filters import format_dollars
 
-        result = format_dollars(Decimal("1250000"))
-        # Either $1.2M or $1.3M is acceptable per Python rounding
-        # semantics; assert the shape only.
-        assert result.startswith("$1.")
-        assert result.endswith("M")
+        assert format_dollars(Decimal("1250000")) == "$1.2M"
 
     # ----- Defensive contract (mirrors dollar_tier) ------------------------
 
@@ -567,6 +586,27 @@ class TestDollarTierPartialWcagContract:
         # removed — SRs read it).
         assert ", Red tier" in visible
 
+    def test_outer_span_has_role_img_for_aria_label_validity(self, app):
+        """ARIA 1.2 §6.2.1 puts ``aria-label`` on a "prohibited naming"
+        list for elements with the implicit ``generic`` role — and a
+        plain ``<span>`` carries that implicit role. Without an explicit
+        ``role="img"``, the ``aria-label`` is ARIA-invalid and screen
+        readers like NVDA + Chrome and VoiceOver + Safari may silently
+        ignore it. Locking in ``role="img"`` here means a future "clean
+        up the markup" PR can't accidentally drop it without the test
+        catching the regression."""
+        html = _render(app, Decimal("87500"))
+        assert 'role="img"' in html
+        # Belt-and-suspenders: the role and aria-label should be on the
+        # same outer span, not on the sr-only child. Slice the outer
+        # span attributes (between class="dollars" and the closing >)
+        # and verify both are present in that slice.
+        idx = html.index('class="dollars dollars--')
+        end = html.index(">", idx)
+        outer_attrs = html[idx:end]
+        assert 'role="img"' in outer_attrs
+        assert "aria-label=" in outer_attrs
+
     def test_aria_label_attribute_is_quoted(self, app):
         """Jinja autoescape should produce a properly double-quoted
         ``aria-label`` attribute (no broken HTML even if the amount or
@@ -646,3 +686,49 @@ class TestFactsStripDollarTierSwap:
         assert "fact--cost" not in html
         assert "💵 Cost:" not in html
         assert "dollars--" not in html
+
+
+# ---------------------------------------------------------------------------
+# Stylesheet: .sr-only utility regression guard
+# ---------------------------------------------------------------------------
+
+
+class TestSrOnlyUtilityInStylesCss:
+    """The dollar_tier partial emits ``<span class="sr-only">``. The
+    utility class lives in ``static/styles.css``; if a future CSS
+    refactor deletes it (or renames it), the SR text becomes visible
+    junk in the layout. This test reads the stylesheet and asserts the
+    standard visually-hidden recipe is intact."""
+
+    def test_sr_only_class_is_visually_hidden_in_styles_css(self):
+        styles_path = (
+            Path(__file__).resolve().parents[2]
+            / "src"
+            / "docket"
+            / "web"
+            / "static"
+            / "styles.css"
+        )
+        css = styles_path.read_text(encoding="utf-8")
+        # Must contain a .sr-only rule.
+        assert ".sr-only" in css, (
+            "Expected a .sr-only utility class in styles.css — the "
+            "dollar_tier partial relies on it for screen-reader text."
+        )
+        # Locate the .sr-only block and check the canonical hide
+        # recipe. We accept either the legacy ``clip: rect(0, 0, 0, 0)``
+        # form or the modern ``clip-path: inset(50%)`` form — both are
+        # valid visually-hidden patterns.
+        idx = css.index(".sr-only")
+        # Slice from .sr-only to the next closing brace (one rule block).
+        block_end = css.index("}", idx)
+        block = css[idx:block_end]
+        assert "position: absolute" in block, (
+            ".sr-only must use position: absolute to leave the flow."
+        )
+        assert ("clip: rect(0, 0, 0, 0)" in block) or (
+            "clip-path: inset(50%)" in block
+        ), (
+            ".sr-only must clip itself to a 1×1 invisible box "
+            "(``clip: rect(0, 0, 0, 0)`` or ``clip-path: inset(50%)``)."
+        )

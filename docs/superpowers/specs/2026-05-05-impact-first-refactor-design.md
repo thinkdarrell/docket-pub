@@ -2525,8 +2525,10 @@ visually-hidden screen-reader label. Implemented in
 {# partials/dollar_tier.html #}
 {%- set tier_data = amount | dollar_tier -%}
 {%- if tier_data -%}
+{%- set formatted = amount | format_dollars -%}
 <span class="dollars dollars--{{ tier_data.color }}"
-      aria-label="{{ amount | format_dollars }}, {{ tier_data.color|title }} tier ({{ tier_data.description }})">{{ amount | format_dollars }}
+      role="img"
+      aria-label="{{ formatted }}, {{ tier_data.color|title }} tier ({{ tier_data.description }})">{{ formatted }}
   ({{ tier_data.symbol }})<span class="sr-only">, {{ tier_data.color|title }} tier</span>
 </span>
 {%- endif -%}
@@ -2562,6 +2564,14 @@ trade-off is a possible double-announcement on SRs that do both.
 Triple-redundant signal: color + symbol + screen-reader text. WCAG 2.1
 AA compliant; tier perception works without color, without sight, and
 on monochrome printouts.
+
+The `role="img"` attribute is required for `aria-label` to be ARIA-valid
+on a `<span>` — without an explicit role, the implicit `generic` role
+disallows `aria-label` per ARIA 1.2 §6.2.1, which means screen readers
+like NVDA + Chrome and VoiceOver + Safari may silently ignore the
+attribute. With `role="img"`, the element advertises itself as a
+self-contained graphic-like unit for which `aria-label` is the
+accessible name.
 
 **Mobile Brevity-First layout (decision #66):** below 768px viewport,
 badge chips collapse to a horizontal scroll-snap row ABOVE the headline.

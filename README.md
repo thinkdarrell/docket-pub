@@ -478,7 +478,7 @@ GET       /admin/ai                     AI pipeline dashboard (queue depth, 7-da
 
 ### Jinja2 Template Filters
 
-- `{{ amount | dollar_tier }}` — returns `"green"`, `"yellow"`, `"orange"`, or `"red"`
+- `{{ amount | dollar_tier }}` — returns a `DollarTier(color, symbol, description)` NamedTuple for the v3 partial (`tier_data.color`, `tier_data.symbol`, `tier_data.description`); `__str__` returns the color string (`"green"`/`"yellow"`/`"orange"`/`"red"`) so existing v2 templates that interpolate the filter inside a CSS class (`tier-{{ amt | dollar_tier }}`) keep working unchanged. Returns `None` for missing/invalid input.
 - `{{ slug | topic_name }}` — returns display name like `"Zoning & Land Use"`
 
 ---

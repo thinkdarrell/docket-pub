@@ -340,6 +340,11 @@ class DollarTier(NamedTuple):
 # :func:`docket.enrichment.dollars.classify_dollar_tier`. Single source of
 # truth for the threshold constants lives in ``enrichment/dollars.py``;
 # this dict only carries the WCAG-presentation metadata layered on top.
+#
+# When ``_TIER_GREEN`` / ``_TIER_YELLOW`` / ``_TIER_ORANGE`` thresholds
+# change in ``enrichment/dollars.py``, update the prose strings here too.
+# The tests in ``tests/unit/test_dollar_tier.py`` assert these strings
+# verbatim, so CI catches drift.
 _TIER_METADATA: dict[str, tuple[str, str]] = {
     "green":  ("$",    "under $50,000"),
     "yellow": ("$$",   "$50,000 to $250,000"),

@@ -18,6 +18,14 @@
    is the equivalent for tech that does. Some screen readers prioritize
    one; some prioritize the other — both must convey the same meaning.
 
+   The ``role="img"`` attribute is required for ``aria-label`` to be
+   ARIA-valid on a ``<span>`` — without an explicit role, the implicit
+   ``generic`` role disallows naming per ARIA 1.2 §6.2.1 (the
+   "prohibited naming" list), which means screen readers like NVDA +
+   Chrome and VoiceOver + Safari may silently ignore the attribute.
+   With ``role="img"``, the element advertises itself as a self-contained
+   graphic-like unit for which ``aria-label`` is the accessible name.
+
    Note on possible double-announcement: a screen reader that respects
    ``aria-label`` AND traverses the visible children will announce the
    amount + tier name twice (once from the aria-label, once from the
@@ -26,13 +34,14 @@
    omitting either path — leaves users on the OTHER assistive-tech
    contract uncovered. Decision #75 explicitly chose double-coverage.
 
-   CSS hooks emitted, no styles yet (later styling pass — same posture as
-   E2 badges and E3 engagement strip):
+   CSS hooks emitted (``.dollars`` / ``.dollars--*`` styles deferred to
+   the later design pass — same posture as E2 badges and E3 engagement
+   strip):
      - ``.dollars`` — base
      - ``.dollars--green | --yellow | --orange | --red`` — tier modifiers
-     - ``.sr-only`` — visually-hidden but screen-reader-readable
-       (standard utility class; ``base.html`` should provide the styles
-       at the design pass).
+     - ``.sr-only`` — visually-hidden but screen-reader-readable; the
+       canonical recipe lives in ``static/styles.css`` (regression
+       guarded by ``test_dollar_tier.py::TestSrOnlyUtilityInStylesCss``).
 
    Defensive against malformed input: the ``dollar_tier`` filter returns
    ``None`` for None / 0 / negative / bool / NaN / Infinity / non-numeric
@@ -42,8 +51,10 @@
 #}
 {%- set tier_data = amount | dollar_tier -%}
 {%- if tier_data -%}
+{%- set formatted = amount | format_dollars -%}
 <span class="dollars dollars--{{ tier_data.color }}"
-      aria-label="{{ amount | format_dollars }}, {{ tier_data.color|title }} tier ({{ tier_data.description }})">{{ amount | format_dollars }}
+      role="img"
+      aria-label="{{ formatted }}, {{ tier_data.color|title }} tier ({{ tier_data.description }})">{{ formatted }}
   ({{ tier_data.symbol }})<span class="sr-only">, {{ tier_data.color|title }} tier</span>
 </span>
 {%- endif -%}
