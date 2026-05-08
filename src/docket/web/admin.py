@@ -163,14 +163,21 @@ def data_debt():
     in :file:`partials/source_anchor_button.html` doesn't raise
     :class:`werkzeug.routing.exceptions.BuildError` at render time.
 
-    Accepts an optional ``highlight`` query arg that the future
-    implementation will use to scroll/highlight a specific item row.
+    Returns 501 Not Implemented (rather than 404) so monitoring can tell
+    "operator clicked admin queue link before page is built" apart from
+    "operator typo'd a URL". E3's deferred routes (item_detail, RSS) use
+    the same convention. Accepts an optional ``highlight`` query arg that
+    the future implementation will use to scroll/highlight a specific
+    item row.
 
-    TODO: build out the actual queue view (paginated list of items with
-    ``data_quality='no_text_layer'``, OCR retry trigger, manual override).
+    TODO(F-track): build data-debt queue page (paginated list of items
+    with ``data_quality='no_text_layer'``, OCR retry trigger, manual
+    override).
     """
-    # TODO: build data-debt queue page
-    abort(404)
+    return (
+        "Data Debt queue is a planned feature — implementation pending.",
+        501,
+    )
 
 
 # --- AI pipeline dashboard --------------------------------------------------

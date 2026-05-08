@@ -488,9 +488,21 @@ class TestCardPartialCityAlias:
         flask_app.config["PREFERRED_URL_SCHEME"] = "https"
 
         from docket.enrichment.dollars import classify_dollar_tier
+        from docket.web import source_security
         from docket.web.filters import register as register_filters
 
         register_filters(flask_app)
+
+        # The card_smart_brevity partial transitively includes
+        # source_anchor_button.html which calls the is_source_url_safe
+        # Jinja global. Production wires this against a DB-loaded
+        # allowlist; here we use a permissive set covering the test URLs.
+        flask_app.jinja_env.globals["is_source_url_safe"] = (
+            lambda url: source_security.is_url_safe(
+                url,
+                frozenset({"example.com", "birminghamal.gov"}),
+            )
+        )
 
         @flask_app.template_filter("dollar_tier")
         def _dollar_tier(amount):

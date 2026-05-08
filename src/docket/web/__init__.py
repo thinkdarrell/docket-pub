@@ -29,6 +29,24 @@ def create_app() -> Flask:
 
     filters.register(app)
 
+    # Source-anchor URL safety: combine static platform allowlist with
+    # dynamic municipality hosts read from `municipalities.adapter_config`.
+    # If the DB is unavailable at app init (tests, broken connection),
+    # fall back to the static set — production logs will surface real
+    # connection problems on the first request anyway.
+    from docket.db import db_cursor
+    from docket.web import source_security
+
+    try:
+        allowlist = source_security.build_allowlist(db_cursor)
+    except Exception:
+        allowlist = source_security.STATIC_ALLOWED_DOMAINS
+
+    app.config["SOURCE_DOMAIN_ALLOWLIST"] = allowlist
+    app.jinja_env.globals["is_source_url_safe"] = (
+        lambda url: source_security.is_url_safe(url, allowlist)
+    )
+
     # Register blueprints
     from docket.web.admin import bp as admin_bp
     from docket.web.auth import bp as auth_bp

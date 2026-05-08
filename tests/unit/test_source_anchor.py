@@ -6,11 +6,16 @@ defined in spec §6.4. Each test builds an ``item`` dict with a
 and asserts the rendered HTML carries the expected URL, scheme guard,
 and target/rel hardening.
 
-Also pins the contract for the ``format_timestamp`` Jinja filter
-introduced alongside the partial (used by the video-deep-link branch),
-and the ``admin.data_debt`` route stub that the OCR-needed branch's
-admin link points to (without the stub, ``url_for`` would raise
-``BuildError`` at render time — same lesson as E3 deferred routes).
+Also pins:
+
+* The contract for the ``format_timestamp`` Jinja filter introduced
+  alongside the partial (used by the video-deep-link branch).
+* The ``admin.data_debt`` route stub that the OCR-needed branch's
+  admin link points to (without the stub, ``url_for`` would raise
+  ``BuildError`` at render time — same lesson as E3 deferred routes).
+* The domain allowlist behavior for ``source_security.is_url_safe``
+  as it integrates with the partial (full unit coverage of the helper
+  itself lives in ``test_source_security.py``).
 
 Pure UI: no Anthropic, no DB, no integration setup.
 """
@@ -28,6 +33,20 @@ from flask import Blueprint, Flask, render_template
 # ---------------------------------------------------------------------------
 
 
+# A single allowlist used by the partial-level integration tests. Includes
+# our two test "city.gov" / "video.example.com" / "example.com" hosts plus
+# `granicus.example.com` so the static-domain integration test has a path.
+# The ``test_partial_rejects_unallowlisted_domain`` test rebuilds a tighter
+# allowlist on a per-test app to assert the rejection path.
+_TEST_ALLOWLIST = frozenset({
+    "example.com",
+    "city.gov",
+    "video.example.com",
+    "granicus.example.com",
+    "granicus.com",
+})
+
+
 @pytest.fixture(scope="module")
 def app():
     """Minimal Flask app pointed at the docket templates + filters.
@@ -36,11 +55,14 @@ def app():
       - All real Jinja filters via ``docket.web.filters.register`` so
         ``format_timestamp`` (and ``order_badges`` / ``format_date``)
         work in production parity.
+      - The ``is_source_url_safe`` Jinja global wired against a fixed
+        test allowlist (no DB hit). Production wires this against a
+        DB-derived allowlist in ``docket.web.create_app``.
       - A stub ``admin`` blueprint exposing ``admin.data_debt`` so
         ``url_for(...)`` in the OCR-needed branch resolves without
         standing up the real admin blueprint (which requires a session
         / DB). The actual production stub is in :mod:`docket.web.admin`
-        and 404s — these tests don't hit the route, only ``url_for``.
+        and 501s — these tests don't hit the route, only ``url_for``.
       - A SECRET_KEY so we can flip the session.
     """
     flask_app = Flask(
@@ -50,8 +72,16 @@ def app():
     flask_app.config["SECRET_KEY"] = "test-only-not-a-real-secret"
 
     from docket.web.filters import register as register_filters
+    from docket.web import source_security
 
     register_filters(flask_app)
+
+    # Wire the security helper against a fixed test allowlist so we don't
+    # need a DB. Production (`create_app`) wires the same global against
+    # the DB-loaded allowlist; the partial code path is identical.
+    flask_app.jinja_env.globals["is_source_url_safe"] = (
+        lambda url: source_security.is_url_safe(url, _TEST_ALLOWLIST)
+    )
 
     admin_bp = Blueprint("admin", __name__)
 
@@ -81,7 +111,11 @@ def _render(app, item, *, admin: bool = False):
 
 
 class TestPdfBranches:
-    def test_pdf_with_bbox_and_page_renders_region_label(self, app):
+    def test_pdf_with_bbox_and_page_renders_page_link(self, app):
+        """Bbox+page branch produces the same href as the page-only
+        branch today (no `(region)` label, no viewrect fragment yet).
+        See the TODO inside the partial — Stage 1 will eventually
+        upgrade this to ``#page=N&viewrect=L,T,W,H``."""
         item = {
             "id": 1,
             "source_anchor": {
@@ -93,7 +127,8 @@ class TestPdfBranches:
         }
         html = _render(app, item)
         assert 'href="https://example.com/agenda.pdf#page=7"' in html
-        assert "PDF page 7 (region)" in html
+        assert "PDF page 7" in html
+        assert "(region)" not in html
         assert 'class="view-source"' in html
         assert 'target="_blank"' in html
         assert 'rel="noopener noreferrer"' in html
@@ -146,6 +181,41 @@ class TestPdfBranches:
         assert "(region)" not in html
         assert "#page=" not in html
 
+    def test_pdf_bbox_branch_no_longer_emits_region_label(self, app):
+        """Locks in the spec change — the (region) label is gone, the
+        bbox+page branch is now indistinguishable from page-only at the
+        href level (TODO marker in the partial flags the future upgrade)."""
+        item = {
+            "id": 1,
+            "source_anchor": {
+                "type": "pdf",
+                "url": "https://city.gov/x.pdf",
+                "page": 7,
+                "bbox": [10, 20, 100, 200],
+            },
+        }
+        html = _render(app, item)
+        assert "region" not in html
+        assert 'href="https://city.gov/x.pdf#page=7"' in html
+
+    def test_pdf_url_with_existing_fragment_strips_before_appending_page(
+        self, app
+    ):
+        """Q1: pre-existing ``#fragment`` on the URL must be stripped before
+        we append ``#page=N`` — otherwise the browser sees two fragments
+        and ignores the second one."""
+        item = {
+            "id": 1,
+            "source_anchor": {
+                "type": "pdf",
+                "url": "https://city.gov/agenda.pdf#section1",
+                "page": 7,
+            },
+        }
+        html = _render(app, item)
+        assert 'href="https://city.gov/agenda.pdf#page=7"' in html
+        assert "#section1" not in html
+
 
 # ---------------------------------------------------------------------------
 # HTML branches
@@ -182,6 +252,24 @@ class TestHtmlBranches:
         assert "View Source →" in html
         # Not the html-anchor-specific copy.
         assert "View Source: agenda item" not in html
+
+    def test_html_url_with_existing_fragment_strips_before_appending_anchor(
+        self, app
+    ):
+        """Q1: HTML branch must strip pre-existing fragments too — the
+        anchor field carries its own ``#item-N`` and we don't want
+        ``#legacy#item-42``."""
+        item = {
+            "id": 1,
+            "source_anchor": {
+                "type": "html",
+                "url": "https://city.gov/agenda#legacy",
+                "anchor": "#item-42",
+            },
+        }
+        html = _render(app, item)
+        assert 'href="https://city.gov/agenda#item-42"' in html
+        assert "#legacy" not in html
 
 
 # ---------------------------------------------------------------------------
@@ -236,6 +324,43 @@ class TestVideoBranches:
         assert 'href="https://video.example.com/meeting/x?t=65"' in html
         # 65 seconds → 1:05 (no hour component).
         assert "video at 1:05" in html
+
+    def test_video_url_with_query_string_uses_ampersand(self, app):
+        """Q2: URL already contains ``?clip_id=123`` — the ``t=`` param
+        must be appended with ``&`` not ``?`` so the resulting URL is
+        valid query-string syntax. (Jinja autoescape renders ``&`` as
+        ``&amp;`` inside attribute values, which is correct HTML; the
+        browser interprets it as ``&`` at request time.)"""
+        item = {
+            "id": 1,
+            "source_anchor": {
+                "type": "video",
+                "url": "https://granicus.example.com/player?clip_id=123",
+                "timestamp_seconds": 65,
+            },
+        }
+        html = _render(app, item)
+        assert (
+            'href="https://granicus.example.com/player?clip_id=123&amp;t=65"'
+            in html
+        )
+        # Sanity: no double-question-mark.
+        assert "??" not in html
+
+    def test_video_url_without_query_string_uses_question_mark(self, app):
+        """Q2 inverse: clean URL still gets the ``?t=`` separator."""
+        item = {
+            "id": 1,
+            "source_anchor": {
+                "type": "video",
+                "url": "https://granicus.example.com/player",
+                "timestamp_seconds": 65,
+            },
+        }
+        html = _render(app, item)
+        assert (
+            'href="https://granicus.example.com/player?t=65"' in html
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -418,6 +543,123 @@ class TestSchemeAllowlist:
         assert "javascript:" not in html
         assert "Source needs OCR" in html
 
+    def test_https_uppercase_scheme_accepted(self, app):
+        """Q5: ``HTTPS://...`` should be accepted — DNS is case-insensitive
+        and the scheme guard does a case-insensitive check."""
+        item = {
+            "id": 1,
+            "source_anchor": {
+                "type": "pdf",
+                "url": "HTTPS://city.gov/agenda.pdf",
+                "page": 1,
+            },
+        }
+        html = _render(app, item)
+        # The href preserves original case; we just want the link to render.
+        assert 'class="view-source"' in html
+        assert "PDF page 1" in html
+
+    def test_url_with_leading_whitespace_accepted_after_strip(self, app):
+        """Q5: leading/trailing whitespace on the stored URL shouldn't
+        cause silent rejection — the partial strips before checking."""
+        item = {
+            "id": 1,
+            "source_anchor": {
+                "type": "pdf",
+                "url": "  https://city.gov/agenda.pdf",
+                "page": 1,
+            },
+        }
+        html = _render(app, item)
+        assert 'href="https://city.gov/agenda.pdf#page=1"' in html
+        assert "PDF page 1" in html
+
+
+# ---------------------------------------------------------------------------
+# Domain allowlist (integration with the partial)
+# ---------------------------------------------------------------------------
+
+
+class TestDomainAllowlist:
+    """Partial-level integration tests for the domain allowlist. Full
+    unit coverage of ``source_security.is_url_safe`` lives in
+    ``test_source_security.py``."""
+
+    def test_partial_rejects_unallowlisted_domain(self):
+        """An https URL whose host isn't in the configured allowlist
+        must be rejected — defense-in-depth above the scheme guard."""
+        from docket.web import source_security
+        from docket.web.filters import register as register_filters
+
+        flask_app = Flask(
+            "test_unallowlisted",
+            template_folder="src/docket/web/templates",
+        )
+        flask_app.config["SECRET_KEY"] = "test-only"
+        register_filters(flask_app)
+        # Tight allowlist that does NOT include evil.tld.
+        tight = frozenset({"city.gov"})
+        flask_app.jinja_env.globals["is_source_url_safe"] = (
+            lambda url: source_security.is_url_safe(url, tight)
+        )
+
+        admin_bp = Blueprint("admin", __name__)
+
+        @admin_bp.route("/admin/data-debt/")
+        def data_debt():  # pragma: no cover
+            return ""
+
+        flask_app.register_blueprint(admin_bp)
+
+        item = {
+            "id": 1,
+            "source_anchor": {
+                "type": "pdf",
+                "url": "https://evil.tld/x.pdf",
+                "page": 1,
+            },
+        }
+        with flask_app.test_request_context():
+            html = render_template(
+                "partials/source_anchor_button.html", item=item
+            )
+        assert html.strip() == ""
+        assert "evil.tld" not in html
+
+    def test_partial_accepts_municipality_domain(self, app):
+        """A URL whose host matches a municipality entry in the
+        allowlist (``city.gov`` here) renders the link."""
+        item = {
+            "id": 1,
+            "source_anchor": {
+                "type": "pdf",
+                "url": "https://city.gov/agenda.pdf",
+                "page": 5,
+            },
+        }
+        html = _render(app, item)
+        assert 'href="https://city.gov/agenda.pdf#page=5"' in html
+
+    def test_partial_accepts_static_platform_granicus(self, app):
+        """``bhamal.granicus.com`` matches static ``granicus.com`` via
+        suffix match — the static allowlist covers Birmingham et al.
+        without needing a per-tenant entry."""
+        item = {
+            "id": 1,
+            "source_anchor": {
+                "type": "video",
+                "url": "https://bhamal.granicus.com/player/clip/42",
+                "timestamp_seconds": 30,
+            },
+        }
+        # bhamal.granicus.com isn't in _TEST_ALLOWLIST exactly, but
+        # `granicus.com` is, and the suffix match should accept it.
+        html = _render(app, item)
+        assert (
+            'href="https://bhamal.granicus.com/player/clip/42?t=30"'
+            in html
+        )
+
 
 # ---------------------------------------------------------------------------
 # Malformed input
@@ -470,7 +712,7 @@ class TestFormatTimestampFilter:
     """Direct unit tests for ``docket.web.filters.format_timestamp``
     covering the spec §6.4 contract: ``M:SS`` under one hour,
     ``H:MM:SS`` from one hour up, defensive empty string for negative
-    / non-int / None."""
+    / non-int / None / inf / NaN."""
 
     def test_zero_seconds(self):
         from docket.web.filters import format_timestamp
@@ -540,6 +782,24 @@ class TestFormatTimestampFilter:
         assert format_timestamp(True) == ""
         assert format_timestamp(False) == ""
 
+    def test_format_timestamp_inf_returns_empty(self):
+        """Q3: ``int(float('inf'))`` raises ``OverflowError`` — the
+        broadened exception tuple must catch it and return ``""`` rather
+        than 500ing the page."""
+        from docket.web.filters import format_timestamp
+
+        assert format_timestamp(float("inf")) == ""
+        assert format_timestamp(float("-inf")) == ""
+
+    def test_format_timestamp_inf_string_returns_empty(self):
+        """Q3: ``"inf"`` parses as ``float('inf')`` via the fallback
+        path; ``int(float('inf'))`` then OverflowErrors — the broadened
+        tuple catches it."""
+        from docket.web.filters import format_timestamp
+
+        assert format_timestamp("inf") == ""
+        assert format_timestamp("-inf") == ""
+
 
 # ---------------------------------------------------------------------------
 # admin.data_debt route stub registration
@@ -551,8 +811,8 @@ class TestAdminDataDebtRouteStub:
     ``url_for('admin.data_debt', highlight=item.id)`` unconditionally
     when ``session.admin_user`` is truthy. Without route registration
     Flask raises ``BuildError`` at render time. Pin both that the
-    endpoint exists on the production blueprint and that it 404s (the
-    page itself is a future task — same pattern E3 used for
+    endpoint exists on the production blueprint and that it returns
+    501 (the page itself is a future task — same pattern E3 used for
     ``public.item_detail`` and ``public.upcoming_hearings_rss``)."""
 
     def test_data_debt_url_resolves(self):
@@ -566,11 +826,11 @@ class TestAdminDataDebtRouteStub:
             assert "/admin/data-debt/" in url
             assert "highlight=42" in url
 
-    def test_data_debt_returns_404_until_built(self):
-        """Stub returns 404 (E3 pattern). Hitting the route requires an
-        admin session because the admin blueprint's ``before_request``
-        gates everything; verify the gate first, then verify the
-        authenticated path 404s instead of 500ing."""
+    def test_data_debt_returns_501_until_built(self):
+        """Stub returns 501 Not Implemented (E3 pattern). Hitting the
+        route requires an admin session because the admin blueprint's
+        ``before_request`` gates everything; verify the gate first, then
+        verify the authenticated path 501s instead of 500ing."""
         from docket.web import create_app
 
         app = create_app()
@@ -582,18 +842,20 @@ class TestAdminDataDebtRouteStub:
             assert resp.status_code in (302, 303)
             assert "/admin/login" in resp.headers.get("Location", "")
 
-            # Authed: stub aborts 404.
+            # Authed: stub returns 501 with a "pending" message.
             with client.session_transaction() as sess:
                 sess["admin_user"] = "tester"
             resp = client.get("/admin/data-debt/")
-            assert resp.status_code == 404
+            assert resp.status_code == 501
+            body = resp.get_data(as_text=True).lower()
+            assert "pending" in body or "planned" in body
 
 
 # ---------------------------------------------------------------------------
 # Forcing-function tests for E4 TODO cleanups
 # ---------------------------------------------------------------------------
 #
-# These three tests are intentionally ``xfail(strict=True)``. They describe
+# These four tests are intentionally ``xfail(strict=True)``. They describe
 # the *desired* future state, not the current state — when the underlying
 # cleanup lands, each test will start passing, and ``strict=True`` will flip
 # it from XFAIL into a real FAILED. That forces the developer doing the
@@ -606,7 +868,7 @@ class TestForcingFunctionsForE4Cleanups:
     @pytest.mark.xfail(
         strict=True,
         reason=(
-            "admin.data_debt is currently a 404 stub; remove this xfail "
+            "admin.data_debt is currently a 501 stub; remove this xfail "
             "when the queue page lands"
         ),
     )
@@ -614,7 +876,7 @@ class TestForcingFunctionsForE4Cleanups:
         """When the data-debt queue page is built (likely F-track), the
         route should return 200 for an authenticated admin and accept the
         ``?highlight=N`` query arg the source-anchor button passes. While
-        the route still ``abort(404)``s this xfails; once it lands the
+        the route still returns 501 this xfails; once it lands the
         ``strict=True`` flips to FAILED and the developer retires the mark."""
         from docket.web import create_app
 
@@ -686,3 +948,25 @@ class TestForcingFunctionsForE4Cleanups:
         html = _render(app, item)
         assert "0:00" in html
         assert "?t=0" in html
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason=(
+            "bbox branch produces identical output to page-only branch; "
+            "remove this xfail and switch to viewrect deep link when "
+            "Stage 1 commits to PDF user-space coordinates for bbox"
+        ),
+    )
+    def test_pdf_bbox_emits_viewrect_deep_link(self, app):
+        """Future state: when Stage 1 emits ``bbox`` in PDF user-space
+        coordinates, the bbox+page branch should render
+        ``#page=N&viewrect=L,T,W,H`` (PDF Open Parameters). Until then
+        the branch produces the same href as page-only and this xfails."""
+        anchor = {
+            "type": "pdf",
+            "url": "https://city.gov/x.pdf",
+            "page": 7,
+            "bbox": [10, 20, 100, 200],
+        }
+        rendered = _render(app, {"id": 1, "source_anchor": anchor})
+        assert "viewrect=" in rendered

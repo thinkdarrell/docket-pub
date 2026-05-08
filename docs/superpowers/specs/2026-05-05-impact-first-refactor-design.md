@@ -2853,7 +2853,7 @@ until citizen-account notifications land in Phase 4.
 {% if anchor.type == 'pdf' %}
   {% if anchor.bbox %}
     <a href="{{ anchor.url }}#page={{ anchor.page }}" class="view-source">
-      View Source: PDF page {{ anchor.page }} (region) →
+      View Source: PDF page {{ anchor.page }} →
     </a>
   {% elif anchor.page %}
     <a href="{{ anchor.url }}#page={{ anchor.page }}" class="view-source">
@@ -2894,6 +2894,19 @@ until citizen-account notifications land in Phase 4.
 
 Browser handles `#page=` and `?t=` natively for PDF and YouTube/Granicus
 video viewers. No client-side JS required.
+
+The `bbox` branch currently produces output identical to the `page`-only
+branch because `#page=N` is browser-honored but `#bbox=` is not a
+standard PDF Open Parameters fragment. The branch is preserved as a
+placeholder for future bbox-aware deep linking via
+`#page=N&viewrect=L,T,W,H` (PDF Open Parameters, standard since
+PDF 1.6, supported by Adobe Reader, Chrome ≥110, and Firefox via
+PDF.js). Adoption requires Stage 1 to commit to emitting `bbox` in PDF
+user-space coordinates (1 unit = 1/72 inch from page top-left). Until
+then the branch is a documented no-op that the partial-level test
+`test_pdf_bbox_emits_viewrect_deep_link` (xfail-strict) will flip from
+XFAIL to FAILED once the upgrade lands, forcing the developer to retire
+the placeholder.
 
 ### 6.5 Category landing pages
 

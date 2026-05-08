@@ -39,6 +39,7 @@ def app():
 
     # The card_smart_brevity partial uses the `dollar_tier` filter.
     from docket.enrichment.dollars import classify_dollar_tier
+    from docket.web import source_security
 
     @flask_app.template_filter("dollar_tier")
     def _dollar_tier(amount):
@@ -49,6 +50,16 @@ def app():
     @flask_app.template_filter("topic_name")
     def _topic_name(slug):
         return slug or ""
+
+    # The card variants transitively include source_anchor_button.html
+    # which calls the is_source_url_safe Jinja global. Use a permissive
+    # test allowlist (production wires this via create_app from the DB).
+    flask_app.jinja_env.globals["is_source_url_safe"] = (
+        lambda url: source_security.is_url_safe(
+            url,
+            frozenset({"example.com", "birminghamal.gov"}),
+        )
+    )
 
     return flask_app
 

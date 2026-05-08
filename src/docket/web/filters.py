@@ -149,13 +149,18 @@ def format_timestamp(value: int | float | str | None) -> str:
     if isinstance(value, str):
         try:
             value = int(value)
-        except ValueError:
+        except (ValueError, OverflowError, TypeError):
             try:
                 value = int(float(value))
-            except ValueError:
+            except (ValueError, OverflowError, TypeError):
                 return ""
     if isinstance(value, float):
-        value = int(value)
+        # Reject inf / nan before int() raises OverflowError / ValueError —
+        # math.isfinite is the cheapest catch-all.
+        try:
+            value = int(value)
+        except (ValueError, OverflowError):
+            return ""
     if not isinstance(value, int):
         return ""
     if value < 0:
