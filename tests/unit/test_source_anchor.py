@@ -17,6 +17,8 @@ Pure UI: no Anthropic, no DB, no integration setup.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from flask import Blueprint, Flask, render_template
 
@@ -585,3 +587,102 @@ class TestAdminDataDebtRouteStub:
                 sess["admin_user"] = "tester"
             resp = client.get("/admin/data-debt/")
             assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Forcing-function tests for E4 TODO cleanups
+# ---------------------------------------------------------------------------
+#
+# These three tests are intentionally ``xfail(strict=True)``. They describe
+# the *desired* future state, not the current state — when the underlying
+# cleanup lands, each test will start passing, and ``strict=True`` will flip
+# it from XFAIL into a real FAILED. That forces the developer doing the
+# cleanup to come back and remove the ``xfail`` mark, which doubles as
+# confirmation that the cleanup actually happened end-to-end. Don't
+# "fix" these by relaxing strictness — fix them by retiring the TODO.
+
+
+class TestForcingFunctionsForE4Cleanups:
+    @pytest.mark.xfail(
+        strict=True,
+        reason=(
+            "admin.data_debt is currently a 404 stub; remove this xfail "
+            "when the queue page lands"
+        ),
+    )
+    def test_data_debt_returns_200_when_queue_page_lands(self):
+        """When the data-debt queue page is built (likely F-track), the
+        route should return 200 for an authenticated admin and accept the
+        ``?highlight=N`` query arg the source-anchor button passes. While
+        the route still ``abort(404)``s this xfails; once it lands the
+        ``strict=True`` flips to FAILED and the developer retires the mark."""
+        from docket.web import create_app
+
+        app = create_app()
+        app.config["SECRET_KEY"] = "test-only"
+
+        with app.test_client() as client:
+            with client.session_transaction() as sess:
+                sess["admin_user"] = "tester"
+            resp = client.get("/admin/data-debt/?highlight=42")
+            assert resp.status_code == 200
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason=(
+            "_source_link_stub.html still in use by 4 v2 cards "
+            "(card_failed, card_degraded, card_v2_fallback, card_pending); "
+            "remove this xfail and delete the stub when A8 ships and "
+            "migrates them to source_anchor_button"
+        ),
+    )
+    def test_source_link_stub_is_retired(self):
+        """A8 extends ``AgendaItem`` so ``source_anchor`` is exposed for
+        every item shape. Once that lands, the 4 v2 cards still using
+        ``_source_link_stub.html`` (``card_failed``, ``card_degraded``,
+        ``card_v2_fallback``, ``card_pending``) should switch to
+        ``source_anchor_button.html`` and the stub file should be deleted."""
+        templates_dir = (
+            Path(__file__).parent.parent.parent
+            / "src/docket/web/templates"
+        )
+        stub_path = templates_dir / "partials/_source_link_stub.html"
+        assert not stub_path.exists(), (
+            f"{stub_path} should be deleted after A8"
+        )
+
+        # Also assert no card template includes the stub.
+        partials_dir = templates_dir / "partials"
+        for tpl in partials_dir.glob("card_*.html"):
+            content = tpl.read_text()
+            assert "_source_link_stub" not in content, (
+                f"{tpl} still includes the stub"
+            )
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason=(
+            "spec §6.4 uses truthy `if anchor.timestamp_seconds` so 0 "
+            "falls through to bare URL; remove this xfail and switch the "
+            "Jinja to `is not none` if Stage 1 emits 0 as a legitimate "
+            "start-of-meeting anchor"
+        ),
+    )
+    def test_video_timestamp_zero_renders_as_start_of_meeting(self, app):
+        """Stage 1 may eventually emit ``timestamp_seconds=0`` as a
+        legitimate "start of meeting" anchor (vs. the current behavior
+        where ``0`` is falsy and falls through to the bare URL branch).
+        When that happens, the Jinja ``{% if anchor.timestamp_seconds %}``
+        guard needs to flip to ``is not none`` and the video branch
+        should render normally with a ``0:00`` label and ``?t=0`` query."""
+        item = {
+            "id": 1,
+            "source_anchor": {
+                "type": "video",
+                "url": "https://example.com/video",
+                "timestamp_seconds": 0,
+            },
+        }
+        html = _render(app, item)
+        assert "0:00" in html
+        assert "?t=0" in html
