@@ -170,6 +170,20 @@ def meeting_detail(slug, meeting_id):
     )
 
 
+@bp.route("/al/<slug>/items/<int:item_id>/")
+def item_detail(slug, item_id):
+    """Per-item detail page — stub for E5."""
+    # TODO(E5): wire up item-detail page
+    abort(404)
+
+
+@bp.route("/al/<string:city>/hearings.rss")
+def upcoming_hearings_rss(city):
+    """Upcoming public hearings RSS feed — stub for F5."""
+    # TODO(F5): build upcoming hearings RSS feed
+    abort(404)
+
+
 @bp.route("/al/<slug>/council/")
 def city_council(slug):
     """Council member cards for a city."""

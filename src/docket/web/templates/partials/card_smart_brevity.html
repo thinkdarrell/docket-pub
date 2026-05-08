@@ -11,6 +11,8 @@
    next_steps{committee_referral, public_hearing_date, public_hearing_time,
    comment_period_end, implementation_date}, parcels_affected, acres_affected.
 #}
+{# Alias municipality → city for engagement_strip.html (spec §6.3 uses `city`). #}
+{%- set city = municipality -%}
 <article class="smart-brevity-card smart-brevity-card--full" data-variant="smart_brevity">
   <header class="smart-brevity-card__header">
     {% include 'partials/_badge_row.html' %}

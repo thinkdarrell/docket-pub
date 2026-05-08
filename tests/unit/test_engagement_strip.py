@@ -449,3 +449,190 @@ class TestFormatDateFilter:
         from docket.web.filters import format_date
 
         assert format_date(date(2026, 5, 15)) == "May 15, 2026"
+
+
+# ---------------------------------------------------------------------------
+# Card partial → engagement strip alias regression
+# ---------------------------------------------------------------------------
+
+
+class TestCardPartialCityAlias:
+    """The route handler passes ``municipality`` to the parent template.
+    The card partials (``card_smart_brevity.html`` /
+    ``card_verification_pending.html``) shim ``city = municipality`` so
+    that ``engagement_strip.html``'s spec-canonical ``city.X`` references
+    resolve. Without the shim:
+
+    - States 1 + 3 silently degrade (the ``{% if city ... %}`` guards
+      hide the calendar tail link).
+    - State 2 raises ``UndefinedError`` / ``BuildError`` because
+      ``city.slug`` is undefined.
+
+    These regression tests pin the alias so a future refactor that drops
+    the ``{% set city = municipality %}`` line is caught.
+    """
+
+    @pytest.fixture(scope="class")
+    def card_app(self):
+        """Flask app wired with the dispatcher's filter dependencies plus
+        the same stub blueprint as the strip-level fixture (engagement
+        strip references ``public.upcoming_hearings_rss`` /
+        ``public.item_detail`` via ``url_for``)."""
+        flask_app = Flask(
+            "test_card_partial_city_alias",
+            template_folder="src/docket/web/templates",
+        )
+
+        flask_app.config["ADMIN_EMAIL"] = "ops@docket.test"
+        flask_app.config["SERVER_NAME"] = "docket.test"
+        flask_app.config["PREFERRED_URL_SCHEME"] = "https"
+
+        from docket.enrichment.dollars import classify_dollar_tier
+        from docket.web.filters import register as register_filters
+
+        register_filters(flask_app)
+
+        @flask_app.template_filter("dollar_tier")
+        def _dollar_tier(amount):
+            if amount is None:
+                return ""
+            return classify_dollar_tier(amount)
+
+        @flask_app.template_filter("topic_name")
+        def _topic_name(slug):
+            return slug or ""
+
+        public_bp = Blueprint("public", __name__)
+
+        @public_bp.route("/<city>/upcoming-hearings.rss")
+        def upcoming_hearings_rss(city):  # pragma: no cover
+            return ""
+
+        @public_bp.route("/<city>/items/<int:item_id>")
+        def item_detail(city, item_id):  # pragma: no cover
+            return ""
+
+        flask_app.register_blueprint(public_bp)
+        return flask_app
+
+    def test_card_smart_brevity_with_municipality_only_resolves_city(self, card_app):
+        """Render ``card_smart_brevity.html`` with ``municipality`` only
+        (no ``city`` in scope, mirroring the route handler) and verify
+        the engagement-strip's calendar tail link appears — proving the
+        ``{% set city = municipality %}`` shim works end-to-end."""
+        item = {
+            "id": 1,
+            "title": "Test item",
+            "processing_status": "completed",
+            "ai_rewrite_version": 3,
+            "headline": "Test headline",
+            "why_it_matters": "Test impact statement.",
+            "next_steps": {"committee_referral": "Planning Committee"},
+            "extracted_facts": {},
+            "badges": [],
+            "source_anchor": {"url": "https://example.com/agenda.pdf"},
+        }
+        municipality = {
+            "slug": "bham",
+            "name": "Birmingham",
+            "master_calendar_url": "https://birminghamal.gov/calendar",
+        }
+        with card_app.app_context(), card_app.test_request_context():
+            html = render_template(
+                "partials/card_smart_brevity.html",
+                item=item,
+                municipality=municipality,
+            )
+        # Engagement-strip's state-1 fields render.
+        assert "Planning Committee" in html
+        # Master calendar tail link survives the alias shim — this is the
+        # specific assertion that catches "someone removed `set city = municipality`".
+        assert "https://birminghamal.gov/calendar" in html
+        assert "City master calendar" in html
+
+    def test_card_verification_pending_with_municipality_only_resolves_city(
+        self, card_app
+    ):
+        """Same alias regression for the verification_pending variant."""
+        item = {
+            "id": 2,
+            "title": "Test item",
+            "processing_status": "cross_stage_conflict",
+            "ai_rewrite_version": 3,
+            "headline": "Test headline",
+            "why_it_matters": "Test impact statement.",
+            "next_steps": {"committee_referral": "Public Safety Committee"},
+            "extracted_facts": {},
+            "badges": [],
+            "source_anchor": {"url": "https://example.com/agenda.pdf"},
+        }
+        municipality = {
+            "slug": "mobile",
+            "name": "Mobile",
+            "master_calendar_url": "https://mobile.example.com/cal",
+        }
+        with card_app.app_context(), card_app.test_request_context():
+            html = render_template(
+                "partials/card_verification_pending.html",
+                item=item,
+                municipality=municipality,
+            )
+        assert "Public Safety Committee" in html
+        assert "https://mobile.example.com/cal" in html
+        assert "City master calendar" in html
+
+    def test_engagement_strip_without_city_silently_degrades(self, card_app):
+        """If ``engagement_strip.html`` is rendered with no ``city`` in
+        scope (i.e. the alias shim is absent), state-1 still renders the
+        populated next_steps fields but the calendar tail link disappears.
+        This proves why the shim is needed — the partial-level guards are
+        defensive but they hide real data."""
+        item = {
+            "id": 1,
+            "next_steps": {"committee_referral": "Planning Committee"},
+            "extracted_facts": None,
+        }
+        with card_app.app_context():
+            # Note: no ``city`` kwarg — emulates parent template that only
+            # has ``municipality``.
+            html = render_template(
+                "partials/engagement_strip.html", item=item
+            )
+        assert "Planning Committee" in html
+        # No calendar tail link — proves the silent degradation that the
+        # shim prevents.
+        assert "City master calendar" not in html
+
+
+# ---------------------------------------------------------------------------
+# Production blueprint stub-route registration
+# ---------------------------------------------------------------------------
+
+
+class TestPublicBlueprintStubRoutes:
+    """``engagement_strip.html`` state 2 calls
+    ``url_for('public.item_detail', ...)`` and
+    ``url_for('public.upcoming_hearings_rss', city=...)``. The production
+    blueprint must register both endpoints (even as 404 stubs) so
+    ``url_for`` doesn't raise ``BuildError`` at render time. These tests
+    pin the registration."""
+
+    def test_item_detail_url_resolves(self):
+        from docket.web import create_app
+
+        app = create_app()
+        with app.test_request_context():
+            from flask import url_for
+
+            url = url_for("public.item_detail", slug="bham", item_id=1)
+            assert "/al/bham/items/1" in url
+
+    def test_upcoming_hearings_rss_url_resolves(self):
+        from docket.web import create_app
+
+        app = create_app()
+        with app.test_request_context():
+            from flask import url_for
+
+            url = url_for("public.upcoming_hearings_rss", city="bham")
+            assert "/al/bham/hearings.rss" in url

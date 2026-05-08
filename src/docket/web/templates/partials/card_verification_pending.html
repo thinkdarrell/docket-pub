@@ -6,6 +6,8 @@
    tooltip-only — the content is full-fidelity per spec §6.1. Once
    Stage 1 / Stage 2 reconcile resolves, status flips to 'completed' and
    the pill is gone. #}
+{# Alias municipality → city for engagement_strip.html (spec §6.3 uses `city`). #}
+{%- set city = municipality -%}
 <article class="smart-brevity-card smart-brevity-card--verification-pending" data-variant="verification_pending">
   <header class="smart-brevity-card__header">
     <span class="verification-pill"
