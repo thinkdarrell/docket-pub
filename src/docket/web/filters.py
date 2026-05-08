@@ -19,8 +19,14 @@ Currently exposes:
   partial (spec §6.3) for ``next_steps.public_hearing_date``,
   ``comment_period_end``, and ``implementation_date``.
 
+- ``format_timestamp(seconds)`` — Render an integer second count as
+  ``H:MM:SS`` (1+ hour) or ``M:SS`` (under an hour). Spec §6.4 uses it
+  to label video deep links (e.g. ``View Source: video at 1:23:45``).
+  Returns the empty string for ``None`` / negative / non-numeric input
+  so a malformed anchor doesn't crash the page.
+
 The module exposes :func:`register` which the Flask app factory calls
-to wire ``order_badges`` and ``format_date`` into
+to wire ``order_badges``, ``format_date``, and ``format_timestamp`` into
 ``app.jinja_env.filters``.
 """
 
@@ -114,7 +120,55 @@ def format_date(value: date | datetime | str | None) -> str:
     return str(value)
 
 
+def format_timestamp(value: int | float | str | None) -> str:
+    """Return ``value`` (seconds) rendered as ``H:MM:SS`` or ``M:SS``.
+
+    - 0 → ``"0:00"``
+    - 65 → ``"1:05"``
+    - 3600 → ``"1:00:00"``
+    - 3725 → ``"1:02:05"``
+
+    Defensive against missing or malformed inputs:
+
+    - ``None`` → ``""`` (empty string).
+    - Negative → ``""`` (negative durations are nonsensical).
+    - Non-numeric / unparseable string → ``""``.
+    - ``bool`` → ``""`` (``isinstance(True, int)`` is True in Python; we
+      reject explicitly because a stray boolean from JSONB would format
+      as ``"0:01"`` / ``"0:00"`` and look like a real timestamp).
+    - ``float`` → coerced to ``int`` (truncates fractional seconds).
+    - Numeric string → coerced via ``int(...)``, stripping a trailing
+      ``.0`` if present (psycopg can hand back JSONB integers as strings
+      depending on the driver path).
+
+    Used by :file:`partials/source_anchor_button.html` (spec §6.4) to
+    label video deep-link buttons.
+    """
+    if value is None or isinstance(value, bool):
+        return ""
+    if isinstance(value, str):
+        try:
+            value = int(value)
+        except ValueError:
+            try:
+                value = int(float(value))
+            except ValueError:
+                return ""
+    if isinstance(value, float):
+        value = int(value)
+    if not isinstance(value, int):
+        return ""
+    if value < 0:
+        return ""
+    hours, rem = divmod(value, 3600)
+    minutes, seconds = divmod(rem, 60)
+    if hours:
+        return f"{hours}:{minutes:02d}:{seconds:02d}"
+    return f"{minutes}:{seconds:02d}"
+
+
 def register(app: Flask) -> None:
     """Register custom Jinja filters on ``app``."""
     app.jinja_env.filters["order_badges"] = order_badges
     app.jinja_env.filters["format_date"] = format_date
+    app.jinja_env.filters["format_timestamp"] = format_timestamp

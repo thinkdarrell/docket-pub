@@ -149,6 +149,30 @@ def deactivate_member(member_id):
     return redirect(url_for("admin.list_members"))
 
 
+# --- Data debt queue (stub) -------------------------------------------------
+
+
+@bp.route("/data-debt/")
+def data_debt():
+    """Data-debt queue — stub for a future task.
+
+    The source-anchor button (spec §6.4) renders an admin-only link to
+    this queue when an item is flagged ``data_quality == 'no_text_layer'``
+    so an operator can triage OCR-needed items. The page itself is not
+    yet built; the route exists so ``url_for('admin.data_debt', ...)``
+    in :file:`partials/source_anchor_button.html` doesn't raise
+    :class:`werkzeug.routing.exceptions.BuildError` at render time.
+
+    Accepts an optional ``highlight`` query arg that the future
+    implementation will use to scroll/highlight a specific item row.
+
+    TODO: build out the actual queue view (paginated list of items with
+    ``data_quality='no_text_layer'``, OCR retry trigger, manual override).
+    """
+    # TODO: build data-debt queue page
+    abort(404)
+
+
 # --- AI pipeline dashboard --------------------------------------------------
 
 
