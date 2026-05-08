@@ -98,10 +98,104 @@ def get_meeting(meeting_id: int) -> Meeting | None:
 
 
 def list_agenda_items(meeting_id: int) -> list[AgendaItem]:
-    """Return agenda items for a meeting."""
+    """Return agenda items for a meeting (list-page shape, A8).
+
+    SELECT carries the v2 columns plus the v3 columns the Smart Brevity
+    Card dispatcher and its sub-partials read (spec §6.1 — A8). Heavy
+    JSONB blobs are kept lean:
+
+    - ``extracted_facts``: pulled via jsonb_extract_path for the specific
+      keys the v3 cards render (counterparty, funding_source,
+      procurement_method, action_type, location, next_steps). The full
+      blob is detail-page-only (separate query, not built here).
+    - ``source_anchor``: small enough to inline as full JSONB.
+    - ``ai_metadata``: kept as-is for v2 fallback (`confidence`/`phase`
+      are read directly by ``card_v2_fallback.html``).
+
+    Badges come from a correlated ``jsonb_agg`` subquery joining
+    ``agenda_item_badges`` to ``priority_badge_templates`` so the row
+    arrives shaped like the BadgeChip dict the ``_badge_row.html``
+    partial expects (kind / slug / name / icon / description /
+    confidence). Empty array when an item has no badges.
+
+    EXPLAIN ANALYZE on a 100-item meeting must keep the plan on the
+    indexed ``meeting_id`` path (no seq scan on ``agenda_items``) and
+    the badges subquery on ``idx_agenda_item_badges_item``. See PR body
+    for the captured plan.
+    """
     with db_cursor() as cur:
         cur.execute(
-            "SELECT * FROM agenda_items WHERE meeting_id = %s ORDER BY item_number",
+            """
+            SELECT
+                ai.id,
+                ai.meeting_id,
+                ai.external_id,
+                ai.item_number,
+                ai.title,
+                ai.description,
+                ai.section,
+                ai.is_consent,
+                ai.sponsor,
+                ai.dollars_amount,
+                ai.topic,
+                ai.significance_score,
+                ai.consent_placement_score,
+                ai.summary,
+                ai.ai_metadata,
+                ai.ai_prompt_version,
+                ai.ai_generated_at,
+                -- v3 flat columns
+                ai.data_quality::text       AS data_quality,
+                ai.data_debt_priority::text AS data_debt_priority,
+                ai.processing_status::text  AS processing_status,
+                ai.ai_extraction_version,
+                ai.ai_rewrite_version,
+                ai.ai_confidence,
+                ai.headline,
+                ai.why_it_matters,
+                -- Small JSONB inline
+                ai.source_anchor,
+                -- LEAN extracted_facts: build a dict containing only the keys
+                -- the v3 cards render. NULL out empty objects so Jinja's
+                -- `or {}` guards collapse cleanly. Each individual key is
+                -- pulled with jsonb_extract_path so a missing source key
+                -- yields NULL (not the literal JSONB null).
+                CASE
+                    WHEN ai.extracted_facts IS NULL THEN NULL
+                    ELSE jsonb_strip_nulls(jsonb_build_object(
+                        'counterparty',       ai.extracted_facts->>'counterparty',
+                        'funding_source',     ai.extracted_facts->>'funding_source',
+                        'procurement_method', ai.extracted_facts->>'procurement_method',
+                        'action_type',        ai.extracted_facts->>'action_type',
+                        'location',           ai.extracted_facts->'location',
+                        'next_steps',         ai.extracted_facts->'next_steps'
+                    ))
+                END AS extracted_facts,
+                -- Badge JOIN: aggregate matching templates into a
+                -- BadgeChip-shaped jsonb array. COALESCE to '[]' so
+                -- AgendaItem.from_row() always sees a list. The
+                -- subquery uses the (agenda_item_id) index from
+                -- migration 013 (idx_agenda_item_badges_item).
+                COALESCE(
+                    (
+                        SELECT jsonb_agg(jsonb_build_object(
+                                   'kind',        b.kind,
+                                   'slug',        b.badge_slug,
+                                   'confidence',  b.confidence,
+                                   'name',        t.name,
+                                   'icon',        t.icon,
+                                   'description', t.description
+                               ) ORDER BY b.detected_at DESC)
+                        FROM agenda_item_badges b
+                        JOIN priority_badge_templates t ON t.slug = b.badge_slug
+                        WHERE b.agenda_item_id = ai.id
+                    ),
+                    '[]'::jsonb
+                ) AS badges
+            FROM agenda_items ai
+            WHERE ai.meeting_id = %s
+            ORDER BY ai.item_number
+            """,
             (meeting_id,),
         )
         return [AgendaItem.from_row(dict(row)) for row in cur.fetchall()]
