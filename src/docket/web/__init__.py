@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from flask import Flask
 
 from docket.config import ADMIN_EMAIL, FLASK_ENV, SECRET_KEY
@@ -17,6 +19,21 @@ def create_app() -> Flask:
 
     app.config["SECRET_KEY"] = SECRET_KEY
     app.config["ADMIN_EMAIL"] = ADMIN_EMAIL
+
+    # E6 — SMART_BREVITY_UI feature flag. Defaults to false. Set to "true"
+    # in Railway env vars to flip v3 card rendering on. The dispatcher
+    # itself (partials/smart_brevity_card.html) only fires when this flag
+    # is true AND A8 has exposed the v3 columns on AgendaItem (already
+    # done as of commit ab48fa2). Flag-off path is byte-identical to
+    # current production v2 rendering.
+    #
+    # ``.strip().lower()`` is defensive against ``" TRUE\n"`` or similar
+    # values from the Railway dashboard. Only the literal string "true"
+    # (case-insensitive, whitespace-trimmed) enables v3 — "1", "yes",
+    # "True ", etc. all evaluate to false except "True".
+    app.config["SMART_BREVITY_UI"] = (
+        os.environ.get("SMART_BREVITY_UI", "").strip().lower() == "true"
+    )
 
     # Production cookie security
     if FLASK_ENV != "development":
