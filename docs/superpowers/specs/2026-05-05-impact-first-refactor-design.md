@@ -1940,7 +1940,15 @@ def resolve_policy_badge(city_id: int, slug: str) -> ResolvedBadge | None:
         name=row.name_override or template.name,
         description=row.description_override or template.description,
         icon=template.icon,
-        matcher_hints=row.matcher_hints_override or template.default_matcher_hints,
+        # Per-key JSONB shallow merge: defaults || override. Override keys
+        # win on duplicates; default keys survive when not overridden.
+        # In SQL: COALESCE(t.default_matcher_hints, '{}'::jsonb)
+        #         || COALESCE(c.matcher_hints_override, '{}'::jsonb).
+        # NOT whole-object replacement (`override or defaults`) — that was
+        # a foot-gun where a city setting only `min_significance` would
+        # silently drop default `keywords` / `action_types` / `topics` /
+        # `excluded_action_types`, breaking deterministic matchers.
+        matcher_hints=merge_jsonb(template.default_matcher_hints, row.matcher_hints_override),
     )
 ```
 
@@ -2973,7 +2981,7 @@ Service-layer query (`docket/services/query.py`):
 ```python
 def list_items_by_badge(city_id: int, badge_slug: str,
                         min_confidence: float = 0.6,
-                        cross_filter_slugs: list[str] = (),
+                        cross_filter_slugs: Sequence[str] = (),
                         limit: int = 25,
                         offset: int = 0,
                         include_low_significance: bool = False) -> list[AgendaItem]:
@@ -3003,7 +3011,13 @@ def list_items_by_badge(city_id: int, badge_slug: str,
         FROM agenda_items ai
         JOIN agenda_item_badges aib ON aib.agenda_item_id = ai.id
         JOIN meetings m ON m.id = ai.meeting_id
-        WHERE m.city_id = %s
+        -- City filter on aib.city_id (not m.*): hits the decision-#92
+        -- composite index idx_agenda_item_badges_city_slug_conf
+        -- (city_id, badge_slug, confidence DESC) for the most selective
+        -- predicate trio. NB: meetings has municipality_id, not city_id —
+        -- there is no m.city_id column. agenda_item_badges carries city_id
+        -- directly so the predicate covers the planned index.
+        WHERE aib.city_id = %s
           AND aib.badge_slug = %s
           AND aib.confidence >= %s
           AND ai.processing_status = 'completed'
@@ -3034,7 +3048,25 @@ The same render-time gate applies in two other read paths:
 - **Search results** (when narrowing by badge slug) — filtered by `significance_score >= 3` for policy badges
 - **Smart Brevity Card badge chips** — when rendering the chip list per item, policy chips with significance below threshold are filtered out (process chips always render)
 
-These three call sites share a small helper `apply_policy_significance_gate(items, badge_slug, city_id)` so the threshold logic stays in one place.
+These three call sites share a pair of helpers — same threshold logic,
+two shapes for the two ways callers consume it:
+
+- `resolve_significance_threshold(city_id, badge_slug) -> int | None` —
+  SQL-pushdown helper. Returns the integer threshold (or `None` for
+  process / unknown badges) so SQL callers can splice
+  `AND ai.significance_score >= %s` into their query. Used by the
+  listing query above and the search-narrowing call site.
+- `apply_policy_significance_gate(items, badge_slug, city_id) -> list[AgendaItem]`
+  — in-Python list filter. For callers that have items already in
+  memory (Smart Brevity Card chip rendering, where the chip loop runs
+  inside a Jinja template — SQL pushdown isn't possible). Drops items
+  with `significance_score < threshold` for policy badges; passes
+  everything through for process / unknown badges.
+
+Threshold logic stays in `resolve_matcher_hints` (and its
+single-round-trip core `_lookup_template_kind_and_hints`) so all 3 call
+sites + future deterministic matchers (Track 1 / D2 reading other hint
+keys like `keywords` / `action_types`) read consistent values.
 
 KPI strip:
 
