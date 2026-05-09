@@ -25,6 +25,8 @@ from pathlib import Path
 import pytest
 from flask import Flask, render_template
 
+from tests.unit.conftest import make_agenda_item
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -655,10 +657,7 @@ class TestFactsStripDollarTierSwap:
         """When ``item.dollars_amount`` is set, the facts strip renders
         the cost row and includes the new partial markup
         (``dollars--<color>`` class + sr-only span)."""
-        item = {
-            "dollars_amount": Decimal("87500"),
-            "extracted_facts": {},
-        }
+        item = make_agenda_item(dollars_amount=Decimal("87500"), extracted_facts={})
         with facts_app.app_context():
             html = render_template("partials/_facts_strip.html", item=item)
         # Cost row present
@@ -677,10 +676,7 @@ class TestFactsStripDollarTierSwap:
         guard hides the cost row entirely — the partial is never even
         included. (Belt and suspenders — the partial would also no-render
         on None, but skipping the include keeps the layout cleaner.)"""
-        item = {
-            "dollars_amount": None,
-            "extracted_facts": {},
-        }
+        item = make_agenda_item(dollars_amount=None, extracted_facts={})
         with facts_app.app_context():
             html = render_template("partials/_facts_strip.html", item=item)
         assert "fact--cost" not in html

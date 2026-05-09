@@ -22,6 +22,8 @@ from datetime import date
 import pytest
 from flask import Blueprint, Flask, render_template
 
+from tests.unit.conftest import make_agenda_item
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -89,17 +91,16 @@ def _render(app, item, city):
 class TestEngagementStripStates:
     def test_state_1_next_steps_populated(self, app):
         """All four next_steps fields plus master-calendar tail link."""
-        item = {
-            "id": 42,
-            "next_steps": {
+        item = make_agenda_item(
+            id=42,
+            next_steps={
                 "public_hearing_date": date(2026, 5, 15),
                 "public_hearing_time": "6:00 PM",
                 "committee_referral": "Planning Committee",
                 "comment_period_end": date(2026, 5, 10),
                 "implementation_date": date(2026, 6, 1),
             },
-            "extracted_facts": None,
-        }
+        )
         city = {
             "slug": "birmingham",
             "name": "Birmingham",
@@ -125,11 +126,10 @@ class TestEngagementStripStates:
 
     def test_state_2_awaiting_hearing(self, app):
         """action_type=public_hearing_set + no public_hearing_date → awaiting state."""
-        item = {
-            "id": 99,
-            "next_steps": None,
-            "extracted_facts": {"action_type": "public_hearing_set"},
-        }
+        item = make_agenda_item(
+            id=99,
+            action_type="public_hearing_set",
+        )
         city = {
             "slug": "mobile",
             "name": "Mobile",
@@ -158,11 +158,7 @@ class TestEngagementStripStates:
 
     def test_state_3_master_calendar_fallback(self, app):
         """No next_steps + no awaiting context → just calendar fallback."""
-        item = {
-            "id": 7,
-            "next_steps": None,
-            "extracted_facts": None,
-        }
+        item = make_agenda_item(id=7)
         city = {
             "slug": "homewood",
             "name": "Homewood",
@@ -178,11 +174,7 @@ class TestEngagementStripStates:
 
     def test_state_4_auto_hides(self, app):
         """No next_steps, no awaiting context, no calendar URL → empty render."""
-        item = {
-            "id": 1,
-            "next_steps": None,
-            "extracted_facts": None,
-        }
+        item = make_agenda_item(id=1)
         city = {
             "slug": "vestavia",
             "name": "Vestavia Hills",
@@ -204,14 +196,13 @@ class TestEngagementStripStates:
 class TestEngagementStripEdges:
     def test_partial_next_steps_renders_only_populated_fields(self, app):
         """Only ``committee_referral`` set — no calendar / comment / impl markers leak."""
-        item = {
-            "id": 5,
-            "next_steps": {
+        item = make_agenda_item(
+            id=5,
+            next_steps={
                 "committee_referral": "Public Safety Committee",
                 # All other fields absent.
             },
-            "extracted_facts": None,
-        }
+        )
         city = {
             "slug": "birmingham",
             "name": "Birmingham",
@@ -235,14 +226,13 @@ class TestEngagementStripEdges:
     def test_state_1_with_iso_string_dates(self, app):
         """JSONB next_steps round-trip through psycopg as ISO strings sometimes
         — ``format_date`` should parse them rather than crash."""
-        item = {
-            "id": 21,
-            "next_steps": {
+        item = make_agenda_item(
+            id=21,
+            next_steps={
                 "public_hearing_date": "2026-07-04",
                 "comment_period_end": "2026-06-30",
             },
-            "extracted_facts": None,
-        }
+        )
         city = {
             "slug": "birmingham",
             "name": "Birmingham",
@@ -256,11 +246,11 @@ class TestEngagementStripEdges:
     def test_state_2_does_not_trigger_when_hearing_date_present(self, app):
         """If action_type=public_hearing_set BUT public_hearing_date is set,
         we land on state 1 (the populated state), not the awaiting state."""
-        item = {
-            "id": 33,
-            "next_steps": {"public_hearing_date": date(2026, 8, 1)},
-            "extracted_facts": {"action_type": "public_hearing_set"},
-        }
+        item = make_agenda_item(
+            id=33,
+            next_steps={"public_hearing_date": date(2026, 8, 1)},
+            action_type="public_hearing_set",
+        )
         city = {
             "slug": "mobile",
             "name": "Mobile",
@@ -276,11 +266,7 @@ class TestEngagementStripEdges:
     def test_awaiting_state_handles_missing_extracted_facts(self, app):
         """``extracted_facts`` keyed but None — ``or {}`` guard prevents crash;
         the awaiting branch should not trigger."""
-        item = {
-            "id": 4,
-            "next_steps": None,
-            "extracted_facts": None,
-        }
+        item = make_agenda_item(id=4)
         city = {
             "slug": "vestavia",
             "name": "Vestavia Hills",
@@ -295,16 +281,15 @@ class TestEngagementStripEdges:
         markers (📅 hearing, 🏛️ committee, 📝 comment, ▶️ impl) in order
         and use ``•`` bullet separators between fields. Locks the visual
         contract that the spec-compliance review flagged as a test gap."""
-        item = {
-            "id": 11,
-            "next_steps": {
+        item = make_agenda_item(
+            id=11,
+            next_steps={
                 "public_hearing_date": date(2026, 5, 15),
                 "committee_referral": "Planning Committee",
                 "comment_period_end": date(2026, 5, 10),
                 "implementation_date": date(2026, 6, 1),
             },
-            "extracted_facts": None,
-        }
+        )
         city = {
             "slug": "birmingham",
             "name": "Birmingham",
@@ -332,7 +317,7 @@ class TestEngagementStripEdges:
         """``next_steps={}`` should be treated identically to ``None`` —
         ``has_any`` is falsy on every empty key, so without action_type
         context or a calendar URL we land on state 4 (no markup)."""
-        item = {"id": 1, "next_steps": {}, "extracted_facts": None}
+        item = make_agenda_item(id=1, next_steps={})
         city = {"slug": "x", "name": "X", "master_calendar_url": None}
         html = _render(app, item, city)
         assert "engagement-strip" not in html
@@ -340,14 +325,14 @@ class TestEngagementStripEdges:
     def test_action_type_public_hearing_set_with_only_committee_referral_lands_state_1(
         self, app
     ):
-        """If facts.action_type=public_hearing_set AND committee_referral
+        """If item.action_type=public_hearing_set AND committee_referral
         is set but public_hearing_date is null, state 1 still wins
         (``has_any`` covers any of the four next_steps fields)."""
-        item = {
-            "id": 1,
-            "next_steps": {"committee_referral": "Planning Committee"},
-            "extracted_facts": {"action_type": "public_hearing_set"},
-        }
+        item = make_agenda_item(
+            id=1,
+            next_steps={"committee_referral": "Planning Committee"},
+            action_type="public_hearing_set",
+        )
         city = {
             "slug": "bham",
             "name": "Birmingham",
@@ -365,11 +350,10 @@ class TestEngagementStripEdges:
         meeting_detail.html, _source_link_stub.html, footer.html. The
         mailto: link must NOT carry target/rel."""
         # State 1: master-calendar tail link.
-        item = {
-            "id": 1,
-            "next_steps": {"committee_referral": "Planning"},
-            "extracted_facts": None,
-        }
+        item = make_agenda_item(
+            id=1,
+            next_steps={"committee_referral": "Planning"},
+        )
         city = {
             "slug": "bham",
             "name": "Birmingham",
@@ -380,11 +364,7 @@ class TestEngagementStripEdges:
         assert 'rel="noopener noreferrer"' in html
 
         # State 2: RSS link.
-        item2 = {
-            "id": 99,
-            "next_steps": None,
-            "extracted_facts": {"action_type": "public_hearing_set"},
-        }
+        item2 = make_agenda_item(id=99, action_type="public_hearing_set")
         city2 = {"slug": "mobile", "name": "Mobile", "master_calendar_url": None}
         html2 = _render(app, item2, city2)
         assert 'target="_blank"' in html2
@@ -400,7 +380,7 @@ class TestEngagementStripEdges:
         assert "rel=" not in mailto_tag
 
         # State 3: fallback calendar link.
-        item3 = {"id": 1, "next_steps": None, "extracted_facts": None}
+        item3 = make_agenda_item(id=1)
         city3 = {
             "slug": "homewood",
             "name": "Homewood",
@@ -532,18 +512,17 @@ class TestCardPartialCityAlias:
         (no ``city`` in scope, mirroring the route handler) and verify
         the engagement-strip's calendar tail link appears — proving the
         ``{% set city = municipality %}`` shim works end-to-end."""
-        item = {
-            "id": 1,
-            "title": "Test item",
-            "processing_status": "completed",
-            "ai_rewrite_version": 3,
-            "headline": "Test headline",
-            "why_it_matters": "Test impact statement.",
-            "next_steps": {"committee_referral": "Planning Committee"},
-            "extracted_facts": {},
-            "badges": [],
-            "source_anchor": {"url": "https://example.com/agenda.pdf"},
-        }
+        item = make_agenda_item(
+            id=1,
+            title="Test item",
+            processing_status="completed",
+            ai_rewrite_version=3,
+            headline="Test headline",
+            why_it_matters="Test impact statement.",
+            next_steps={"committee_referral": "Planning Committee"},
+            extracted_facts={},
+            source_anchor={"url": "https://example.com/agenda.pdf"},
+        )
         municipality = {
             "slug": "bham",
             "name": "Birmingham",
@@ -566,18 +545,17 @@ class TestCardPartialCityAlias:
         self, card_app
     ):
         """Same alias regression for the verification_pending variant."""
-        item = {
-            "id": 2,
-            "title": "Test item",
-            "processing_status": "cross_stage_conflict",
-            "ai_rewrite_version": 3,
-            "headline": "Test headline",
-            "why_it_matters": "Test impact statement.",
-            "next_steps": {"committee_referral": "Public Safety Committee"},
-            "extracted_facts": {},
-            "badges": [],
-            "source_anchor": {"url": "https://example.com/agenda.pdf"},
-        }
+        item = make_agenda_item(
+            id=2,
+            title="Test item",
+            processing_status="cross_stage_conflict",
+            ai_rewrite_version=3,
+            headline="Test headline",
+            why_it_matters="Test impact statement.",
+            next_steps={"committee_referral": "Public Safety Committee"},
+            extracted_facts={},
+            source_anchor={"url": "https://example.com/agenda.pdf"},
+        )
         municipality = {
             "slug": "mobile",
             "name": "Mobile",
@@ -599,11 +577,10 @@ class TestCardPartialCityAlias:
         populated next_steps fields but the calendar tail link disappears.
         This proves why the shim is needed — the partial-level guards are
         defensive but they hide real data."""
-        item = {
-            "id": 1,
-            "next_steps": {"committee_referral": "Planning Committee"},
-            "extracted_facts": None,
-        }
+        item = make_agenda_item(
+            id=1,
+            next_steps={"committee_referral": "Planning Committee"},
+        )
         with card_app.app_context():
             # Note: no ``city`` kwarg — emulates parent template that only
             # has ``municipality``.

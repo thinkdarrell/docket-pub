@@ -9,7 +9,7 @@
    1. ``item.next_steps`` has any of the four populated fields.
       Renders the populated fields + master-calendar tail link.
 
-   2. ``item.extracted_facts.action_type == 'public_hearing_set'`` AND
+   2. ``item.action_type == 'public_hearing_set'`` AND
       ``next_steps.public_hearing_date`` is null. Renders an
       "Awaiting hearing date" callout with an RSS subscribe link and a
       ``mailto:`` "report missing date" link to ``config.ADMIN_EMAIL``
@@ -21,21 +21,17 @@
    4. None of the above — no markup emitted at all.
 
    Variables expected from the parent template / dispatcher:
-     - ``item``  — agenda item dict (must expose ``next_steps``,
-                   ``extracted_facts``, ``id``).
+     - ``item``  — ``AgendaItem`` (dataclass) or compatible mapping;
+                   must expose ``id``, ``next_steps`` (dict), and
+                   ``action_type`` (the lifted v3 sub-key — see A8).
      - ``city``  — city dict (must expose ``slug``, ``name``,
                    ``master_calendar_url``).
 
-   Defensive against missing data: ``or {}`` guards turn missing JSONB
-   fields into empty dicts so attribute access doesn't blow up.
+   Defensive against missing data: ``or {}`` guard on ``next_steps``
+   turns NULL JSONB into an empty dict so attribute access doesn't
+   blow up.
 #}
 {% set ns = item.next_steps or {} %}
-{% set facts = item.extracted_facts or {} %}
-{# Prefer the lifted top-level ``item.action_type`` (AgendaItem dataclass);
-   fall back to ``facts.action_type`` for older dict-shaped callers. The
-   ``or`` keeps both shapes working — A8 lifted the sub-key onto the
-   dataclass for consistency with `headline` / `why_it_matters`. #}
-{% set action_type = item.action_type or facts.action_type %}
 {% set has_any = ns.committee_referral or ns.public_hearing_date
                   or ns.comment_period_end or ns.implementation_date %}
 
@@ -67,7 +63,7 @@
   </div>
 
 {# Context-aware: action_type hints at upcoming hearing but date is null (decision #70) #}
-{% elif action_type == 'public_hearing_set' and not ns.public_hearing_date %}
+{% elif item.action_type == 'public_hearing_set' and not ns.public_hearing_date %}
   {%- set _subject = "Missing hearing date for item " ~ (item.id | int) -%}
   {%- set _item_url = url_for('public.item_detail', city=city.slug, item_id=(item.id | int), _external=True) -%}
   {%- set _body = "Item URL: " ~ _item_url ~ "\r\n\r\nThis item has action_type=public_hearing_set but no hearing date is shown." -%}

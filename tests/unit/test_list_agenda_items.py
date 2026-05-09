@@ -391,12 +391,10 @@ class TestDispatcherWithAgendaItemDataclass:
                 "url": "https://example.com/flock.pdf",
                 "page": 12,
             },
-            extracted_facts={
-                "counterparty": "Flock Safety Inc.",
-                "funding_source": "general_fund",
-                "procurement_method": "sole_source",
-                "action_type": "contract_amendment",
-            },
+            counterparty="Flock Safety Inc.",
+            funding_source="general_fund",
+            procurement_method="sole_source",
+            action_type="contract_amendment",
         )
         html = _render(app, item)
         assert 'data-variant="smart_brevity"' in html
