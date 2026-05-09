@@ -6,6 +6,7 @@ Every read operation goes through this module. Returns dataclasses or dicts.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Iterable, Sequence
 
 from docket.db import db_cursor
 from docket.models.agenda import AgendaItem
@@ -696,6 +697,73 @@ def topic_counts(municipality_slug: str | None = None) -> list[dict]:
 # --- Badge-filtered item queries (Phase 2 / F1) -----------------------------
 
 
+def _lookup_template_kind_and_hints(
+    city_id: int, badge_slug: str
+) -> tuple[str, dict] | None:
+    """Single round-trip helper: returns ``(kind, effective_hints)`` for a
+    (city, badge) pair, or ``None`` if the badge slug is unknown.
+
+    Effective hints = per-key JSONB merge of ``default_matcher_hints``
+    (template) overlaid with ``matcher_hints_override`` (city). Override
+    keys win on duplicates; default keys survive when not overridden.
+
+    PostgreSQL ``||`` on JSONB performs shallow merge — keys present in
+    the right operand replace keys in the left, but unrelated keys from
+    the left are preserved. This is intentional: a city setting only
+    ``{"min_significance": 7}`` should not silently lose template-default
+    ``keywords`` / ``action_types`` / etc., which the previous
+    whole-object COALESCE did.
+
+    This is the single source of truth for matcher-hint resolution; the
+    public helpers (``resolve_significance_threshold``,
+    ``resolve_matcher_hints``) build on it so they stay consistent.
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT t.kind,
+                   COALESCE(t.default_matcher_hints, '{}'::jsonb)
+                     || COALESCE(c.matcher_hints_override, '{}'::jsonb)
+                       AS effective_hints
+            FROM priority_badge_templates t
+            LEFT JOIN priority_badges_config c
+                   ON c.template_slug = t.slug
+                  AND c.city_id = %s
+            WHERE t.slug = %s
+            """,
+            (city_id, badge_slug),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return None
+        return row["kind"], (row["effective_hints"] or {})
+
+
+def resolve_matcher_hints(city_id: int, badge_slug: str) -> dict | None:
+    """Return the effective ``matcher_hints`` dict for a (city, badge) pair.
+
+    Per-key JSONB merge of template defaults with the city's override:
+    ``defaults || override`` — override wins on duplicate keys, default
+    keys survive when not overridden. Returns ``None`` for unknown slugs.
+
+    This is the helper Track 1 / D2 deterministic matchers should call
+    when reading non-significance keys (``keywords``, ``action_types``,
+    ``topics``, ``excluded_action_types``). ``resolve_significance_threshold``
+    is a thin wrapper specialized for the ``min_significance`` read.
+
+    Process badges and policy badges resolve their hints the same way;
+    consumers that need to branch on kind should call
+    ``_lookup_template_kind_and_hints`` directly (or call
+    ``resolve_significance_threshold`` which already encodes the
+    process-badge branch).
+    """
+    result = _lookup_template_kind_and_hints(city_id, badge_slug)
+    if result is None:
+        return None
+    _kind, hints = result
+    return hints
+
+
 def resolve_significance_threshold(city_id: int, badge_slug: str) -> int | None:
     """Return the policy-significance threshold for a (city, badge) pair.
 
@@ -703,20 +771,22 @@ def resolve_significance_threshold(city_id: int, badge_slug: str) -> int | None:
 
     1. ``list_items_by_badge`` (this module) for category landing pages.
     2. Search-results narrowed by badge slug.
-    3. Smart Brevity Card chip rendering (per-item badge filter).
+    3. Smart Brevity Card chip rendering (per-item badge filter) — uses
+       the in-Python sibling ``apply_policy_significance_gate`` below
+       since SQL pushdown isn't available in a Jinja loop.
 
     Resolution:
 
     - Look up the template ``kind`` in ``priority_badge_templates``.
     - **Process** badges have no significance gate ever — return ``None``.
     - **Policy** badges read ``min_significance`` from the effective
-      ``matcher_hints`` dict. Effective hints =
-      ``COALESCE(c.matcher_hints_override, t.default_matcher_hints)``.
-      If the city has no ``priority_badges_config`` row for this template
-      (e.g., the template is seeded but the city hasn't opted in), we
-      still fall back to ``default_matcher_hints`` — the *enablement* gate
-      lives elsewhere; this helper just tells callers what threshold to
-      apply if they decide to render the badge at all.
+      matcher_hints dict (template defaults merged with the city's
+      override per ``resolve_matcher_hints``). If the city has no
+      ``priority_badges_config`` row for this template (e.g., the template
+      is seeded but the city hasn't opted in), we still fall back to
+      ``default_matcher_hints`` — the *enablement* gate lives elsewhere;
+      this helper just tells callers what threshold to apply if they
+      decide to render the badge at all.
     - Default threshold is ``3`` if the hints dict is missing
       ``min_significance`` (matches migration 013 seeds).
 
@@ -728,29 +798,51 @@ def resolve_significance_threshold(city_id: int, badge_slug: str) -> int | None:
     extra "no gate" answer here is harmless. F2 (route handler) is
     responsible for 404'ing on unknown slugs at the route level.
     """
-    with db_cursor() as cur:
-        cur.execute(
-            """
-            SELECT t.kind,
-                   COALESCE(c.matcher_hints_override, t.default_matcher_hints) AS hints
-            FROM priority_badge_templates t
-            LEFT JOIN priority_badges_config c
-                   ON c.template_slug = t.slug
-                  AND c.city_id = %s
-            WHERE t.slug = %s
-            """,
-            (city_id, badge_slug),
-        )
-        row = cur.fetchone()
-        if row is None:
-            # Unknown slug — no gate. Caller's slug filter will return [].
-            return None
-        if row["kind"] != "policy":
-            # Process badges are always-on; never gated by significance.
-            return None
-        hints = row["hints"] or {}
-        # min_significance default is 3 per migration 013 seeds.
-        return int(hints.get("min_significance", 3))
+    result = _lookup_template_kind_and_hints(city_id, badge_slug)
+    if result is None:
+        # Unknown slug — no gate. Caller's slug filter will return [].
+        return None
+    kind, hints = result
+    if kind != "policy":
+        # Process badges are always-on; never gated by significance.
+        return None
+    # min_significance default is 3 per migration 013 seeds.
+    return int(hints.get("min_significance", 3))
+
+
+def apply_policy_significance_gate(
+    items: Iterable[AgendaItem],
+    badge_slug: str,
+    city_id: int,
+) -> list[AgendaItem]:
+    """Filter items by per-badge significance threshold (in-Python).
+
+    Sibling to ``resolve_significance_threshold`` (SQL-pushdown helper).
+    For callers that have items already in memory (Smart Brevity Card
+    chip rendering, post-fetch filtering) where SQL pushdown isn't
+    possible — e.g., a Jinja loop iterating an item's badge chips and
+    deciding which to render. The SQL-pushdown sibling is preferred for
+    query construction; this wrapper exists for the chip-rendering
+    call site (G-track).
+
+    Behavior:
+
+    - Process badges → no filtering (all items returned).
+    - Unknown slug   → no filtering (defensive — caller should 404
+      separately at the route level).
+    - Policy badge   → items with ``significance_score < threshold``
+      dropped. Items with NULL ``significance_score`` are treated as 0
+      and excluded by the gate (consistent with the SQL ``>=`` predicate
+      in ``list_items_by_badge`` which would also exclude NULL).
+
+    Threshold logic stays in ``resolve_significance_threshold`` so all
+    three call sites (listing SQL, search-narrowing SQL, in-Python chip
+    rendering) plus future matchers (Track 1 / D2) read consistent values.
+    """
+    threshold = resolve_significance_threshold(city_id, badge_slug)
+    if threshold is None:
+        return list(items)
+    return [it for it in items if (it.significance_score or 0) >= threshold]
 
 
 def list_items_by_badge(
@@ -758,7 +850,7 @@ def list_items_by_badge(
     badge_slug: str,
     *,
     min_confidence: float = 0.6,
-    cross_filter_slugs: tuple[str, ...] = (),
+    cross_filter_slugs: Sequence[str] = (),
     limit: int = 25,
     offset: int = 0,
     include_low_significance: bool = False,
@@ -831,7 +923,25 @@ def list_items_by_badge(
             ai.headline,
             ai.why_it_matters,
             ai.source_anchor,
-            ai.extracted_facts
+            -- LEAN extracted_facts: same projection as list_agenda_items
+            -- (A8). Builds a dict containing only the keys v3 cards
+            -- render. NULL out empty objects so Jinja's `or {}` guards
+            -- collapse cleanly. Each individual key is pulled with a
+            -- direct ``->>`` / ``->`` so a missing source key yields
+            -- NULL (not the literal JSONB null). Payload parity between
+            -- this listing and meeting-detail keeps Smart Brevity Card
+            -- partials behaving identically across both surfaces.
+            CASE
+                WHEN ai.extracted_facts IS NULL THEN NULL
+                ELSE jsonb_strip_nulls(jsonb_build_object(
+                    'counterparty',       ai.extracted_facts->>'counterparty',
+                    'funding_source',     ai.extracted_facts->>'funding_source',
+                    'procurement_method', ai.extracted_facts->>'procurement_method',
+                    'action_type',        ai.extracted_facts->>'action_type',
+                    'location',           ai.extracted_facts->'location',
+                    'next_steps',         ai.extracted_facts->'next_steps'
+                ))
+            END AS extracted_facts
         FROM agenda_items ai
         JOIN agenda_item_badges aib ON aib.agenda_item_id = ai.id
         JOIN meetings m ON m.id = ai.meeting_id

@@ -38,7 +38,9 @@ from docket.db import db
 from docket.migrations.runner import apply_migrations
 from docket.models.agenda import AgendaItem
 from docket.services.query import (
+    apply_policy_significance_gate,
     list_items_by_badge,
+    resolve_matcher_hints,
     resolve_significance_threshold,
 )
 
@@ -620,3 +622,279 @@ def test_return_type_is_agenda_item(bag):
     assert item.title == "Sample"
     assert item.dollars_amount == Decimal("12345")
     assert item.processing_status == "completed"
+
+
+# ---------------------------------------------------------------------------
+# Boundary tests for confidence + significance thresholds (F1-S1)
+# ---------------------------------------------------------------------------
+#
+# The SQL uses ``>=`` for both predicates. A typo flipping one to ``>`` would
+# silently pass every other test in this file because they use values cleanly
+# on either side of the threshold. These tests pin the boundary.
+
+
+def test_confidence_boundary_at_threshold_inclusive(bag):
+    # confidence == 0.6 with default min_confidence=0.6 → INCLUDED (`>=`).
+    m = bag.add_meeting(bag.city_id, "2026-04-15")
+    item = bag.add_item(m, title="At boundary", significance_score=5)
+    bag.add_badge(item, bag.city_id, "blight_accountability", confidence=0.60)
+
+    ids = [
+        it.id
+        for it in list_items_by_badge(bag.city_id, "blight_accountability")
+    ]
+    assert item in ids
+
+
+def test_confidence_just_below_threshold_excluded(bag):
+    # confidence == 0.59 with default min_confidence=0.6 → EXCLUDED.
+    m = bag.add_meeting(bag.city_id, "2026-04-15")
+    item = bag.add_item(m, title="Just below", significance_score=5)
+    bag.add_badge(item, bag.city_id, "blight_accountability", confidence=0.59)
+
+    ids = [
+        it.id
+        for it in list_items_by_badge(bag.city_id, "blight_accountability")
+    ]
+    assert item not in ids
+
+
+def test_significance_at_threshold_included_policy(bag):
+    # significance == 3 (the migration-013 default min) → INCLUDED (`>=`).
+    m = bag.add_meeting(bag.city_id, "2026-04-15")
+    item = bag.add_item(m, title="Sig 3 boundary", significance_score=3)
+    bag.add_badge(item, bag.city_id, "blight_accountability", confidence=1.0)
+
+    ids = [
+        it.id
+        for it in list_items_by_badge(bag.city_id, "blight_accountability")
+    ]
+    assert item in ids
+
+
+# ---------------------------------------------------------------------------
+# Fallback: city has no priority_badges_config row (F1-S2)
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_threshold_falls_back_to_default_when_no_config_row(bag):
+    """Helper docstring promises fallback to ``default_matcher_hints`` when
+    the city has no opt-in row. Insert a fresh test-only municipality (no
+    config row for any policy badge) and assert the helper still returns
+    the template default of 3.
+    """
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO municipalities
+                  (slug, name, state, adapter_class, council_type, active)
+                VALUES ('test-no-optin-city', 'Test No-Optin City', 'AL',
+                        'GenericCMSAdapter', 'city_council', TRUE)
+                RETURNING id
+                """
+            )
+            no_optin_city_id = cur.fetchone()[0]
+
+    try:
+        # No priority_badges_config row → falls back to default_matcher_hints.
+        # default for blight_accountability is min_significance=3.
+        assert resolve_significance_threshold(
+            no_optin_city_id, "blight_accountability"
+        ) == 3
+    finally:
+        with db() as conn:
+            with conn.cursor() as cur:
+                # No FK rows depend on this row (we never inserted meetings
+                # under it), so a direct DELETE is safe.
+                cur.execute(
+                    "DELETE FROM municipalities WHERE id = %s",
+                    (no_optin_city_id,),
+                )
+
+
+# ---------------------------------------------------------------------------
+# Per-key JSONB merge for matcher_hints (F1-R2)
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_matcher_hints_per_key_merge_preserves_defaults(bag):
+    """When a city overrides only ``min_significance``, the unrelated
+    default keys (``keywords``, ``action_types``, ``topics``,
+    ``excluded_action_types``) must still resolve from the template
+    defaults — not silently disappear.
+
+    Pre-fix (whole-object COALESCE), the override won wholesale so a
+    one-key override blew away every default key. This test exercises
+    the per-key ``||`` merge: ``defaults || override`` keeps both sides.
+    """
+    # blight_accountability seeds with all five keys in default_matcher_hints
+    # (see migration 013). Override only min_significance.
+    bag.override_min_significance(bag.city_id, "blight_accountability", 7)
+
+    hints = resolve_matcher_hints(bag.city_id, "blight_accountability")
+    assert hints is not None
+    # Override won on its key.
+    assert hints.get("min_significance") == 7
+    # Defaults survived for unrelated keys.
+    assert "keywords" in hints, "default keywords lost — whole-object COALESCE bug"
+    assert "action_types" in hints
+    assert "topics" in hints
+    assert "excluded_action_types" in hints
+    # Spot-check a default value is the seeded list, not empty.
+    assert "blight" in hints["keywords"]
+
+
+def test_resolve_matcher_hints_unknown_slug_returns_none(bag):
+    assert resolve_matcher_hints(bag.city_id, "no_such_badge") is None
+
+
+# ---------------------------------------------------------------------------
+# In-Python wrapper: apply_policy_significance_gate (F1-R1)
+# ---------------------------------------------------------------------------
+#
+# Pure-Python list filter for chip rendering / G-track call site. Uses
+# real DB-backed ``resolve_significance_threshold`` to look up the
+# threshold, but the items can be fabricated dataclass instances — no
+# inserts needed.
+
+
+def _fake_item(id_: int, sig: float | None) -> AgendaItem:
+    """Minimal AgendaItem for wrapper unit tests. Only ``id`` and
+    ``significance_score`` matter to the gate; the rest are dataclass
+    defaults / required positional args.
+    """
+    return AgendaItem(
+        id=id_,
+        meeting_id=1,
+        external_id=None,
+        item_number=None,
+        title=f"item-{id_}",
+        description=None,
+        section=None,
+        is_consent=False,
+        sponsor=None,
+        dollars_amount=None,
+        topic=None,
+        significance_score=sig,
+        consent_placement_score=None,
+    )
+
+
+def test_apply_gate_process_badge_returns_all(bag):
+    # Process badges have no significance gate ever — every item passes.
+    items = [_fake_item(1, 0), _fake_item(2, 5), _fake_item(3, None)]
+    result = apply_policy_significance_gate(
+        items, "hidden_on_consent", bag.city_id
+    )
+    assert [it.id for it in result] == [1, 2, 3]
+
+
+def test_apply_gate_policy_badge_filters_below_threshold(bag):
+    # blight_accountability default min_significance = 3.
+    items = [
+        _fake_item(1, 1),     # below — drop
+        _fake_item(2, 2),     # below — drop
+        _fake_item(3, 3),     # equal — keep (>=)
+        _fake_item(4, 7),     # above — keep
+        _fake_item(5, None),  # NULL → 0 → drop
+    ]
+    result = apply_policy_significance_gate(
+        items, "blight_accountability", bag.city_id
+    )
+    assert [it.id for it in result] == [3, 4]
+
+
+def test_apply_gate_unknown_slug_returns_all(bag):
+    # Unknown slug → no gate (defensive — caller should 404 separately).
+    items = [_fake_item(1, 0), _fake_item(2, 5)]
+    result = apply_policy_significance_gate(
+        items, "no_such_badge", bag.city_id
+    )
+    assert [it.id for it in result] == [1, 2]
+
+
+# ---------------------------------------------------------------------------
+# Cross-filter accepts list[str] (Flask route contract — F1-S4)
+# ---------------------------------------------------------------------------
+
+
+def test_cross_filter_accepts_list_input(bag):
+    """F2's planned route does ``request.args.get('and', '').split(',')``
+    which yields ``list[str]``. The annotation is ``Sequence[str]`` so
+    both list and tuple inputs work. Pin the list path explicitly.
+    """
+    m = bag.add_meeting(bag.city_id, "2026-04-15")
+    both = bag.add_item(m, title="Both badges", significance_score=5)
+    only_primary = bag.add_item(
+        m, title="Only blight", significance_score=5
+    )
+    bag.add_badge(both, bag.city_id, "blight_accountability", confidence=1.0)
+    bag.add_badge(both, bag.city_id, "hidden_on_consent", confidence=1.0)
+    bag.add_badge(
+        only_primary, bag.city_id, "blight_accountability", confidence=1.0
+    )
+
+    # List input (vs tuple in test_cross_filter_single_slug_requires_both_badges).
+    ids = [
+        it.id
+        for it in list_items_by_badge(
+            bag.city_id,
+            "blight_accountability",
+            cross_filter_slugs=["hidden_on_consent"],
+        )
+    ]
+    assert both in ids
+    assert only_primary not in ids
+
+
+# ---------------------------------------------------------------------------
+# Payload parity: lean extracted_facts projection (F1-S3)
+# ---------------------------------------------------------------------------
+
+
+def test_extracted_facts_projection_is_lean_matches_list_agenda_items(bag):
+    """``list_items_by_badge`` and ``list_agenda_items`` must ship the
+    same lean ``extracted_facts`` shape so the Smart Brevity Card partials
+    behave identically across both surfaces. The lean projection includes
+    ONLY the v3 keys cards render — counterparty, funding_source,
+    procurement_method, action_type, location, next_steps. Other keys
+    in the source ``extracted_facts`` JSONB (if any) must be dropped.
+    """
+    m = bag.add_meeting(bag.city_id, "2026-04-15")
+    item_id = bag.add_item(m, title="With facts", significance_score=5)
+    # Stuff the item with a fully-populated extracted_facts blob plus a
+    # bonus key that should NOT appear in the lean projection.
+    fat_blob = {
+        "counterparty": "Acme Corp",
+        "funding_source": "general_fund",
+        "procurement_method": "competitive_bid",
+        "action_type": "contract_award",
+        "location": {"address": "100 Main St"},
+        "next_steps": {"effective_date": "2026-06-01"},
+        # Bonus key — must be dropped by the lean projection.
+        "should_not_appear": "noise",
+    }
+    with db() as conn:
+        with conn.cursor() as cur:
+            import json
+            cur.execute(
+                "UPDATE agenda_items SET extracted_facts = %s::jsonb WHERE id = %s",
+                (json.dumps(fat_blob), item_id),
+            )
+    bag.add_badge(item_id, bag.city_id, "blight_accountability", confidence=1.0)
+
+    items = list_items_by_badge(bag.city_id, "blight_accountability")
+    matching = [it for it in items if it.id == item_id]
+    assert matching, "expected freshly-inserted item to appear"
+    facts = matching[0].extracted_facts
+    assert facts is not None
+    # Lean keys present.
+    assert facts.get("counterparty") == "Acme Corp"
+    assert facts.get("funding_source") == "general_fund"
+    assert facts.get("procurement_method") == "competitive_bid"
+    assert facts.get("action_type") == "contract_award"
+    assert facts.get("location") == {"address": "100 Main St"}
+    assert facts.get("next_steps") == {"effective_date": "2026-06-01"}
+    # Bonus key dropped.
+    assert "should_not_appear" not in facts
