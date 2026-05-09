@@ -693,6 +693,185 @@ def topic_counts(municipality_slug: str | None = None) -> list[dict]:
         return [dict(row) for row in cur.fetchall()]
 
 
+# --- Badge-filtered item queries (Phase 2 / F1) -----------------------------
+
+
+def resolve_significance_threshold(city_id: int, badge_slug: str) -> int | None:
+    """Return the policy-significance threshold for a (city, badge) pair.
+
+    Decision #61 — render-time significance gate. Three call sites need it:
+
+    1. ``list_items_by_badge`` (this module) for category landing pages.
+    2. Search-results narrowed by badge slug.
+    3. Smart Brevity Card chip rendering (per-item badge filter).
+
+    Resolution:
+
+    - Look up the template ``kind`` in ``priority_badge_templates``.
+    - **Process** badges have no significance gate ever — return ``None``.
+    - **Policy** badges read ``min_significance`` from the effective
+      ``matcher_hints`` dict. Effective hints =
+      ``COALESCE(c.matcher_hints_override, t.default_matcher_hints)``.
+      If the city has no ``priority_badges_config`` row for this template
+      (e.g., the template is seeded but the city hasn't opted in), we
+      still fall back to ``default_matcher_hints`` — the *enablement* gate
+      lives elsewhere; this helper just tells callers what threshold to
+      apply if they decide to render the badge at all.
+    - Default threshold is ``3`` if the hints dict is missing
+      ``min_significance`` (matches migration 013 seeds).
+
+    Unknown badge slugs return ``None`` (no gate). The spec at §6.5 does not
+    explicitly say how to treat unknown slugs — returning None is the
+    least-surprising behavior because it lets callers degrade gracefully:
+    a category page for a non-existent badge will show no items anyway
+    (the slug join in ``list_items_by_badge`` filters them out), so an
+    extra "no gate" answer here is harmless. F2 (route handler) is
+    responsible for 404'ing on unknown slugs at the route level.
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT t.kind,
+                   COALESCE(c.matcher_hints_override, t.default_matcher_hints) AS hints
+            FROM priority_badge_templates t
+            LEFT JOIN priority_badges_config c
+                   ON c.template_slug = t.slug
+                  AND c.city_id = %s
+            WHERE t.slug = %s
+            """,
+            (city_id, badge_slug),
+        )
+        row = cur.fetchone()
+        if row is None:
+            # Unknown slug — no gate. Caller's slug filter will return [].
+            return None
+        if row["kind"] != "policy":
+            # Process badges are always-on; never gated by significance.
+            return None
+        hints = row["hints"] or {}
+        # min_significance default is 3 per migration 013 seeds.
+        return int(hints.get("min_significance", 3))
+
+
+def list_items_by_badge(
+    city_id: int,
+    badge_slug: str,
+    *,
+    min_confidence: float = 0.6,
+    cross_filter_slugs: tuple[str, ...] = (),
+    limit: int = 25,
+    offset: int = 0,
+    include_low_significance: bool = False,
+) -> list[AgendaItem]:
+    """Return items in ``city_id`` carrying ``badge_slug``, ordered for the
+    category landing page (spec §6.5, decision #61).
+
+    Filters in order of selectivity:
+
+    1. ``aib.city_id = %s AND aib.badge_slug = %s`` — uses
+       ``idx_agenda_item_badges_city_slug_conf (city_id, badge_slug,
+       confidence DESC)`` from migration 013 (decision #92), the index
+       designed for this exact predicate.
+    2. ``aib.confidence >= min_confidence`` — same index covers the
+       confidence DESC tail. Default 0.6 hides single-source matches
+       (decision #61); admins toggle to 0.0 for review.
+    3. ``ai.processing_status = 'completed'`` — only show items that
+       finished v3 processing. v2 / pre-v3 items don't render via the
+       Smart Brevity Card path so they shouldn't surface on category pages.
+    4. **Render-time significance gate** (policy only,
+       ``include_low_significance=False``): ``ai.significance_score >=
+       resolved_threshold``. Process badges always render; admin toggle
+       bypasses the gate for review.
+    5. **Cross-filter slugs**: each adds an ``EXISTS`` subquery so the
+       item must carry every cross-filter badge in addition to the
+       primary slug. AND semantics, no confidence filter on cross
+       (intentional — cross-filters are a "show items also tagged X"
+       refinement, not a quality gate).
+
+    Ordering: ``meeting_date DESC, dollars_amount DESC NULLS LAST`` so
+    recent items lead and big-ticket items break ties within a date.
+
+    Returns the same ``AgendaItem`` shape as ``list_agenda_items`` minus
+    the badges JSONB aggregate (this listing is already badge-scoped, so
+    rendering doesn't need a chip array). The Smart Brevity Card partial
+    handles a missing/empty ``badges`` field gracefully.
+    """
+    threshold = (
+        None
+        if include_low_significance
+        else resolve_significance_threshold(city_id, badge_slug)
+    )
+
+    sql_parts = [
+        """
+        SELECT
+            ai.id,
+            ai.meeting_id,
+            ai.external_id,
+            ai.item_number,
+            ai.title,
+            ai.description,
+            ai.section,
+            ai.is_consent,
+            ai.sponsor,
+            ai.dollars_amount,
+            ai.topic,
+            ai.significance_score,
+            ai.consent_placement_score,
+            ai.summary,
+            ai.ai_metadata,
+            ai.ai_prompt_version,
+            ai.ai_generated_at,
+            ai.data_quality::text       AS data_quality,
+            ai.data_debt_priority::text AS data_debt_priority,
+            ai.processing_status::text  AS processing_status,
+            ai.ai_extraction_version,
+            ai.ai_rewrite_version,
+            ai.ai_confidence,
+            ai.headline,
+            ai.why_it_matters,
+            ai.source_anchor,
+            ai.extracted_facts
+        FROM agenda_items ai
+        JOIN agenda_item_badges aib ON aib.agenda_item_id = ai.id
+        JOIN meetings m ON m.id = ai.meeting_id
+        WHERE aib.city_id = %s
+          AND aib.badge_slug = %s
+          AND aib.confidence >= %s
+          AND ai.processing_status = 'completed'
+        """
+    ]
+    params: list = [city_id, badge_slug, min_confidence]
+
+    if threshold is not None:
+        sql_parts.append(" AND ai.significance_score >= %s")
+        params.append(threshold)
+
+    for cross_slug in cross_filter_slugs:
+        sql_parts.append(
+            """
+              AND EXISTS (
+                  SELECT 1 FROM agenda_item_badges x
+                  WHERE x.agenda_item_id = ai.id
+                    AND x.badge_slug = %s
+              )
+            """
+        )
+        params.append(cross_slug)
+
+    sql_parts.append(
+        """
+        ORDER BY m.meeting_date DESC, ai.dollars_amount DESC NULLS LAST
+        LIMIT %s OFFSET %s
+        """
+    )
+    params.extend([limit, offset])
+
+    with db_cursor() as cur:
+        cur.execute("".join(sql_parts), params)
+        return [AgendaItem.from_row(dict(row)) for row in cur.fetchall()]
+
+
 # --- High-value item queries ------------------------------------------------
 
 
