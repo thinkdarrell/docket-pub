@@ -6,6 +6,8 @@ Business logic stays in services, not here.
 
 from __future__ import annotations
 
+from datetime import date
+
 from flask import Blueprint, abort, render_template, request
 
 from docket.enrichment.topics import all_topics, get_topic_display_name
@@ -213,10 +215,12 @@ def category_landing(slug: str, badge_slug: str):
         abort(404)
 
     # Cross-filters via /?and=slug,slug — AND semantics enforced by the
-    # service helper. Empty strings dropped so a stray comma doesn't
-    # become a phantom filter.
+    # service helper. Whitespace stripped + empty tokens dropped so the
+    # URL-encoded form ``?and=blight,%20housing`` doesn't yield a stray
+    # ``" housing"`` slug that silently fails to match. Stray commas and
+    # all-whitespace segments are also discarded (S1).
     raw = request.args.get("and", "")
-    cross_filters = [s for s in raw.split(",") if s]
+    cross_filters = [s.strip() for s in raw.split(",") if s.strip()]
 
     # Defensive offset parsing: bad input becomes 0 (never crashes the
     # route); negative input clamped to 0 (a -5 offset would otherwise
@@ -227,27 +231,44 @@ def category_landing(slug: str, badge_slug: str):
         offset = 0
     offset = max(0, offset)
 
-    items = query.list_items_by_badge(
+    # LIMIT 26 sentinel pagination (S3): ask for one more than the page
+    # size. If we get all 26 back, slice off the 26th and signal there's
+    # a next page; if we get <= 25, there is no next page. This avoids
+    # the off-by-one where exactly 25 items in the dataset would surface
+    # a "load more" button that loaded an empty page.
+    items_plus_one = query.list_items_by_badge(
         municipality["id"],
         badge_slug,
         cross_filter_slugs=cross_filters,
-        limit=25,
+        limit=26,
         offset=offset,
     )
-    kpis = query.category_kpis(municipality["id"], badge_slug, year=2026)
+    items = items_plus_one[:25]
+    next_offset = (offset + 25) if len(items_plus_one) > 25 else None
 
-    from datetime import date
+    current_year = date.today().year
+    kpis = query.category_kpis(
+        municipality["id"],
+        badge_slug,
+        year=current_year,
+        cross_filter_slugs=cross_filters,
+    )
 
     timeline = query.badge_volume_series(
         municipality["id"],
         badge_slug,
-        start_date=date(2024, 1, 1),
-        end_date=date(2026, 12, 31),
+        start_date=date(current_year - 2, 1, 1),
+        end_date=date(current_year, 12, 31),
     )
 
-    # next_offset is None when fewer than 25 items returned — signals
-    # "no more pages" so the template's load-more button stays hidden.
-    next_offset = offset + 25 if len(items) == 25 else None
+    # Batch-resolve cross-filter chip labels (S5) — single round-trip
+    # for the whole list rather than one query per chip. Empty input
+    # short-circuits in resolve_badges() without hitting the DB.
+    cross_filter_badges = (
+        query.resolve_badges(municipality["id"], cross_filters)
+        if cross_filters
+        else {}
+    )
 
     return render_template(
         "category_landing.html",
@@ -257,8 +278,10 @@ def category_landing(slug: str, badge_slug: str):
         kpis=kpis,
         timeline=timeline,
         cross_filters=cross_filters,
+        cross_filter_badges=cross_filter_badges,
         offset=offset,
         next_offset=next_offset,
+        current_year=current_year,
     )
 
 

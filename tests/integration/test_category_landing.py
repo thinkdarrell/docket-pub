@@ -30,6 +30,8 @@ from docket.migrations.runner import apply_migrations
 from docket.services.query import (
     category_kpis,
     get_resolved_badge,
+    list_items_by_badge,
+    resolve_badges,
 )
 from docket.web import create_app
 
@@ -601,3 +603,257 @@ def test_route_empty_cross_filter_string_ignored(bag, client):
     assert rv.status_code == 200
     body = rv.get_data(as_text=True)
     assert "Solo" in body
+
+
+# ---------------------------------------------------------------------------
+# F2 review fix-up: KPI / list parity, citizen copy, behaviors
+# ---------------------------------------------------------------------------
+
+
+def _current_year() -> int:
+    """Helper — KPIs are computed against ``date.today().year`` in the
+    route. Tests that insert items at "this year" must align with that.
+    """
+    from datetime import date as _date
+    return _date.today().year
+
+
+def test_kpis_respect_significance_gate(bag):
+    """R1: ``category_kpis`` must apply the same per-badge significance
+    gate that ``list_items_by_badge`` does, so KPI ``item_count`` and
+    rendered card count agree on policy badges with ``min_significance``.
+
+    ``blight_accountability`` is a policy badge with ``min_significance=3``
+    (migration 013 seeds). An item at significance 2 would be counted
+    by the original (broken) ``category_kpis`` but excluded from the
+    listing — divergent strings on screen.
+    """
+    yr = _current_year()
+    m = bag.add_meeting(bag.city_id, f"{yr}-04-15")
+    high = bag.add_item(m, title="High sig", dollars_amount=10_000, significance_score=5)
+    low = bag.add_item(m, title="Low sig", dollars_amount=99_000, significance_score=2)
+    bag.add_badge(high, bag.city_id, "blight_accountability", confidence=1.0)
+    bag.add_badge(low, bag.city_id, "blight_accountability", confidence=1.0)
+
+    listed = list_items_by_badge(
+        bag.city_id, "blight_accountability", min_confidence=0.6
+    )
+    kpis = category_kpis(bag.city_id, "blight_accountability", year=yr)
+    # Listing excludes the sig=2 item; KPI must match.
+    assert len(listed) == 1
+    assert kpis["item_count"] == 1
+    # Total dollars must reflect only the gated set, not the
+    # ungated 109_000 sum.
+    assert int(kpis["total_dollars"]) == 10_000
+
+
+def test_kpis_respect_cross_filter(bag):
+    """R1 (extension): ``category_kpis`` accepts ``cross_filter_slugs``
+    and applies the same EXISTS predicate ``list_items_by_badge`` does.
+    """
+    yr = _current_year()
+    m = bag.add_meeting(bag.city_id, f"{yr}-04-15")
+    both = bag.add_item(m, title="Both", dollars_amount=10_000, significance_score=5)
+    only_blight = bag.add_item(
+        m, title="Only blight", dollars_amount=99_000, significance_score=5
+    )
+    bag.add_badge(both, bag.city_id, "blight_accountability", confidence=1.0)
+    bag.add_badge(both, bag.city_id, "housing_stability", confidence=1.0)
+    bag.add_badge(only_blight, bag.city_id, "blight_accountability", confidence=1.0)
+
+    no_cross = category_kpis(bag.city_id, "blight_accountability", year=yr)
+    with_cross = category_kpis(
+        bag.city_id, "blight_accountability", year=yr,
+        cross_filter_slugs=("housing_stability",),
+    )
+    assert no_cross["item_count"] == 2
+    assert with_cross["item_count"] == 1
+    assert int(with_cross["total_dollars"]) == 10_000
+
+
+def test_kpis_match_listing_count_at_render_time(bag, client):
+    """R1: cross-task contract test — KPI count rendered on the page
+    matches the rendered card count. Pins the F1↔F2 contract that
+    cross-model review caught.
+
+    Inserts a mix of high- and low-significance items. Renders the
+    route. Reads the KPI ``item_count`` value out of the HTML and the
+    number of items rendered in the listing, asserts equality.
+    """
+    yr = _current_year()
+    m = bag.add_meeting(bag.city_id, f"{yr}-04-15")
+    counted_items = []
+    for i in range(3):
+        iid = bag.add_item(
+            m, title=f"Render-Match-Visible-{i}",
+            dollars_amount=10_000 + i, significance_score=5,
+        )
+        bag.add_badge(iid, bag.city_id, "blight_accountability", confidence=1.0)
+        counted_items.append(f"Render-Match-Visible-{i}")
+    # Below-threshold item that must not contribute to either count.
+    excluded = bag.add_item(
+        m, title="Render-Match-Excluded",
+        dollars_amount=999_999, significance_score=1,
+    )
+    bag.add_badge(excluded, bag.city_id, "blight_accountability", confidence=1.0)
+
+    rv = client.get(f"/al/{bag.city_slug}/blight_accountability/")
+    assert rv.status_code == 200
+    body = rv.get_data(as_text=True)
+
+    # KPI strip wins on the same set the listing rendered.
+    kpis = category_kpis(bag.city_id, "blight_accountability", year=yr)
+    assert kpis["item_count"] == 3
+
+    # All three counted items rendered as cards; the excluded one did not.
+    for title in counted_items:
+        assert title in body, f"expected {title!r} on the page"
+        assert "Render-Match-Excluded" not in body
+
+    # The rendered KPI value should match too — surfaced as
+    # ">3<" inside the .kpi-value div.
+    assert ">3<" in body, "KPI value 3 must appear in HTML"
+
+
+def test_empty_state_has_no_internal_jargon(bag, client):
+    """R2: citizen-visible empty state must not surface internal pipeline
+    vocabulary (Wave 0 / Track 1 / D2 / matchers / backfill).
+    """
+    rv = client.get(f"/al/{bag.city_slug}/blight_accountability/")
+    assert rv.status_code == 200
+    body = rv.get_data(as_text=True)
+    for jargon in ("Wave 0", "Track 1", "D2", "matchers", "backfill"):
+        assert jargon not in body, (
+            f"public empty state contains internal jargon {jargon!r}"
+        )
+
+
+def test_cross_filter_strips_whitespace(bag, client):
+    """S1: URL-encoded space inside ``?and=`` (e.g., ``blight,%20housing``)
+    must yield clean slugs — leading/trailing whitespace stripped, no
+    phantom ``" housing"`` token.
+    """
+    yr = _current_year()
+    m = bag.add_meeting(bag.city_id, f"{yr}-04-15")
+    both = bag.add_item(m, title="Whitespace-Both", significance_score=5)
+    bag.add_badge(both, bag.city_id, "blight_accountability", confidence=1.0)
+    bag.add_badge(both, bag.city_id, "housing_stability", confidence=1.0)
+    only_primary = bag.add_item(m, title="Whitespace-Only", significance_score=5)
+    bag.add_badge(only_primary, bag.city_id, "blight_accountability", confidence=1.0)
+
+    # Real users hit URLs like this when copy-pasting from the address
+    # bar. The space encodes as %20.
+    rv = client.get(
+        f"/al/{bag.city_slug}/blight_accountability/?and=blight_accountability,%20housing_stability"
+    )
+    assert rv.status_code == 200
+    body = rv.get_data(as_text=True)
+    # Cross-filter resolved as expected — the only item with both
+    # badges should appear; the one with only blight should not.
+    assert "Whitespace-Both" in body
+    assert "Whitespace-Only" not in body
+
+
+def test_pagination_no_phantom_load_more_at_exact_25(bag, client):
+    """S3: LIMIT 26 sentinel — exactly 25 items in the dataset must NOT
+    surface a "load more" link; a 26th would. The original off-by-one
+    set ``next_offset = offset + 25 if len(items) == 25 else None``,
+    which would point at an empty page when total = 25 exactly.
+    """
+    yr = _current_year()
+    m = bag.add_meeting(bag.city_id, f"{yr}-04-15")
+    for i in range(25):
+        iid = bag.add_item(
+            m, title=f"Exact25-Item-{i:02d}",
+            dollars_amount=1_000_000 - i, significance_score=5,
+        )
+        bag.add_badge(iid, bag.city_id, "blight_accountability", confidence=1.0)
+
+    rv = client.get(f"/al/{bag.city_slug}/blight_accountability/")
+    assert rv.status_code == 200
+    body = rv.get_data(as_text=True)
+    # No "offset=25" load-more link — would mean a phantom page 2.
+    assert "offset=25" not in body, (
+        "exactly 25 items should not produce a load-more link"
+    )
+
+
+def test_load_more_link_preserves_cross_filters(bag, client):
+    """Verification: when 26+ items match and a cross-filter is active,
+    the rendered load-more link must include the cross-filter slugs in
+    its href so navigating to page 2 keeps the filter applied.
+    """
+    yr = _current_year()
+    m = bag.add_meeting(bag.city_id, f"{yr}-04-15")
+    for i in range(26):
+        iid = bag.add_item(
+            m, title=f"Preserve-Item-{i:02d}",
+            dollars_amount=1_000_000 - i, significance_score=5,
+        )
+        bag.add_badge(iid, bag.city_id, "blight_accountability", confidence=1.0)
+        bag.add_badge(iid, bag.city_id, "housing_stability", confidence=1.0)
+
+    rv = client.get(
+        f"/al/{bag.city_slug}/blight_accountability/?and=housing_stability"
+    )
+    assert rv.status_code == 200
+    body = rv.get_data(as_text=True)
+    # Load-more href must carry both the cross-filter and the new offset.
+    assert "and=housing_stability" in body
+    assert "offset=25" in body
+
+
+def test_resolve_badges_batch(bag):
+    """S5: batch resolver returns only valid + enabled rows.
+
+    - Valid + enabled → present
+    - Valid + disabled (toggled off) → absent
+    - Unknown slug → absent
+    """
+    bag.set_enabled(bag.city_id, "housing_stability", False)
+
+    out = resolve_badges(
+        bag.city_id,
+        ["blight_accountability", "housing_stability", "no_such_badge"],
+    )
+    assert "blight_accountability" in out
+    assert out["blight_accountability"]["name"] == "Blight Accountability"
+    assert out["blight_accountability"]["kind"] == "policy"
+    assert "housing_stability" not in out
+    assert "no_such_badge" not in out
+
+
+def test_resolve_badges_empty_input_returns_empty_dict():
+    """Empty input shouldn't hit the DB. We can't directly assert no
+    round-trip, but we can pass a city_id that wouldn't match anything
+    and confirm the helper returns ``{}`` cleanly.
+    """
+    assert resolve_badges(999_999_999, []) == {}
+    assert resolve_badges(0, ()) == {}
+
+
+def test_chip_label_uses_resolved_name_override(bag, client):
+    """S5: cross-filter chip uses ``name_override`` when set on the
+    city's config row. Visible name should be the override, not the
+    title-cased slug.
+    """
+    yr = _current_year()
+    bag.override_config(
+        bag.city_id,
+        "housing_stability",
+        name_override="Housing Justice Watch",
+        description_override=None,
+    )
+    m = bag.add_meeting(bag.city_id, f"{yr}-04-15")
+    iid = bag.add_item(m, title="Chip-Label-Item", significance_score=5)
+    bag.add_badge(iid, bag.city_id, "blight_accountability", confidence=1.0)
+    bag.add_badge(iid, bag.city_id, "housing_stability", confidence=1.0)
+
+    rv = client.get(
+        f"/al/{bag.city_slug}/blight_accountability/?and=housing_stability"
+    )
+    assert rv.status_code == 200
+    body = rv.get_data(as_text=True)
+    assert "Housing Justice Watch" in body, (
+        "chip should render the configured name override"
+    )

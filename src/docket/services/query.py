@@ -1036,7 +1036,13 @@ def get_resolved_badge(city_id: int, badge_slug: str) -> dict | None:
         return dict(row) if row else None
 
 
-def category_kpis(city_id: int, badge_slug: str, year: int) -> dict:
+def category_kpis(
+    city_id: int,
+    badge_slug: str,
+    year: int,
+    *,
+    cross_filter_slugs: Sequence[str] = (),
+) -> dict:
     """KPI strip data for a category landing page (spec §6.5).
 
     Returns a dict with three keys:
@@ -1044,7 +1050,12 @@ def category_kpis(city_id: int, badge_slug: str, year: int) -> dict:
     - ``item_count``           — total items with this badge in the
       year for the city. Only ``processing_status = 'completed'`` items
       with ``aib.confidence >= 0.6`` are counted, matching the listing's
-      default render contract (``list_items_by_badge``).
+      default render contract (``list_items_by_badge``). Policy badges
+      additionally apply the per-badge ``min_significance`` gate via
+      ``resolve_significance_threshold`` so KPI counts always match the
+      listed cards. Cross-filter slugs apply the same AND-semantic
+      EXISTS filter the listing helper applies, so KPIs narrow with
+      filters in lock-step.
     - ``total_dollars``        — sum of ``ai.dollars_amount`` across the
       same set. NULL dollars treated as 0 via ``COALESCE``. Returned as
       a Python ``Decimal`` (PostgreSQL ``NUMERIC`` round-trip).
@@ -1056,29 +1067,101 @@ def category_kpis(city_id: int, badge_slug: str, year: int) -> dict:
     Year filter uses ``meeting_date BETWEEN '<year>-01-01' AND
     '<year>-12-31'`` (inclusive boundary on both ends — the upper bound
     catches December 31 meetings cleanly).
+
+    F2 review fix-up (R1): the original implementation skipped both
+    the significance gate and cross-filter respect, so for a policy
+    badge like ``blight_accountability`` (``min_significance=3``) and
+    a cross-filtered view, citizens saw KPI counts that did not match
+    the rendered card count below. Both gates are now applied here so
+    the KPI strip and the listing share an identical predicate set.
     """
-    with db_cursor() as cur:
-        cur.execute(
+    threshold = resolve_significance_threshold(city_id, badge_slug)
+
+    sql_parts = [
+        """
+        SELECT COUNT(*)                              AS item_count,
+               COALESCE(SUM(ai.dollars_amount), 0)   AS total_dollars
+        FROM agenda_item_badges aib
+        JOIN agenda_items ai ON ai.id = aib.agenda_item_id
+        JOIN meetings m      ON m.id = ai.meeting_id
+        WHERE aib.city_id = %s
+          AND aib.badge_slug = %s
+          AND aib.confidence >= 0.6
+          AND ai.processing_status = 'completed'
+          AND m.meeting_date BETWEEN %s AND %s
+        """
+    ]
+    params: list = [city_id, badge_slug, f"{year}-01-01", f"{year}-12-31"]
+
+    if threshold is not None:
+        sql_parts.append(" AND ai.significance_score >= %s")
+        params.append(threshold)
+
+    for cross_slug in cross_filter_slugs:
+        sql_parts.append(
             """
-            SELECT COUNT(*)                              AS item_count,
-                   COALESCE(SUM(ai.dollars_amount), 0)   AS total_dollars
-            FROM agenda_item_badges aib
-            JOIN agenda_items ai ON ai.id = aib.agenda_item_id
-            JOIN meetings m      ON m.id = ai.meeting_id
-            WHERE aib.city_id = %s
-              AND aib.badge_slug = %s
-              AND aib.confidence >= 0.6
-              AND ai.processing_status = 'completed'
-              AND m.meeting_date BETWEEN %s AND %s
-            """,
-            (city_id, badge_slug, f"{year}-01-01", f"{year}-12-31"),
+              AND EXISTS (
+                  SELECT 1 FROM agenda_item_badges x
+                  WHERE x.agenda_item_id = ai.id
+                    AND x.badge_slug = %s
+              )
+            """
         )
+        params.append(cross_slug)
+
+    with db_cursor() as cur:
+        cur.execute("".join(sql_parts), params)
         row = cur.fetchone() or {}
         return {
             "item_count": int(row.get("item_count") or 0),
             "total_dollars": row.get("total_dollars") or 0,
             "mayor_priority_quote": None,
         }
+
+
+def resolve_badges(
+    city_id: int, badge_slugs: Sequence[str]
+) -> dict[str, dict]:
+    """Batch-resolve multiple badges for a city — single round-trip.
+
+    Returns a dict mapping ``slug → {slug, name, description, icon, kind,
+    enabled}`` with per-badge ``name_override`` / ``description_override``
+    applied (same shape ``get_resolved_badge`` returns). Slugs that don't
+    resolve — unknown templates, no city config row, or rows with
+    ``enabled = FALSE`` — are omitted from the dict; callers check
+    membership and degrade gracefully (e.g., fall back to the raw slug
+    label).
+
+    Used by the category-landing route to label cross-filter chips
+    without N+1 queries — reviewers flagged the chip-label resolution as
+    a sibling helper need (S5). Empty input list short-circuits without
+    hitting the DB.
+
+    SQL uses ``WHERE t.slug = ANY(%s)`` — psycopg2 binds a Python list
+    to a PostgreSQL ``TEXT[]`` cleanly, so the join filter scales to any
+    number of slugs without per-slug round-trips.
+    """
+    if not badge_slugs:
+        return {}
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT t.slug,
+                   COALESCE(c.name_override, t.name)               AS name,
+                   COALESCE(c.description_override, t.description) AS description,
+                   t.icon,
+                   t.kind,
+                   c.enabled
+            FROM priority_badge_templates t
+            JOIN priority_badges_config c
+              ON c.template_slug = t.slug
+             AND c.city_id = %s
+            WHERE t.slug = ANY(%s)
+              AND c.enabled = TRUE
+            """,
+            (city_id, list(badge_slugs)),
+        )
+        return {row["slug"]: dict(row) for row in cur.fetchall()}
 
 
 def badge_volume_series(

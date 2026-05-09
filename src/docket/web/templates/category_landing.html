@@ -28,12 +28,17 @@
         </div>
     </div>
 
-    {# ── KPI strip (spec §6.5) ─────────────────────── #}
-    <div class="kpi-grid">
+    {# ── KPI strip (spec §6.5) ───────────────────────
+       Uses ``.kpi-grid--lean`` modifier — auto-fit minmax layout for
+       the 2-3 cell shape this page renders. The base ``.kpi-grid``
+       (4-column fixed) is shared with city.html and must not be
+       touched here, so the modifier carries the layout difference.
+       See R3 in the F2 review packet. #}
+    <div class="kpi-grid kpi-grid--lean">
         <div class="kpi">
             <div class="kpi-label t-label">Items this year</div>
             <div class="kpi-value t-display t-tnum">{{ kpis.item_count }}</div>
-            <div class="kpi-sub t-meta">tagged in 2026</div>
+            <div class="kpi-sub t-meta">tagged in {{ current_year }}</div>
         </div>
         <div class="kpi is-accent">
             <div class="kpi-label t-label">Total dollars</div>
@@ -51,7 +56,7 @@
             <div class="kpi-value t-display" style="font-size: 18px; line-height: 1.3;">
                 "{{ kpis.mayor_priority_quote }}"
             </div>
-            <div class="kpi-sub t-meta">stated 2026 priority</div>
+            <div class="kpi-sub t-meta">stated {{ current_year }} priority</div>
         </div>
         {% endif %}
     </div>
@@ -66,17 +71,21 @@
     {# F3 — when this branch fires, the partial below will exist. #}
     {% include 'partials/volume_timeline.html' %}
 {% else %}
-<section class="feed">
+<section class="feed" aria-labelledby="timeline-heading">
     <div class="feed-head">
         <div>
             <div class="t-eyebrow">Volume timeline</div>
-            <h2 class="feed-title t-display" style="font-size: 22px;">
-                Coming soon
+            {# S4: SR semantics — heading describes the section's
+               content (Volume Timeline), not the loading state. The
+               <p> below carries the "coming soon" sentence. #}
+            <h2 id="timeline-heading" class="feed-title t-display" style="font-size: 22px;">
+                Volume Timeline
             </h2>
             <p class="t-meta" style="max-width: 560px; margin-top: 8px;">
-                A monthly bar chart of items tagged with this badge,
-                with the consent vs substantive split and mayoral-term
-                overlay, lands in F3.
+                Visualizations coming soon — a monthly bar chart of
+                items tagged with this badge, with the consent vs
+                substantive split and mayoral-term overlay, lands in
+                a future release.
             </p>
         </div>
     </div>
@@ -113,9 +122,19 @@
 
     {% if cross_filters %}
     <div class="cross-filter-chips" style="display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 0;">
+        {# Chip labels resolved via batched ``query.resolve_badges`` (S5)
+           so cities see their per-badge name_override (e.g. "BHM Blight
+           Watch" rather than the template default). Slugs that don't
+           resolve — disabled for the city, unknown template, etc. —
+           fall back to a title-cased slug so the user sees something
+           sensible rather than a missing chip. #}
         {% for cf in cross_filters %}
         <span class="badge-chip" data-cross-filter="{{ cf }}">
-            {{ cf | replace('_', ' ') | title }}
+            {%- if cf in cross_filter_badges -%}
+                {{ cross_filter_badges[cf].name }}
+            {%- else -%}
+                {{ cf | replace('_', ' ') | title }}
+            {%- endif -%}
         </span>
         {% endfor %}
     </div>
@@ -150,15 +169,13 @@
     </div>
     {% else %}
     <div class="empty-state" style="padding: 32px 0;">
+        {# R2: citizen-friendly copy. Internal vocabulary (Wave 0,
+           Track 1, D2, matchers, backfill) deliberately removed —
+           visitors should never see pipeline stage names. Admins read
+           server logs, not the public empty state. #}
         <p class="t-meta" style="max-width: 560px;">
-            No items match this badge
-            {% if cross_filters %}
-                with the current cross-filters
-            {% endif %}
-            yet. Wave 0 has classified items but the matchers that
-            assign priority badges (Track 1 / D2) haven't shipped
-            production results — items will start appearing as the
-            backfill runs.
+            No items tagged for this category yet. Check back as we
+            continue indexing meeting records.
         </p>
     </div>
     {% endif %}

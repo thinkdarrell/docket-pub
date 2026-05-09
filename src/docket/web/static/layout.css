@@ -173,6 +173,13 @@
   border-top: 1px solid var(--rule);
   border-bottom: 2px solid var(--ink);
 }
+/* F2 R3 — modifier for category-landing pages that ship 2-3 KPIs (not 4).
+   Auto-fit minmax avoids the phantom empty cells the fixed 4-col layout
+   left when fewer cells render. Base ``.kpi-grid`` is unchanged so the
+   shared city.html overview keeps its 4-column layout. */
+.kpi-grid--lean {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
 .kpi {
   padding: 18px 18px 20px;
   text-align: left; background: transparent; border: 0;
@@ -464,7 +471,11 @@
   .app-main { padding: 0 32px 80px; }
   .masthead { padding: 0 32px; }
   .hero-title { font-size: 56px; }
-  .kpi-grid { grid-template-columns: repeat(3, 1fr); }
+  /* F2 R3: exempt ``.kpi-grid--lean`` from the 3-column lock so the
+     auto-fit minmax layout continues to apply at mid-density. The
+     adjacent nth-child border rules are no-ops for 2-3 cell layouts
+     (those nth indices simply don't exist on the page). */
+  .kpi-grid:not(.kpi-grid--lean) { grid-template-columns: repeat(3, 1fr); }
   .kpi:nth-child(3) { border-right: 0; }
   .kpi:nth-child(n+4) { border-top: 1px solid var(--rule); }
   .kpi:nth-child(5) { border-right: 0; }
