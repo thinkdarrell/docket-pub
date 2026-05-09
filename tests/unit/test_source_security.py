@@ -274,3 +274,180 @@ class TestNormalizeHost:
             )
             == "granicus.com"
         )
+
+
+# ---------------------------------------------------------------------------
+# Allowlist TTL cache + admin refresh endpoint
+# ---------------------------------------------------------------------------
+#
+# The cache is module-level state, so each test in this class has to
+# clean up after itself via ``invalidate_cache()`` in setup_method.
+# Otherwise an earlier test's primed cache would leak into the next test
+# and we'd assert on stale state.
+
+
+class TestAllowlistCache:
+    def setup_method(self):
+        source_security.invalidate_cache()
+
+    def teardown_method(self):
+        source_security.invalidate_cache()
+
+    def _counting_cursor_fn(self, rows, counter):
+        """Like ``_make_cursor_fn`` but increments ``counter[0]`` on each
+        ``execute()`` so we can assert how many DB queries happened."""
+
+        @contextmanager
+        def _fn():
+            counter[0] += 1
+            yield _FakeCursor(rows)
+
+        return _fn
+
+    def test_first_call_hits_db_and_returns_merged_allowlist(self):
+        """Cold cache → DB read → static + dynamic merged."""
+        calls = [0]
+        fn = self._counting_cursor_fn(
+            [{"url": "https://newcity.example.gov"}], calls
+        )
+        result = source_security.get_allowlist(fn)
+        assert calls[0] == 1
+        assert "newcity.example.gov" in result
+        # Static set is still present — the cache holds the merged set.
+        assert STATIC_ALLOWED_DOMAINS <= result
+
+    def test_second_call_within_ttl_returns_cached_value(self):
+        """Warm cache → no DB query."""
+        calls = [0]
+        fn = self._counting_cursor_fn(
+            [{"url": "https://newcity.example.gov"}], calls
+        )
+        first = source_security.get_allowlist(fn)
+        second = source_security.get_allowlist(fn)
+        assert calls[0] == 1  # only the first call hit the DB
+        assert first is second  # same frozenset object — cached, not rebuilt
+
+    def test_invalidate_cache_forces_next_call_to_refresh(self):
+        """Admin refresh endpoint contract: invalidate clears the cache,
+        the very next ``get_allowlist`` re-runs the DB query."""
+        calls = [0]
+        fn = self._counting_cursor_fn(
+            [{"url": "https://newcity.example.gov"}], calls
+        )
+        source_security.get_allowlist(fn)
+        source_security.invalidate_cache()
+        source_security.get_allowlist(fn)
+        assert calls[0] == 2
+
+    def test_db_failure_falls_back_to_static_allowlist(self):
+        """If the DB raises, return the static set rather than an empty
+        allowlist — better to render every link via the static set than
+        to silently suppress every source-anchor button."""
+
+        @contextmanager
+        def _failing_fn():
+            raise RuntimeError("DB down")
+            yield  # unreachable, but keeps the contextmanager shape
+
+        result = source_security.get_allowlist(_failing_fn)
+        assert result == STATIC_ALLOWED_DOMAINS
+
+    def test_db_failure_caches_static_fallback_for_ttl(self):
+        """A failed DB read still populates the cache (with the static
+        fallback), so we don't slam the DB with retry traffic when it's
+        already down. The next refresh cycle / admin invalidate retries."""
+        calls = [0]
+
+        @contextmanager
+        def _failing_fn():
+            calls[0] += 1
+            raise RuntimeError("DB down")
+            yield  # unreachable
+
+        source_security.get_allowlist(_failing_fn)
+        source_security.get_allowlist(_failing_fn)
+        assert calls[0] == 1  # second call served from cache
+
+    def test_is_url_safe_uses_cached_allowlist_when_no_arg_given(self):
+        """When ``allowed_domains`` is omitted, ``is_url_safe`` consults
+        the cache — that's the production code path the Jinja global
+        flows through."""
+        # Prime the cache with a fake municipality.
+        fn = _make_cursor_fn([{"url": "https://newcity.example.gov"}])
+        source_security.get_allowlist(fn)
+        # No second arg → use cache → newcity should be allowed.
+        assert source_security.is_url_safe("https://newcity.example.gov/page")
+        # Static domain still works through the cache.
+        assert source_security.is_url_safe("https://granicus.com/x")
+        # Unknown domain still rejected.
+        assert not source_security.is_url_safe("https://evil.tld/x")
+
+    def test_is_url_safe_arity_2_form_is_unchanged(self):
+        """Existing callers that pass an explicit allowlist (tests, the
+        production Jinja registration of older code) keep working — the
+        explicit second arg overrides the cache."""
+        explicit = frozenset({"explicit.example"})
+        # The cache is empty / would fall back to STATIC, but the
+        # explicit arg takes precedence — granicus.com (in STATIC) should
+        # NOT pass when the explicit set is the tight one.
+        assert not source_security.is_url_safe(
+            "https://granicus.com/x", explicit
+        )
+        assert source_security.is_url_safe(
+            "https://explicit.example/x", explicit
+        )
+
+
+class TestRefreshSourceSecurityRoute:
+    """End-to-end check on the admin endpoint that invalidates the cache.
+
+    Uses ``create_app()`` directly (not the lighter test-only Flask app
+    other partial tests build) because the endpoint lives on the real
+    admin blueprint and we want the auth gate exercised."""
+
+    def setup_method(self):
+        source_security.invalidate_cache()
+
+    def teardown_method(self):
+        source_security.invalidate_cache()
+
+    def _make_app(self):
+        from docket.web import create_app
+
+        app = create_app()
+        app.config["SECRET_KEY"] = "test-only"
+        return app
+
+    def test_post_invalidates_cache(self):
+        """Authenticated POST clears ``_CACHE``."""
+        app = self._make_app()
+        # Prime the cache with a fake DB read so we have something to clear.
+        fn = _make_cursor_fn([{"url": "https://newcity.example.gov"}])
+        source_security.get_allowlist(fn)
+        assert source_security._CACHE is not None
+
+        with app.test_client() as client:
+            with client.session_transaction() as sess:
+                sess["admin_user"] = "tester"
+            resp = client.post("/admin/source-security/refresh")
+        assert resp.status_code == 200
+        assert source_security._CACHE is None
+
+    def test_get_returns_405(self):
+        """GET is rejected — the endpoint is POST-only so it can't be
+        triggered by accidental browser prefetches."""
+        app = self._make_app()
+        with app.test_client() as client:
+            with client.session_transaction() as sess:
+                sess["admin_user"] = "tester"
+            resp = client.get("/admin/source-security/refresh")
+        assert resp.status_code == 405
+
+    def test_unauthed_post_redirects_to_login(self):
+        """No session → blueprint ``before_request`` redirects to the
+        auth login page (same as every other admin route)."""
+        app = self._make_app()
+        with app.test_client() as client:
+            resp = client.post("/admin/source-security/refresh")
+        assert resp.status_code in (302, 303)
+        assert "/admin/login" in resp.headers.get("Location", "")

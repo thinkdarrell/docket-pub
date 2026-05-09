@@ -180,6 +180,38 @@ def data_debt():
     )
 
 
+# --- Source-anchor domain allowlist refresh ---------------------------------
+
+
+@bp.route("/source-security/refresh", methods=["POST"])
+def refresh_source_security():
+    """Invalidate the cached source-anchor domain allowlist.
+
+    The allowlist (static platform domains + dynamic municipality hosts
+    from ``municipalities.adapter_config->>'base_url'``) is cached at
+    module level with a 10-minute TTL inside
+    :mod:`docket.web.source_security`. Onboarding a new municipality
+    will be picked up automatically within the TTL window; this endpoint
+    forces an immediate refresh by clearing the cache. The next render
+    that calls ``is_source_url_safe`` (or any direct call to
+    :func:`source_security.get_allowlist`) re-reads from the DB.
+
+    POST-only so accidental browser navigation (`GET /admin/source-
+    security/refresh`) can't trigger a refresh — defense against the
+    one-click-prefetch shape that crawlers/extensions sometimes hit.
+    Auth is enforced by the blueprint-level ``before_request`` hook
+    above, so unauth'd POSTs redirect to login like any other admin
+    route.
+    """
+    from docket.web import source_security
+
+    source_security.invalidate_cache()
+    return (
+        "Allowlist cache invalidated. Next request will refresh from DB.",
+        200,
+    )
+
+
 # --- AI pipeline dashboard --------------------------------------------------
 
 
