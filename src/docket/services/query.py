@@ -1164,6 +1164,49 @@ def resolve_badges(
         return {row["slug"]: dict(row) for row in cur.fetchall()}
 
 
+# --- Volume timeline (F3) ---------------------------------------------------
+#
+# SVG layout constants for the category-landing volume timeline (spec
+# §6.6). The viewBox is 800x200; we reserve 14px at the top for the
+# mayoral-term label band (`<text y="14">`) and 10px at the bottom for
+# the year-tick labels (`<text y="195">`). That leaves the bar plotting
+# area at y=20..185 (height 165). Constants live up here so a reviewer
+# can see the layout intent at a glance and so the test asserting
+# coordinate math has a single source of truth to import.
+
+VOLUME_TIMELINE_WIDTH = 800.0
+VOLUME_TIMELINE_HEIGHT = 200.0
+VOLUME_TIMELINE_TOP_PAD = 20.0       # term-overlay label band
+VOLUME_TIMELINE_BOTTOM_PAD = 15.0    # year-tick labels (text at y=195)
+VOLUME_TIMELINE_PLOT_TOP = VOLUME_TIMELINE_TOP_PAD                    # 20
+VOLUME_TIMELINE_PLOT_BOTTOM = VOLUME_TIMELINE_HEIGHT - VOLUME_TIMELINE_BOTTOM_PAD  # 185
+VOLUME_TIMELINE_PLOT_HEIGHT = VOLUME_TIMELINE_PLOT_BOTTOM - VOLUME_TIMELINE_PLOT_TOP  # 165
+
+
+def _months_in_range(start_date, end_date) -> list:
+    """Yield first-of-month dates between start_date and end_date inclusive.
+
+    Always starts at ``DATE_TRUNC('month', start_date)``; preserves the
+    "every month gets a slot" property so adjacent bars never visually
+    touch when one month happens to have zero items. Dates with day != 1
+    are normalized to month-start.
+    """
+    from datetime import date as _date
+
+    start_month = _date(start_date.year, start_date.month, 1)
+    end_month = _date(end_date.year, end_date.month, 1)
+    months: list = []
+    cursor = start_month
+    while cursor <= end_month:
+        months.append(cursor)
+        # advance one month
+        if cursor.month == 12:
+            cursor = _date(cursor.year + 1, 1, 1)
+        else:
+            cursor = _date(cursor.year, cursor.month + 1, 1)
+    return months
+
+
 def badge_volume_series(
     city_id: int,
     badge_slug: str,
@@ -1171,20 +1214,268 @@ def badge_volume_series(
     end_date,
     bucket: str = "month",
 ) -> list[dict]:
-    """Volume timeline data for a category landing page — F2 STUB.
+    """Volume timeline data for a category landing page (F3, spec §6.6).
 
-    F3 lands the real implementation reading from
-    ``mv_badge_volume_monthly`` (migration 013) and returning
-    ``[{period, x, y, width, height_substantive, height_consent,
-       n_items, n_consent, total_dollars}, ...]`` per spec §6.6.
+    Reads ``mv_badge_volume_monthly`` (migration 013) — a materialized
+    view that stores ``(city_id, badge_slug, month, n_items, n_consent,
+    n_substantive, total_dollars)`` for every month with at least one
+    matching item. Confidence gating (>= 0.6) is baked into the MV's
+    definition so we don't re-apply it here.
 
-    F2 stubs this to ``[]`` so the route can call it and template
-    rendering can branch on emptiness — F3 lands without changing the
-    route signature or template control flow. The signature is
-    deliberately the F3-final shape (``city_id``, ``badge_slug``,
-    ``start_date``, ``end_date``, ``bucket``) so F3 fills in the body.
+    Returns one dict per month in ``[start_date, end_date]`` — including
+    months that have zero items, which produce zero-height bars. Filling
+    in the gaps in Python (rather than excluding them) preserves the
+    "every month is a column" property so adjacent bars never visually
+    collide when one month happens to be empty (decision #68's
+    consent-baseline visual depends on consistent column spacing).
+
+    Each returned dict carries:
+
+    - ``period`` (date, first of month) — used by the template's
+      ``data-period`` attribute and the ``<title>`` tooltip
+    - ``n_items``, ``n_consent``, ``n_substantive`` — counts from the MV
+    - ``total_dollars`` — Decimal, used by the tooltip and KPI parity
+    - ``x``, ``width`` — bar geometry (px in viewBox space)
+    - ``y_substantive``, ``height_substantive`` — lower bar segment
+      (items NOT on consent — the saturated color)
+    - ``y_consent``, ``height_consent`` — upper bar segment (items on
+      consent — the lighter shade per spec §6.6 line 3144)
+
+    The bar plotting area is y=``VOLUME_TIMELINE_PLOT_TOP`` to
+    y=``VOLUME_TIMELINE_PLOT_BOTTOM``. Bar heights scale to the max
+    n_items across the visible window so a single tall month doesn't
+    push the rest into an unreadable smear.
+
+    ``bucket`` accepts ``"month"`` only for now; the materialized view
+    is monthly-grained and a weekly view would require a different MV.
+    Passing ``bucket="week"`` raises ``NotImplementedError``.
     """
-    return []
+    if bucket == "week":
+        raise NotImplementedError(
+            "Weekly bucketing not supported — mv_badge_volume_monthly is "
+            "monthly-grained. Add a weekly MV before enabling."
+        )
+    if bucket != "month":
+        raise ValueError(f"Unknown bucket {bucket!r}")
+
+    months = _months_in_range(start_date, end_date)
+    if not months:
+        return []
+
+    # Pull every row from the MV that falls in our window; we'll merge
+    # against the dense month list below. Index by month for O(1) lookup.
+    #
+    # PostgreSQL raises ``ObjectNotInPrerequisiteState`` when querying a
+    # materialized view that exists but has never been refreshed
+    # (CREATE MATERIALIZED VIEW ... WITH NO DATA — the case in
+    # migration 013). Production refreshes this MV nightly via the cron
+    # worker; local dev clones may not. Treating the unrefreshed state
+    # as "no rows yet" keeps the page renderable in both environments
+    # rather than 500-ing on a brand-new install.
+    import psycopg2
+
+    rows_by_month: dict = {}
+    try:
+        with db_cursor() as cur:
+            cur.execute(
+                """
+                SELECT month, n_items, n_consent, n_substantive, total_dollars
+                FROM mv_badge_volume_monthly
+                WHERE city_id   = %s
+                  AND badge_slug = %s
+                  AND month     >= %s
+                  AND month     <= %s
+                ORDER BY month
+                """,
+                (city_id, badge_slug, months[0], months[-1]),
+            )
+            rows_by_month = {row["month"]: dict(row) for row in cur.fetchall()}
+    except psycopg2.errors.ObjectNotInPrerequisiteState:
+        rows_by_month = {}
+
+    # Layout math — column width is a strict fraction of the plot width
+    # so the rightmost bar's right edge sits flush at x=800.
+    n = len(months)
+    col_width = VOLUME_TIMELINE_WIDTH / n
+    bar_gap = min(col_width * 0.15, 2.0)
+    bar_width = max(col_width - bar_gap, 1.0)
+
+    # Vertical scale: tallest bar uses the full plot height. If every
+    # month is zero we still emit zero-height bars (so `<title>` tooltips
+    # work as a flat baseline).
+    max_items = max(
+        (rows_by_month.get(m, {}).get("n_items", 0) or 0) for m in months
+    )
+
+    out: list[dict] = []
+    for i, month in enumerate(months):
+        row = rows_by_month.get(month)
+        n_items = (row or {}).get("n_items", 0) or 0
+        n_consent = (row or {}).get("n_consent", 0) or 0
+        n_substantive = (row or {}).get("n_substantive", 0) or 0
+        total_dollars = (row or {}).get("total_dollars", 0) or 0
+
+        x = i * col_width + (bar_gap / 2.0)
+
+        if max_items > 0:
+            full_h = (n_items / max_items) * VOLUME_TIMELINE_PLOT_HEIGHT
+            sub_h = (
+                (n_substantive / n_items) * full_h if n_items > 0 else 0.0
+            )
+            con_h = full_h - sub_h
+        else:
+            full_h = sub_h = con_h = 0.0
+
+        # Bars sit on the plot baseline (PLOT_BOTTOM) and grow upward.
+        # Substantive (saturated) is the LOWER segment; consent (lighter)
+        # is stacked above per spec §6.6 line 3142–3146.
+        y_substantive = VOLUME_TIMELINE_PLOT_BOTTOM - sub_h
+        y_consent = y_substantive - con_h
+        height_substantive = sub_h
+        height_consent = con_h
+
+        out.append(
+            {
+                "period": month,
+                "n_items": n_items,
+                "n_consent": n_consent,
+                "n_substantive": n_substantive,
+                "total_dollars": total_dollars,
+                "x": round(x, 3),
+                "width": round(bar_width, 3),
+                "y_substantive": round(y_substantive, 3),
+                "height_substantive": round(height_substantive, 3),
+                "y_consent": round(y_consent, 3),
+                "height_consent": round(height_consent, 3),
+            }
+        )
+    return out
+
+
+def _normalize_party(raw: str | None) -> str:
+    """Map ``mayoral_terms.party`` to a single-letter CSS modifier.
+
+    Migration 013 seeds full strings (``"Democrat"``, ``"Republican"``)
+    to keep the table readable in admin tools, but the spec's CSS hooks
+    ``.term-overlay--D / --R / --I`` use single letters to keep the
+    class list short. ``I`` (Independent) is the catch-all for unknown
+    or NULL — non-partisan municipal elections, third parties, etc.
+    """
+    if not raw:
+        return "I"
+    head = raw.strip()[:1].upper()
+    return head if head in ("D", "R", "I") else "I"
+
+
+def mayoral_term_overlay(
+    city_id: int,
+    start_date,
+    end_date,
+) -> list[dict]:
+    """Render-ready data for the mayoral-term overlay bands (spec §6.6).
+
+    Reads ``mayoral_terms`` (migration 013) and projects each term that
+    intersects ``[start_date, end_date]`` onto the SVG x-axis. Term
+    spans that extend past the visible window get clipped — a 2010
+    term-start with a 2022 window-start renders starting at x=0.
+
+    Returns ``list[dict]`` with keys:
+
+    - ``mayor`` — mayor name (passed straight to the SVG ``<text>``)
+    - ``party`` — single-letter normalized class modifier (D/R/I)
+    - ``x_start`` — left edge in viewBox px
+    - ``width`` — span width in viewBox px (always > 0; zero-width terms
+      are filtered out)
+    - ``x_label`` — x for the centered text label (just inside the band)
+
+    Empty list when the city has no mayoral_terms rows or no terms
+    intersect the visible window. Terms with NULL ``term_end`` are
+    treated as "currently in office" and clipped to ``end_date``.
+
+    The total visible-window length is ``end_date - start_date`` in
+    days, mapped linearly to ``VOLUME_TIMELINE_WIDTH``. Day-level
+    granularity is sufficient — these are background bands, not data.
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT mayor_name, party, term_start, term_end
+            FROM mayoral_terms
+            WHERE city_id = %s
+              AND term_start <= %s
+              AND (term_end IS NULL OR term_end >= %s)
+            ORDER BY term_start
+            """,
+            (city_id, end_date, start_date),
+        )
+        rows = cur.fetchall()
+
+    total_days = (end_date - start_date).days
+    if total_days <= 0 or not rows:
+        return []
+
+    px_per_day = VOLUME_TIMELINE_WIDTH / total_days
+
+    out: list[dict] = []
+    for row in rows:
+        term_start = row["term_start"]
+        term_end = row["term_end"] or end_date
+
+        # Clip to visible window.
+        clipped_start = max(term_start, start_date)
+        clipped_end = min(term_end, end_date)
+        span_days = (clipped_end - clipped_start).days
+        if span_days <= 0:
+            continue
+
+        x_start = (clipped_start - start_date).days * px_per_day
+        width = span_days * px_per_day
+        x_label = x_start + (width / 2.0)
+
+        out.append(
+            {
+                "mayor": row["mayor_name"],
+                "party": _normalize_party(row["party"]),
+                "x_start": round(x_start, 3),
+                "width": round(width, 3),
+                "x_label": round(x_label, 3),
+            }
+        )
+    return out
+
+
+def year_ticks(start_date, end_date) -> list[dict]:
+    """X-axis year-tick labels for the volume timeline (spec §6.6 line 3126+).
+
+    Returns ``[{year, x}, ...]`` for each calendar year fully or
+    partially in ``[start_date, end_date]``. ``x`` is the midpoint of
+    the year inside the visible window, so a label sits roughly under
+    the middle of its 12-month bar group. Years that begin before or
+    end after the window are clipped before midpoint computation —
+    keeps the leftmost/rightmost labels from running off the SVG.
+
+    Empty list when ``end_date <= start_date``.
+    """
+    from datetime import date as _date
+
+    total_days = (end_date - start_date).days
+    if total_days <= 0:
+        return []
+    px_per_day = VOLUME_TIMELINE_WIDTH / total_days
+
+    out: list[dict] = []
+    for year in range(start_date.year, end_date.year + 1):
+        year_start = max(_date(year, 1, 1), start_date)
+        # Use end-exclusive next-year-jan-1 then back off by 1 day to
+        # get the actual year-end inside the window.
+        year_end_full = _date(year, 12, 31)
+        year_end = min(year_end_full, end_date)
+        if year_end < year_start:
+            continue
+        midpoint = year_start + (year_end - year_start) / 2
+        x = (midpoint - start_date).days * px_per_day
+        out.append({"year": year, "x": round(x, 3)})
+    return out
 
 
 # --- High-value item queries ------------------------------------------------

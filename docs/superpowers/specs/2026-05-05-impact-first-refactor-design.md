@@ -107,6 +107,7 @@
 | 92 | **`city_id` denormalized onto `agenda_item_badges`** | `agenda_item_badges` gains `city_id INT NOT NULL REFERENCES municipalities(id)`. Composite index `(city_id, badge_slug, confidence DESC)` keeps category landing pages fast despite render-time significance gating (decision #61). Write paths (Stage 2 on-write, nightly process_badges, manual badges, policy badges) populate `city_id` from the item's meeting at insert time. Meetings don't change cities, so no sync logic needed. |
 | 93 | **Cross-Stage Conflict Resolution UI** (Phase 2 required) | New admin route `/admin/review/conflicts` resolves items in `processing_status='cross_stage_conflict'` (decision #45). Side-by-side display of original raw text + Stage 1 facts + Stage 2 verdict + conflict reasons array. Four HTMX-powered resolution actions: (1) **Accept Stage 1** — admin manually authors headline + why_it_matters, item moves to `completed`; (2) **Accept Stage 2** — clears Stage 1 facts that confused things, item moves to `completed` as procedural; (3) **Re-prompt Stage 2** — admin writes a one-liner override, system reruns Stage 2; (4) **Edit Stage 1 facts** — fix misclassified action_type/counterparty, system reruns Stage 2 with corrected facts. All actions audited via new `processing_status_audit` table. Required in Phase 2 (when `IMPACT_FIRST_ENABLED=true` flip enables conflicts to occur live) — not deferrable. |
 | 94 | **Anthropic SDK hardening** | (a) Initialize `anthropic.Anthropic(max_retries=0)` so 429 rate-limit errors bubble up immediately to `AdaptiveWorkerPool` (decision #81) rather than being silently retried by the SDK. (b) Pre-parse helper strips markdown fences (`` ```json `` / `` ``` ``) from LLM JSON responses before `json.loads()` — prevents avoidable JSONDecodeErrors when the model wraps its output. Applies to Stage 1 extraction and Stage 2 rewrite call sites. |
+| 95 | **Volume timeline window: 5-year rolling** | The category-landing volume timeline (§6.6) shows the past 5 calendar years inclusive of `current_year`, computed dynamically as `(current_year - 4, 1, 1)` through `(current_year, 12, 31)`. The window rolls forward annually on Jan 1 — same `date.today().year` pattern the F2 KPI strip already uses, so the two surfaces stay aligned without a separate config. 5 years gives enough trend depth to read a multi-mayoral-term signal (Bell→Woodfin transition is captured) without making early-year buckets dominate the visual width or bury recent change. The materialized view `mv_badge_volume_monthly` stores all history with no horizon — this is a render-time slice, not a data retention policy. Future tuning lives in a constant in `services/query.py`, not a config table. |
 
 ---
 
@@ -3085,7 +3086,10 @@ or a separate `priority_quotes` table. Phase 4 work; v1 omits or hardcodes.
 
 ### 6.6 Volume timeline (SVG)
 
-Server-rendered, no client-side JS. Data shape:
+Server-rendered, no client-side JS. The route slices a 5-year rolling
+window onto the chart (decision #95): `(current_year - 4, 1, 1)` through
+`(current_year, 12, 31)`. The materialized view stores all history; the
+window is a render-time slice, not a data constraint. Data shape:
 
 ```python
 def badge_volume_series(city_id: int, badge_slug: str,

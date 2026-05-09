@@ -550,3 +550,61 @@
   margin-left: 0.5rem;
   font-size: 0.75rem;
 }
+
+/* ── Volume timeline (F3 / spec §6.6) ─────────────── */
+.volume-timeline {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 280px;
+  margin: 0.75rem 0 1rem;
+  /* Source Serif is body default; SVG <text> inherits via `font` longhand. */
+  font-family: var(--font-display);
+}
+
+/* Volume bars — saturated lower segment (substantive deliberation),
+   lighter upper segment (rubber-stamped on consent). Decision #68:
+   the visual asymmetry is the editorial signal — citizens read the
+   ratio at a glance without needing the legend. Both shades pass WCAG
+   AA on the warm paper background. */
+.volume-bar--substantive {
+  fill: var(--accent-ink);          /* deep teal — saturated */
+}
+.volume-bar--consent {
+  fill: var(--accent-soft);         /* pale teal — rubber-stamped */
+  stroke: var(--accent-ink);
+  stroke-opacity: 0.18;
+  stroke-width: 0.5;
+}
+.volume-bar--substantive:hover,
+.volume-bar--consent:hover {
+  filter: brightness(0.95);
+}
+
+/* Mayoral-term overlay bands sit behind the bars at low opacity. The
+   single-letter party class controls hue — D = blue, R = red, I =
+   neutral gray. Opacity is set inline on the rect so the band stays
+   readable but never competes with the data. */
+.term-overlay--D { fill: oklch(0.55 0.12 245); }
+.term-overlay--R { fill: oklch(0.55 0.16 25);  }
+.term-overlay--I { fill: var(--ink-3);         }
+
+.term-label {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  fill: var(--ink-2);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.axis-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  fill: var(--ink-3);
+  font-feature-settings: "tnum" 1, "lnum" 1;
+}
+
+.volume-timeline__empty {
+  padding: 1rem 0 1.25rem;
+  font-style: italic;
+}

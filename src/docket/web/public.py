@@ -254,12 +254,23 @@ def category_landing(slug: str, badge_slug: str):
         cross_filter_slugs=cross_filters,
     )
 
+    # Volume timeline window: 5-year rolling, inclusive of current_year
+    # (decision #95). Same `date.today().year` anchor the KPI strip uses
+    # so the two surfaces stay aligned without separate config.
+    timeline_start = date(current_year - 4, 1, 1)
+    timeline_end = date(current_year, 12, 31)
     timeline = query.badge_volume_series(
         municipality["id"],
         badge_slug,
-        start_date=date(current_year - 2, 1, 1),
-        end_date=date(current_year, 12, 31),
+        start_date=timeline_start,
+        end_date=timeline_end,
     )
+    mayoral_terms = query.mayoral_term_overlay(
+        municipality["id"],
+        timeline_start,
+        timeline_end,
+    )
+    timeline_year_ticks = query.year_ticks(timeline_start, timeline_end)
 
     # Batch-resolve cross-filter chip labels (S5) — single round-trip
     # for the whole list rather than one query per chip. Empty input
@@ -277,6 +288,8 @@ def category_landing(slug: str, badge_slug: str):
         items=items,
         kpis=kpis,
         timeline=timeline,
+        mayoral_terms=mayoral_terms,
+        year_ticks=timeline_year_ticks,
         cross_filters=cross_filters,
         cross_filter_badges=cross_filter_badges,
         offset=offset,
