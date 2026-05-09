@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+{% block title %}{{ badge.name }} — {{ municipality.name }} — docket.pub{% endblock %}
+
+{% block content %}
+{# Category landing page (spec §6.5).
+
+   Renders a single priority badge for a city. The dispatcher partial
+   ``smart_brevity_card.html`` chooses the right v3/v2/pending variant
+   per item — F2 does not gate on ``SMART_BREVITY_UI`` since this is a
+   v3-only surface. Sections in order: header → KPI strip → volume
+   timeline (F3 stub) → filter controls → item list → load more.
+#}
+
+{# ── Header ───────────────────────────────────────── #}
+<section class="hero">
+    <div class="hero-top">
+        <div>
+            <div class="t-eyebrow">
+                {{ badge.kind | title }} badge · {{ municipality.name }}
+            </div>
+            <h1 class="hero-title t-display">
+                <span aria-hidden="true">{{ badge.icon }}</span>
+                {{ badge.name }}
+            </h1>
+            <p class="hero-sub">
+                {{ badge.description }}
+            </p>
+        </div>
+    </div>
+
+    {# ── KPI strip (spec §6.5) ─────────────────────── #}
+    <div class="kpi-grid">
+        <div class="kpi">
+            <div class="kpi-label t-label">Items this year</div>
+            <div class="kpi-value t-display t-tnum">{{ kpis.item_count }}</div>
+            <div class="kpi-sub t-meta">tagged in 2026</div>
+        </div>
+        <div class="kpi is-accent">
+            <div class="kpi-label t-label">Total dollars</div>
+            <div class="kpi-value t-display t-tnum">
+                {% if kpis.total_dollars %}{{ kpis.total_dollars | format_dollars }}{% else %}—{% endif %}
+            </div>
+            <div class="kpi-sub t-meta">across tagged items</div>
+        </div>
+        {# Mayor priority quote — Phase 4 wires this from mayoral_terms +
+           a yet-to-be-built priorities table. Hidden gracefully when None
+           so the F4 swap can drop it in without restructuring the strip. #}
+        {% if kpis.mayor_priority_quote %}
+        <div class="kpi">
+            <div class="kpi-label t-label">Mayor's priority</div>
+            <div class="kpi-value t-display" style="font-size: 18px; line-height: 1.3;">
+                "{{ kpis.mayor_priority_quote }}"
+            </div>
+            <div class="kpi-sub t-meta">stated 2026 priority</div>
+        </div>
+        {% endif %}
+    </div>
+</section>
+
+{# ── Volume timeline (F3 stub) ─────────────────────── #}
+{# F3 lands the real <svg> partial reading from mv_badge_volume_monthly.
+   F2 ships an empty ``timeline`` from ``badge_volume_series`` — we
+   render a labeled placeholder so the page surface stays predictable
+   for visual review and so F3 swap-in is a one-line change. #}
+{% if timeline %}
+    {# F3 — when this branch fires, the partial below will exist. #}
+    {% include 'partials/volume_timeline.html' %}
+{% else %}
+<section class="feed">
+    <div class="feed-head">
+        <div>
+            <div class="t-eyebrow">Volume timeline</div>
+            <h2 class="feed-title t-display" style="font-size: 22px;">
+                Coming soon
+            </h2>
+            <p class="t-meta" style="max-width: 560px; margin-top: 8px;">
+                A monthly bar chart of items tagged with this badge,
+                with the consent vs substantive split and mayoral-term
+                overlay, lands in F3.
+            </p>
+        </div>
+    </div>
+    <div class="timeline-placeholder" aria-hidden="true"></div>
+</section>
+{% endif %}
+
+{# ── Filter controls ────────────────────────────────── #}
+{# Spec §6.5 ASCII shows a confidence dropdown and a cross-filter
+   dropdown. F2 ships the cross-filter chip row (read-only summary of
+   active filters) and a hint about what's coming. F4 lands the HTMX
+   dropdown with hx-push-url so filter changes are bookmarkable. The
+   chip row visually surfaces the current ``?and=...`` so the user
+   knows what's filtering the list below. #}
+<section class="feed">
+    <header class="feed-head">
+        <div>
+            <div class="t-eyebrow">Filters</div>
+            <h2 class="feed-title t-display" style="font-size: 22px;">
+                {% if cross_filters %}
+                    Showing items also tagged
+                {% else %}
+                    All confidence
+                {% endif %}
+            </h2>
+        </div>
+        {% if cross_filters %}
+        <a class="link t-mono"
+           href="{{ url_for('public.category_landing', slug=municipality.slug, badge_slug=badge.slug) }}">
+            Clear filters
+        </a>
+        {% endif %}
+    </header>
+
+    {% if cross_filters %}
+    <div class="cross-filter-chips" style="display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 0;">
+        {% for cf in cross_filters %}
+        <span class="badge-chip" data-cross-filter="{{ cf }}">
+            {{ cf | replace('_', ' ') | title }}
+        </span>
+        {% endfor %}
+    </div>
+    {% endif %}
+</section>
+
+{# ── Item list ─────────────────────────────────────── #}
+<section class="feed">
+    <header class="feed-head">
+        <div>
+            <div class="t-eyebrow">Items</div>
+            <h2 class="feed-title t-display">
+                {% if items %}
+                    {{ items | length }} item{{ 's' if items | length != 1 else '' }}
+                    {% if next_offset %}of many{% endif %}
+                {% else %}
+                    No items yet
+                {% endif %}
+            </h2>
+        </div>
+    </header>
+
+    {% if items %}
+    <div class="notable-list smart-brevity-list smart-brevity-list--regular">
+        {% for item in items %}
+            {# The dispatcher partial picks the right card variant per
+               item (smart_brevity / v2 fallback / pending / failed /
+               degraded / procedural / verification_pending) based on
+               processing_status / data_quality / ai_rewrite_version. #}
+            {% include 'partials/smart_brevity_card.html' %}
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state" style="padding: 32px 0;">
+        <p class="t-meta" style="max-width: 560px;">
+            No items match this badge
+            {% if cross_filters %}
+                with the current cross-filters
+            {% endif %}
+            yet. Wave 0 has classified items but the matchers that
+            assign priority badges (Track 1 / D2) haven't shipped
+            production results — items will start appearing as the
+            backfill runs.
+        </p>
+    </div>
+    {% endif %}
+
+    {# ── Load more ───────────────────────────────────── #}
+    {% if next_offset %}
+    <div class="load-more" style="padding: 24px 0; text-align: center;">
+        <a class="rail-link"
+           style="display: inline-flex; min-width: 200px;"
+           href="?{% if cross_filters %}and={{ cross_filters | join(',') }}&{% endif %}offset={{ next_offset }}">
+            <div>
+                <div class="rail-link-label">Load more</div>
+                <div class="t-meta">next 25 items</div>
+            </div>
+            <span class="t-mono">↓</span>
+        </a>
+    </div>
+    {% endif %}
+</section>
+{% endblock %}

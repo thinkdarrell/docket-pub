@@ -176,6 +176,92 @@ def item_detail(slug, item_id):
     abort(404)
 
 
+@bp.route("/al/<slug>/<badge_slug>/")
+def category_landing(slug: str, badge_slug: str):
+    """Category landing page for a priority badge in a city.
+
+    Renders spec §6.5: header (badge icon + name + city), KPI strip,
+    volume timeline (F3 lands the real partial; F2 ships an empty stub),
+    filter controls, item list (Smart Brevity Cards), load-more pagination.
+
+    404s on:
+      - Unknown city slug
+      - Unknown badge slug
+      - Badge slug that exists but is not enabled for this city
+        (``get_resolved_badge`` returns ``None``)
+
+    Query params:
+      - ``and=slug,slug``  — cross-filter slugs, AND-semantic
+        (item must carry every cross-filter badge in addition to the
+        primary). Empty/missing → no cross filter.
+      - ``offset=N``       — pagination offset. Bad input → 0;
+        negative input → clamped to 0.
+
+    Note: this route does NOT respect ``SMART_BREVITY_UI`` flag — the
+    page is brand-new v3-only. The ``smart_brevity_card`` dispatcher
+    routes per-item to a v3 partial when ``ai_rewrite_version == 3``
+    and falls back to v2/pending variants for items still in earlier
+    pipeline states (same dispatcher used by ``meeting_detail.html``
+    in the flag-on branch).
+    """
+    municipality = query.get_municipality(slug)
+    if not municipality:
+        abort(404)
+
+    badge = query.get_resolved_badge(municipality["id"], badge_slug)
+    if not badge:
+        abort(404)
+
+    # Cross-filters via /?and=slug,slug — AND semantics enforced by the
+    # service helper. Empty strings dropped so a stray comma doesn't
+    # become a phantom filter.
+    raw = request.args.get("and", "")
+    cross_filters = [s for s in raw.split(",") if s]
+
+    # Defensive offset parsing: bad input becomes 0 (never crashes the
+    # route); negative input clamped to 0 (a -5 offset would otherwise
+    # confuse the SQL planner / leak past data).
+    try:
+        offset = int(request.args.get("offset", 0))
+    except (TypeError, ValueError):
+        offset = 0
+    offset = max(0, offset)
+
+    items = query.list_items_by_badge(
+        municipality["id"],
+        badge_slug,
+        cross_filter_slugs=cross_filters,
+        limit=25,
+        offset=offset,
+    )
+    kpis = query.category_kpis(municipality["id"], badge_slug, year=2026)
+
+    from datetime import date
+
+    timeline = query.badge_volume_series(
+        municipality["id"],
+        badge_slug,
+        start_date=date(2024, 1, 1),
+        end_date=date(2026, 12, 31),
+    )
+
+    # next_offset is None when fewer than 25 items returned — signals
+    # "no more pages" so the template's load-more button stays hidden.
+    next_offset = offset + 25 if len(items) == 25 else None
+
+    return render_template(
+        "category_landing.html",
+        municipality=municipality,
+        badge=badge,
+        items=items,
+        kpis=kpis,
+        timeline=timeline,
+        cross_filters=cross_filters,
+        offset=offset,
+        next_offset=next_offset,
+    )
+
+
 @bp.route("/al/<string:city>/hearings.rss")
 def upcoming_hearings_rss(city):
     """Upcoming public hearings RSS feed — stub for F5."""

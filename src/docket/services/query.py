@@ -982,6 +982,128 @@ def list_items_by_badge(
         return [AgendaItem.from_row(dict(row)) for row in cur.fetchall()]
 
 
+# --- Category landing helpers (Phase 2 / F2) --------------------------------
+
+
+def get_resolved_badge(city_id: int, badge_slug: str) -> dict | None:
+    """Resolve a badge for a city — applies name/description overrides.
+
+    Single round-trip JOIN of ``priority_badge_templates`` against
+    ``priority_badges_config`` on ``(template_slug, city_id)``. Returns
+    a dict shaped for template rendering:
+
+    - ``slug``        — template slug (primary key)
+    - ``name``        — ``COALESCE(c.name_override, t.name)``
+    - ``description`` — ``COALESCE(c.description_override, t.description)``
+    - ``icon``        — emoji from the template
+    - ``kind``        — ``'process'`` | ``'policy'``
+    - ``enabled``     — config row's enabled flag (always ``True`` here
+      because the WHERE clause filters disabled rows out)
+
+    Returns ``None`` when:
+
+    1. The template doesn't exist (unknown slug), OR
+    2. The city has no ``priority_badges_config`` row for the template
+       (city hasn't opted in), OR
+    3. The city's config row has ``enabled = FALSE``.
+
+    All three cases mean the badge is not active for this city, so the
+    caller (route handler) should respond with 404. We deliberately do
+    NOT fall back to the template alone when a city hasn't opted in —
+    the enablement gate lives in ``priority_badges_config`` and a city
+    seeing a category page for a badge they haven't enabled would be a
+    bug, not a feature.
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT t.slug,
+                   COALESCE(c.name_override, t.name)               AS name,
+                   COALESCE(c.description_override, t.description) AS description,
+                   t.icon,
+                   t.kind,
+                   c.enabled
+            FROM priority_badge_templates t
+            JOIN priority_badges_config c
+              ON c.template_slug = t.slug
+             AND c.city_id = %s
+            WHERE t.slug = %s
+              AND c.enabled = TRUE
+            """,
+            (city_id, badge_slug),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def category_kpis(city_id: int, badge_slug: str, year: int) -> dict:
+    """KPI strip data for a category landing page (spec §6.5).
+
+    Returns a dict with three keys:
+
+    - ``item_count``           — total items with this badge in the
+      year for the city. Only ``processing_status = 'completed'`` items
+      with ``aib.confidence >= 0.6`` are counted, matching the listing's
+      default render contract (``list_items_by_badge``).
+    - ``total_dollars``        — sum of ``ai.dollars_amount`` across the
+      same set. NULL dollars treated as 0 via ``COALESCE``. Returned as
+      a Python ``Decimal`` (PostgreSQL ``NUMERIC`` round-trip).
+    - ``mayor_priority_quote`` — None for v1. Phase 4 / spec line 3052
+      will wire mayoral-priority annotations from ``mayoral_terms`` and
+      a yet-to-be-built priorities table; this stub keeps the template
+      contract stable so F4/F5 don't churn.
+
+    Year filter uses ``meeting_date BETWEEN '<year>-01-01' AND
+    '<year>-12-31'`` (inclusive boundary on both ends — the upper bound
+    catches December 31 meetings cleanly).
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT COUNT(*)                              AS item_count,
+                   COALESCE(SUM(ai.dollars_amount), 0)   AS total_dollars
+            FROM agenda_item_badges aib
+            JOIN agenda_items ai ON ai.id = aib.agenda_item_id
+            JOIN meetings m      ON m.id = ai.meeting_id
+            WHERE aib.city_id = %s
+              AND aib.badge_slug = %s
+              AND aib.confidence >= 0.6
+              AND ai.processing_status = 'completed'
+              AND m.meeting_date BETWEEN %s AND %s
+            """,
+            (city_id, badge_slug, f"{year}-01-01", f"{year}-12-31"),
+        )
+        row = cur.fetchone() or {}
+        return {
+            "item_count": int(row.get("item_count") or 0),
+            "total_dollars": row.get("total_dollars") or 0,
+            "mayor_priority_quote": None,
+        }
+
+
+def badge_volume_series(
+    city_id: int,
+    badge_slug: str,
+    start_date,
+    end_date,
+    bucket: str = "month",
+) -> list[dict]:
+    """Volume timeline data for a category landing page — F2 STUB.
+
+    F3 lands the real implementation reading from
+    ``mv_badge_volume_monthly`` (migration 013) and returning
+    ``[{period, x, y, width, height_substantive, height_consent,
+       n_items, n_consent, total_dollars}, ...]`` per spec §6.6.
+
+    F2 stubs this to ``[]`` so the route can call it and template
+    rendering can branch on emptiness — F3 lands without changing the
+    route signature or template control flow. The signature is
+    deliberately the F3-final shape (``city_id``, ``badge_slug``,
+    ``start_date``, ``end_date``, ``bucket``) so F3 fills in the body.
+    """
+    return []
+
+
 # --- High-value item queries ------------------------------------------------
 
 
