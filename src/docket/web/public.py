@@ -183,6 +183,30 @@ def upcoming_hearings_rss(city):
     abort(404)
 
 
+@bp.route("/items/<int:item_id>/badges")
+def item_badges_overflow(item_id: int):
+    """HTMX overflow listing for an item's badges — stub.
+
+    Surfaced in :file:`partials/_badge_row.html` as the ``hx-get`` target
+    for the "+N more" button when an item has more than 3 badges.
+    Today no items have badges populated yet (Phase 3 hasn't run); when
+    badges first appear, this route will start receiving HTMX requests.
+
+    Returns 501 Not Implemented (rather than 404) so monitoring can tell
+    "user clicked overflow before the listing is built" apart from "user
+    typo'd a URL". Same convention as ``admin.data_debt`` (E5),
+    ``public.item_detail`` (E3), and ``public.upcoming_hearings_rss`` (E3).
+
+    TODO(F-track): build the real overflow-badges endpoint that returns
+    an HTML fragment listing the remaining ``item.badges[3:]`` chips with
+    the same BadgeChip shape as the inline top-3.
+    """
+    return (
+        "Badge overflow listing is a planned feature — implementation pending.",
+        501,
+    )
+
+
 @bp.route("/al/<slug>/council/")
 def city_council(slug):
     """Council member cards for a city."""

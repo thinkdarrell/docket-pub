@@ -1,13 +1,20 @@
 {# Shared facts strip for v3 cards (smart_brevity + verification_pending).
-   Pulls from `item.extracted_facts` (StructuredFacts JSONB shape, see
-   src/docket/ai/extraction_schema.py) plus `item.dollars_amount` for
-   the cost row. Empty fields are omitted — no "not specified"
-   placeholders. #}
+   Prefers the lifted top-level fields on ``item`` (AgendaItem dataclass —
+   A8 lift of v3 sub-keys, mirroring ``headline`` / ``why_it_matters``);
+   falls back to the legacy nested ``item.extracted_facts.<key>`` shape
+   so older dict-shaped callers in tests keep working. The ``or``
+   keeps both shapes valid. Empty fields are omitted — no
+   "not specified" placeholders. #}
 {% set facts = item.extracted_facts or {} %}
+{% set counterparty = item.counterparty or facts.counterparty %}
+{% set funding_source = item.funding_source or facts.funding_source %}
+{% set procurement_method = item.procurement_method or facts.procurement_method %}
+{% set action_type = item.action_type or facts.action_type %}
+{% set location = item.location or facts.location %}
 <div class="smart-brevity-card__facts">
   <ul class="facts-strip">
-    {% if facts.counterparty %}
-      <li class="fact fact--counterparty">🏢 Counterparty: {{ facts.counterparty }}</li>
+    {% if counterparty %}
+      <li class="fact fact--counterparty">🏢 Counterparty: {{ counterparty }}</li>
     {% endif %}
 
     {% if item.dollars_amount %}
@@ -26,12 +33,12 @@
       </li>
     {% endif %}
 
-    {% if facts.funding_source and facts.funding_source != 'unknown' %}
-      <li class="fact fact--funding">🏛️ Funding: {{ facts.funding_source | replace('_', ' ') | title }}</li>
+    {% if funding_source and funding_source != 'unknown' %}
+      <li class="fact fact--funding">🏛️ Funding: {{ funding_source | replace('_', ' ') | title }}</li>
     {% endif %}
 
-    {% if facts.location %}
-      {% set loc = facts.location %}
+    {% if location %}
+      {% set loc = location %}
       {% set loc_parts = [] %}
       {% if loc.ward_or_district %}{% set _ = loc_parts.append(loc.ward_or_district) %}{% endif %}
       {% if loc.neighborhood %}{% set _ = loc_parts.append(loc.neighborhood) %}{% endif %}
@@ -41,9 +48,9 @@
       {% endif %}
     {% endif %}
 
-    {% if facts.action_type and facts.action_type != 'other' %}
+    {% if action_type and action_type != 'other' %}
       <li class="fact fact--action">📋 Action:
-        {{ facts.action_type | replace('_', ' ') | title }}{% if facts.procurement_method and facts.procurement_method not in ('not_applicable', 'unknown') %} ({{ facts.procurement_method | replace('_', ' ') }}){% endif %}
+        {{ action_type | replace('_', ' ') | title }}{% if procurement_method and procurement_method not in ('not_applicable', 'unknown') %} ({{ procurement_method | replace('_', ' ') }}){% endif %}
       </li>
     {% endif %}
   </ul>

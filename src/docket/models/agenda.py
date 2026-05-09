@@ -26,6 +26,16 @@ class AgendaItem:
     consent_placement_score: float | None  # 0-10
     summary: str | None = None
     ai_metadata: dict | None = None
+    # --- AI version tracking — three independent stages of the v3 pipeline.
+    # Bumping each constant in src/docket/ai/prompts.py triggers re-cascade
+    # of items at that stage and downstream:
+    #   - ai_prompt_version      — Legacy v2 (Haiku item summary → `summary`)
+    #   - ai_extraction_version  — Phase 2 / Stage 1 (LLM extraction →
+    #                              `extracted_facts` JSONB)
+    #   - ai_rewrite_version     — Phase 2 / Stage 2 (Smart Brevity rewrite →
+    #                              `headline` + `why_it_matters`)
+    # All three coexist on every item so partials can gate cleanly on a
+    # single stage's version while the others stay independent.
     ai_prompt_version: int | None = None
     ai_generated_at: datetime | None = None
     # --- v3 columns from migration 013 (Phase 1 + Phase 2) -------------------
@@ -38,8 +48,8 @@ class AgendaItem:
     data_quality: str | None = None
     data_debt_priority: str | None = None
     processing_status: str | None = None
-    ai_extraction_version: int | None = None
-    ai_rewrite_version: int | None = None
+    ai_extraction_version: int | None = None  # Stage 1 (extraction)
+    ai_rewrite_version: int | None = None     # Stage 2 (Smart Brevity rewrite)
     ai_confidence: str | None = None  # TEXT enum: 'high' | 'medium' | 'low'
     headline: str | None = None
     why_it_matters: str | None = None
@@ -49,12 +59,26 @@ class AgendaItem:
     # in services/query.py for the jsonb_extract_path SELECT and the
     # Python-side reconstruction.
     extracted_facts: dict | None = None
-    # Top-level alias for ``extracted_facts.next_steps`` so
-    # ``partials/engagement_strip.html`` (which reads ``item.next_steps``)
-    # works against the dataclass without traversing the full JSONB blob.
-    # Mirrors the ``headline`` / ``why_it_matters`` top-level pattern.
-    # Populated by ``from_row()`` from ``extracted_facts->'next_steps'``.
-    next_steps: dict | None = None
+    # --- Lifted v3 sub-keys (top-level aliases for `extracted_facts.*`) -------
+    # Mirror the headline / why_it_matters top-level pattern so partials
+    # (`_facts_strip.html`, `engagement_strip.html`) can read
+    # ``item.<field>`` directly without traversing the JSONB blob. Each is
+    # populated by ``from_row()`` from the matching ``extracted_facts``
+    # sub-key (a typed read — non-matching shapes collapse to None so
+    # malformed JSONB doesn't crash). The `extracted_facts` dict still
+    # carries each value too — the lift is additive, not a move, so
+    # consumers reading the lean dict keep working unchanged.
+    #
+    # Types mirror the Stage 1 schema (src/docket/ai/extraction_schema.py).
+    # `procurement_method` and `action_type` are Literal enums in the
+    # schema; widened to `str` here because the dataclass is downstream
+    # of validation and can carry whatever Stage 1 emitted.
+    next_steps: dict | None = None           # next_steps sub-dict (4 date fields)
+    counterparty: str | None = None          # contract counterparty (e.g. vendor)
+    funding_source: str | None = None        # FundingSource enum value
+    procurement_method: str | None = None    # ProcurementMethod enum value
+    action_type: str | None = None           # ActionType enum value
+    location: dict | None = None             # LocationDetail (address/ward/etc.)
     # Aggregated agenda_item_badges rows — list of dicts shaped like
     # BadgeChip (kind, slug, name, icon, description, confidence). Empty
     # list when no badges; None when the query was run without badges.
@@ -63,11 +87,21 @@ class AgendaItem:
     @classmethod
     def from_row(cls, row: dict) -> AgendaItem:
         extracted_facts = row.get("extracted_facts")
-        # Lift extracted_facts.next_steps to a top-level field so the
-        # engagement_strip partial (item.next_steps) renders without
-        # traversing the JSONB blob. None when missing/null — Jinja's
-        # `or {}` guard handles either falsy form.
-        next_steps = (extracted_facts or {}).get("next_steps") if isinstance(extracted_facts, dict) else None
+        # Lift v3 sub-keys to top-level fields so the partials
+        # (engagement_strip / _facts_strip) can read ``item.<field>``
+        # directly without traversing the JSONB blob. Each lift is
+        # type-guarded — a malformed ``extracted_facts`` (string, list,
+        # missing key, JSONB null) collapses cleanly to None instead of
+        # raising. Mirrors the headline / why_it_matters top-level
+        # pattern. The lift is additive: ``extracted_facts`` itself stays
+        # populated so consumers reading the lean dict keep working.
+        ef = extracted_facts if isinstance(extracted_facts, dict) else {}
+        next_steps = ef.get("next_steps") if isinstance(ef.get("next_steps"), dict) else None
+        counterparty = ef.get("counterparty") if isinstance(ef.get("counterparty"), str) else None
+        funding_source = ef.get("funding_source") if isinstance(ef.get("funding_source"), str) else None
+        procurement_method = ef.get("procurement_method") if isinstance(ef.get("procurement_method"), str) else None
+        action_type = ef.get("action_type") if isinstance(ef.get("action_type"), str) else None
+        location = ef.get("location") if isinstance(ef.get("location"), dict) else None
         return cls(
             id=row["id"],
             meeting_id=row["meeting_id"],
@@ -97,5 +131,10 @@ class AgendaItem:
             source_anchor=row.get("source_anchor"),
             extracted_facts=extracted_facts,
             next_steps=next_steps,
+            counterparty=counterparty,
+            funding_source=funding_source,
+            procurement_method=procurement_method,
+            action_type=action_type,
+            location=location,
             badges=row.get("badges") or [],
         )

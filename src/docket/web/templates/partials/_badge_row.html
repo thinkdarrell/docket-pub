@@ -19,9 +19,11 @@
       {% include 'partials/badge_chip.html' %}
     {% endfor %}
     {% if ordered|length > 3 %}
-      {# DEFERRED: HTMX endpoint /items/<id>/badges to be added in a later E-task.
-         Until then, items with >3 badges show the button but the click 404s.
-         Currently masked by A8 (item.badges is empty until AgendaItem dataclass is extended). #}
+      {# HTMX overflow target. ``public.item_badges_overflow`` is a 501
+         stub today; the real listing endpoint lands in a future F-track
+         task. Until then a click on +N more shows a "planned feature"
+         message rather than a 404. Mostly masked in production because
+         badges aren't populated until Phase 3 backfill runs. #}
       <button class="badge-more"
               hx-get="/items/{{ item.id }}/badges"
               hx-target="this"

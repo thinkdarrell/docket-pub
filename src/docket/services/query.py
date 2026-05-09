@@ -176,6 +176,14 @@ def list_agenda_items(meeting_id: int) -> list[AgendaItem]:
                 -- AgendaItem.from_row() always sees a list. The
                 -- subquery uses the (agenda_item_id) index from
                 -- migration 013 (idx_agenda_item_badges_item).
+                --
+                -- NOTE: badge confidence values arrive as Decimal through
+                -- the JSONB-agg round-trip (NUMERIC(3,2) column →
+                -- jsonb_build_object → jsonb_agg → psycopg → Python).
+                -- Consumers comparing to a float should explicitly cast
+                -- (e.g., ``float(chip["confidence"]) >= 1.0``) — direct
+                -- comparison works in Python but is non-obvious. See
+                -- partials/badge_chip.html for the rendering side.
                 COALESCE(
                     (
                         SELECT jsonb_agg(jsonb_build_object(

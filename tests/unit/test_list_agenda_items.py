@@ -208,6 +208,100 @@ class TestAgendaItemDataclass:
         item = AgendaItem.from_row(row)
         assert item.next_steps is None
 
+    def test_lifted_subkeys_from_full_extracted_facts(self):
+        """All five lifted top-level fields populate from the matching
+        ``extracted_facts`` sub-keys when present (A8 fix-up). Mirrors
+        the ``next_steps`` lift but for the full Stage 1 set."""
+        row = {
+            "id": 12,
+            "meeting_id": 1,
+            "title": "Full v3 item",
+            "is_consent": False,
+            "extracted_facts": {
+                "counterparty": "Flock Safety Inc.",
+                "funding_source": "general_fund",
+                "procurement_method": "sole_source",
+                "action_type": "contract_amendment",
+                "location": {"ward_or_district": "Wards 4-7"},
+                "next_steps": {"public_hearing_date": "2026-06-01"},
+            },
+        }
+        item = AgendaItem.from_row(row)
+        assert item.counterparty == "Flock Safety Inc."
+        assert item.funding_source == "general_fund"
+        assert item.procurement_method == "sole_source"
+        assert item.action_type == "contract_amendment"
+        assert item.location == {"ward_or_district": "Wards 4-7"}
+        assert item.next_steps == {"public_hearing_date": "2026-06-01"}
+        # Additive lift — extracted_facts itself still carries everything.
+        assert item.extracted_facts["counterparty"] == "Flock Safety Inc."
+
+    def test_lifted_subkeys_none_when_extracted_facts_is_string(self):
+        """Defensive: a malformed ``extracted_facts`` (e.g., a bare JSONB
+        string somehow making it through the lean SELECT) collapses every
+        lifted sub-key to None instead of raising. The type-guarded lift
+        means partials never see a TypeError."""
+        row = {
+            "id": 13,
+            "meeting_id": 1,
+            "title": "Malformed string item",
+            "is_consent": False,
+            "extracted_facts": "malformed garbage string",
+        }
+        item = AgendaItem.from_row(row)
+        assert item.next_steps is None
+        assert item.counterparty is None
+        assert item.funding_source is None
+        assert item.procurement_method is None
+        assert item.action_type is None
+        assert item.location is None
+
+    def test_lifted_subkeys_none_when_extracted_facts_is_list(self):
+        """Defensive: a list ``extracted_facts`` (Stage 1 emitting an
+        array by mistake) also collapses cleanly to None on every
+        lifted field."""
+        row = {
+            "id": 14,
+            "meeting_id": 1,
+            "title": "Malformed list item",
+            "is_consent": False,
+            "extracted_facts": [1, 2, 3],
+        }
+        item = AgendaItem.from_row(row)
+        assert item.next_steps is None
+        assert item.counterparty is None
+        assert item.funding_source is None
+        assert item.procurement_method is None
+        assert item.action_type is None
+        assert item.location is None
+
+    def test_lifted_subkeys_type_guarded_on_individual_keys(self):
+        """Each sub-key lift is independently type-guarded. A wrong-type
+        value on one key (e.g., ``counterparty`` is an int instead of a
+        str) collapses just that one to None, leaving the others to
+        populate normally from their valid sibling values."""
+        row = {
+            "id": 15,
+            "meeting_id": 1,
+            "title": "Mixed-type item",
+            "is_consent": False,
+            "extracted_facts": {
+                "counterparty": 42,                       # wrong type — int
+                "funding_source": "general_fund",         # OK
+                "procurement_method": ["a", "b"],         # wrong type — list
+                "action_type": "contract_amendment",      # OK
+                "location": "not a dict",                 # wrong type — str
+                "next_steps": "not a dict either",        # wrong type — str
+            },
+        }
+        item = AgendaItem.from_row(row)
+        assert item.counterparty is None
+        assert item.funding_source == "general_fund"
+        assert item.procurement_method is None
+        assert item.action_type == "contract_amendment"
+        assert item.location is None
+        assert item.next_steps is None
+
 
 # ---------------------------------------------------------------------------
 # Dispatcher round-trip: build an AgendaItem and feed it through the
@@ -388,14 +482,14 @@ class TestEngagementStripWithAgendaItemDataclass:
 # ---------------------------------------------------------------------------
 
 
-LEAN_FACTS_KEYS = {
+LEAN_FACTS_KEYS = frozenset({
     "counterparty",
     "funding_source",
     "procurement_method",
     "action_type",
     "location",
     "next_steps",
-}
+})
 
 
 # ---------------------------------------------------------------------------
@@ -554,17 +648,27 @@ class TestListAgendaItemsDB:
     def test_v3_item_extracted_facts_is_lean(self, meeting_with_v3_items):
         """Locks in the lean-list contract — extra keys (parcels_affected,
         acres_affected) from the source JSONB do NOT round-trip on the
-        list-page shape. Only the 6 keys the v3 cards render survive."""
+        list-page shape. Only the 6 keys the v3 cards render survive.
+
+        The fixture populates ALL 6 lean keys (counterparty,
+        funding_source, procurement_method, action_type, location,
+        next_steps) so jsonb_strip_nulls does not drop any — that lets
+        us assert exact equality (``==``) on the key set, not just
+        subset (``<=``). Equality catches accidental key additions on
+        the SELECT side; subset would silently allow drift.
+        """
         items = list_agenda_items(meeting_with_v3_items["meeting_id"])
         v3 = next(i for i in items if i.item_number == "1")
 
         assert v3.extracted_facts is not None
-        # Lean shape: only allow the 6 documented keys
-        assert set(v3.extracted_facts.keys()) <= LEAN_FACTS_KEYS
+        # Lean shape: exact match on the 6 documented keys (==, not <=).
+        # Fixture populates all 6 so jsonb_strip_nulls keeps every one.
+        assert set(v3.extracted_facts.keys()) == LEAN_FACTS_KEYS
         # Cards-relevant keys actually populated
         assert v3.extracted_facts["counterparty"] == "Flock Safety Inc."
         assert v3.extracted_facts["funding_source"] == "general_fund"
         assert v3.extracted_facts["action_type"] == "contract_amendment"
+        assert v3.extracted_facts["procurement_method"] == "sole_source"
         assert v3.extracted_facts["location"]["ward_or_district"] == "Wards 4-7"
         assert v3.extracted_facts["next_steps"]["public_hearing_date"] == "2099-03-01"
         # Extra keys must NOT have leaked

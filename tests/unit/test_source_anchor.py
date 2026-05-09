@@ -970,3 +970,61 @@ class TestForcingFunctionsForE4Cleanups:
         }
         rendered = _render(app, {"id": 1, "source_anchor": anchor})
         assert "viewrect=" in rendered
+
+
+# ---------------------------------------------------------------------------
+# public.item_badges_overflow route stub registration (A8 fix-up)
+# ---------------------------------------------------------------------------
+
+
+class TestItemBadgesOverflowRouteStub:
+    """``partials/_badge_row.html`` calls
+    ``hx-get="/items/{{ item.id }}/badges"`` for the "+N more" overflow
+    button. The endpoint is a 501 stub today (real listing lands in a
+    later F-track task); these tests pin both that the route exists on
+    the production blueprint and that it returns 501. Same convention as
+    ``admin.data_debt`` (E5) and ``public.item_detail`` /
+    ``public.upcoming_hearings_rss`` (E3)."""
+
+    def test_item_badges_overflow_url_resolves(self):
+        from docket.web import create_app
+
+        app = create_app()
+        with app.test_request_context():
+            from flask import url_for
+
+            url = url_for("public.item_badges_overflow", item_id=42)
+            assert url == "/items/42/badges"
+
+    def test_item_badges_overflow_returns_501_until_built(self):
+        """Forcing function: when the real overflow listing endpoint
+        ships, this stub assertion will start to fail (return 200) and
+        whoever built the real endpoint will retire this test."""
+        from docket.web import create_app
+
+        app = create_app()
+        with app.test_client() as client:
+            resp = client.get("/items/42/badges")
+            assert resp.status_code == 501
+            body = resp.get_data(as_text=True).lower()
+            assert "pending" in body or "planned" in body
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason=(
+            "public.item_badges_overflow is currently a 501 stub; remove "
+            "this xfail when the real HTMX overflow listing lands"
+        ),
+    )
+    def test_item_badges_overflow_returns_200_when_endpoint_lands(self):
+        """When the real overflow-badges endpoint is built (F-track),
+        the route should return 200 with an HTML fragment listing the
+        remaining ``item.badges[3:]`` chips. While the route still
+        returns 501 this xfails; once it lands the ``strict=True`` flips
+        to FAILED and the developer retires the mark."""
+        from docket.web import create_app
+
+        app = create_app()
+        with app.test_client() as client:
+            resp = client.get("/items/42/badges")
+            assert resp.status_code == 200

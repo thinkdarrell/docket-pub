@@ -31,6 +31,11 @@
 #}
 {% set ns = item.next_steps or {} %}
 {% set facts = item.extracted_facts or {} %}
+{# Prefer the lifted top-level ``item.action_type`` (AgendaItem dataclass);
+   fall back to ``facts.action_type`` for older dict-shaped callers. The
+   ``or`` keeps both shapes working — A8 lifted the sub-key onto the
+   dataclass for consistency with `headline` / `why_it_matters`. #}
+{% set action_type = item.action_type or facts.action_type %}
 {% set has_any = ns.committee_referral or ns.public_hearing_date
                   or ns.comment_period_end or ns.implementation_date %}
 
@@ -62,7 +67,7 @@
   </div>
 
 {# Context-aware: action_type hints at upcoming hearing but date is null (decision #70) #}
-{% elif facts.action_type == 'public_hearing_set' and not ns.public_hearing_date %}
+{% elif action_type == 'public_hearing_set' and not ns.public_hearing_date %}
   {%- set _subject = "Missing hearing date for item " ~ (item.id | int) -%}
   {%- set _item_url = url_for('public.item_detail', city=city.slug, item_id=(item.id | int), _external=True) -%}
   {%- set _body = "Item URL: " ~ _item_url ~ "\r\n\r\nThis item has action_type=public_hearing_set but no hearing date is shown." -%}
