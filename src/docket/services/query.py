@@ -202,7 +202,30 @@ def list_agenda_items(meeting_id: int) -> list[AgendaItem]:
                 ) AS badges
             FROM agenda_items ai
             WHERE ai.meeting_id = %s
-            ORDER BY ai.item_number
+            -- Natural sort on item_number. Pre-A8 this was a plain
+            -- TEXT sort, which lexicographically placed item "10"
+            -- before "2" — wrong for the Birmingham agenda shape
+            -- (1, 2, 10, 10A, 10B, 11, A.1, A.2). Strategy:
+            --   1. Strip everything from the first non-digit onward to
+            --      isolate the leading numeric prefix ("10A" -> "10",
+            --      "A.1" -> "", "1" -> "1").
+            --   2. NULLIF '' -> NULL, then ::int casts numeric prefixes
+            --      to integers so they sort numerically.
+            --   3. COALESCE(..., 999999) sends items with no leading
+            --      digit (and rows where item_number itself is NULL)
+            --      to the end.
+            --   4. Tie-breaker on the full string puts "10A" before
+            --      "10B"; NULLS LAST keeps NULL item_numbers truly
+            --      last within the sentinel bucket.
+            ORDER BY
+                COALESCE(
+                    NULLIF(
+                        regexp_replace(COALESCE(ai.item_number, ''), '\D.*$', ''),
+                        ''
+                    )::int,
+                    999999
+                ),
+                ai.item_number NULLS LAST
             """,
             (meeting_id,),
         )

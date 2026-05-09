@@ -738,3 +738,127 @@ class TestListAgendaItemsDB:
         assert bare.headline is None
         assert bare.extracted_facts is None
         assert bare.badges == []
+
+
+# ---------------------------------------------------------------------------
+# Natural-sort ORDER BY contract — locks the post-A8 behavior of
+# list_agenda_items for mixed-format Birmingham item_numbers.
+# Pre-A8 the SQL did `ORDER BY ai.item_number` (TEXT sort), which placed
+# "10" before "2" because '1' < '2' lexicographically. Birmingham items
+# look like 1, 2, 10, 10A, 10B, 11, A.1, A.2 — so the new ORDER BY pulls
+# the leading numeric prefix and sorts numerically, breaking ties on the
+# full string and pushing items without a leading digit (and NULL
+# item_numbers) to the very end.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def meeting_with_sortable_items(request):
+    """Insert a TEST_SORT meeting and seed it with the item_numbers
+    listed in the indirect parameter. The fixture yields the meeting_id
+    and CASCADE-cleans on teardown.
+
+    Each entry in ``request.param`` is either a string item_number
+    (inserted as-is) or None (inserted as a NULL item_number). Title is
+    derived from the item_number for debugging — irrelevant to the sort.
+    """
+    item_numbers: list[str | None] = list(request.param)
+
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM meetings WHERE title = 'TEST_SORT' AND meeting_date = '2099-03-01'"
+            )
+        conn.commit()
+
+    with db() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT id FROM municipalities ORDER BY id LIMIT 1")
+            muni_id = cur.fetchone()["id"]
+            cur.execute(
+                """INSERT INTO meetings (municipality_id, title, meeting_date, meeting_type)
+                   VALUES (%s, 'TEST_SORT', '2099-03-01', 'council') RETURNING id""",
+                (muni_id,),
+            )
+            mid = cur.fetchone()["id"]
+
+            for n in item_numbers:
+                title = f"Item {n!r}"
+                cur.execute(
+                    """INSERT INTO agenda_items (
+                           meeting_id, title, item_number, is_consent
+                       ) VALUES (%s, %s, %s, FALSE)""",
+                    (mid, title, n),
+                )
+        conn.commit()
+
+    yield mid
+
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM meetings WHERE id = %s", (mid,))
+        conn.commit()
+
+
+class TestNaturalSortByItemNumber:
+    """Lock the natural-sort ORDER BY behavior. Pre-A8 the query did
+    TEXT sort; '10' sorted before '2'. Post-fix, leading-numeric prefix
+    sorts numerically; ties broken alphabetically; non-numeric prefixes
+    and NULL item_numbers sort last."""
+
+    @pytest.mark.parametrize(
+        "meeting_with_sortable_items",
+        [["1", "2", "10", "11", "20"]],
+        indirect=True,
+    )
+    def test_purely_numeric_items_sort_numerically(self, meeting_with_sortable_items):
+        items = list_agenda_items(meeting_with_sortable_items)
+        assert [i.item_number for i in items] == ["1", "2", "10", "11", "20"]
+
+    @pytest.mark.parametrize(
+        "meeting_with_sortable_items",
+        [["10A", "10B", "10C", "11", "11A"]],
+        indirect=True,
+    )
+    def test_alphanumeric_items_sort_by_numeric_prefix_then_alpha(
+        self, meeting_with_sortable_items
+    ):
+        items = list_agenda_items(meeting_with_sortable_items)
+        assert [i.item_number for i in items] == ["10A", "10B", "10C", "11", "11A"]
+
+    @pytest.mark.parametrize(
+        "meeting_with_sortable_items",
+        [["1", "A.1", "2", "A.2"]],
+        indirect=True,
+    )
+    def test_non_numeric_items_sort_last(self, meeting_with_sortable_items):
+        # Numeric items first by leading prefix; non-numeric items fall
+        # into the 999999 sentinel bucket and tie-break alphabetically
+        # by full string.
+        items = list_agenda_items(meeting_with_sortable_items)
+        assert [i.item_number for i in items] == ["1", "2", "A.1", "A.2"]
+
+    @pytest.mark.parametrize(
+        "meeting_with_sortable_items",
+        [["1", None, "2", None]],
+        indirect=True,
+    )
+    def test_null_item_numbers_sort_at_end(self, meeting_with_sortable_items):
+        items = list_agenda_items(meeting_with_sortable_items)
+        # Numeric items first, then NULLs at the very end. Two NULLs in
+        # a row can land in either source-row order — assert membership
+        # for the NULL tail rather than identity.
+        assert [i.item_number for i in items[:2]] == ["1", "2"]
+        assert items[2].item_number is None
+        assert items[3].item_number is None
+
+    @pytest.mark.parametrize(
+        "meeting_with_sortable_items",
+        [["1", "2", "3", "10", "10A", "10B", "11", "20", "A.1"]],
+        indirect=True,
+    )
+    def test_mixed_real_world_birmingham_pattern(self, meeting_with_sortable_items):
+        items = list_agenda_items(meeting_with_sortable_items)
+        assert [i.item_number for i in items] == [
+            "1", "2", "3", "10", "10A", "10B", "11", "20", "A.1",
+        ]
