@@ -222,8 +222,13 @@
             {% if config.SMART_BREVITY_UI %}
                 {% include 'partials/smart_brevity_card.html' %}
             {% else %}
-                {# Legacy v2 rendering — must remain byte-identical to pre-E1 production
-                   until SMART_BREVITY_UI=true is flipped in Railway env vars. #}
+                {# Legacy v2 rendering — must remain byte-identical to pre-E6 production
+                   until SMART_BREVITY_UI=true is flipped in Railway env vars.
+                   The E6-LOOP-BODY markers below are consumed by
+                   tests/unit/test_smart_brevity_ui_flag.py::test_loop_body_constants_match_template
+                   to enforce drift between this branch and the test's
+                   `_REGULAR_LOOP_BODY` constant. Keep them in lockstep. #}
+                {# E6-LOOP-BODY-START regular #}
                 <div class="notable-row" style="cursor: default;">
                     <div class="notable-num t-mono">
                         {% if item.item_number %}{{ item.item_number }}{% else %}—{% endif %}
@@ -259,6 +264,7 @@
                         {% endif %}
                     </div>
                 </div>
+                {# E6-LOOP-BODY-END regular #}
             {% endif %}
         {% endfor %}
     </div>
@@ -283,8 +289,13 @@
             {% if config.SMART_BREVITY_UI %}
                 {% include 'partials/smart_brevity_card.html' %}
             {% else %}
-                {# Legacy v2 rendering — must remain byte-identical to pre-E1 production
-                   until SMART_BREVITY_UI=true is flipped in Railway env vars. #}
+                {# Legacy v2 rendering — must remain byte-identical to pre-E6 production
+                   until SMART_BREVITY_UI=true is flipped in Railway env vars.
+                   The E6-LOOP-BODY markers below are consumed by
+                   tests/unit/test_smart_brevity_ui_flag.py::test_loop_body_constants_match_template
+                   to enforce drift between this branch and the test's
+                   `_CONSENT_LOOP_BODY` constant. Keep them in lockstep. #}
+                {# E6-LOOP-BODY-START consent #}
                 <div class="notable-row" style="cursor: default;">
                     <div class="notable-num t-mono">
                         {% if item.item_number %}{{ item.item_number }}{% else %}—{% endif %}
@@ -314,6 +325,7 @@
                         {% endif %}
                     </div>
                 </div>
+                {# E6-LOOP-BODY-END consent #}
             {% endif %}
         {% endfor %}
     </div>
