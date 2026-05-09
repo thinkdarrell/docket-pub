@@ -184,23 +184,21 @@ def list_agenda_items(meeting_id: int) -> list[AgendaItem]:
                 -- (e.g., ``float(chip["confidence"]) >= 1.0``) — direct
                 -- comparison works in Python but is non-obvious. See
                 -- partials/badge_chip.html for the rendering side.
-                COALESCE(
-                    (
-                        SELECT jsonb_agg(jsonb_build_object(
-                                   'kind',        b.kind,
-                                   'slug',        b.badge_slug,
-                                   'confidence',  b.confidence,
-                                   'name',        t.name,
-                                   'icon',        t.icon,
-                                   'description', t.description
-                               ) ORDER BY b.detected_at DESC)
-                        FROM agenda_item_badges b
-                        JOIN priority_badge_templates t ON t.slug = b.badge_slug
-                        WHERE b.agenda_item_id = ai.id
-                    ),
-                    '[]'::jsonb
-                ) AS badges
+                COALESCE(b_agg.badges, '[]'::jsonb) AS badges
             FROM agenda_items ai
+            LEFT JOIN LATERAL (
+                SELECT jsonb_agg(jsonb_build_object(
+                           'kind',        b.kind,
+                           'slug',        b.badge_slug,
+                           'confidence',  b.confidence,
+                           'name',        t.name,
+                           'icon',        t.icon,
+                           'description', t.description
+                       ) ORDER BY b.detected_at DESC) AS badges
+                FROM agenda_item_badges b
+                JOIN priority_badge_templates t ON t.slug = b.badge_slug
+                WHERE b.agenda_item_id = ai.id
+            ) b_agg ON true
             WHERE ai.meeting_id = %s
             -- Natural sort on item_number. Pre-A8 this was a plain
             -- TEXT sort, which lexicographically placed item "10"
