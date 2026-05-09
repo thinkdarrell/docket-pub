@@ -4,12 +4,14 @@ Covers ``partials/dollar_tier.html`` (spec §6.1, decisions #71 + #75)
 plus the two filters it depends on — ``format_dollars`` and
 ``dollar_tier`` from :mod:`docket.web.filters`.
 
-The partial implements WCAG 2.1 AA "color is not load-bearing":
+The partial implements WCAG 2.1 AA "color is not load-bearing" using
+Option A (visible text + ``.sr-only`` span — no ``role`` / no
+``aria-label``):
 
   - color (``dollars--{{ color }}`` CSS class)
   - symbol (``$``/``$$``/``$$$``/``$$$$`` in parens, visible)
-  - screen-reader label (``aria-label`` on the parent + visually-hidden
-    ``.sr-only`` span on the child).
+  - screen-reader label (visually-hidden ``.sr-only`` span carrying the
+    tier color + threshold context).
 
 Tests pin all three signal channels so a regression that loses one
 (e.g. someone "simplifying" away the sr-only span) trips immediately.
@@ -424,8 +426,9 @@ class TestFormatDollarsFilter:
 
 
 class TestDollarTierPartialPerTier:
-    """Each tier renders all three WCAG 2.1 signal channels (decision #75):
-    color CSS class + visible symbol + sr-only label + parent aria-label."""
+    """Each tier renders all three WCAG 2.1 signal channels (decision #75,
+    Option A markup): color CSS class + visible symbol + sr-only label
+    that carries both the tier color and the threshold-context phrase."""
 
     def test_green_tier_full_render(self, app):
         html = _render(app, Decimal("25000"))
@@ -435,27 +438,24 @@ class TestDollarTierPartialPerTier:
         assert "$25,000" in html
         # Visible symbol in parens
         assert "($)" in html
-        # sr-only span — case-titled for natural screen-reader prose
-        assert ", Green tier" in html
+        # sr-only span — case-titled for natural screen-reader prose,
+        # carries tier color + threshold-context phrase
         assert 'class="sr-only"' in html
-        # Parent aria-label includes formatted amount + tier name + threshold
-        assert "$25,000, Green tier (under $50,000)" in html
+        assert ", Green tier (under $50,000)" in html
 
     def test_yellow_tier_full_render(self, app):
         html = _render(app, Decimal("120000"))
         assert "dollars--yellow" in html
         assert "$120,000" in html
         assert "($$)" in html
-        assert ", Yellow tier" in html
-        assert "$120,000, Yellow tier ($50,000 to $250,000)" in html
+        assert ", Yellow tier ($50,000 to $250,000)" in html
 
     def test_orange_tier_full_render(self, app):
         html = _render(app, Decimal("640000"))
         assert "dollars--orange" in html
         assert "$640,000" in html
         assert "($$$)" in html
-        assert ", Orange tier" in html
-        assert "$640,000, Orange tier ($250,000 to $1 million)" in html
+        assert ", Orange tier ($250,000 to $1 million)" in html
 
     def test_red_tier_full_render(self, app):
         """Red tier abbreviates the visible amount to ``$1.8M`` per
@@ -464,8 +464,7 @@ class TestDollarTierPartialPerTier:
         assert "dollars--red" in html
         assert "$1.8M" in html
         assert "($$$$)" in html
-        assert ", Red tier" in html
-        assert "$1.8M, Red tier (over $1 million)" in html
+        assert ", Red tier (over $1 million)" in html
 
 
 # ---------------------------------------------------------------------------
@@ -520,15 +519,24 @@ class TestDollarTierPartialNoRender:
 
 
 class TestDollarTierPartialWcagContract:
-    """Locks in decision #75: color + symbol + sr-only label, all three
-    present in a single render. If any future "simplification" drops one
-    channel (CSS class only, or aria-label without sr-only, etc.), this
-    test fails — making the WCAG regression visible at the test layer."""
+    """Locks in decision #75 (Option A markup): color + symbol + sr-only
+    label, all three present in a single render. If any future
+    "simplification" drops one channel (CSS class only, or visible-only
+    with no sr-only text, etc.), this test fails — making the WCAG
+    regression visible at the test layer.
+
+    Also locks in that the partial does NOT use ``role="img"`` or
+    ``aria-label``: those were tried during the E5 review but the
+    combination produced double-announcement risk on NVDA + Chrome and
+    JAWS (the SR reads the label, then re-reads the traversed children).
+    The visible-text + sr-only pattern is the canonical, well-supported
+    alternative for every major AT/browser combo.
+    """
 
     def test_triple_redundancy_in_single_render(self, app):
         """A single rendering must contain ALL THREE channels:
         (1) CSS class with tier color, (2) visible symbol, (3) sr-only
-        text with tier name. Plus the parent aria-label."""
+        text carrying tier name + threshold context."""
         html = _render(app, Decimal("87500"))
 
         # Channel 1: color in CSS class
@@ -537,97 +545,68 @@ class TestDollarTierPartialWcagContract:
         # Channel 2: visible symbol in parens
         assert "($$)" in html
 
-        # Channel 3: sr-only span carrying tier name
+        # Channel 3: sr-only span carrying tier name + threshold context
         assert 'class="sr-only"' in html
-        # Tier name appears in lower part as ", Yellow tier"
-        # (case-titled for natural reading)
-        assert ", Yellow tier" in html
+        assert ", Yellow tier ($50,000 to $250,000)" in html
 
-        # Parent aria-label as the assistive-tech-prefers-it path
-        assert 'aria-label=' in html
-        assert "Yellow tier" in html
-
-    def test_aria_label_carries_full_threshold_prose(self, app):
-        """Threshold description in aria-label gives the screen-reader
-        user enough context to grasp tier semantics without sight."""
+    def test_sr_only_carries_full_threshold_prose(self, app):
+        """Threshold description in the sr-only span gives the
+        screen-reader user enough context to grasp tier semantics
+        without sight."""
         html = _render(app, Decimal("1800000"))
         assert "over $1 million" in html
 
-    def test_screen_reader_path_a_aria_label_only_is_complete(self, app):
-        """A screen reader that prefers ``aria-label`` and skips child
-        text must still hear the full tier story: amount + tier name +
-        threshold prose. Locks in the assistive-tech contract for the
-        first of three SR behaviours documented in the partial header."""
+    def test_screen_reader_visible_plus_sr_only_is_complete(self, app):
+        """The single rendered DOM must convey amount + symbol + tier
+        color + threshold context to every AT path. Option A relies on
+        the visible text + sr-only span as the single coherent
+        announcement (no aria-label fallback). The full tier story —
+        ``$1.8M``, ``($$$$)``, ``Red tier``, ``over $1 million`` — must
+        all be in the rendered HTML so any AT that traverses the DOM
+        gets the complete semantic."""
         html = _render(app, Decimal("1800000"))
-        # Pull just the aria-label value.
-        idx = html.index('aria-label="')
-        end = html.index('"', idx + len('aria-label="'))
-        aria = html[idx + len('aria-label="'): end]
-        # Amount + tier + description all present in the single attribute.
-        assert "$1.8M" in aria
-        assert "Red tier" in aria
-        assert "over $1 million" in aria
+        # Visible amount
+        assert "$1.8M" in html
+        # Visible symbol
+        assert "($$$$)" in html
+        # sr-only tier name + threshold prose
+        assert ", Red tier (over $1 million)" in html
+        # And the sr-only suffix is inside the .sr-only span (so it's
+        # visually hidden but read by AT).
+        idx = html.index('class="sr-only"')
+        end = html.index("</span>", idx)
+        sr_only_block = html[idx:end]
+        assert "Red tier (over $1 million)" in sr_only_block
 
-    def test_screen_reader_path_b_visible_text_only_is_complete(self, app):
-        """A screen reader that traverses visible children and ignores
-        ``aria-label`` (some older NVDA configs, some Linux SRs) must
-        still hear the tier story. The visible amount + symbol + sr-only
-        suffix together must convey: amount + tier name. Locks in the
-        contract for the second SR behaviour."""
-        html = _render(app, Decimal("1800000"))
-        # Strip the aria-label out so we're testing the visible+sr-only
-        # path in isolation. (Real SRs do this internally; we simulate
-        # by string-trimming the attribute.)
-        import re as _re
-        visible = _re.sub(r'\saria-label="[^"]*"', "", html)
-        # Visible amount appears (outside any hidden span)
-        assert "$1.8M" in visible
-        # Symbol appears
-        assert "($$$$)" in visible
-        # sr-only tier name still in DOM (it's visually hidden, not
-        # removed — SRs read it).
-        assert ", Red tier" in visible
+    def test_simplified_markup_no_role_no_aria_label(self, app):
+        """Option A: drop role/aria-label, rely on visible + sr-only."""
+        rendered = _render(app, Decimal("1800000"))
+        assert 'role="img"' not in rendered
+        assert "aria-label=" not in rendered
+        assert "$1.8M" in rendered
+        assert "($$$$)" in rendered
+        assert ", Red tier (over $1 million)" in rendered  # in sr-only span
 
-    def test_outer_span_has_role_img_for_aria_label_validity(self, app):
-        """ARIA 1.2 §6.2.1 puts ``aria-label`` on a "prohibited naming"
-        list for elements with the implicit ``generic`` role — and a
-        plain ``<span>`` carries that implicit role. Without an explicit
-        ``role="img"``, the ``aria-label`` is ARIA-invalid and screen
-        readers like NVDA + Chrome and VoiceOver + Safari may silently
-        ignore it. Locking in ``role="img"`` here means a future "clean
-        up the markup" PR can't accidentally drop it without the test
-        catching the regression."""
+    def test_outer_span_has_no_role_or_aria_label_attributes(self, app):
+        """Belt-and-suspenders for the simplified markup: the outer
+        ``<span class="dollars dollars--*">`` must carry ONLY the class
+        attribute. No ``role``, no ``aria-label`` — those were removed
+        when switching to Option A to avoid double-announcement on
+        NVDA + Chrome and JAWS."""
         html = _render(app, Decimal("87500"))
-        assert 'role="img"' in html
-        # Belt-and-suspenders: the role and aria-label should be on the
-        # same outer span, not on the sr-only child. Slice the outer
-        # span attributes (between class="dollars" and the closing >)
-        # and verify both are present in that slice.
         idx = html.index('class="dollars dollars--')
         end = html.index(">", idx)
         outer_attrs = html[idx:end]
-        assert 'role="img"' in outer_attrs
-        assert "aria-label=" in outer_attrs
+        assert "role=" not in outer_attrs
+        assert "aria-label=" not in outer_attrs
 
-    def test_aria_label_attribute_is_quoted(self, app):
-        """Jinja autoescape should produce a properly double-quoted
-        ``aria-label`` attribute (no broken HTML even if the amount or
-        description ever contains characters that need escaping)."""
+    def test_dom_structure_two_spans_only(self, app):
+        """The simplified markup is exactly two ``<span>`` tags: an outer
+        ``.dollars`` wrapper and an inner ``.sr-only`` suffix. Anything
+        more (or fewer) would suggest a regression."""
         html = _render(app, Decimal("87500"))
-        # Find the aria-label and verify it's bounded by double-quotes
-        # and the closing quote exists before the next attribute or `>`.
-        idx = html.index('aria-label="')
-        # Find closing quote of the aria-label value
-        end = html.index('"', idx + len('aria-label="'))
-        # Between idx and end, there should be no unescaped newline-tab
-        # gunk that would break the attribute. (Jinja autoescape handles
-        # this; assertion guards against regressions.)
-        attr_value = html[idx + len('aria-label="'): end]
-        assert "\n" not in attr_value
-        # Must include the formatted amount + tier name + description.
-        assert "$87,500" in attr_value
-        assert "Yellow tier" in attr_value
-        assert "$50,000 to $250,000" in attr_value
+        assert html.count("<span") == 2
+        assert html.count("</span>") == 2
 
 
 # ---------------------------------------------------------------------------

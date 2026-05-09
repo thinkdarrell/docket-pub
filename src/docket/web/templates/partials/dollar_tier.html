@@ -1,9 +1,9 @@
 {# Dollar Tier with WCAG Markup — spec §6.1, decisions #71 + #75.
 
    Triple-redundant tier signal: color (CSS class) + symbol ($/$$/$$$/$$$$)
-   + screen-reader label (aria-label + sr-only). WCAG 2.1 AA compliant —
-   tier perception works without color, without sight, and on monochrome
-   printouts.
+   + screen-reader label (visually-hidden ``.sr-only`` span). WCAG 2.1 AA
+   compliant — tier perception works without color, without sight, and on
+   monochrome printouts.
 
    Inputs (via implicit context — parent passes ``amount``):
      - ``amount``  — Decimal | None. When None or invalid, renders nothing.
@@ -13,26 +13,17 @@
    spec markup. The ``format_dollars`` filter handles US-formatted output
    (rendering ``$1.8M`` for ≥ $1M, ``$NNN,NNN`` otherwise).
 
-   The parent ``aria-label`` is the canonical accessible name for assistive
-   tech that doesn't traverse children. The visible text + ``sr-only`` span
-   is the equivalent for tech that does. Some screen readers prioritize
-   one; some prioritize the other — both must convey the same meaning.
-
-   The ``role="img"`` attribute is required for ``aria-label`` to be
-   ARIA-valid on a ``<span>`` — without an explicit role, the implicit
-   ``generic`` role disallows naming per ARIA 1.2 §6.2.1 (the
-   "prohibited naming" list), which means screen readers like NVDA +
-   Chrome and VoiceOver + Safari may silently ignore the attribute.
-   With ``role="img"``, the element advertises itself as a self-contained
-   graphic-like unit for which ``aria-label`` is the accessible name.
-
-   Note on possible double-announcement: a screen reader that respects
-   ``aria-label`` AND traverses the visible children will announce the
-   amount + tier name twice (once from the aria-label, once from the
-   on-screen text + sr-only suffix). This is acceptable: it's a known
-   trade-off in WCAG 2.1 AA implementations and the alternative —
-   omitting either path — leaves users on the OTHER assistive-tech
-   contract uncovered. Decision #75 explicitly chose double-coverage.
+   Accessibility approach (Option A — visible text + sr-only span): this
+   is the canonical WCAG-compliant pattern and is well-supported across
+   all assistive tech (browse-mode and focus-mode, every major SR/browser
+   combo). No ``role="img"`` and no ``aria-label`` are needed: the visible
+   amount + symbol plus the sr-only suffix together form a single coherent
+   announcement that includes amount + symbol + tier color + threshold
+   context (e.g., "over $1 million"). Putting the threshold context inside
+   the sr-only span — instead of an ``aria-label`` — means every AT path
+   reads the same content, which removes the double-announcement risk
+   that ``aria-label`` + traversed children can produce on NVDA + Chrome
+   or JAWS.
 
    CSS hooks emitted (``.dollars`` / ``.dollars--*`` styles deferred to
    the later design pass — same posture as E2 badges and E3 engagement
@@ -52,9 +43,7 @@
 {%- set tier_data = amount | dollar_tier -%}
 {%- if tier_data -%}
 {%- set formatted = amount | format_dollars -%}
-<span class="dollars dollars--{{ tier_data.color }}"
-      role="img"
-      aria-label="{{ formatted }}, {{ tier_data.color|title }} tier ({{ tier_data.description }})">{{ formatted }}
-  ({{ tier_data.symbol }})<span class="sr-only">, {{ tier_data.color|title }} tier</span>
+<span class="dollars dollars--{{ tier_data.color }}">{{ formatted }}
+  ({{ tier_data.symbol }})<span class="sr-only">, {{ tier_data.color|title }} tier ({{ tier_data.description }})</span>
 </span>
 {%- endif -%}

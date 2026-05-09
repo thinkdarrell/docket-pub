@@ -2526,10 +2526,8 @@ visually-hidden screen-reader label. Implemented in
 {%- set tier_data = amount | dollar_tier -%}
 {%- if tier_data -%}
 {%- set formatted = amount | format_dollars -%}
-<span class="dollars dollars--{{ tier_data.color }}"
-      role="img"
-      aria-label="{{ formatted }}, {{ tier_data.color|title }} tier ({{ tier_data.description }})">{{ formatted }}
-  ({{ tier_data.symbol }})<span class="sr-only">, {{ tier_data.color|title }} tier</span>
+<span class="dollars dollars--{{ tier_data.color }}">{{ formatted }}
+  ({{ tier_data.symbol }})<span class="sr-only">, {{ tier_data.color|title }} tier ({{ tier_data.description }})</span>
 </span>
 {%- endif -%}
 ```
@@ -2542,36 +2540,32 @@ write `class="tier tier-{{ amt | dollar_tier }}"` continue to render
 `tier-green` etc. — no v2 template churn at the v2/v3 cutover.
 
 Where:
-- Green (<$50K) → `$87,500 ($)` + sr-only ", Green tier"
-- Yellow ($50K-$250K) → `$120,000 ($$)` + sr-only ", Yellow tier"
-- Orange ($250K-$1M) → `$640,000 ($$$)` + sr-only ", Orange tier"
-- Red (≥$1M) → `$1.8M ($$$$)` + sr-only ", Red tier" — the visible
-  amount abbreviates to `$N.NM` (one decimal place) at the $1M
-  threshold, matching decision #71's example markup. Sub-$1M renders
-  full precision (`$87,500`) for legibility; the abbreviation only
-  kicks in for Red-tier amounts where `$1,800,000` vs `$1.8M` is a
-  scannability call. The `format_dollars` filter
+- Green (<$50K) → `$87,500 ($)` + sr-only ", Green tier (under $50,000)"
+- Yellow ($50K-$250K) → `$120,000 ($$)` + sr-only ", Yellow tier ($50,000 to $250,000)"
+- Orange ($250K-$1M) → `$640,000 ($$$)` + sr-only ", Orange tier ($250,000 to $1 million)"
+- Red (≥$1M) → `$1.8M ($$$$)` + sr-only ", Red tier (over $1 million)"
+  — the visible amount abbreviates to `$N.NM` (one decimal place) at
+  the $1M threshold, matching decision #71's example markup. Sub-$1M
+  renders full precision (`$87,500`) for legibility; the abbreviation
+  only kicks in for Red-tier amounts where `$1,800,000` vs `$1.8M` is
+  a scannability call. The `format_dollars` filter
   (`docket.web.filters.format_dollars`) owns this contract.
-
-The parent `aria-label` carries the threshold context (e.g., "over
-$1 million") so a screen-reader user gets full tier semantics without
-needing to traverse the visible children. The visible
-`($$$$)` + `<span class="sr-only">, Red tier</span>` covers SRs that
-ignore `aria-label` and traverse children. Decision #75 chose
-double-coverage so neither SR contract is left uncovered; the
-trade-off is a possible double-announcement on SRs that do both.
 
 Triple-redundant signal: color + symbol + screen-reader text. WCAG 2.1
 AA compliant; tier perception works without color, without sight, and
 on monochrome printouts.
 
-The `role="img"` attribute is required for `aria-label` to be ARIA-valid
-on a `<span>` — without an explicit role, the implicit `generic` role
-disallows `aria-label` per ARIA 1.2 §6.2.1, which means screen readers
-like NVDA + Chrome and VoiceOver + Safari may silently ignore the
-attribute. With `role="img"`, the element advertises itself as a
-self-contained graphic-like unit for which `aria-label` is the
-accessible name.
+**Accessibility approach (Option A):** the partial uses the canonical
+visible-text + `.sr-only` span pattern with no `role="img"` and no
+`aria-label`. This pattern is well-supported across every major
+screen-reader / browser combination (browse-mode and focus-mode alike)
+and avoids the double-announcement risk that `role="img"` + `aria-label`
++ traversed children can produce on NVDA + Chrome and JAWS, where the
+SR can read the label and then re-read the visible children. The full
+tier semantic — formatted amount, symbol count, color name, and
+threshold-context phrase (e.g., "over $1 million") — lives entirely in
+the rendered DOM (visible text + sr-only suffix), so a single coherent
+announcement carries everything to every AT path.
 
 **Mobile Brevity-First layout (decision #66):** below 768px viewport,
 badge chips collapse to a horizontal scroll-snap row ABOVE the headline.
