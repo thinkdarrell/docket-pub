@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Manage badges — Admin — docket.pub{% endblock %}
+
+{#
+  G3.3 — Manual badge management for a single agenda item.
+
+  Renders the page chrome + the manage panel partial. The partial is
+  re-rendered by the HTMX add/remove endpoints, so any markup that
+  needs to be swappable lives in _badges_manage_panel.html.
+
+  hx-target on each form points to #badges-manage-panel; hx-swap is
+  outerHTML.
+#}
+
+{% block content %}
+<h1>Manage badges</h1>
+
+<p><a href="{{ url_for('admin.badges_audit') }}">← Audit log</a></p>
+
+<section class="manage-meta">
+  <p>
+    <strong>{{ item.title }}</strong><br>
+    <span class="t-meta">{{ item.municipality_name }} · {{ item.meeting_date }}</span>
+  </p>
+</section>
+
+{% include "admin/_badges_manage_panel.html" %}
+{% endblock %}

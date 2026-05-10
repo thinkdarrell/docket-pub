@@ -476,3 +476,52 @@ def test_admin_badge_audit_pagination_offset(admin_client, bag):
     # 'Next' link present (sentinel-pagination contract: hint when
     # there's a 51st row).
     assert "offset=50" in body or "offset=" in body
+
+
+# ---------------------------------------------------------------------------
+# G3.3 — /admin/badges/items/<id> manage UI
+# ---------------------------------------------------------------------------
+
+
+def test_manage_page_renders_for_logged_in_admin(admin_client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_item(m, title="Manage me")
+    bag.add_badge(iid, "split_vote", kind="process")
+
+    resp = admin_client.get(f"/admin/badges/items/{iid}")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "Manage me" in body
+    assert "split_vote" in body
+
+
+def test_manage_page_redirects_anonymous(client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_item(m)
+    resp = client.get(f"/admin/badges/items/{iid}")
+    assert resp.status_code in (302, 303)
+    assert "/admin/login" in resp.headers.get("Location", "")
+
+
+def test_manage_page_returns_404_for_unknown_item(admin_client):
+    resp = admin_client.get("/admin/badges/items/999999999")
+    assert resp.status_code == 404
+
+
+def test_manage_page_offers_addable_slugs_minus_attached(admin_client, bag):
+    """Available-to-add list must exclude badges already on the item."""
+    m = bag.add_meeting()
+    iid = bag.add_item(m, title="x")
+    bag.add_badge(iid, "split_vote", kind="process")
+
+    resp = admin_client.get(f"/admin/badges/items/{iid}")
+    body = resp.get_data(as_text=True)
+    # The dropdown must contain at least one process badge that isn't
+    # already on the item — process badges are uniform across cities so
+    # 'contested' is always available unless explicitly attached.
+    assert "contested" in body
+    # And the already-attached slug should NOT appear in the <select>
+    # options — it's only shown in the current-badges section.
+    # Test by checking that the substring 'value="split_vote"' (the
+    # form select option shape) is absent.
+    assert 'value="split_vote"' not in body

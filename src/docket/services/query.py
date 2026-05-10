@@ -2111,6 +2111,33 @@ def list_badge_audit_log(
         return [dict(row) for row in cur.fetchall()]
 
 
+def list_badges_on_item(item_id: int) -> list[dict]:
+    """Return active badges on a single agenda item, joined to template
+    metadata for display. Used by the G3 manage UI.
+
+    Returns dicts with: ``slug``, ``kind``, ``confidence``, ``source``,
+    ``name``, ``description``, ``icon``. Empty list if no badges.
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT aib.badge_slug AS slug,
+                   aib.kind,
+                   aib.confidence,
+                   aib.source,
+                   t.name,
+                   t.description,
+                   t.icon
+              FROM agenda_item_badges aib
+              JOIN priority_badge_templates t ON t.slug = aib.badge_slug
+             WHERE aib.agenda_item_id = %s
+             ORDER BY aib.kind, aib.badge_slug
+            """,
+            (item_id,),
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+
 def list_upcoming_hearings(city_id: int, *, days_ahead: int = 60, limit: int = 50) -> list[dict]:
     """Return future-dated hearings in ``city_id`` likely to surface a
     public hearing — used by the upcoming-hearings RSS feed (F5.2).

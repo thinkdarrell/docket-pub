@@ -646,11 +646,63 @@ def badges_audit():
     )
 
 
-# Task 3 forward-declaration: ``admin.badges_audit`` template links to
-# the manage page via ``url_for('admin.badges_manage_item', ...)``. Flask
-# resolves ``url_for`` at render time, so the endpoint must exist. The
-# real implementation is Task 3 below; this stub registers the name so
-# the audit viewer renders without 500ing.
-@bp.route("/badges/items/<int:item_id>", endpoint="badges_manage_item")
-def _badges_manage_item_stub(item_id: int):
+@bp.route("/badges/items/<int:item_id>")
+def badges_manage_item(item_id: int):
+    """Manage the badge set for a single item.
+
+    Shows the item's current badges (with remove buttons) and a
+    dropdown of badges available to add (process + city-policy). Each
+    button is an HTMX form posting to the add/remove endpoints; the
+    response swaps the panel back in.
+
+    404 if the item doesn't exist. Auth via blueprint hook.
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT ai.id, ai.title,
+                   m.id   AS municipality_id,
+                   m.slug AS municipality_slug,
+                   m.name AS municipality_name,
+                   mt.id  AS meeting_id,
+                   mt.meeting_date
+              FROM agenda_items ai
+              JOIN meetings mt ON mt.id = ai.meeting_id
+              JOIN municipalities m ON m.id = mt.municipality_id
+             WHERE ai.id = %s
+            """,
+            (item_id,),
+        )
+        item = cur.fetchone()
+        if item is None:
+            abort(404)
+        item = dict(item)
+
+    current = query.list_badges_on_item(item_id)
+    attached_slugs = {b["slug"] for b in current}
+    addable = [
+        b for b in query.list_enabled_badges(item["municipality_id"])
+        if b["slug"] not in attached_slugs
+    ]
+
+    return render_template(
+        "admin/badges_manage.html",
+        item=item,
+        current=current,
+        addable=addable,
+    )
+
+
+# Task 4/5 forward-declarations: the manage panel partial references
+# ``admin.badge_add_via_form`` and ``admin.badge_remove`` via
+# ``url_for(...)``. These stubs register the endpoint names so the
+# manage page renders during Task 3 tests. Task 4 + 5 replace the
+# stub bodies with real handlers.
+@bp.route("/badges/<int:item_id>/add", methods=["POST"], endpoint="badge_add_via_form")
+def _badge_add_via_form_stub(item_id: int):
+    abort(404)
+
+
+@bp.route("/badges/<int:item_id>/remove/<slug>", methods=["POST"], endpoint="badge_remove")
+def _badge_remove_stub(item_id: int, slug: str):
     abort(404)
