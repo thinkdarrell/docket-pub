@@ -988,3 +988,202 @@ def test_edit_facts_returns_409_when_item_resolved_during_llm_call(
     actions = [r[2] for r in rows]
     assert "edit_stage1_facts_lost_race" in actions
     assert "edit_stage1_facts" not in actions
+
+
+# ---------------------------------------------------------------------------
+# G4 review fix-up regression tests
+# ---------------------------------------------------------------------------
+
+
+def test_edit_facts_pre_llm_race_does_not_overwrite_completed_facts(
+    admin_client, bag, monkeypatch,
+):
+    """B-R1 regression: when a concurrent admin resolves between
+    ``_load_conflict_item`` and the early ``extracted_facts`` UPDATE,
+    the early UPDATE must NOT overwrite the now-completed row's facts.
+    Post-fix the early UPDATE carries a TOCTOU predicate and fails
+    fast before the LLM call, writing a distinct
+    ``edit_stage1_facts_lost_race_pre_llm`` audit row.
+
+    Test mechanism (adapted from the prompt's spec to avoid the
+    FOR-UPDATE deadlock the prompt warned about):
+    pre-flip the row to 'completed' with a sentinel facts payload, and
+    monkeypatch ``_load_conflict_item`` to *bypass the real SELECT* and
+    return a fabricated 'cross_stage_conflict' dict. This simulates the
+    state the losing admin's transaction would observe if it loaded the
+    row a microsecond before the winner committed — without holding the
+    FOR UPDATE lock that would otherwise deadlock the racing UPDATE.
+    The function then proceeds to the early UPDATE, which sees the
+    actual row state ('completed') via its TOCTOU predicate, rowcount=0
+    fires, and the pre-LLM lost-race audit row is written.
+    """
+    import docket.services.conflict_resolution as conflict_mod
+
+    m = bag.add_meeting()
+    iid = bag.add_conflict_item(m, title="pre-LLM race target")
+    sentinel_facts = dict(SAMPLE_FACTS)
+    sentinel_facts["counterparty"] = "DO_NOT_OVERWRITE"
+
+    # Pre-flip the row to the post-race shape: 'completed' with the
+    # winning admin's facts intact (the accept_stage_1-style outcome
+    # where Stage 1 facts are kept while status flips).
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE agenda_items
+               SET processing_status = 'completed'::processing_status_enum,
+                   extracted_facts = %s::jsonb
+             WHERE id = %s
+            """,
+            (json.dumps(sentinel_facts), iid),
+        )
+
+    # Fabricate a 'cross_stage_conflict' dict so the function thinks
+    # the row is still in conflict at load time. Bypassing the real
+    # SELECT also avoids the FOR UPDATE lock (which would otherwise
+    # deadlock against any racing UPDATE issued from a separate
+    # connection inside the test).
+    fake_loaded_item = {
+        "id": iid,
+        "title": "pre-LLM race target",
+        "description": "stub",
+        "sponsor": None,
+        "dollars_amount": 75000,
+        "topic": None,
+        "is_consent": False,
+        "extracted_facts": sentinel_facts,
+        "score_overrides": {},
+        "processing_status": "cross_stage_conflict",
+        "municipality_id": bag.city_id,
+        "city_name": bag.city_slug,
+    }
+
+    def _fake_load(cur, item_id):
+        if item_id == iid:
+            return fake_loaded_item
+        return None
+
+    monkeypatch.setattr(conflict_mod, "_load_conflict_item", _fake_load)
+
+    # LLM mock — should NEVER be called. Track invocations so a
+    # regression where the function reaches the LLM is observable.
+    from docket.ai.rewrite_schema import ItemRewrite
+    llm_called: list[bool] = []
+
+    def _mock_rewrite(*args, **kwargs):
+        llm_called.append(True)
+        return (
+            ItemRewrite(
+                is_substantive=False,
+                headline=None,
+                why_it_matters=None,
+                significance_rationale="",
+                significance_score=None,
+                consent_placement_rationale="",
+                consent_placement_score=None,
+                suggested_badge_slugs=[],
+                confidence="medium",
+            ),
+            "claude-haiku-4-5-20251001",
+        )
+
+    monkeypatch.setattr(conflict_mod, "rewrite_item", _mock_rewrite)
+
+    corrected = dict(SAMPLE_FACTS)
+    corrected["counterparty"] = "FRESH_EDIT"
+    resp = admin_client.post(
+        f"/admin/review/conflicts/{iid}/edit-stage-1-facts",
+        data={"new_facts_json": json.dumps(corrected)},
+    )
+
+    # Route returns 409 (lost race).
+    assert resp.status_code == 409
+    # LLM was NOT called — pre-LLM fail-fast is the whole point.
+    assert llm_called == []
+    # The row's extracted_facts is the racing admin's sentinel, NOT
+    # the losing admin's correction.
+    item = _read_item(iid)
+    assert item["extracted_facts"]["counterparty"] == "DO_NOT_OVERWRITE"
+    # Audit row carries the new pre-LLM lost-race action.
+    rows = _audit_rows(iid)
+    actions = [r[2] for r in rows]
+    assert "edit_stage1_facts_lost_race_pre_llm" in actions
+    assert "edit_stage1_facts" not in actions
+
+
+def test_re_prompt_returns_400_on_stored_facts_pydantic_drift(admin_client, bag):
+    """B-R2 regression: ``re_prompt_stage_2`` validates stored
+    ``extracted_facts`` via Pydantic. On drift (unknown keys with
+    ``extra='forbid'``, or missing required fields), the bare
+    ``model_validate`` previously raised ``ValidationError`` → Flask
+    500. Post-fix it is wrapped → ``ConflictValidationError`` →
+    route 400.
+
+    Seed an agenda_items row in cross_stage_conflict with a malformed
+    ``extracted_facts`` JSONB (StructuredFacts has ``extra='forbid'``).
+    """
+    m = bag.add_meeting()
+    bad_facts = {"unknown_key_that_pydantic_rejects": "garbage"}
+    # Bypass the helper's SAMPLE_FACTS to seed deliberately-bad JSONB.
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO agenda_items
+              (meeting_id, title, description, dollars_amount,
+               extracted_facts, score_overrides,
+               data_debt_priority, processing_status)
+            VALUES (%s, 'pydantic drift test', 'desc', 50000,
+                    %s::jsonb, '{}'::jsonb,
+                    'normal'::data_debt_priority_enum,
+                    'cross_stage_conflict'::processing_status_enum)
+            RETURNING id
+            """,
+            (m, json.dumps(bad_facts)),
+        )
+        iid = cur.fetchone()[0]
+    bag.item_ids.append(iid)
+
+    resp = admin_client.post(
+        f"/admin/review/conflicts/{iid}/re-prompt-stage-2",
+        data={"override_instruction": "Try."},
+    )
+    assert resp.status_code == 400
+    body = resp.get_data(as_text=True)
+    assert "stored extracted_facts failed validation" in body
+
+
+def test_accept_s2_lost_race_surfaces_4xx_with_body(admin_client, bag):
+    """F-S1 regression: Accept Stage 2 race-loss surfaces as 4xx with
+    a non-empty plain-text body the form's
+    ``hx-on:htmx:response-error`` handler can render into the
+    ``.form-error`` span.
+
+    Mechanism: an item in 'completed' state (not cross_stage_conflict)
+    is the post-race shape. ``accept_stage_2``'s ``_load_conflict_item``
+    returns None → LookupError → route 404. The 404 body is the Flask
+    default text; the ``.form-error`` handler renders any non-2xx body,
+    so even Flask's default 'Not Found' is sufficient for a visible
+    failure surface.
+    """
+    m = bag.add_meeting()
+    # Item is in 'completed' state directly — simulates the post-race
+    # state that the losing admin's Accept-S2 click would encounter.
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO agenda_items
+              (meeting_id, title, processing_status)
+            VALUES (%s, 'already resolved',
+                    'completed'::processing_status_enum)
+            RETURNING id
+            """,
+            (m,),
+        )
+        iid = cur.fetchone()[0]
+    bag.item_ids.append(iid)
+
+    resp = admin_client.post(f"/admin/review/conflicts/{iid}/accept-stage-2")
+    assert resp.status_code == 404
+    # Non-empty body — HTMX's response-error handler will render it
+    # into ``.form-error``.
+    assert resp.get_data(as_text=True) != ""

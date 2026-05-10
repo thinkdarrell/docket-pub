@@ -97,10 +97,12 @@
       <form hx-post="{{ url_for('admin.conflict_accept_stage_2', item_id=item.id) }}"
             hx-target="#row-{{ item.id }}"
             hx-swap="outerHTML"
+            hx-on:htmx:response-error="this.querySelector('.form-error').textContent = event.detail.xhr.responseText"
             style="display: block;">
         <button type="submit" class="btn-accept-s2">
           ❌ Accept Stage 2 (clear facts)
         </button>
+        <span class="form-error" role="alert"></span>
       </form>
       <button class="btn-re-prompt"
               hx-get="{{ url_for('admin.conflict_form_re_prompt', item_id=item.id) }}"
