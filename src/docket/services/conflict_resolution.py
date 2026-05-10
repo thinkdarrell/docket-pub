@@ -226,3 +226,66 @@ def accept_stage_1(item_id: int, *,
         success=True,
         detail="Stage 1 accepted; manual headline + why_it_matters applied.",
     )
+
+
+# ---------------------------------------------------------------------------
+# Action 2 — Accept Stage 2 (clear Stage 1 facts, mark procedural)
+# ---------------------------------------------------------------------------
+
+
+def accept_stage_2(item_id: int, *,
+                    actor: str,
+                    reason: str | None = None) -> ResolutionResult:
+    """Admin says: 'Stage 2 was right — this IS procedural.'
+
+    Clears Stage 1 facts that confused the reconcile gate; clears
+    headline/why_it_matters; flips status to 'completed'. The item
+    will render via the procedural Smart Brevity Card variant
+    (just title, no headline/why_it_matters) — same as any other
+    procedural item.
+
+    No LLM call.
+
+    Raises LookupError if item not in cross_stage_conflict.
+    """
+    if reason is not None:
+        reason = reason.strip()
+        if len(reason) > REASON_MAX:
+            raise ConflictValidationError(
+                f"reason must be at most {REASON_MAX} chars"
+            )
+        reason = reason or None
+
+    with db() as conn, conn.cursor() as cur:
+        item = _load_conflict_item(cur, item_id)
+        if item is None:
+            raise LookupError(f"item {item_id} not in cross_stage_conflict")
+
+        cur.execute(
+            """
+            UPDATE agenda_items
+               SET extracted_facts = NULL,
+                   headline = NULL,
+                   why_it_matters = NULL,
+                   processing_status = 'completed'::processing_status_enum
+             WHERE id = %s
+            """,
+            (item_id,),
+        )
+        _audit(
+            cur, item_id,
+            from_status="cross_stage_conflict",
+            to_status="completed",
+            action="accept_stage2",
+            actor=actor,
+            reason=reason,
+        )
+
+    log.info("admin accept_stage2: item_id=%s actor=%s", item_id, actor)
+    return ResolutionResult(
+        item_id=item_id,
+        new_status="completed",
+        action="accept_stage2",
+        success=True,
+        detail="Stage 1 facts cleared; item marked procedural.",
+    )

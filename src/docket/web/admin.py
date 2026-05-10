@@ -1001,4 +1001,22 @@ def conflict_form_edit_facts(item_id: int):
 
 @bp.route("/review/conflicts/<int:item_id>/accept-stage-2", methods=["POST"])
 def conflict_accept_stage_2(item_id: int):
-    abort(501)
+    """POST-only: clear Stage 1 facts + flip status to completed.
+
+    No form expander — the listing template's button posts directly.
+    Optional ``reason`` field in the body is persisted to
+    ``processing_status_audit.reason``.
+    """
+    actor = session.get("admin_user", "unknown")
+    reason = request.form.get("reason")
+
+    try:
+        result = conflict_svc.accept_stage_2(
+            item_id, actor=actor, reason=reason,
+        )
+    except conflict_svc.ConflictValidationError as e:
+        return (str(e), 400)
+    except LookupError:
+        abort(404)
+
+    return render_template("admin/_conflict_resolved.html", result=result)

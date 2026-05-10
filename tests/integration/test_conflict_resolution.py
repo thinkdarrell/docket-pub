@@ -538,3 +538,93 @@ def test_accept_s1_requires_login(client, bag):
     assert "/admin/login" in resp.headers.get("Location", "")
     item = _read_item(iid)
     assert item["processing_status"] == "cross_stage_conflict"
+
+
+# ---------------------------------------------------------------------------
+# G4.3b — accept_stage_2 (clear Stage 1 facts, mark procedural)
+# ---------------------------------------------------------------------------
+
+
+def test_accept_s2_clears_extracted_facts(admin_client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_conflict_item(m)
+
+    resp = admin_client.post(f"/admin/review/conflicts/{iid}/accept-stage-2")
+    assert resp.status_code == 200
+
+    item = _read_item(iid)
+    assert item["extracted_facts"] is None
+    assert item["headline"] is None
+    assert item["why_it_matters"] is None
+    assert item["processing_status"] == "completed"
+
+
+def test_accept_s2_writes_audit_row(admin_client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_conflict_item(m)
+
+    admin_client.post(f"/admin/review/conflicts/{iid}/accept-stage-2")
+
+    rows = _audit_rows(iid)
+    assert len(rows) == 1
+    from_status, to_status, action, actor, role, _, _ = rows[0]
+    assert from_status == "cross_stage_conflict"
+    assert to_status == "completed"
+    assert action == "accept_stage2"
+    assert actor == "tester"
+    assert role == "admin"
+
+
+def test_accept_s2_optional_reason_persisted(admin_client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_conflict_item(m)
+
+    admin_client.post(
+        f"/admin/review/conflicts/{iid}/accept-stage-2",
+        data={"reason": "Title-only proclamation, no substance."},
+    )
+
+    rows = _audit_rows(iid)
+    _, _, _, _, _, reason, _ = rows[0]
+    assert reason == "Title-only proclamation, no substance."
+
+
+def test_accept_s2_404_for_unknown_item(admin_client):
+    resp = admin_client.post("/admin/review/conflicts/999999999/accept-stage-2")
+    assert resp.status_code == 404
+
+
+def test_accept_s2_404_for_item_not_in_conflict(admin_client, bag):
+    m = bag.add_meeting()
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO agenda_items
+              (meeting_id, title, processing_status)
+            VALUES (%s, 'completed item',
+                    'completed'::processing_status_enum)
+            RETURNING id
+            """,
+            (m,),
+        )
+        iid = cur.fetchone()[0]
+    bag.item_ids.append(iid)
+    resp = admin_client.post(f"/admin/review/conflicts/{iid}/accept-stage-2")
+    assert resp.status_code == 404
+
+
+def test_accept_s2_requires_post(admin_client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_conflict_item(m)
+    resp = admin_client.get(f"/admin/review/conflicts/{iid}/accept-stage-2")
+    assert resp.status_code == 405
+
+
+def test_accept_s2_requires_login(client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_conflict_item(m)
+    resp = client.post(f"/admin/review/conflicts/{iid}/accept-stage-2")
+    assert resp.status_code in (302, 303)
+    assert "/admin/login" in resp.headers.get("Location", "")
+    item = _read_item(iid)
+    assert item["processing_status"] == "cross_stage_conflict"
