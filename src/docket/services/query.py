@@ -6,6 +6,7 @@ Every read operation goes through this module. Returns dataclasses or dicts.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Iterable, Sequence
 
 from docket.db import db_cursor
@@ -1988,6 +1989,124 @@ def list_failed_permanent_items_all_cities(
             LIMIT %s OFFSET %s
             """,
             (limit, offset),
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+
+def list_badge_audit_log(
+    *,
+    badge_slug: str | None = None,
+    actor: str | None = None,
+    since: datetime | None = None,
+    until_exclusive: datetime | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[dict]:
+    """Return ``agenda_item_badges_audit`` rows joined to context for
+    the G3 viewer at ``/admin/badges/audit``. Spec §6.10.
+
+    Filters (all optional, all combinable):
+
+    - ``badge_slug`` — exact match on ``aiba.badge_slug``.
+    - ``actor`` — exact match on ``aiba.actor`` (case-sensitive; admin
+      usernames are the existing convention).
+    - ``since`` — **timezone-aware** ``datetime``; returns rows where
+      ``occurred_at >= since``. Inclusive lower bound. Callers should
+      build this from a YYYY-MM-DD form input by combining the date
+      with start-of-day in ``America/Chicago`` (decision #10).
+    - ``until_exclusive`` — **timezone-aware** ``datetime`` representing
+      the **exclusive upper bound**. Returns rows where
+      ``occurred_at < until_exclusive``. Callers translate
+      ``until=YYYY-MM-DD`` (which the user understands as "include the
+      whole day") into start-of-(day+1) in ``America/Chicago`` —
+      that's why the parameter name explicitly says ``_exclusive``.
+      Avoids end-of-day microsecond gymnastics.
+
+    psycopg2 binds timezone-aware ``datetime`` values to ``timestamptz``
+    natively; no ``::timestamptz`` cast in the SQL is needed when the
+    Python value is already aware. Naive ``datetime`` would be an
+    error here — the caller is responsible for tz-attachment.
+
+    Sort: ``occurred_at DESC, id DESC`` — newest-first, with id as
+    tiebreaker for same-second rows. Hits ``idx_badge_audit_recent``
+    (migration 013:251-253) when ``actor_role='admin'`` is in the
+    predicate; G3 doesn't restrict to admin actor_role at the helper
+    level (the viewer surfaces all roles so cron and on-write actions
+    are debuggable too), so this is a sequential scan over the audit
+    table. That's acceptable for v1 — admin traffic is bounded by
+    ``login_required`` and the table is small (one row per badge
+    add/remove/modify, currently zero in production).
+
+    Pagination: caller passes ``limit`` and ``offset``; sentinel
+    pagination is the caller's responsibility (caller passes
+    ``limit+1`` and slices). Same shape as
+    :func:`list_data_debt_items`.
+
+    Returns a list of dicts. Joined columns:
+
+    - ``id``, ``agenda_item_id``, ``badge_slug``, ``action``,
+      ``actor``, ``actor_role``, ``reason``, ``occurred_at`` — direct
+      from ``agenda_item_badges_audit``.
+    - ``item_title`` — from ``agenda_items.title``.
+    - ``meeting_date`` — from ``meetings.meeting_date``.
+    - ``municipality_slug``, ``municipality_name`` — from
+      ``municipalities`` for cross-city display.
+
+    NB: the audit table's ``agenda_item_id`` FK to ``agenda_items``
+    has no ``ON DELETE CASCADE``, so audit rows live forever even if
+    the item is deleted. Use a LEFT JOIN so old audit rows still
+    surface (with NULL item_title / meeting_date / municipality_*).
+    """
+    where_clauses: list[str] = []
+    params: list = []
+
+    if badge_slug:
+        where_clauses.append("aiba.badge_slug = %s")
+        params.append(badge_slug)
+    if actor:
+        where_clauses.append("aiba.actor = %s")
+        params.append(actor)
+    if since is not None:
+        if since.tzinfo is None:
+            raise ValueError("list_badge_audit_log: 'since' must be timezone-aware")
+        where_clauses.append("aiba.occurred_at >= %s")
+        params.append(since)
+    if until_exclusive is not None:
+        if until_exclusive.tzinfo is None:
+            raise ValueError(
+                "list_badge_audit_log: 'until_exclusive' must be timezone-aware"
+            )
+        where_clauses.append("aiba.occurred_at < %s")
+        params.append(until_exclusive)
+
+    where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+    params.extend([limit, offset])
+
+    with db_cursor() as cur:
+        cur.execute(
+            f"""
+            SELECT
+              aiba.id,
+              aiba.agenda_item_id,
+              aiba.badge_slug,
+              aiba.action,
+              aiba.actor,
+              aiba.actor_role,
+              aiba.reason,
+              aiba.occurred_at,
+              ai.title                 AS item_title,
+              mt.meeting_date          AS meeting_date,
+              m.slug                   AS municipality_slug,
+              m.name                   AS municipality_name
+            FROM agenda_item_badges_audit aiba
+            LEFT JOIN agenda_items ai ON ai.id = aiba.agenda_item_id
+            LEFT JOIN meetings mt ON mt.id = ai.meeting_id
+            LEFT JOIN municipalities m ON m.id = mt.municipality_id
+            {where_sql}
+            ORDER BY aiba.occurred_at DESC, aiba.id DESC
+            LIMIT %s OFFSET %s
+            """,
+            tuple(params),
         )
         return [dict(row) for row in cur.fetchall()]
 
