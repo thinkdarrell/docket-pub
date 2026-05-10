@@ -1497,6 +1497,295 @@ def year_ticks(start_date, end_date) -> list[dict]:
     return out
 
 
+# --- Browse-by-Priority helpers (F4) ----------------------------------------
+#
+# Spec §6.7 (homepage Browse-by-Priority section) + §6.8 (cross-filter
+# dropdown on category landing). Four small helpers feed two homepage
+# grids (4 BHM policy + 7 always-on process tiles) and the dropdown.
+#
+# Pattern note: each helper returns either a count or a list of dicts.
+# The route layer (``public.py``) composes them — counts are zipped onto
+# the badge dicts before passing to the template, so the template stays
+# a single loop per grid (no Jinja-side fan-out, no global functions).
+# Same precedent F2 set with ``category_kpis`` + ``list_items_by_badge``.
+
+
+def badge_volume_year(
+    city_id: int,
+    badge_slug: str,
+    *,
+    year: int | None = None,
+) -> int:
+    """Count items carrying ``badge_slug`` in ``city_id`` for a calendar year.
+
+    Used by the homepage Browse-by-Priority **policy** tiles ("N this
+    year"). Reuses the same significance + confidence + status gates as
+    ``list_items_by_badge`` and ``category_kpis`` (decision #61) so the
+    tile counts match what citizens see when they click into the
+    category landing page.
+
+    - ``confidence >= 0.6`` (single-source low-confidence matches hidden)
+    - ``processing_status = 'completed'`` (v3 items only)
+    - Per-badge ``min_significance`` gate via
+      ``resolve_significance_threshold`` — no-op for process badges,
+      kicks in for policy badges (default 3).
+
+    Year defaults to ``date.today().year``. Inclusive boundary on both
+    ends (``meeting_date BETWEEN '<year>-01-01' AND '<year>-12-31'``).
+
+    We query base tables rather than ``mv_badge_volume_monthly`` because
+    the MV doesn't carry the significance dimension — sum'ing n_items
+    across months would over-count for policy badges with low-sig items.
+    The (city_id, badge_slug, confidence DESC) index keeps this fast.
+    """
+    if year is None:
+        from datetime import date as _date
+        year = _date.today().year
+
+    threshold = resolve_significance_threshold(city_id, badge_slug)
+
+    sql_parts = [
+        """
+        SELECT COUNT(*) AS n
+        FROM agenda_item_badges aib
+        JOIN agenda_items ai ON ai.id = aib.agenda_item_id
+        JOIN meetings m      ON m.id = ai.meeting_id
+        WHERE aib.city_id = %s
+          AND aib.badge_slug = %s
+          AND aib.confidence >= 0.6
+          AND ai.processing_status = 'completed'
+          AND m.meeting_date BETWEEN %s AND %s
+        """
+    ]
+    params: list = [city_id, badge_slug, f"{year}-01-01", f"{year}-12-31"]
+
+    if threshold is not None:
+        sql_parts.append(" AND ai.significance_score >= %s")
+        params.append(threshold)
+
+    with db_cursor() as cur:
+        cur.execute("".join(sql_parts), params)
+        row = cur.fetchone() or {}
+        return int(row.get("n") or 0)
+
+
+def badge_volume_recent(
+    city_id: int,
+    badge_slug: str,
+    *,
+    days: int = 30,
+) -> int:
+    """Count items carrying ``badge_slug`` in the last ``days`` days.
+
+    Used by the homepage Browse-by-Priority **process** tiles ("N last
+    30 days"). Same gating rules as ``badge_volume_year`` — confidence
+    + status + significance — so tile counts and category-page counts
+    line up.
+
+    Process badges (``hidden_on_consent``, ``sole_source``, etc.) all
+    have ``kind='process'`` and resolve to ``threshold=None``, so the
+    significance branch is a no-op for them. Keeping the threshold
+    branch in here anyway means a future "policy on a 30-day window"
+    use case stays consistent.
+
+    The MV is monthly-grained so a 30-day window can't read from it
+    cleanly; this helper hits base tables. The
+    ``(city_id, badge_slug, confidence DESC)`` index from migration 013
+    is still the leading predicate, and the date bound is the second
+    selectivity filter — fast enough for a homepage cold load.
+
+    ``days`` is a positive integer; ``days=0`` returns 0 (treats today
+    as the only day, but ``CURRENT_DATE - 0 * INTERVAL '1 day'`` is
+    still today, so really ``days=0`` returns the count for today
+    alone — semantics aren't load-bearing for the spec's 30-day default).
+    """
+    threshold = resolve_significance_threshold(city_id, badge_slug)
+
+    sql_parts = [
+        """
+        SELECT COUNT(*) AS n
+        FROM agenda_item_badges aib
+        JOIN agenda_items ai ON ai.id = aib.agenda_item_id
+        JOIN meetings m      ON m.id = ai.meeting_id
+        WHERE aib.city_id = %s
+          AND aib.badge_slug = %s
+          AND aib.confidence >= 0.6
+          AND ai.processing_status = 'completed'
+          AND m.meeting_date >= CURRENT_DATE - %s * INTERVAL '1 day'
+        """
+    ]
+    params: list = [city_id, badge_slug, days]
+
+    if threshold is not None:
+        sql_parts.append(" AND ai.significance_score >= %s")
+        params.append(threshold)
+
+    with db_cursor() as cur:
+        cur.execute("".join(sql_parts), params)
+        row = cur.fetchone() or {}
+        return int(row.get("n") or 0)
+
+
+def list_city_policy_badges(city_id: int) -> list[dict]:
+    """Return enabled policy badges for ``city_id``, ordered for display.
+
+    Reads the JOIN of ``priority_badge_templates`` (kind='policy') against
+    ``priority_badges_config`` filtered to ``enabled=TRUE``. A city with
+    no opt-ins (e.g., Mobile pre-config) returns ``[]`` — the homepage
+    grid simply doesn't render. BHM is seeded into all 4 policy badges
+    by migration 013 so the typical render is 4 tiles.
+
+    Each dict carries: ``slug``, ``name``, ``description``, ``icon``,
+    ``kind`` — same shape ``get_resolved_badge`` returns, with name/
+    description override applied. Keeps the homepage tile and the
+    category-landing header in lockstep on labels.
+
+    Sort: alphabetical by resolved name. Policy badges don't have an
+    inherent "alarm order" (decision #64 only ranks process badges), so
+    a stable alpha sort keeps the grid layout predictable.
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT t.slug,
+                   COALESCE(c.name_override, t.name)               AS name,
+                   COALESCE(c.description_override, t.description) AS description,
+                   t.icon,
+                   t.kind
+            FROM priority_badge_templates t
+            JOIN priority_badges_config c
+              ON c.template_slug = t.slug
+             AND c.city_id = %s
+            WHERE t.kind = 'policy'
+              AND c.enabled = TRUE
+            ORDER BY name
+            """,
+            (city_id,),
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+
+def list_enabled_badges(city_id: int) -> list[dict]:
+    """Return every badge available for ``city_id`` — policy + process.
+
+    Used by the category-landing cross-filter dropdown (spec §6.8) so
+    citizens browsing one badge can refine to items also tagged with
+    another. Combines:
+
+    - **Policy badges**: must have an ``enabled=TRUE`` row in
+      ``priority_badges_config`` for ``city_id``.
+    - **Process badges**: always-on across cities (no config row
+      requirement) — same model ``list_process_badges`` uses.
+
+    Sort: process badges first (in alarm-priority order matching
+    decision #64), then policy badges alphabetically. Mirrors the chip
+    row's process-then-policy convention so dropdown order doesn't
+    surprise a user who's learned chip semantics.
+
+    Each dict carries: ``slug``, ``name``, ``icon``, ``kind`` —
+    name/description overrides applied for policy badges that have a
+    config row. Process badges read from the template directly (no
+    overrides — process badges are intentionally uniform across cities).
+
+    Callers (the route handler) typically subtract the current
+    ``badge_slug`` from this list before rendering — no point in
+    offering "filter by the badge you're already on" as an option.
+    """
+    process_alarm_order = [
+        "hidden_on_consent",
+        "legal_settlement",
+        "contested",
+        "sole_source",
+        "emergency_action",
+        "split_vote",
+        "amends_prior_contract",
+    ]
+    order_index = {slug: i for i, slug in enumerate(process_alarm_order)}
+
+    with db_cursor() as cur:
+        # One query, two-arm UNION:
+        # - process: every template with kind='process' (always-on),
+        #   read straight from the templates table.
+        # - policy: templates with kind='policy' that the city has
+        #   opted into via priority_badges_config.enabled=TRUE.
+        cur.execute(
+            """
+            SELECT t.slug,
+                   t.name,
+                   t.icon,
+                   t.kind
+            FROM priority_badge_templates t
+            WHERE t.kind = 'process'
+            UNION ALL
+            SELECT t.slug,
+                   COALESCE(c.name_override, t.name) AS name,
+                   t.icon,
+                   t.kind
+            FROM priority_badge_templates t
+            JOIN priority_badges_config c
+              ON c.template_slug = t.slug
+             AND c.city_id = %s
+            WHERE t.kind = 'policy'
+              AND c.enabled = TRUE
+            """,
+            (city_id,),
+        )
+        rows = [dict(row) for row in cur.fetchall()]
+
+    def _sort_key(r: dict) -> tuple:
+        # Process before policy; within process, alarm order; within
+        # policy, alphabetical by display name.
+        if r["kind"] == "process":
+            return (0, order_index.get(r["slug"], 999), r["name"])
+        return (1, 0, r["name"])
+
+    rows.sort(key=_sort_key)
+    return rows
+
+
+def list_process_badges() -> list[dict]:
+    """Return all 7 process badge templates, in the alarm-priority order.
+
+    Process badges are always-on across cities (Section 4.2 of the
+    spec). They are NOT seeded into ``priority_badges_config`` per-city
+    — their existence in ``priority_badge_templates`` is itself the
+    enable signal. So this helper reads the templates table directly
+    and ignores the config table.
+
+    Sort follows decision #64's ``process_alarm_order`` — the same
+    order applied to per-item badge chips (``order_badges`` in the
+    badge_chip helpers). Keeping homepage-grid order aligned with
+    chip-row order means a citizen who learns "🔥 = Contested" on the
+    chip row reads it the same way on the homepage grid.
+
+    Unknown templates (e.g., a future 8th process badge added to the
+    seed before alarm_order is updated) sort to the end.
+    """
+    process_alarm_order = [
+        "hidden_on_consent",
+        "legal_settlement",
+        "contested",
+        "sole_source",
+        "emergency_action",
+        "split_vote",
+        "amends_prior_contract",
+    ]
+    order_index = {slug: i for i, slug in enumerate(process_alarm_order)}
+
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT slug, name, description, icon, kind
+            FROM priority_badge_templates
+            WHERE kind = 'process'
+            """
+        )
+        rows = [dict(row) for row in cur.fetchall()]
+
+    rows.sort(key=lambda r: order_index.get(r["slug"], 999))
+    return rows
+
+
 # --- High-value item queries ------------------------------------------------
 
 

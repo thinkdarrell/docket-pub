@@ -89,6 +89,35 @@ def city_overview(slug):
     recent_city = [m for m in recent if m.get("municipality_slug") == slug]
     upcoming_city = [m for m in upcoming if m.get("municipality_slug") == slug]
 
+    # F4 Browse-by-Priority (spec §6.7): two grids passed as
+    # pre-decorated dicts — counts are zipped on here in the route, NOT
+    # computed via Jinja globals (route-side pre-compute pattern set by
+    # F2). Counts are gated identically to ``list_items_by_badge`` /
+    # ``category_kpis`` so a tile reading "12 this year" matches what
+    # the citizen will see when they click into the category page.
+    #
+    # Cost: each grid does one count query per badge, all light
+    # (covered by ``idx_agenda_item_badges_city_slug_conf``). 4 + 7 = 11
+    # SELECT COUNT queries per cold city homepage render, then cached
+    # for 5 min by the existing ``_overview_cache``. If this turns out
+    # to be a hot-path tax post-deploy, the natural follow-up is a
+    # single GROUP BY query rolled into ``list_*_badges``.
+    current_year = date.today().year
+    city_policy_badges = [
+        {**b,
+         "count": query.badge_volume_year(
+             municipality["id"], b["slug"], year=current_year
+         )}
+        for b in query.list_city_policy_badges(municipality["id"])
+    ]
+    process_badges = [
+        {**b,
+         "count": query.badge_volume_recent(
+             municipality["id"], b["slug"], days=30
+         )}
+        for b in query.list_process_badges()
+    ]
+
     rendered = render_template(
         "city.html",
         municipality=municipality,
@@ -102,6 +131,8 @@ def city_overview(slug):
         contested_votes=contested,
         recent_votes=recent_votes,
         stats=stats,
+        city_policy_badges=city_policy_badges,
+        process_badges=process_badges,
         now=datetime.now(),
     )
     _overview_cache[slug] = (now_ts, rendered)
@@ -281,6 +312,20 @@ def category_landing(slug: str, badge_slug: str):
         else {}
     )
 
+    # F4 cross-filter dropdown options (spec §6.8). Every enabled badge
+    # for the city minus the one we're currently on — no point in
+    # offering "filter by the page you're already viewing." Process
+    # badges (always-on) and policy badges (city-opted-in) both surface;
+    # ``list_enabled_badges`` enforces the gates so we don't filter here.
+    # Pre-computed in the route (route-side pre-compute pattern set by
+    # F2) — the template is a single-loop dropdown render, not a Jinja
+    # call into a global function.
+    available_badges = [
+        b
+        for b in query.list_enabled_badges(municipality["id"])
+        if b["slug"] != badge_slug
+    ]
+
     return render_template(
         "category_landing.html",
         municipality=municipality,
@@ -292,6 +337,7 @@ def category_landing(slug: str, badge_slug: str):
         year_ticks=timeline_year_ticks,
         cross_filters=cross_filters,
         cross_filter_badges=cross_filter_badges,
+        available_badges=available_badges,
         offset=offset,
         next_offset=next_offset,
         current_year=current_year,

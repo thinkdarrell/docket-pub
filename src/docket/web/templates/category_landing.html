@@ -75,11 +75,11 @@
 
 {# ── Filter controls ────────────────────────────────── #}
 {# Spec §6.5 ASCII shows a confidence dropdown and a cross-filter
-   dropdown. F2 ships the cross-filter chip row (read-only summary of
-   active filters) and a hint about what's coming. F4 lands the HTMX
-   dropdown with hx-push-url so filter changes are bookmarkable. The
-   chip row visually surfaces the current ``?and=...`` so the user
-   knows what's filtering the list below. #}
+   dropdown. F2 shipped the cross-filter chip row (read-only summary of
+   active filters). F4 adds the HTMX cross-filter <select> with
+   hx-push-url so a citizen can refine by another badge and bookmark or
+   share the resulting URL. The chip row below visually surfaces the
+   current ``?and=...`` so the user knows what's filtering the list. #}
 <section class="feed">
     <header class="feed-head">
         <div>
@@ -99,6 +99,37 @@
         </a>
         {% endif %}
     </header>
+
+    {# F4 cross-filter dropdown (spec §6.8). Single-select for v1 — the
+       MVP UX matches the spec's ASCII. The route already accepts a
+       comma-separated list (``?and=blight,housing``), so a future
+       multi-select is purely a UI swap (``<select multiple>`` +
+       hx-include logic). Keep this comment when revisiting. #}
+    {% if available_badges %}
+    <form class="cross-filter-form" style="padding: 8px 0;"
+          hx-target="#item-list"
+          hx-trigger="change from:select.cross-filter"
+          hx-push-url="true">
+        <label class="t-label" for="cross-filter-select" style="display:block; margin-bottom:4px;">
+            Combine with another badge
+        </label>
+        <select name="and" id="cross-filter-select" class="cross-filter"
+                hx-get="{{ url_for('public.category_landing', slug=municipality.slug, badge_slug=badge.slug) }}"
+                hx-target="#item-list"
+                hx-include="this"
+                hx-trigger="change"
+                hx-push-url="true"
+                style="font: inherit; padding: 6px 8px; min-width: 280px;">
+            <option value="">— combine with another badge —</option>
+            {% for other in available_badges %}
+            <option value="{{ other.slug }}"
+                    {% if other.slug in cross_filters %}selected{% endif %}>
+                {{ other.icon }} {{ other.name }}
+            </option>
+            {% endfor %}
+        </select>
+    </form>
+    {% endif %}
 
     {% if cross_filters %}
     <div class="cross-filter-chips" style="display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 0;">
@@ -122,7 +153,12 @@
 </section>
 
 {# ── Item list ─────────────────────────────────────── #}
-<section class="feed">
+{# id="item-list" is the HTMX swap target for the cross-filter select
+   above. A future swap-friendly refactor (return only the inner section
+   on HTMX requests) can plug in here without changing the trigger or
+   target — the dropdown is bookmark-friendly today via hx-push-url +
+   the route always returns a full page. #}
+<section class="feed" id="item-list">
     <header class="feed-head">
         <div>
             <div class="t-eyebrow">Items</div>
