@@ -474,7 +474,10 @@ def test_year_ticks_empty_when_end_before_start():
 def test_route_renders_svg_with_term_band_and_title(bag, client):
     """End-to-end: GET the category landing page with seeded data —
     response must include the SVG, a mayoral term-overlay rect, and at
-    least one <title> tooltip (substantive bar)."""
+    least one <title> tooltip (substantive bar). Also asserts the
+    fix-up structure: column-wide hit-area rect carries the <title>,
+    visible segment rects carry aria-hidden="true" (S4).
+    """
     yr = date.today().year
     m = bag.add_meeting(f"{yr}-04-15")
     item = bag.add_item(
@@ -493,6 +496,115 @@ def test_route_renders_svg_with_term_band_and_title(bag, client):
     assert "Each bar is one month" in body
     # F2 placeholder copy must NOT appear — F3 replaced it.
     assert "Visualizations coming soon" not in body
+
+    # S4 — the fix-up moves the <title> to a column-wide hit-area rect
+    # and aria-hides the visible segments. There must be at least one
+    # hit-area rect and at least one aria-hidden segment.
+    assert 'class="volume-bar--hit"' in body, (
+        "expected column-wide hit-area rect (R1 fix-up)"
+    )
+    assert 'class="volume-bar volume-bar--substantive"' in body
+    assert 'aria-hidden="true"' in body, (
+        "visible segment rects must be aria-hidden after R1 fix-up"
+    )
+
+    # S2 — structural counts. We rendered exactly 60 monthly buckets
+    # in the 5-year window (current_year-4 .. current_year), so we
+    # expect exactly 60 hit-area rects regardless of how many months
+    # actually have data.
+    assert body.count('class="volume-bar--hit"') == 60, (
+        "every bucket (including empty months) must emit a hit-area rect"
+    )
+    # Year-tick labels: one per calendar year in the 5-year window.
+    assert body.count('class="axis-label"') == 5
+
+    # The hit-area's <title> for the seeded April month must be
+    # substring-correct (period prefix + counts).
+    expected_title_substr = (
+        f"{yr}-04-01: 1 total (0 on consent, 1 substantive)"
+    )
+    assert expected_title_substr in body, (
+        f"hit-area <title> for April should contain {expected_title_substr!r}"
+    )
+
+    # Mayoral overlay claim only renders when mayoral_terms is non-empty.
+    assert "Background bands show which mayor presided" in body, (
+        "BHM seeds mayoral_terms — claim should render"
+    )
+
+
+def test_route_mixed_month_emits_three_rects_and_full_title(bag, client):
+    """S1 + S5 — seed a mixed month (1 substantive + 1 consent in the
+    same bucket). Exactly THREE rects are emitted for that bucket
+    (substantive + consent + hit-area), in that DOM order, and the
+    hit-area <title> carries period + n_items + n_consent +
+    n_substantive + total_dollars.
+    """
+    yr = date.today().year
+    m = bag.add_meeting(f"{yr}-05-15")
+    sub_item = bag.add_item(
+        m, title="Mixed-substantive", dollars_amount=12_000, is_consent=False,
+    )
+    con_item = bag.add_item(
+        m, title="Mixed-consent", dollars_amount=8_000, is_consent=True,
+    )
+    bag.add_badge(sub_item, "blight_accountability")
+    bag.add_badge(con_item, "blight_accountability")
+    _refresh_mv()
+
+    rv = client.get(f"/al/{bag.city_slug}/blight_accountability/")
+    assert rv.status_code == 200
+    body = rv.get_data(as_text=True)
+
+    # The May bucket must have all three rect classes present.
+    assert 'class="volume-bar volume-bar--substantive"' in body
+    assert 'class="volume-bar volume-bar--consent"' in body
+    assert 'class="volume-bar--hit"' in body
+
+    # Hit-area <title>: full data summary including total_dollars.
+    expected = (
+        f"{yr}-05-01: 2 total (1 on consent, 1 substantive), $20,000"
+    )
+    assert expected in body, (
+        f"mixed-month hit-area <title> should contain {expected!r}"
+    )
+
+    # S5 — DOM order: for the May bucket, the substantive rect must
+    # appear before the consent rect, which must appear before the
+    # hit-area rect. The hit-area going LAST is what makes SVG paint
+    # stacking (and pointer-events="all") work.
+    #
+    # Use a regex tolerant of Jinja whitespace — class and data-period
+    # land on adjacent lines in the rendered output.
+    import re
+    period_attr = f'data-period="{yr}-05-01"'
+    assert period_attr in body, (
+        "May bucket should carry data-period attribute"
+    )
+    rect_pattern = re.compile(
+        r'class="(volume-bar--hit|volume-bar volume-bar--substantive|'
+        r'volume-bar volume-bar--consent)"\s+data-period="' + re.escape(f"{yr}-05-01") + '"'
+    )
+    matches = [(m.start(), m.group(1)) for m in rect_pattern.finditer(body)]
+    classes_in_order = [cls for _, cls in matches]
+    assert "volume-bar volume-bar--substantive" in classes_in_order, (
+        "substantive segment for May not rendered"
+    )
+    assert "volume-bar volume-bar--consent" in classes_in_order, (
+        "consent segment for May not rendered"
+    )
+    assert "volume-bar--hit" in classes_in_order, (
+        "hit-area for May not rendered"
+    )
+    expected_order = [
+        "volume-bar volume-bar--substantive",
+        "volume-bar volume-bar--consent",
+        "volume-bar--hit",
+    ]
+    assert classes_in_order == expected_order, (
+        "DOM order for May rects must be substantive → consent → "
+        f"hit-area, got {classes_in_order!r}"
+    )
 
 
 def test_route_renders_empty_state_when_no_data(bag, client):

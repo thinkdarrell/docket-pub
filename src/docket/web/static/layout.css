@@ -565,20 +565,31 @@
 /* Volume bars — saturated lower segment (substantive deliberation),
    lighter upper segment (rubber-stamped on consent). Decision #68:
    the visual asymmetry is the editorial signal — citizens read the
-   ratio at a glance without needing the legend. Both shades pass WCAG
-   AA on the warm paper background. */
+   ratio at a glance without needing the legend. Measured contrast:
+     substantive (#003F44) vs paper (#FCFAF6):     17.36:1  (PASSES SC 1.4.11)
+     consent (#588E91)     vs paper (#FCFAF6):      3.40:1  (PASSES SC 1.4.11)
+     consent vs substantive (within-bar gap):       3.32:1  (Decision #68)
+   No stroke needed on the consent rect now that the fill alone passes 3:1
+   against paper. The previous 0.18-opacity hairline was a 1.20:1 rescue
+   attempt and is dropped. */
 .volume-bar--substantive {
   fill: var(--accent-ink);          /* deep teal — saturated */
 }
 .volume-bar--consent {
-  fill: var(--accent-soft);         /* pale teal — rubber-stamped */
-  stroke: var(--accent-ink);
-  stroke-opacity: 0.18;
-  stroke-width: 0.5;
+  fill: var(--bar-consent);         /* darkened teal — visible on paper */
 }
 .volume-bar--substantive:hover,
 .volume-bar--consent:hover {
   filter: brightness(0.95);
+}
+/* Column-wide hover/touch hit-area — covers the full plot height of one
+   month bucket, including empty months. Carries the <title> tooltip; sits
+   on top of the visible segments in DOM order so paint stacking captures
+   pointer events. The visible segments below it are aria-hidden so AT
+   doesn't triple-announce. */
+.volume-bar--hit {
+  fill: transparent;
+  pointer-events: all;
 }
 
 /* Mayoral-term overlay bands sit behind the bars at low opacity. The

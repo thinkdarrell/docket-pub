@@ -31,8 +31,8 @@
             <p class="t-meta" style="max-width: 560px; margin-top: 8px;">
                 Each bar is one month. The lower (darker) portion is
                 items voted on individually; the lighter portion is
-                items rubber-stamped on the consent agenda. Background
-                bands show which mayor presided.
+                items rubber-stamped on the consent agenda.{% if mayoral_terms %}
+                Background bands show which mayor presided.{% endif %}
             </p>
         </div>
     </header>
@@ -46,48 +46,51 @@
 
         {# Mayoral-term overlay bands sit BEHIND the bars so they don't
            obscure data. Party class drives the band color via CSS
-           (term-overlay--D / --R / --I). #}
+           (term-overlay--D / --R / --I). Opacity matches spec §6.6
+           line 3109. #}
         {% for term in (mayoral_terms or []) %}
         <rect x="{{ term.x_start }}" y="0"
               width="{{ term.width }}" height="200"
               class="term-overlay term-overlay--{{ term.party }}"
-              opacity="0.10"></rect>
+              opacity="0.08"></rect>
         <text x="{{ term.x_label }}" y="14"
               class="term-label" text-anchor="middle">{{ term.mayor }}</text>
         {% endfor %}
 
-        {# Volume bars — substantive (lower) + consent (upper) per
-           decision #68. Each bar pair carries ONE <title> on the
-           consent rect (the visually-topmost segment) so hover anywhere
-           on the column shows the same tooltip. #}
+        {# Volume bars — three rects per bucket per decision #68:
+             1. substantive (lower, saturated) — visible, decoration-only
+             2. consent     (upper, lighter)   — visible, decoration-only
+             3. hit-area    (column-wide, full plot height, transparent) —
+                carries the <title> tooltip and captures hover/touch even
+                for empty months.
+           DOM order matters: the hit-area MUST render last so SVG paint
+           stacking puts it on top and `pointer-events="all"` wins. The
+           visible segments are aria-hidden so AT only announces the
+           hit-area's <title>, not all three rects. #}
         {% for point in timeline %}
         {% if point.height_substantive > 0 %}
         <rect x="{{ point.x }}" y="{{ point.y_substantive }}"
               width="{{ point.width }}" height="{{ point.height_substantive }}"
               class="volume-bar volume-bar--substantive"
               data-period="{{ point.period }}"
-              data-count="{{ point.n_items }}"></rect>
+              data-count="{{ point.n_items }}"
+              aria-hidden="true"></rect>
         {% endif %}
         {% if point.height_consent > 0 %}
         <rect x="{{ point.x }}" y="{{ point.y_consent }}"
               width="{{ point.width }}" height="{{ point.height_consent }}"
               class="volume-bar volume-bar--consent"
               data-period="{{ point.period }}"
+              data-count="{{ point.n_items }}"
+              aria-hidden="true"></rect>
+        {% endif %}
+        <rect x="{{ point.hit_x }}" y="{{ point.hit_y }}"
+              width="{{ point.hit_width }}" height="{{ point.hit_height }}"
+              class="volume-bar--hit"
+              data-period="{{ point.period }}"
               data-count="{{ point.n_items }}">
             <title>{{ point.period }}: {{ point.n_items }} total ({{ point.n_consent }} on consent, {{ point.n_substantive }} substantive){% if point.total_dollars and point.total_dollars > 0 %}, {{ point.total_dollars | format_dollars }}{% endif %}</title>
         </rect>
-        {% elif point.height_substantive > 0 %}
-        {# All items substantive this month — surface the tooltip on the
-           lone substantive rect by re-emitting it with a <title>. We
-           overlay a transparent "hit area" rect on top so hover works
-           consistently. #}
-        <rect x="{{ point.x }}" y="{{ point.y_substantive }}"
-              width="{{ point.width }}" height="{{ point.height_substantive }}"
-              class="volume-bar volume-bar--hit"
-              fill-opacity="0">
-            <title>{{ point.period }}: {{ point.n_items }} total ({{ point.n_consent }} on consent, {{ point.n_substantive }} substantive){% if point.total_dollars and point.total_dollars > 0 %}, {{ point.total_dollars | format_dollars }}{% endif %}</title>
-        </rect>
-        {% endif %}
         {% endfor %}
 
         {# Year-tick labels — one per calendar year in the window,

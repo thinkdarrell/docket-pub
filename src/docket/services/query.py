@@ -1223,11 +1223,11 @@ def badge_volume_series(
     definition so we don't re-apply it here.
 
     Returns one dict per month in ``[start_date, end_date]`` — including
-    months that have zero items, which produce zero-height bars. Filling
-    in the gaps in Python (rather than excluding them) preserves the
-    "every month is a column" property so adjacent bars never visually
-    collide when one month happens to be empty (decision #68's
-    consent-baseline visual depends on consistent column spacing).
+    months that have zero items. Filling in the gaps in Python (rather
+    than excluding them) preserves the "every month is a column"
+    property so the per-bucket hit-area rect always has a slot, even for
+    empty months — citizens hovering an empty column still get the
+    "0 items" tooltip rather than a silent gap.
 
     Each returned dict carries:
 
@@ -1237,9 +1237,16 @@ def badge_volume_series(
     - ``total_dollars`` — Decimal, used by the tooltip and KPI parity
     - ``x``, ``width`` — bar geometry (px in viewBox space)
     - ``y_substantive``, ``height_substantive`` — lower bar segment
-      (items NOT on consent — the saturated color)
+      (items NOT on consent — the saturated color); height is 0 when
+      the month has no substantive items
     - ``y_consent``, ``height_consent`` — upper bar segment (items on
-      consent — the lighter shade per spec §6.6 line 3144)
+      consent — the lighter shade per spec §6.6 line 3144); height is 0
+      when the month has no consent items
+    - ``hit_x``, ``hit_width`` — full-column hit-area geometry; spans
+      the entire bucket including the inter-bar gap so adjacent
+      hit-areas tile without seams
+    - ``hit_y``, ``hit_height`` — covers the full plot area
+      (PLOT_TOP..PLOT_BOTTOM) so empty months still capture hover
 
     The bar plotting area is y=``VOLUME_TIMELINE_PLOT_TOP`` to
     y=``VOLUME_TIMELINE_PLOT_BOTTOM``. Bar heights scale to the max
@@ -1300,9 +1307,11 @@ def badge_volume_series(
     bar_gap = min(col_width * 0.15, 2.0)
     bar_width = max(col_width - bar_gap, 1.0)
 
-    # Vertical scale: tallest bar uses the full plot height. If every
-    # month is zero we still emit zero-height bars (so `<title>` tooltips
-    # work as a flat baseline).
+    # Vertical scale: tallest bar uses the full plot height. The
+    # column-wide hit-area `<rect>` (one per bucket, full plot height)
+    # carries the `<title>` tooltip — visible bar segments stay
+    # `aria-hidden` and decoration-only. Empty months still emit a
+    # hit-area so hover/touch reads "0 items" rather than a silent gap.
     max_items = max(
         (rows_by_month.get(m, {}).get("n_items", 0) or 0) for m in months
     )
@@ -1334,6 +1343,12 @@ def badge_volume_series(
         height_substantive = sub_h
         height_consent = con_h
 
+        # Column-wide hit-area: spans the entire bucket (including
+        # inter-bar gap) and the full plot vertical range, so empty
+        # months and adjacent buckets tile seamlessly under hover/touch.
+        hit_x = i * col_width
+        hit_width = col_width
+
         out.append(
             {
                 "period": month,
@@ -1347,6 +1362,10 @@ def badge_volume_series(
                 "height_substantive": round(height_substantive, 3),
                 "y_consent": round(y_consent, 3),
                 "height_consent": round(height_consent, 3),
+                "hit_x": round(hit_x, 3),
+                "hit_width": round(hit_width, 3),
+                "hit_y": round(VOLUME_TIMELINE_PLOT_TOP, 3),
+                "hit_height": round(VOLUME_TIMELINE_PLOT_HEIGHT, 3),
             }
         )
     return out

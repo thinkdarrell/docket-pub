@@ -183,7 +183,7 @@ def category_landing(slug: str, badge_slug: str):
     """Category landing page for a priority badge in a city.
 
     Renders spec §6.5: header (badge icon + name + city), KPI strip,
-    volume timeline (F3 lands the real partial; F2 ships an empty stub),
+    volume timeline (server-rendered SVG via partials/volume_timeline.html),
     filter controls, item list (Smart Brevity Cards), load-more pagination.
 
     404s on:
