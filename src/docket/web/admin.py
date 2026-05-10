@@ -931,14 +931,64 @@ def review_conflicts():
     )
 
 
-# Forward-declaration stubs (replaced by real handlers in Tasks 3, 4, 5, 6).
-# Without these the Task 2 listing template can't render — Jinja chokes
-# on unknown url_for endpoints at template-render time.
+from docket.services import conflict_resolution as conflict_svc
+
+
 @bp.route("/review/conflicts/<int:item_id>/_form/accept-stage-1")
 def conflict_form_accept_s1(item_id: int):
-    abort(501)
+    """GET-only HTMX form expander — renders the inline accept-Stage-1 form
+    for a single item (manual_headline + manual_why_it_matters inputs).
+
+    Pre-conditional: the item must exist and be in cross_stage_conflict;
+    otherwise 404 to avoid leaking the form for a completed item."""
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT id, title, processing_status::text "
+            "FROM agenda_items WHERE id = %s",
+            (item_id,),
+        )
+        row = cur.fetchone()
+    if row is None or row["processing_status"] != "cross_stage_conflict":
+        abort(404)
+
+    return render_template(
+        "admin/_conflict_form_accept_s1.html",
+        item_id=item_id,
+    )
 
 
+@bp.route("/review/conflicts/<int:item_id>/accept-stage-1", methods=["POST"])
+def conflict_accept_stage_1(item_id: int):
+    """POST-only: persist manual_headline + manual_why_it_matters,
+    flip status to completed, write audit row.
+
+    Returns the rendered ``_conflict_resolved.html`` partial as the
+    HTMX swap target. Validation errors return 400 + plain-text body
+    (HTMX will render in-place; no full re-render of the row).
+    """
+    actor = session.get("admin_user", "unknown")
+    headline = request.form.get("manual_headline", "")
+    why = request.form.get("manual_why_it_matters", "")
+
+    try:
+        result = conflict_svc.accept_stage_1(
+            item_id,
+            manual_headline=headline,
+            manual_why_it_matters=why,
+            actor=actor,
+        )
+    except conflict_svc.ConflictValidationError as e:
+        return (str(e), 400)
+    except LookupError:
+        abort(404)
+
+    return render_template(
+        "admin/_conflict_resolved.html",
+        result=result,
+    )
+
+
+# Forward-declaration stubs (replaced by real handlers in Tasks 4, 5, 6).
 @bp.route("/review/conflicts/<int:item_id>/_form/re-prompt")
 def conflict_form_re_prompt(item_id: int):
     abort(501)

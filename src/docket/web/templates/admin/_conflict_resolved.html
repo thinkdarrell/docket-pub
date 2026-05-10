@@ -1,0 +1,27 @@
+{#
+  G4 HTMX swap target after a resolution action.
+  outerHTML-swapped into #row-N <tr>. Renders a one-line confirmation
+  row with the action verb + new status. The original conflict row is
+  gone from the DOM; once the page is refreshed, the item won't appear
+  in the list anymore (filtered out by the cross_stage_conflict
+  predicate in list_cross_stage_conflicts).
+
+  For re_prompt_stage_2 / edit_stage_1_facts where the resolution may
+  itself fail to converge (still in conflict), success=False renders
+  the .failed variant — the row remains but flagged as needing
+  another attempt.
+#}
+<tr id="row-{{ result.item_id }}">
+  <td colspan="4" class="conflict-resolved {% if not result.success %}failed{% endif %}">
+    <strong>
+      {% if result.success %}
+        ✅ Resolved
+      {% else %}
+        ⚠️ Still in conflict
+      {% endif %}
+    </strong>
+    via <code>{{ result.action }}</code> ·
+    new status: <code>{{ result.new_status }}</code>
+    {% if result.detail %} · {{ result.detail }}{% endif %}
+  </td>
+</tr>

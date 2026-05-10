@@ -358,3 +358,183 @@ def test_review_conflicts_pagination_offset(admin_client, bag):
     body = resp.get_data(as_text=True)
     assert resp.status_code == 200
     assert "offset=25" in body or "offset=" in body
+
+
+# ---------------------------------------------------------------------------
+# G4.3a — accept_stage_1 (manual headline/why_it_matters)
+# ---------------------------------------------------------------------------
+
+
+def test_accept_s1_form_renders_inline(admin_client, bag):
+    """GET to the form-expander returns the inline form HTML."""
+    m = bag.add_meeting()
+    iid = bag.add_conflict_item(m)
+    resp = admin_client.get(f"/admin/review/conflicts/{iid}/_form/accept-stage-1")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert 'name="manual_headline"' in body
+    assert 'name="manual_why_it_matters"' in body
+
+
+def test_accept_s1_post_writes_headline_and_why_it_matters(admin_client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_conflict_item(m)
+
+    resp = admin_client.post(
+        f"/admin/review/conflicts/{iid}/accept-stage-1",
+        data={
+            "manual_headline": "City awards $75K janitorial contract",
+            "manual_why_it_matters": "Renews custodial services across 12 city buildings.",
+        },
+    )
+    assert resp.status_code == 200  # HTMX swap response
+
+    item = _read_item(iid)
+    assert item["headline"] == "City awards $75K janitorial contract"
+    assert item["why_it_matters"] == "Renews custodial services across 12 city buildings."
+    assert item["processing_status"] == "completed"
+
+
+def test_accept_s1_writes_audit_row_with_payload(admin_client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_conflict_item(m)
+
+    admin_client.post(
+        f"/admin/review/conflicts/{iid}/accept-stage-1",
+        data={
+            "manual_headline": "City awards $75K janitorial contract",
+            "manual_why_it_matters": "Renews custodial services across 12 city buildings.",
+        },
+    )
+
+    rows = _audit_rows(iid)
+    assert len(rows) == 1
+    from_status, to_status, action, actor, role, _, payload = rows[0]
+    assert from_status == "cross_stage_conflict"
+    assert to_status == "completed"
+    assert action == "accept_stage1"
+    assert actor == "tester"
+    assert role == "admin"
+    # payload is JSONB; psycopg2 returns dict
+    assert payload["manual_headline"] == "City awards $75K janitorial contract"
+
+
+def test_accept_s1_validates_headline_length(admin_client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_conflict_item(m)
+
+    # Headline too short (<10 chars) — must reject 400.
+    resp = admin_client.post(
+        f"/admin/review/conflicts/{iid}/accept-stage-1",
+        data={
+            "manual_headline": "Too short",  # 9 chars
+            "manual_why_it_matters": "valid description",
+        },
+    )
+    assert resp.status_code == 400
+
+    # Headline too long (>60 chars) — must reject 400.
+    resp = admin_client.post(
+        f"/admin/review/conflicts/{iid}/accept-stage-1",
+        data={
+            "manual_headline": "x" * 61,
+            "manual_why_it_matters": "valid description",
+        },
+    )
+    assert resp.status_code == 400
+
+    # State unchanged on rejection.
+    item = _read_item(iid)
+    assert item["processing_status"] == "cross_stage_conflict"
+
+
+def test_accept_s1_validates_why_it_matters_length(admin_client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_conflict_item(m)
+
+    # Empty why_it_matters — must reject.
+    resp = admin_client.post(
+        f"/admin/review/conflicts/{iid}/accept-stage-1",
+        data={"manual_headline": "Valid headline length here", "manual_why_it_matters": ""},
+    )
+    assert resp.status_code == 400
+
+    # >200 chars — must reject.
+    resp = admin_client.post(
+        f"/admin/review/conflicts/{iid}/accept-stage-1",
+        data={
+            "manual_headline": "Valid headline length here",
+            "manual_why_it_matters": "x" * 201,
+        },
+    )
+    assert resp.status_code == 400
+
+
+def test_accept_s1_returns_resolved_swap_target(admin_client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_conflict_item(m, title="Swap target test")
+    resp = admin_client.post(
+        f"/admin/review/conflicts/{iid}/accept-stage-1",
+        data={
+            "manual_headline": "City awards $75K janitorial contract",
+            "manual_why_it_matters": "Renews custodial services for 12 buildings.",
+        },
+    )
+    body = resp.get_data(as_text=True)
+    assert resp.status_code == 200
+    # Resolved partial sets a row id matching the original.
+    assert f'id="row-{iid}"' in body
+    assert "Resolved" in body or "completed" in body.lower()
+
+
+def test_accept_s1_404_for_unknown_item(admin_client):
+    resp = admin_client.post(
+        "/admin/review/conflicts/999999999/accept-stage-1",
+        data={"manual_headline": "Valid headline length", "manual_why_it_matters": "ok"},
+    )
+    assert resp.status_code == 404
+
+
+def test_accept_s1_404_for_item_not_in_conflict(admin_client, bag):
+    """Resolution actions only valid against cross_stage_conflict items.
+    A completed item must 404 — no silent partial overwrite."""
+    m = bag.add_meeting()
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO agenda_items
+              (meeting_id, title, processing_status)
+            VALUES (%s, 'completed item',
+                    'completed'::processing_status_enum)
+            RETURNING id
+            """,
+            (m,),
+        )
+        iid = cur.fetchone()[0]
+    bag.item_ids.append(iid)
+
+    resp = admin_client.post(
+        f"/admin/review/conflicts/{iid}/accept-stage-1",
+        data={"manual_headline": "Valid headline length", "manual_why_it_matters": "ok"},
+    )
+    assert resp.status_code == 404
+
+
+def test_accept_s1_requires_post(admin_client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_conflict_item(m)
+    resp = admin_client.get(f"/admin/review/conflicts/{iid}/accept-stage-1")
+    assert resp.status_code == 405
+
+
+def test_accept_s1_requires_login(client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_conflict_item(m)
+    resp = client.post(
+        f"/admin/review/conflicts/{iid}/accept-stage-1",
+        data={"manual_headline": "Valid headline length", "manual_why_it_matters": "ok"},
+    )
+    assert resp.status_code in (302, 303)
+    assert "/admin/login" in resp.headers.get("Location", "")
+    item = _read_item(iid)
+    assert item["processing_status"] == "cross_stage_conflict"
