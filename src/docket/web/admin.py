@@ -988,12 +988,46 @@ def conflict_accept_stage_1(item_id: int):
     )
 
 
-# Forward-declaration stubs (replaced by real handlers in Tasks 4, 5, 6).
 @bp.route("/review/conflicts/<int:item_id>/_form/re-prompt")
 def conflict_form_re_prompt(item_id: int):
-    abort(501)
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT id, processing_status::text "
+            "FROM agenda_items WHERE id = %s",
+            (item_id,),
+        )
+        row = cur.fetchone()
+    if row is None or row["processing_status"] != "cross_stage_conflict":
+        abort(404)
+    return render_template(
+        "admin/_conflict_form_re_prompt.html",
+        item_id=item_id,
+    )
 
 
+@bp.route("/review/conflicts/<int:item_id>/re-prompt-stage-2", methods=["POST"])
+def conflict_re_prompt_stage_2(item_id: int):
+    actor = session.get("admin_user", "unknown")
+    override = request.form.get("override_instruction", "")
+
+    try:
+        result = conflict_svc.re_prompt_stage_2(
+            item_id, override_instruction=override, actor=actor,
+        )
+    except conflict_svc.ConflictValidationError as e:
+        return (str(e), 400)
+    except conflict_svc.ConflictAlreadyResolvedError as e:
+        # Decision #12 — TOCTOU race lost. 409 + plain-text body so the
+        # form's hx-on:htmx:response-error handler renders the message
+        # in-place; the form stays open.
+        return (str(e), 409)
+    except LookupError:
+        abort(404)
+
+    return render_template("admin/_conflict_resolved.html", result=result)
+
+
+# Forward-declaration stub (replaced by real handler in Task 6).
 @bp.route("/review/conflicts/<int:item_id>/_form/edit-facts")
 def conflict_form_edit_facts(item_id: int):
     abort(501)

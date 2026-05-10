@@ -628,3 +628,219 @@ def test_accept_s2_requires_login(client, bag):
     assert "/admin/login" in resp.headers.get("Location", "")
     item = _read_item(iid)
     assert item["processing_status"] == "cross_stage_conflict"
+
+
+# ---------------------------------------------------------------------------
+# G4.3c — re_prompt_stage_2 (admin override + Stage 2 re-run)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def mock_rewrite_item(monkeypatch):
+    """Patch rewrite.rewrite_item to a controllable mock.
+
+    Returns a MagicMock so each test can configure its return_value.
+    Default behavior: returns a substantive rewrite that will reconcile
+    cleanly (action='accept').
+    """
+    from docket.ai.rewrite_schema import ItemRewrite
+    mock = MagicMock()
+    mock.return_value = (
+        ItemRewrite(
+            is_substantive=True,
+            headline="Council awards $75K janitorial contract",
+            why_it_matters="Renews custodial services across 12 city buildings.",
+            significance_rationale="Modest ongoing operating expense.",
+            significance_score=4.0,
+            consent_placement_rationale="Routine ops contract.",
+            consent_placement_score=8.0,
+            suggested_badge_slugs=[],
+            confidence="medium",
+        ),
+        "claude-haiku-4-5-20251001",
+    )
+    monkeypatch.setattr("docket.services.conflict_resolution.rewrite_item", mock)
+    return mock
+
+
+def test_re_prompt_form_renders_inline(admin_client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_conflict_item(m)
+    resp = admin_client.get(f"/admin/review/conflicts/{iid}/_form/re-prompt")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert 'name="override_instruction"' in body
+
+
+def test_re_prompt_resolves_conflict_when_rerun_is_substantive(
+    admin_client, bag, mock_rewrite_item,
+):
+    """Happy path: admin override -> Stage 2 returns substantive ->
+    reconcile accepts -> status flips to completed."""
+    m = bag.add_meeting()
+    iid = bag.add_conflict_item(m)
+
+    resp = admin_client.post(
+        f"/admin/review/conflicts/{iid}/re-prompt-stage-2",
+        data={"override_instruction": "This IS substantive — a contract award."},
+    )
+    assert resp.status_code == 200
+
+    item = _read_item(iid)
+    assert item["processing_status"] == "completed"
+    assert item["headline"] == "Council awards $75K janitorial contract"
+
+    rows = _audit_rows(iid)
+    assert len(rows) == 1
+    _, to_status, action, _, _, _, payload = rows[0]
+    assert to_status == "completed"
+    assert action == "re_prompt_stage2"
+    assert payload["override_instruction"] == \
+        "This IS substantive — a contract award."
+    assert payload["reconcile_action"] == "accept"
+
+
+def test_re_prompt_stays_in_conflict_when_rerun_still_procedural(
+    admin_client, bag, monkeypatch,
+):
+    """Sad path: admin override -> Stage 2 STILL says procedural ->
+    reconcile says still in conflict -> status stays at conflict;
+    audit row records the failed-resolution attempt."""
+    from docket.ai.rewrite_schema import ItemRewrite
+
+    def _mock(*args, **kwargs):
+        return (
+            ItemRewrite(
+                is_substantive=False,
+                headline=None,
+                why_it_matters=None,
+                significance_rationale="",
+                significance_score=None,
+                consent_placement_rationale="",
+                consent_placement_score=None,
+                suggested_badge_slugs=[],
+                confidence="medium",
+            ),
+            "claude-haiku-4-5-20251001",
+        )
+    monkeypatch.setattr("docket.services.conflict_resolution.rewrite_item", _mock)
+
+    m = bag.add_meeting()
+    iid = bag.add_conflict_item(m, dollars_amount=100_000)  # yellow tier
+    resp = admin_client.post(
+        f"/admin/review/conflicts/{iid}/re-prompt-stage-2",
+        data={"override_instruction": "Try harder."},
+    )
+    assert resp.status_code == 200
+
+    item = _read_item(iid)
+    assert item["processing_status"] == "cross_stage_conflict"  # still
+
+    rows = _audit_rows(iid)
+    assert len(rows) == 1
+    from_status, to_status, action, _, _, _, payload = rows[0]
+    assert from_status == "cross_stage_conflict"
+    assert to_status == "cross_stage_conflict"
+    assert action == "re_prompt_stage2"
+    assert payload["reconcile_action"] == "mark_cross_stage_conflict"
+
+
+def test_re_prompt_validates_override_length(admin_client, bag, mock_rewrite_item):
+    m = bag.add_meeting()
+    iid = bag.add_conflict_item(m)
+
+    # Empty
+    resp = admin_client.post(
+        f"/admin/review/conflicts/{iid}/re-prompt-stage-2",
+        data={"override_instruction": ""},
+    )
+    assert resp.status_code == 400
+
+    # Too long
+    resp = admin_client.post(
+        f"/admin/review/conflicts/{iid}/re-prompt-stage-2",
+        data={"override_instruction": "x" * 501},
+    )
+    assert resp.status_code == 400
+
+
+def test_re_prompt_404_for_unknown_or_completed_item(admin_client, bag, mock_rewrite_item):
+    resp = admin_client.post(
+        "/admin/review/conflicts/999999999/re-prompt-stage-2",
+        data={"override_instruction": "x"},
+    )
+    assert resp.status_code == 404
+
+
+def test_re_prompt_requires_login(client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_conflict_item(m)
+    resp = client.post(
+        f"/admin/review/conflicts/{iid}/re-prompt-stage-2",
+        data={"override_instruction": "ok"},
+    )
+    assert resp.status_code in (302, 303)
+
+
+def test_re_prompt_returns_409_when_item_resolved_during_llm_call(
+    admin_client, bag, monkeypatch,
+):
+    """Decision #12 TOCTOU guard: simulate another admin resolving the
+    item DURING the LLM call window. The persistence UPDATE's WHERE
+    clause filters on processing_status='cross_stage_conflict' so our
+    UPDATE affects 0 rows; the service raises
+    ConflictAlreadyResolvedError; the route returns 409."""
+    from docket.ai.rewrite_schema import ItemRewrite
+
+    m = bag.add_meeting()
+    iid = bag.add_conflict_item(m)
+
+    def _mock_with_concurrent_resolve(*args, **kwargs):
+        # Simulate the race: between item-load and persistence, another
+        # admin flips the item to 'completed'. We do that flip from
+        # inside the mock so it happens at exactly the LLM-call window.
+        with db() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE agenda_items
+                   SET processing_status = 'completed'::processing_status_enum
+                 WHERE id = %s
+                """,
+                (iid,),
+            )
+        return (
+            ItemRewrite(
+                is_substantive=True,
+                headline="Council awards $75K janitorial contract",
+                why_it_matters="Renews custodial services across 12 city buildings.",
+                significance_rationale="Modest ongoing operating expense.",
+                significance_score=4.0,
+                consent_placement_rationale="Routine ops contract.",
+                consent_placement_score=8.0,
+                suggested_badge_slugs=[],
+                confidence="medium",
+            ),
+            "claude-haiku-4-5-20251001",
+        )
+    monkeypatch.setattr(
+        "docket.services.conflict_resolution.rewrite_item",
+        _mock_with_concurrent_resolve,
+    )
+
+    resp = admin_client.post(
+        f"/admin/review/conflicts/{iid}/re-prompt-stage-2",
+        data={"override_instruction": "Try harder."},
+    )
+    assert resp.status_code == 409
+    assert "resolved by another admin" in resp.get_data(as_text=True)
+
+    # Item is at 'completed' (from the racing admin's resolution),
+    # NOT overwritten by the LLM-touching path's UPDATE.
+    item = _read_item(iid)
+    assert item["processing_status"] == "completed"
+    # The losing-admin's intent was logged: a *_lost_race audit row
+    # exists alongside no successful re_prompt_stage2 row.
+    rows = _audit_rows(iid)
+    actions = [r[2] for r in rows]
+    assert "re_prompt_stage2_lost_race" in actions
+    assert "re_prompt_stage2" not in actions
