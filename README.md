@@ -57,20 +57,32 @@ The full pipeline is live: scraping, enrichment, vote extraction (from both offi
 15. **Vote-to-Item Matching N:M Redesign** — `vote_agenda_items` join table (migration 009), substantive + consent-block classifier and matchers, strict re-parse, dual-trigger adoption lifecycle
 16. **Editorial Design Pass** — meetings list, topics index, topic detail, search, council pages all migrated to the editorial card design
 17. **AI Summaries + Scoring** — `src/docket/ai/` package (migration 012, branch `feat/ai-summaries-scoring`). Item summaries via Haiku 4.5, meeting executive summaries via Sonnet 4.6, two-phase lifecycle, async batch worker + CLI, admin dashboard at `/admin/ai`, Pydantic-validated structured output, prompt caching. **Live on Railway prod** as of 2026-05-02. ITEM_PROMPT_VERSION=2 (procedural-skip), MEETING_PROMPT_VERSION=2 (distinctive-vs-routine).
-18. **Tests** — 240 tests (238 unit + integration; 2 live tests gated on `ANTHROPIC_API_KEY`)
+18. **Cron Worker (T27)** — `src/docket/worker/` APScheduler service running 5 daily/weekly tasks (ingest_all, ai_items, ai_meetings, vote_matching, repair_empty_agendas) with Healthchecks.io heartbeats per task. **Live on Railway `worker` service as of 2026-05-04.** Runbook at `docs/runbooks/cron-worker.md`.
+19. **Impact-First Refactor — Phase 1** — Migration 013 (10 new tables, 16 indexes, `mv_badge_volume_monthly` materialized view, 11 priority badge templates, BHM mayoral terms, agenda_items v3 columns) + Wave 0 non-LLM classifier in `src/docket/ai/wave0.py`. Sets `data_quality`, `data_debt_priority`, `processing_status` on every item via Stage 0a (data-quality gate with title fallback for Granicus shape) and Stage 0b (Alabama-context procedural regex). **Live on Railway as of 2026-05-07.** Final Wave 0 distribution on 57,553 items: 65% pending, 28% data_quality_skipped, 7% procedural_skipped. Tag: `refactor-impact-first-phase-1-shipped`.
+20. **Impact-First Refactor — Phase 2 (in progress, ~85%)** — v3 pipeline (Stage 1 extraction + Stage 2 Smart Brevity rewrite + Stage 2.5 score floors), 7 process badges + 4 BHM policy badges, Smart Brevity Card UI (6 variants), category landing pages with SVG volume timeline + cross-filter HTMX dropdown, public data-debt page + RSS feeds, admin calibration dashboard, admin OCR queue + errors queue. **3-track decomposition:** Tracks 1 + 2 done; Track 3 14/17 done (Section E + F complete; G1 + G2 shipped; G3 + G4 + B5 convergence remaining). On `feat/impact-first-phase-2-track-3`, HEAD `75289d1` as of 2026-05-09. Suite: 1082 passed + 4 xfailed.
+21. **Tests** — 1082 passed + 4 xfailed (suite at `feat/impact-first-phase-2-track-3` HEAD; was 240 tests at the AI-summaries cutover). Unit + integration; live AI smoke tests gated on `ANTHROPIC_API_KEY`.
 
 ### What's Next
 
-- **Move `www.docket.pub` to Railway** — apex (`docket.pub`) is live with HSTS; `www.docket.pub` currently routes through a Namecheap URL Redirect Record which only works over HTTP, so `https://www.docket.pub` fails. Plan: delete the Namecheap URL Redirect, add `www.docket.pub` as a second Railway custom domain, swap to a CNAME at Namecheap, then tighten HSTS to `includeSubDomains` and optionally add `preload`. Apex Flask redirect from www → docket.pub follows.
-- **18-month AI backfill (one-shot, manual)** — ~4,500 unprocessed items in the rolling 18-month window, ~$12 at current pricing. Run from a laptop with `--force-budget` so a corrupted PDF tracebacks visibly rather than getting buried in worker logs. See the runbook for the exact command. *(In progress: see `scripts/backfill_ai_since.py`.)*
-- **Per-claim citations + discrepancy-aware summaries** — Phase 2 of the AI pipeline; v1 uses source-bounded grounding only
-- **Council member rollups** — separate brainstorm; deferred from v1 of AI summaries
-- **Astro frontend evaluation** — considering migration from Flask/Jinja2+HTMX to Astro
-- **Manual link-correction admin UI** — the `is_manual` column on `vote_agenda_items` is ready to shield human edits from the automated matcher; the form/route is deferred to a separate spec
-- **Per-route caching for the new data shape** — only if observed perf demands it
-- **Freshness Checks** — Silent Break alerts when a city's data feed stops updating
-- **Custom domain** — connect `docket.pub` via Railway dashboard
-- **Source reconciliation** — compare video OCR vs official minutes when both exist
+**Active: Impact-First Refactor Phase 2 Track 3** (14/17 done as of 2026-05-09)
+- **G3** — admin audit log viewer + manual badge add/remove HTMX endpoints
+- **G4** — cross-stage conflict resolution UI (decision #93)
+- **B5** — atomic `process_item()` convergence wiring Tracks 1+2+3 together; flips `IMPACT_FIRST_ENABLED=true`
+
+**Then Phase 3 (backfill execution)** — ~$100 over 7-14 days for ~37K LLM-eligible items via Anthropic Batches API. Plan: `docs/superpowers/plans/2026-05-06-impact-first-refactor-phase-3.md`. Pre-flip prerequisite: D1 — add a 6th cron task to `REFRESH MATERIALIZED VIEW CONCURRENTLY mv_badge_volume_monthly`.
+
+**Then Phase 4 (cleanup + flag flip)** — Migration 014 drops the legacy `agenda_items.summary` column once all completed items are at v3. `SMART_BREVITY_UI=true` flips citizen rendering. Plan: `docs/superpowers/plans/2026-05-06-impact-first-refactor-phase-4.md`.
+
+**Operational follow-ups (not blocking the above):**
+- **Move `www.docket.pub` to Railway** — apex is live with HSTS; `www.docket.pub` still routes through a Namecheap URL Redirect Record (HTTP-only). Plan: delete the redirect, add `www.docket.pub` as a second Railway custom domain, swap to a CNAME, tighten HSTS to `includeSubDomains` (+ `preload`), Flask redirect from www → apex.
+- **Migration 016 candidate** — add `municipalities.admin_email` and/or `agenda_items.requires_manual_review BOOLEAN` (currently using `score_overrides.admin_escalated` JSONB stopgap from G2).
+- **Per-claim citations + discrepancy-aware summaries** — Phase 2 AI feature; v1 uses source-bounded grounding only.
+- **Council member rollups** — separate brainstorm; deferred from v1 AI summaries.
+- **Astro frontend evaluation** — considering migration from Flask/Jinja2+HTMX to Astro.
+- **Manual link-correction admin UI** — the `is_manual` column on `vote_agenda_items` is ready; form/route deferred.
+- **Freshness Checks** — Silent Break alerts when a city's data feed stops updating.
+- **Source reconciliation** — compare video OCR vs official minutes when both exist.
+- **CSRF protection on admin POST forms** — codebase-wide gap; `SESSION_COOKIE_SAMESITE = "Lax"` provides partial mitigation. F2 council-CRUD precedent has the same gap.
 
 ---
 
@@ -466,15 +478,22 @@ GET  /topics/                           Browse by topic index
 GET  /topics/<topic>/                   Items for a specific topic
 ```
 
-### Admin (5 routes — session-based auth required)
+### Admin (9 routes — session-based auth required)
 
 ```
-GET       /admin/members/               List all council members
-GET|POST  /admin/members/add            Add a new member
-GET|POST  /admin/members/<id>/edit      Edit member details
-POST      /admin/members/<id>/deactivate  Deactivate member
-GET       /admin/ai                     AI pipeline dashboard (queue depth, 7-day cost, recent runs)
+GET       /admin/members/                  List all council members
+GET|POST  /admin/members/add               Add a new member
+GET|POST  /admin/members/<id>/edit         Edit member details
+POST      /admin/members/<id>/deactivate   Deactivate member
+GET       /admin/ai                        AI pipeline dashboard (queue depth, 7-day cost, recent runs)
+GET       /admin/calibration               Calibration dashboard (6 panels: per-item divergence, under/over-scoring, baseline drift, badge volume, top false positives) — G1
+GET       /admin/data-debt                 OCR queue (cross-city, items needing extraction, priority-sorted) — G2
+GET       /admin/errors                    Errors queue (cross-city, failed_permanent items) — G2
+POST      /admin/errors/<id>/retry         Reset to pending + clear backfill_session_id + last_error_* — G2
+POST      /admin/errors/<id>/escalate      Set score_overrides.admin_escalated for manual review — G2
 ```
+
+Auth on `/admin/*` is enforced via blueprint-level `before_request` hook in `admin.py:13–21` — new admin routes do not need an explicit `@login_required` decorator.
 
 ### Jinja2 Template Filters
 
