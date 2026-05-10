@@ -2,7 +2,19 @@
 
 from __future__ import annotations
 
-from flask import Blueprint, abort, redirect, render_template, request, url_for
+import json
+
+from flask import (
+    Blueprint,
+    abort,
+    current_app,
+    flash,
+    redirect,
+    render_template,
+    request,
+    session,
+    url_for,
+)
 
 from docket.db import db, db_cursor
 from docket.services import query
@@ -149,35 +161,233 @@ def deactivate_member(member_id):
     return redirect(url_for("admin.list_members"))
 
 
-# --- Data debt queue (stub) -------------------------------------------------
+# --- Admin OCR queue + errors queue (G2) ------------------------------------
+
+
+_QUEUE_PAGE_SIZE = 50
+
+
+def _parse_offset(raw: str | None) -> int:
+    """Defensive offset parsing (mirrors F5's category_landing pattern)."""
+    try:
+        offset = int(raw or 0)
+    except (TypeError, ValueError):
+        offset = 0
+    return max(0, offset)
+
+
+def _parse_int_or_none(raw: str | None) -> int | None:
+    """Parse an int or return None (for ``?highlight=N`` query arg)."""
+    try:
+        return int(raw) if raw is not None else None
+    except (TypeError, ValueError):
+        return None
 
 
 @bp.route("/data-debt/")
 def data_debt():
-    """Data-debt queue — stub for a future task.
+    """Admin OCR queue (G2.1, spec §6.10, decision #84).
 
-    The source-anchor button (spec §6.4) renders an admin-only link to
-    this queue when an item is flagged ``data_quality == 'no_text_layer'``
-    so an operator can triage OCR-needed items. The page itself is not
-    yet built; the route exists so ``url_for('admin.data_debt', ...)``
-    in :file:`partials/source_anchor_button.html` doesn't raise
-    :class:`werkzeug.routing.exceptions.BuildError` at render time.
+    Cross-city: aggregates all items where source documents failed to
+    yield machine-readable text (``data_quality != 'ok'``) or where the
+    v3 pipeline gave up (``processing_status = 'failed_permanent'``).
 
-    Returns 501 Not Implemented (rather than 404) so monitoring can tell
-    "operator clicked admin queue link before page is built" apart from
-    "operator typo'd a URL". E3's deferred routes (item_detail, RSS) use
-    the same convention. Accepts an optional ``highlight`` query arg that
-    the future implementation will use to scroll/highlight a specific
-    item row.
+    Sort: ``data_debt_priority DESC, meeting_date DESC`` — same as the
+    F5 public page and the errors queue. HIGH-priority items lead.
 
-    TODO(F-track): build data-debt queue page (paginated list of items
-    with ``data_quality='no_text_layer'``, OCR retry trigger, manual
-    override).
+    Differs from the F5 public page (``/al/<city>/data-debt``):
+
+    - No ``<city>`` slug — admin sees all cities aggregated.
+    - Per-row ``data_debt_priority``, ``data_quality``, and
+      ``processing_status`` values shown verbatim (no jargon scrub).
+    - ``?highlight=N`` query arg highlights row ``id="item-N"``. Used
+      by the source-anchor button when an admin clicks "OCR needed"
+      directly off an item card.
+
+    Reuses :func:`query.list_data_debt_items` with ``city_id=None`` —
+    one helper, two call sites (public + admin). Pagination is the same
+    sentinel-pagination shape as the F5 public page.
+
+    Auth: blueprint-level ``before_request`` hook covers login.
     """
-    return (
-        "Data Debt queue is a planned feature — implementation pending.",
-        501,
+    offset = _parse_offset(request.args.get("offset"))
+    highlight = _parse_int_or_none(request.args.get("highlight"))
+
+    items_plus_one = query.list_data_debt_items(
+        None,  # city_id=None → cross-city
+        limit=_QUEUE_PAGE_SIZE + 1,
+        offset=offset,
     )
+    items = items_plus_one[: _QUEUE_PAGE_SIZE]
+    next_offset = (offset + _QUEUE_PAGE_SIZE) if len(items_plus_one) > _QUEUE_PAGE_SIZE else None
+
+    return render_template(
+        "admin/data_debt.html",
+        items=items,
+        offset=offset,
+        next_offset=next_offset,
+        highlight=highlight,
+    )
+
+
+@bp.route("/errors")
+def errors():
+    """Admin errors queue (G2.2, decision #79).
+
+    Lists items at ``processing_status='failed_permanent'`` across all
+    cities. Sort matches :func:`data_debt`: priority then recency.
+    Per-row retry / escalate POST buttons let an operator unstick or
+    flag items for manual review.
+    """
+    offset = _parse_offset(request.args.get("offset"))
+
+    items_plus_one = query.list_failed_permanent_items_all_cities(
+        limit=_QUEUE_PAGE_SIZE + 1,
+        offset=offset,
+    )
+    items = items_plus_one[: _QUEUE_PAGE_SIZE]
+    next_offset = (offset + _QUEUE_PAGE_SIZE) if len(items_plus_one) > _QUEUE_PAGE_SIZE else None
+
+    return render_template(
+        "admin/errors.html",
+        items=items,
+        offset=offset,
+        next_offset=next_offset,
+    )
+
+
+@bp.route("/errors/<int:item_id>/retry", methods=["POST"])
+def errors_retry(item_id: int):
+    """POST-only: reset an item back to ``pending`` so the worker re-runs it.
+
+    Semantics:
+
+    - Sets ``processing_status='pending'``.
+    - Resets ``processing_attempts=0`` so retry budget is fresh.
+    - Writes a ``processing_status_audit`` row capturing the
+      from/to/actor for traceability (decision #93's audit table).
+    - Logs the action via ``current_app.logger`` for cron-correlated
+      diagnostics.
+
+    Does NOT touch ``score_overrides`` or any badge state — this is a
+    pipeline unsticker, not a content rollback. If badges were attached
+    after the worker last completed, they remain; the next worker pass
+    is responsible for any badge re-evaluation.
+    """
+    actor = session.get("admin_user", "unknown")
+
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT processing_status::text FROM agenda_items WHERE id = %s",
+                (item_id,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                abort(404)
+            from_status = row[0]
+
+            cur.execute(
+                """
+                UPDATE agenda_items
+                   SET processing_status = 'pending'::processing_status_enum,
+                       processing_attempts = 0
+                 WHERE id = %s
+                """,
+                (item_id,),
+            )
+
+            cur.execute(
+                """
+                INSERT INTO processing_status_audit
+                  (agenda_item_id, from_status, to_status, action,
+                   actor, actor_role, reason)
+                VALUES
+                  (%s, %s::processing_status_enum,
+                   'pending'::processing_status_enum,
+                   'retry', %s, 'admin', %s)
+                """,
+                (item_id, from_status, actor, "Admin retry from errors queue"),
+            )
+
+    current_app.logger.info(
+        "admin retry: item_id=%s actor=%s from_status=%s",
+        item_id, actor, from_status,
+    )
+    flash(f"Item #{item_id} retry queued.")
+    return redirect(url_for("admin.errors"))
+
+
+@bp.route("/errors/<int:item_id>/escalate", methods=["POST"])
+def errors_escalate(item_id: int):
+    """POST-only: flag an item for manual review.
+
+    v1 stopgap: writes ``score_overrides->>'admin_escalated' = 'true'``
+    (decision-#93 audit row also written). The worker should treat
+    this flag as "do not auto-retry — human attention needed."
+
+    Migration 015 candidate: add a dedicated
+    ``requires_manual_review BOOLEAN`` column on ``agenda_items``. The
+    JSONB stopgap avoids a schema change for v1 but isn't indexable
+    cheaply; once the volume of escalated items grows past a handful
+    we should promote this to a real column. **Flagged as a follow-up.**
+    """
+    actor = session.get("admin_user", "unknown")
+
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT processing_status::text, score_overrides
+                  FROM agenda_items
+                 WHERE id = %s
+                """,
+                (item_id,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                abort(404)
+            from_status, existing_overrides = row[0], row[1]
+
+            # Merge admin_escalated into existing score_overrides
+            # without clobbering Stage 2.5 floor data. psycopg2 returns
+            # JSONB as a Python dict (or None when NULL).
+            merged = dict(existing_overrides) if existing_overrides else {}
+            merged["admin_escalated"] = True
+            merged["admin_escalated_by"] = actor
+
+            cur.execute(
+                """
+                UPDATE agenda_items
+                   SET score_overrides = %s::jsonb
+                 WHERE id = %s
+                """,
+                (json.dumps(merged), item_id),
+            )
+
+            cur.execute(
+                """
+                INSERT INTO processing_status_audit
+                  (agenda_item_id, from_status, to_status, action,
+                   actor, actor_role, reason, payload)
+                VALUES
+                  (%s, %s::processing_status_enum,
+                   %s::processing_status_enum,
+                   'escalate', %s, 'admin', %s, %s::jsonb)
+                """,
+                (
+                    item_id, from_status, from_status, actor,
+                    "Admin escalated from errors queue (manual review needed)",
+                    json.dumps({"admin_escalated": True}),
+                ),
+            )
+
+    current_app.logger.info(
+        "admin escalate: item_id=%s actor=%s status=%s",
+        item_id, actor, from_status,
+    )
+    flash(f"Item #{item_id} escalated to manual review.")
+    return redirect(url_for("admin.errors"))
 
 
 # --- Source-anchor domain allowlist refresh ---------------------------------

@@ -811,9 +811,10 @@ class TestAdminDataDebtRouteStub:
     ``url_for('admin.data_debt', highlight=item.id)`` unconditionally
     when ``session.admin_user`` is truthy. Without route registration
     Flask raises ``BuildError`` at render time. Pin both that the
-    endpoint exists on the production blueprint and that it returns
-    501 (the page itself is a future task — same pattern E3 used for
-    ``public.item_detail`` and ``public.upcoming_hearings_rss``)."""
+    endpoint exists on the production blueprint and that the
+    auth-gate redirects unauthed callers (G2 lands the real page —
+    the formerly-501 stub assertion was retired here when the queue
+    page shipped)."""
 
     def test_data_debt_url_resolves(self):
         from docket.web import create_app
@@ -826,29 +827,21 @@ class TestAdminDataDebtRouteStub:
             assert "/admin/data-debt/" in url
             assert "highlight=42" in url
 
-    def test_data_debt_returns_501_until_built(self):
-        """Stub returns 501 Not Implemented (E3 pattern). Hitting the
-        route requires an admin session because the admin blueprint's
-        ``before_request`` gates everything; verify the gate first, then
-        verify the authenticated path 501s instead of 500ing."""
+    def test_data_debt_redirects_unauthenticated(self):
+        """Unauthed callers must be redirected to ``/admin/login`` (the
+        admin blueprint's ``before_request`` hook gates everything).
+        G2 replaces the prior 501 stub with a live queue page, so this
+        unit test only verifies the auth gate; the live-page semantics
+        are covered in :mod:`tests/integration/test_admin_queues`."""
         from docket.web import create_app
 
         app = create_app()
         app.config["SECRET_KEY"] = "test-only"
 
         with app.test_client() as client:
-            # Unauthed: should redirect to login, not 500.
             resp = client.get("/admin/data-debt/")
             assert resp.status_code in (302, 303)
             assert "/admin/login" in resp.headers.get("Location", "")
-
-            # Authed: stub returns 501 with a "pending" message.
-            with client.session_transaction() as sess:
-                sess["admin_user"] = "tester"
-            resp = client.get("/admin/data-debt/")
-            assert resp.status_code == 501
-            body = resp.get_data(as_text=True).lower()
-            assert "pending" in body or "planned" in body
 
 
 # ---------------------------------------------------------------------------
@@ -865,19 +858,12 @@ class TestAdminDataDebtRouteStub:
 
 
 class TestForcingFunctionsForE4Cleanups:
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "admin.data_debt is currently a 501 stub; remove this xfail "
-            "when the queue page lands"
-        ),
-    )
     def test_data_debt_returns_200_when_queue_page_lands(self):
-        """When the data-debt queue page is built (likely F-track), the
-        route should return 200 for an authenticated admin and accept the
-        ``?highlight=N`` query arg the source-anchor button passes. While
-        the route still returns 501 this xfails; once it lands the
-        ``strict=True`` flips to FAILED and the developer retires the mark."""
+        """G2 landed the OCR queue page. Authed admins get a 200 with
+        the ``?highlight=N`` query arg honored. Was previously
+        ``@pytest.mark.xfail(strict=True)`` — the strict mark forced
+        the implementer to come back here and retire it once the page
+        lands. Decorator removed in G2."""
         from docket.web import create_app
 
         app = create_app()

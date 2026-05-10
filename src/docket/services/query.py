@@ -1848,15 +1848,20 @@ def list_high_dollar_items(
 
 
 def list_data_debt_items(
-    city_id: int,
+    city_id: int | None,
     *,
     limit: int = 50,
     offset: int = 0,
 ) -> list[dict]:
-    """Return items in ``city_id`` that have data-debt — items where the
-    text layer / agenda content is missing (``data_quality != 'ok'``) or
-    where the v3 pipeline has given up (``processing_status =
-    'failed_permanent'``). Decision #84.
+    """Return items that have data-debt — items where the text layer /
+    agenda content is missing (``data_quality != 'ok'``) or where the
+    v3 pipeline has given up (``processing_status = 'failed_permanent'``).
+    Decision #84.
+
+    G2 extension: pass ``city_id=None`` to skip the per-city filter and
+    return rows across all cities (admin OCR queue at
+    ``/admin/data-debt``). Public callers (F5) always pass an integer
+    ``city_id``; the admin queue passes ``None``.
 
     Sort: ``data_debt_priority DESC, meeting_date DESC`` so HIGH-priority
     items lead and within a priority tier the most recent items rise.
@@ -1877,9 +1882,20 @@ def list_data_debt_items(
     a Smart Brevity Card surface, so the lighter shape is fine and the
     template doesn't need the v3 extracted_facts projection.
     """
+    where_clauses = [
+        "((ai.data_quality IS NOT NULL AND ai.data_quality != 'ok') "
+        "OR ai.processing_status = 'failed_permanent')"
+    ]
+    params: list = []
+    if city_id is not None:
+        where_clauses.insert(0, "m.id = %s")
+        params.append(city_id)
+    params.extend([limit, offset])
+    where_sql = " AND ".join(where_clauses)
+
     with db_cursor() as cur:
         cur.execute(
-            """
+            f"""
             SELECT ai.id,
                    ai.meeting_id,
                    ai.item_number,
@@ -1888,6 +1904,7 @@ def list_data_debt_items(
                    ai.data_quality::text       AS data_quality,
                    ai.data_debt_priority::text AS data_debt_priority,
                    ai.processing_status::text  AS processing_status,
+                   ai.processing_attempts,
                    ai.last_error_message,
                    mt.meeting_date             AS meeting_date,
                    mt.title                    AS meeting_title,
@@ -1897,11 +1914,7 @@ def list_data_debt_items(
             FROM agenda_items ai
             JOIN meetings mt ON ai.meeting_id = mt.id
             JOIN municipalities m ON mt.municipality_id = m.id
-            WHERE m.id = %s
-              AND (
-                    (ai.data_quality IS NOT NULL AND ai.data_quality != 'ok')
-                 OR ai.processing_status = 'failed_permanent'
-              )
+            WHERE {where_sql}
             ORDER BY
                 CASE ai.data_debt_priority::text
                     WHEN 'high'   THEN 3
@@ -1913,7 +1926,68 @@ def list_data_debt_items(
                 ai.id DESC
             LIMIT %s OFFSET %s
             """,
-            (city_id, limit, offset),
+            tuple(params),
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+
+def list_failed_permanent_items_all_cities(
+    *,
+    limit: int = 200,
+    offset: int = 0,
+) -> list[dict]:
+    """Return items at ``processing_status='failed_permanent'`` across
+    all cities — used by the admin errors queue at ``/admin/errors``.
+    G2 (decision #79).
+
+    Sort: same as :func:`list_data_debt_items` —
+    ``data_debt_priority DESC, meeting_date DESC``. Although decision
+    #79 originally framed errors-queue ordering as
+    "significance-sorted," priority is built from significance-driven
+    heuristics (decision #31), so reusing the priority sort keeps
+    behavior consistent across both admin queues. The plan §G2.2
+    "significance-sorted" comment defers to decision #79's text.
+
+    Returns dicts. Includes ``last_error_message`` and
+    ``processing_attempts`` so the template can show why the worker
+    gave up.
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT ai.id,
+                   ai.meeting_id,
+                   ai.item_number,
+                   ai.title,
+                   ai.is_consent,
+                   ai.data_quality::text       AS data_quality,
+                   ai.data_debt_priority::text AS data_debt_priority,
+                   ai.processing_status::text  AS processing_status,
+                   ai.processing_attempts,
+                   ai.last_error_message,
+                   ai.last_error_at,
+                   ai.score_overrides,
+                   mt.meeting_date             AS meeting_date,
+                   mt.title                    AS meeting_title,
+                   m.id                        AS municipality_id,
+                   m.slug                      AS municipality_slug,
+                   m.name                      AS municipality_name
+            FROM agenda_items ai
+            JOIN meetings mt ON ai.meeting_id = mt.id
+            JOIN municipalities m ON mt.municipality_id = m.id
+            WHERE ai.processing_status = 'failed_permanent'
+            ORDER BY
+                CASE ai.data_debt_priority::text
+                    WHEN 'high'   THEN 3
+                    WHEN 'normal' THEN 2
+                    WHEN 'low'    THEN 1
+                    ELSE 0
+                END DESC,
+                mt.meeting_date DESC NULLS LAST,
+                ai.id DESC
+            LIMIT %s OFFSET %s
+            """,
+            (limit, offset),
         )
         return [dict(row) for row in cur.fetchall()]
 

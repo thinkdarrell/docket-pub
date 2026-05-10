@@ -197,6 +197,44 @@
   background: #fff3e0;
 }
 
+/* ── G2 admin queues — OCR queue + errors queue ────────────────────────
+   Two admin tables (templates/admin/data_debt.html + errors.html).
+   Both reuse .cal-panel for the section divider; .queue-table tightens
+   the table-cell padding so the wider columns (last_error_message,
+   title) don't run into the edge of the viewport at the typical admin
+   resolution. .highlighted is the row-glow used by the
+   ?highlight=N query arg on the OCR queue (deep-linked from the
+   source-anchor button). */
+.queue-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.queue-table th,
+.queue-table td {
+  padding: 6px 10px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--rule, #ddd);
+}
+.queue-table th {
+  font-weight: 600;
+  border-bottom: 2px solid var(--rule, #ddd);
+}
+.queue-table tr.highlighted td {
+  background: var(--accent-soft, #fff3e0);
+}
+.queue-pager {
+  margin-top: 16px;
+}
+.queue-flash {
+  margin: 12px 0;
+  padding: 8px 12px;
+  list-style: none;
+  background: var(--paper-3, #f5f5f5);
+  border-left: 2px solid var(--accent, #4a4a4a);
+}
+
 /* rail empty-state CTA */
 .rail-empty-cta {
   display: flex; gap: 10px; align-items: flex-start;
