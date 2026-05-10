@@ -525,3 +525,172 @@ def test_manage_page_offers_addable_slugs_minus_attached(admin_client, bag):
     # Test by checking that the substring 'value="split_vote"' (the
     # form select option shape) is absent.
     assert 'value="split_vote"' not in body
+
+
+# ---------------------------------------------------------------------------
+# G3.3 — POST /admin/badges/<item_id>/add/<slug>
+# ---------------------------------------------------------------------------
+
+
+def _badge_row(item_id: int, slug: str) -> tuple | None:
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, city_id, kind, confidence, source, matching_metadata
+              FROM agenda_item_badges
+             WHERE agenda_item_id = %s AND badge_slug = %s
+            """,
+            (item_id, slug),
+        )
+        return cur.fetchone()
+
+
+def _audit_rows(item_id: int, slug: str) -> list[tuple]:
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT action, actor, actor_role
+              FROM agenda_item_badges_audit
+             WHERE agenda_item_id = %s AND badge_slug = %s
+             ORDER BY id ASC
+            """,
+            (item_id, slug),
+        )
+        return cur.fetchall()
+
+
+def test_add_endpoint_inserts_badge_with_city_id(admin_client, bag):
+    """Decision #92: city_id MUST be on every INSERT into agenda_item_badges."""
+    m = bag.add_meeting()
+    iid = bag.add_item(m)
+
+    resp = admin_client.post(f"/admin/badges/{iid}/add/contested")
+    assert resp.status_code == 200  # HTMX swap, not redirect
+
+    row = _badge_row(iid, "contested")
+    assert row is not None
+    bid, city_id, kind, conf, source, metadata = row
+    assert city_id == bag.city_id
+    assert kind == "process"  # contested is a process badge
+    assert source == "manual"
+    # Deviation: ``confidence`` is NUMERIC(3,2) → psycopg2 returns
+    # ``Decimal``; ``pytest.approx`` rejects ``Decimal - float``.
+    # Cast to float for comparison.
+    assert float(conf) == pytest.approx(0.95)
+    assert metadata.get("manual") is True
+    assert metadata.get("added_by") == "tester"
+
+
+def test_add_endpoint_writes_audit_row(admin_client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_item(m)
+
+    admin_client.post(f"/admin/badges/{iid}/add/contested")
+
+    audit = _audit_rows(iid, "contested")
+    assert len(audit) == 1
+    action, actor, role = audit[0]
+    assert action == "added"
+    assert actor == "tester"
+    assert role == "admin"
+
+
+def test_add_endpoint_is_idempotent(admin_client, bag):
+    """Re-adding an already-attached slug is a no-op (no extra badge,
+    no extra audit row)."""
+    m = bag.add_meeting()
+    iid = bag.add_item(m)
+
+    admin_client.post(f"/admin/badges/{iid}/add/contested")
+    admin_client.post(f"/admin/badges/{iid}/add/contested")
+
+    # Still exactly one badge row.
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT COUNT(*) FROM agenda_item_badges "
+            "WHERE agenda_item_id = %s AND badge_slug = %s",
+            (iid, "contested"),
+        )
+        assert cur.fetchone()[0] == 1
+
+    # And exactly one audit row (idempotent: no duplicate).
+    assert len(_audit_rows(iid, "contested")) == 1
+
+
+def test_add_endpoint_returns_swapped_panel(admin_client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_item(m, title="Swap target")
+
+    resp = admin_client.post(f"/admin/badges/{iid}/add/contested")
+    body = resp.get_data(as_text=True)
+    assert resp.status_code == 200
+    # Swap target id must be present.
+    assert 'id="badges-manage-panel"' in body
+    # Newly added slug appears in the rendered current-badges section.
+    assert "contested" in body
+
+
+def test_add_endpoint_404_for_unknown_item(admin_client):
+    resp = admin_client.post("/admin/badges/999999999/add/contested")
+    assert resp.status_code == 404
+
+
+def test_add_endpoint_404_for_unknown_slug(admin_client, bag):
+    """Unknown slugs aren't in priority_badge_templates → 404, no row inserted."""
+    m = bag.add_meeting()
+    iid = bag.add_item(m)
+    resp = admin_client.post(f"/admin/badges/{iid}/add/this_slug_does_not_exist")
+    assert resp.status_code == 404
+    assert _badge_row(iid, "this_slug_does_not_exist") is None
+
+
+def test_add_endpoint_requires_post(admin_client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_item(m)
+    resp = admin_client.get(f"/admin/badges/{iid}/add/contested")
+    assert resp.status_code == 405
+
+
+def test_add_endpoint_requires_login(client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_item(m)
+    resp = client.post(f"/admin/badges/{iid}/add/contested")
+    assert resp.status_code in (302, 303)
+    assert "/admin/login" in resp.headers.get("Location", "")
+    # State must NOT have changed.
+    assert _badge_row(iid, "contested") is None
+
+
+def test_add_via_form_redirector_307s_to_canonical_endpoint(admin_client, bag):
+    """The form-shaped POST (slug in body) must 307 to the canonical
+    POST (slug in path), and HTMX-style follow must result in the
+    badge being created. Test client follows 307 by default."""
+    m = bag.add_meeting()
+    iid = bag.add_item(m)
+
+    resp = admin_client.post(
+        f"/admin/badges/{iid}/add",
+        data={"slug": "contested"},
+        follow_redirects=False,
+    )
+    # 307 preserves method + body.
+    assert resp.status_code == 307
+    assert f"/admin/badges/{iid}/add/contested" in resp.headers["Location"]
+
+    # End-to-end: with redirect-following on, the badge lands.
+    resp_followed = admin_client.post(
+        f"/admin/badges/{iid}/add",
+        data={"slug": "contested"},
+        follow_redirects=True,
+    )
+    assert resp_followed.status_code == 200
+    assert _badge_row(iid, "contested") is not None
+
+
+def test_add_via_form_redirector_400_when_slug_missing(admin_client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_item(m)
+
+    # No 'slug' field in the body.
+    resp = admin_client.post(f"/admin/badges/{iid}/add", data={})
+    assert resp.status_code == 400

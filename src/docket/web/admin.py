@@ -693,16 +693,147 @@ def badges_manage_item(item_id: int):
     )
 
 
-# Task 4/5 forward-declarations: the manage panel partial references
-# ``admin.badge_add_via_form`` and ``admin.badge_remove`` via
-# ``url_for(...)``. These stubs register the endpoint names so the
-# manage page renders during Task 3 tests. Task 4 + 5 replace the
-# stub bodies with real handlers.
-@bp.route("/badges/<int:item_id>/add", methods=["POST"], endpoint="badge_add_via_form")
-def _badge_add_via_form_stub(item_id: int):
-    abort(404)
+@bp.route("/badges/<int:item_id>/add/<slug>", methods=["POST"])
+def badge_add(item_id: int, slug: str):
+    """Manual add: write badge + audit row in one transaction.
+
+    Decision #92: ``city_id`` is INSERT'd from the item's meeting's
+    municipality.
+
+    Idempotent: re-adding a slug that already exists is a no-op (the
+    badges table's ``UNIQUE(agenda_item_id, badge_slug)`` constraint
+    drives an ``ON CONFLICT DO NOTHING``; the audit row is only
+    written if the row was actually inserted).
+
+    Confidence is fixed at 0.95 — high but below the 1.0 threshold
+    that triggers the AI-verified Verification Spark (decision #67).
+    Source is ``'manual'`` (CHECK constraint accepts it). The actor
+    name is recorded in ``matching_metadata`` AND in the audit row's
+    ``actor`` column for redundancy.
+
+    Slug must exist in ``priority_badge_templates`` (joined for
+    ``kind`` and to validate the slug) — unknown slugs 404.
+
+    Returns the re-rendered manage panel (HTMX swap target).
+    """
+    actor = session.get("admin_user", "unknown")
+
+    with db() as conn:
+        with conn.cursor() as cur:
+            # Look up item + city + slug template in one round-trip.
+            cur.execute(
+                """
+                SELECT m.id          AS city_id,
+                       t.kind        AS kind
+                  FROM agenda_items ai
+                  JOIN meetings mt ON mt.id = ai.meeting_id
+                  JOIN municipalities m ON m.id = mt.municipality_id
+                  LEFT JOIN priority_badge_templates t ON t.slug = %s
+                 WHERE ai.id = %s
+                """,
+                (slug, item_id),
+            )
+            row = cur.fetchone()
+            if row is None:
+                abort(404)
+            city_id, kind = row
+            if kind is None:
+                # Slug not in templates → reject.
+                abort(404)
+
+            cur.execute(
+                """
+                INSERT INTO agenda_item_badges
+                  (agenda_item_id, city_id, badge_slug, kind, confidence,
+                   source, matching_metadata)
+                VALUES (%s, %s, %s, %s, 0.95, 'manual', %s::jsonb)
+                ON CONFLICT (agenda_item_id, badge_slug) DO NOTHING
+                RETURNING id
+                """,
+                (
+                    item_id, city_id, slug, kind,
+                    json.dumps({"manual": True, "added_by": actor}),
+                ),
+            )
+            inserted = cur.fetchone()
+
+            if inserted is not None:
+                cur.execute(
+                    """
+                    INSERT INTO agenda_item_badges_audit
+                      (agenda_item_id, badge_slug, action, actor, actor_role)
+                    VALUES (%s, %s, 'added', %s, 'admin')
+                    """,
+                    (item_id, slug, actor),
+                )
+
+    current_app.logger.info(
+        "admin badge add: item_id=%s slug=%s actor=%s inserted=%s",
+        item_id, slug, actor, inserted is not None,
+    )
+    return _render_manage_panel(item_id)
 
 
+def _render_manage_panel(item_id: int):
+    """Re-fetch the manage state and render the swap-target partial.
+    Shared by add/remove handlers."""
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT ai.id, ai.title,
+                   m.id   AS municipality_id,
+                   m.slug AS municipality_slug
+              FROM agenda_items ai
+              JOIN meetings mt ON mt.id = ai.meeting_id
+              JOIN municipalities m ON m.id = mt.municipality_id
+             WHERE ai.id = %s
+            """,
+            (item_id,),
+        )
+        item = cur.fetchone()
+        if item is None:
+            abort(404)
+        item = dict(item)
+
+    current = query.list_badges_on_item(item_id)
+    attached_slugs = {b["slug"] for b in current}
+    addable = [
+        b for b in query.list_enabled_badges(item["municipality_id"])
+        if b["slug"] not in attached_slugs
+    ]
+
+    return render_template(
+        "admin/_badges_manage_panel.html",
+        item=item,
+        current=current,
+        addable=addable,
+    )
+
+
+@bp.route("/badges/<int:item_id>/add", methods=["POST"])
+def badge_add_via_form(item_id: int):
+    """307 redirector: the manage UI form posts ``slug`` as a body
+    field; redirect (preserving method + body via 307) to the canonical
+    slug-in-path endpoint. Spec mandates ``POST /admin/badges/<id>/add/<slug>``
+    as the write site; this route only exists to bridge HTML form
+    semantics without JavaScript in the template.
+
+    HTMX honors 307 redirects natively.
+    """
+    slug = (request.form.get("slug") or "").strip()
+    if not slug:
+        abort(400)
+    return redirect(
+        url_for("admin.badge_add", item_id=item_id, slug=slug),
+        code=307,
+    )
+
+
+# Task 5 forward-declaration: the manage panel partial references
+# ``admin.badge_remove`` via ``url_for(...)``. Stub registers the name
+# until Task 5 lands. (Tasks 4 and 5 share the manage page templates;
+# without this stub Task 4's tests would 500 when rendering the swapped
+# panel that lists current badges with remove buttons.)
 @bp.route("/badges/<int:item_id>/remove/<slug>", methods=["POST"], endpoint="badge_remove")
 def _badge_remove_stub(item_id: int, slug: str):
     abort(404)
