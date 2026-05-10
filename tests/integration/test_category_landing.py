@@ -384,13 +384,43 @@ def test_get_resolved_badge_unknown_template_returns_none(bag):
     assert get_resolved_badge(bag.city_id, "no_such_badge") is None
 
 
-def test_get_resolved_badge_no_city_config_returns_none(bag):
-    """A process badge like ``hidden_on_consent`` is NOT seeded into
-    ``priority_badges_config`` for Birmingham (migration 013 only seeds
-    the 4 BHM policy badges). The template exists, but the city hasn't
-    opted in — helper must return None.
+def test_get_resolved_badge_process_resolves_template_only(bag):
+    """Process badges are always-on across cities (spec §4.2 / decision
+    #11). They are NOT seeded into ``priority_badges_config`` per-city
+    by design — the template's existence is itself the enable signal.
+
+    F4 review fix-up (R1): the prior contract required a config row
+    for *every* badge, which 404'd every process-badge category landing
+    page. The LEFT-JOIN + ``kind = 'process' OR enabled = TRUE`` clause
+    matches the always-on contract.
     """
-    assert get_resolved_badge(bag.city_id, "hidden_on_consent") is None
+    badge = get_resolved_badge(bag.city_id, "hidden_on_consent")
+    assert badge is not None
+    assert badge["slug"] == "hidden_on_consent"
+    assert badge["kind"] == "process"
+    # Template defaults flow through (no config row → no overrides).
+    assert badge["name"]
+    assert badge["icon"]
+    # ``enabled`` defaults to TRUE for process badges via COALESCE.
+    assert badge["enabled"] is True
+
+
+def test_get_resolved_badge_policy_no_city_config_returns_none(bag):
+    """Policy badges remain city-opt-in. Without a config row for the
+    city, a policy badge resolves to None (so the route 404s, matching
+    the citizen contract).
+
+    Asserted against the seed: migration 013 enables BHM into all 4
+    policy badges, but Mobile is not seeded for, e.g.,
+    ``blight_accountability`` — fetch the Mobile city id and verify.
+    """
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM municipalities WHERE slug = 'mobile'")
+            row = cur.fetchone()
+    assert row is not None, "Mobile must be seeded by migration 002"
+    mobile_id = row[0]
+    assert get_resolved_badge(mobile_id, "blight_accountability") is None
 
 
 def test_get_resolved_badge_disabled_config_returns_none(bag):
@@ -503,12 +533,25 @@ def test_route_404_disabled_badge(bag, client):
     assert rv.status_code == 404
 
 
-def test_route_404_badge_not_opted_in(bag, client):
-    """Process badges (like ``hidden_on_consent``) are NOT seeded into
-    Birmingham's priority_badges_config. Route should 404 even though
-    the template exists.
+def test_route_404_policy_badge_not_opted_in(bag, client):
+    """Policy badges remain city-opt-in (spec §4.2 / decision #11) — a
+    policy badge with no ``enabled=TRUE`` row in ``priority_badges_config``
+    for the city must 404 even though the template exists.
+
+    Mobile is not seeded for ``blight_accountability`` (migration 013
+    only enables BHM into the 4 policy badges).
+
+    F4 review fix-up (R1): process badges flipped to always-on, but
+    policy badges stay gated; this test pins the policy gate so a
+    future relaxation doesn't silently make every policy slug active
+    on every city.
     """
-    rv = client.get(f"/al/{bag.city_slug}/hidden_on_consent/")
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT slug FROM municipalities WHERE slug = 'mobile'")
+            row = cur.fetchone()
+    assert row is not None
+    rv = client.get(f"/al/{row[0]}/blight_accountability/")
     assert rv.status_code == 404
 
 
@@ -594,15 +637,27 @@ def test_route_empty_state_renders_gracefully(bag, client):
 
 
 def test_route_empty_cross_filter_string_ignored(bag, client):
-    """An empty ``?and=`` should not produce a phantom filter slug."""
+    """An empty ``?and=`` should not produce a phantom filter slug.
+
+    F4 review fix-up (Opus#2-S4): the route now 302s to the canonical
+    no-filter URL when the user submits the blank "(none)" option, so
+    the final rendered page ends up at the clean URL with no dangling
+    ``?and=`` query param. ``follow_redirects=True`` walks the chain.
+    """
     m = bag.add_meeting(bag.city_id, "2026-04-15")
     item = bag.add_item(m, title="Solo", significance_score=5)
     bag.add_badge(item, bag.city_id, "blight_accountability", confidence=1.0)
 
-    rv = client.get(f"/al/{bag.city_slug}/blight_accountability/?and=")
+    rv = client.get(
+        f"/al/{bag.city_slug}/blight_accountability/?and=",
+        follow_redirects=True,
+    )
     assert rv.status_code == 200
     body = rv.get_data(as_text=True)
     assert "Solo" in body
+    # Final URL is the canonical no-filter form (no trailing ?and=).
+    assert rv.request.path.endswith("/blight_accountability/")
+    assert rv.request.query_string == b""
 
 
 # ---------------------------------------------------------------------------

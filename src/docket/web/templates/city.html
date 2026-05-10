@@ -22,16 +22,30 @@
                "Learn more" link is intentionally omitted in v1 since
                public.about_badges does not yet exist; it can be wired
                on later as a same-style permalink without restructuring
-               the legend. #}
+               the legend.
+
+               F4 review fix-up (R4): the ✨ glyph carries
+               ``aria-label="AI-verified"`` (was ``aria-hidden``). With
+               aria-hidden, screen readers read "A means independent
+               sources agree on the tag" — ungrammatical without the
+               glyph. ``aria-label="AI-verified"`` matches decision #67
+               spec line 2745-2746 and ``partials/badge_chip.html:33``.
+
+               F4 review fix-up (S8): the "policy, like blight or
+               housing" parenthetical is gated on ``city_policy_badges``.
+               Mobile/Vestavia/Homewood render zero policy tiles in v1;
+               on those cities the legend now reads with only the
+               process parenthetical so it doesn't promise a category
+               the page doesn't render. #}
             <p class="badge-legend t-meta" id="badge-legend"
                style="margin-top: 8px; max-width: 640px;">
                 Badges flag oversight signals
                 (<span class="badge-process-sample t-mono">process</span>,
-                like sole-source contracts or split votes)
+                like sole-source contracts or split votes){% if city_policy_badges %}
                 and city priorities
                 (<span class="badge-policy-sample t-mono">policy</span>,
-                like blight or housing).
-                A <span class="badge-spark" aria-hidden="true">✨</span>
+                like blight or housing){% endif %}.
+                A <span class="badge-spark" aria-label="AI-verified">✨</span>
                 means independent sources agree on the tag.
             </p>
         </div>

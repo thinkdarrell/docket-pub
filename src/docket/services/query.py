@@ -988,7 +988,7 @@ def list_items_by_badge(
 def get_resolved_badge(city_id: int, badge_slug: str) -> dict | None:
     """Resolve a badge for a city — applies name/description overrides.
 
-    Single round-trip JOIN of ``priority_badge_templates`` against
+    Single round-trip LEFT JOIN of ``priority_badge_templates`` against
     ``priority_badges_config`` on ``(template_slug, city_id)``. Returns
     a dict shaped for template rendering:
 
@@ -997,22 +997,30 @@ def get_resolved_badge(city_id: int, badge_slug: str) -> dict | None:
     - ``description`` — ``COALESCE(c.description_override, t.description)``
     - ``icon``        — emoji from the template
     - ``kind``        — ``'process'`` | ``'policy'``
-    - ``enabled``     — config row's enabled flag (always ``True`` here
-      because the WHERE clause filters disabled rows out)
+    - ``enabled``     — ``COALESCE(c.enabled, TRUE)`` — process badges
+      have no config row, so the COALESCE surfaces ``TRUE`` for them.
 
     Returns ``None`` when:
 
     1. The template doesn't exist (unknown slug), OR
-    2. The city has no ``priority_badges_config`` row for the template
-       (city hasn't opted in), OR
-    3. The city's config row has ``enabled = FALSE``.
+    2. The badge is **policy** and the city has no ``enabled=TRUE``
+       row in ``priority_badges_config`` (policy badges are city-opt-in
+       per spec §4.2 / decision #11). Process badges are always-on
+       across cities and resolve template-only.
 
-    All three cases mean the badge is not active for this city, so the
-    caller (route handler) should respond with 404. We deliberately do
-    NOT fall back to the template alone when a city hasn't opted in —
-    the enablement gate lives in ``priority_badges_config`` and a city
-    seeing a category page for a badge they haven't enabled would be a
-    bug, not a feature.
+    F4 review fix-up (R1): the prior implementation required a
+    ``priority_badges_config`` row for *every* badge (process or policy)
+    with ``enabled=TRUE``. That broke process-badge category landing
+    pages on every city — the homepage Browse-by-Priority grid linked
+    to ``/al/<city>/<process_slug>/`` for all 7 process badges, every
+    one of which 404'd because process badges are intentionally NOT
+    seeded into ``priority_badges_config``. The LEFT JOIN + ``kind =
+    'process' OR enabled = TRUE`` clause matches the always-on contract
+    set in the spec.
+
+    Single call site (``category_landing`` in ``web/public.py``) — the
+    LEFT-JOIN relaxation is downstream-safe; no admin/search/RSS path
+    consumes this helper.
     """
     with db_cursor() as cur:
         cur.execute(
@@ -1022,13 +1030,13 @@ def get_resolved_badge(city_id: int, badge_slug: str) -> dict | None:
                    COALESCE(c.description_override, t.description) AS description,
                    t.icon,
                    t.kind,
-                   c.enabled
+                   COALESCE(c.enabled, TRUE)                       AS enabled
             FROM priority_badge_templates t
-            JOIN priority_badges_config c
-              ON c.template_slug = t.slug
-             AND c.city_id = %s
+            LEFT JOIN priority_badges_config c
+                   ON c.template_slug = t.slug
+                  AND c.city_id = %s
             WHERE t.slug = %s
-              AND c.enabled = TRUE
+              AND (t.kind = 'process' OR c.enabled = TRUE)
             """,
             (city_id, badge_slug),
         )
@@ -1682,10 +1690,12 @@ def list_enabled_badges(city_id: int) -> list[dict]:
     row's process-then-policy convention so dropdown order doesn't
     surprise a user who's learned chip semantics.
 
-    Each dict carries: ``slug``, ``name``, ``icon``, ``kind`` —
-    name/description overrides applied for policy badges that have a
-    config row. Process badges read from the template directly (no
-    overrides — process badges are intentionally uniform across cities).
+    Each dict carries: ``slug``, ``name``, ``description``, ``icon``,
+    ``kind`` — name/description overrides applied for policy badges that
+    have a config row. Process badges read from the template directly
+    (no overrides — process badges are intentionally uniform across
+    cities). Shape symmetry with ``get_resolved_badge`` /
+    ``list_city_policy_badges`` / ``list_process_badges`` (Opus#1-S1).
 
     Callers (the route handler) typically subtract the current
     ``badge_slug`` from this list before rendering — no point in
@@ -1712,13 +1722,15 @@ def list_enabled_badges(city_id: int) -> list[dict]:
             """
             SELECT t.slug,
                    t.name,
+                   t.description,
                    t.icon,
                    t.kind
             FROM priority_badge_templates t
             WHERE t.kind = 'process'
             UNION ALL
             SELECT t.slug,
-                   COALESCE(c.name_override, t.name) AS name,
+                   COALESCE(c.name_override, t.name)               AS name,
+                   COALESCE(c.description_override, t.description) AS description,
                    t.icon,
                    t.kind
             FROM priority_badge_templates t

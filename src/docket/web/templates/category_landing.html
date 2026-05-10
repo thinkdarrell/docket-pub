@@ -104,18 +104,29 @@
        MVP UX matches the spec's ASCII. The route already accepts a
        comma-separated list (``?and=blight,housing``), so a future
        multi-select is purely a UI swap (``<select multiple>`` +
-       hx-include logic). Keep this comment when revisiting. #}
+       hx-include logic). Keep this comment when revisiting.
+
+       F4 review fix-up (S6): the surrounding ``<form>`` previously
+       carried hx-target / hx-trigger / hx-push-url, but those are
+       dead code in HTMX 2.x because the form has no verb (no hx-get
+       /post/etc) — HTMX won't issue a request from the form itself.
+       The ``<select>`` is the verbed element and carries the wiring
+       directly. The form wrapper stays purely for layout / label
+       association.
+
+       F4 review fix-up (R2): the ``<select>`` still carries hx-get /
+       target / push-url — but the route now detects HX-Request and
+       returns only ``partials/_item_list.html`` for HTMX requests, so
+       the swap fetches the items section alone (not a full page). #}
     {% if available_badges %}
-    <form class="cross-filter-form" style="padding: 8px 0;"
-          hx-target="#item-list"
-          hx-trigger="change from:select.cross-filter"
-          hx-push-url="true">
+    <form class="cross-filter-form" style="padding: 8px 0;">
         <label class="t-label" for="cross-filter-select" style="display:block; margin-bottom:4px;">
             Combine with another badge
         </label>
         <select name="and" id="cross-filter-select" class="cross-filter"
                 hx-get="{{ url_for('public.category_landing', slug=municipality.slug, badge_slug=badge.slug) }}"
                 hx-target="#item-list"
+                hx-swap="outerHTML"
                 hx-include="this"
                 hx-trigger="change"
                 hx-push-url="true"
@@ -153,62 +164,12 @@
 </section>
 
 {# ── Item list ─────────────────────────────────────── #}
-{# id="item-list" is the HTMX swap target for the cross-filter select
-   above. A future swap-friendly refactor (return only the inner section
-   on HTMX requests) can plug in here without changing the trigger or
-   target — the dropdown is bookmark-friendly today via hx-push-url +
-   the route always returns a full page. #}
-<section class="feed" id="item-list">
-    <header class="feed-head">
-        <div>
-            <div class="t-eyebrow">Items</div>
-            <h2 class="feed-title t-display">
-                {% if items %}
-                    {{ items | length }} item{{ 's' if items | length != 1 else '' }}
-                    {% if next_offset %}of many{% endif %}
-                {% else %}
-                    No items yet
-                {% endif %}
-            </h2>
-        </div>
-    </header>
-
-    {% if items %}
-    <div class="notable-list smart-brevity-list smart-brevity-list--regular">
-        {% for item in items %}
-            {# The dispatcher partial picks the right card variant per
-               item (smart_brevity / v2 fallback / pending / failed /
-               degraded / procedural / verification_pending) based on
-               processing_status / data_quality / ai_rewrite_version. #}
-            {% include 'partials/smart_brevity_card.html' %}
-        {% endfor %}
-    </div>
-    {% else %}
-    <div class="empty-state" style="padding: 32px 0;">
-        {# R2: citizen-friendly copy. Internal vocabulary (Wave 0,
-           Track 1, D2, matchers, backfill) deliberately removed —
-           visitors should never see pipeline stage names. Admins read
-           server logs, not the public empty state. #}
-        <p class="t-meta" style="max-width: 560px;">
-            No items tagged for this category yet. Check back as we
-            continue indexing meeting records.
-        </p>
-    </div>
-    {% endif %}
-
-    {# ── Load more ───────────────────────────────────── #}
-    {% if next_offset %}
-    <div class="load-more" style="padding: 24px 0; text-align: center;">
-        <a class="rail-link"
-           style="display: inline-flex; min-width: 200px;"
-           href="?{% if cross_filters %}and={{ cross_filters | join(',') }}&{% endif %}offset={{ next_offset }}">
-            <div>
-                <div class="rail-link-label">Load more</div>
-                <div class="t-meta">next 25 items</div>
-            </div>
-            <span class="t-mono">↓</span>
-        </a>
-    </div>
-    {% endif %}
-</section>
+{# Item list partial — same template the route returns standalone for
+   HTMX cross-filter requests (HX-Request: true). Inline include here
+   keeps non-HTMX requests rendering the full page with items in
+   place; deep links and bookmarks see the same DOM as a full reload.
+   The ``id="item-list"`` swap target lives on the partial's wrapping
+   <section>, so HTMX's outerHTML swap replaces just that section
+   leaving the dropdown DOM (and its pre-selected option) untouched. #}
+{% include 'partials/_item_list.html' %}
 {% endblock %}

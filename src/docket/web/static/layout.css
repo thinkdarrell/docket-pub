@@ -619,3 +619,14 @@
   padding: 1rem 0 1.25rem;
   font-style: italic;
 }
+
+/* ── Cross-filter dropdown (F4 / spec §6.8) ───────────
+   HTMX adds the ``htmx-request`` class to the originating element
+   while the request is in flight. The dimming + wait-cursor gives the
+   citizen immediate feedback during the swap so a slow round-trip
+   doesn't read as "the page is broken." Pairs with the partial-render
+   path (HX-Request) so the visual state matches the actual delta. */
+.cross-filter.htmx-request {
+  opacity: 0.6;
+  cursor: wait;
+}

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from flask import Blueprint, abort, render_template, request
+from flask import Blueprint, abort, redirect, render_template, request, url_for
 
 from docket.enrichment.topics import all_topics, get_topic_display_name
 from docket.services import query
@@ -251,7 +251,36 @@ def category_landing(slug: str, badge_slug: str):
     # ``" housing"`` slug that silently fails to match. Stray commas and
     # all-whitespace segments are also discarded (S1).
     raw = request.args.get("and", "")
-    cross_filters = [s.strip() for s in raw.split(",") if s.strip()]
+    raw_cross_filters = [s.strip() for s in raw.split(",") if s.strip()]
+
+    # Trailing ``?and=`` cleanup (Opus#2-S4). HTMX serializes the empty
+    # "(none)" option as ``and=`` which leaves a dangling query param
+    # in the URL bar. Redirect to the canonical no-filter URL so a
+    # bookmark / share doesn't carry the empty param. Skipped for HTMX
+    # requests (the redirect would force a full-page load and undo the
+    # partial swap; the URL-bar cleanup matters for full-page navigation).
+    if (
+        "and" in request.args
+        and not raw_cross_filters
+        and request.headers.get("HX-Request") != "true"
+    ):
+        return redirect(
+            url_for(
+                "public.category_landing",
+                slug=municipality["slug"],
+                badge_slug=badge_slug,
+            )
+        )
+
+    # Slug validation against enabled badges for the city (S5 / spec
+    # §6.8 "validates against enabled badges"). Drops slugs that aren't
+    # process-or-policy-enabled for the city — typo'd query params or
+    # disabled badges no longer leak into the EXISTS predicate (which
+    # would silently match nothing). Computed once and reused below for
+    # the dropdown's ``available_badges`` so we don't query twice.
+    enabled_badges = query.list_enabled_badges(municipality["id"])
+    enabled_slugs = {b["slug"] for b in enabled_badges}
+    cross_filters = [s for s in raw_cross_filters if s in enabled_slugs]
 
     # Defensive offset parsing: bad input becomes 0 (never crashes the
     # route); negative input clamped to 0 (a -5 offset would otherwise
@@ -319,12 +348,25 @@ def category_landing(slug: str, badge_slug: str):
     # ``list_enabled_badges`` enforces the gates so we don't filter here.
     # Pre-computed in the route (route-side pre-compute pattern set by
     # F2) — the template is a single-loop dropdown render, not a Jinja
-    # call into a global function.
-    available_badges = [
-        b
-        for b in query.list_enabled_badges(municipality["id"])
-        if b["slug"] != badge_slug
-    ]
+    # call into a global function. ``enabled_badges`` reused from the
+    # validation step above to avoid a second round-trip.
+    available_badges = [b for b in enabled_badges if b["slug"] != badge_slug]
+
+    # F4 review fix-up (R2): HTMX cross-filter requests get just the
+    # item-list partial back. The ``<select>`` swaps the response into
+    # ``#item-list`` (outerHTML), leaving the dropdown DOM (and its
+    # post-change ``selected`` option) intact. Saves ~5 DB queries per
+    # filter swap (no KPI strip, timeline series, mayoral overlay,
+    # year ticks, dropdown re-render) and resolves S9 (post-swap
+    # dropdown unsync). Non-HTMX requests fall through to the full
+    # page render so deep links / bookmarks render unchanged.
+    if request.headers.get("HX-Request") == "true":
+        return render_template(
+            "partials/_item_list.html",
+            items=items,
+            next_offset=next_offset,
+            cross_filters=cross_filters,
+        )
 
     return render_template(
         "category_landing.html",
