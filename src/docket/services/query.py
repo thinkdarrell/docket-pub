@@ -1993,6 +1993,73 @@ def list_failed_permanent_items_all_cities(
         return [dict(row) for row in cur.fetchall()]
 
 
+def list_cross_stage_conflicts(
+    *,
+    limit: int = 25,
+    offset: int = 0,
+) -> list[dict]:
+    """Return items at ``processing_status='cross_stage_conflict'`` for
+    the G4 admin viewer. Spec decision #93.
+
+    Sort: ``data_debt_priority DESC, ai_generated_at DESC`` — high-priority
+    conflicts surface first; within a priority tier the most recently
+    flipped to conflict state rises. Same priority sort as F5 / G2 /
+    G3 admin queues for consistency.
+
+    (Plan referenced ``updated_at`` but ``agenda_items`` has no such
+    column locally; ``ai_generated_at`` is the closest freshness analog —
+    matches the calibration.py spec/code drift workaround.)
+
+    Pagination: caller passes ``limit`` (sentinel-pagination compatible
+    — caller passes ``limit+1`` and slices). Page size 25 in the route
+    handler — these rows are heavy (full Stage 1 facts JSON + Stage 2
+    rationale + raw description rendered side-by-side).
+
+    Returns dicts, not :class:`AgendaItem` objects, because the admin
+    queue template needs a flatter projection (joined city + meeting
+    context) than the v3 Smart Brevity Card surface.
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+              ai.id,
+              ai.title,
+              ai.description,
+              ai.dollars_amount,
+              ai.extracted_facts,
+              ai.headline,
+              ai.why_it_matters,
+              ai.score_overrides,
+              ai.data_debt_priority::text AS data_debt_priority,
+              ai.processing_status::text  AS processing_status,
+              ai.ai_generated_at,
+              mt.id            AS meeting_id,
+              mt.meeting_date,
+              mt.title         AS meeting_title,
+              m.id             AS municipality_id,
+              m.slug           AS municipality_slug,
+              m.name           AS municipality_name
+            FROM agenda_items ai
+            JOIN meetings mt ON mt.id = ai.meeting_id
+            JOIN municipalities m ON m.id = mt.municipality_id
+            WHERE ai.processing_status = 'cross_stage_conflict'
+            ORDER BY
+                CASE ai.data_debt_priority::text
+                    WHEN 'high'   THEN 3
+                    WHEN 'normal' THEN 2
+                    WHEN 'low'    THEN 1
+                    ELSE 0
+                END DESC,
+                ai.ai_generated_at DESC NULLS LAST,
+                ai.id DESC
+            LIMIT %s OFFSET %s
+            """,
+            (limit, offset),
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+
 def list_badge_audit_log(
     *,
     badge_slug: str | None = None,
