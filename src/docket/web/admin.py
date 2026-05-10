@@ -829,11 +829,56 @@ def badge_add_via_form(item_id: int):
     )
 
 
-# Task 5 forward-declaration: the manage panel partial references
-# ``admin.badge_remove`` via ``url_for(...)``. Stub registers the name
-# until Task 5 lands. (Tasks 4 and 5 share the manage page templates;
-# without this stub Task 4's tests would 500 when rendering the swapped
-# panel that lists current badges with remove buttons.)
-@bp.route("/badges/<int:item_id>/remove/<slug>", methods=["POST"], endpoint="badge_remove")
-def _badge_remove_stub(item_id: int, slug: str):
-    abort(404)
+@bp.route("/badges/<int:item_id>/remove/<slug>", methods=["POST"])
+def badge_remove(item_id: int, slug: str):
+    """Manual remove: hard-DELETE badge + write audit row in one tx.
+
+    The badges table has no ``is_active`` column; remove is a real
+    DELETE. The audit row is the historical record.
+
+    404 if the badge isn't attached to the item — no audit row gets
+    written for a no-op DELETE. The DELETE's ``RETURNING id`` arm is
+    the source of truth for "was anything actually removed."
+
+    Returns the re-rendered manage panel (HTMX swap target).
+    """
+    actor = session.get("admin_user", "unknown")
+
+    with db() as conn:
+        with conn.cursor() as cur:
+            # First confirm the item exists at all (separate from the
+            # badge presence — we want 404 in either of the two
+            # not-found cases).
+            cur.execute(
+                "SELECT 1 FROM agenda_items WHERE id = %s",
+                (item_id,),
+            )
+            if cur.fetchone() is None:
+                abort(404)
+
+            cur.execute(
+                """
+                DELETE FROM agenda_item_badges
+                 WHERE agenda_item_id = %s AND badge_slug = %s
+                RETURNING id
+                """,
+                (item_id, slug),
+            )
+            removed = cur.fetchone()
+            if removed is None:
+                abort(404)
+
+            cur.execute(
+                """
+                INSERT INTO agenda_item_badges_audit
+                  (agenda_item_id, badge_slug, action, actor, actor_role)
+                VALUES (%s, %s, 'removed', %s, 'admin')
+                """,
+                (item_id, slug, actor),
+            )
+
+    current_app.logger.info(
+        "admin badge remove: item_id=%s slug=%s actor=%s",
+        item_id, slug, actor,
+    )
+    return _render_manage_panel(item_id)

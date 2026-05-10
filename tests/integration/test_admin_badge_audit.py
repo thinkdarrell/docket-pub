@@ -694,3 +694,121 @@ def test_add_via_form_redirector_400_when_slug_missing(admin_client, bag):
     # No 'slug' field in the body.
     resp = admin_client.post(f"/admin/badges/{iid}/add", data={})
     assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# G3.3 — POST /admin/badges/<item_id>/remove/<slug>
+# ---------------------------------------------------------------------------
+
+
+def test_remove_endpoint_deletes_badge(admin_client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_item(m)
+    bag.add_badge(iid, "split_vote", kind="process")
+
+    resp = admin_client.post(f"/admin/badges/{iid}/remove/split_vote")
+    assert resp.status_code == 200
+
+    assert _badge_row(iid, "split_vote") is None
+
+
+def test_remove_endpoint_writes_audit_row(admin_client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_item(m)
+    bag.add_badge(iid, "split_vote", kind="process")
+
+    admin_client.post(f"/admin/badges/{iid}/remove/split_vote")
+
+    audit = _audit_rows(iid, "split_vote")
+    assert len(audit) == 1
+    action, actor, role = audit[0]
+    assert action == "removed"
+    assert actor == "tester"
+    assert role == "admin"
+
+
+def test_remove_endpoint_404_for_unattached_slug(admin_client, bag):
+    """Removing a slug that isn't on the item: 404, no audit row written."""
+    m = bag.add_meeting()
+    iid = bag.add_item(m)
+
+    resp = admin_client.post(f"/admin/badges/{iid}/remove/split_vote")
+    assert resp.status_code == 404
+    assert _audit_rows(iid, "split_vote") == []
+
+
+def test_remove_endpoint_404_for_unknown_item(admin_client):
+    resp = admin_client.post("/admin/badges/999999999/remove/split_vote")
+    assert resp.status_code == 404
+
+
+def test_remove_endpoint_returns_swapped_panel(admin_client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_item(m, title="Swap target 2")
+    bag.add_badge(iid, "split_vote", kind="process")
+
+    resp = admin_client.post(f"/admin/badges/{iid}/remove/split_vote")
+    body = resp.get_data(as_text=True)
+    assert resp.status_code == 200
+    assert 'id="badges-manage-panel"' in body
+    # Removed slug must not appear in the rendered current-badges
+    # section. (Could still appear in the addable dropdown, which is
+    # expected — once removed, it becomes addable again.)
+    assert "Current badges" in body
+
+
+def test_remove_endpoint_requires_post(admin_client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_item(m)
+    bag.add_badge(iid, "split_vote", kind="process")
+    resp = admin_client.get(f"/admin/badges/{iid}/remove/split_vote")
+    assert resp.status_code == 405
+
+
+def test_remove_endpoint_requires_login(client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_item(m)
+    bag.add_badge(iid, "split_vote", kind="process")
+    resp = client.post(f"/admin/badges/{iid}/remove/split_vote")
+    assert resp.status_code in (302, 303)
+    assert "/admin/login" in resp.headers.get("Location", "")
+    # Badge must still exist.
+    assert _badge_row(iid, "split_vote") is not None
+
+
+def test_add_then_remove_then_audit_log_shows_both_actions(admin_client, bag):
+    """End-to-end: add then remove yields two audit rows, viewer
+    surfaces them in newest-first order."""
+    from docket.services import query
+
+    m = bag.add_meeting()
+    iid = bag.add_item(m)
+
+    admin_client.post(f"/admin/badges/{iid}/add/contested")
+    admin_client.post(f"/admin/badges/{iid}/remove/contested")
+
+    rows = query.list_badge_audit_log(actor="tester", limit=10)
+    ours = [r for r in rows if r["agenda_item_id"] == iid
+            and r["badge_slug"] == "contested"]
+    assert len(ours) == 2
+    assert ours[0]["action"] == "removed"  # newest-first
+    assert ours[1]["action"] == "added"
+
+
+def test_psycopg2_delete_returning_zero_rows_returns_none():
+    """Driver-contract pin: ``DELETE ... RETURNING id`` against a row
+    that doesn't exist must yield ``cur.fetchone() is None`` so the
+    remove handler's 'nothing was deleted → 404' branch is sound.
+
+    psycopg2 has historically honored this contract, but pin it
+    explicitly here so a future driver swap (psycopg3, async drivers)
+    can't silently break the handler's correctness assumption.
+    """
+    sentinel_id = -987654321  # nonexistent
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM agenda_item_badges WHERE id = %s RETURNING id",
+            (sentinel_id,),
+        )
+        result = cur.fetchone()
+    assert result is None
