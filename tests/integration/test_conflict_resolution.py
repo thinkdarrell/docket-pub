@@ -282,3 +282,79 @@ def test_list_cross_stage_conflicts_pagination(bag):
     first_ids = {r["id"] for r in rows}
     next_ids = {r["id"] for r in rows_offset_2}
     assert first_ids.isdisjoint(next_ids)
+
+
+# ---------------------------------------------------------------------------
+# G4.2 — /admin/review/conflicts
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("city_slug", CITIES)
+def test_review_conflicts_renders_for_admin(app, city_slug):
+    bag = _bag_for(city_slug)
+    try:
+        m = bag.add_meeting()
+        iid = bag.add_conflict_item(m, title=f"Conflict in {city_slug}")
+
+        c = app.test_client()
+        with c.session_transaction() as sess:
+            sess["admin_user"] = "tester"
+        resp = c.get("/admin/review/conflicts")
+        assert resp.status_code == 200
+        body = resp.get_data(as_text=True)
+        assert "Cross-Stage Conflicts" in body
+        assert f"Conflict in {city_slug}" in body
+    finally:
+        bag.cleanup()
+
+
+def test_review_conflicts_redirects_anonymous(client):
+    resp = client.get("/admin/review/conflicts")
+    assert resp.status_code in (302, 303)
+    assert "/admin/login" in resp.headers.get("Location", "")
+
+
+def test_review_conflicts_renders_side_by_side_facts_and_conflicts(admin_client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_conflict_item(
+        m,
+        title="Side-by-side test",
+        score_overrides={
+            "conflicts": ["stage1_has_counterparty_but_stage2_procedural",
+                          "yellow_tier_dollars_but_stage2_procedural"],
+        },
+    )
+
+    resp = admin_client.get("/admin/review/conflicts")
+    body = resp.get_data(as_text=True)
+    assert resp.status_code == 200
+    # Stage 1 facts JSON surfaces (counterparty from SAMPLE_FACTS).
+    assert "Acme Corp" in body
+    # Conflict reasons array is rendered.
+    assert "stage1_has_counterparty_but_stage2_procedural" in body
+    assert "yellow_tier_dollars_but_stage2_procedural" in body
+    # Each row has id="row-{iid}" so HTMX swaps target it.
+    assert f'id="row-{iid}"' in body
+
+
+def test_review_conflicts_empty_state(admin_client, bag):
+    """Empty state: admin tone (per G2 fix-up R-S-NEW-2 convention)."""
+    # No conflict items in the bag -> empty state should render.
+    resp = admin_client.get("/admin/review/conflicts")
+    body = resp.get_data(as_text=True)
+    assert resp.status_code == 200
+    # Match the admin-precise copy from the template.
+    assert "No items in cross_stage_conflict" in body or "No conflicts" in body
+
+
+def test_review_conflicts_pagination_offset(admin_client, bag):
+    """Sentinel-pagination contract: 26 rows triggers a Next link
+    (page size = 25)."""
+    m = bag.add_meeting()
+    for i in range(26):
+        bag.add_conflict_item(m, title=f"P{i:02d}")
+
+    resp = admin_client.get("/admin/review/conflicts")
+    body = resp.get_data(as_text=True)
+    assert resp.status_code == 200
+    assert "offset=25" in body or "offset=" in body

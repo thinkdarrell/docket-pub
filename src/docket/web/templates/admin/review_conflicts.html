@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block title %}Cross-Stage Conflicts — Admin — docket.pub{% endblock %}
+
+{#
+  G4 — Cross-Stage Conflict Resolution UI (spec decision #93).
+
+  Lists items at processing_status='cross_stage_conflict'. Each row
+  renders side-by-side: original title + description + Stage 1 facts
+  (extracted_facts JSONB) + Stage 2 verdict (procedural; rendered
+  implicitly by the absence of headline/why_it_matters) + conflict
+  reasons (from score_overrides.conflicts).
+
+  Resolution actions per row (HTMX-driven):
+    1. Accept Stage 1 — admin authors manual headline + why_it_matters
+    2. Accept Stage 2 — clears Stage 1 facts that confused things
+    3. Re-prompt Stage 2 — admin writes a one-liner override; system
+       re-runs Stage 2 with that instruction injected into the prompt
+    4. Edit Stage 1 facts — admin corrects misclassified facts;
+       system re-runs Stage 2 with corrected facts
+
+  Each row's <tr> has id="row-{{ item.id }}" so HTMX swaps target it.
+
+  Once a v3 pipeline orchestrator (B5) lands, automatic conflict
+  generation flips on (FINAL-3 IMPACT_FIRST_ENABLED=true). Until then
+  this surface is exercisable but won't see organic traffic.
+#}
+
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center;">
+  <h1>Cross-Stage Conflicts</h1>
+  <form method="post" action="{{ url_for('auth.logout') }}" style="margin: 0;">
+    <button type="submit" style="font-size: 0.85rem;">Sign Out ({{ session.get('admin_user', '') }})</button>
+  </form>
+</div>
+
+<p><a href="{{ url_for('admin.list_members') }}">← Council Members</a> &middot;
+   <a href="{{ url_for('admin.badges_audit') }}">Badge audit</a> &middot;
+   <a href="{{ url_for('admin.calibration') }}">Calibration</a> &middot;
+   <a href="{{ url_for('admin.data_debt') }}">OCR queue</a> &middot;
+   <a href="{{ url_for('admin.errors') }}">Errors queue</a> &middot;
+   <a href="{{ url_for('admin.ai_panel') }}">AI Pipeline</a></p>
+
+<p class="t-meta">
+  Items where Stage 1 (extracted facts) and Stage 2 (Smart Brevity verdict)
+  disagreed on whether the item is substantive. Resolve to clear the
+  ⚠️ "Verification in progress" pill on citizen-facing cards (decision #72).
+</p>
+
+{% if not rows %}
+  <p class="t-meta">No items in cross_stage_conflict state. The v3 pipeline
+  has not produced any conflicts (or all have been resolved).</p>
+{% else %}
+<table class="conflict-queue">
+{% for item in rows %}
+  <tr id="row-{{ item.id }}">
+    <td class="raw">
+      <h3>{{ item.title }}</h3>
+      <p class="t-meta">
+        {{ item.municipality_name }} ·
+        {{ item.meeting_date.strftime('%Y-%m-%d') if item.meeting_date else '—' }} ·
+        priority: <code>{{ item.data_debt_priority }}</code>
+      </p>
+      <details><summary>Original description</summary>
+        <pre class="raw-text">{{ item.description or '(empty)' }}</pre>
+      </details>
+      {% if item.dollars_amount %}
+        <p class="t-meta">Dollars: ${{ '{:,}'.format(item.dollars_amount|int) }}</p>
+      {% endif %}
+    </td>
+
+    <td class="stage-1">
+      <h4>Stage 1 — Extracted facts</h4>
+      <pre class="facts-json">{{ item.extracted_facts | tojson(indent=2) if item.extracted_facts else '(no facts)' }}</pre>
+    </td>
+
+    <td class="stage-2">
+      <h4>Stage 2 — Verdict: PROCEDURAL</h4>
+      <p>(no headline / why_it_matters generated)</p>
+      {% set conflicts = (item.score_overrides or {}).get('conflicts', []) %}
+      {% if conflicts %}
+        <p class="t-meta">Conflict reasons:</p>
+        <ul class="conflict-reasons">
+          {% for reason in conflicts %}
+            <li><code>{{ reason }}</code></li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    </td>
+
+    <td class="actions">
+      <button class="btn-accept-s1"
+              hx-get="{{ url_for('admin.conflict_form_accept_s1', item_id=item.id) }}"
+              hx-target="#row-{{ item.id }} .actions"
+              hx-swap="innerHTML">
+        ✅ Accept Stage 1
+      </button>
+      <form hx-post="{{ url_for('admin.conflict_accept_stage_2', item_id=item.id) }}"
+            hx-target="#row-{{ item.id }}"
+            hx-swap="outerHTML"
+            style="display: block;">
+        <button type="submit" class="btn-accept-s2">
+          ❌ Accept Stage 2 (clear facts)
+        </button>
+      </form>
+      <button class="btn-re-prompt"
+              hx-get="{{ url_for('admin.conflict_form_re_prompt', item_id=item.id) }}"
+              hx-target="#row-{{ item.id }} .actions"
+              hx-swap="innerHTML">
+        🔁 Re-prompt Stage 2
+      </button>
+      <button class="btn-edit-facts"
+              hx-get="{{ url_for('admin.conflict_form_edit_facts', item_id=item.id) }}"
+              hx-target="#row-{{ item.id }} .actions"
+              hx-swap="innerHTML">
+        📝 Edit Stage 1 facts
+      </button>
+    </td>
+  </tr>
+{% endfor %}
+</table>
+
+<p class="conflict-pager">
+  {% if offset > 0 %}
+    {% set prev_offset = (offset - 25) if (offset - 25) > 0 else 0 %}
+    <a href="{{ url_for('admin.review_conflicts', offset=prev_offset if prev_offset > 0 else none) }}">← Previous</a>
+  {% endif %}
+  {% if next_offset %}
+    <a href="{{ url_for('admin.review_conflicts', offset=next_offset) }}">Next →</a>
+  {% endif %}
+</p>
+{% endif %}
+{% endblock %}

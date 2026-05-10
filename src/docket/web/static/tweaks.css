@@ -302,3 +302,79 @@
 }
 .manage-remove:hover { background: #f8d7da; }
 .manage-add { display: flex; gap: 1rem; align-items: end; margin-top: 0.5rem; }
+
+/* G4 — cross-stage conflict resolution */
+.conflict-queue { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.conflict-queue tr { border-bottom: 1px solid var(--rule, #e6e6e0); }
+.conflict-queue td {
+  vertical-align: top;
+  padding: 0.6rem;
+  width: 25%;
+}
+.conflict-queue .raw h3 { margin: 0 0 0.25rem 0; font-size: 1rem; }
+.conflict-queue .stage-1 .facts-json,
+.conflict-queue .raw .raw-text {
+  font-family: var(--mono, ui-monospace, "JetBrains Mono", monospace);
+  font-size: 0.8rem;
+  background: var(--paper-2, #f6f6f4);
+  padding: 0.4rem;
+  border-radius: 3px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 18rem;
+  overflow: auto;
+}
+.conflict-reasons {
+  margin: 0.25rem 0;
+  padding-left: 1.25rem;
+  font-size: 0.8rem;
+}
+.conflict-reasons code {
+  font-size: 0.75rem;
+  background: #fff3cd;
+  padding: 0.05rem 0.25rem;
+  border-radius: 2px;
+}
+.conflict-queue .actions button,
+.conflict-queue .actions form button {
+  display: block;
+  width: 100%;
+  margin-bottom: 0.4rem;
+  padding: 0.4rem 0.6rem;
+  text-align: left;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.conflict-queue .actions .btn-accept-s1 {
+  background: #d4edda; border: 1px solid #155724; color: #155724;
+}
+.conflict-queue .actions .btn-accept-s2 {
+  background: #f8d7da; border: 1px solid #721c24; color: #721c24;
+}
+.conflict-queue .actions .btn-re-prompt {
+  background: #fff3cd; border: 1px solid #856404; color: #856404;
+}
+.conflict-queue .actions .btn-edit-facts {
+  background: #d1ecf1; border: 1px solid #0c5460; color: #0c5460;
+}
+.conflict-form { padding: 0.4rem; }
+.conflict-form label { display: block; font-size: 0.85rem; margin-bottom: 0.3rem; }
+.conflict-form input, .conflict-form textarea {
+  width: 100%; padding: 0.25rem 0.4rem; font-family: inherit;
+}
+.conflict-form .btn-submit {
+  background: var(--paper-2, #f6f6f4); border: 1px solid var(--rule, #ccc);
+  padding: 0.3rem 0.6rem; font-size: 0.85rem; cursor: pointer;
+}
+.conflict-pager { margin-top: 1rem; }
+.conflict-pager a { margin-right: 1rem; }
+.conflict-resolved {
+  padding: 0.6rem;
+  background: #d4edda;
+  border-left: 3px solid #155724;
+  font-size: 0.9rem;
+}
+.conflict-resolved.failed {
+  background: #fff3cd;
+  border-left-color: #856404;
+}

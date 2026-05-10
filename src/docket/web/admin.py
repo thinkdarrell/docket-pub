@@ -882,3 +882,73 @@ def badge_remove(item_id: int, slug: str):
         item_id, slug, actor,
     )
     return _render_manage_panel(item_id)
+
+
+# --- Cross-Stage Conflict Resolution UI (G4 — decision #93) -----------------
+
+
+_CONFLICTS_PAGE_SIZE = 25  # heavier rows than G3; smaller page
+
+
+@bp.route("/review/conflicts")
+def review_conflicts():
+    """List items in ``processing_status='cross_stage_conflict'`` for
+    admin resolution. Spec decision #93.
+
+    Side-by-side display per row: original title + description + Stage 1
+    structured facts (extracted_facts JSONB) + Stage 2 verdict (procedural)
+    + conflict reasons array (score_overrides->'conflicts'). Four
+    HTMX-powered resolution actions per row, each routing to a service
+    function in :mod:`docket.services.conflict_resolution`.
+
+    Sort matches G2/G3 admin queues: priority DESC, ai_generated_at DESC
+    (the local schema has no ``updated_at`` on agenda_items; the helper
+    uses ``ai_generated_at`` as the closest freshness proxy, mirroring
+    the calibration.py spec/code drift workaround).
+    Page size 25 (smaller than F5/G2/G3 50 because rows render
+    side-by-side, much heavier per-row).
+
+    Auth: blueprint-level ``before_request`` hook redirects unauthed.
+    """
+    offset = _parse_offset(request.args.get("offset"))
+
+    rows_plus_one = query.list_cross_stage_conflicts(
+        limit=_CONFLICTS_PAGE_SIZE + 1,
+        offset=offset,
+    )
+    rows = rows_plus_one[:_CONFLICTS_PAGE_SIZE]
+    next_offset = (
+        offset + _CONFLICTS_PAGE_SIZE
+        if len(rows_plus_one) > _CONFLICTS_PAGE_SIZE
+        else None
+    )
+
+    return render_template(
+        "admin/review_conflicts.html",
+        rows=rows,
+        offset=offset,
+        next_offset=next_offset,
+    )
+
+
+# Forward-declaration stubs (replaced by real handlers in Tasks 3, 4, 5, 6).
+# Without these the Task 2 listing template can't render — Jinja chokes
+# on unknown url_for endpoints at template-render time.
+@bp.route("/review/conflicts/<int:item_id>/_form/accept-stage-1")
+def conflict_form_accept_s1(item_id: int):
+    abort(501)
+
+
+@bp.route("/review/conflicts/<int:item_id>/_form/re-prompt")
+def conflict_form_re_prompt(item_id: int):
+    abort(501)
+
+
+@bp.route("/review/conflicts/<int:item_id>/_form/edit-facts")
+def conflict_form_edit_facts(item_id: int):
+    abort(501)
+
+
+@bp.route("/review/conflicts/<int:item_id>/accept-stage-2", methods=["POST"])
+def conflict_accept_stage_2(item_id: int):
+    abort(501)
