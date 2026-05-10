@@ -212,6 +212,43 @@ def refresh_source_security():
     )
 
 
+# --- Calibration dashboard --------------------------------------------------
+
+
+@bp.route("/calibration")
+def calibration():
+    """Calibration dashboard — score-divergence + drift + false-positives.
+
+    Six panels, one per query in :mod:`docket.services.calibration`:
+
+    1. Per-item divergence (24h, ABS sig delta > 3) — Spec §3.5 Query A.
+    2. Under-scoring Impact (7d, sample >= 30, > 20% boosted) — §3.5 B1.
+    3. Over-scoring Consent (symmetric to B1) — §3.5 B2.
+    4. Baseline drift (12-week per-action_type trend) — §3.5 Query C.
+    5. Badge volume calibration (12-week per-policy-badge with
+       deterministic/llm split) — §5.7.
+    6. Top False Positives (admin removals >= 5 / 7d) — §5.7 / decision #65.
+
+    No caching for v1 — admin traffic is low and ``login_required``
+    keeps random hits out. If the page feels slow on real production
+    data later, add a ``threading.Lock`` + double-checked-locking
+    cache helper following the F5 ``_rss_cached`` pattern in
+    ``docket.web.public``. Five-minute staleness on an admin-only
+    monitoring surface is the wrong tradeoff today.
+    """
+    from docket.services import calibration as calibration_service
+
+    return render_template(
+        "admin/calibration.html",
+        per_item_divergence=calibration_service.query_a_per_item_divergence(),
+        under_scoring_impact=calibration_service.query_b1_under_scoring_impact(),
+        over_scoring_consent=calibration_service.query_b2_over_scoring_consent(),
+        baseline_drift=calibration_service.query_c_baseline_drift(),
+        badge_volume=calibration_service.query_badge_volume_calibration(),
+        top_false_positives=calibration_service.query_top_false_positives(),
+    )
+
+
 # --- AI pipeline dashboard --------------------------------------------------
 
 

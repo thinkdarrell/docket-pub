@@ -1,0 +1,314 @@
+{% extends "base.html" %}
+{% block title %}Calibration — Admin — docket.pub{% endblock %}
+
+{#
+  G1 — Calibration dashboard. Six panels matching
+  src/docket/services/calibration.py one-to-one. Admin-only surface,
+  internal vocabulary acceptable (action_type, prompt_version,
+  triggers_fired, etc.). Each panel renders a heading + a 1-line
+  description + a table; an empty state is rendered if the query
+  returned no rows.
+#}
+
+{% macro empty_state() %}
+  <p class="t-meta">No items match this query in the current window.</p>
+{% endmacro %}
+
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center;">
+  <h1>Calibration</h1>
+  <form method="post" action="{{ url_for('auth.logout') }}" style="margin: 0;">
+    <button type="submit" style="font-size: 0.85rem;">Sign Out ({{ session.get('admin_user', '') }})</button>
+  </form>
+</div>
+
+<p><a href="{{ url_for('admin.list_members') }}">← Council Members</a> &middot;
+   <a href="{{ url_for('admin.ai_panel') }}">AI Pipeline →</a></p>
+
+<p class="t-meta">
+  Score-divergence + drift + false-positive telemetry. Six panels,
+  one per spec query (§3.5 Queries A/B1/B2/C and §5.7 badge volume +
+  Top False Positives). Empty panels are normal — most reflect 7- or
+  12-week windows that may not yet have data.
+</p>
+
+{# ------------------------------------------------------------------ #}
+{# Panel A — Per-item divergence (24h, ABS sig delta > 3)             #}
+{# ------------------------------------------------------------------ #}
+
+<section class="cal-panel" data-panel="per_item_divergence">
+  <h2>A. Per-item divergence (last 24 hours)</h2>
+  <p class="t-meta">
+    Items where Stage 2.5 floors moved <code>significance_score</code>
+    by more than 3 points either direction.
+  </p>
+
+  {% if per_item_divergence %}
+    <table>
+      <thead>
+        <tr>
+          <th>Item</th>
+          <th>Title</th>
+          <th>Action type</th>
+          <th class="t-tnum">AI sig</th>
+          <th class="t-tnum">Final sig</th>
+          <th class="t-tnum">Δ</th>
+          <th>Triggers fired</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in per_item_divergence %}
+          <tr>
+            <td class="t-mono">#{{ row.id }}</td>
+            <td>{{ row.title }}</td>
+            <td><code>{{ row.action_type or '—' }}</code></td>
+            <td class="t-tnum">{{ row.ai_sig if row.ai_sig is not none else '—' }}</td>
+            <td class="t-tnum">{{ row.final_sig if row.final_sig is not none else '—' }}</td>
+            <td class="t-tnum">{{ row.sig_delta }}</td>
+            <td class="t-mono" style="font-size: 12px;">{{ row.triggers_fired }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    {{ empty_state() }}
+  {% endif %}
+</section>
+
+{# ------------------------------------------------------------------ #}
+{# Panel B1 — Under-scoring Impact (7d, > 20% boosted, sample >= 30)  #}
+{# ------------------------------------------------------------------ #}
+
+<section class="cal-panel" data-panel="under_scoring_impact">
+  <h2>B1. Under-scoring Impact (last 7 days)</h2>
+  <p class="t-meta">
+    <code>(action_type, prompt_version)</code> categories where AI under-rated
+    significance &gt; 20% of the time. Min sample size 30.
+  </p>
+
+  {% if under_scoring_impact %}
+    <table>
+      <thead>
+        <tr>
+          <th>Action type</th>
+          <th class="t-tnum">Prompt v</th>
+          <th class="t-tnum">Total items</th>
+          <th class="t-tnum">Boosted</th>
+          <th class="t-tnum">% boosted</th>
+          <th class="t-tnum">Avg boost</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in under_scoring_impact %}
+          <tr>
+            <td><code>{{ row.action_type or '—' }}</code></td>
+            <td class="t-tnum">{{ row.prompt_version if row.prompt_version is not none else '—' }}</td>
+            <td class="t-tnum">{{ row.total_items }}</td>
+            <td class="t-tnum">{{ row.items_with_sig_boost }}</td>
+            <td class="t-tnum">{{ row.pct_boosted }}%</td>
+            <td class="t-tnum">
+              {% if row.avg_boost_magnitude is not none %}
+                {{ "%.2f"|format(row.avg_boost_magnitude|float) }}
+              {% else %}—{% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    {{ empty_state() }}
+  {% endif %}
+</section>
+
+{# ------------------------------------------------------------------ #}
+{# Panel B2 — Over-scoring Consent (symmetric to B1)                  #}
+{# ------------------------------------------------------------------ #}
+
+<section class="cal-panel" data-panel="over_scoring_consent">
+  <h2>B2. Over-scoring Consent (last 7 days)</h2>
+  <p class="t-meta">
+    <code>(action_type, prompt_version)</code> categories where Stage 2.5
+    had to lower <code>consent_placement_score</code> &gt; 20% of the time.
+    Min sample size 30.
+  </p>
+
+  {% if over_scoring_consent %}
+    <table>
+      <thead>
+        <tr>
+          <th>Action type</th>
+          <th class="t-tnum">Prompt v</th>
+          <th class="t-tnum">Total items</th>
+          <th class="t-tnum">Reduced</th>
+          <th class="t-tnum">% reduced</th>
+          <th class="t-tnum">Avg reduction</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in over_scoring_consent %}
+          <tr>
+            <td><code>{{ row.action_type or '—' }}</code></td>
+            <td class="t-tnum">{{ row.prompt_version if row.prompt_version is not none else '—' }}</td>
+            <td class="t-tnum">{{ row.total_items }}</td>
+            <td class="t-tnum">{{ row.items_with_consent_reduction }}</td>
+            <td class="t-tnum">{{ row.pct_reduced }}%</td>
+            <td class="t-tnum">
+              {% if row.avg_reduction_magnitude is not none %}
+                {{ "%.2f"|format(row.avg_reduction_magnitude|float) }}
+              {% else %}—{% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    {{ empty_state() }}
+  {% endif %}
+</section>
+
+{# ------------------------------------------------------------------ #}
+{# Panel C — Baseline drift (12-week per-action_type trend)            #}
+{# ------------------------------------------------------------------ #}
+
+<section class="cal-panel" data-panel="baseline_drift">
+  <h2>C. Baseline drift (last 12 weeks)</h2>
+  <p class="t-meta">
+    Per <code>action_type</code> weekly average of <code>significance_score</code>
+    and <code>consent_placement_score</code>. Drift signal: <code>sig_delta_wow &lt; -1.0</code>
+    with similar volume.
+  </p>
+
+  {% if baseline_drift %}
+    <table>
+      <thead>
+        <tr>
+          <th>Action type</th>
+          <th>Week</th>
+          <th class="t-tnum">n</th>
+          <th class="t-tnum">avg sig</th>
+          <th class="t-tnum">avg consent</th>
+          <th class="t-tnum">Δ sig (w/w)</th>
+          <th class="t-tnum">Δ vol (w/w)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in baseline_drift %}
+          <tr>
+            <td><code>{{ row.action_type or '—' }}</code></td>
+            <td class="t-mono" style="font-size: 12px;">{{ row.week }}</td>
+            <td class="t-tnum">{{ row.n }}</td>
+            <td class="t-tnum">
+              {% if row.avg_sig is not none %}{{ "%.2f"|format(row.avg_sig|float) }}{% else %}—{% endif %}
+            </td>
+            <td class="t-tnum">
+              {% if row.avg_consent is not none %}{{ "%.2f"|format(row.avg_consent|float) }}{% else %}—{% endif %}
+            </td>
+            <td class="t-tnum">
+              {% if row.sig_delta_wow is not none %}{{ "%.2f"|format(row.sig_delta_wow|float) }}{% else %}—{% endif %}
+            </td>
+            <td class="t-tnum">
+              {% if row.volume_delta_wow is not none %}{{ row.volume_delta_wow }}{% else %}—{% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    {{ empty_state() }}
+  {% endif %}
+</section>
+
+{# ------------------------------------------------------------------ #}
+{# Panel — Badge volume calibration (policy badges, 12 weeks)         #}
+{# ------------------------------------------------------------------ #}
+
+<section class="cal-panel" data-panel="badge_volume">
+  <h2>Badge volume calibration (policy badges, last 12 weeks)</h2>
+  <p class="t-meta">
+    Per <code>(city, badge, week)</code>. Threshold for review:
+    <code>pct_deterministic_only</code> or <code>pct_llm_only</code> &gt; 40%.
+  </p>
+
+  {% if badge_volume %}
+    <table>
+      <thead>
+        <tr>
+          <th class="t-tnum">city_id</th>
+          <th>badge_slug</th>
+          <th>week</th>
+          <th class="t-tnum">n_items</th>
+          <th class="t-tnum">high_conf</th>
+          <th class="t-tnum">det only</th>
+          <th class="t-tnum">llm only</th>
+          <th class="t-tnum">% det</th>
+          <th class="t-tnum">% llm</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in badge_volume %}
+          <tr>
+            <td class="t-tnum">{{ row.city_id }}</td>
+            <td><code>{{ row.badge_slug }}</code></td>
+            <td class="t-mono" style="font-size: 12px;">{{ row.week }}</td>
+            <td class="t-tnum">{{ row.n_items }}</td>
+            <td class="t-tnum">{{ row.n_high_conf }}</td>
+            <td class="t-tnum">{{ row.n_deterministic_only }}</td>
+            <td class="t-tnum">{{ row.n_llm_only }}</td>
+            <td class="t-tnum">{{ row.pct_deterministic_only }}%</td>
+            <td class="t-tnum">{{ row.pct_llm_only }}%</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    {{ empty_state() }}
+  {% endif %}
+</section>
+
+{# ------------------------------------------------------------------ #}
+{# Panel — Top False Positives (admin removals >= 5 / 7d)             #}
+{# ------------------------------------------------------------------ #}
+
+<section class="cal-panel" data-panel="top_false_positives">
+  <h2>Top False Positives (last 7 days)</h2>
+  <p class="t-meta">
+    Policy badges admins removed at least 5 times. Reads from
+    <code>agenda_item_badges_audit</code> (decision #65).
+  </p>
+
+  {% if top_false_positives %}
+    <table>
+      <thead>
+        <tr>
+          <th class="t-tnum">city_id</th>
+          <th>badge_slug</th>
+          <th class="t-tnum">n_removals</th>
+          <th>reasons_cited</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in top_false_positives %}
+          <tr>
+            <td class="t-tnum">{{ row.city_id }}</td>
+            <td><code>{{ row.badge_slug }}</code></td>
+            <td class="t-tnum">{{ row.n_removals }}</td>
+            <td>
+              {% if row.reasons_cited %}
+                <ul style="margin: 0; padding-left: 1em;">
+                  {% for reason in row.reasons_cited %}
+                    <li>{{ reason }}</li>
+                  {% endfor %}
+                </ul>
+              {% else %}
+                —
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    {{ empty_state() }}
+  {% endif %}
+</section>
+{% endblock %}
