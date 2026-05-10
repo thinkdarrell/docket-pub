@@ -176,14 +176,6 @@ def _parse_offset(raw: str | None) -> int:
     return max(0, offset)
 
 
-def _parse_int_or_none(raw: str | None) -> int | None:
-    """Parse an int or return None (for ``?highlight=N`` query arg)."""
-    try:
-        return int(raw) if raw is not None else None
-    except (TypeError, ValueError):
-        return None
-
-
 @bp.route("/data-debt/")
 def data_debt():
     """Admin OCR queue (G2.1, spec §6.10, decision #84).
@@ -200,9 +192,12 @@ def data_debt():
     - No ``<city>`` slug — admin sees all cities aggregated.
     - Per-row ``data_debt_priority``, ``data_quality``, and
       ``processing_status`` values shown verbatim (no jargon scrub).
-    - ``?highlight=N`` query arg highlights row ``id="item-N"``. Used
-      by the source-anchor button when an admin clicks "OCR needed"
-      directly off an item card.
+    - Each row carries ``id="item-N"`` so the source-anchor button can
+      deep-link to a specific item via ``#item-N`` fragment. The
+      browser handles scroll natively — no server-side query-param
+      plumbing. (Spec deviation: §6.10 shows ``?highlight=N``; the
+      fragment-based approach was adopted to fix the silent no-op for
+      items past the first paginated page.)
 
     Reuses :func:`query.list_data_debt_items` with ``city_id=None`` —
     one helper, two call sites (public + admin). Pagination is the same
@@ -211,7 +206,6 @@ def data_debt():
     Auth: blueprint-level ``before_request`` hook covers login.
     """
     offset = _parse_offset(request.args.get("offset"))
-    highlight = _parse_int_or_none(request.args.get("highlight"))
 
     items_plus_one = query.list_data_debt_items(
         None,  # city_id=None → cross-city
@@ -226,7 +220,6 @@ def data_debt():
         items=items,
         offset=offset,
         next_offset=next_offset,
-        highlight=highlight,
     )
 
 
@@ -264,6 +257,10 @@ def errors_retry(item_id: int):
 
     - Sets ``processing_status='pending'``.
     - Resets ``processing_attempts=0`` so retry budget is fresh.
+    - Clears ``backfill_session_id``, ``last_error_at``,
+      ``last_error_message`` so the row is in clean post-retry state
+      (B5 backfill driver requires ``backfill_session_id IS NULL`` to
+      pick up an item; defensive hygiene avoids stale-error display).
     - Writes a ``processing_status_audit`` row capturing the
       from/to/actor for traceability (decision #93's audit table).
     - Logs the action via ``current_app.logger`` for cron-correlated
@@ -291,7 +288,10 @@ def errors_retry(item_id: int):
                 """
                 UPDATE agenda_items
                    SET processing_status = 'pending'::processing_status_enum,
-                       processing_attempts = 0
+                       processing_attempts = 0,
+                       backfill_session_id = NULL,
+                       last_error_at = NULL,
+                       last_error_message = NULL
                  WHERE id = %s
                 """,
                 (item_id,),
@@ -326,11 +326,12 @@ def errors_escalate(item_id: int):
     (decision-#93 audit row also written). The worker should treat
     this flag as "do not auto-retry — human attention needed."
 
-    Migration 015 candidate: add a dedicated
-    ``requires_manual_review BOOLEAN`` column on ``agenda_items``. The
-    JSONB stopgap avoids a schema change for v1 but isn't indexable
-    cheaply; once the volume of escalated items grows past a handful
-    we should promote this to a real column. **Flagged as a follow-up.**
+    Migration 016 candidate (next available migration slot): add a
+    dedicated ``requires_manual_review BOOLEAN`` column on
+    ``agenda_items``. The JSONB stopgap avoids a schema change for v1
+    but isn't indexable cheaply; once the volume of escalated items
+    grows past a handful we should promote this to a real column.
+    **Flagged as a follow-up.**
     """
     actor = session.get("admin_user", "unknown")
 

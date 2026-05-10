@@ -11,8 +11,9 @@
               resets status to pending + processing_attempts to 0.
    - Escalate → POST /admin/errors/<id>/escalate
                 writes score_overrides.admin_escalated = true to flag
-                the item for manual review. Migration 015 candidate
-                for a dedicated requires_manual_review column.
+                the item for manual review. Migration 016 candidate
+                (next available migration slot) for a dedicated
+                requires_manual_review column.
 
   Both buttons are POST-only (state-changing operations never on GET);
   the route returns 405 for GET.

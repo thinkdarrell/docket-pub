@@ -202,9 +202,9 @@
    Both reuse .cal-panel for the section divider; .queue-table tightens
    the table-cell padding so the wider columns (last_error_message,
    title) don't run into the edge of the viewport at the typical admin
-   resolution. .highlighted is the row-glow used by the
-   ?highlight=N query arg on the OCR queue (deep-linked from the
-   source-anchor button). */
+   resolution. Per-row id="item-N" is preserved so source-anchor
+   buttons can deep-link via #item-N fragment (browser-native scroll;
+   no .highlighted class needed). */
 .queue-table {
   width: 100%;
   border-collapse: collapse;
@@ -220,9 +220,6 @@
 .queue-table th {
   font-weight: 600;
   border-bottom: 2px solid var(--rule, #ddd);
-}
-.queue-table tr.highlighted td {
-  background: var(--accent-soft, #fff3e0);
 }
 .queue-pager {
   margin-top: 16px;

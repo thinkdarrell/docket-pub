@@ -426,7 +426,7 @@ def category_landing(slug: str, badge_slug: str):
 # yet (decision #77 retired the in-app data_issue_reports queue in favor
 # of mailto). Until the column lands the data-debt page falls back to
 # ``admin@docket.pub`` — flagged for follow-up. Adding the column is a
-# Migration 015 candidate.
+# Migration 016 candidate (next available migration slot).
 #
 # Cache: existing ``_overview_cache`` idiom (``dict[str, tuple[float,
 # str]]``) extended for RSS with a 60-min TTL. ``flask-caching`` is NOT

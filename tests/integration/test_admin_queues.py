@@ -3,8 +3,8 @@
 Three deliverables under test:
 
 - G2.1: ``/admin/data-debt`` (cross-city) — 200 for authed admins,
-  302 to login otherwise, ``?highlight=N`` honored, priority sort
-  preserved across cities.
+  302 to login otherwise, per-row ``id="item-N"`` for ``#item-N``
+  fragment deep-link, priority sort preserved across cities.
 - G2.2: ``/admin/errors`` (cross-city) — only ``failed_permanent``
   rows surface, same priority sort.
 - G2.3: POST retry/escalate handlers — 405 on GET, 302 on POST,
@@ -256,20 +256,40 @@ def test_admin_data_debt_priority_sort_order(app):
         bag.cleanup()
 
 
-def test_admin_data_debt_highlight_query_param(app, bag):
+def test_admin_data_debt_row_has_item_id_anchor(app, bag):
+    """Each row must carry ``id="item-N"`` so the source-anchor button's
+    ``#item-N`` fragment URL scrolls the browser natively. G2 fix-up
+    replaced the prior ``?highlight=N`` query-param flow with a
+    fragment-based deep-link; the route no longer parses or requires
+    the highlight value, and the ``.highlighted`` CSS class is gone."""
     m = bag.add_meeting()
     iid = bag.add_item(m, title="Highlightable", data_quality="no_text_layer")
 
     c = app.test_client()
     with c.session_transaction() as sess:
         sess["admin_user"] = "tester"
-    resp = c.get(f"/admin/data-debt/?highlight={iid}")
+    # No query param needed — fragment is browser-side.
+    resp = c.get("/admin/data-debt/")
     assert resp.status_code == 200
     body = resp.get_data(as_text=True)
-    # The row gets id="item-N" + class="highlighted" when highlighted.
     assert f'id="item-{iid}"' in body
-    # Highlighted class only on the matching row.
-    assert 'class="highlighted"' in body
+    # The .highlighted class was removed in the fix-up; ensure the
+    # template doesn't accidentally re-introduce it.
+    assert 'class="highlighted"' not in body
+
+
+def test_admin_data_debt_ignores_spurious_highlight_query_param(app, bag):
+    """Old links carrying ``?highlight=N`` must still 200 — the route
+    ignores the param entirely after the G2 fix-up."""
+    m = bag.add_meeting()
+    iid = bag.add_item(m, title="Stale-link target", data_quality="no_text_layer")
+
+    c = app.test_client()
+    with c.session_transaction() as sess:
+        sess["admin_user"] = "tester"
+    # A bookmark/email from the pre-fix-up era might still carry this.
+    resp = c.get(f"/admin/data-debt/?highlight={iid}")
+    assert resp.status_code == 200
 
 
 # ---------------------------------------------------------------------------
@@ -430,6 +450,83 @@ def test_retry_button_resets_processing_attempts(admin_client, bag):
     admin_client.post(f"/admin/errors/{iid}/retry")
     _, attempts, _ = _read_item_status(iid)
     assert attempts == 0
+
+
+def test_retry_button_clears_backfill_session_and_last_error(admin_client, bag):
+    """G2 fix-up S1+S2: retry must NULL out ``backfill_session_id``,
+    ``last_error_at``, and ``last_error_message`` so the row is in clean
+    post-retry state. The B5 backfill driver requires
+    ``backfill_session_id IS NULL`` to claim an item — leaving the prior
+    session's UUID stuck would make the worker skip the row indefinitely.
+    The error fields are cleared as defensive hygiene to avoid stale
+    error display in the admin UI after a successful re-run."""
+    import uuid
+
+    m = bag.add_meeting()
+    iid = bag.add_item(
+        m,
+        data_quality=None,
+        data_debt_priority="high",
+        processing_status="failed_permanent",
+        processing_attempts=3,
+        last_error_message="boom on attempt 3",
+    )
+
+    # Seed backfill_session_id + last_error_at directly via SQL
+    # (the _Bag helper doesn't expose them; they're not part of every
+    # row). last_error_at only takes a TIMESTAMPTZ — use NOW().
+    seed_uuid = str(uuid.uuid4())
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE agenda_items
+                   SET backfill_session_id = %s,
+                       last_error_at = NOW()
+                 WHERE id = %s
+                """,
+                (seed_uuid, iid),
+            )
+
+    # Pre-condition: all three are non-NULL.
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT backfill_session_id, last_error_at, last_error_message
+                  FROM agenda_items
+                 WHERE id = %s
+                """,
+                (iid,),
+            )
+            pre = cur.fetchone()
+    assert pre[0] is not None  # backfill_session_id
+    assert pre[1] is not None  # last_error_at
+    assert pre[2] == "boom on attempt 3"  # last_error_message
+
+    resp = admin_client.post(f"/admin/errors/{iid}/retry")
+    assert resp.status_code in (302, 303)
+
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT processing_status::text,
+                       processing_attempts,
+                       backfill_session_id,
+                       last_error_at,
+                       last_error_message
+                  FROM agenda_items
+                 WHERE id = %s
+                """,
+                (iid,),
+            )
+            post = cur.fetchone()
+    assert post[0] == "pending"
+    assert post[1] == 0
+    assert post[2] is None  # backfill_session_id cleared
+    assert post[3] is None  # last_error_at cleared
+    assert post[4] is None  # last_error_message cleared
 
 
 def test_retry_button_returns_302_with_flash(admin_client, bag):

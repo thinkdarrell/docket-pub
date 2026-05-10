@@ -14,8 +14,9 @@
   is at failed_permanent (the only state where retrying makes sense
   here — pending/extracting items don't need an admin nudge).
 
-  ?highlight=N query param scrolls/highlights row id="item-N" so the
-  source-anchor button can deep-link to a specific item.
+  Each row carries id="item-N" so the source-anchor button can
+  deep-link via #item-N fragment. Browser scroll handles affordance
+  natively; no JS or server-side ?highlight=N plumbing required.
 #}
 
 {% block content %}
@@ -53,7 +54,8 @@
   <section class="cal-panel">
     <h2>Empty</h2>
     <p class="t-meta">
-      No items in the OCR queue. All extractable agenda content is up to date.
+      No items in OCR queue (<code>data_quality='ok'</code> for all items
+      across cities, no <code>failed_permanent</code> rows).
     </p>
   </section>
 {% else %}
@@ -73,8 +75,7 @@
       </thead>
       <tbody>
         {% for it in items %}
-          <tr id="item-{{ it.id }}"
-              {% if highlight is not none and highlight == it.id %}class="highlighted"{% endif %}>
+          <tr id="item-{{ it.id }}">
             <td class="t-mono">#{{ it.id }}</td>
             <td>{{ it.municipality_name }}</td>
             <td>{{ it.title or '—' }}</td>

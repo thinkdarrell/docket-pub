@@ -412,7 +412,10 @@ class TestNoTextLayerBranch:
         assert "Source needs OCR" in html
         assert "view-source--unavailable" in html
         assert "/admin/data-debt/" in html
-        assert "highlight=99" in html
+        # G2 fix-up: deep-link uses #item-N fragment, not ?highlight=N
+        # query param (browser-native scroll; works for items past page 1).
+        assert "#item-99" in html
+        assert "highlight=99" not in html
         assert "[admin queue]" in html
 
     def test_no_text_layer_non_admin_hides_admin_queue_link(self, app):
@@ -808,13 +811,14 @@ class TestFormatTimestampFilter:
 
 class TestAdminDataDebtRouteStub:
     """The OCR-needed branch of the source-anchor button calls
-    ``url_for('admin.data_debt', highlight=item.id)`` unconditionally
+    ``url_for('admin.data_debt')`` and appends a ``#item-N`` fragment
     when ``session.admin_user`` is truthy. Without route registration
     Flask raises ``BuildError`` at render time. Pin both that the
     endpoint exists on the production blueprint and that the
     auth-gate redirects unauthed callers (G2 lands the real page —
     the formerly-501 stub assertion was retired here when the queue
-    page shipped)."""
+    page shipped). G2 fix-up: switched from ``?highlight=N`` to
+    ``#item-N`` fragment for browser-native scroll on paginated rows."""
 
     def test_data_debt_url_resolves(self):
         from docket.web import create_app
@@ -823,9 +827,8 @@ class TestAdminDataDebtRouteStub:
         with app.test_request_context():
             from flask import url_for
 
-            url = url_for("admin.data_debt", highlight=42)
+            url = url_for("admin.data_debt")
             assert "/admin/data-debt/" in url
-            assert "highlight=42" in url
 
     def test_data_debt_redirects_unauthenticated(self):
         """Unauthed callers must be redirected to ``/admin/login`` (the
@@ -859,11 +862,13 @@ class TestAdminDataDebtRouteStub:
 
 class TestForcingFunctionsForE4Cleanups:
     def test_data_debt_returns_200_when_queue_page_lands(self):
-        """G2 landed the OCR queue page. Authed admins get a 200 with
-        the ``?highlight=N`` query arg honored. Was previously
-        ``@pytest.mark.xfail(strict=True)`` — the strict mark forced
-        the implementer to come back here and retire it once the page
-        lands. Decorator removed in G2."""
+        """G2 landed the OCR queue page. Authed admins get a 200.
+        Was previously ``@pytest.mark.xfail(strict=True)`` — the strict
+        mark forced the implementer to come back here and retire it
+        once the page lands. Decorator removed in G2. G2 fix-up:
+        ``?highlight=N`` query arg dropped in favor of ``#item-N``
+        fragment; the route ignores any spurious ``highlight`` query
+        and must still 200."""
         from docket.web import create_app
 
         app = create_app()
@@ -872,6 +877,7 @@ class TestForcingFunctionsForE4Cleanups:
         with app.test_client() as client:
             with client.session_transaction() as sess:
                 sess["admin_user"] = "tester"
+            # Spurious ?highlight=42 must not 500 — route ignores it now.
             resp = client.get("/admin/data-debt/?highlight=42")
             assert resp.status_code == 200
 

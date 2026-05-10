@@ -125,7 +125,13 @@
   <span class="view-source view-source--unavailable">
     Source needs OCR
     {% if session.admin_user %}
-      <a href="{{ url_for('admin.data_debt', highlight=item.id) }}">
+      {# Use #item-N fragment, not ?highlight=N query param: the row may
+         live past offset 50 on the paginated queue, where the fragment
+         scrolls natively without requiring server-side awareness. The
+         spec at docs/superpowers/specs/2026-05-05-impact-first-refactor-design.md:2923
+         shows ?highlight=N; the deviation is intentional (browser-native
+         scroll fixes the silent no-op for off-page items). #}
+      <a href="{{ url_for('admin.data_debt') }}#item-{{ item.id }}">
         [admin queue]
       </a>
     {% endif %}
