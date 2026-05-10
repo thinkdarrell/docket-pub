@@ -369,3 +369,110 @@ def test_list_badge_audit_log_left_joins_deleted_items(bag):
                 "ADD CONSTRAINT agenda_item_badges_audit_agenda_item_id_fkey "
                 "FOREIGN KEY (agenda_item_id) REFERENCES agenda_items(id)"
             )
+
+
+# ---------------------------------------------------------------------------
+# G3.2 — /admin/badges/audit viewer
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("city_slug", CITIES)
+def test_admin_badge_audit_route_renders_for_logged_in_admin(app, city_slug):
+    bag = _bag_for(city_slug)
+    try:
+        m = bag.add_meeting()
+        iid = bag.add_item(m, title=f"Audit row in {city_slug}")
+        bag.add_audit(iid, "split_vote", "added", actor="alice")
+
+        c = app.test_client()
+        with c.session_transaction() as sess:
+            sess["admin_user"] = "tester"
+        resp = c.get("/admin/badges/audit")
+        assert resp.status_code == 200
+        body = resp.get_data(as_text=True)
+        assert "Badge audit log" in body
+        assert "split_vote" in body
+        assert "alice" in body
+    finally:
+        bag.cleanup()
+
+
+def test_admin_badge_audit_route_redirects_anonymous(client):
+    resp = client.get("/admin/badges/audit")
+    assert resp.status_code in (302, 303)
+    assert "/admin/login" in resp.headers.get("Location", "")
+
+
+def test_admin_badge_audit_filter_by_badge_slug_query_param(admin_client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_item(m)
+    bag.add_audit(iid, "split_vote", "added", actor="g3-test")
+    bag.add_audit(iid, "contested", "added", actor="g3-test")
+
+    resp = admin_client.get("/admin/badges/audit?badge_slug=contested")
+    body = resp.get_data(as_text=True)
+    assert resp.status_code == 200
+    # NOTE: deviation from plan — the original line-scoped assertion
+    # ("any line containing g3-test also contains contested") doesn't
+    # work because the audit table renders each row across multiple
+    # HTML lines (one cell per line), so the actor and slug never
+    # share a single line. Instead: since both seeded rows share the
+    # same actor, the filter's correctness is observable by counting
+    # ``g3-test`` occurrences — exactly one row should pass the
+    # ``badge_slug=contested`` filter.
+    assert body.count("g3-test") == 1
+    # And the matching row's slug is contested.
+    assert "contested" in body
+
+
+def test_admin_badge_audit_filter_by_actor_query_param(admin_client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_item(m)
+    bag.add_audit(iid, "split_vote", "added", actor="alice")
+    bag.add_audit(iid, "split_vote", "removed", actor="bob")
+
+    resp = admin_client.get("/admin/badges/audit?actor=alice")
+    body = resp.get_data(as_text=True)
+    assert resp.status_code == 200
+    # row authored by alice surfaces; row authored by bob doesn't (for
+    # this iid).
+    assert f">added<" in body or "added" in body
+    # Same scoping as previous test — restrict to rows that mention
+    # our seeded actors.
+    alice_rows = [l for l in body.splitlines() if "alice" in l]
+    bob_rows = [l for l in body.splitlines() if ">bob<" in l]
+    assert alice_rows
+    assert not bob_rows
+
+
+def test_admin_badge_audit_filter_by_date_range(admin_client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_item(m)
+    bag.add_audit(iid, "split_vote", "added", actor="g3-old",
+                   occurred_at="2026-03-01T00:00:00Z")
+    bag.add_audit(iid, "split_vote", "removed", actor="g3-new",
+                   occurred_at="2026-04-15T00:00:00Z")
+
+    resp = admin_client.get(
+        "/admin/badges/audit?since=2026-04-01&until=2026-05-01"
+    )
+    body = resp.get_data(as_text=True)
+    assert "g3-new" in body
+    assert "g3-old" not in body
+
+
+def test_admin_badge_audit_pagination_offset(admin_client, bag):
+    """Sentinel pagination — page size is 50, but a 51st row triggers
+    a 'next' link. Seed 51 rows to exercise the boundary."""
+    m = bag.add_meeting()
+    iid = bag.add_item(m)
+    for i in range(51):
+        bag.add_audit(iid, "split_vote", "added", actor=f"g3-page-{i:02d}",
+                       occurred_at=f"2026-04-{1 + (i % 28):02d}T12:00:00Z")
+
+    resp = admin_client.get("/admin/badges/audit")
+    body = resp.get_data(as_text=True)
+    assert resp.status_code == 200
+    # 'Next' link present (sentinel-pagination contract: hint when
+    # there's a 51st row).
+    assert "offset=50" in body or "offset=" in body

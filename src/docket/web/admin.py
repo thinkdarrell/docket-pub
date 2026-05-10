@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from flask import (
     Blueprint,
@@ -530,3 +532,125 @@ def ai_panel():
         item_version=ITEM_PROMPT_VERSION,
         meeting_version=MEETING_PROMPT_VERSION,
     )
+
+
+# --- Badge audit log viewer + manual badge management (G3) ------------------
+
+
+_AUDIT_PAGE_SIZE = 50
+
+# Decision #10: badge audit date filters are interpreted in
+# America/Chicago — the project is single-state Alabama. A literal
+# ::timestamptz cast against a UTC session would silently shift
+# user-meaningful day boundaries by 5–6 hours.
+_APP_TZ = ZoneInfo("America/Chicago")
+
+
+def _parse_filter_str(raw: str | None) -> str | None:
+    """Trim + treat empty as None — query-param hygiene."""
+    if raw is None:
+        return None
+    s = raw.strip()
+    return s or None
+
+
+def _parse_audit_since(raw: str | None) -> datetime | None:
+    """YYYY-MM-DD → start-of-day in America/Chicago (timezone-aware).
+
+    Returns None if the raw string is empty / unparseable. Parse errors
+    fall through to None rather than 400 — the viewer is forgiving for
+    bookmark-mangled URLs; a user typing garbage just gets the unfiltered
+    view back, not an error page.
+    """
+    s = _parse_filter_str(raw)
+    if s is None:
+        return None
+    try:
+        d = datetime.strptime(s, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+    return datetime(d.year, d.month, d.day, tzinfo=_APP_TZ)
+
+
+def _parse_audit_until_exclusive(raw: str | None) -> datetime | None:
+    """YYYY-MM-DD → start-of-(day+1) in America/Chicago.
+
+    The viewer's UI promises 'include the whole day' for ``until``; the
+    helper takes an exclusive upper bound, so this function adds one day
+    to make the math line up. (Decision #10's exclusive-of-next-day
+    convention.) An event at 23:59 local on the requested day still
+    matches.
+    """
+    start = _parse_audit_since(raw)
+    if start is None:
+        return None
+    return start + timedelta(days=1)
+
+
+@bp.route("/badges/audit")
+def badges_audit():
+    """Filterable view of ``agenda_item_badges_audit`` (spec §6.10).
+
+    Filters (all combinable, all bookmarkable):
+
+    - ``badge_slug`` — exact match.
+    - ``actor`` — exact match (admin usernames).
+    - ``since`` / ``until`` — ``YYYY-MM-DD`` strings interpreted in
+      America/Chicago. ``since`` is inclusive at start-of-day local;
+      ``until`` is inclusive of the local day-end (translated to an
+      exclusive upper bound at start-of-next-day, see decision #10 +
+      ``_parse_audit_until_exclusive``).
+
+    Pagination: ``offset`` query param + sentinel-pagination
+    (limit+1 / slice / next_offset). Page size 50.
+
+    Auth: blueprint-level ``before_request`` hook redirects
+    unauthenticated callers to ``/admin/login``.
+
+    Renders all actor_roles ('admin', 'cron', 'on_write') — admins
+    debugging odd badge state need to see automated activity too. Only
+    the manage UI restricts to admin-authored writes.
+    """
+    badge_slug = _parse_filter_str(request.args.get("badge_slug"))
+    actor = _parse_filter_str(request.args.get("actor"))
+    since_dt = _parse_audit_since(request.args.get("since"))
+    until_excl_dt = _parse_audit_until_exclusive(request.args.get("until"))
+    offset = _parse_offset(request.args.get("offset"))
+
+    rows_plus_one = query.list_badge_audit_log(
+        badge_slug=badge_slug,
+        actor=actor,
+        since=since_dt,
+        until_exclusive=until_excl_dt,
+        limit=_AUDIT_PAGE_SIZE + 1,
+        offset=offset,
+    )
+    rows = rows_plus_one[:_AUDIT_PAGE_SIZE]
+    next_offset = (
+        offset + _AUDIT_PAGE_SIZE
+        if len(rows_plus_one) > _AUDIT_PAGE_SIZE
+        else None
+    )
+
+    return render_template(
+        "admin/badges_audit.html",
+        rows=rows,
+        offset=offset,
+        next_offset=next_offset,
+        filter_badge_slug=badge_slug or "",
+        filter_actor=actor or "",
+        # Echo the raw user-supplied YYYY-MM-DD strings back into the
+        # form fields so the date inputs stay populated on round-trip.
+        filter_since=_parse_filter_str(request.args.get("since")) or "",
+        filter_until=_parse_filter_str(request.args.get("until")) or "",
+    )
+
+
+# Task 3 forward-declaration: ``admin.badges_audit`` template links to
+# the manage page via ``url_for('admin.badges_manage_item', ...)``. Flask
+# resolves ``url_for`` at render time, so the endpoint must exist. The
+# real implementation is Task 3 below; this stub registers the name so
+# the audit viewer renders without 500ing.
+@bp.route("/badges/items/<int:item_id>", endpoint="badges_manage_item")
+def _badges_manage_item_stub(item_id: int):
+    abort(404)

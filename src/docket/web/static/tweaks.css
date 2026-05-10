@@ -247,3 +247,34 @@
   transform: translateY(-1px);
 }
 .rail-empty-text strong { color: var(--ink); font-weight: 600; }
+
+/* G3 — admin badge audit viewer */
+.audit-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
+  align-items: end;
+  margin: 1rem 0;
+  padding: 0.75rem;
+  background: var(--surface-2, #f6f6f4);
+  border-radius: 4px;
+}
+.audit-filter label {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.85rem;
+}
+.audit-filter input { padding: 0.25rem 0.4rem; font-family: inherit; }
+.audit-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.audit-table th, .audit-table td {
+  text-align: left;
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid var(--border, #e6e6e0);
+  vertical-align: top;
+}
+.badge-action { padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 0.8rem; }
+.badge-action-added    { background: #d4edda; color: #155724; }
+.badge-action-removed  { background: #f8d7da; color: #721c24; }
+.badge-action-modified { background: #fff3cd; color: #856404; }
+.audit-pager { margin-top: 1rem; }
+.audit-pager a { margin-right: 1rem; }
