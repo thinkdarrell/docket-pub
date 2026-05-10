@@ -111,6 +111,18 @@ def query_b1_under_scoring_impact() -> list[dict[str, Any]]:
     prompt_version) tuples where the LLM is systematically scoring
     too low for that category.
 
+    Per spec §3.5: the denominator (``total_items``) is **all completed
+    items** in the (action_type, prompt_version) group within the
+    7-day window — NOT just items where Stage 2.5 fired. ``pct_boosted``
+    is therefore "of all completed items, what fraction had Stage 2.5
+    raise their significance score?". The 20% threshold is calibrated
+    to this denominator. Items without ``score_overrides`` populated
+    (e.g. AI accepted the score as-is, no overrides written) contribute
+    to ``total_items`` but never to ``items_with_sig_boost`` because the
+    boost check uses ``->>'final_significance'`` which is NULL on those
+    rows and the comparison ``NULL > NULL`` is NULL (excluded by
+    ``COUNT(*) FILTER``).
+
     Columns: ``action_type``, ``prompt_version``, ``total_items``,
     ``items_with_sig_boost``, ``avg_boost_magnitude``, ``pct_boosted``.
     """
@@ -135,7 +147,6 @@ def query_b1_under_scoring_impact() -> list[dict[str, Any]]:
                 FROM agenda_items ai
                WHERE ai.processing_status = 'completed'
                  AND ai.ai_generated_at > NOW() - INTERVAL '7 days'
-                 AND ai.score_overrides IS NOT NULL
                GROUP BY action_type, prompt_version
             )
             SELECT
@@ -169,6 +180,14 @@ def query_b2_over_scoring_consent() -> list[dict[str, Any]]:
     consent-appropriate than it should be. Same 7-day window, same
     sample-size floor (30).
 
+    Per spec §3.5: the denominator (``total_items``) is **all completed
+    items** in the (action_type, prompt_version) group within the
+    7-day window — NOT just items where Stage 2.5 fired. Items where
+    AI's consent placement was accepted as-is contribute to
+    ``total_items`` but not to ``items_with_consent_reduction``, since
+    the reduction predicate evaluates to NULL on rows without
+    ``score_overrides`` populated.
+
     Columns: ``action_type``, ``prompt_version``, ``total_items``,
     ``items_with_consent_reduction``, ``avg_reduction_magnitude``,
     ``pct_reduced``.
@@ -194,7 +213,6 @@ def query_b2_over_scoring_consent() -> list[dict[str, Any]]:
                 FROM agenda_items ai
                WHERE ai.processing_status = 'completed'
                  AND ai.ai_generated_at > NOW() - INTERVAL '7 days'
-                 AND ai.score_overrides IS NOT NULL
                GROUP BY action_type, prompt_version
             )
             SELECT
@@ -233,6 +251,19 @@ def query_c_baseline_drift() -> list[dict[str, Any]]:
     callable that groups in Python sees recent weeks first within each
     series.
 
+    **Low-volume filter is applied INSIDE the CTE** (Option A from the
+    G1 review) — weeks with ``n < 10`` are dropped from the time series
+    entirely BEFORE the LAG window function runs. This means
+    ``sig_delta_wow`` for a given visible row compares against the
+    previous *visible high-volume* row, not against an invisible
+    filtered-out week. Without this discipline, a low-volume week in
+    the middle of a series would silently distort the drift signal:
+    the surviving rows' LAG would point to a row that's then dropped
+    from output, hiding the gap. Trade-off: rendered week ranges may
+    not be contiguous (a low-volume week is visibly absent in the
+    series), which is the correct behavior — we'd rather show "no row
+    for that week" than a misleading delta.
+
     Columns: ``action_type``, ``week``, ``avg_sig``, ``avg_consent``,
     ``n``, ``sig_delta_wow``, ``volume_delta_wow``.
     """
@@ -251,6 +282,7 @@ def query_c_baseline_drift() -> list[dict[str, Any]]:
                  AND ai.processing_status = 'completed'
                  AND ai.significance_score IS NOT NULL
                GROUP BY action_type, week
+              HAVING COUNT(*) >= 10
             )
             SELECT
               action_type,
@@ -267,7 +299,6 @@ def query_c_baseline_drift() -> list[dict[str, Any]]:
                     PARTITION BY action_type ORDER BY week
                   )                                   AS volume_delta_wow
               FROM weekly_baselines
-             WHERE n >= 10
              ORDER BY action_type, week DESC
             """
         )

@@ -175,6 +175,28 @@
   color: var(--paper);
 }
 
+/* ── calibration dashboard panels (G1 fix-up R-T1) ──────────────────────
+   Six <section class="cal-panel"> blocks render the admin calibration
+   dashboard. Without these rules the panels stack with no visual
+   separation. Border-top divider between panels (suppressed on the
+   first); generous vertical margin keeps headings + tables breathing.
+   --rule token comes from styles.css design tokens (oklch(0.88 0.008 85)).
+   Mirrors the same pattern as F5's data-debt-list border-top approach. */
+.cal-panel {
+  margin: 32px 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--rule);
+}
+.cal-panel:first-of-type {
+  border-top: 0;
+}
+
+/* G1 fix-up Phase 2.3 — visual alert cue for >40% deterministic-only or
+   llm-only ratios on the badge volume panel (spec §5.7 threshold). */
+.cal-alert {
+  background: #fff3e0;
+}
+
 /* rail empty-state CTA */
 .rail-empty-cta {
   display: flex; gap: 10px; align-items: flex-start;

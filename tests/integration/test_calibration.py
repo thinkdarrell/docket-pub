@@ -1,5 +1,9 @@
 """Integration tests for G1 — calibration dashboard.
 
+Includes four regression tests at the bottom of this module covering
+the G1 fix-up commit (denominator drift, JSONB rendering, Option A
+LAG semantics, cal-panel CSS presence).
+
 Three deliverables under test:
 
 - G1.1: ``docket.services.calibration`` — six query functions backing
@@ -28,6 +32,7 @@ from __future__ import annotations
 
 import json
 from datetime import date, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -675,3 +680,222 @@ def test_calibration_dashboard_renders_data_when_present(bag, admin_client):
     body = rv.get_data(as_text=True)
     assert "GG1-render-divergence" in body
     assert f"#{iid}" in body
+
+
+# ---------------------------------------------------------------------------
+# G1 fix-up regressions
+# ---------------------------------------------------------------------------
+
+
+def test_b1_denominator_is_all_completed_items_not_just_overridden(bag):
+    """Regression for R-Q1: B1 denominator must be all completed items
+    in window, not just items with score_overrides populated.
+
+    Seeds 30 completed items in (action_type='b1_denom', prompt_version=99),
+    only 9 of which have score_overrides set with a sig boost. Pre-fix,
+    the CTE filtered ``score_overrides IS NOT NULL`` so total_items=9
+    and pct_boosted=100. Post-fix, total_items=30 and pct_boosted is
+    9/30=30.0% — still > 20% so the row surfaces, but with the correct
+    denominator math.
+    """
+    m = bag.add_meeting()
+    # 9 boosted items (with overrides).
+    for _ in range(9):
+        bag.add_item(
+            m,
+            action_type="b1_denom",
+            ai_rewrite_version=99,
+            original_ai_significance=2,
+            final_significance=8,
+        )
+    # 21 completed items where AI accepted the score (no overrides).
+    for _ in range(21):
+        bag.add_item(
+            m,
+            action_type="b1_denom",
+            ai_rewrite_version=99,
+            processing_status="completed",
+            # All four override fields None → with_overrides defaults False
+        )
+
+    rows = cal.query_b1_under_scoring_impact()
+    found = next((r for r in rows if r["action_type"] == "b1_denom"), None)
+    assert found is not None, (
+        "30/9 boosted should be > 20% threshold and pass min sample size 30"
+    )
+    assert found["total_items"] == 30, (
+        f"denominator must be all completed items (30); got {found['total_items']}"
+    )
+    assert found["items_with_sig_boost"] == 9
+    # pct_boosted = 9 / 30 * 100 = 30.0
+    assert float(found["pct_boosted"]) == 30.0, (
+        f"pct_boosted should be 30.0 (9/30), not 100.0 (9/9); got {found['pct_boosted']}"
+    )
+
+
+def test_b2_denominator_is_all_completed_items_not_just_overridden(bag):
+    """Regression for R-Q1 (B2 mirror): same denominator semantics as B1.
+
+    Seeds 30 completed items, only 9 of which had consent placement
+    reduced. pct_reduced should be 30.0 (9/30), not 100.0.
+    """
+    m = bag.add_meeting()
+    for _ in range(9):
+        bag.add_item(
+            m,
+            action_type="b2_denom",
+            ai_rewrite_version=99,
+            original_ai_consent=8,
+            final_consent=2,
+        )
+    for _ in range(21):
+        bag.add_item(
+            m,
+            action_type="b2_denom",
+            ai_rewrite_version=99,
+            processing_status="completed",
+        )
+
+    rows = cal.query_b2_over_scoring_consent()
+    found = next((r for r in rows if r["action_type"] == "b2_denom"), None)
+    assert found is not None
+    assert found["total_items"] == 30
+    assert found["items_with_consent_reduction"] == 9
+    assert float(found["pct_reduced"]) == 30.0
+
+
+def test_panel_a_triggers_fired_does_not_render_python_repr(bag, admin_client):
+    """Regression for R-T2: triggers_fired must render readable text,
+    not Python repr of a list-of-dicts.
+
+    Pre-fix: ``{{ row.triggers_fired }}`` evaluated str() on a Python
+    list, producing "[{'trigger': 'yellow_settlement', ...}]" with
+    single quotes. Post-fix: the iterative loop emits the trigger name
+    (and the magnitude when post/pre are present).
+    """
+    m = bag.add_meeting()
+    bag.add_item(
+        m,
+        title="Trigger render regression",
+        action_type="contract_award",
+        original_ai_significance=2,
+        final_significance=8,  # delta=6 > 3, surfaces in Panel A
+        triggers=[{
+            "trigger": "yellow_settlement",
+            "field": "significance",
+            "pre": 2,
+            "post": 8,
+        }],
+    )
+    rv = admin_client.get("/admin/calibration")
+    assert rv.status_code == 200
+    body = rv.get_data(as_text=True)
+
+    assert "yellow_settlement" in body, (
+        "human-readable trigger name must appear in the rendered cell"
+    )
+    # The Python repr signature for a list-of-dicts is "[{'" — a literal
+    # single-quote-after-brace that cannot occur in valid HTML/JSON
+    # output of the iterative loop.
+    assert "[{&#39;" not in body and "[{'" not in body, (
+        "Python list-of-dicts repr must not appear in the rendered cell"
+    )
+    # Magnitude should be derived from post − pre = 6.
+    assert "&#215;6" in body or "×6" in body, (
+        "magnitude (post − pre) should be rendered next to the trigger name"
+    )
+
+
+def test_baseline_drift_lag_skips_low_volume_weeks_per_option_a(bag):
+    """Regression for S-Q1: with Option A (filter inside CTE), LAG
+    points only to prior high-volume weeks.
+
+    Seeds three week buckets in the same action_type:
+    - week ~today: n=12 (passes filter)
+    - week ~7 days ago: n=5 (filtered out — fails HAVING n >= 10)
+    - week ~14 days ago: n=14 (passes filter)
+
+    Post-fix: only 2 rows surface (n=12 and n=14). The n=12 row's
+    sig_delta_wow points to the n=14 row (the prior visible
+    high-volume week), not to the filtered-out n=5 week. With the
+    pre-fix WHERE-after-LAG ordering, the n=5 row would have
+    influenced the LAG result.
+    """
+    m = bag.add_meeting()
+    # Week 0 (today): 12 items, avg sig = 5.
+    for _ in range(12):
+        bag.add_item(
+            m, action_type="c_optA",
+            ai_rewrite_version=99, processing_status="completed",
+            significance_score=5, consent_placement_score=3,
+            days_ago=0.0,
+        )
+    # Week 1 (~7 days ago): 5 items — below floor, must be excluded.
+    for _ in range(5):
+        bag.add_item(
+            m, action_type="c_optA",
+            ai_rewrite_version=99, processing_status="completed",
+            significance_score=9,  # outlier value to detect leakage
+            consent_placement_score=1,
+            days_ago=7.5,
+        )
+    # Week 2 (~14 days ago): 14 items, avg sig = 3.
+    for _ in range(14):
+        bag.add_item(
+            m, action_type="c_optA",
+            ai_rewrite_version=99, processing_status="completed",
+            significance_score=3, consent_placement_score=4,
+            days_ago=14.5,
+        )
+
+    rows = cal.query_c_baseline_drift()
+    drift = [r for r in rows if r["action_type"] == "c_optA"]
+    # Exactly 2 rows survive the n >= 10 filter.
+    assert len(drift) == 2, (
+        f"expected 2 high-volume weeks for c_optA, got {len(drift)} "
+        f"(low-volume week leaked into output)"
+    )
+    # Per ORDER BY action_type, week DESC — newest first.
+    newest, oldest = drift[0], drift[1]
+    assert newest["n"] == 12
+    assert oldest["n"] == 14
+
+    # The newest row's LAG points to the oldest visible row (n=14,
+    # avg_sig=3), giving sig_delta_wow = 5 − 3 = 2.0. If the n=5 week
+    # had leaked into the LAG, the delta would be 5 − 9 = -4 instead.
+    assert newest["sig_delta_wow"] is not None, (
+        "newest row should have a non-NULL LAG against the prior "
+        "visible high-volume week"
+    )
+    assert abs(float(newest["sig_delta_wow"]) - 2.0) < 0.001, (
+        f"sig_delta_wow should be 2.0 (5 − 3, prior high-volume week); "
+        f"got {newest['sig_delta_wow']} — low-volume week may have "
+        f"leaked into LAG"
+    )
+    # Volume delta: 12 − 14 = -2 (LAG against n=14, not n=5).
+    assert newest["volume_delta_wow"] == -2, (
+        f"volume_delta_wow should be -2 (12 − 14); "
+        f"got {newest['volume_delta_wow']}"
+    )
+
+
+def test_calibration_dashboard_has_panel_styling():
+    """Regression for R-T1: cal-panel CSS must exist in tweaks.css.
+
+    Substring check confirms the rule isn't an empty stub. Path
+    verified at fix-up time: src/docket/web/static/tweaks.css
+    (no /css/ subdirectory).
+    """
+    css_path = Path(__file__).resolve().parents[2] / "src" / "docket" / "web" / "static" / "tweaks.css"
+    assert css_path.exists(), f"tweaks.css missing at {css_path}"
+    css_content = css_path.read_text()
+    assert ".cal-panel" in css_content, ".cal-panel selector missing"
+    # Verify the rule has actual content (not just an empty stub).
+    panel_idx = css_content.index(".cal-panel")
+    panel_block = css_content[panel_idx : panel_idx + 200]
+    assert "border-top" in panel_block, (
+        ".cal-panel rule must include border-top per the fix-up plan"
+    )
+    assert "margin" in panel_block, (
+        ".cal-panel rule must include margin for vertical separation"
+    )

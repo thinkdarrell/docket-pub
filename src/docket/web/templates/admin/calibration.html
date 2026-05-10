@@ -65,7 +65,25 @@
             <td class="t-tnum">{{ row.ai_sig if row.ai_sig is not none else '—' }}</td>
             <td class="t-tnum">{{ row.final_sig if row.final_sig is not none else '—' }}</td>
             <td class="t-tnum">{{ row.sig_delta }}</td>
-            <td class="t-mono" style="font-size: 12px;">{{ row.triggers_fired }}</td>
+            <td class="t-mono" style="font-size: 12px;">
+              {#
+                R-T2: triggers_fired is JSONB → psycopg2 deserializes to
+                list[dict] with the schema from
+                src/docket/ai/floors.py:apply_score_floors —
+                  {"trigger": "<FloorTrigger.name>", "field": "...",
+                   "pre": <int|None>, "post": <int>}.
+                Iterating yields readable text instead of Python repr.
+                ``magnitude`` is computed as post − pre (when both are
+                non-null) so admins can see how big the override was.
+              #}
+              {% if row.triggers_fired %}
+                {% for t in row.triggers_fired %}
+                  {% set _post = t.get('post') if t is mapping else none %}
+                  {% set _pre  = t.get('pre')  if t is mapping else none %}
+                  <span class="t-mono">{{ t.trigger if t is mapping else t }}</span>{% if _post is not none and _pre is not none %} ×{{ _post - _pre }}{% endif %}{% if not loop.last %}, {% endif %}
+                {% endfor %}
+              {% else %}—{% endif %}
+            </td>
           </tr>
         {% endfor %}
       </tbody>
@@ -246,7 +264,13 @@
       </thead>
       <tbody>
         {% for row in badge_volume %}
-          <tr>
+          {#
+            Spec §5.7: pct_deterministic_only or pct_llm_only > 40%
+            indicates matcher_hints / prompt mismatch. Highlight rows
+            that cross that threshold so admins don't have to scan
+            every percentage column manually.
+          #}
+          <tr {% if (row.pct_deterministic_only is not none and row.pct_deterministic_only > 40) or (row.pct_llm_only is not none and row.pct_llm_only > 40) %}class="cal-alert"{% endif %}>
             <td class="t-tnum">{{ row.city_id }}</td>
             <td><code>{{ row.badge_slug }}</code></td>
             <td class="t-mono" style="font-size: 12px;">{{ row.week }}</td>
