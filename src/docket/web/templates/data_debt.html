@@ -1,13 +1,27 @@
 {% extends "base.html" %}
+{% import 'rss/_macros.xml.j2' as rss with context %}
 {% block title %}Data debt — {{ municipality.name }} — docket.pub{% endblock %}
 
 {# F5: Public data-debt page (spec §6.9, decision #84).
    Lists items from `municipality` whose source documents could not be
    read end-to-end — items that fall outside the machine-readable
    archive until they're re-OCR'd, re-fetched, or manually corrected.
-   Citizen-facing copy: no enum names, no Wave-0/processing-status
-   references; the friendly-label filter below translates the internal
-   states. #}
+
+   F5 fix-up (R3 / Override 3): citizen-friendly labels are computed
+   in the route via ``docket.models.data_quality.friendly_label`` and
+   arrive on each item as ``item.friendly_label``. The previous local
+   ``friendly_labels`` dict + ``{% macro %}`` lived only here; the RSS
+   feed couldn't access it from its own template scope. Single source
+   of truth now lives with the enum, not with template UI copy.
+
+   F5 fix-up (S5): per-row markup lives in the shared
+   ``data_debt_row(item, admin_email, slug)`` macro in
+   ``rss/_macros.xml.j2`` so HTML and RSS surfaces don't drift.
+
+   F5 fix-up (R2): the macro lifts mailto subject + body to local
+   ``{% set %}`` vars and applies ``| urlencode`` — fixes 111+
+   meetings whose titles contain ``&``/``?``/``#`` (Homewood's
+   recurring "Planning & Development Committee" dominates). #}
 
 {% block head %}
     {# RSS auto-discovery — feed readers and browsers pick this up. #}
@@ -16,28 +30,6 @@
           title="{{ municipality.name }} data debt — RSS"
           href="{{ url_for('public.data_debt_rss', city=municipality.slug) }}">
 {% endblock %}
-
-{# ── Friendly-label translator ────────────────────────────────────────
-   Maps the internal `data_quality` and `processing_status` enums onto
-   citizen-friendly explanations. Keep the dict here rather than in
-   Python so the copy is reviewable alongside the surrounding markup. #}
-{% set friendly_labels = {
-    'no_text_layer':       'Source PDF is scanned — needs OCR before we can read it.',
-    'no_agenda_text':      'Agenda body never reached our archive — likely a fetch error.',
-    'empty':               'Source document came back empty.',
-    'foreign_language':    'Source text is not in English — translation pending.',
-    'failed_permanent':    'Automated reading gave up after multiple retries.',
-} %}
-
-{% macro friendly_label(item) -%}
-    {%- if item.data_quality and item.data_quality != 'ok' -%}
-        {{ friendly_labels.get(item.data_quality, 'Source content needs review.') }}
-    {%- elif item.processing_status == 'failed_permanent' -%}
-        {{ friendly_labels.failed_permanent }}
-    {%- else -%}
-        Source content needs review.
-    {%- endif -%}
-{%- endmacro %}
 
 {% block content %}
 <section class="hero">
@@ -91,27 +83,7 @@
     </header>
     <ul class="data-debt-list">
         {% for item in high_items %}
-        <li class="data-debt-row">
-            <div class="data-debt-row__title">
-                <a href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=item.meeting_id) }}">
-                    {{ item.title or item.meeting_title or 'Untitled item' }}
-                </a>
-            </div>
-            <div class="data-debt-row__meta t-meta">
-                {{ item.municipality_name }}
-                {% if item.meeting_date %}
-                    · {{ item.meeting_date.strftime('%b %d, %Y') if item.meeting_date.strftime else item.meeting_date }}
-                {% endif %}
-            </div>
-            <div class="data-debt-row__needs">
-                {{ friendly_label(item) }}
-            </div>
-            <div class="data-debt-row__action t-meta">
-                <a href="mailto:{{ admin_email }}?subject=Data%20issue%20-%20{{ municipality.slug }}%20item%20{{ item.id }}&body=Please%20describe%20the%20issue%20with%20this%20agenda%20item:%0A%0AItem%20ID:%20{{ item.id }}%0AMeeting:%20{{ item.meeting_title or '' }}%0ADate:%20{{ item.meeting_date or '' }}">
-                    Report a problem with this item
-                </a>
-            </div>
-        </li>
+{{ rss.data_debt_row(item, admin_email, item.municipality_slug or municipality.slug) }}
         {% endfor %}
     </ul>
 </section>
@@ -127,27 +99,7 @@
     </header>
     <ul class="data-debt-list">
         {% for item in normal_items %}
-        <li class="data-debt-row">
-            <div class="data-debt-row__title">
-                <a href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=item.meeting_id) }}">
-                    {{ item.title or item.meeting_title or 'Untitled item' }}
-                </a>
-            </div>
-            <div class="data-debt-row__meta t-meta">
-                {{ item.municipality_name }}
-                {% if item.meeting_date %}
-                    · {{ item.meeting_date.strftime('%b %d, %Y') if item.meeting_date.strftime else item.meeting_date }}
-                {% endif %}
-            </div>
-            <div class="data-debt-row__needs">
-                {{ friendly_label(item) }}
-            </div>
-            <div class="data-debt-row__action t-meta">
-                <a href="mailto:{{ admin_email }}?subject=Data%20issue%20-%20{{ municipality.slug }}%20item%20{{ item.id }}&body=Please%20describe%20the%20issue%20with%20this%20agenda%20item:%0A%0AItem%20ID:%20{{ item.id }}%0AMeeting:%20{{ item.meeting_title or '' }}%0ADate:%20{{ item.meeting_date or '' }}">
-                    Report a problem with this item
-                </a>
-            </div>
-        </li>
+{{ rss.data_debt_row(item, admin_email, item.municipality_slug or municipality.slug) }}
         {% endfor %}
     </ul>
 </section>

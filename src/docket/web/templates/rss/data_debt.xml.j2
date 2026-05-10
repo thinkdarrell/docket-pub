@@ -11,7 +11,7 @@
 {% for item in items %}    <item>
       <title>{{ (item.title or item.meeting_title or 'Untitled item') | e }}</title>
       <link>{{ url_for('public.meeting_detail', slug=item.municipality_slug, meeting_id=item.meeting_id, _external=True) }}</link>
-      <description><![CDATA[{{ rss.data_debt_description(item) }}]]></description>
+      <description><![CDATA[{{ rss.data_debt_description(item) | cdata_safe }}]]></description>
 {%- if item.meeting_date %}
       <pubDate>{{ item.meeting_date | rss_rfc822 }}</pubDate>
 {%- endif %}

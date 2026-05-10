@@ -2,13 +2,27 @@
 
     pubDate / lastBuildDate use the ``rss_rfc822`` filter (registered in
     docket.web.filters) which delegates to ``email.utils.format_datetime``
-    so the format passes RSS validators. -#}
+    so the format passes RSS validators.
+
+    F5 fix-up (R3 / Override 3): friendly labels are now precomputed in
+    the route via ``docket.models.data_quality.friendly_label`` and
+    arrive on each item as ``item.friendly_label``. This macro reads the
+    string directly — no Jinja global, no template-local dict, single
+    source of truth shared with the HTML page.
+
+    F5 fix-up (S-NEW-2 / Override 4): every CDATA-wrapped emission
+    passes through ``| cdata_safe`` (registered in filters.py). The
+    filter splits any literal ``]]>`` so scraped municipal text can
+    never break out of the CDATA section.
+
+    F5 fix-up (S5): ``data_debt_row`` macro shared between the HTML page
+    and the RSS feed so the per-row markup pattern only lives in one
+    place — eliminating drift risk between surfaces. Used by
+    ``data_debt.html`` for both HIGH and NORMAL priority lists. -#}
 {%- macro data_debt_description(item) -%}
 {{ item.municipality_name }}: {{ item.title or item.meeting_title or 'agenda item' }}.
-{%- if item.data_quality and item.data_quality != 'ok' %}
- Source content needs review (data_quality={{ item.data_quality }}).
-{%- elif item.processing_status == 'failed_permanent' %}
- Automated reading gave up after multiple retries.
+{%- if item.friendly_label %}
+ {{ item.friendly_label }}
 {%- endif %}
 {%- if item.meeting_date %}
  Meeting date: {{ item.meeting_date }}.
@@ -18,4 +32,39 @@
 {%- macro upcoming_hearing_description(item) -%}
 {{ item.municipality_name }}: {{ item.hearing_title or item.meeting_title or 'public hearing' }}
 {%- if item.meeting_date %} on {{ item.meeting_date }}{% endif %}.
+{%- endmacro -%}
+
+{#- HTML data-debt row macro (S5). Renders a single ``<li class="data-debt-row">``
+    that the HTML page reuses for both HIGH and NORMAL priority lists.
+
+    ``admin_email`` and ``municipality_slug`` are passed in explicitly so
+    the macro stays decoupled from the calling template's outer scope.
+    The mailto's subject + body are lifted to local ``{% set %}`` vars
+    and passed through ``| urlencode`` (R2): structural query separator
+    is ``&amp;`` to match ``engagement_strip.html:77``. Item titles like
+    "Planning & Development Committee" no longer break the URL. -#}
+{%- macro data_debt_row(item, admin_email, municipality_slug) -%}
+{%- set _subject = "Data issue - " ~ municipality_slug ~ " item " ~ (item.id | int) -%}
+{%- set _body = "Please describe the issue with this agenda item:\n\nItem ID: " ~ (item.id | int) ~ "\nMeeting: " ~ (item.meeting_title or "") ~ "\nDate: " ~ (item.meeting_date or "") -%}
+<li class="data-debt-row">
+    <div class="data-debt-row__title">
+        <a href="{{ url_for('public.meeting_detail', slug=item.municipality_slug, meeting_id=item.meeting_id) }}">
+            {{ item.title or item.meeting_title or 'Untitled item' }}
+        </a>
+    </div>
+    <div class="data-debt-row__meta t-meta">
+        {{ item.municipality_name }}
+        {% if item.meeting_date %}
+            · {{ item.meeting_date.strftime('%b %d, %Y') if item.meeting_date.strftime else item.meeting_date }}
+        {% endif %}
+    </div>
+    <div class="data-debt-row__needs">
+        {{ item.friendly_label or 'Source content needs review.' }}
+    </div>
+    <div class="data-debt-row__action t-meta">
+        <a href="mailto:{{ admin_email }}?subject={{ _subject | urlencode }}&amp;body={{ _body | urlencode }}">
+            Report a problem with this item
+        </a>
+    </div>
+</li>
 {%- endmacro -%}

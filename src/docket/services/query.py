@@ -1919,7 +1919,7 @@ def list_data_debt_items(
 
 
 def list_upcoming_hearings(city_id: int, *, days_ahead: int = 60, limit: int = 50) -> list[dict]:
-    """Return future-dated meetings in ``city_id`` likely to surface a
+    """Return future-dated hearings in ``city_id`` likely to surface a
     public hearing — used by the upcoming-hearings RSS feed (F5.2).
 
     Heuristic (v1 — flagged as a follow-up to refine when a structured
@@ -1930,10 +1930,23 @@ def list_upcoming_hearings(city_id: int, *, days_ahead: int = 60, limit: int = 5
     - meeting title or any of its agenda-item titles contains
       ``'hearing'`` (case-insensitive).
 
-    Returns one row per hit ``(meeting_id, hearing_title)`` so a single
-    meeting can surface multiple distinct hearing items if the agenda
-    flags multiple. Falls back to the meeting title when the meeting
-    itself is the hearing (no agenda-level "hearing" item).
+    Returns one row per hit. The result shape:
+
+    - For meetings with one or more agenda items whose title matches
+      ``'%hearing%'``: one row per matching agenda item, with
+      ``agenda_item_id`` set and ``hearing_title`` carrying the item
+      title.
+    - For meetings whose own title matches but with no per-item
+      hearing rows: one row with ``agenda_item_id = NULL`` and
+      ``hearing_title`` carrying the meeting title.
+
+    F5 fix-up (R6 + S2): the previous shape used a scalar ``LIMIT 1``
+    subquery that silently dropped subsequent hearings from a meeting
+    with multiple. The RSS feed needs each hearing to surface as its
+    own ``<item>`` with a unique ``<guid>``, so we now JOIN
+    ``agenda_items`` and emit N rows per meeting. ``agenda_item_id``
+    is included so the RSS template can build a stable per-row GUID
+    anchored at a primary key (titles can change; PKs cannot).
 
     The codebase has no structured ``action_type='hearing'`` column on
     agenda items today (the v3 ``extracted_facts->>'action_type'`` enum
@@ -1946,42 +1959,55 @@ def list_upcoming_hearings(city_id: int, *, days_ahead: int = 60, limit: int = 5
     with db_cursor() as cur:
         cur.execute(
             """
+            -- Per-item hearings: one row per agenda item whose title
+            -- contains 'hearing'. Carries agenda_item_id so the feed
+            -- can build a stable per-row GUID.
             SELECT
                 m_row.id            AS meeting_id,
+                ai.id               AS agenda_item_id,
                 m_row.meeting_date  AS meeting_date,
                 m_row.meeting_type  AS meeting_type,
                 m_row.title         AS meeting_title,
                 muni.slug           AS municipality_slug,
                 muni.name           AS municipality_name,
-                COALESCE(
-                    -- Use the agenda-item title when one matches; else
-                    -- fall back to the meeting title.
-                    (
-                        SELECT ai.title
-                        FROM agenda_items ai
-                        WHERE ai.meeting_id = m_row.id
-                          AND ai.title ILIKE '%%hearing%%'
-                        ORDER BY ai.id ASC
-                        LIMIT 1
-                    ),
-                    m_row.title
-                ) AS hearing_title
+                ai.title            AS hearing_title
+            FROM meetings m_row
+            JOIN municipalities muni ON muni.id = m_row.municipality_id
+            JOIN agenda_items ai     ON ai.meeting_id = m_row.id
+            WHERE muni.id = %s
+              AND m_row.meeting_date >= CURRENT_DATE
+              AND m_row.meeting_date <= CURRENT_DATE + %s * INTERVAL '1 day'
+              AND ai.title ILIKE '%%hearing%%'
+
+            UNION ALL
+
+            -- Meeting-level hearings: meeting title matches but the
+            -- meeting has zero matching agenda items (so nothing in
+            -- the per-item branch surfaces it). agenda_item_id is NULL.
+            SELECT
+                m_row.id            AS meeting_id,
+                NULL::int           AS agenda_item_id,
+                m_row.meeting_date  AS meeting_date,
+                m_row.meeting_type  AS meeting_type,
+                m_row.title         AS meeting_title,
+                muni.slug           AS municipality_slug,
+                muni.name           AS municipality_name,
+                m_row.title         AS hearing_title
             FROM meetings m_row
             JOIN municipalities muni ON muni.id = m_row.municipality_id
             WHERE muni.id = %s
               AND m_row.meeting_date >= CURRENT_DATE
               AND m_row.meeting_date <= CURRENT_DATE + %s * INTERVAL '1 day'
-              AND (
-                m_row.title ILIKE '%%hearing%%'
-                OR EXISTS (
-                    SELECT 1 FROM agenda_items ai
-                    WHERE ai.meeting_id = m_row.id
-                      AND ai.title ILIKE '%%hearing%%'
-                )
+              AND m_row.title ILIKE '%%hearing%%'
+              AND NOT EXISTS (
+                  SELECT 1 FROM agenda_items ai2
+                  WHERE ai2.meeting_id = m_row.id
+                    AND ai2.title ILIKE '%%hearing%%'
               )
-            ORDER BY m_row.meeting_date ASC, m_row.id ASC
+
+            ORDER BY meeting_date ASC, meeting_id ASC, agenda_item_id ASC NULLS LAST
             LIMIT %s
             """,
-            (city_id, days_ahead, limit),
+            (city_id, days_ahead, city_id, days_ahead, limit),
         )
         return [dict(row) for row in cur.fetchall()]

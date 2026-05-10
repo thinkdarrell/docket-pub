@@ -6,11 +6,23 @@ Business logic stays in services, not here.
 
 from __future__ import annotations
 
+import threading
+import time
 from datetime import date
 
-from flask import Blueprint, Response, abort, redirect, render_template, request, url_for
+from flask import (
+    Blueprint,
+    Response,
+    abort,
+    current_app,
+    redirect,
+    render_template,
+    request,
+    url_for,
+)
 
 from docket.enrichment.topics import all_topics, get_topic_display_name
+from docket.models.data_quality import friendly_label
 from docket.services import query
 
 bp = Blueprint("public", __name__)
@@ -57,6 +69,13 @@ def index():
 
 _overview_cache: dict[str, tuple] = {}
 _CACHE_TTL = 300  # 5 minutes
+# F5 fix-up (R1 + D4 / Override 2): symmetric thread safety. Module-level
+# Lock + double-checked locking shields the cache-miss + render + set
+# sequence from the thundering-herd race when multiple workers/threads
+# request the same cold key simultaneously. Latent today (single-worker
+# sync gunicorn per Procfile + Dockerfile), but cheap to fix while the
+# helper is small. Mirrors the lock we add to ``_rss_cached`` below.
+_overview_lock = threading.Lock()
 
 
 @bp.route("/al/<slug>/")
@@ -66,13 +85,23 @@ def city_overview(slug):
     if not municipality:
         abort(404)
 
-    from datetime import datetime
-    import time
-
     now_ts = time.time()
     cached = _overview_cache.get(slug)
     if cached and (now_ts - cached[0]) < _CACHE_TTL:
         return cached[1]
+
+    with _overview_lock:
+        # Double-check: another waiter may have populated the cache
+        # while we were blocked acquiring the lock.
+        cached = _overview_cache.get(slug)
+        if cached and (time.time() - cached[0]) < _CACHE_TTL:
+            return cached[1]
+        return _city_overview_render(slug, municipality, now_ts)
+
+
+def _city_overview_render(slug, municipality, now_ts):
+    """Render and cache the city overview page. Caller holds ``_overview_lock``."""
+    from datetime import datetime
 
     result = query.list_meetings(slug, limit=6)
     topics = query.topic_counts(municipality_slug=slug)
@@ -406,6 +435,17 @@ def category_landing(slug: str, badge_slug: str):
 
 _rss_cache: dict[str, tuple[float, str]] = {}
 _RSS_TTL_SECONDS = 3600  # 60 min, per spec §6.9
+# F5 fix-up (R1 + Override 2): Lock + double-checked locking.
+# See ``_overview_lock`` above for the rationale; this is the same
+# shape applied to the RSS cache. Lock is module-level (one per
+# cache); cost of acquisition on the cache-hit fast path is zero
+# because we check the cache *before* touching the lock.
+_rss_lock = threading.Lock()
+# RSS HTTP Cache-Control max-age (seconds). Matches the in-memory TTL so
+# intermediate caches and feed-reader-side caches absorb load on the same
+# clock. F5 fix-up S4.
+_RSS_HTTP_MAX_AGE = _RSS_TTL_SECONDS
+_RSS_CACHE_CONTROL = f"public, max-age={_RSS_HTTP_MAX_AGE}"
 
 
 def _rss_cached(cache_key: str, render_fn) -> str:
@@ -414,16 +454,26 @@ def _rss_cached(cache_key: str, render_fn) -> str:
     Mirrors the ``_overview_cache`` pattern (line 58/73/138). The cache
     is bounded by the number of cities × the number of feeds (8 keys
     max in production), so no eviction policy is required.
-    """
-    import time
 
+    F5 fix-up (R1 / Override 2): thread-safe via ``_rss_lock`` +
+    double-checked locking. The fast path (cache hit) does NOT acquire
+    the lock — readers only block on cold misses. Once one waiter
+    finishes the render, all queued waiters short-circuit on the
+    re-checked cache lookup.
+    """
     now = time.time()
     cached = _rss_cache.get(cache_key)
     if cached and (now - cached[0]) < _RSS_TTL_SECONDS:
         return cached[1]
-    rendered = render_fn()
-    _rss_cache[cache_key] = (now, rendered)
-    return rendered
+    with _rss_lock:
+        # Double-check after acquiring the lock — another waiter may
+        # have populated the cache while we were blocked.
+        cached = _rss_cache.get(cache_key)
+        if cached and (time.time() - cached[0]) < _RSS_TTL_SECONDS:
+            return cached[1]
+        rendered = render_fn()
+        _rss_cache[cache_key] = (time.time(), rendered)
+        return rendered
 
 
 def _data_debt_admin_email(municipality: dict) -> str:
@@ -431,8 +481,15 @@ def _data_debt_admin_email(municipality: dict) -> str:
 
     ``municipalities.admin_email`` isn't seeded yet — when it lands
     (decision #77 follow-up), this helper picks it up automatically.
+    Until then we honor the same precedence as
+    ``engagement_strip.html:77`` — fall through to
+    ``current_app.config["ADMIN_EMAIL"]`` (env-var-driven, defaults to
+    ``admin@docket.pub`` per :mod:`docket.config`). F5 fix-up R5.
     """
-    return municipality.get("admin_email") or "admin@docket.pub"
+    explicit = municipality.get("admin_email")
+    if explicit:
+        return explicit
+    return current_app.config.get("ADMIN_EMAIL", "admin@docket.pub")
 
 
 @bp.route("/al/<string:city>/data-debt")
@@ -474,6 +531,16 @@ def data_debt(city):
     items = items_plus_one[:page_size]
     next_offset = (offset + page_size) if len(items_plus_one) > page_size else None
 
+    # F5 fix-up (R3 / Override 3): precompute the citizen-friendly label
+    # in the route so the template doesn't need to know about the
+    # ``data_quality`` / ``processing_status`` enums. ``filters.py`` is
+    # for functional transformations (URL encoding, date formatting);
+    # UI copy belongs with the enum (see ``docket.models.data_quality``).
+    # Both the HTML template and the RSS macro read
+    # ``item['friendly_label']`` directly — single source of truth.
+    for it in items:
+        it["friendly_label"] = friendly_label(it)
+
     # Group by priority tier for the rendered list. HIGH priority is
     # ``data_debt_priority = 'high'``; everything else (normal/low/NULL)
     # falls into NORMAL.
@@ -497,7 +564,10 @@ def data_debt_rss(city):
     """RSS 2.0 feed of data-debt items for ``city`` (spec §6.9).
 
     60-minute cache via ``_rss_cached`` — cheaper than rebuilding the
-    feed on every poll from feed readers.
+    feed on every poll from feed readers. F5 fix-up S4 also emits a
+    matching ``Cache-Control: public, max-age=3600`` header so
+    intermediate caches and feed-reader-side caches share the same
+    clock.
     """
     municipality = query.get_municipality(city)
     if not municipality:
@@ -509,6 +579,10 @@ def data_debt_rss(city):
 
     def _render():
         items = query.list_data_debt_items(municipality["id"], limit=50)
+        # Precompute citizen-friendly labels — same source of truth as
+        # the HTML page (see ``data_debt`` route above).
+        for it in items:
+            it["friendly_label"] = friendly_label(it)
         return render_template(
             "rss/data_debt.xml.j2",
             items=items,
@@ -517,7 +591,11 @@ def data_debt_rss(city):
         )
 
     rendered = _rss_cached(f"data-debt:{city}", _render)
-    return Response(rendered, mimetype="application/rss+xml")
+    return Response(
+        rendered,
+        mimetype="application/rss+xml",
+        headers={"Cache-Control": _RSS_CACHE_CONTROL},
+    )
 
 
 @bp.route("/al/<string:city>/upcoming-hearings.rss")
@@ -527,7 +605,8 @@ def upcoming_hearings_rss(city):
     Renamed from the pre-F5 ``/al/<city>/hearings.rss`` stub to match
     the spec example (path discoverability).
 
-    60-minute cache via ``_rss_cached``.
+    60-minute cache via ``_rss_cached``. F5 fix-up S4 adds a matching
+    ``Cache-Control`` header.
     """
     municipality = query.get_municipality(city)
     if not municipality:
@@ -547,7 +626,11 @@ def upcoming_hearings_rss(city):
         )
 
     rendered = _rss_cached(f"upcoming-hearings:{city}", _render)
-    return Response(rendered, mimetype="application/rss+xml")
+    return Response(
+        rendered,
+        mimetype="application/rss+xml",
+        headers={"Cache-Control": _RSS_CACHE_CONTROL},
+    )
 
 
 @bp.route("/items/<int:item_id>/badges")

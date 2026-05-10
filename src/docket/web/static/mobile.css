@@ -565,3 +565,42 @@
   /* ── 20. Inline overrides used in templates with style="..." should still work ── */
   /* Many existing pages use inline style="font-size: 28px" on .feed-title. The !important above wins. */
 }
+
+/* ── F5 fix-up R4: narrow-viewport data-debt rows ─────────────────────────
+   At ≤ 600px the row's grid collapses to a single column so title and
+   meta stack instead of competing for horizontal space. The bordered
+   "needs" block keeps its left rule; touch targets stay at ≥ 44px. */
+@media (max-width: 600px) {
+  .data-debt-row {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "title"
+      "meta"
+      "needs"
+      "action";
+    row-gap: 8px;
+    padding: 16px 12px;
+  }
+  .data-debt-row__title { font-size: 15px; }
+  .data-debt-row__meta {
+    white-space: normal;
+    font-size: 11px;
+  }
+  .data-debt-row__needs {
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+  .data-debt-row__action a {
+    /* Larger tap target for the report-a-problem link on mobile. */
+    display: inline-block;
+    padding: 8px 0;
+  }
+  .data-debt-pager {
+    margin: 16px 12px;
+  }
+  .data-debt-loadmore {
+    width: 100%;
+    justify-content: center;
+    padding: 14px 18px;
+  }
+}

@@ -459,6 +459,41 @@ def rss_now_rfc822() -> str:
     return format_datetime(datetime.now(timezone.utc))
 
 
+def cdata_safe(value: object) -> str:
+    """Sanitize ``value`` for safe inclusion inside an RSS ``<![CDATA[]]>``
+    block by neutralizing any literal ``]]>`` close-sequence.
+
+    The standard XML escape for an embedded ``]]>`` inside a CDATA
+    section is to split the section and re-open: ``]]]]><![CDATA[>``.
+    The receiving parser sees ``]]>`` plus a fresh CDATA wrapper, never
+    a premature close.
+
+    Why this is required:
+
+    - We wrap RSS ``<description>`` content in CDATA so descriptions
+      can carry HTML-ish characters (``&``, ``<``, ``>``) without
+      double-escaping.
+    - Municipal-meeting text is *scraped* — we do not own the input.
+      Scraped data is never trusted: a stray title or item body that
+      happens to contain ``]]>`` (a Python list slice notation, an
+      academic citation, etc.) would otherwise close our CDATA block
+      early and emit invalid XML that breaks every feed reader.
+    - Defensive escaping costs O(n) once per render and removes the
+      class of bug entirely.
+
+    F5 fix-up (S-NEW-2 / Override 4). Inputs:
+
+    - ``None`` → ``""``.
+    - Anything else → ``str(value)`` then the ``]]>`` substitution.
+    """
+    if value is None:
+        return ""
+    text = value if isinstance(value, str) else str(value)
+    if "]]>" not in text:
+        return text
+    return text.replace("]]>", "]]]]><![CDATA[>")
+
+
 def register(app: Flask) -> None:
     """Register custom Jinja filters on ``app``."""
     app.jinja_env.filters["order_badges"] = order_badges
@@ -467,4 +502,5 @@ def register(app: Flask) -> None:
     app.jinja_env.filters["format_dollars"] = format_dollars
     app.jinja_env.filters["dollar_tier"] = dollar_tier
     app.jinja_env.filters["rss_rfc822"] = rss_rfc822
+    app.jinja_env.filters["cdata_safe"] = cdata_safe
     app.jinja_env.globals["rss_now_rfc822"] = rss_now_rfc822

@@ -133,6 +133,23 @@ def bag():
         b.cleanup()
 
 
+def _bag_for(city_slug: str) -> _Bag:
+    """Look up city_id for ``city_slug`` and build a tracked ``_Bag``.
+
+    Used by parametrized tests that need to seed data into an
+    arbitrary city. Caller is responsible for ``cleanup()``.
+    """
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, slug FROM municipalities WHERE slug = %s",
+                (city_slug,),
+            )
+            row = cur.fetchone()
+    assert row is not None, f"City must be seeded: {city_slug}"
+    return _Bag(row[0], row[1])
+
+
 @pytest.fixture(scope="module")
 def app():
     flask_app = create_app()
@@ -371,34 +388,107 @@ def test_upcoming_hearings_rss_renders_valid_xml(bag, client):
 
 
 def test_rss_60_min_cache_returns_same_body(bag, client, monkeypatch):
-    """Calling the RSS endpoint twice within the TTL returns the cached body
-    — including a synthetic clock advance under the TTL."""
+    """Within the TTL, the second poll returns byte-identical body."""
     m = bag.add_meeting("2026-04-15")
     bag.add_item(m, title="Cache-A")
 
     # First call — cache miss.
     body1 = client.get("/al/birmingham/data-debt.rss").get_data(as_text=True)
 
-    # Now mutate the underlying data by adding a second item. Without
-    # cache the next response would include "Cache-B".
+    # Mutate the underlying data: a second item is added.
     bag.add_item(m, title="Cache-B")
 
     body2 = client.get("/al/birmingham/data-debt.rss").get_data(as_text=True)
-    # Second response was served from cache — does NOT include the new
-    # item. (lastBuildDate may differ if the formatter has sub-second
-    # resolution, but the bodies should be byte-identical because the
-    # cache returns the rendered string verbatim.)
+    # Cache hit — bodies are byte-identical and the new item is absent.
     assert body1 == body2
     assert "Cache-B" not in body2
 
 
-def test_rss_cache_key_isolation_per_city(bag, client):
-    """Different cities don't stale-serve each other's RSS feeds."""
-    body_bhm = client.get("/al/birmingham/data-debt.rss").get_data(as_text=True)
-    body_mob = client.get("/al/mobile/data-debt.rss").get_data(as_text=True)
-    assert "Birmingham" in body_bhm
-    assert "Mobile" in body_mob
-    assert body_bhm != body_mob
+def test_rss_cache_flips_after_ttl_expires(bag, client, monkeypatch):
+    """F5 fix-up S1: the boundary case — once the TTL elapses, the next
+    poll must rebuild the cache and pick up new data.
+
+    Patches ``time.time`` *as imported into ``public.py``* (the module
+    captured ``time`` at import; rebinding the symbol on
+    ``public_module.time`` is the safe way to monkeypatch it without
+    affecting unrelated callers in other modules)."""
+    m = bag.add_meeting("2026-04-15")
+    bag.add_item(m, title="Pre-TTL")
+
+    # Lock our synthetic clock so each test step makes a deterministic
+    # cache decision.
+    fake = {"now": 1_000_000.0}
+    monkeypatch.setattr(public_module.time, "time", lambda: fake["now"])
+
+    # First call: cache miss, body stored at ``now=1_000_000``.
+    body1 = client.get("/al/birmingham/data-debt.rss").get_data(as_text=True)
+    assert "Pre-TTL" in body1
+
+    # Add a new item; advance the clock past the TTL boundary.
+    bag.add_item(m, title="Post-TTL")
+    fake["now"] = 1_000_000.0 + public_module._RSS_TTL_SECONDS + 1
+
+    # Second call: cache miss (entry is stale), the new item appears.
+    body2 = client.get("/al/birmingham/data-debt.rss").get_data(as_text=True)
+    assert body2 != body1
+    assert "Post-TTL" in body2
+
+
+@pytest.mark.parametrize(
+    "city_slug",
+    ["birmingham", "homewood", "mobile", "vestavia_hills"],
+)
+def test_rss_cache_key_isolation_per_city(client, city_slug):
+    """F5 fix-up Override 5: parameterize across all four cities.
+
+    The mailto-bug regression (R2) affected 111+ Homewood meetings
+    because the Birmingham-only test seed didn't catch the data-shape
+    gap. Future cache-key / template / route tests must run against
+    every city's actual seeded data so single-city blind spots
+    surface immediately.
+    """
+    bag = _bag_for(city_slug)
+    try:
+        # Seed ONE recognizable item in this city so we can assert the
+        # right city's data lands in the right cache entry.
+        m = bag.add_meeting("2026-04-15", title=f"{city_slug}-cache-key-meeting")
+        bag.add_item(m, title=f"{city_slug}-cache-key-item")
+
+        # Pull every city's feed; assert this city's body contains its
+        # marker and not another city's.
+        body = client.get(f"/al/{city_slug}/data-debt.rss").get_data(as_text=True)
+        assert f"{city_slug}-cache-key-item" in body, (
+            f"feed for {city_slug} did not contain its own item"
+        )
+        # Cross-check: feeds for the OTHER cities must not leak this
+        # city's marker (cache keys are isolated per-city).
+        for other in ("birmingham", "homewood", "mobile", "vestavia_hills"):
+            if other == city_slug:
+                continue
+            other_body = client.get(
+                f"/al/{other}/data-debt.rss"
+            ).get_data(as_text=True)
+            assert f"{city_slug}-cache-key-item" not in other_body, (
+                f"{other} feed leaked an item from {city_slug} — cache keys collided"
+            )
+    finally:
+        bag.cleanup()
+
+
+def test_rss_responses_carry_cache_control_header(bag, client):
+    """F5 fix-up S4: HTTP Cache-Control mirrors the in-memory TTL so
+    intermediate caches and feed-reader-side caches share the clock."""
+    rv = client.get("/al/birmingham/data-debt.rss")
+    assert rv.status_code == 200
+    assert "Cache-Control" in rv.headers
+    cache_control = rv.headers["Cache-Control"]
+    assert "public" in cache_control
+    assert "max-age=3600" in cache_control
+
+    rv = client.get("/al/birmingham/upcoming-hearings.rss")
+    assert "Cache-Control" in rv.headers
+    cache_control = rv.headers["Cache-Control"]
+    assert "max-age=3600" in cache_control
 
 
 def test_rss_unknown_city_404s(client):
@@ -406,6 +496,234 @@ def test_rss_unknown_city_404s(client):
     assert rv.status_code == 404
     rv = client.get("/al/atlantis/upcoming-hearings.rss")
     assert rv.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# F5 fix-up Override 1 — multi-hearing meetings emit N <item> with unique GUIDs
+# ---------------------------------------------------------------------------
+
+
+def test_upcoming_hearings_emits_one_item_per_matching_agenda_item(bag, client):
+    """Override 1 (R6 + S2): a meeting with two hearing-titled agenda
+    items must surface as TWO ``<item>`` entries in the feed, each with
+    its own ``agenda_item_id`` (not collapsed via scalar LIMIT 1)."""
+    soon = (date.today() + timedelta(days=14)).isoformat()
+    m = bag.add_meeting(soon, title="Council Meeting (no hearing keyword in title)")
+    bag.add_item(
+        m, title="Public hearing on rezoning at 5th Ave",
+        data_quality="ok", data_debt_priority=None,
+        processing_status="completed",
+    )
+    bag.add_item(
+        m, title="Public hearing on budget amendment 2026",
+        data_quality="ok", data_debt_priority=None,
+        processing_status="completed",
+    )
+
+    rows = list_upcoming_hearings(bag.city_id)
+    matching = [r for r in rows if r["meeting_id"] == m]
+    assert len(matching) == 2, (
+        f"expected 2 rows from a meeting with 2 hearing items, got {len(matching)}"
+    )
+    # Both rows expose their own agenda_item_id — required for the
+    # unique-GUID emission below.
+    assert all(r["agenda_item_id"] is not None for r in matching)
+    assert {r["agenda_item_id"] for r in matching} == set(bag.item_ids[-2:])
+
+
+def test_upcoming_hearings_rss_unique_guids_for_multi_hearing_meeting(
+    bag, client
+):
+    """Override 1 (R6): each ``<item>`` in the feed gets a unique
+    ``<guid>``. Latent before fix-up: every item from a meeting with
+    multiple hearings shared ``meeting_url#hearing`` and feed readers
+    silently deduped them."""
+    soon = (date.today() + timedelta(days=14)).isoformat()
+    m = bag.add_meeting(soon, title="Multi-hearing council meeting")
+    bag.add_item(
+        m, title="Public hearing on rezoning",
+        data_quality="ok", data_debt_priority=None,
+        processing_status="completed",
+    )
+    bag.add_item(
+        m, title="Public hearing on budget amendment",
+        data_quality="ok", data_debt_priority=None,
+        processing_status="completed",
+    )
+
+    rv = client.get("/al/birmingham/upcoming-hearings.rss")
+    assert rv.status_code == 200
+    body = rv.get_data(as_text=True)
+    root = ET.fromstring(body)
+    channel = root.find("channel")
+    items = channel.findall("item")
+    matching_items = [
+        it for it in items
+        if "Multi-hearing" in (it.find("title").text or "")
+        or "rezoning" in (it.find("title").text or "")
+        or "budget" in (it.find("title").text or "")
+    ]
+    # Both hearings surface — none silently deduped.
+    assert len(matching_items) == 2
+
+    guids = [it.find("guid").text for it in matching_items]
+    assert len(set(guids)) == len(guids), (
+        f"GUIDs must be unique within a feed: {guids}"
+    )
+
+
+def test_upcoming_hearings_rss_meeting_title_fallback_unique_guid(
+    bag, client
+):
+    """Override 1: meetings whose own title matches but with no
+    per-item hearings still emit a row, with a stable
+    ``#hearing-meeting-<id>`` GUID anchor."""
+    soon = (date.today() + timedelta(days=14)).isoformat()
+    m = bag.add_meeting(soon, title="Public Hearing on Annual Plan")
+    # No agenda items at all — the SQL must surface this via the
+    # meeting-title fallback branch.
+
+    rv = client.get("/al/birmingham/upcoming-hearings.rss")
+    body = rv.get_data(as_text=True)
+    root = ET.fromstring(body)
+    channel = root.find("channel")
+    items = channel.findall("item")
+    target = [
+        it for it in items
+        if "Annual Plan" in (it.find("title").text or "")
+    ]
+    assert len(target) == 1
+    guid = target[0].find("guid").text
+    assert f"#hearing-meeting-{m}" in guid
+
+
+# ---------------------------------------------------------------------------
+# F5 fix-up R2 — mailto URL encoding (parameterized across cities)
+# ---------------------------------------------------------------------------
+
+
+# Titles that exercise the URL-encoding code path: ``&`` (Homewood's
+# recurring "Planning & Development Committee" pattern), ``?`` (rare
+# but in real corpora), and ``#`` (URL fragment delimiter).
+_MAILTO_BUG_TITLES = [
+    "Planning & Development Committee",
+    "Why are we doing this?",
+    "Resolution #1234 - Sole Source",
+]
+
+
+@pytest.mark.parametrize(
+    "city_slug",
+    ["birmingham", "homewood", "mobile", "vestavia_hills"],
+)
+@pytest.mark.parametrize("meeting_title", _MAILTO_BUG_TITLES)
+def test_data_debt_mailto_url_encoded_for_special_chars(
+    client, city_slug, meeting_title
+):
+    """F5 fix-up R2 + Override 5: parameterized across all four cities
+    + three special-char title shapes. Per-city assertion against real
+    seeded data catches the data-shape gap that the original
+    Birmingham-only seeded test missed."""
+    bag = _bag_for(city_slug)
+    try:
+        m = bag.add_meeting("2026-04-15", title=meeting_title)
+        bag.add_item(m, title=f"item with rogue {meeting_title}",
+                     data_quality="no_text_layer")
+
+        rv = client.get(f"/al/{city_slug}/data-debt")
+        assert rv.status_code == 200
+        body = rv.get_data(as_text=True)
+
+        # Mailto link must be URL-encoded — the literal special chars
+        # must NOT appear inside the mailto query-string VALUES. We
+        # isolate the mailto link by finding the substring starting at
+        # "mailto:" and walking to the closing quote, then split off
+        # the values portion (after "?subject=") so we only assert
+        # against user-content and not the structural ":" / "?" / "&"
+        # delimiters of the URL itself.
+        mailto_start = body.find("mailto:")
+        assert mailto_start != -1, "no mailto: link found"
+        mailto_end = body.find('"', mailto_start)
+        mailto_substring = body[mailto_start:mailto_end]
+        # Extract the values region: everything after "?subject=".
+        # The "?" here is the structural URL query delimiter and must
+        # remain literal; tokens inside subject + body must be encoded.
+        question_idx = mailto_substring.find("?")
+        values_region = mailto_substring[question_idx + 1:]
+        # The structural "&amp;" between subject= and body= is also
+        # legitimate per the engagement_strip precedent — strip it
+        # before checking for raw token leaks.
+        values_stripped = values_region.replace("&amp;", "")
+
+        for token, encoded in (("&", "%26"), ("?", "%3F"), ("#", "%23")):
+            if token not in meeting_title:
+                continue
+            # The encoded form of the token MUST appear somewhere in
+            # the values region (the subject embeds the meeting title).
+            assert encoded in values_region, (
+                f"expected percent-encoded {token!r} ({encoded}) inside the "
+                f"mailto values for title {meeting_title!r} city {city_slug}; "
+                f"got {mailto_substring!r}"
+            )
+            # And no raw token leaks into the values region.
+            assert token not in values_stripped, (
+                f"raw {token!r} leaked into mailto values for {city_slug} / "
+                f"{meeting_title!r}; got {mailto_substring!r}"
+            )
+    finally:
+        bag.cleanup()
+
+
+def test_data_debt_mailto_uses_amp_separator(bag, client):
+    """F5 fix-up R2: structural query separator is ``&amp;`` to match
+    ``engagement_strip.html:77`` precedent (HTML-attribute-escaped)."""
+    m = bag.add_meeting("2026-04-15", title="Plain Title")
+    bag.add_item(m, title="Item", data_quality="no_text_layer")
+    rv = client.get("/al/birmingham/data-debt")
+    body = rv.get_data(as_text=True)
+    mailto_start = body.find("mailto:")
+    mailto_end = body.find('"', mailto_start)
+    mailto_substring = body[mailto_start:mailto_end]
+    # Structural separator: &amp; appears between subject= and body=.
+    assert "&amp;body=" in mailto_substring
+
+
+# ---------------------------------------------------------------------------
+# F5 fix-up S-NEW-2 / Override 4 — CDATA escape end-to-end
+# ---------------------------------------------------------------------------
+
+
+def test_data_debt_rss_handles_cdata_close_in_item_title(bag, client):
+    """If an item title contains the literal ``]]>`` close sequence
+    (rare in municipal data, but never trusted) the rendered RSS feed
+    must still be well-formed XML, and ElementTree must roundtrip the
+    original title.
+    """
+    m = bag.add_meeting("2026-04-15", title="Valid Meeting")
+    bag.add_item(
+        m,
+        title="Item with rogue ]]> sequence",
+        data_quality="no_text_layer",
+    )
+
+    rv = client.get("/al/birmingham/data-debt.rss")
+    assert rv.status_code == 200
+    body = rv.get_data(as_text=True)
+
+    # ET.fromstring is strict — if our CDATA escape is wrong this raises.
+    root = ET.fromstring(body)
+    channel = root.find("channel")
+    items = channel.findall("item")
+
+    # Find our item via its title.
+    target = [
+        it for it in items
+        if "rogue" in (it.find("title").text or "")
+    ]
+    assert target, "seeded item must appear in the feed"
+    desc = target[0].find("description").text or ""
+    # The original token round-trips through the CDATA escape.
+    assert "]]>" in desc
 
 
 # ---------------------------------------------------------------------------
