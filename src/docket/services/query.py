@@ -2033,9 +2033,10 @@ def list_badge_audit_log(
     predicate; G3 doesn't restrict to admin actor_role at the helper
     level (the viewer surfaces all roles so cron and on-write actions
     are debuggable too), so this is a sequential scan over the audit
-    table. That's acceptable for v1 — admin traffic is bounded by
-    ``login_required`` and the table is small (one row per badge
-    add/remove/modify, currently zero in production).
+    table. That's acceptable for v1 — admin traffic is bounded by the
+    admin blueprint's ``before_request`` auth hook and the table is
+    small (one row per badge add/remove/modify, currently zero in
+    production).
 
     Pagination: caller passes ``limit`` and ``offset``; sentinel
     pagination is the caller's responsibility (caller passes
@@ -2052,10 +2053,12 @@ def list_badge_audit_log(
     - ``municipality_slug``, ``municipality_name`` — from
       ``municipalities`` for cross-city display.
 
-    NB: the audit table's ``agenda_item_id`` FK to ``agenda_items``
-    has no ``ON DELETE CASCADE``, so audit rows live forever even if
-    the item is deleted. Use a LEFT JOIN so old audit rows still
-    surface (with NULL item_title / meeting_date / municipality_*).
+    NB: as of Migration 016 the audit table's ``agenda_item_id`` FK
+    uses ``ON DELETE SET NULL``, so audit rows survive item deletion
+    (the conventional audit-table pattern). The LEFT JOIN below is
+    load-bearing — orphaned rows surface with NULL item_title /
+    meeting_date / municipality_* so the viewer can still display the
+    historical action even after the underlying item is gone.
     """
     where_clauses: list[str] = []
     params: list = []

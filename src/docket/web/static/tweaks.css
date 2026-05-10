@@ -256,7 +256,7 @@
   align-items: end;
   margin: 1rem 0;
   padding: 0.75rem;
-  background: var(--surface-2, #f6f6f4);
+  background: var(--paper-2, #f6f6f4);
   border-radius: 4px;
 }
 .audit-filter label {
@@ -269,7 +269,7 @@
 .audit-table th, .audit-table td {
   text-align: left;
   padding: 0.4rem 0.6rem;
-  border-bottom: 1px solid var(--border, #e6e6e0);
+  border-bottom: 1px solid var(--rule, #e6e6e0);
   vertical-align: top;
 }
 .badge-action { padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 0.8rem; }
@@ -286,12 +286,12 @@
   align-items: center;
   gap: 0.75rem;
   padding: 0.4rem 0;
-  border-bottom: 1px dotted var(--border, #e6e6e0);
+  border-bottom: 1px dotted var(--rule, #e6e6e0);
 }
 .manage-chip { padding: 0.15rem 0.5rem; border-radius: 3px; font-size: 0.9rem; }
 .manage-chip.badge-process { background: #fff3cd; }
 .manage-chip.badge-policy  { background: #d1ecf1; }
-.manage-meta { font-size: 0.8rem; color: var(--muted, #6a6a60); }
+.manage-meta { font-size: 0.8rem; color: var(--ink-3, #6a6a60); }
 .manage-remove {
   background: none;
   border: 1px solid #c66;

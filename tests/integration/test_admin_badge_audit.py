@@ -325,50 +325,40 @@ def test_list_badge_audit_log_rejects_naive_datetime(bag):
 
 
 def test_list_badge_audit_log_left_joins_deleted_items(bag):
-    """Audit FK has no CASCADE; deleted-item audit rows must still surface.
-
-    NOTE: deviation from plan — migration 013:144 declares
-    ``agenda_item_id INT NOT NULL REFERENCES agenda_items(id)`` with
-    the default RESTRICT semantics, so we cannot DELETE the parent
-    item while the audit row references it. To still verify the
-    LEFT JOIN behavior, we temporarily drop & restore the FK around
-    the orphaning step. The LEFT JOIN remains correct defensive code
-    in case a future migration relaxes the FK.
-    """
+    """Migration 016 sets agenda_item_id ON DELETE SET NULL on
+    agenda_item_badges_audit. Deleted-item audit rows must therefore
+    surface with NULL agenda_item_id and NULL joined columns. The
+    LEFT JOIN in list_badge_audit_log is load-bearing for this case."""
     from docket.services import query
 
     m = bag.add_meeting()
     iid = bag.add_item(m)
     bag.add_audit(iid, "split_vote", "added", actor="ghost")
 
-    # Drop FK, delete item, re-add FK as NOT VALID so the now-orphan
-    # row doesn't trip validation. Restore validation semantics at
-    # the end of the test.
+    # Delete the item directly. Post-016 the FK cascades to
+    # agenda_item_id NULL on audit rows; pre-016 this would have
+    # raised ForeignKeyViolation.
     with db() as conn, conn.cursor() as cur:
-        cur.execute(
-            "ALTER TABLE agenda_item_badges_audit "
-            "DROP CONSTRAINT agenda_item_badges_audit_agenda_item_id_fkey"
-        )
         cur.execute("DELETE FROM agenda_items WHERE id = %s", (iid,))
     bag.item_ids.remove(iid)  # don't try to clean it again
 
-    try:
-        rows = query.list_badge_audit_log(actor="ghost", limit=10)
-        ours = [r for r in rows if r["agenda_item_id"] == iid]
-        assert len(ours) == 1
-        assert ours[0]["item_title"] is None  # LEFT JOIN
-    finally:
-        # Cleanup: orphan audit row, then restore the FK constraint.
-        with db() as conn, conn.cursor() as cur:
-            cur.execute(
-                "DELETE FROM agenda_item_badges_audit WHERE agenda_item_id = %s",
-                (iid,),
-            )
-            cur.execute(
-                "ALTER TABLE agenda_item_badges_audit "
-                "ADD CONSTRAINT agenda_item_badges_audit_agenda_item_id_fkey "
-                "FOREIGN KEY (agenda_item_id) REFERENCES agenda_items(id)"
-            )
+    rows = query.list_badge_audit_log(actor="ghost", limit=10)
+    # The audit row's agenda_item_id is now NULL post-cascade, so
+    # filter on the actor + slug + action to find it.
+    ours = [r for r in rows if r["actor"] == "ghost"
+            and r["badge_slug"] == "split_vote"]
+    assert len(ours) == 1
+    assert ours[0]["agenda_item_id"] is None  # ON DELETE SET NULL
+    assert ours[0]["item_title"] is None  # LEFT JOIN
+    assert ours[0]["meeting_date"] is None
+    assert ours[0]["municipality_slug"] is None
+
+    # Cleanup: orphan audit row.
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM agenda_item_badges_audit "
+            "WHERE actor = 'ghost' AND badge_slug = 'split_vote'",
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -15,10 +15,10 @@
   at /admin/badges/items/<id> is the only surface that writes
   actor_role='admin'.
 
-  NB: agenda_item_badges_audit's agenda_item_id FK has no ON DELETE
-  CASCADE (migration 013:144). Deleted items still surface in the log
-  with NULL item_title / meeting_date / municipality_slug — the
-  helper LEFT JOINs accordingly.
+  NB: per Migration 016, agenda_item_badges_audit's agenda_item_id FK
+  uses ON DELETE SET NULL. Deleted items still surface in the log with
+  NULL item_title / meeting_date / municipality_slug — the helper LEFT
+  JOINs accordingly so historical actions remain visible.
 #}
 
 {% block content %}

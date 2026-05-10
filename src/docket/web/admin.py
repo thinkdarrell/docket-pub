@@ -328,12 +328,12 @@ def errors_escalate(item_id: int):
     (decision-#93 audit row also written). The worker should treat
     this flag as "do not auto-retry — human attention needed."
 
-    Migration 016 candidate (next available migration slot): add a
-    dedicated ``requires_manual_review BOOLEAN`` column on
-    ``agenda_items``. The JSONB stopgap avoids a schema change for v1
-    but isn't indexable cheaply; once the volume of escalated items
-    grows past a handful we should promote this to a real column.
-    **Flagged as a follow-up.**
+    Migration 017 candidate (016 is reserved for the audit-FK
+    relaxation shipped in this fix-up; the next available slot for the
+    ``requires_manual_review BOOLEAN`` column is 017). The JSONB
+    stopgap avoids a schema change for v1 but isn't indexable cheaply;
+    once the volume of escalated items grows past a handful we should
+    promote this to a real column. **Flagged as a follow-up.**
     """
     actor = session.get("admin_user", "unknown")
 
