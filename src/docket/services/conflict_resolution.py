@@ -543,3 +543,178 @@ def re_prompt_stage_2(item_id: int, *,
             "Try Edit Stage 1 facts or Accept Stage 2."
         ),
     )
+
+
+# ---------------------------------------------------------------------------
+# Action 4 — Edit Stage 1 facts (correct facts + Stage 2 re-run)
+# ---------------------------------------------------------------------------
+
+
+def edit_stage_1_facts(item_id: int, *,
+                        new_facts_json: dict,
+                        actor: str,
+                        reason: str | None = None) -> ResolutionResult:
+    """Admin corrects misclassified Stage 1 facts; system re-runs Stage 2
+    with the corrected facts.
+
+    new_facts_json is validated via the StructuredFacts Pydantic model.
+    On validation failure raises ConflictValidationError.
+
+    Persistence + reconciliation matches re_prompt_stage_2: if reconcile
+    accepts -> completed; if reconcile still conflicts -> status stays at
+    cross_stage_conflict.
+
+    Raises LookupError if item not in cross_stage_conflict.
+    Raises ConflictAlreadyResolvedError on TOCTOU race-loss (decision #12).
+    """
+    if reason is not None:
+        reason = reason.strip()[:REASON_MAX] or None
+
+    # Validate via Pydantic before any DB write.
+    try:
+        facts = StructuredFacts.model_validate(new_facts_json)
+    except Exception as e:  # pydantic.ValidationError or otherwise
+        raise ConflictValidationError(f"new_facts_json failed validation: {e}")
+
+    # Persist the corrected facts in the SAME transaction that loads + audits.
+    with db() as conn, conn.cursor() as cur:
+        item = _load_conflict_item(cur, item_id)
+        if item is None:
+            raise LookupError(f"item {item_id} not in cross_stage_conflict")
+
+        # Replace extracted_facts before the LLM call so the audit row's
+        # payload references the canonicalized JSON the model_dump emits.
+        canon_facts = facts.model_dump(mode="json")
+        cur.execute(
+            "UPDATE agenda_items SET extracted_facts = %s::jsonb WHERE id = %s",
+            (json.dumps(canon_facts), item_id),
+        )
+
+    # Run Stage 2 outside the transaction (LLM I/O); refetch the item with
+    # the now-current facts JSON for the rerun helper.
+    outcome = _rerun_stage2(item, facts, override_instruction=None)
+
+    success = outcome.reconcile_action == "accept"
+    new_status = "completed" if success else "cross_stage_conflict"
+
+    score_overrides_payload = {
+        "conflicts": outcome.conflicts,
+        "original_ai_significance": outcome.score_overrides_obj.original_ai_significance,
+        "final_significance": outcome.score_overrides_obj.final_significance,
+        "original_ai_consent": outcome.score_overrides_obj.original_ai_consent,
+        "final_consent": outcome.score_overrides_obj.final_consent,
+        "triggers": outcome.score_overrides_obj.triggers,
+        "admin_facts_edit": True,
+    }
+
+    # Decision #12 — TOCTOU guard, same shape as re_prompt_stage_2. The
+    # initial extracted_facts UPDATE earlier in this function is also at
+    # risk; if a concurrent admin flipped the row to 'completed' between
+    # _load_conflict_item and that UPDATE, the early UPDATE silently
+    # affected 0 rows but the LLM call still ran. We still detect the
+    # race here at persistence time and audit it. (Hardening the early
+    # facts UPDATE the same way is possible but adds a transaction round
+    # trip; the cost of running an extra LLM call on a lost race is the
+    # tradeoff we accept for v1.)
+    with db() as conn, conn.cursor() as cur:
+        if success:
+            cur.execute(
+                """
+                UPDATE agenda_items
+                   SET headline = %s,
+                       why_it_matters = %s,
+                       significance_score = %s,
+                       consent_placement_score = %s,
+                       score_overrides = %s::jsonb,
+                       processing_status = 'completed'::processing_status_enum
+                 WHERE id = %s
+                   AND processing_status = 'cross_stage_conflict'::processing_status_enum
+                """,
+                (
+                    outcome.rewrite.headline,
+                    outcome.rewrite.why_it_matters,
+                    outcome.score_overrides_obj.final_significance,
+                    outcome.score_overrides_obj.final_consent,
+                    json.dumps(score_overrides_payload),
+                    item_id,
+                ),
+            )
+        else:
+            cur.execute(
+                """
+                UPDATE agenda_items
+                   SET score_overrides = %s::jsonb
+                 WHERE id = %s
+                   AND processing_status = 'cross_stage_conflict'::processing_status_enum
+                """,
+                (json.dumps(score_overrides_payload), item_id),
+            )
+
+        race_lost = cur.rowcount == 0
+        if race_lost:
+            cur.execute(
+                "SELECT processing_status::text FROM agenda_items WHERE id = %s",
+                (item_id,),
+            )
+            current = cur.fetchone()
+            current_status = current[0] if current else "unknown"
+            _audit(
+                cur, item_id,
+                from_status=current_status,
+                to_status=current_status,
+                action="edit_stage1_facts_lost_race",
+                actor=actor,
+                reason=reason,
+                payload={
+                    "new_facts_json": canon_facts,
+                    "would_have_set_status": new_status,
+                    "served_model": outcome.served_model,
+                    "is_substantive": outcome.rewrite.is_substantive,
+                },
+            )
+            log.info(
+                "admin edit_stage1_facts lost race: item_id=%s actor=%s "
+                "current_status=%s",
+                item_id, actor, current_status,
+            )
+        else:
+            _audit(
+                cur, item_id,
+                from_status="cross_stage_conflict",
+                to_status=new_status,
+                action="edit_stage1_facts",
+                actor=actor,
+                reason=reason,
+                payload={
+                    "new_facts_json": canon_facts,
+                    "reconcile_action": outcome.reconcile_action,
+                    "conflicts": outcome.conflicts,
+                    "served_model": outcome.served_model,
+                    "is_substantive": outcome.rewrite.is_substantive,
+                },
+            )
+
+    # Raise after the `with db()` block so the race-loss audit row
+    # commits before the route handler sees the exception.
+    if race_lost:
+        raise ConflictAlreadyResolvedError(
+            f"item {item_id} was resolved by another admin during the "
+            "LLM call (current status: " + current_status + ")"
+        )
+
+    log.info(
+        "admin edit_stage1_facts: item_id=%s actor=%s reconcile=%s",
+        item_id, actor, outcome.reconcile_action,
+    )
+    return ResolutionResult(
+        item_id=item_id,
+        new_status=new_status,
+        action="edit_stage1_facts",
+        success=success,
+        detail=(
+            "Facts corrected; Stage 2 re-ran and reconcile accepted."
+            if success else
+            "Facts corrected and Stage 2 re-ran, but reconcile still "
+            "found conflicts. Review the updated reasons."
+        ),
+    )

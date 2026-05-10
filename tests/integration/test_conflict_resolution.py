@@ -844,3 +844,147 @@ def test_re_prompt_returns_409_when_item_resolved_during_llm_call(
     actions = [r[2] for r in rows]
     assert "re_prompt_stage2_lost_race" in actions
     assert "re_prompt_stage2" not in actions
+
+
+# ---------------------------------------------------------------------------
+# G4.3d — edit_stage_1_facts (correct facts + Stage 2 re-run)
+# ---------------------------------------------------------------------------
+
+
+def test_edit_facts_form_renders_inline(admin_client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_conflict_item(m)
+    resp = admin_client.get(f"/admin/review/conflicts/{iid}/_form/edit-facts")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert 'name="new_facts_json"' in body
+    # Form pre-populates with existing extracted_facts (so admin edits
+    # rather than re-typing from scratch).
+    assert "Acme Corp" in body  # from SAMPLE_FACTS
+
+
+def test_edit_facts_persists_corrected_facts_and_reruns_stage2(
+    admin_client, bag, mock_rewrite_item,
+):
+    """Happy path: admin corrects counterparty -> Stage 2 returns
+    substantive -> reconcile accepts -> status flips to completed."""
+    m = bag.add_meeting()
+    iid = bag.add_conflict_item(m)
+
+    corrected_facts = dict(SAMPLE_FACTS)
+    corrected_facts["counterparty"] = "Real Vendor LLC"
+    corrected_facts["action_type"] = "contract_award"
+
+    resp = admin_client.post(
+        f"/admin/review/conflicts/{iid}/edit-stage-1-facts",
+        data={"new_facts_json": json.dumps(corrected_facts)},
+    )
+    assert resp.status_code == 200
+
+    item = _read_item(iid)
+    assert item["processing_status"] == "completed"
+    # Persisted facts updated.
+    assert item["extracted_facts"]["counterparty"] == "Real Vendor LLC"
+
+    rows = _audit_rows(iid)
+    assert len(rows) == 1
+    _, to_status, action, _, _, _, payload = rows[0]
+    assert to_status == "completed"
+    assert action == "edit_stage1_facts"
+    assert payload["new_facts_json"]["counterparty"] == "Real Vendor LLC"
+
+
+def test_edit_facts_validates_pydantic_schema(admin_client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_conflict_item(m)
+
+    # Missing required field — Pydantic should reject.
+    bad_facts = {"counterparty": "Acme"}  # missing funding_source etc.
+    resp = admin_client.post(
+        f"/admin/review/conflicts/{iid}/edit-stage-1-facts",
+        data={"new_facts_json": json.dumps(bad_facts)},
+    )
+    assert resp.status_code == 400
+
+
+def test_edit_facts_validates_json_parseability(admin_client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_conflict_item(m)
+
+    resp = admin_client.post(
+        f"/admin/review/conflicts/{iid}/edit-stage-1-facts",
+        data={"new_facts_json": "not valid json {{"},
+    )
+    assert resp.status_code == 400
+
+
+def test_edit_facts_404_for_unknown_or_completed_item(admin_client, bag):
+    resp = admin_client.post(
+        "/admin/review/conflicts/999999999/edit-stage-1-facts",
+        data={"new_facts_json": json.dumps(SAMPLE_FACTS)},
+    )
+    assert resp.status_code == 404
+
+
+def test_edit_facts_requires_login(client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_conflict_item(m)
+    resp = client.post(
+        f"/admin/review/conflicts/{iid}/edit-stage-1-facts",
+        data={"new_facts_json": json.dumps(SAMPLE_FACTS)},
+    )
+    assert resp.status_code in (302, 303)
+
+
+def test_edit_facts_returns_409_when_item_resolved_during_llm_call(
+    admin_client, bag, monkeypatch,
+):
+    """Decision #12 TOCTOU guard for edit-facts path. Same shape as
+    the re-prompt TOCTOU test."""
+    from docket.ai.rewrite_schema import ItemRewrite
+
+    m = bag.add_meeting()
+    iid = bag.add_conflict_item(m)
+
+    def _mock_with_concurrent_resolve(*args, **kwargs):
+        with db() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE agenda_items
+                   SET processing_status = 'completed'::processing_status_enum
+                 WHERE id = %s
+                """,
+                (iid,),
+            )
+        return (
+            ItemRewrite(
+                is_substantive=True,
+                headline="Council awards $75K janitorial contract",
+                why_it_matters="Renews custodial services across 12 city buildings.",
+                significance_rationale="Modest ongoing operating expense.",
+                significance_score=4.0,
+                consent_placement_rationale="Routine ops contract.",
+                consent_placement_score=8.0,
+                suggested_badge_slugs=[],
+                confidence="medium",
+            ),
+            "claude-haiku-4-5-20251001",
+        )
+    monkeypatch.setattr(
+        "docket.services.conflict_resolution.rewrite_item",
+        _mock_with_concurrent_resolve,
+    )
+
+    corrected = dict(SAMPLE_FACTS)
+    corrected["counterparty"] = "Real Vendor LLC"
+    resp = admin_client.post(
+        f"/admin/review/conflicts/{iid}/edit-stage-1-facts",
+        data={"new_facts_json": json.dumps(corrected)},
+    )
+    assert resp.status_code == 409
+    assert "resolved by another admin" in resp.get_data(as_text=True)
+
+    rows = _audit_rows(iid)
+    actions = [r[2] for r in rows]
+    assert "edit_stage1_facts_lost_race" in actions
+    assert "edit_stage1_facts" not in actions

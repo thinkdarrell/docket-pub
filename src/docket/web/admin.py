@@ -1027,10 +1027,52 @@ def conflict_re_prompt_stage_2(item_id: int):
     return render_template("admin/_conflict_resolved.html", result=result)
 
 
-# Forward-declaration stub (replaced by real handler in Task 6).
 @bp.route("/review/conflicts/<int:item_id>/_form/edit-facts")
 def conflict_form_edit_facts(item_id: int):
-    abort(501)
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, extracted_facts, processing_status::text
+              FROM agenda_items WHERE id = %s
+            """,
+            (item_id,),
+        )
+        row = cur.fetchone()
+    if row is None or row["processing_status"] != "cross_stage_conflict":
+        abort(404)
+
+    return render_template(
+        "admin/_conflict_form_edit_facts.html",
+        item_id=item_id,
+        existing_facts=row["extracted_facts"] or {},
+    )
+
+
+@bp.route("/review/conflicts/<int:item_id>/edit-stage-1-facts", methods=["POST"])
+def conflict_edit_stage_1_facts(item_id: int):
+    actor = session.get("admin_user", "unknown")
+    raw = request.form.get("new_facts_json", "")
+    try:
+        new_facts = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return ("new_facts_json must be valid JSON", 400)
+
+    reason = request.form.get("reason")
+    try:
+        result = conflict_svc.edit_stage_1_facts(
+            item_id,
+            new_facts_json=new_facts,
+            actor=actor,
+            reason=reason,
+        )
+    except conflict_svc.ConflictValidationError as e:
+        return (str(e), 400)
+    except conflict_svc.ConflictAlreadyResolvedError as e:
+        return (str(e), 409)
+    except LookupError:
+        abort(404)
+
+    return render_template("admin/_conflict_resolved.html", result=result)
 
 
 @bp.route("/review/conflicts/<int:item_id>/accept-stage-2", methods=["POST"])
