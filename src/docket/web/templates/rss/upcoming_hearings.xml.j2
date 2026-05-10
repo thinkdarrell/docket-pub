@@ -1,0 +1,21 @@
+{%- import 'rss/_macros.xml.j2' as rss with context -%}
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>{{ municipality.name }} upcoming hearings — docket.pub</title>
+    <link>{{ url_for('public.city_overview', slug=municipality.slug, _external=True) }}</link>
+    <description>Upcoming public hearings on the {{ municipality.name }} agenda.</description>
+    <language>en-us</language>
+    <lastBuildDate>{{ rss_now_rfc822() }}</lastBuildDate>
+    <atom:link href="{{ feed_url }}" rel="self" type="application/rss+xml" />
+{% for item in items %}    <item>
+      <title>{{ (item.hearing_title or item.meeting_title or 'Hearing') | e }}</title>
+      <link>{{ url_for('public.meeting_detail', slug=item.municipality_slug, meeting_id=item.meeting_id, _external=True) }}</link>
+      <description><![CDATA[{{ rss.upcoming_hearing_description(item) }}]]></description>
+{%- if item.meeting_date %}
+      <pubDate>{{ item.meeting_date | rss_rfc822 }}</pubDate>
+{%- endif %}
+      <guid isPermaLink="true">{{ url_for('public.meeting_detail', slug=item.municipality_slug, meeting_id=item.meeting_id, _external=True) }}#hearing</guid>
+    </item>
+{% endfor %}  </channel>
+</rss>

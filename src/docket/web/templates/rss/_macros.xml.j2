@@ -1,0 +1,21 @@
+{#- RSS macros: shared description builders for data-debt + hearings.
+
+    pubDate / lastBuildDate use the ``rss_rfc822`` filter (registered in
+    docket.web.filters) which delegates to ``email.utils.format_datetime``
+    so the format passes RSS validators. -#}
+{%- macro data_debt_description(item) -%}
+{{ item.municipality_name }}: {{ item.title or item.meeting_title or 'agenda item' }}.
+{%- if item.data_quality and item.data_quality != 'ok' %}
+ Source content needs review (data_quality={{ item.data_quality }}).
+{%- elif item.processing_status == 'failed_permanent' %}
+ Automated reading gave up after multiple retries.
+{%- endif %}
+{%- if item.meeting_date %}
+ Meeting date: {{ item.meeting_date }}.
+{%- endif %}
+{%- endmacro -%}
+
+{%- macro upcoming_hearing_description(item) -%}
+{{ item.municipality_name }}: {{ item.hearing_title or item.meeting_title or 'public hearing' }}
+{%- if item.meeting_date %} on {{ item.meeting_date }}{% endif %}.
+{%- endmacro -%}

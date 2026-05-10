@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from flask import Blueprint, abort, redirect, render_template, request, url_for
+from flask import Blueprint, Response, abort, redirect, render_template, request, url_for
 
 from docket.enrichment.topics import all_topics, get_topic_display_name
 from docket.services import query
@@ -386,11 +386,168 @@ def category_landing(slug: str, badge_slug: str):
     )
 
 
-@bp.route("/al/<string:city>/hearings.rss")
+# --- F5: Public data-debt page + RSS feeds ----------------------------------
+#
+# Path-drift resolution: spec §6.9 example uses
+# ``/al/<city>/upcoming-hearings.rss`` (hyphen). The pre-F5 stub at
+# ``/al/<city>/hearings.rss`` was renamed to match the spec — the
+# longer form is more discoverable and the spec is the source of truth.
+#
+# Data-debt admin email: ``municipalities`` has no ``admin_email`` column
+# yet (decision #77 retired the in-app data_issue_reports queue in favor
+# of mailto). Until the column lands the data-debt page falls back to
+# ``admin@docket.pub`` — flagged for follow-up. Adding the column is a
+# Migration 015 candidate.
+#
+# Cache: existing ``_overview_cache`` idiom (``dict[str, tuple[float,
+# str]]``) extended for RSS with a 60-min TTL. ``flask-caching`` is NOT
+# a dependency of this project, intentionally — the dict pattern is good
+# enough at our scale (4 cities × 2 feeds = 8 keys max).
+
+_rss_cache: dict[str, tuple[float, str]] = {}
+_RSS_TTL_SECONDS = 3600  # 60 min, per spec §6.9
+
+
+def _rss_cached(cache_key: str, render_fn) -> str:
+    """60-minute dict-based RSS cache. Returns rendered XML string.
+
+    Mirrors the ``_overview_cache`` pattern (line 58/73/138). The cache
+    is bounded by the number of cities × the number of feeds (8 keys
+    max in production), so no eviction policy is required.
+    """
+    import time
+
+    now = time.time()
+    cached = _rss_cache.get(cache_key)
+    if cached and (now - cached[0]) < _RSS_TTL_SECONDS:
+        return cached[1]
+    rendered = render_fn()
+    _rss_cache[cache_key] = (now, rendered)
+    return rendered
+
+
+def _data_debt_admin_email(municipality: dict) -> str:
+    """Pull the city's admin email or fall back to the project mailbox.
+
+    ``municipalities.admin_email`` isn't seeded yet — when it lands
+    (decision #77 follow-up), this helper picks it up automatically.
+    """
+    return municipality.get("admin_email") or "admin@docket.pub"
+
+
+@bp.route("/al/<string:city>/data-debt")
+def data_debt(city):
+    """Public data-debt page (spec §6.9, decision #84).
+
+    Lists items where the source document failed to yield machine-
+    readable text (``data_quality != 'ok'``) or where the v3 pipeline
+    gave up (``processing_status = 'failed_permanent'``). Sorted by
+    ``data_debt_priority DESC, meeting_date DESC`` so the highest-
+    priority items lead and recent items rise within a tier.
+
+    Citizen-facing — the template translates the internal enum values
+    into jargon-free copy ("needs OCR", "extraction failed", etc.) and
+    surfaces a mailto "Report a problem" link to the city's admin
+    email (or ``admin@docket.pub`` as fallback). Decision #77 retired
+    the in-app data_issue_reports queue in favor of mailto.
+
+    Pagination: load-more pattern. Default page size 50; LIMIT 51
+    sentinel detection signals next page presence.
+    """
+    municipality = query.get_municipality(city)
+    if not municipality:
+        abort(404)
+
+    # Defensive offset parsing (matches category_landing pattern).
+    try:
+        offset = int(request.args.get("offset", 0))
+    except (TypeError, ValueError):
+        offset = 0
+    offset = max(0, offset)
+
+    page_size = 50
+    items_plus_one = query.list_data_debt_items(
+        municipality["id"],
+        limit=page_size + 1,
+        offset=offset,
+    )
+    items = items_plus_one[:page_size]
+    next_offset = (offset + page_size) if len(items_plus_one) > page_size else None
+
+    # Group by priority tier for the rendered list. HIGH priority is
+    # ``data_debt_priority = 'high'``; everything else (normal/low/NULL)
+    # falls into NORMAL.
+    high_items = [i for i in items if i.get("data_debt_priority") == "high"]
+    normal_items = [i for i in items if i.get("data_debt_priority") != "high"]
+
+    return render_template(
+        "data_debt.html",
+        municipality=municipality,
+        items=items,
+        high_items=high_items,
+        normal_items=normal_items,
+        offset=offset,
+        next_offset=next_offset,
+        admin_email=_data_debt_admin_email(municipality),
+    )
+
+
+@bp.route("/al/<string:city>/data-debt.rss")
+def data_debt_rss(city):
+    """RSS 2.0 feed of data-debt items for ``city`` (spec §6.9).
+
+    60-minute cache via ``_rss_cached`` — cheaper than rebuilding the
+    feed on every poll from feed readers.
+    """
+    municipality = query.get_municipality(city)
+    if not municipality:
+        abort(404)
+
+    feed_url = url_for(
+        "public.data_debt_rss", city=city, _external=True
+    )
+
+    def _render():
+        items = query.list_data_debt_items(municipality["id"], limit=50)
+        return render_template(
+            "rss/data_debt.xml.j2",
+            items=items,
+            municipality=municipality,
+            feed_url=feed_url,
+        )
+
+    rendered = _rss_cached(f"data-debt:{city}", _render)
+    return Response(rendered, mimetype="application/rss+xml")
+
+
+@bp.route("/al/<string:city>/upcoming-hearings.rss")
 def upcoming_hearings_rss(city):
-    """Upcoming public hearings RSS feed — stub for F5."""
-    # TODO(F5): build upcoming hearings RSS feed
-    abort(404)
+    """Upcoming public hearings RSS feed (spec §6.9).
+
+    Renamed from the pre-F5 ``/al/<city>/hearings.rss`` stub to match
+    the spec example (path discoverability).
+
+    60-minute cache via ``_rss_cached``.
+    """
+    municipality = query.get_municipality(city)
+    if not municipality:
+        abort(404)
+
+    feed_url = url_for(
+        "public.upcoming_hearings_rss", city=city, _external=True
+    )
+
+    def _render():
+        items = query.list_upcoming_hearings(municipality["id"])
+        return render_template(
+            "rss/upcoming_hearings.xml.j2",
+            items=items,
+            municipality=municipality,
+            feed_url=feed_url,
+        )
+
+    rendered = _rss_cached(f"upcoming-hearings:{city}", _render)
+    return Response(rendered, mimetype="application/rss+xml")
 
 
 @bp.route("/items/<int:item_id>/badges")

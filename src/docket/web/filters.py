@@ -393,6 +393,72 @@ def dollar_tier(value: Decimal | float | int | str | None) -> DollarTier | None:
     return DollarTier(color=color, symbol=symbol, description=description)
 
 
+def rss_rfc822(value: date | datetime | str | None) -> str:
+    """Render ``value`` as an RFC-822 datetime string for RSS feeds.
+
+    RSS 2.0's ``<pubDate>`` and ``<lastBuildDate>`` MUST be RFC-822
+    conformant — feed validators (and most readers) reject ISO-8601 in
+    those slots. Python's ``email.utils.format_datetime`` produces the
+    right shape (``Mon, 09 May 2026 12:34:56 +0000``).
+
+    Inputs:
+
+    - ``None``    → ``""`` (empty string).
+    - ``date``    → midnight UTC; the validators only care about the
+      format, and a synthetic time is fine for date-only meeting columns.
+    - ``datetime`` (naive)    → assumed UTC.
+    - ``datetime`` (aware)    → formatted as-is.
+    - ``str``     → tries ``date.fromisoformat`` first, then
+      ``datetime.fromisoformat`` (psycopg can hand back DATE columns as
+      strings via certain driver paths). Raw value returned on parse
+      failure rather than crash.
+
+    Used by :file:`templates/rss/data_debt.xml.j2` and
+    :file:`templates/rss/upcoming_hearings.xml.j2`.
+    """
+    from datetime import timezone
+    from email.utils import format_datetime
+
+    if value is None:
+        return ""
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return format_datetime(value)
+    if isinstance(value, date):
+        dt = datetime(value.year, value.month, value.day, tzinfo=timezone.utc)
+        return format_datetime(dt)
+    if isinstance(value, str):
+        try:
+            d = date.fromisoformat(value)
+            return format_datetime(
+                datetime(d.year, d.month, d.day, tzinfo=timezone.utc)
+            )
+        except ValueError:
+            pass
+        try:
+            dt = datetime.fromisoformat(value)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return format_datetime(dt)
+        except ValueError:
+            return value
+    return ""
+
+
+def rss_now_rfc822() -> str:
+    """Return the current UTC time as an RFC-822 datetime string.
+
+    Used by RSS templates' ``<lastBuildDate>``. Implemented as a
+    no-arg Jinja global rather than a filter because the natural call
+    site is ``{{ rss_now_rfc822() }}`` with no input.
+    """
+    from datetime import timezone
+    from email.utils import format_datetime
+
+    return format_datetime(datetime.now(timezone.utc))
+
+
 def register(app: Flask) -> None:
     """Register custom Jinja filters on ``app``."""
     app.jinja_env.filters["order_badges"] = order_badges
@@ -400,3 +466,5 @@ def register(app: Flask) -> None:
     app.jinja_env.filters["format_timestamp"] = format_timestamp
     app.jinja_env.filters["format_dollars"] = format_dollars
     app.jinja_env.filters["dollar_tier"] = dollar_tier
+    app.jinja_env.filters["rss_rfc822"] = rss_rfc822
+    app.jinja_env.globals["rss_now_rfc822"] = rss_now_rfc822

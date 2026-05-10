@@ -1,0 +1,21 @@
+{%- import 'rss/_macros.xml.j2' as rss with context -%}
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>{{ municipality.name }} data debt — docket.pub</title>
+    <link>{{ url_for('public.data_debt', city=municipality.slug, _external=True) }}</link>
+    <description>Agenda items in {{ municipality.name }} that need OCR, re-extraction, or manual review.</description>
+    <language>en-us</language>
+    <lastBuildDate>{{ rss_now_rfc822() }}</lastBuildDate>
+    <atom:link href="{{ feed_url }}" rel="self" type="application/rss+xml" />
+{% for item in items %}    <item>
+      <title>{{ (item.title or item.meeting_title or 'Untitled item') | e }}</title>
+      <link>{{ url_for('public.meeting_detail', slug=item.municipality_slug, meeting_id=item.meeting_id, _external=True) }}</link>
+      <description><![CDATA[{{ rss.data_debt_description(item) }}]]></description>
+{%- if item.meeting_date %}
+      <pubDate>{{ item.meeting_date | rss_rfc822 }}</pubDate>
+{%- endif %}
+      <guid isPermaLink="true">{{ url_for('public.meeting_detail', slug=item.municipality_slug, meeting_id=item.meeting_id, _external=True) }}#item-{{ item.id }}</guid>
+    </item>
+{% endfor %}  </channel>
+</rss>

@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+{% block title %}Data debt — {{ municipality.name }} — docket.pub{% endblock %}
+
+{# F5: Public data-debt page (spec §6.9, decision #84).
+   Lists items from `municipality` whose source documents could not be
+   read end-to-end — items that fall outside the machine-readable
+   archive until they're re-OCR'd, re-fetched, or manually corrected.
+   Citizen-facing copy: no enum names, no Wave-0/processing-status
+   references; the friendly-label filter below translates the internal
+   states. #}
+
+{% block head %}
+    {# RSS auto-discovery — feed readers and browsers pick this up. #}
+    <link rel="alternate"
+          type="application/rss+xml"
+          title="{{ municipality.name }} data debt — RSS"
+          href="{{ url_for('public.data_debt_rss', city=municipality.slug) }}">
+{% endblock %}
+
+{# ── Friendly-label translator ────────────────────────────────────────
+   Maps the internal `data_quality` and `processing_status` enums onto
+   citizen-friendly explanations. Keep the dict here rather than in
+   Python so the copy is reviewable alongside the surrounding markup. #}
+{% set friendly_labels = {
+    'no_text_layer':       'Source PDF is scanned — needs OCR before we can read it.',
+    'no_agenda_text':      'Agenda body never reached our archive — likely a fetch error.',
+    'empty':               'Source document came back empty.',
+    'foreign_language':    'Source text is not in English — translation pending.',
+    'failed_permanent':    'Automated reading gave up after multiple retries.',
+} %}
+
+{% macro friendly_label(item) -%}
+    {%- if item.data_quality and item.data_quality != 'ok' -%}
+        {{ friendly_labels.get(item.data_quality, 'Source content needs review.') }}
+    {%- elif item.processing_status == 'failed_permanent' -%}
+        {{ friendly_labels.failed_permanent }}
+    {%- else -%}
+        Source content needs review.
+    {%- endif -%}
+{%- endmacro %}
+
+{% block content %}
+<section class="hero">
+    <div class="hero-top">
+        <div>
+            <div class="t-eyebrow">{{ municipality.name }} · Data debt</div>
+            <h1 class="hero-title t-display">
+                Items not yet machine-readable
+            </h1>
+            <p class="hero-sub">
+                These agenda items live in source documents we couldn't fully read —
+                scanned PDFs without an OCR layer, empty fetches, or items the automated
+                pipeline gave up on. We list them publicly so the gap stays honest. Each
+                entry shows what it needs and a way to flag it.
+            </p>
+            <p class="hero-sub" style="margin-top: 0.5rem;">
+                <strong>Subscribe:</strong>
+                <a href="{{ url_for('public.data_debt_rss', city=municipality.slug) }}"
+                   rel="alternate"
+                   type="application/rss+xml">
+                    Data debt RSS feed
+                </a>
+            </p>
+        </div>
+    </div>
+</section>
+
+{% if not items %}
+<section class="feed">
+    <header class="feed-head">
+        <div>
+            <div class="t-eyebrow">Status</div>
+            <h2 class="feed-title t-display">All items machine-readable</h2>
+        </div>
+    </header>
+    <p class="hero-sub">
+        All items in {{ municipality.name }}'s record are currently machine-readable.
+        Nothing is waiting on OCR or extraction here. Check back if a recent meeting
+        was added — newly ingested items are checked within a day.
+    </p>
+</section>
+{% else %}
+
+{% if high_items %}
+<section class="feed">
+    <header class="feed-head">
+        <div>
+            <div class="t-eyebrow">High priority · {{ high_items | length }}</div>
+            <h2 class="feed-title t-display">Items most likely to matter</h2>
+        </div>
+    </header>
+    <ul class="data-debt-list">
+        {% for item in high_items %}
+        <li class="data-debt-row">
+            <div class="data-debt-row__title">
+                <a href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=item.meeting_id) }}">
+                    {{ item.title or item.meeting_title or 'Untitled item' }}
+                </a>
+            </div>
+            <div class="data-debt-row__meta t-meta">
+                {{ item.municipality_name }}
+                {% if item.meeting_date %}
+                    · {{ item.meeting_date.strftime('%b %d, %Y') if item.meeting_date.strftime else item.meeting_date }}
+                {% endif %}
+            </div>
+            <div class="data-debt-row__needs">
+                {{ friendly_label(item) }}
+            </div>
+            <div class="data-debt-row__action t-meta">
+                <a href="mailto:{{ admin_email }}?subject=Data%20issue%20-%20{{ municipality.slug }}%20item%20{{ item.id }}&body=Please%20describe%20the%20issue%20with%20this%20agenda%20item:%0A%0AItem%20ID:%20{{ item.id }}%0AMeeting:%20{{ item.meeting_title or '' }}%0ADate:%20{{ item.meeting_date or '' }}">
+                    Report a problem with this item
+                </a>
+            </div>
+        </li>
+        {% endfor %}
+    </ul>
+</section>
+{% endif %}
+
+{% if normal_items %}
+<section class="feed">
+    <header class="feed-head">
+        <div>
+            <div class="t-eyebrow">Standard priority · {{ normal_items | length }}</div>
+            <h2 class="feed-title t-display">Other items needing attention</h2>
+        </div>
+    </header>
+    <ul class="data-debt-list">
+        {% for item in normal_items %}
+        <li class="data-debt-row">
+            <div class="data-debt-row__title">
+                <a href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=item.meeting_id) }}">
+                    {{ item.title or item.meeting_title or 'Untitled item' }}
+                </a>
+            </div>
+            <div class="data-debt-row__meta t-meta">
+                {{ item.municipality_name }}
+                {% if item.meeting_date %}
+                    · {{ item.meeting_date.strftime('%b %d, %Y') if item.meeting_date.strftime else item.meeting_date }}
+                {% endif %}
+            </div>
+            <div class="data-debt-row__needs">
+                {{ friendly_label(item) }}
+            </div>
+            <div class="data-debt-row__action t-meta">
+                <a href="mailto:{{ admin_email }}?subject=Data%20issue%20-%20{{ municipality.slug }}%20item%20{{ item.id }}&body=Please%20describe%20the%20issue%20with%20this%20agenda%20item:%0A%0AItem%20ID:%20{{ item.id }}%0AMeeting:%20{{ item.meeting_title or '' }}%0ADate:%20{{ item.meeting_date or '' }}">
+                    Report a problem with this item
+                </a>
+            </div>
+        </li>
+        {% endfor %}
+    </ul>
+</section>
+{% endif %}
+
+{% if next_offset is not none %}
+<nav class="data-debt-pager">
+    <a class="data-debt-loadmore"
+       href="{{ url_for('public.data_debt', city=municipality.slug, offset=next_offset) }}">
+        Load more items
+    </a>
+</nav>
+{% endif %}
+
+{% endif %}{# end if items #}
+{% endblock %}

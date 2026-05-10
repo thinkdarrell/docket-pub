@@ -617,6 +617,8 @@ class TestPublicBlueprintStubRoutes:
             assert "/al/bham/items/1" in url
 
     def test_upcoming_hearings_rss_url_resolves(self):
+        # F5 path-drift fix: route renamed from ``/al/<city>/hearings.rss``
+        # to ``/al/<city>/upcoming-hearings.rss`` to match spec §6.9.
         from docket.web import create_app
 
         app = create_app()
@@ -624,4 +626,4 @@ class TestPublicBlueprintStubRoutes:
             from flask import url_for
 
             url = url_for("public.upcoming_hearings_rss", city="bham")
-            assert "/al/bham/hearings.rss" in url
+            assert "/al/bham/upcoming-hearings.rss" in url

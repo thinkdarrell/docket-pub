@@ -1842,3 +1842,146 @@ def list_high_dollar_items(
             [*params, limit],
         )
         return [dict(row) for row in cur.fetchall()]
+
+
+# --- Data-debt + RSS service helpers (F5) -----------------------------------
+
+
+def list_data_debt_items(
+    city_id: int,
+    *,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[dict]:
+    """Return items in ``city_id`` that have data-debt — items where the
+    text layer / agenda content is missing (``data_quality != 'ok'``) or
+    where the v3 pipeline has given up (``processing_status =
+    'failed_permanent'``). Decision #84.
+
+    Sort: ``data_debt_priority DESC, meeting_date DESC`` so HIGH-priority
+    items lead and within a priority tier the most recent items rise.
+
+    Pagination: caller asks for ``limit`` rows; this helper accepts a
+    sentinel-pagination caller (``limit=51`` to detect a 51st row) — it
+    does NOT add ``+1`` itself. Same shape as
+    :func:`list_items_by_badge`.
+
+    Index: ``idx_agenda_items_data_debt`` from migration 013 covers the
+    primary predicate (data_quality not ok) but not the
+    ``failed_permanent`` arm — that arm is rare enough (Wave 0 emits
+    only on hard pipeline failures) that a partial-index miss isn't a
+    hot-path cost. If ``failed_permanent`` becomes common we can extend
+    the index.
+
+    Returns dicts (not :class:`AgendaItem`) — this is a queue page, not
+    a Smart Brevity Card surface, so the lighter shape is fine and the
+    template doesn't need the v3 extracted_facts projection.
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT ai.id,
+                   ai.meeting_id,
+                   ai.item_number,
+                   ai.title,
+                   ai.is_consent,
+                   ai.data_quality::text       AS data_quality,
+                   ai.data_debt_priority::text AS data_debt_priority,
+                   ai.processing_status::text  AS processing_status,
+                   ai.last_error_message,
+                   mt.meeting_date             AS meeting_date,
+                   mt.title                    AS meeting_title,
+                   m.id                        AS municipality_id,
+                   m.slug                      AS municipality_slug,
+                   m.name                      AS municipality_name
+            FROM agenda_items ai
+            JOIN meetings mt ON ai.meeting_id = mt.id
+            JOIN municipalities m ON mt.municipality_id = m.id
+            WHERE m.id = %s
+              AND (
+                    (ai.data_quality IS NOT NULL AND ai.data_quality != 'ok')
+                 OR ai.processing_status = 'failed_permanent'
+              )
+            ORDER BY
+                CASE ai.data_debt_priority::text
+                    WHEN 'high'   THEN 3
+                    WHEN 'normal' THEN 2
+                    WHEN 'low'    THEN 1
+                    ELSE 0
+                END DESC,
+                mt.meeting_date DESC NULLS LAST,
+                ai.id DESC
+            LIMIT %s OFFSET %s
+            """,
+            (city_id, limit, offset),
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+
+def list_upcoming_hearings(city_id: int, *, days_ahead: int = 60, limit: int = 50) -> list[dict]:
+    """Return future-dated meetings in ``city_id`` likely to surface a
+    public hearing — used by the upcoming-hearings RSS feed (F5.2).
+
+    Heuristic (v1 — flagged as a follow-up to refine when a structured
+    "hearing" signal exists):
+
+    - ``meeting_date`` is in the future (>= today) and within
+      ``days_ahead`` days, AND
+    - meeting title or any of its agenda-item titles contains
+      ``'hearing'`` (case-insensitive).
+
+    Returns one row per hit ``(meeting_id, hearing_title)`` so a single
+    meeting can surface multiple distinct hearing items if the agenda
+    flags multiple. Falls back to the meeting title when the meeting
+    itself is the hearing (no agenda-level "hearing" item).
+
+    The codebase has no structured ``action_type='hearing'`` column on
+    agenda items today (the v3 ``extracted_facts->>'action_type'`` enum
+    has ``contract_award``, ``ordinance``, ``appropriation`` — nothing
+    hearing-specific). When that signal lands the helper should switch
+    to it; until then the title-substring heuristic ships v1.
+
+    Returns dicts. Empty when no upcoming hearings.
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+                m_row.id            AS meeting_id,
+                m_row.meeting_date  AS meeting_date,
+                m_row.meeting_type  AS meeting_type,
+                m_row.title         AS meeting_title,
+                muni.slug           AS municipality_slug,
+                muni.name           AS municipality_name,
+                COALESCE(
+                    -- Use the agenda-item title when one matches; else
+                    -- fall back to the meeting title.
+                    (
+                        SELECT ai.title
+                        FROM agenda_items ai
+                        WHERE ai.meeting_id = m_row.id
+                          AND ai.title ILIKE '%%hearing%%'
+                        ORDER BY ai.id ASC
+                        LIMIT 1
+                    ),
+                    m_row.title
+                ) AS hearing_title
+            FROM meetings m_row
+            JOIN municipalities muni ON muni.id = m_row.municipality_id
+            WHERE muni.id = %s
+              AND m_row.meeting_date >= CURRENT_DATE
+              AND m_row.meeting_date <= CURRENT_DATE + %s * INTERVAL '1 day'
+              AND (
+                m_row.title ILIKE '%%hearing%%'
+                OR EXISTS (
+                    SELECT 1 FROM agenda_items ai
+                    WHERE ai.meeting_id = m_row.id
+                      AND ai.title ILIKE '%%hearing%%'
+                )
+              )
+            ORDER BY m_row.meeting_date ASC, m_row.id ASC
+            LIMIT %s
+            """,
+            (city_id, days_ahead, limit),
+        )
+        return [dict(row) for row in cur.fetchall()]
