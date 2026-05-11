@@ -1,0 +1,19 @@
+{# Smart Brevity Card variant dispatcher (spec §6.1).
+   Order matters: failed_permanent and data_quality_skipped checks come
+   first because they're terminal states. #}
+
+{% if item.processing_status == 'failed_permanent' %}
+  {% include 'partials/card_failed.html' %}
+{% elif item.data_quality and item.data_quality != 'ok' %}
+  {% include 'partials/card_degraded.html' %}
+{% elif item.processing_status == 'procedural_skipped' %}
+  {% include 'partials/card_procedural.html' %}
+{% elif item.processing_status == 'cross_stage_conflict' %}
+  {% include 'partials/card_verification_pending.html' %}
+{% elif item.ai_rewrite_version == 3 %}
+  {% include 'partials/card_smart_brevity.html' %}
+{% elif item.summary %}
+  {% include 'partials/card_v2_fallback.html' %}
+{% else %}
+  {% include 'partials/card_pending.html' %}
+{% endif %}

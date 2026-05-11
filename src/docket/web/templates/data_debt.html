@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% import 'rss/_macros.xml.j2' as rss with context %}
+{% block title %}Data debt — {{ municipality.name }} — docket.pub{% endblock %}
+
+{# F5: Public data-debt page (spec §6.9, decision #84).
+   Lists items from `municipality` whose source documents could not be
+   read end-to-end — items that fall outside the machine-readable
+   archive until they're re-OCR'd, re-fetched, or manually corrected.
+
+   F5 fix-up (R3 / Override 3): citizen-friendly labels are computed
+   in the route via ``docket.models.data_quality.friendly_label`` and
+   arrive on each item as ``item.friendly_label``. The previous local
+   ``friendly_labels`` dict + ``{% macro %}`` lived only here; the RSS
+   feed couldn't access it from its own template scope. Single source
+   of truth now lives with the enum, not with template UI copy.
+
+   F5 fix-up (S5): per-row markup lives in the shared
+   ``data_debt_row(item, admin_email, slug)`` macro in
+   ``rss/_macros.xml.j2`` so HTML and RSS surfaces don't drift.
+
+   F5 fix-up (R2): the macro lifts mailto subject + body to local
+   ``{% set %}`` vars and applies ``| urlencode`` — fixes 111+
+   meetings whose titles contain ``&``/``?``/``#`` (Homewood's
+   recurring "Planning & Development Committee" dominates). #}
+
+{% block head %}
+    {# RSS auto-discovery — feed readers and browsers pick this up. #}
+    <link rel="alternate"
+          type="application/rss+xml"
+          title="{{ municipality.name }} data debt — RSS"
+          href="{{ url_for('public.data_debt_rss', city=municipality.slug) }}">
+{% endblock %}
+
+{% block content %}
+<section class="hero">
+    <div class="hero-top">
+        <div>
+            <div class="t-eyebrow">{{ municipality.name }} · Data debt</div>
+            <h1 class="hero-title t-display">
+                Items not yet machine-readable
+            </h1>
+            <p class="hero-sub">
+                These agenda items live in source documents we couldn't fully read —
+                scanned PDFs without an OCR layer, empty fetches, or items the automated
+                pipeline gave up on. We list them publicly so the gap stays honest. Each
+                entry shows what it needs and a way to flag it.
+            </p>
+            <p class="hero-sub" style="margin-top: 0.5rem;">
+                <strong>Subscribe:</strong>
+                <a href="{{ url_for('public.data_debt_rss', city=municipality.slug) }}"
+                   rel="alternate"
+                   type="application/rss+xml">
+                    Data debt RSS feed
+                </a>
+            </p>
+        </div>
+    </div>
+</section>
+
+{% if not items %}
+<section class="feed">
+    <header class="feed-head">
+        <div>
+            <div class="t-eyebrow">Status</div>
+            <h2 class="feed-title t-display">All items machine-readable</h2>
+        </div>
+    </header>
+    <p class="hero-sub">
+        All items in {{ municipality.name }}'s record are currently machine-readable.
+        Nothing is waiting on OCR or extraction here. Check back if a recent meeting
+        was added — newly ingested items are checked within a day.
+    </p>
+</section>
+{% else %}
+
+{% if high_items %}
+<section class="feed">
+    <header class="feed-head">
+        <div>
+            <div class="t-eyebrow">High priority · {{ high_items | length }}</div>
+            <h2 class="feed-title t-display">Items most likely to matter</h2>
+        </div>
+    </header>
+    <ul class="data-debt-list">
+        {% for item in high_items %}
+{{ rss.data_debt_row(item, admin_email, item.municipality_slug or municipality.slug) }}
+        {% endfor %}
+    </ul>
+</section>
+{% endif %}
+
+{% if normal_items %}
+<section class="feed">
+    <header class="feed-head">
+        <div>
+            <div class="t-eyebrow">Standard priority · {{ normal_items | length }}</div>
+            <h2 class="feed-title t-display">Other items needing attention</h2>
+        </div>
+    </header>
+    <ul class="data-debt-list">
+        {% for item in normal_items %}
+{{ rss.data_debt_row(item, admin_email, item.municipality_slug or municipality.slug) }}
+        {% endfor %}
+    </ul>
+</section>
+{% endif %}
+
+{% if next_offset is not none %}
+<nav class="data-debt-pager">
+    <a class="data-debt-loadmore"
+       href="{{ url_for('public.data_debt', city=municipality.slug, offset=next_offset) }}">
+        Load more items
+    </a>
+</nav>
+{% endif %}
+
+{% endif %}{# end if items #}
+{% endblock %}

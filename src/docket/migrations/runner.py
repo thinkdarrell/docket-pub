@@ -27,6 +27,8 @@ MIGRATIONS = [
     "docket.migrations.011_drop_deprecated_vote_columns",
     "docket.migrations.012_ai_summaries_and_scoring",
     "docket.migrations.013_impact_first_refactor",
+    "docket.migrations.015_search_vector_v3",
+    "docket.migrations.016_relax_audit_fk",
 ]
 
 

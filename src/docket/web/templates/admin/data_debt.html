@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}OCR queue — Admin — docket.pub{% endblock %}
+
+{#
+  G2.1 — Admin OCR queue. Cross-city listing of items whose source
+  documents failed extraction (data_quality != 'ok') or whose v3
+  pipeline gave up (processing_status='failed_permanent'). Sorted by
+  data_debt_priority DESC, meeting_date DESC (decision #84).
+
+  Differs from the F5 public page (templates/data_debt.html) — admin
+  vocabulary preserved (data_quality, processing_status, priority enum
+  values shown verbatim instead of jargon-scrubbed friendly_label).
+  Per-row retry button POSTs to the errors-retry endpoint when an item
+  is at failed_permanent (the only state where retrying makes sense
+  here — pending/extracting items don't need an admin nudge).
+
+  Each row carries id="item-N" so the source-anchor button can
+  deep-link via #item-N fragment. Browser scroll handles affordance
+  natively; no JS or server-side ?highlight=N plumbing required.
+#}
+
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center;">
+  <h1>OCR queue</h1>
+  <form method="post" action="{{ url_for('auth.logout') }}" style="margin: 0;">
+    <button type="submit" style="font-size: 0.85rem;">Sign Out ({{ session.get('admin_user', '') }})</button>
+  </form>
+</div>
+
+<p><a href="{{ url_for('admin.list_members') }}">← Council Members</a> &middot;
+   <a href="{{ url_for('admin.badges_audit') }}">Badge audit</a> &middot;
+   <a href="{{ url_for('admin.review_conflicts') }}">Conflicts</a> &middot;
+   <a href="{{ url_for('admin.calibration') }}">Calibration</a> &middot;
+   <a href="{{ url_for('admin.errors') }}">Errors queue →</a> &middot;
+   <a href="{{ url_for('admin.ai_panel') }}">AI Pipeline</a></p>
+
+<p class="t-meta">
+  Items needing extraction or where the v3 pipeline gave up. Cross-city,
+  highest priority first. Click <strong>Retry</strong> on a
+  <code>failed_permanent</code> row to reset it back to <code>pending</code>
+  so the worker re-runs it. The public per-city version is at
+  <code>/al/&lt;city&gt;/data-debt</code>.
+</p>
+
+{% with messages = get_flashed_messages() %}
+  {% if messages %}
+    <ul class="queue-flash">
+      {% for msg in messages %}
+        <li>{{ msg }}</li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+{% endwith %}
+
+{% if not items %}
+  <section class="cal-panel">
+    <h2>Empty</h2>
+    <p class="t-meta">
+      No items in OCR queue (<code>data_quality='ok'</code> for all items
+      across cities, no <code>failed_permanent</code> rows).
+    </p>
+  </section>
+{% else %}
+  <section class="cal-panel">
+    <table class="queue-table">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>City</th>
+          <th>Title</th>
+          <th>Meeting date</th>
+          <th>data_quality</th>
+          <th>priority</th>
+          <th>processing_status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for it in items %}
+          <tr id="item-{{ it.id }}">
+            <td class="t-mono">#{{ it.id }}</td>
+            <td>{{ it.municipality_name }}</td>
+            <td>{{ it.title or '—' }}</td>
+            <td class="t-tnum">
+              {{ it.meeting_date.isoformat() if it.meeting_date else '—' }}
+            </td>
+            <td><code>{{ it.data_quality or '—' }}</code></td>
+            <td><code>{{ it.data_debt_priority or '—' }}</code></td>
+            <td><code>{{ it.processing_status or '—' }}</code></td>
+            <td>
+              {% if it.processing_status == 'failed_permanent' %}
+                <form method="post"
+                      action="{{ url_for('admin.errors_retry', item_id=it.id) }}"
+                      style="display: inline;">
+                  <button type="submit" style="font-size: 0.85rem;">Retry</button>
+                </form>
+              {% else %}
+                <span class="t-meta">—</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    {% if next_offset is not none %}
+      <nav class="queue-pager">
+        <a href="{{ url_for('admin.data_debt', offset=next_offset) }}">Load more →</a>
+      </nav>
+    {% endif %}
+  </section>
+{% endif %}
+{% endblock %}

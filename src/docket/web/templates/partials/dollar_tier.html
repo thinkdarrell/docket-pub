@@ -1,0 +1,49 @@
+{# Dollar Tier with WCAG Markup — spec §6.1, decisions #71 + #75.
+
+   Triple-redundant tier signal: color (CSS class) + symbol ($/$$/$$$/$$$$)
+   + screen-reader label (visually-hidden ``.sr-only`` span). WCAG 2.1 AA
+   compliant — tier perception works without color, without sight, and on
+   monochrome printouts.
+
+   Inputs (via implicit context — parent passes ``amount``):
+     - ``amount``  — Decimal | None. When None or invalid, renders nothing.
+
+   The partial calls the ``dollar_tier`` filter once at top to compute
+   color / symbol / threshold-description, then templates them into the
+   spec markup. The ``format_dollars`` filter handles US-formatted output
+   (rendering ``$1.8M`` for ≥ $1M, ``$NNN,NNN`` otherwise).
+
+   Accessibility approach (Option A — visible text + sr-only span): this
+   is the canonical WCAG-compliant pattern and is well-supported across
+   all assistive tech (browse-mode and focus-mode, every major SR/browser
+   combo). No ``role="img"`` and no ``aria-label`` are needed: the visible
+   amount + symbol plus the sr-only suffix together form a single coherent
+   announcement that includes amount + symbol + tier color + threshold
+   context (e.g., "over $1 million"). Putting the threshold context inside
+   the sr-only span — instead of an ``aria-label`` — means every AT path
+   reads the same content, which removes the double-announcement risk
+   that ``aria-label`` + traversed children can produce on NVDA + Chrome
+   or JAWS.
+
+   CSS hooks emitted (``.dollars`` / ``.dollars--*`` styles deferred to
+   the later design pass — same posture as E2 badges and E3 engagement
+   strip):
+     - ``.dollars`` — base
+     - ``.dollars--green | --yellow | --orange | --red`` — tier modifiers
+     - ``.sr-only`` — visually-hidden but screen-reader-readable; the
+       canonical recipe lives in ``static/styles.css`` (regression
+       guarded by ``test_dollar_tier.py::TestSrOnlyUtilityInStylesCss``).
+
+   Defensive against malformed input: the ``dollar_tier`` filter returns
+   ``None`` for None / 0 / negative / bool / NaN / Infinity / non-numeric
+   strings. The ``{% if tier_data %}`` guard short-circuits — no markup
+   leaks for invalid amounts. Same posture as E4's source-anchor button
+   rendering nothing when ``source_anchor`` is missing.
+#}
+{%- set tier_data = amount | dollar_tier -%}
+{%- if tier_data -%}
+{%- set formatted = amount | format_dollars -%}
+<span class="dollars dollars--{{ tier_data.color }}">{{ formatted }}
+  ({{ tier_data.symbol }})<span class="sr-only">, {{ tier_data.color|title }} tier ({{ tier_data.description }})</span>
+</span>
+{%- endif -%}

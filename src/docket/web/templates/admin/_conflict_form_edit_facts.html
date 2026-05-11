@@ -1,0 +1,26 @@
+{#
+  G4 inline form — Edit Stage 1 facts.
+  Pre-populates the textarea with the existing extracted_facts JSON
+  for the admin to edit. Server validates via StructuredFacts Pydantic
+  schema. Decision #6 — 4xx error rendering via
+  hx-on:htmx:response-error. Decision #12 — TOCTOU race-loss returns
+  409 with a clear message; same handler renders it.
+#}
+<form class="conflict-form"
+      hx-post="{{ url_for('admin.conflict_edit_stage_1_facts', item_id=item_id) }}"
+      hx-target="#row-{{ item_id }}"
+      hx-swap="outerHTML"
+      hx-on:htmx:response-error="this.querySelector('.form-error').textContent = event.detail.xhr.responseText">
+  <label>
+    Corrected facts JSON
+    <textarea name="new_facts_json" rows="12" required
+              style="font-family: var(--font-mono, ui-monospace, monospace); font-size: 0.8rem;"
+              spellcheck="false">{{ existing_facts | tojson(indent=2) }}</textarea>
+  </label>
+  <p class="t-meta">
+    Schema: docket/ai/extraction_schema.py StructuredFacts. All required
+    fields must be present; Pydantic validates server-side.
+  </p>
+  <button type="submit" class="btn-submit">📝 Save facts &amp; re-run Stage 2</button>
+  <span class="form-error" role="alert"></span>
+</form>

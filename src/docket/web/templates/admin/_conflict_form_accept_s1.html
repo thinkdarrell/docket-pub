@@ -1,0 +1,34 @@
+{#
+  G4 inline form — Accept Stage 1 (manual headline + why_it_matters).
+  Loaded into #row-N .actions cell on hx-get; on submit, swaps the
+  whole #row-N <tr> with the _conflict_resolved.html partial.
+
+  Length validation: headline 10-60 chars; why_it_matters 1-200 chars.
+  Server-side enforcement is authoritative; client-side maxlength is
+  a UX hint only.
+
+  Decision #6 — validation errors return 400 + plain-text body. The
+  hx-on:htmx:response-error handler routes the response text into the
+  .form-error span without swapping the row, so the admin keeps the
+  form open and sees what's wrong.
+#}
+<form class="conflict-form"
+      hx-post="{{ url_for('admin.conflict_accept_stage_1', item_id=item_id) }}"
+      hx-target="#row-{{ item_id }}"
+      hx-swap="outerHTML"
+      hx-on:htmx:response-error="this.querySelector('.form-error').textContent = event.detail.xhr.responseText">
+  <label>
+    Headline (10–60 chars)
+    <input type="text" name="manual_headline"
+           minlength="10" maxlength="60" required
+           placeholder="e.g. City awards $4.2M HVAC contract">
+  </label>
+  <label>
+    Why it matters (1–200 chars)
+    <input type="text" name="manual_why_it_matters"
+           minlength="1" maxlength="200" required
+           placeholder="Direct consequence for residents.">
+  </label>
+  <button type="submit" class="btn-submit">✅ Confirm Accept Stage 1</button>
+  <span class="form-error" role="alert"></span>
+</form>

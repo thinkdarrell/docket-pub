@@ -1,0 +1,42 @@
+{# variant: verification_pending — processing_status == 'cross_stage_conflict'
+   (spec §6.1; decisions #45, #72, #76).
+   Tooltip-only pill (NOT a modal — modal-based UX was retired). Renders
+   the v3 outputs (headline + why_it_matters + facts strip + source link)
+   with the verification pill prepended; only the pill itself is
+   tooltip-only — the content is full-fidelity per spec §6.1. Once
+   Stage 1 / Stage 2 reconcile resolves, status flips to 'completed' and
+   the pill is gone. #}
+{# Alias municipality → city for engagement_strip.html (spec §6.3 uses `city`). #}
+{%- set city = municipality -%}
+<article class="smart-brevity-card smart-brevity-card--verification-pending" data-variant="verification_pending">
+  <header class="smart-brevity-card__header">
+    <span class="verification-pill"
+          title="Our automated systems read this item in two passes (facts and summary). When those disagree we hold the result for manual review. Most resolve within a day; the summary above is best-effort."
+          aria-label="Verification in progress: dual-pass review pending; summary is best-effort">
+      ⚠️ Verification in progress
+    </span>
+
+    {% include 'partials/_badge_row.html' %}
+  </header>
+
+  <h3 class="smart-brevity-card__headline">{{ item.headline or item.title }}</h3>
+
+  {% if item.why_it_matters %}
+    <p class="smart-brevity-card__why">{{ item.why_it_matters }}</p>
+  {% endif %}
+
+  {% include 'partials/_facts_strip.html' %}
+
+  <div class="smart-brevity-card__engagement">
+    {% include 'partials/engagement_strip.html' %}
+  </div>
+
+  <p class="smart-brevity-card__verification-note">
+    Note: Our automated reading of this item is being double-checked.
+    The summary above is best-effort while verification is pending.
+  </p>
+
+  <footer class="smart-brevity-card__footer">
+    {% include 'partials/source_anchor_button.html' %}
+  </footer>
+</article>

@@ -15,8 +15,16 @@
 
   /* civic accent — tweakable; default deep teal */
   --accent:       oklch(0.42 0.085 200);
-  --accent-soft:  oklch(0.92 0.04  200);
+  --accent-soft:  oklch(0.92 0.04  200);   /* light shade — bg for .cite chips, focus halos, state hits.
+                                              Stays light to preserve 9.42:1 text contrast vs --accent-ink. */
   --accent-ink:   oklch(0.32 0.085 200);
+  /* Volume-timeline consent fill — split out from --accent-soft because the
+     "lighter rubber-stamp" shade needs WCAG SC 1.4.11 ≥ 3:1 against --paper to
+     be visible as a graphical object on the page background. The light shade
+     above sits at 1.20:1 vs paper (invisible) but can't be darkened without
+     breaking the .cite text-on-bg path. New token at 3.40:1 vs paper / 3.32:1
+     vs the saturated substantive bar (preserves Decision #68 within-bar gap). */
+  --bar-consent:  oklch(0.62 0.06  200);
 
   /* dollar tiers — slightly desaturated for editorial feel */
   --tier-green:   oklch(0.62 0.13 145);
@@ -158,3 +166,17 @@ a.link:hover { border-bottom-color: var(--accent); }
 .thin-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
 .thin-scroll::-webkit-scrollbar-thumb { background: var(--rule-strong); border-radius: 4px; }
 .thin-scroll::-webkit-scrollbar-track { background: transparent; }
+
+/* Visually hidden but readable by screen readers (used by dollar_tier
+   and other a11y partials for sr-only labels). */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

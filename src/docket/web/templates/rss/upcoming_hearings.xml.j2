@@ -1,0 +1,33 @@
+{%- import 'rss/_macros.xml.j2' as rss with context -%}
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>{{ municipality.name }} upcoming hearings — docket.pub</title>
+    <link>{{ url_for('public.city_overview', slug=municipality.slug, _external=True) }}</link>
+    <description>Upcoming public hearings on the {{ municipality.name }} agenda.</description>
+    <language>en-us</language>
+    <lastBuildDate>{{ rss_now_rfc822() }}</lastBuildDate>
+    <atom:link href="{{ feed_url }}" rel="self" type="application/rss+xml" />
+{# F5 fix-up (R6 + S2 / Override 1): each <item> gets a unique <guid>.
+   Items keyed by ``agenda_item_id`` get ``#item-<id>`` (PK is stable
+   across re-renders); meeting-title fallbacks (no per-item match)
+   get ``#hearing-meeting-<meeting_id>`` so the same meeting can't
+   collide with itself. Feed readers (Feedly, NetNewsWire, etc.) treat
+   ``<guid>`` as the dedup key — the previous shared ``#hearing``
+   suffix would have silently dropped legitimate multi-hearing items
+   once the SQL emitted N rows per meeting. -#}
+{% for item in items %}    <item>
+      <title>{{ (item.hearing_title or item.meeting_title or 'Hearing') | e }}</title>
+      <link>{{ url_for('public.meeting_detail', slug=item.municipality_slug, meeting_id=item.meeting_id, _external=True) }}</link>
+      <description><![CDATA[{{ rss.upcoming_hearing_description(item) | cdata_safe }}]]></description>
+{%- if item.meeting_date %}
+      <pubDate>{{ item.meeting_date | rss_rfc822 }}</pubDate>
+{%- endif %}
+{%- if item.agenda_item_id %}
+      <guid isPermaLink="true">{{ url_for('public.meeting_detail', slug=item.municipality_slug, meeting_id=item.meeting_id, _external=True) }}#item-{{ item.agenda_item_id }}</guid>
+{%- else %}
+      <guid isPermaLink="true">{{ url_for('public.meeting_detail', slug=item.municipality_slug, meeting_id=item.meeting_id, _external=True) }}#hearing-meeting-{{ item.meeting_id }}</guid>
+{%- endif %}
+    </item>
+{% endfor %}  </channel>
+</rss>

@@ -217,43 +217,55 @@
         </div>
     </div>
 
-    <div class="notable-list">
+    <div class="notable-list{% if config.SMART_BREVITY_UI %} smart-brevity-list smart-brevity-list--regular{% endif %}">
         {% for item in regular_items %}
-        <div class="notable-row" style="cursor: default;">
-            <div class="notable-num t-mono">
-                {% if item.item_number %}{{ item.item_number }}{% else %}—{% endif %}
-            </div>
-            <div>
-                <div class="notable-title">{{ item.title }}</div>
-                {% if item.summary %}
-                <p class="item-summary">{{ item.summary }}</p>
-                {% if item.ai_metadata and item.ai_metadata.confidence == 'low' %}
-                <span class="badge badge-review badge-inline">Auto summary — under review</span>
-                {% endif %}
-                {% endif %}
-                <div class="notable-meta">
-                    {% if item.topic %}
-                    <span class="chip"><span class="dot"></span>{{ item.topic | topic_name }}</span>
-                    {% endif %}
-                    {% if item.sponsor %}
-                    <span class="t-meta">{{ item.sponsor }}</span>
-                    {% endif %}
+            {% if config.SMART_BREVITY_UI %}
+                {% include 'partials/smart_brevity_card.html' %}
+            {% else %}
+                {# Legacy v2 rendering — must remain byte-identical to pre-E6 production
+                   until SMART_BREVITY_UI=true is flipped in Railway env vars.
+                   The E6-LOOP-BODY markers below are consumed by
+                   tests/unit/test_smart_brevity_ui_flag.py::test_loop_body_constants_match_template
+                   to enforce drift between this branch and the test's
+                   `_REGULAR_LOOP_BODY` constant. Keep them in lockstep. #}
+                {# E6-LOOP-BODY-START regular #}
+                <div class="notable-row" style="cursor: default;">
+                    <div class="notable-num t-mono">
+                        {% if item.item_number %}{{ item.item_number }}{% else %}—{% endif %}
+                    </div>
+                    <div>
+                        <div class="notable-title">{{ item.title }}</div>
+                        {% if item.summary %}
+                        <p class="item-summary">{{ item.summary }}</p>
+                        {% if item.ai_metadata and item.ai_metadata.confidence == 'low' %}
+                        <span class="badge badge-review badge-inline">Auto summary — under review</span>
+                        {% endif %}
+                        {% endif %}
+                        <div class="notable-meta">
+                            {% if item.topic %}
+                            <span class="chip"><span class="dot"></span>{{ item.topic | topic_name }}</span>
+                            {% endif %}
+                            {% if item.sponsor %}
+                            <span class="t-meta">{{ item.sponsor }}</span>
+                            {% endif %}
+                        </div>
+                        {% if item.description %}
+                        <div class="t-meta" style="margin-top: 6px; line-height: 1.5;">{{ item.description }}</div>
+                        {% endif %}
+                    </div>
+                    <div class="notable-right">
+                        {% if item.dollars_amount %}
+                        <span class="tier tier-{{ item.dollars_amount | dollar_tier }}">
+                            ${{ "{:,.0f}".format(item.dollars_amount) }}
+                        </span>
+                        {% endif %}
+                        {% if item.is_consent %}
+                        <span class="badge-consent">Consent</span>
+                        {% endif %}
+                    </div>
                 </div>
-                {% if item.description %}
-                <div class="t-meta" style="margin-top: 6px; line-height: 1.5;">{{ item.description }}</div>
-                {% endif %}
-            </div>
-            <div class="notable-right">
-                {% if item.dollars_amount %}
-                <span class="tier tier-{{ item.dollars_amount | dollar_tier }}">
-                    ${{ "{:,.0f}".format(item.dollars_amount) }}
-                </span>
-                {% endif %}
-                {% if item.is_consent %}
-                <span class="badge-consent">Consent</span>
-                {% endif %}
-            </div>
-        </div>
+                {# E6-LOOP-BODY-END regular #}
+            {% endif %}
         {% endfor %}
     </div>
 </section>
@@ -272,37 +284,49 @@
         </div>
     </div>
 
-    <div class="notable-list">
+    <div class="notable-list{% if config.SMART_BREVITY_UI %} smart-brevity-list smart-brevity-list--consent{% endif %}">
         {% for item in consent_items %}
-        <div class="notable-row" style="cursor: default;">
-            <div class="notable-num t-mono">
-                {% if item.item_number %}{{ item.item_number }}{% else %}—{% endif %}
-            </div>
-            <div>
-                <div class="notable-title" style="font-size: 13px; font-weight: 400; color: var(--ink-2);">{{ item.title }}</div>
-                {% if item.summary %}
-                <p class="item-summary">{{ item.summary }}</p>
-                {% if item.ai_metadata and item.ai_metadata.confidence == 'low' %}
-                <span class="badge badge-review badge-inline">Auto summary — under review</span>
-                {% endif %}
-                {% endif %}
-                <div class="notable-meta">
-                    {% if item.topic %}
-                    <span class="chip"><span class="dot"></span>{{ item.topic | topic_name }}</span>
-                    {% endif %}
-                    {% if item.sponsor %}
-                    <span class="t-meta">{{ item.sponsor }}</span>
-                    {% endif %}
+            {% if config.SMART_BREVITY_UI %}
+                {% include 'partials/smart_brevity_card.html' %}
+            {% else %}
+                {# Legacy v2 rendering — must remain byte-identical to pre-E6 production
+                   until SMART_BREVITY_UI=true is flipped in Railway env vars.
+                   The E6-LOOP-BODY markers below are consumed by
+                   tests/unit/test_smart_brevity_ui_flag.py::test_loop_body_constants_match_template
+                   to enforce drift between this branch and the test's
+                   `_CONSENT_LOOP_BODY` constant. Keep them in lockstep. #}
+                {# E6-LOOP-BODY-START consent #}
+                <div class="notable-row" style="cursor: default;">
+                    <div class="notable-num t-mono">
+                        {% if item.item_number %}{{ item.item_number }}{% else %}—{% endif %}
+                    </div>
+                    <div>
+                        <div class="notable-title" style="font-size: 13px; font-weight: 400; color: var(--ink-2);">{{ item.title }}</div>
+                        {% if item.summary %}
+                        <p class="item-summary">{{ item.summary }}</p>
+                        {% if item.ai_metadata and item.ai_metadata.confidence == 'low' %}
+                        <span class="badge badge-review badge-inline">Auto summary — under review</span>
+                        {% endif %}
+                        {% endif %}
+                        <div class="notable-meta">
+                            {% if item.topic %}
+                            <span class="chip"><span class="dot"></span>{{ item.topic | topic_name }}</span>
+                            {% endif %}
+                            {% if item.sponsor %}
+                            <span class="t-meta">{{ item.sponsor }}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="notable-right">
+                        {% if item.dollars_amount %}
+                        <span class="tier tier-{{ item.dollars_amount | dollar_tier }}">
+                            ${{ "{:,.0f}".format(item.dollars_amount) }}
+                        </span>
+                        {% endif %}
+                    </div>
                 </div>
-            </div>
-            <div class="notable-right">
-                {% if item.dollars_amount %}
-                <span class="tier tier-{{ item.dollars_amount | dollar_tier }}">
-                    ${{ "{:,.0f}".format(item.dollars_amount) }}
-                </span>
-                {% endif %}
-            </div>
-        </div>
+                {# E6-LOOP-BODY-END consent #}
+            {% endif %}
         {% endfor %}
     </div>
 </section>

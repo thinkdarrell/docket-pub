@@ -1,0 +1,139 @@
+{# Source-anchor adaptive button — spec §6.4.
+
+   Renders a "View Source" link that adapts to the captured anchor level:
+
+     1. PDF + bbox + page  → PDF page link (browser honours ``#page=N``
+        natively, no JS). Today this branch produces the same href as
+        the page-only branch — see TODO inside that branch about
+        ``#page=N&viewrect=L,T,W,H`` when Stage 1 commits to PDF
+        user-space coordinates for ``bbox``.
+     2. PDF + page          → PDF page link.
+     3. PDF (bare)          → bare PDF URL.
+     4. HTML + anchor       → HTML page with ``#anchor`` fragment.
+     5. Video + timestamp   → ``?t=NNN`` deep link, label includes the
+        formatted timestamp via the ``format_timestamp`` filter.
+     6. Any ``anchor.url``  → bare "View Source" fallback.
+     7. ``data_quality == 'no_text_layer'``
+                             → unavailable label, plus an admin-only
+                               link to the data-debt queue.
+     8. Otherwise           → no markup.
+
+   Every external link uses ``target="_blank"`` and
+   ``rel="noopener noreferrer"`` (matches the convention from E1's
+   ``_source_link_stub.html`` and E3's engagement strip).
+
+   URL safety (defense-in-depth, two layers):
+
+     * Scheme guard — only ``http://`` / ``https://`` survive. Stripped
+       and lowercased for the *check*; the original-case URL goes into
+       the ``href`` so we don't mangle case-sensitive paths or query
+       values. This catches ``HTTPS://``, ``" https://..."`` (leading
+       whitespace), and rejects ``javascript:``, ``data:``, and
+       protocol-relative ``//host/path``.
+     * Domain allowlist — static set of supported CMS / video hosts +
+       dynamic set of municipality ``adapter_config->>'base_url'``
+       hosts loaded at app init. Even if a malformed row sneaks in with
+       ``https://attacker.tld/...`` we won't render the link. See
+       :file:`source_security.py` for the closed list and the
+       leading-dot suffix-match logic.
+
+   Both checks funnel through one ``is_source_url_safe`` Jinja global
+   so a malicious anchor can't bypass the gate by claiming a specific
+   ``type``.
+
+   URL canonicalization before fragment/query concatenation:
+
+     * Pre-existing ``#fragment`` is stripped before we append
+       ``#page=N`` or the HTML anchor — otherwise the browser sees
+       ``…#section1#page=7`` and ignores the second fragment.
+     * The video branch picks ``?`` vs ``&`` based on whether the URL
+       already contains ``?`` so e.g. a Granicus player URL with
+       ``?clip_id=123`` gets ``&t=65`` appended, not a second ``?``.
+
+   The bare-URL fallback branch passes ``_url`` through unmodified
+   (fragment intact) since it's not appending anything.
+
+   Defensive against malformed input: ``anchor`` is coerced via
+   ``or {}`` so a missing/None ``source_anchor`` won't blow up. If the
+   stored value is a non-mapping (string, list, etc.) ``.type`` /
+   ``.url`` lookups return Undefined and silently fail every branch,
+   landing on the no-render path — no traceback in production.
+
+   Inputs (via implicit ``item`` context, dispatcher passes the row):
+     - ``item.source_anchor``  — JSONB; one of:
+         {type: 'pdf', url, page?, bbox?}
+         {type: 'html', url, anchor?}
+         {type: 'video', url, timestamp_seconds?}
+         {url}  (bare fallback)
+     - ``item.data_quality``   — used only for the OCR-needed branch.
+     - ``item.id``             — needed for the admin queue link.
+     - ``session.admin_user``  — truthy iff the requester is logged in
+                                 as an admin (codebase convention; spec
+                                 references ``g.user.is_admin``, the
+                                 codebase uses session-based auth).
+#}
+{%- set anchor = item.source_anchor or {} -%}
+{%- set _url_raw = anchor.url if anchor is mapping else None -%}
+{%- set _url = _url_raw.strip() if _url_raw else None -%}
+{%- set _url_clean = _url.split('#')[0] if _url else '' -%}
+{%- set _video_sep = '&' if '?' in _url_clean else '?' -%}
+{%- set _is_safe = is_source_url_safe(_url) -%}
+
+{% if anchor is mapping and anchor.type == 'pdf' and _is_safe %}
+  {% if anchor.bbox and anchor.page %}
+    {# TODO(post-Stage-1): when Stage 1 commits to PDF user-space coordinates
+       for bbox, switch this branch to emit `#page=N&viewrect=L,T,W,H`
+       (PDF Open Parameters; supported by Adobe Reader, Chrome ≥110, Firefox).
+       Until then this branch produces identical output to the page-only branch
+       but is preserved as a documented placeholder for future bbox-aware
+       rendering. #}
+    <a href="{{ _url_clean }}#page={{ anchor.page | int }}" class="view-source"
+       target="_blank" rel="noopener noreferrer">
+      View Source: PDF page {{ anchor.page | int }} →
+    </a>
+  {% elif anchor.page %}
+    <a href="{{ _url_clean }}#page={{ anchor.page | int }}" class="view-source"
+       target="_blank" rel="noopener noreferrer">
+      View Source: PDF page {{ anchor.page | int }} →
+    </a>
+  {% else %}
+    <a href="{{ _url_clean }}" class="view-source"
+       target="_blank" rel="noopener noreferrer">
+      View Source: PDF →
+    </a>
+  {% endif %}
+
+{% elif anchor is mapping and anchor.type == 'html' and anchor.anchor and _is_safe %}
+  <a href="{{ _url_clean }}{{ anchor.anchor }}" class="view-source"
+     target="_blank" rel="noopener noreferrer">
+    View Source: agenda item →
+  </a>
+
+{% elif anchor is mapping and anchor.type == 'video' and anchor.timestamp_seconds and _is_safe %}
+  <a href="{{ _url_clean }}{{ _video_sep }}t={{ anchor.timestamp_seconds | int }}" class="view-source"
+     target="_blank" rel="noopener noreferrer">
+    View Source: video at {{ anchor.timestamp_seconds | format_timestamp }} →
+  </a>
+
+{% elif _is_safe %}
+  <a href="{{ _url }}" class="view-source"
+     target="_blank" rel="noopener noreferrer">
+    View Source →
+  </a>
+
+{% elif item.data_quality == 'no_text_layer' %}
+  <span class="view-source view-source--unavailable">
+    Source needs OCR
+    {% if session.admin_user %}
+      {# Use #item-N fragment, not ?highlight=N query param: the row may
+         live past offset 50 on the paginated queue, where the fragment
+         scrolls natively without requiring server-side awareness. The
+         spec at docs/superpowers/specs/2026-05-05-impact-first-refactor-design.md:2923
+         shows ?highlight=N; the deviation is intentional (browser-native
+         scroll fixes the silent no-op for off-page items). #}
+      <a href="{{ url_for('admin.data_debt') }}#item-{{ item.id }}">
+        [admin queue]
+      </a>
+    {% endif %}
+  </span>
+{% endif %}
