@@ -8,11 +8,12 @@ import pytest
 from docket.worker import scheduler
 
 
-def test_build_scheduler_registers_five_jobs():
+def test_build_scheduler_registers_seven_jobs():
     sched = scheduler.build_scheduler(timezone="America/Chicago")
     job_ids = {job.id for job in sched.get_jobs()}
     assert job_ids == {
-        "ingest_all", "ai_items", "ai_meetings", "vote_matching", "repair_empty_agendas",
+        "ingest_all", "ai_items", "ai_meetings", "vote_matching",
+        "repair_empty_agendas", "process_badges", "calibration_report",
     }
 
 
@@ -28,12 +29,28 @@ def test_build_scheduler_uses_supplied_timezone():
     ("ai_items",             7),
     ("ai_meetings",          8),
     ("vote_matching",        9),
+    ("process_badges",       9),
+    ("calibration_report",  11),
 ])
 def test_build_scheduler_job_hours(job_id, expected_hour):
     sched = scheduler.build_scheduler(timezone="America/Chicago")
     job = sched.get_job(job_id)
     fields = {f.name: str(f) for f in job.trigger.fields}
     assert fields["hour"] == str(expected_hour)
+
+
+def test_build_scheduler_calibration_report_at_00_minutes():
+    sched = scheduler.build_scheduler(timezone="America/Chicago")
+    job = sched.get_job("calibration_report")
+    fields = {f.name: str(f) for f in job.trigger.fields}
+    assert fields["minute"] == "0"
+
+
+def test_build_scheduler_process_badges_at_30_minutes():
+    sched = scheduler.build_scheduler(timezone="America/Chicago")
+    job = sched.get_job("process_badges")
+    fields = {f.name: str(f) for f in job.trigger.fields}
+    assert fields["minute"] == "30"
 
 
 def test_build_scheduler_repair_runs_only_on_monday():

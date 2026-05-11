@@ -131,6 +131,9 @@ def test_repair_invokes_repair_empty_agendas():
 
 # --- TASKS registry ----------------------------------------------------------
 
-def test_tasks_registry_has_all_five_jobs():
-    expected = {"ingest_all", "ai_items", "ai_meetings", "vote_matching", "repair_empty_agendas"}
+def test_tasks_registry_has_all_seven_jobs():
+    expected = {
+        "ingest_all", "ai_items", "ai_meetings", "vote_matching",
+        "repair_empty_agendas", "process_badges", "calibration_report",
+    }
     assert set(tasks.TASKS.keys()) == expected
