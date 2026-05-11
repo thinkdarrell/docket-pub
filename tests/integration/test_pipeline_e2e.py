@@ -1,0 +1,663 @@
+"""Integration tests for B5 — per-item pipeline orchestrator.
+
+Two entry points under test:
+
+- B5.1: ``pipeline.process_item(item)`` — full pipeline (Wave 0 → Stage 1
+  → Stage 2 → 2.5 → reconcile → atomic commit).
+- B5.2: ``pipeline._rerun_from_stage2(item, facts, *, override_instruction=None)``
+  — partial-rerun helper used by both `process_item` (after Stage 1) and
+  G4's conflict-resolution actions (after admin override).
+
+LLM-touching paths mock ``docket.ai.pipeline.extract_facts_for_item`` and
+``docket.ai.pipeline.rewrite_item`` via monkeypatch. Tests hit a real
+local DB; ``pytest.mark.skipif("railway.internal" in DATABASE_URL ...)``
+guards production.
+
+Reuses the G4 ``_Bag`` test-data tracker pattern, extended for v3
+columns (processing_status, extracted_facts, ai_extraction_version,
+ai_rewrite_version, headline, why_it_matters, score_overrides).
+"""
+
+from __future__ import annotations
+
+import json
+from unittest.mock import MagicMock
+
+import pytest
+
+from docket.config import DATABASE_URL
+from docket.db import db, db_cursor
+from docket.ai.extraction_schema import StructuredFacts, NextSteps
+from docket.ai.rewrite_schema import ItemRewrite
+
+
+pytestmark = pytest.mark.skipif(
+    "railway.internal" in DATABASE_URL or "railway.app" in DATABASE_URL,
+    reason="Refusing to run B5 pipeline tests against Railway DB.",
+)
+
+
+SAMPLE_FACTS_DICT = {
+    "funding_source": "general_fund",
+    "counterparty": "Acme Corp",
+    "procurement_method": "competitive",
+    "location": None,
+    "action_type": "contract_award",
+    "next_steps": {
+        "committee_referral": None,
+        "public_hearing_date": None,
+        "public_hearing_time": None,
+        "comment_period_end": None,
+        "implementation_date": None,
+    },
+    "parcels_affected": None,
+    "acres_affected": None,
+}
+
+
+def _sample_facts() -> StructuredFacts:
+    return StructuredFacts.model_validate(SAMPLE_FACTS_DICT)
+
+
+def _substantive_rewrite() -> ItemRewrite:
+    return ItemRewrite(
+        is_substantive=True,
+        headline="Council awards $75K janitorial contract",
+        why_it_matters="Renews custodial services across 12 city buildings.",
+        significance_rationale="Modest ongoing operating expense.",
+        significance_score=4.0,
+        consent_placement_rationale="Routine ops contract.",
+        consent_placement_score=8.0,
+        suggested_badge_slugs=[],
+        confidence="medium",
+    )
+
+
+def _procedural_rewrite() -> ItemRewrite:
+    return ItemRewrite(
+        is_substantive=False,
+        headline=None, why_it_matters=None,
+        significance_rationale="", significance_score=None,
+        consent_placement_rationale="", consent_placement_score=None,
+        suggested_badge_slugs=[], confidence="medium",
+    )
+
+
+class _Bag:
+    """Test-data tracker for pipeline tests.
+
+    Cleanup order: agenda_item_badges → processing_status_audit →
+    agenda_item_badges_audit → agenda_items → meetings."""
+
+    def __init__(self, city_id: int, city_slug: str, city_name: str):
+        self.city_id = city_id
+        self.city_slug = city_slug
+        self.city_name = city_name
+        self.meeting_ids: list[int] = []
+        self.item_ids: list[int] = []
+
+    def add_meeting(self, date_str: str = "2026-04-15") -> int:
+        with db() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO meetings
+                  (municipality_id, title, meeting_date, meeting_type)
+                VALUES (%s, %s, %s, 'council')
+                RETURNING id
+                """,
+                (self.city_id, "B5 pipeline test", date_str),
+            )
+            mid = cur.fetchone()[0]
+        self.meeting_ids.append(mid)
+        return mid
+
+    def add_pending_item(
+        self,
+        meeting_id: int,
+        *,
+        title: str = "Award contract to Acme Corp for janitorial services",
+        description: str = "Council awards $75,000 contract for custodial services.",
+        dollars_amount: int | None = 75_000,
+        topic: str | None = None,
+        is_consent: bool = False,
+        sponsor: str | None = "City Council",
+        source_type: str = "agenda",
+    ) -> int:
+        """Seed an agenda_items row in v3 'pending' state (Wave 0 already passed).
+
+        Sets processing_status='pending', data_quality='ok', no
+        extraction_facts yet — the canonical pre-process_item shape.
+
+        Note: ``source_type`` is accepted for API compatibility with the
+        plan but NOT persisted — the ``agenda_items`` table has no
+        ``source_type`` column. The duck-typed item shape exposes it via
+        ``_ItemView`` (defaulted to 'agenda') so callers reading the row
+        can still see the attribute.
+        """
+        with db() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO agenda_items
+                  (meeting_id, title, description, sponsor, dollars_amount,
+                   topic, is_consent,
+                   data_quality, data_debt_priority, processing_status)
+                VALUES (%s, %s, %s, %s, %s, %s, %s,
+                        'ok'::data_quality_enum,
+                        'normal'::data_debt_priority_enum,
+                        'pending'::processing_status_enum)
+                RETURNING id
+                """,
+                (meeting_id, title, description, sponsor, dollars_amount,
+                 topic, is_consent),
+            )
+            iid = cur.fetchone()[0]
+        self.item_ids.append(iid)
+        return iid
+
+    def cleanup(self) -> None:
+        with db() as conn, conn.cursor() as cur:
+            if self.item_ids:
+                cur.execute(
+                    "DELETE FROM agenda_item_badges WHERE agenda_item_id = ANY(%s)",
+                    (self.item_ids,),
+                )
+                cur.execute(
+                    "DELETE FROM processing_status_audit WHERE agenda_item_id = ANY(%s)",
+                    (self.item_ids,),
+                )
+                cur.execute(
+                    "DELETE FROM agenda_item_badges_audit WHERE agenda_item_id = ANY(%s)",
+                    (self.item_ids,),
+                )
+                cur.execute(
+                    "DELETE FROM agenda_items WHERE id = ANY(%s)",
+                    (self.item_ids,),
+                )
+            if self.meeting_ids:
+                cur.execute(
+                    "DELETE FROM meetings WHERE id = ANY(%s)",
+                    (self.meeting_ids,),
+                )
+
+
+def _bag() -> _Bag:
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, slug, name FROM municipalities WHERE slug = 'birmingham'"
+        )
+        row = cur.fetchone()
+    assert row is not None, "Birmingham must be seeded"
+    return _Bag(row[0], row[1], row[2])
+
+
+@pytest.fixture
+def bag():
+    b = _bag()
+    try:
+        yield b
+    finally:
+        b.cleanup()
+
+
+def _load_item(item_id: int) -> dict:
+    """Read the row + joined city context — the shape pipeline.process_item expects."""
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT ai.id, ai.meeting_id, ai.title, ai.description,
+                   ai.sponsor, ai.dollars_amount, ai.topic, ai.is_consent,
+                   ai.data_quality::text AS data_quality,
+                   ai.processing_status::text AS processing_status,
+                   ai.extracted_facts, ai.headline, ai.why_it_matters,
+                   ai.significance_score, ai.consent_placement_score,
+                   ai.score_overrides,
+                   m.municipality_id AS city_id,
+                   muni.name AS city_name
+              FROM agenda_items ai
+              JOIN meetings m ON m.id = ai.meeting_id
+              JOIN municipalities muni ON muni.id = m.municipality_id
+             WHERE ai.id = %s
+            """,
+            (item_id,),
+        )
+        row = dict(cur.fetchone())
+        # source_type is duck-typed onto items even though no column exists.
+        # Wave 0's evaluate_data_quality and rewrite_item read it.
+        row["source_type"] = "agenda"
+        return row
+
+
+def _read_badges(item_id: int) -> list[tuple]:
+    """Read agenda_item_badges rows for assertions."""
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT badge_slug, kind, confidence::float, source, city_id
+              FROM agenda_item_badges
+             WHERE agenda_item_id = %s
+             ORDER BY badge_slug
+            """,
+            (item_id,),
+        )
+        return cur.fetchall()
+
+
+class _ItemView:
+    """Duck-typed item object for pipeline calls. Mirrors what the worker
+    will hand to process_item (a dict converted to attribute access)."""
+    def __init__(self, row: dict):
+        for k, v in row.items():
+            setattr(self, k, v)
+
+
+# ---------------------------------------------------------------------------
+# B5.1 — Wave 0 short-circuit paths
+# ---------------------------------------------------------------------------
+
+
+def test_process_item_short_circuits_on_bad_data_quality(bag, monkeypatch):
+    """If evaluate_data_quality returns != 'ok', no LLM calls fire and
+    processing_status flips to data_quality_skipped."""
+    from docket.ai import pipeline
+
+    # Patch wave0 to return a non-ok quality regardless of input.
+    monkeypatch.setattr(
+        "docket.ai.pipeline.evaluate_data_quality",
+        lambda item: ("no_agenda_text", "low"),
+    )
+
+    # Spy LLM calls — should NEVER fire.
+    extract_calls = []
+    rewrite_calls = []
+    monkeypatch.setattr(
+        "docket.ai.pipeline.extract_facts_for_item",
+        lambda *a, **kw: extract_calls.append(a) or (_sample_facts(), "haiku-4-5"),
+    )
+    monkeypatch.setattr(
+        "docket.ai.pipeline.rewrite_item",
+        lambda *a, **kw: rewrite_calls.append(a) or (_substantive_rewrite(), "haiku-4-5"),
+    )
+
+    m = bag.add_meeting()
+    iid = bag.add_pending_item(m, title="short title")
+    item = _ItemView(_load_item(iid))
+
+    status = pipeline.process_item(item)
+    assert status == "data_quality_skipped"
+    assert extract_calls == []
+    assert rewrite_calls == []
+
+    final = _load_item(iid)
+    assert final["processing_status"] == "data_quality_skipped"
+    assert final["data_quality"] == "no_agenda_text"
+
+
+def test_process_item_short_circuits_on_procedural_title(bag, monkeypatch):
+    """Wave 0b: title matches PROCEDURAL_TITLE_PATTERNS → no LLM calls."""
+    from docket.ai import pipeline
+
+    monkeypatch.setattr(
+        "docket.ai.pipeline.evaluate_data_quality",
+        lambda item: ("ok", "normal"),
+    )
+    monkeypatch.setattr(
+        "docket.ai.pipeline.is_procedural",
+        lambda title: True,
+    )
+    extract_calls = []
+    rewrite_calls = []
+    monkeypatch.setattr(
+        "docket.ai.pipeline.extract_facts_for_item",
+        lambda *a, **kw: extract_calls.append(a) or (_sample_facts(), "haiku-4-5"),
+    )
+    monkeypatch.setattr(
+        "docket.ai.pipeline.rewrite_item",
+        lambda *a, **kw: rewrite_calls.append(a) or (_substantive_rewrite(), "haiku-4-5"),
+    )
+
+    m = bag.add_meeting()
+    iid = bag.add_pending_item(m, title="Pledge of Allegiance")
+    item = _ItemView(_load_item(iid))
+
+    status = pipeline.process_item(item)
+    assert status == "procedural_skipped"
+    assert extract_calls == []
+    assert rewrite_calls == []
+
+    final = _load_item(iid)
+    assert final["processing_status"] == "procedural_skipped"
+
+
+# ---------------------------------------------------------------------------
+# B5.2 — Full happy path: Stage 1 + 2 → completed + on-write badges
+# ---------------------------------------------------------------------------
+
+
+def test_process_item_happy_path_completes_and_writes_badges(bag, monkeypatch):
+    """Wave 0 'ok' + non-procedural + substantive Stage 2 + reconcile
+    accept → status='completed', headline/why_it_matters populated,
+    score_overrides JSONB written, on-write badges land."""
+    from docket.ai import pipeline
+
+    monkeypatch.setattr(
+        "docket.ai.pipeline.evaluate_data_quality",
+        lambda item: ("ok", "normal"),
+    )
+    monkeypatch.setattr(
+        "docket.ai.pipeline.is_procedural",
+        lambda title: False,
+    )
+
+    # Facts: counterparty + competitive procurement → no badges from
+    # this dimension. We add settlement separately to fire
+    # legal_settlement badge.
+    settlement_facts_dict = {
+        **SAMPLE_FACTS_DICT,
+        "action_type": "settlement",
+    }
+    settlement_facts = StructuredFacts.model_validate(settlement_facts_dict)
+    monkeypatch.setattr(
+        "docket.ai.pipeline.extract_facts_for_item",
+        lambda *a, **kw: (settlement_facts, "claude-haiku-4-5-20251001"),
+    )
+    monkeypatch.setattr(
+        "docket.ai.pipeline.rewrite_item",
+        lambda *a, **kw: (_substantive_rewrite(), "claude-haiku-4-5-20251001"),
+    )
+
+    m = bag.add_meeting()
+    iid = bag.add_pending_item(
+        m,
+        title="Authorize $250K settlement to claimant",
+        dollars_amount=250_000,
+    )
+    item = _ItemView(_load_item(iid))
+
+    status = pipeline.process_item(item)
+    assert status == "completed"
+
+    final = _load_item(iid)
+    assert final["processing_status"] == "completed"
+    assert final["headline"] == "Council awards $75K janitorial contract"
+    assert final["why_it_matters"] == \
+        "Renews custodial services across 12 city buildings."
+    # Stage 2.5 floor for "any_settlement" fires at min 6.
+    # Original score 4.0 < 6, so final should be 6.
+    assert int(final["significance_score"]) >= 6
+    # Score overrides JSONB written with triggers.
+    assert final["score_overrides"] is not None
+    assert "triggers" in final["score_overrides"]
+
+    badges = _read_badges(iid)
+    slugs = {b[0] for b in badges}
+    assert "legal_settlement" in slugs  # fires on action_type='settlement'
+    # All badges carry city_id (decision #92).
+    for badge in badges:
+        assert badge[4] == bag.city_id
+
+
+# ---------------------------------------------------------------------------
+# B5.3 — Reconcile auto-retry paths
+# ---------------------------------------------------------------------------
+
+
+def test_process_item_reconcile_retry_resolves_on_second_attempt(
+    bag, monkeypatch,
+):
+    """Stage 1 finds substance, Stage 2 first says procedural →
+    reconcile fires retry_stage2_with_override → Stage 2 second call
+    returns substantive → reconcile accepts → status='completed'.
+    Two rewrite_item calls fired; final state shows substantive."""
+    from docket.ai import pipeline
+
+    monkeypatch.setattr(
+        "docket.ai.pipeline.evaluate_data_quality",
+        lambda item: ("ok", "normal"),
+    )
+    monkeypatch.setattr(
+        "docket.ai.pipeline.is_procedural",
+        lambda title: False,
+    )
+    # Stage 1 returns settlement facts — substantial enough that
+    # Stage 2 saying procedural triggers reconcile conflict.
+    settlement_facts = StructuredFacts.model_validate({
+        **SAMPLE_FACTS_DICT, "action_type": "settlement",
+    })
+    monkeypatch.setattr(
+        "docket.ai.pipeline.extract_facts_for_item",
+        lambda *a, **kw: (settlement_facts, "haiku-4-5"),
+    )
+    # First rewrite call: procedural. Second rewrite call: substantive.
+    rewrite_call_count = [0]
+    def _flipping_rewrite(*args, **kwargs):
+        rewrite_call_count[0] += 1
+        if rewrite_call_count[0] == 1:
+            return (_procedural_rewrite(), "haiku-4-5")
+        return (_substantive_rewrite(), "haiku-4-5")
+    monkeypatch.setattr(
+        "docket.ai.pipeline.rewrite_item", _flipping_rewrite,
+    )
+
+    m = bag.add_meeting()
+    iid = bag.add_pending_item(m, dollars_amount=250_000)
+    item = _ItemView(_load_item(iid))
+
+    status = pipeline.process_item(item)
+    assert status == "completed"
+    assert rewrite_call_count[0] == 2  # one retry fired
+
+    final = _load_item(iid)
+    assert final["processing_status"] == "completed"
+    assert final["headline"] is not None
+
+
+def test_process_item_reconcile_escalates_after_second_failure(
+    bag, monkeypatch,
+):
+    """Both rewrite_item attempts return procedural; reconcile
+    escalates to cross_stage_conflict; final state has NO headline +
+    is in conflict; score_overrides carries the conflict reasons."""
+    from docket.ai import pipeline
+
+    monkeypatch.setattr(
+        "docket.ai.pipeline.evaluate_data_quality",
+        lambda item: ("ok", "normal"),
+    )
+    monkeypatch.setattr(
+        "docket.ai.pipeline.is_procedural",
+        lambda title: False,
+    )
+    settlement_facts = StructuredFacts.model_validate({
+        **SAMPLE_FACTS_DICT, "action_type": "settlement",
+    })
+    monkeypatch.setattr(
+        "docket.ai.pipeline.extract_facts_for_item",
+        lambda *a, **kw: (settlement_facts, "haiku-4-5"),
+    )
+    monkeypatch.setattr(
+        "docket.ai.pipeline.rewrite_item",
+        lambda *a, **kw: (_procedural_rewrite(), "haiku-4-5"),
+    )
+
+    m = bag.add_meeting()
+    iid = bag.add_pending_item(m, dollars_amount=250_000)
+    item = _ItemView(_load_item(iid))
+
+    status = pipeline.process_item(item)
+    assert status == "cross_stage_conflict"
+
+    final = _load_item(iid)
+    assert final["processing_status"] == "cross_stage_conflict"
+    # Stage 2 was procedural — headline/why_it_matters are None.
+    assert final["headline"] is None
+    assert final["why_it_matters"] is None
+    # Score overrides carries conflict reasons.
+    assert final["score_overrides"]["conflicts"]
+    assert any(
+        "stage2_procedural" in c
+        for c in final["score_overrides"]["conflicts"]
+    )
+
+
+# ---------------------------------------------------------------------------
+# B5.4 — _rerun_from_stage2 (partial-rerun helper for G4)
+# ---------------------------------------------------------------------------
+
+
+def test_rerun_from_stage2_skips_stage1_and_persists(bag, monkeypatch):
+    """G4 path: caller supplies facts; pipeline runs Stage 2+ only and
+    persists. extract_facts_for_item must NOT be called."""
+    from docket.ai import pipeline
+
+    extract_calls = []
+    monkeypatch.setattr(
+        "docket.ai.pipeline.extract_facts_for_item",
+        lambda *a, **kw: extract_calls.append(a) or (None, None),
+    )
+    monkeypatch.setattr(
+        "docket.ai.pipeline.rewrite_item",
+        lambda *a, **kw: (_substantive_rewrite(), "haiku-4-5"),
+    )
+
+    m = bag.add_meeting()
+    iid = bag.add_pending_item(m)
+    item = _ItemView(_load_item(iid))
+
+    facts = _sample_facts()  # caller-supplied (e.g., admin-edited)
+    status = pipeline._rerun_from_stage2(item, facts)
+    assert status == "completed"
+    assert extract_calls == []  # Stage 1 was skipped
+
+    final = _load_item(iid)
+    assert final["processing_status"] == "completed"
+    assert final["extracted_facts"] is not None
+
+
+def test_rerun_from_stage2_passes_override_instruction_to_stage2(
+    bag, monkeypatch,
+):
+    """G4 re-prompt path: override_instruction reaches rewrite_item."""
+    from docket.ai import pipeline
+
+    monkeypatch.setattr(
+        "docket.ai.pipeline.extract_facts_for_item",
+        lambda *a, **kw: (None, None),
+    )
+    rewrite_kwargs_captured = []
+    def _capture_rewrite(*args, **kwargs):
+        rewrite_kwargs_captured.append(kwargs)
+        return (_substantive_rewrite(), "haiku-4-5")
+    monkeypatch.setattr(
+        "docket.ai.pipeline.rewrite_item", _capture_rewrite,
+    )
+
+    m = bag.add_meeting()
+    iid = bag.add_pending_item(m)
+    item = _ItemView(_load_item(iid))
+    facts = _sample_facts()
+
+    pipeline._rerun_from_stage2(
+        item, facts,
+        override_instruction="This IS substantive — a contract award.",
+    )
+    assert rewrite_kwargs_captured
+    assert rewrite_kwargs_captured[0].get("extra_instruction") == \
+        "This IS substantive — a contract award."
+
+
+# ---------------------------------------------------------------------------
+# B5.4b — expected_status concurrency guard (decision #13)
+# ---------------------------------------------------------------------------
+
+
+def test_rerun_from_stage2_no_guard_passes_unconditionally(bag, monkeypatch):
+    """Worker path: expected_status=None, UPDATE runs unconditionally
+    even if the row's actual processing_status differs."""
+    from docket.ai import pipeline
+
+    monkeypatch.setattr(
+        "docket.ai.pipeline.rewrite_item",
+        lambda *a, **kw: (_substantive_rewrite(), "haiku-4-5"),
+    )
+
+    m = bag.add_meeting()
+    iid = bag.add_pending_item(m)
+    # Force the row out of 'pending' to simulate a state where the
+    # worker would normally never reach this code — but with no guard,
+    # the pipeline writes regardless.
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            "UPDATE agenda_items SET processing_status = 'completed'::processing_status_enum WHERE id = %s",
+            (iid,),
+        )
+    item = _ItemView(_load_item(iid))
+    facts = _sample_facts()
+
+    status = pipeline._rerun_from_stage2(item, facts)  # no guard
+    assert status == "completed"
+
+    final = _load_item(iid)
+    # Pipeline wrote unconditionally — the row's rewrite columns are populated.
+    assert final["headline"] is not None
+
+
+def test_rerun_from_stage2_guard_raises_when_status_mismatch(bag, monkeypatch):
+    """Admin path: expected_status='cross_stage_conflict', actual status
+    is 'completed' → PipelineConcurrencyError raised; transaction rolls
+    back; no writes commit."""
+    from docket.ai import pipeline
+
+    monkeypatch.setattr(
+        "docket.ai.pipeline.rewrite_item",
+        lambda *a, **kw: (_substantive_rewrite(), "haiku-4-5"),
+    )
+
+    m = bag.add_meeting()
+    iid = bag.add_pending_item(m)
+    # Item is in 'pending', NOT 'cross_stage_conflict'.
+    item = _ItemView(_load_item(iid))
+    facts = _sample_facts()
+
+    with pytest.raises(pipeline.PipelineConcurrencyError):
+        pipeline._rerun_from_stage2(
+            item, facts,
+            expected_status="cross_stage_conflict",
+        )
+
+    final = _load_item(iid)
+    # Phase C rolled back: row's state is unchanged from pre-call.
+    assert final["headline"] is None
+    assert final["processing_status"] == "pending"
+    # No badges were written.
+    assert _read_badges(iid) == []
+
+
+def test_rerun_from_stage2_guard_allows_match(bag, monkeypatch):
+    """Admin path happy: expected_status='cross_stage_conflict' AND
+    actual matches → pipeline proceeds normally."""
+    from docket.ai import pipeline
+
+    monkeypatch.setattr(
+        "docket.ai.pipeline.rewrite_item",
+        lambda *a, **kw: (_substantive_rewrite(), "haiku-4-5"),
+    )
+
+    m = bag.add_meeting()
+    iid = bag.add_pending_item(m)
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            "UPDATE agenda_items SET processing_status = 'cross_stage_conflict'::processing_status_enum WHERE id = %s",
+            (iid,),
+        )
+    item = _ItemView(_load_item(iid))
+    facts = _sample_facts()
+
+    status = pipeline._rerun_from_stage2(
+        item, facts,
+        expected_status="cross_stage_conflict",
+    )
+    assert status == "completed"
+
+    final = _load_item(iid)
+    assert final["processing_status"] == "completed"
+    assert final["headline"] is not None
