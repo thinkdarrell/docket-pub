@@ -1,0 +1,30 @@
+{# Per-card meeting context strip — meeting date + item-number reference.
+
+   Rendered only when the surrounding context sets ``show_meeting_context=True``
+   (currently: ``/al/<slug>/<badge_slug>/`` category landings via
+   ``public.category_landing``). On meeting-detail pages the date is in the
+   page chrome and the item number is in the table cell, so the strip is
+   omitted to avoid duplication.
+
+   Required ``item`` attributes:
+     - ``meeting_date``  — datetime.date or None (populated by
+                           ``services.query.list_items_by_badge``).
+     - ``item_number``   — str or None (already part of the AgendaItem dataclass).
+
+   Renders nothing when both are absent — the card then collapses cleanly
+   without a stray empty meta strip. #}
+{% if show_meeting_context and (item.meeting_date or item.item_number) %}
+  <div class="smart-brevity-card__meta-strip t-meta">
+    {% if item.meeting_date %}
+      <span class="smart-brevity-card__meeting-date">
+        {{ item.meeting_date.strftime('%B %-d, %Y') }}
+      </span>
+    {% endif %}
+    {% if item.meeting_date and item.item_number %}
+      <span class="smart-brevity-card__sep">·</span>
+    {% endif %}
+    {% if item.item_number %}
+      <span class="smart-brevity-card__item-ref t-mono">Item #{{ item.item_number }}</span>
+    {% endif %}
+  </div>
+{% endif %}

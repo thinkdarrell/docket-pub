@@ -900,6 +900,7 @@ def list_items_by_badge(
         SELECT
             ai.id,
             ai.meeting_id,
+            m.meeting_date,
             ai.external_id,
             ai.item_number,
             ai.title,

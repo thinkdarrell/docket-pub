@@ -18,6 +18,8 @@
     {% include 'partials/_badge_row.html' %}
   </header>
 
+  {% include 'partials/_meeting_context_strip.html' %}
+
   {% if item.headline %}
     <h3 class="smart-brevity-card__headline">{{ item.headline }}</h3>
   {% else %}
