@@ -17,9 +17,11 @@ import json
 import logging
 
 import anthropic
+from pydantic import ValidationError
 
 from docket.ai.cache import cache_get, cache_key, cache_put
 from docket.ai.exceptions import AIPermanentRowError
+from docket.ai.extraction import _coerce_unknown_enums
 from docket.ai.extraction_schema import StructuredFacts
 from docket.ai.rewrite_schema import ItemRewrite
 
@@ -275,7 +277,26 @@ def rewrite_item(
     served_model = response.model
 
     payload = _extract_tool_input(response, STAGE2_TOOL["name"])
-    rewrite = ItemRewrite.model_validate(payload)
+    item_id = getattr(item, "id", "?")
+    try:
+        rewrite = ItemRewrite.model_validate(payload)
+    except ValidationError:
+        # First retry: coerce out-of-whitelist enum values (e.g.
+        # ``confidence='very_high'``) and re-validate. If the failure is
+        # a Stage 2 logic violation (procedural_consistency check), the
+        # coercion won't help and the second validate also fails — that
+        # surfaces as AIPermanentRowError for admin review.
+        payload = _coerce_unknown_enums(
+            payload, STAGE2_TOOL["input_schema"],
+            log_prefix=f"stage2 item={item_id} ",
+        )
+        try:
+            rewrite = ItemRewrite.model_validate(payload)
+        except ValidationError as e:
+            raise AIPermanentRowError(
+                f"stage2 validation failed after enum coercion for item "
+                f"{item_id}: {e}"
+            ) from e
 
     # Cache against the served model id (decision #42).
     # Guarded: a transient DB error here would otherwise drop an
