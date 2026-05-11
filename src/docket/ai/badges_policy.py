@@ -110,7 +110,12 @@ def resolve_source(llm: bool, det: bool) -> str:
 
 
 def compute_policy_badges(item, facts, rewrite, city_id: int):
-    """Returns list of (slug, confidence, source, matching_metadata) tuples."""
+    """Returns list of (slug, confidence, source, matching_metadata, status) tuples.
+
+    Status logic (refactor #2):
+      - 'applied'  — deterministic backing exists (citizen-visible)
+      - 'flagged'  — LLM-only suggestion (admin review only)
+    """
     from docket.services.badges import list_enabled_policy_badges
 
     enabled = list_enabled_policy_badges(city_id)
@@ -125,8 +130,8 @@ def compute_policy_badges(item, facts, rewrite, city_id: int):
         det, det_metadata = deterministic_policy_match(
             item, facts, rewrite, badge.matcher_hints
         )
-        conf = resolve_policy_badge_confidence(badge.slug, llm, det)
-        if conf is None:
+        status, conf = decide_status_and_confidence(llm=llm, det=det)
+        if status is None:
             continue
 
         if llm and det:
@@ -136,6 +141,6 @@ def compute_policy_badges(item, facts, rewrite, city_id: int):
         else:
             metadata = det_metadata
 
-        out.append((badge.slug, conf, resolve_source(llm, det), metadata))
+        out.append((badge.slug, conf, resolve_source(llm, det), metadata, status))
 
     return out

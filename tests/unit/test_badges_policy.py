@@ -394,8 +394,8 @@ class TestComputePolicyBadges:
         # blight_accountability fired via LLM only
         assert 'blight_accountability' in slugs
 
-    def test_returns_4_tuple_per_match(self, monkeypatch):
-        """Each entry in result is (slug, confidence, source, metadata)."""
+    def test_returns_5_tuple_per_match(self, monkeypatch):
+        """Each entry in result is (slug, confidence, source, metadata, status)."""
         import docket.services.badges as svc
         badge = self._make_badge('blight_accountability', hints={'keywords': ['blight']})
         monkeypatch.setattr(svc, 'list_enabled_policy_badges', lambda city_id: (badge,))
@@ -406,11 +406,12 @@ class TestComputePolicyBadges:
         result = compute_policy_badges(item, facts, rewrite, 1)
 
         assert len(result) == 1
-        slug, conf, source, metadata = result[0]
+        slug, conf, source, metadata, status = result[0]
         assert slug == 'blight_accountability'
         assert isinstance(conf, float)
         assert isinstance(source, str)
         assert isinstance(metadata, dict)
+        assert isinstance(status, str)
 
     def test_metadata_distinguishes_both_vs_llm_only_vs_det_only(self, monkeypatch):
         """Verify metadata shape across the 3 firing cases."""
@@ -434,15 +435,15 @@ class TestComputePolicyBadges:
         assert 'slug_llm' in by_slug
         assert 'slug_det' in by_slug
 
-        _, _, source_both, meta_both = by_slug['slug_both']
+        _, _, source_both, meta_both, _ = by_slug['slug_both']
         assert source_both == 'both'
         assert meta_both.get('both') is True
 
-        _, _, source_llm, meta_llm = by_slug['slug_llm']
+        _, _, source_llm, meta_llm, _ = by_slug['slug_llm']
         assert source_llm == 'llm'
         assert meta_llm == {'llm_only': True}
 
-        _, _, source_det, meta_det = by_slug['slug_det']
+        _, _, source_det, meta_det, _ = by_slug['slug_det']
         assert source_det == 'deterministic'
         assert 'matched_keywords' in meta_det
 
@@ -458,7 +459,7 @@ class TestComputePolicyBadges:
 
         result = compute_policy_badges(item, facts, rewrite, 1)
         assert len(result) == 1
-        _, conf, source, _ = result[0]
+        _, conf, source, _, _ = result[0]
         assert conf == pytest.approx(1.0)
         assert source == 'both'
 
@@ -473,9 +474,76 @@ class TestComputePolicyBadges:
         rewrite = make_rewrite()  # no LLM suggestion
         result = compute_policy_badges(item, facts, rewrite, 1)
         assert len(result) == 1
-        _, conf, source, *_ = result[0]
+        _, conf, source, _, _ = result[0]
         assert conf == pytest.approx(0.8)
         assert source == 'deterministic'
+
+
+class TestComputePolicyBadgesStatus:
+    """Refactor #2: each emitted tuple carries a status field that gates
+    citizen visibility. 'applied' = visible; 'flagged' = admin review only."""
+
+    def _make_badge(self, slug, hints=None):
+        return type('EnabledBadge', (), {
+            'slug': slug,
+            'name': f'{slug} name',
+            'description': f'{slug} description',
+            'icon': 'icon',
+            'kind': 'policy',
+            'matcher_hints': hints or {},
+        })()
+
+    def test_llm_only_emits_flagged_status(self, monkeypatch):
+        """Haiku suggests the badge but no deterministic signal fires →
+        the row carries status='flagged'."""
+        import docket.services.badges as svc
+        badge = self._make_badge('housing_stability', hints={})
+        monkeypatch.setattr(svc, 'list_enabled_policy_badges', lambda city_id: (badge,))
+
+        item = make_item(title='unrelated procedural item')
+        facts = make_facts()
+        rewrite = make_rewrite(suggested_badge_slugs=['housing_stability'])
+
+        result = compute_policy_badges(item, facts, rewrite, 1)
+        assert len(result) == 1
+        slug, conf, source, metadata, status = result[0]
+        assert slug == 'housing_stability'
+        assert source == 'llm'
+        assert status == 'flagged'
+        assert conf == pytest.approx(0.4)
+
+    def test_both_signals_emit_applied_status(self, monkeypatch):
+        """LLM + deterministic both fire → status='applied'."""
+        import docket.services.badges as svc
+        badge = self._make_badge('blight_accountability', hints={'keywords': ['blight']})
+        monkeypatch.setattr(svc, 'list_enabled_policy_badges', lambda city_id: (badge,))
+
+        item = make_item(title='blight demolition contract')
+        facts = make_facts()
+        rewrite = make_rewrite(suggested_badge_slugs=['blight_accountability'])
+
+        result = compute_policy_badges(item, facts, rewrite, 1)
+        assert len(result) == 1
+        _, _, source, _, status = result[0]
+        assert source == 'both'
+        assert status == 'applied'
+
+    def test_deterministic_only_emits_applied_status(self, monkeypatch):
+        """Deterministic alone is enough for applied status (no Haiku
+        suggestion required)."""
+        import docket.services.badges as svc
+        badge = self._make_badge('blight_accountability', hints={'keywords': ['blight']})
+        monkeypatch.setattr(svc, 'list_enabled_policy_badges', lambda city_id: (badge,))
+
+        item = make_item(title='blight removal contract')
+        facts = make_facts()
+        rewrite = make_rewrite()
+
+        result = compute_policy_badges(item, facts, rewrite, 1)
+        assert len(result) == 1
+        _, _, source, _, status = result[0]
+        assert source == 'deterministic'
+        assert status == 'applied'
 
 
 # ===========================================================================
