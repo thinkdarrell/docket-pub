@@ -8,33 +8,22 @@ Each resolution action:
 - Returns a result dict the route handler renders into the swap-target
   partial.
 
-Two of the four actions (``re_prompt_stage_2``, ``edit_stage_1_facts``)
-re-run Stage 2 of the v3 pipeline. They use a private helper
-``_rerun_stage2`` that calls ``rewrite.rewrite_item`` ->
-``floors.apply_score_floors`` -> ``reconcile.reconcile_stages``. This
-helper is a minimal Stage 2 re-run path; B5 (the cross-track
-convergence task) will later subsume it into a full per-item
-orchestrator. G4 ships before B5 because decision #93 is required
-before ``IMPACT_FIRST_ENABLED=true`` flips the worker.
+The two LLM-touching actions (``re_prompt_stage_2``,
+``edit_stage_1_facts``) re-run Stage 2 of the v3 pipeline by delegating
+to :func:`docket.ai.pipeline._rerun_from_stage2`. Per B5 (decision
+#13), they pass ``expected_status='cross_stage_conflict'`` for the
+TOCTOU concurrency guard and ``already_retried=True`` to suppress
+reconcile's auto-retry path (preserves pre-B5 one-shot semantics on
+admin clicks — one click never doubles LLM cost/latency).
+``PipelineConcurrencyError`` from the pipeline is caught and
+translated to a ``ConflictAlreadyResolvedError`` + a ``*_lost_race``
+audit row in a fresh transaction; the admin route maps that exception
+to a 409 + plain-text body for the form's
+``hx-on:htmx:response-error`` handler.
 
 Spec: docs/superpowers/specs/2026-05-05-impact-first-refactor-design.md
-decisions #45, #72, #93.
-
-Plan deviation: the plan imports ``get_enabled_policy_slugs`` from
-``docket.services.badges`` — neither that module nor that function
-exists in this branch. The closest analog is
-:func:`docket.services.query.list_enabled_badges`, which returns a
-list of dicts (process + policy). For Stage 2 re-runs we want only
-policy slugs (process badges are always-on and the Stage 2 prompt
-doesn't gate on them), so :func:`_get_enabled_policy_slugs` below
-filters that list down to ``kind == 'policy'`` slugs.
-
-Plan deviation: ``apply_score_floors`` in this branch has the signature
-``(cur, item, facts, ai, city_id)``. The plan's
-``_rerun_stage2(item, facts, override_instruction=None)`` invokes it as
-``apply_score_floors(facts, item_view, rewrite)`` — wrong order and
-missing ``cur`` + ``city_id``. The helper here threads a short-lived
-cursor and the item's ``municipality_id`` through to the call.
+decisions #45, #72, #93. B5 plan:
+docs/superpowers/plans/2026-05-10-b5-pipeline-orchestrator.md.
 """
 
 from __future__ import annotations
@@ -396,6 +385,10 @@ def re_prompt_stage_2(item_id: int, *,
             item_view, facts,
             override_instruction=override,
             expected_status="cross_stage_conflict",
+            # A1 (decision #14b): admin re-runs are explicit one-shots —
+            # suppress reconcile's auto-retry path so a single admin
+            # click never doubles LLM cost/latency.
+            already_retried=True,
         )
     except PipelineConcurrencyError as e:
         # Race lost. Pipeline already rolled back; write the lost-race
@@ -603,6 +596,10 @@ def edit_stage_1_facts(item_id: int, *,
         pipeline_status = _rerun_from_stage2(
             item_view, facts,
             expected_status="cross_stage_conflict",
+            # A1 (decision #14b): admin re-runs are explicit one-shots —
+            # suppress reconcile's auto-retry path so a single admin
+            # click never doubles LLM cost/latency.
+            already_retried=True,
         )
     except PipelineConcurrencyError as e:
         with db() as conn, conn.cursor() as cur:

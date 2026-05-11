@@ -211,6 +211,7 @@ def _load_item(item_id: int) -> dict:
                    ai.extracted_facts, ai.headline, ai.why_it_matters,
                    ai.significance_score, ai.consent_placement_score,
                    ai.score_overrides,
+                   ai.ai_extraction_version, ai.ai_rewrite_version,
                    m.municipality_id AS city_id,
                    muni.name AS city_name
               FROM agenda_items ai
@@ -630,6 +631,17 @@ def test_rerun_from_stage2_guard_raises_when_status_mismatch(bag, monkeypatch):
     assert final["processing_status"] == "pending"
     # No badges were written.
     assert _read_badges(iid) == []
+    # Decision #13 atomicity contract: the inline extraction UPDATE
+    # must also roll back when the guard fires. Pins the full Phase C
+    # all-or-none property — a future refactor that splits the
+    # extraction write from the main UPDATE would silently violate
+    # decision #13 without these assertions catching it.
+    assert final["extracted_facts"] is None, (
+        "inline extraction UPDATE must also roll back on guard-fire"
+    )
+    assert final["ai_extraction_version"] is None, (
+        "ai_extraction_version write must also roll back on guard-fire"
+    )
 
 
 def test_rerun_from_stage2_guard_allows_match(bag, monkeypatch):
@@ -716,13 +728,18 @@ def test_process_item_e2e_sole_source_fires_process_badge(bag, monkeypatch):
     assert city_id == bag.city_id  # decision #92
 
 
-def test_process_item_e2e_extracted_facts_persisted_via_persist_extraction(
+def test_process_item_e2e_extracted_facts_persisted_inline(
     bag, monkeypatch,
 ):
     """The Stage 1 facts JSONB is persisted into agenda_items.extracted_facts
-    by extraction.persist_extraction. End-to-end verification: extracted_facts
-    column matches the StructuredFacts the mock returned, and
-    ai_extraction_version matches EXTRACTION_PROMPT_VERSION."""
+    by the pipeline's inline UPDATE — replaces the original persist_extraction
+    call to avoid the processing_status='extracted' side-effect that would
+    have spuriously fired decision #13's expected_status guard on admin paths
+    (see "Post-implementation deviations" appendix in the B5 plan).
+
+    End-to-end verification: extracted_facts column matches the
+    StructuredFacts the mock returned, and ai_extraction_version matches
+    EXTRACTION_PROMPT_VERSION."""
     from docket.ai import pipeline
     from docket.ai.extraction import EXTRACTION_PROMPT_VERSION
 
@@ -829,13 +846,23 @@ def test_process_item_e2e_idempotent_on_repeat_call(bag, monkeypatch):
     iid = bag.add_pending_item(m, dollars_amount=50_000)
     item = _ItemView(_load_item(iid))
 
-    pipeline.process_item(item)
+    status_first = pipeline.process_item(item)
     badges_first = _read_badges(iid)
+    final_first = _load_item(iid)
 
     # Re-load item (now has post-first-run state) and call again.
     item2 = _ItemView(_load_item(iid))
-    pipeline.process_item(item2)
+    status_second = pipeline.process_item(item2)
     badges_second = _read_badges(iid)
+    final_second = _load_item(iid)
 
     # Exact-same badge set — no duplicates from the ON CONFLICT DO NOTHING.
     assert badges_first == badges_second
+    # SUG-3: pin the idempotency contract beyond badges.
+    # Both calls return 'completed'; both writes produce the same headline.
+    # A future "skip if already completed" short-circuit would change the
+    # second call's return value — this assertion catches that regression.
+    assert status_first == "completed"
+    assert status_second == "completed"
+    assert final_first["headline"] == final_second["headline"]
+    assert final_first["headline"] == "Council awards $75K janitorial contract"

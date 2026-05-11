@@ -233,7 +233,9 @@ from docket.config import (
     ANTHROPIC_API_KEY,
     AI_DAILY_BUDGET_USD,
     AI_ITEM_DEBOUNCE_MINUTES,
+    AI_ITEM_MODEL,
     AI_MAX_BATCH_SIZE,
+    AI_MEETING_MODEL,
     IMPACT_FIRST_ENABLED,
 )
 
@@ -315,8 +317,7 @@ def run_once(*, stage: Literal["items", "meetings"],
         # v3 path: model is unused for budget-validation purposes here
         # (extract/rewrite have their own module-level clients with
         # model IDs baked in). Use the configured item model for the
-        # ai_runs row.
-        from docket.config import AI_ITEM_MODEL
+        # ai_runs row. AI_ITEM_MODEL is now a top-level import (R2).
         model = AI_ITEM_MODEL
 
     # Validate model is in PRICING before any API call so cost tracking
@@ -324,10 +325,13 @@ def run_once(*, stage: Literal["items", "meetings"],
     # is a fatal config error, not a transient one.
     from docket.ai.pricing import PRICING
     if model not in PRICING:
+        # R2: reference the config constants instead of client.* attributes
+        # — the v3 lazy-construction path leaves client=None, so dereferencing
+        # client.item_model would raise AttributeError and mask this AIFatalError.
         raise AIFatalError(
             f"Model {model!r} has no entry in docket.ai.pricing.PRICING; "
             f"add per-token rates before running. Configured models: "
-            f"AI_ITEM_MODEL={client.item_model!r}, AI_MEETING_MODEL={client.meeting_model!r}"
+            f"AI_ITEM_MODEL={AI_ITEM_MODEL!r}, AI_MEETING_MODEL={AI_MEETING_MODEL!r}"
         )
 
     with db() as conn:

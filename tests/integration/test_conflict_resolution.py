@@ -709,10 +709,21 @@ def test_re_prompt_stays_in_conflict_when_rerun_still_procedural(
 ):
     """Sad path: admin override -> Stage 2 STILL says procedural ->
     reconcile says still in conflict -> status stays at conflict;
-    audit row records the failed-resolution attempt."""
+    audit row records the failed-resolution attempt.
+
+    A1 regression contract (decision #14b): the admin path passes
+    ``already_retried=True`` to ``pipeline._rerun_from_stage2``, which
+    short-circuits reconcile's auto-retry branch — so the mock fires
+    exactly ONCE per admin click, not twice. Pre-A1 behavior would
+    have called rewrite_item twice (doubling LLM cost on this sad
+    path); the assertion below pins the one-shot contract.
+    """
     from docket.ai.rewrite_schema import ItemRewrite
 
+    call_count = [0]
+
     def _mock(*args, **kwargs):
+        call_count[0] += 1
         return (
             ItemRewrite(
                 is_substantive=False,
@@ -749,6 +760,14 @@ def test_re_prompt_stays_in_conflict_when_rerun_still_procedural(
     assert to_status == "cross_stage_conflict"
     assert action == "re_prompt_stage2"
     assert payload["reconcile_action"] == "mark_cross_stage_conflict"
+
+    # A1 one-shot contract: rewrite_item fired exactly once. If a future
+    # change removes already_retried=True from the admin path, reconcile
+    # would auto-retry on this sad path and the mock would fire twice.
+    assert call_count[0] == 1, (
+        f"admin re-prompt must be a one-shot — rewrite_item called "
+        f"{call_count[0]} times, expected 1 (decision #14b A1)"
+    )
 
 
 def test_re_prompt_validates_override_length(admin_client, bag, mock_rewrite_item):

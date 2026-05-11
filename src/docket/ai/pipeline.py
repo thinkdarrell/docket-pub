@@ -169,15 +169,18 @@ def _rerun_from_stage2(
     *,
     override_instruction: str | None = None,
     expected_status: str | None = None,
+    already_retried: bool = False,
 ) -> str:
     """Run Stage 2 → 2.5 → reconcile → atomic commit.
 
     Used by:
-      - ``process_item`` after Stage 1 succeeds (no override, no guard).
+      - ``process_item`` after Stage 1 succeeds (no override, no guard,
+        ``already_retried=False`` — full auto-retry behavior on reconcile).
       - G4's conflict-resolution admin actions ``re_prompt_stage_2``
         and ``edit_stage_1_facts`` (with admin override instruction
-        AND expected_status='cross_stage_conflict' for the concurrency
-        guard).
+        AND ``expected_status='cross_stage_conflict'`` for the
+        concurrency guard AND ``already_retried=True`` to suppress the
+        auto-retry — admin re-runs are explicit one-shots).
 
     Args:
         item: as ``process_item``.
@@ -194,6 +197,19 @@ def _rerun_from_stage2(
             is 0, the function raises ``PipelineConcurrencyError``
             and Phase C's transaction rolls back via the ``with db()``
             exception path — no partial writes.
+        already_retried: A1 review-driven addition. When False (worker
+            default), the first ``reconcile_stages`` call uses
+            ``already_retried=False`` — if reconcile says
+            ``retry_stage2_with_override``, this function auto-retries
+            Stage 2 with reconcile's machine-generated override
+            (decision #45). When True (admin paths), the first
+            ``reconcile_stages`` call uses ``already_retried=True``
+            — reconcile.py L66-67 short-circuits the retry branch to
+            ``mark_cross_stage_conflict``, so no second LLM call ever
+            fires. Preserves G4's pre-refactor one-shot semantics on
+            admin clicks: an admin override that doesn't produce a
+            substantive verdict surfaces as ``cross_stage_conflict``
+            in one shot, not two.
 
     Returns:
         Final ``processing_status`` value: 'completed' or 'cross_stage_conflict'.
@@ -201,8 +217,8 @@ def _rerun_from_stage2(
     Raises:
         - ``PipelineConcurrencyError`` — when ``expected_status`` was
           supplied and the row's actual status no longer matches.
-          Phase C's whole transaction (including persist_extraction)
-          rolls back; no writes commit.
+          Phase C's whole transaction (including the inline extraction
+          UPDATE) rolls back; no writes commit.
         - Anthropic SDK exceptions (``AIRateLimited``, etc.) — bubble.
     """
     enabled_slugs = list(get_enabled_policy_slugs(item.city_id))
@@ -220,10 +236,16 @@ def _rerun_from_stage2(
         overrides = apply_score_floors(cur, item, facts, rewrite, item.city_id)
 
     # Phase B (part 4) — Reconcile (CPU, possibly one LLM retry) ------
-    result = reconcile_stages(facts, rewrite, item, already_retried=False)
+    # A1: pass `already_retried` through. Worker path = False (auto-retry
+    # enabled); admin paths = True (reconcile.py short-circuits retry to
+    # mark_cross_stage_conflict, preserving G4 pre-refactor one-shot
+    # semantics).
+    result = reconcile_stages(facts, rewrite, item, already_retried=already_retried)
     if result.action == "retry_stage2_with_override":
         # Auto-retry once with the reconcile-generated override.
-        # (Decision #45 — the worker auto-retry path.)
+        # (Decision #45 — the worker auto-retry path.) Unreachable when
+        # already_retried=True was passed in, because reconcile_stages
+        # short-circuits to mark_cross_stage_conflict in that case.
         rewrite, _served_retry = rewrite_item(
             item, facts, enabled_slugs,
             extra_instruction=result.override_instruction,
