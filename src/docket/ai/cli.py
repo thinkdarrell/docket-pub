@@ -181,6 +181,14 @@ def main() -> None:
             "'0.5'/'1'/'2'/'3' = Batches API submission; requires --stage."
         ),
     )
+    group.add_argument(
+        "--process-batches",
+        action="store_true",
+        help=(
+            "Poll all in-flight Anthropic batches and ingest any newly-ended ones "
+            "into agenda_items. Idempotent; safe to run any time."
+        ),
+    )
     parser.add_argument("--limit", type=int, default=AI_MAX_BATCH_SIZE)
     parser.add_argument(
         "--stage",
@@ -220,6 +228,22 @@ def main() -> None:
         if args.stage is None:
             sys.exit(f"--wave {args.wave} requires --stage 1 or --stage 2")
         cmd_wave_n(args.wave, args.stage, args.batch_size)
+        return
+
+    if args.process_batches:
+        from docket.ai.batch_ingest import poll_and_ingest
+        summary = poll_and_ingest()
+        print(
+            f"Polled {summary.batches_polled} in-flight batches; "
+            f"ingested {summary.batches_ingested} ready batches: "
+            f"items_succeeded={summary.items_succeeded} "
+            f"items_errored={summary.items_errored} "
+            f"items_skipped={summary.items_skipped}"
+        )
+        if summary.batch_ids_ingested:
+            print("Newly ingested batch IDs:")
+            for bid in summary.batch_ids_ingested:
+                print(f"  {bid}")
         return
 
     if args.status:

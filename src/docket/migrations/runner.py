@@ -29,6 +29,7 @@ MIGRATIONS = [
     "docket.migrations.013_impact_first_refactor",
     "docket.migrations.015_search_vector_v3",
     "docket.migrations.016_relax_audit_fk",
+    "docket.migrations.018_ai_batches_ingested_at",
 ]
 
 

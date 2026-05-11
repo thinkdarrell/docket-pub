@@ -361,3 +361,45 @@ class TestRewriteItemCacheBehavior:
         assert isinstance(rewrite, ItemRewrite)
         assert rewrite.is_substantive is True
         assert model_id == 'claude-haiku-4-5-20251001'
+
+    def test_overlong_headline_is_truncated_to_max_length(self):
+        """Haiku occasionally returns a >60-char headline. Truncation lets the
+        item complete rather than failing permanent — observed in production
+        2026-05-11 on roughly 30% of items in the FINAL-3 verification cron."""
+        item = make_item()
+        facts = make_facts()
+        overlong = dict(VALID_SUBSTANTIVE_RESPONSE)
+        # 72 chars — exceeds the 60-char Field(max_length=60) cap.
+        overlong['headline'] = 'City awards $326,741 drainage contract to Southeastern Sealcoating Inc'
+        mock_response = _mock_api_response(overlong)
+
+        with patch('docket.ai.rewrite.anthropic_client') as mock_client, \
+             patch('docket.ai.rewrite.cache_get', return_value=None), \
+             patch('docket.ai.rewrite.cache_put'):
+            mock_client.messages.create.return_value = mock_response
+            rewrite, _ = rewrite_item(item, facts, [])
+
+        assert len(rewrite.headline) <= 60
+        assert rewrite.headline.startswith('City awards $326,741 drainage')
+
+
+def test_truncate_overlong_strings_uses_max_length_from_ctx():
+    """Direct helper exercise — only top-level fields are touched."""
+    from docket.ai.extraction import _truncate_overlong_strings
+    from pydantic import ValidationError
+
+    # Build a real ValidationError so the helper sees genuine .errors() shape.
+    try:
+        ItemRewrite.model_validate({
+            **VALID_SUBSTANTIVE_RESPONSE,
+            'headline': 'x' * 80,
+        })
+    except ValidationError as e:
+        validation_error = e
+    else:
+        pytest.fail("expected ValidationError")
+
+    payload = dict(VALID_SUBSTANTIVE_RESPONSE)
+    payload['headline'] = 'x' * 80
+    out = _truncate_overlong_strings(payload, validation_error)
+    assert len(out['headline']) == 60

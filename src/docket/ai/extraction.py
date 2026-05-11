@@ -26,6 +26,47 @@ from docket.ai.extraction_schema import StructuredFacts
 log = logging.getLogger(__name__)
 
 
+def _truncate_overlong_strings(
+    payload: dict,
+    validation_error: ValidationError,
+    *,
+    log_prefix: str = "",
+) -> dict:
+    """Truncate string fields the Pydantic error flagged as ``string_too_long``.
+
+    Stage 2's ``ItemRewrite.headline`` is capped at 60 chars; Haiku
+    occasionally returns 65–80 chars of dense, accurate content. Before
+    this helper, those failed validation outright and the worker marked
+    the row ``failed_permanent`` — at scale that's a meaningful drop in
+    backfill coverage. Truncating to the cap retains nearly all of the
+    information and lets the row complete.
+
+    Only acts on top-level string fields (single-element ``loc``) where
+    the error context advertises ``max_length``. Returns the (possibly
+    mutated) payload.
+    """
+    for err in validation_error.errors():
+        if err.get("type") != "string_too_long":
+            continue
+        loc = err.get("loc") or ()
+        if len(loc) != 1:
+            continue
+        max_len = (err.get("ctx") or {}).get("max_length")
+        if not max_len:
+            continue
+        field = loc[0]
+        value = payload.get(field)
+        if not isinstance(value, str) or len(value) <= max_len:
+            continue
+        truncated = value[:max_len].rstrip()
+        log.warning(
+            "%sstring_too_long: field=%s len=%d > max=%d, truncated",
+            log_prefix, field, len(value), max_len,
+        )
+        payload[field] = truncated
+    return payload
+
+
 def _coerce_unknown_enums(payload: dict, schema: dict, *, log_prefix: str = "") -> dict:
     """Replace top-level enum field values that aren't in the schema's enum.
 

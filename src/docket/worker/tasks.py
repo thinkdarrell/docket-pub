@@ -185,6 +185,30 @@ def task_calibration_report() -> None:
     _safe_run("calibration_report", _do_calibration_report)
 
 
+def _do_process_batches() -> None:
+    """Poll all in-flight Anthropic batches and ingest any newly-ended ones.
+
+    Phase 3 backfill submits items to the Batches API
+    (``docket.ai.cli --wave N --stage S``); Anthropic processes them
+    async with a 24h SLA. This task drains the queue: it polls every
+    `submitted`/`in_progress` row in `ai_batches`, marks `ended`
+    ones, then downloads + ingests results into `agenda_items` via
+    ``docket.ai.batch_ingest.poll_and_ingest``. Idempotent and safe
+    to run as often as desired.
+    """
+    from docket.ai.batch_ingest import poll_and_ingest
+    summary = poll_and_ingest()
+    log.info(
+        "process_batches polled=%d ingested=%d items_succeeded=%d items_errored=%d",
+        summary.batches_polled, summary.batches_ingested,
+        summary.items_succeeded, summary.items_errored,
+    )
+
+
+def task_process_batches() -> None:
+    _safe_run("process_batches", _do_process_batches)
+
+
 # --- registry — used by scheduler.py and the --run-once flag -----------------
 
 TASKS: dict[str, Callable[[], None]] = {
@@ -195,4 +219,5 @@ TASKS: dict[str, Callable[[], None]] = {
     "repair_empty_agendas": task_repair_empty_agendas,
     "process_badges":       task_process_badges,
     "calibration_report":   task_calibration_report,
+    "process_batches":      task_process_batches,
 }

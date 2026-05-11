@@ -21,7 +21,7 @@ from pydantic import ValidationError
 
 from docket.ai.cache import cache_get, cache_key, cache_put
 from docket.ai.exceptions import AIPermanentRowError
-from docket.ai.extraction import _coerce_unknown_enums
+from docket.ai.extraction import _coerce_unknown_enums, _truncate_overlong_strings
 from docket.ai.extraction_schema import StructuredFacts
 from docket.ai.rewrite_schema import ItemRewrite
 
@@ -280,23 +280,27 @@ def rewrite_item(
     item_id = getattr(item, "id", "?")
     try:
         rewrite = ItemRewrite.model_validate(payload)
-    except ValidationError:
-        # First retry: coerce out-of-whitelist enum values (e.g.
-        # ``confidence='very_high'``) and re-validate. If the failure is
-        # a Stage 2 logic violation (procedural_consistency check), the
-        # coercion won't help and the second validate also fails — that
-        # surfaces as AIPermanentRowError for admin review.
-        payload = _coerce_unknown_enums(
-            payload, STAGE2_TOOL["input_schema"],
-            log_prefix=f"stage2 item={item_id} ",
-        )
+    except ValidationError as e:
+        # Retry once after two cheap mechanical fixes:
+        #   1. enum coercion — out-of-whitelist values (e.g.
+        #      ``confidence='very_high'``) map to a safe default.
+        #   2. string truncation — Haiku occasionally exceeds the 60-char
+        #      headline cap with dense, accurate content. Truncate to
+        #      the cap rather than dropping the row.
+        # Failures that survive both (e.g. procedural_consistency
+        # violations, missing required field) surface as
+        # AIPermanentRowError so the worker can mark the row
+        # failed_permanent and continue the batch.
+        prefix = f"stage2 item={item_id} "
+        payload = _coerce_unknown_enums(payload, STAGE2_TOOL["input_schema"], log_prefix=prefix)
+        payload = _truncate_overlong_strings(payload, e, log_prefix=prefix)
         try:
             rewrite = ItemRewrite.model_validate(payload)
-        except ValidationError as e:
+        except ValidationError as e2:
             raise AIPermanentRowError(
-                f"stage2 validation failed after enum coercion for item "
-                f"{item_id}: {e}"
-            ) from e
+                f"stage2 validation failed after coercion+truncation for "
+                f"item {item_id}: {e2}"
+            ) from e2
 
     # Cache against the served model id (decision #42).
     # Guarded: a transient DB error here would otherwise drop an
