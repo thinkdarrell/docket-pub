@@ -661,3 +661,181 @@ def test_rerun_from_stage2_guard_allows_match(bag, monkeypatch):
     final = _load_item(iid)
     assert final["processing_status"] == "completed"
     assert final["headline"] is not None
+
+
+# ---------------------------------------------------------------------------
+# B5.5 — Cross-track contract: Stage 1 facts → reconcile-accept → on-write
+#        process badges + policy badges land with correct shape
+# ---------------------------------------------------------------------------
+
+
+def test_process_item_e2e_sole_source_fires_process_badge(bag, monkeypatch):
+    """Stage 1 returns procurement_method='sole_source' → on-write
+    process badge 'sole_source' fires at confidence 1.0 with
+    source='deterministic' and city_id populated (decision #92)."""
+    from docket.ai import pipeline
+
+    monkeypatch.setattr(
+        "docket.ai.pipeline.evaluate_data_quality",
+        lambda item: ("ok", "normal"),
+    )
+    monkeypatch.setattr(
+        "docket.ai.pipeline.is_procedural",
+        lambda title: False,
+    )
+    sole_source_facts = StructuredFacts.model_validate({
+        **SAMPLE_FACTS_DICT,
+        "procurement_method": "sole_source",
+    })
+    monkeypatch.setattr(
+        "docket.ai.pipeline.extract_facts_for_item",
+        lambda *a, **kw: (sole_source_facts, "haiku-4-5"),
+    )
+    monkeypatch.setattr(
+        "docket.ai.pipeline.rewrite_item",
+        lambda *a, **kw: (_substantive_rewrite(), "haiku-4-5"),
+    )
+
+    m = bag.add_meeting()
+    iid = bag.add_pending_item(m, dollars_amount=50_000)
+    item = _ItemView(_load_item(iid))
+
+    status = pipeline.process_item(item)
+    assert status == "completed"
+
+    badges = _read_badges(iid)
+    slugs = {b[0] for b in badges}
+    assert "sole_source" in slugs
+
+    # Pull the sole_source row, verify confidence + source + city_id.
+    sole_source_row = [b for b in badges if b[0] == "sole_source"][0]
+    slug, kind, conf, source, city_id = sole_source_row
+    assert kind == "process"
+    assert conf == 1.0
+    assert source == "deterministic"
+    assert city_id == bag.city_id  # decision #92
+
+
+def test_process_item_e2e_extracted_facts_persisted_via_persist_extraction(
+    bag, monkeypatch,
+):
+    """The Stage 1 facts JSONB is persisted into agenda_items.extracted_facts
+    by extraction.persist_extraction. End-to-end verification: extracted_facts
+    column matches the StructuredFacts the mock returned, and
+    ai_extraction_version matches EXTRACTION_PROMPT_VERSION."""
+    from docket.ai import pipeline
+    from docket.ai.extraction import EXTRACTION_PROMPT_VERSION
+
+    monkeypatch.setattr(
+        "docket.ai.pipeline.evaluate_data_quality",
+        lambda item: ("ok", "normal"),
+    )
+    monkeypatch.setattr(
+        "docket.ai.pipeline.is_procedural", lambda title: False,
+    )
+    monkeypatch.setattr(
+        "docket.ai.pipeline.extract_facts_for_item",
+        lambda *a, **kw: (_sample_facts(), "haiku-4-5"),
+    )
+    monkeypatch.setattr(
+        "docket.ai.pipeline.rewrite_item",
+        lambda *a, **kw: (_substantive_rewrite(), "haiku-4-5"),
+    )
+
+    m = bag.add_meeting()
+    iid = bag.add_pending_item(m)
+    item = _ItemView(_load_item(iid))
+
+    pipeline.process_item(item)
+
+    final = _load_item(iid)
+    assert final["extracted_facts"] is not None
+    assert final["extracted_facts"]["counterparty"] == "Acme Corp"
+    assert final["extracted_facts"]["funding_source"] == "general_fund"
+
+    # ai_extraction_version is set by persist_extraction.
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT ai_extraction_version FROM agenda_items WHERE id = %s",
+            (iid,),
+        )
+        version = cur.fetchone()["ai_extraction_version"]
+    assert version == EXTRACTION_PROMPT_VERSION
+
+
+def test_process_item_e2e_rewrite_version_set_on_completion(bag, monkeypatch):
+    """ai_rewrite_version is set to ITEM_REWRITE_PROMPT_VERSION when the
+    pipeline writes the rewrite atomically."""
+    from docket.ai import pipeline
+    from docket.ai.rewrite import ITEM_REWRITE_PROMPT_VERSION
+
+    monkeypatch.setattr(
+        "docket.ai.pipeline.evaluate_data_quality",
+        lambda item: ("ok", "normal"),
+    )
+    monkeypatch.setattr(
+        "docket.ai.pipeline.is_procedural", lambda title: False,
+    )
+    monkeypatch.setattr(
+        "docket.ai.pipeline.extract_facts_for_item",
+        lambda *a, **kw: (_sample_facts(), "haiku-4-5"),
+    )
+    monkeypatch.setattr(
+        "docket.ai.pipeline.rewrite_item",
+        lambda *a, **kw: (_substantive_rewrite(), "haiku-4-5"),
+    )
+
+    m = bag.add_meeting()
+    iid = bag.add_pending_item(m)
+    item = _ItemView(_load_item(iid))
+
+    pipeline.process_item(item)
+
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT ai_rewrite_version FROM agenda_items WHERE id = %s",
+            (iid,),
+        )
+        version = cur.fetchone()["ai_rewrite_version"]
+    assert version == ITEM_REWRITE_PROMPT_VERSION
+
+
+def test_process_item_e2e_idempotent_on_repeat_call(bag, monkeypatch):
+    """Calling process_item twice on the same row produces the same
+    final state. Specifically: badges use ON CONFLICT DO NOTHING so
+    duplicates don't accumulate."""
+    from docket.ai import pipeline
+
+    monkeypatch.setattr(
+        "docket.ai.pipeline.evaluate_data_quality",
+        lambda item: ("ok", "normal"),
+    )
+    monkeypatch.setattr(
+        "docket.ai.pipeline.is_procedural", lambda title: False,
+    )
+    sole_source_facts = StructuredFacts.model_validate({
+        **SAMPLE_FACTS_DICT, "procurement_method": "sole_source",
+    })
+    monkeypatch.setattr(
+        "docket.ai.pipeline.extract_facts_for_item",
+        lambda *a, **kw: (sole_source_facts, "haiku-4-5"),
+    )
+    monkeypatch.setattr(
+        "docket.ai.pipeline.rewrite_item",
+        lambda *a, **kw: (_substantive_rewrite(), "haiku-4-5"),
+    )
+
+    m = bag.add_meeting()
+    iid = bag.add_pending_item(m, dollars_amount=50_000)
+    item = _ItemView(_load_item(iid))
+
+    pipeline.process_item(item)
+    badges_first = _read_badges(iid)
+
+    # Re-load item (now has post-first-run state) and call again.
+    item2 = _ItemView(_load_item(iid))
+    pipeline.process_item(item2)
+    badges_second = _read_badges(iid)
+
+    # Exact-same badge set — no duplicates from the ON CONFLICT DO NOTHING.
+    assert badges_first == badges_second
