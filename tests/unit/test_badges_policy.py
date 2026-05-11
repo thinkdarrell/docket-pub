@@ -281,17 +281,50 @@ class TestActionTypeAndTopicMatching:
 # ===========================================================================
 
 class TestResolvePolicyBadgeConfidence:
+    """Legacy shim now delegates to decide_status_and_confidence. Values
+    changed under refactor #2: deterministic-only is more trusted (0.8),
+    LLM-only is less trusted (0.4) and lands in the admin review queue."""
+
     def test_both_returns_high_confidence(self):
         assert resolve_policy_badge_confidence('blight', True, True) == 1.0
 
-    def test_llm_only_returns_medium(self):
-        assert resolve_policy_badge_confidence('blight', True, False) == pytest.approx(0.6)
+    def test_llm_only_returns_low(self):
+        assert resolve_policy_badge_confidence('blight', True, False) == pytest.approx(0.4)
 
-    def test_det_only_returns_medium(self):
-        assert resolve_policy_badge_confidence('blight', False, True) == pytest.approx(0.6)
+    def test_det_only_returns_medium_high(self):
+        assert resolve_policy_badge_confidence('blight', False, True) == pytest.approx(0.8)
 
     def test_neither_returns_none(self):
         assert resolve_policy_badge_confidence('blight', False, False) is None
+
+
+class TestDecideStatusAndConfidence:
+    """The new gating function for policy-badge writes.
+
+    Rules:
+      - llm=True AND det=True  → ('applied', 1.0)   — strong signal both sides
+      - llm=False AND det=True → ('applied', 0.8)   — deterministic alone is enough
+      - llm=True AND det=False → ('flagged', 0.4)   — LLM alone goes to review
+      - llm=False AND det=False → (None, None)      — no row written
+    """
+
+    def test_both_signals_applied_high_confidence(self):
+        from docket.ai.badges_policy import decide_status_and_confidence
+        assert decide_status_and_confidence(llm=True, det=True) == ('applied', 1.0)
+
+    def test_deterministic_only_applied_medium_confidence(self):
+        from docket.ai.badges_policy import decide_status_and_confidence
+        assert decide_status_and_confidence(llm=False, det=True) == ('applied', 0.8)
+
+    def test_llm_only_flagged_low_confidence(self):
+        """The whole point of refactor #2: LLM-only goes to admin review,
+        not directly to citizens."""
+        from docket.ai.badges_policy import decide_status_and_confidence
+        assert decide_status_and_confidence(llm=True, det=False) == ('flagged', 0.4)
+
+    def test_neither_returns_none(self):
+        from docket.ai.badges_policy import decide_status_and_confidence
+        assert decide_status_and_confidence(llm=False, det=False) == (None, None)
 
 
 # ===========================================================================
@@ -429,8 +462,8 @@ class TestComputePolicyBadges:
         assert conf == pytest.approx(1.0)
         assert source == 'both'
 
-    def test_confidence_single_source_is_0_6(self, monkeypatch):
-        """LLM only → 0.6. det only → 0.6."""
+    def test_confidence_deterministic_only_is_0_8(self, monkeypatch):
+        """Refactor #2: deterministic-only is trusted, applied at 0.8."""
         import docket.services.badges as svc
         badge = self._make_badge('blight_accountability', hints={'keywords': ['blight']})
         monkeypatch.setattr(svc, 'list_enabled_policy_badges', lambda city_id: (badge,))
@@ -440,8 +473,8 @@ class TestComputePolicyBadges:
         rewrite = make_rewrite()  # no LLM suggestion
         result = compute_policy_badges(item, facts, rewrite, 1)
         assert len(result) == 1
-        _, conf, source, _ = result[0]
-        assert conf == pytest.approx(0.6)
+        _, conf, source, *_ = result[0]
+        assert conf == pytest.approx(0.8)
         assert source == 'deterministic'
 
 
