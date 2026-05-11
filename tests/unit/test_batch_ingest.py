@@ -88,11 +88,13 @@ def test_validate_stage1_payload_raises_permanent_on_unfixable():
 
 
 def test_validate_stage2_payload_truncates_overlong_headline():
+    """Prompt v4 raised headline cap from 60 → 80. 90 chars exceeds the
+    new cap and exercises the truncate-on-validate path."""
     from docket.ai.batch_ingest import _validate_stage2_payload
 
     payload = {
         "is_substantive": True,
-        "headline": "x" * 75,
+        "headline": "x" * 90,
         "why_it_matters": "Real consequence for residents.",
         "significance_rationale": "rationale",
         "significance_score": 7,
@@ -102,7 +104,7 @@ def test_validate_stage2_payload_truncates_overlong_headline():
         "confidence": "high",
     }
     rewrite = _validate_stage2_payload(payload, item_id=42)
-    assert len(rewrite.headline) <= 60
+    assert len(rewrite.headline) <= 80
 
 
 # ---------------------------------------------------------------------------

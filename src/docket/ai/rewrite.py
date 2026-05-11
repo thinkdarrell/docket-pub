@@ -27,7 +27,7 @@ from docket.ai.rewrite_schema import ItemRewrite
 
 log = logging.getLogger(__name__)
 
-ITEM_REWRITE_PROMPT_VERSION = 3
+ITEM_REWRITE_PROMPT_VERSION = 4
 
 # Decision #94(a): max_retries=0 so 429s bubble up to AdaptiveWorkerPool
 # instead of being silently retried by the SDK.
@@ -78,8 +78,7 @@ PROCEDURAL items are routine meeting mechanics whose title already
 conveys everything: roll call, pledge of allegiance, invocation,
 motion to adjourn, approval of prior minutes, opening of public comment,
 "minutes not ready" notices, recognition of visitors, awards/presentations,
-reading of communications, vouchers/bills/payroll for payment, claims,
-recess, executive session close-out. For these:
+reading of communications, recess, executive session close-out. For these:
   - Set is_substantive = false
   - Set headline = null, why_it_matters = null
   - Set both numeric values to null
@@ -87,12 +86,30 @@ recess, executive session close-out. For these:
   - Set suggested_badge_slugs = []
   - Set confidence based on how clearly procedural the item is
 
+IMPORTANT — DO NOT MARK PROCEDURAL:
+  - Routine consent-agenda vendor payments / invoices / claims for
+    purchases, even if small dollar (e.g. "Resolution approving
+    payment to Acme Industries, $367 for office supplies"). These
+    items HAVE a counterparty and a funding source — they are
+    substantive spending decisions on rubber-stamp consent. Mark
+    them is_substantive=true with low significance (typically 1–3,
+    higher only when the dollar amount or vendor type warrants
+    public attention). Citizens deserve to see who got paid and
+    what for, even if the item won't dominate the page.
+  - Budget amendments, appropriations, claims, "vouchers/bills/payroll
+    for payment" line items — same rule: substantive with low
+    significance, never procedural.
+
 SUBSTANTIVE items are decisions, debates, contracts, ordinances,
 appointments, zoning cases, settlements, abatements (tax or weed),
-liquor licenses, annexations — anything whose outcome matters. For these:
+liquor licenses, annexations, and the routine spending items called
+out above — anything whose outcome matters or whose recipient/amount
+citizens deserve to know. For these:
 
-(1) Write a HEADLINE (≤60 chars) — result-oriented, active voice.
+(1) Write a HEADLINE (≤80 chars) — result-oriented, active voice.
     Must be ≥10 characters with substantive content (decision #87).
+    Aim for 50-70 chars when you can; the 80-char cap is breathing
+    room for dense items (vendor name + dollar amount + purpose).
 
     Good headlines:
       "Council awards $4.2M HVAC contract to Acme Industries"
@@ -112,8 +129,10 @@ liquor licenses, annexations — anything whose outcome matters. For these:
       "$1.8M contract"              ← missing what/who
       "Important decision today"    ← vague, no actor or consequence
 
-(2) Write WHY IT MATTERS (≤200 chars; one sentence preferred, two short
-    sentences allowed for items with multiple impact vectors).
+(2) Write WHY IT MATTERS (≤280 chars; one or two sentences. Use the
+    second sentence for items with multiple impact vectors or to
+    add a specific data point — "Affects ~3,400 households" /
+    "Project finishes summer 2027").
 
     Identify the DIRECT CONSEQUENCE for residents. Ask: will this change
     their taxes, their commute, their property rights, their utility costs,

@@ -28,14 +28,16 @@ class TestItemRewriteSubstantive:
         assert m.is_substantive is True
 
     def test_headline_too_long_rejected(self):
+        # Prompt v4 raised the cap from 60 to 80.
         d = base_substantive()
-        d['headline'] = "x" * 61
+        d['headline'] = "x" * 81
         with pytest.raises(ValidationError):
             ItemRewrite(**d)
 
     def test_why_it_matters_too_long_rejected(self):
+        # Prompt v4 raised the cap from 200 to 280.
         d = base_substantive()
-        d['why_it_matters'] = "x" * 201
+        d['why_it_matters'] = "x" * 281
         with pytest.raises(ValidationError):
             ItemRewrite(**d)
 

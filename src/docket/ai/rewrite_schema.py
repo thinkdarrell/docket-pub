@@ -12,8 +12,13 @@ from pydantic import BaseModel, Field, model_validator
 
 class ItemRewrite(BaseModel):
     is_substantive: bool
-    headline: str | None = Field(None, max_length=60)
-    why_it_matters: str | None = Field(None, max_length=200)
+    # Prompt v4 raised caps from 60→80 / 200→280 (2026-05-11). Dense
+    # items (vendor + amount + purpose) frequently needed every char;
+    # tight cap was forcing truncation on ~16% of items in the FINAL-3
+    # verification cron. Cards have layout breathing room for these
+    # lengths (max two-line headline / three-line why_it_matters).
+    headline: str | None = Field(None, max_length=80)
+    why_it_matters: str | None = Field(None, max_length=280)
     significance_rationale: str = Field("", max_length=1500)
     significance_score: float | None = Field(None, ge=0.0, le=10.0)
     consent_placement_rationale: str = Field("", max_length=1500)
