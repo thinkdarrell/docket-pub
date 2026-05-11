@@ -42,14 +42,16 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any, Literal
 
 from docket.ai.extraction_schema import StructuredFacts
-from docket.ai.floors import apply_score_floors
-from docket.ai.reconcile import reconcile_stages
-from docket.ai.rewrite import rewrite_item
+# NOTE: rewrite_item is re-exported here as a module-level symbol for
+# backward compatibility with existing G4 TOCTOU tests that monkeypatch
+# ``docket.services.conflict_resolution.rewrite_item``. Post-B5 refactor,
+# this module no longer calls rewrite_item directly — the pipeline owns
+# the Stage 2 LLM call. Tests that want to intercept Stage 2 should
+# monkeypatch ``docket.ai.pipeline.rewrite_item`` going forward.
+from docket.ai.rewrite import rewrite_item  # noqa: F401  (test-compat re-export)
 from docket.db import db
-from docket.services.query import list_enabled_badges
 
 log = logging.getLogger(__name__)
 
@@ -85,17 +87,6 @@ class ResolutionResult:
     action: str
     success: bool  # False only when re-prompt/edit-facts still conflicts
     detail: str | None = None  # human-readable note for the swap target
-
-
-def _get_enabled_policy_slugs(city_id: int) -> list[str]:
-    """Return policy-badge slugs enabled for ``city_id`` as a list[str].
-
-    Plan deviation shim — see module docstring. ``list_enabled_badges``
-    returns process + policy dicts; rewrite.rewrite_item expects
-    ``enabled_policy_badges: list[str]`` of policy slugs only.
-    """
-    rows = list_enabled_badges(city_id)
-    return [r["slug"] for r in rows if r.get("kind") == "policy"]
 
 
 def _audit(cur, item_id: int, from_status: str, to_status: str,
@@ -308,21 +299,14 @@ def accept_stage_2(item_id: int, *,
 # ---------------------------------------------------------------------------
 
 
-@dataclass
-class _RerunOutcome:
-    rewrite: Any  # ItemRewrite
-    score_overrides_obj: Any  # ScoreOverrides from floors
-    reconcile_action: str  # 'accept' | 'mark_cross_stage_conflict' | 'retry_stage2_with_override'
-    conflicts: list[str]
-    served_model: str
-
-
 class _ItemView:
     """Lightweight item view for the v3 pipeline.
 
-    rewrite.rewrite_item expects an object exposing: title, description,
-    sponsor, dollars_amount, topic, is_consent, city_name. This wrapper
-    converts a DB row dict into that shape.
+    pipeline._rerun_from_stage2 expects an object exposing: id, title,
+    description, sponsor, dollars_amount, topic, is_consent, city_name,
+    AND city_id (decision #92: per-city badge writes). This wrapper
+    converts a DB row dict into that shape, mapping ``municipality_id``
+    → ``city_id`` since the pipeline's contract uses ``city_id``.
     """
     def __init__(self, item: dict):
         self.id = item.get("id")
@@ -333,94 +317,41 @@ class _ItemView:
         self.topic = item.get("topic")
         self.is_consent = item.get("is_consent")
         self.city_name = item.get("city_name")
-
-
-def _rerun_stage2(
-    item: dict,
-    facts: StructuredFacts,
-    *,
-    override_instruction: str | None = None,
-) -> _RerunOutcome:
-    """Run Stage 2 of the v3 pipeline against an item with optional override.
-
-    Calls ``rewrite.rewrite_item`` -> ``floors.apply_score_floors`` ->
-    ``reconcile.reconcile_stages``. Returns the structured outcome the
-    caller persists.
-
-    This is a minimal Stage 2 re-run helper — B5 will subsume it when
-    the cross-track per-item orchestrator lands. Until then this
-    duplication is intentional (the orchestrator doesn't exist yet,
-    and G4 must ship before FINAL-3 IMPACT_FIRST_ENABLED=true).
-
-    The LLM call (``rewrite_item``) runs without holding a DB
-    connection; the short ``apply_score_floors`` cursor is opened only
-    for its per-city threshold lookup after the LLM call returns.
-
-    Note (Theme 4 doc correction): the plan referenced an
-    ``apply_score_floors(facts, item, rewrite)`` 3-arg shape and an
-    ``AIBudgetExceeded`` exception class — both incorrect. The actual
-    ``apply_score_floors`` signature in this branch is
-    ``(cur, item, facts, ai, city_id)`` (see the call site below); an
-    ``AIBudgetExceeded`` class does not exist (only an internal
-    ``docket.worker.tasks.BudgetExceededError``, which is not raised
-    on the admin-resolution code path). Anthropic SDK exceptions
-    (``APIConnectionError``, ``RateLimitError``,
-    ``InternalServerError``) raised from ``rewrite_item`` propagate
-    here unwrapped and surface to the Flask route as 500. Tightening
-    that to 503 + flash is deferred (B-S6 in the G4 review packet —
-    NICE-TO-HAVE).
-    """
-    enabled_policy_slugs = _get_enabled_policy_slugs(item["municipality_id"])
-    item_view = _ItemView(item)
-
-    # Stage 2 LLM call — runs outside any held DB connection.
-    rewrite, served_model = rewrite_item(
-        item_view,
-        facts,
-        enabled_policy_slugs,
-        extra_instruction=override_instruction,
-    )
-
-    # Stage 2.5 deterministic floors — needs a cursor for per-city threshold
-    # lookups; uses a short fresh transaction (read-only).
-    with db() as conn, conn.cursor() as cur:
-        score_overrides_obj = apply_score_floors(
-            cur, item_view, facts, rewrite, city_id=item["municipality_id"],
-        )
-
-    # Pass already_retried=True — admin re-runs are explicit, not the
-    # auto-retry path. If reconcile still finds conflicts, mark and stop.
-    result = reconcile_stages(facts, rewrite, item_view, already_retried=True)
-
-    return _RerunOutcome(
-        rewrite=rewrite,
-        score_overrides_obj=score_overrides_obj,
-        reconcile_action=result.action,
-        conflicts=result.conflicts,
-        served_model=served_model,
-    )
+        # Map municipality_id (DB column) → city_id (pipeline contract).
+        self.city_id = item.get("municipality_id")
+        # Wave 0's evaluate_data_quality / Stage 2 prompt construction
+        # touch these — provide safe defaults since admin paths don't
+        # re-run Wave 0 anyway (we're past it; the item is in
+        # cross_stage_conflict).
+        self.source_type = "agenda"
+        self.raw_text = None
 
 
 def re_prompt_stage_2(item_id: int, *,
                        override_instruction: str,
                        actor: str) -> ResolutionResult:
-    """Admin writes a one-liner override; system re-runs Stage 2.
+    """Admin writes a one-liner override; system re-runs Stage 2 via
+    pipeline._rerun_from_stage2. The pipeline writes the resolution
+    atomically; this function focuses on input validation, TOCTOU
+    detection, and audit logging.
 
-    If the new Stage 2 rewrite reconciles cleanly (action='accept'),
-    persist the new headline/why_it_matters/scores and flip status to
-    completed.
+    Post-B5: the Stage 2 + 2.5 + reconcile + persist path is centralized
+    in docket.ai.pipeline. This function focuses on admin-action
+    semantics: input validation, TOCTOU detection, audit logging.
 
-    If reconcile still finds conflicts, leave status at
-    cross_stage_conflict but record the failed-resolution attempt in
-    the audit log. Admin can try a different action.
+    If the new Stage 2 rewrite reconciles cleanly, the pipeline persists
+    the new headline/why_it_matters/scores and the row's status flips
+    to 'completed'. If reconcile still finds conflicts, the pipeline
+    persists the row at 'cross_stage_conflict' and this function
+    records the failed-resolution attempt in the audit log.
 
     Raises ConflictValidationError on input issues.
     Raises LookupError if item not in cross_stage_conflict.
-    Raises ConflictAlreadyResolvedError on TOCTOU race-loss (decision #12).
+    Raises ConflictAlreadyResolvedError on TOCTOU race-loss (decision #13).
 
     Anthropic SDK transient errors (``APIConnectionError``,
     ``RateLimitError``, ``InternalServerError``) propagate unwrapped
-    from ``rewrite_item`` and surface to the Flask route as 500.
+    from the pipeline and surface to the Flask route as 500.
     Tightening that to 503 is deferred (B-S6 NICE-TO-HAVE).
     """
     override = override_instruction.strip()
@@ -429,6 +360,8 @@ def re_prompt_stage_2(item_id: int, *,
             f"override_instruction must be 1-{OVERRIDE_INSTRUCTION_MAX} chars"
         )
 
+    # Phase 1: load item, validate facts.
+    from pydantic import ValidationError as PydanticValidationError
     with db() as conn, conn.cursor() as cur:
         item = _load_conflict_item(cur, item_id)
         if item is None:
@@ -442,82 +375,38 @@ def re_prompt_stage_2(item_id: int, *,
             )
         try:
             facts = StructuredFacts.model_validate(item["extracted_facts"])
-        except Exception as e:
+        except PydanticValidationError as e:
             raise ConflictValidationError(
                 f"stored extracted_facts failed validation: {e}"
             )
 
-    # Run Stage 2 OUTSIDE the transaction so the LLM call doesn't hold
-    # the DB connection. The persist + audit happen in a fresh
-    # transaction below.
-    outcome = _rerun_stage2(item, facts, override_instruction=override)
-
-    success = outcome.reconcile_action == "accept"
-    new_status = "completed" if success else "cross_stage_conflict"
-
-    score_overrides_payload = {
-        "conflicts": outcome.conflicts,
-        "original_ai_significance": outcome.score_overrides_obj.original_ai_significance,
-        "final_significance": outcome.score_overrides_obj.final_significance,
-        "original_ai_consent": outcome.score_overrides_obj.original_ai_consent,
-        "final_consent": outcome.score_overrides_obj.final_consent,
-        "triggers": outcome.score_overrides_obj.triggers,
-        "admin_override_used": True,
-    }
-
-    # Decision #12 — TOCTOU guard. Both UPDATE branches scope the WHERE
-    # to ``processing_status = 'cross_stage_conflict'`` so a concurrent
-    # admin who resolved the row during our LLM call wins; ours becomes
-    # a 0-row UPDATE and we raise ConflictAlreadyResolvedError. We still
-    # write a race-loss audit row (decision #13) so the trail of "admin
-    # tried X but lost the race" is preserved.
-    with db() as conn, conn.cursor() as cur:
-        if success:
-            cur.execute(
-                """
-                UPDATE agenda_items
-                   SET headline = %s,
-                       why_it_matters = %s,
-                       significance_score = %s,
-                       consent_placement_score = %s,
-                       score_overrides = %s::jsonb,
-                       processing_status = 'completed'::processing_status_enum
-                 WHERE id = %s
-                   AND processing_status = 'cross_stage_conflict'::processing_status_enum
-                """,
-                (
-                    outcome.rewrite.headline,
-                    outcome.rewrite.why_it_matters,
-                    outcome.score_overrides_obj.final_significance,
-                    outcome.score_overrides_obj.final_consent,
-                    json.dumps(score_overrides_payload),
-                    item_id,
-                ),
-            )
-        else:
-            # Still conflicting; just refresh score_overrides with the
-            # new conflict list. Same TOCTOU guard.
-            cur.execute(
-                """
-                UPDATE agenda_items
-                   SET score_overrides = %s::jsonb
-                 WHERE id = %s
-                   AND processing_status = 'cross_stage_conflict'::processing_status_enum
-                """,
-                (json.dumps(score_overrides_payload), item_id),
-            )
-
-        race_lost = cur.rowcount == 0
-        if race_lost:
-            # Race lost — another admin resolved the row during our LLM
-            # call. Read the current status so the audit row's
-            # to_status reflects reality (not what we expected).
+    # Phase 2: call the pipeline with the concurrency guard (decision #13).
+    # The pipeline's Phase C UPDATE has the
+    # `AND processing_status = 'cross_stage_conflict'` predicate, so
+    # if another admin resolved the row during our LLM call window,
+    # the pipeline raises PipelineConcurrencyError and rolls back its
+    # whole atomic block (extraction + rewrite + scores + badges).
+    from docket.ai.pipeline import (
+        PipelineConcurrencyError,
+        _rerun_from_stage2,
+    )
+    item_view = _ItemView(item)
+    try:
+        pipeline_status = _rerun_from_stage2(
+            item_view, facts,
+            override_instruction=override,
+            expected_status="cross_stage_conflict",
+        )
+    except PipelineConcurrencyError as e:
+        # Race lost. Pipeline already rolled back; write the lost-race
+        # audit in a fresh transaction so the trail survives.
+        with db() as conn, conn.cursor() as cur:
             cur.execute(
                 "SELECT processing_status::text FROM agenda_items WHERE id = %s",
                 (item_id,),
             )
-            current = cur.fetchone()
-            current_status = current[0] if current else "unknown"
+            row = cur.fetchone()
+            current_status = row[0] if row else "unknown"
             _audit(
                 cur, item_id,
                 from_status=current_status,
@@ -526,58 +415,76 @@ def re_prompt_stage_2(item_id: int, *,
                 actor=actor,
                 payload={
                     "override_instruction": override,
-                    "would_have_set_status": new_status,
-                    "served_model": outcome.served_model,
-                    "is_substantive": outcome.rewrite.is_substantive,
+                    "pipeline_error": str(e),
+                    "actual_status_at_lost_race": current_status,
                 },
             )
-            log.info(
-                "admin re_prompt_stage2 lost race: item_id=%s actor=%s "
-                "current_status=%s",
-                item_id, actor, current_status,
-            )
-        else:
-            _audit(
-                cur, item_id,
-                from_status="cross_stage_conflict",
-                to_status=new_status,
-                action="re_prompt_stage2",
-                actor=actor,
-                payload={
-                    "override_instruction": override,
-                    "reconcile_action": outcome.reconcile_action,
-                    "conflicts": outcome.conflicts,
-                    "served_model": outcome.served_model,
-                    "is_substantive": outcome.rewrite.is_substantive,
-                    "final_headline": outcome.rewrite.headline,
-                    "final_why_it_matters": outcome.rewrite.why_it_matters,
-                    "final_significance": outcome.score_overrides_obj.final_significance,
-                    "final_consent": outcome.score_overrides_obj.final_consent,
-                },
-            )
-
-    # Raise AFTER the `with db()` block so the race-loss audit row
-    # commits before the route handler sees the exception. (db() rolls
-    # back on any exception inside the block — raising in-block would
-    # discard the audit row we just wrote.)
-    if race_lost:
+        log.info(
+            "admin re_prompt_stage2 lost race: item_id=%s actor=%s "
+            "current_status=%s",
+            item_id, actor, current_status,
+        )
         raise ConflictAlreadyResolvedError(
-            f"item {item_id} was resolved by another admin during the "
-            "LLM call (current status: " + current_status + ")"
+            f"item {item_id} was resolved by another admin "
+            f"during the re-prompt (current status: {current_status})"
+        )
+
+    # Phase 3: pipeline succeeded — write the normal audit row.
+    # Read score_overrides + headline back so the audit payload carries
+    # the same keys G4's tests assert on (reconcile_action, conflicts,
+    # final_*).
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT score_overrides, headline, why_it_matters,
+                   significance_score, consent_placement_score
+              FROM agenda_items WHERE id = %s
+            """,
+            (item_id,),
+        )
+        post = cur.fetchone()
+        post_overrides = post[0] if post and post[0] else {}
+        post_headline = post[1] if post else None
+        post_why = post[2] if post else None
+        post_sig = post[3] if post else None
+        post_consent = post[4] if post else None
+
+        reconcile_action = (
+            "mark_cross_stage_conflict"
+            if pipeline_status == "cross_stage_conflict"
+            else "accept"
+        )
+
+        _audit(
+            cur, item_id,
+            from_status="cross_stage_conflict",
+            to_status=pipeline_status,
+            action="re_prompt_stage2",
+            actor=actor,
+            payload={
+                "override_instruction": override,
+                "pipeline_status": pipeline_status,
+                "reconcile_action": reconcile_action,
+                "conflicts": post_overrides.get("conflicts", []),
+                "final_headline": post_headline,
+                "final_why_it_matters": post_why,
+                "final_significance": post_sig,
+                "final_consent": post_consent,
+            },
         )
 
     log.info(
-        "admin re_prompt_stage2: item_id=%s actor=%s reconcile=%s",
-        item_id, actor, outcome.reconcile_action,
+        "admin re_prompt_stage2: item_id=%s actor=%s status=%s",
+        item_id, actor, pipeline_status,
     )
     return ResolutionResult(
         item_id=item_id,
-        new_status=new_status,
+        new_status=pipeline_status,
         action="re_prompt_stage2",
-        success=success,
+        success=(pipeline_status == "completed"),
         detail=(
             "Stage 2 re-ran with override; reconcile accepted."
-            if success else
+            if pipeline_status == "completed" else
             "Stage 2 re-ran but reconcile still found conflicts. "
             "Try Edit Stage 1 facts or Accept Stage 2."
         ),
@@ -594,17 +501,21 @@ def edit_stage_1_facts(item_id: int, *,
                         actor: str,
                         reason: str | None = None) -> ResolutionResult:
     """Admin corrects misclassified Stage 1 facts; system re-runs Stage 2
-    with the corrected facts.
+    with the corrected facts via pipeline._rerun_from_stage2.
+
+    Post-B5: Stage 2 + 2.5 + reconcile + persist are centralized in the
+    pipeline. This function focuses on:
+      - Pydantic input validation
+      - Early ``extracted_facts`` UPDATE with TOCTOU guard (pre-LLM
+        race detection saves LLM spend)
+      - Late TOCTOU guard via pipeline's ``expected_status``
+      - Audit trail (success, early-race-loss, late-race-loss)
 
     new_facts_json is validated via the StructuredFacts Pydantic model.
     On validation failure raises ConflictValidationError.
 
-    Persistence + reconciliation matches re_prompt_stage_2: if reconcile
-    accepts -> completed; if reconcile still conflicts -> status stays at
-    cross_stage_conflict.
-
     Raises LookupError if item not in cross_stage_conflict.
-    Raises ConflictAlreadyResolvedError on TOCTOU race-loss (decision #12).
+    Raises ConflictAlreadyResolvedError on TOCTOU race-loss (decision #13).
     """
     if reason is not None:
         reason = reason.strip()
@@ -614,30 +525,27 @@ def edit_stage_1_facts(item_id: int, *,
             )
         reason = reason or None
 
-    # Validate via Pydantic before any DB write.
+    # Validate via Pydantic before any DB write. Catch the specific
+    # pydantic.ValidationError, not bare Exception, per engineer review.
+    from pydantic import ValidationError as PydanticValidationError
     try:
         facts = StructuredFacts.model_validate(new_facts_json)
-    except Exception as e:  # pydantic.ValidationError or otherwise
+    except PydanticValidationError as e:
         raise ConflictValidationError(f"new_facts_json failed validation: {e}")
 
-    # Persist the corrected facts in the SAME transaction that loads + audits.
+    # Phase 1: load item + pre-LLM TOCTOU-guarded UPDATE of extracted_facts.
+    # The early UPDATE saves LLM spend on lost races.
     race_lost_pre_llm = False
     current_status_pre_llm = "unknown"
+    canon_facts = facts.model_dump(mode="json")
     with db() as conn, conn.cursor() as cur:
         item = _load_conflict_item(cur, item_id)
         if item is None:
             raise LookupError(f"item {item_id} not in cross_stage_conflict")
 
-        # Replace extracted_facts before the LLM call so the audit row's
-        # payload references the canonicalized JSON the model_dump emits.
-        # The UPDATE carries the same TOCTOU predicate as the late UPDATEs
-        # (decision #12 extended): a concurrent admin who flipped the row
-        # out of cross_stage_conflict between _load_conflict_item and here
-        # would otherwise see their just-resolved row's facts silently
-        # clobbered. With the predicate, a lost race here yields
-        # rowcount==0 and we fail fast — saving the LLM spend AND
-        # preventing the silent overwrite.
-        canon_facts = facts.model_dump(mode="json")
+        # TOCTOU-guarded UPDATE: a concurrent admin who flipped the row
+        # out of cross_stage_conflict between _load_conflict_item and
+        # here would otherwise see their just-resolved facts clobbered.
         cur.execute(
             """
             UPDATE agenda_items
@@ -648,10 +556,6 @@ def edit_stage_1_facts(item_id: int, *,
             (json.dumps(canon_facts), item_id),
         )
         if cur.rowcount == 0:
-            # Race lost BEFORE the LLM call. Write a distinct lost-race
-            # audit row (different action verb so trail readers can
-            # distinguish early-fail from late-fail), exit the
-            # transaction so the audit commits, then raise.
             cur.execute(
                 "SELECT processing_status::text FROM agenda_items WHERE id = %s",
                 (item_id,),
@@ -673,9 +577,7 @@ def edit_stage_1_facts(item_id: int, *,
             )
             race_lost_pre_llm = True
 
-    # Raise AFTER the `with db()` block so the pre-LLM lost-race audit
-    # row commits before the route handler sees the exception. Mirrors
-    # the late-UPDATE flag-then-commit-then-raise pattern.
+    # Raise after the `with db()` block so the audit row commits.
     if race_lost_pre_llm:
         log.info(
             "admin edit_stage1_facts lost race pre-LLM: item_id=%s actor=%s "
@@ -688,77 +590,28 @@ def edit_stage_1_facts(item_id: int, *,
             + current_status_pre_llm + ")"
         )
 
-    # Run Stage 2 outside the transaction (LLM I/O); refetch the item with
-    # the now-current facts JSON for the rerun helper.
-    outcome = _rerun_stage2(item, facts, override_instruction=None)
-
-    success = outcome.reconcile_action == "accept"
-    new_status = "completed" if success else "cross_stage_conflict"
-
-    score_overrides_payload = {
-        "conflicts": outcome.conflicts,
-        "original_ai_significance": outcome.score_overrides_obj.original_ai_significance,
-        "final_significance": outcome.score_overrides_obj.final_significance,
-        "original_ai_consent": outcome.score_overrides_obj.original_ai_consent,
-        "final_consent": outcome.score_overrides_obj.final_consent,
-        "triggers": outcome.score_overrides_obj.triggers,
-        "admin_facts_edit": True,
-    }
-
-    # Decision #12 — TOCTOU guard, same shape as re_prompt_stage_2. The
-    # initial extracted_facts UPDATE earlier in this function now carries
-    # the same TOCTOU predicate as the late UPDATEs here; a lost race
-    # there fails fast before the LLM call (saves spend) and writes a
-    # distinct ``edit_stage1_facts_lost_race_pre_llm`` audit action so
-    # trail readers can distinguish early-fail from late-fail. The two
-    # UPDATEs below handle the race-during-LLM-window case: if a
-    # concurrent admin resolved the row between this function's early
-    # transaction (which has now committed) and the LLM call, the UPDATE
-    # rowcount==0 fires, we write a ``edit_stage1_facts_lost_race``
-    # audit row, and raise ConflictAlreadyResolvedError after the audit
-    # commits.
-    with db() as conn, conn.cursor() as cur:
-        if success:
-            cur.execute(
-                """
-                UPDATE agenda_items
-                   SET headline = %s,
-                       why_it_matters = %s,
-                       significance_score = %s,
-                       consent_placement_score = %s,
-                       score_overrides = %s::jsonb,
-                       processing_status = 'completed'::processing_status_enum
-                 WHERE id = %s
-                   AND processing_status = 'cross_stage_conflict'::processing_status_enum
-                """,
-                (
-                    outcome.rewrite.headline,
-                    outcome.rewrite.why_it_matters,
-                    outcome.score_overrides_obj.final_significance,
-                    outcome.score_overrides_obj.final_consent,
-                    json.dumps(score_overrides_payload),
-                    item_id,
-                ),
-            )
-        else:
-            cur.execute(
-                """
-                UPDATE agenda_items
-                   SET score_overrides = %s::jsonb
-                 WHERE id = %s
-                   AND processing_status = 'cross_stage_conflict'::processing_status_enum
-                """,
-                (json.dumps(score_overrides_payload), item_id),
-            )
-
-        race_lost = cur.rowcount == 0
-        if race_lost:
+    # Phase 2: call the pipeline with the late TOCTOU guard
+    # (expected_status='cross_stage_conflict'). The pipeline writes
+    # everything atomically; if a race fires inside its LLM window, the
+    # pipeline raises PipelineConcurrencyError and rolls back.
+    from docket.ai.pipeline import (
+        PipelineConcurrencyError,
+        _rerun_from_stage2,
+    )
+    item_view = _ItemView(item)
+    try:
+        pipeline_status = _rerun_from_stage2(
+            item_view, facts,
+            expected_status="cross_stage_conflict",
+        )
+    except PipelineConcurrencyError as e:
+        with db() as conn, conn.cursor() as cur:
             cur.execute(
                 "SELECT processing_status::text FROM agenda_items WHERE id = %s",
                 (item_id,),
             )
-            current = cur.fetchone()
-            current_status = current[0] if current else "unknown"
+            row = cur.fetchone()
+            current_status = row[0] if row else "unknown"
             _audit(
                 cur, item_id,
                 from_status=current_status,
@@ -768,57 +621,74 @@ def edit_stage_1_facts(item_id: int, *,
                 reason=reason,
                 payload={
                     "new_facts_json": canon_facts,
-                    "would_have_set_status": new_status,
-                    "served_model": outcome.served_model,
-                    "is_substantive": outcome.rewrite.is_substantive,
+                    "pipeline_error": str(e),
+                    "actual_status_at_lost_race": current_status,
                 },
             )
-            log.info(
-                "admin edit_stage1_facts lost race: item_id=%s actor=%s "
-                "current_status=%s",
-                item_id, actor, current_status,
-            )
-        else:
-            _audit(
-                cur, item_id,
-                from_status="cross_stage_conflict",
-                to_status=new_status,
-                action="edit_stage1_facts",
-                actor=actor,
-                reason=reason,
-                payload={
-                    "new_facts_json": canon_facts,
-                    "reconcile_action": outcome.reconcile_action,
-                    "conflicts": outcome.conflicts,
-                    "served_model": outcome.served_model,
-                    "is_substantive": outcome.rewrite.is_substantive,
-                    "final_headline": outcome.rewrite.headline,
-                    "final_why_it_matters": outcome.rewrite.why_it_matters,
-                    "final_significance": outcome.score_overrides_obj.final_significance,
-                    "final_consent": outcome.score_overrides_obj.final_consent,
-                },
-            )
-
-    # Raise after the `with db()` block so the race-loss audit row
-    # commits before the route handler sees the exception.
-    if race_lost:
+        log.info(
+            "admin edit_stage1_facts lost race: item_id=%s actor=%s "
+            "current_status=%s",
+            item_id, actor, current_status,
+        )
         raise ConflictAlreadyResolvedError(
             f"item {item_id} was resolved by another admin during the "
-            "LLM call (current status: " + current_status + ")"
+            f"edit-facts LLM call (current status: {current_status})"
+        )
+
+    # Phase 3: pipeline succeeded — write the normal audit row.
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT score_overrides, headline, why_it_matters,
+                   significance_score, consent_placement_score
+              FROM agenda_items WHERE id = %s
+            """,
+            (item_id,),
+        )
+        post = cur.fetchone()
+        post_overrides = post[0] if post and post[0] else {}
+        post_headline = post[1] if post else None
+        post_why = post[2] if post else None
+        post_sig = post[3] if post else None
+        post_consent = post[4] if post else None
+
+        reconcile_action = (
+            "mark_cross_stage_conflict"
+            if pipeline_status == "cross_stage_conflict"
+            else "accept"
+        )
+
+        _audit(
+            cur, item_id,
+            from_status="cross_stage_conflict",
+            to_status=pipeline_status,
+            action="edit_stage1_facts",
+            actor=actor,
+            reason=reason,
+            payload={
+                "new_facts_json": canon_facts,
+                "pipeline_status": pipeline_status,
+                "reconcile_action": reconcile_action,
+                "conflicts": post_overrides.get("conflicts", []),
+                "final_headline": post_headline,
+                "final_why_it_matters": post_why,
+                "final_significance": post_sig,
+                "final_consent": post_consent,
+            },
         )
 
     log.info(
-        "admin edit_stage1_facts: item_id=%s actor=%s reconcile=%s",
-        item_id, actor, outcome.reconcile_action,
+        "admin edit_stage1_facts: item_id=%s actor=%s status=%s",
+        item_id, actor, pipeline_status,
     )
     return ResolutionResult(
         item_id=item_id,
-        new_status=new_status,
+        new_status=pipeline_status,
         action="edit_stage1_facts",
-        success=success,
+        success=(pipeline_status == "completed"),
         detail=(
             "Facts corrected; Stage 2 re-ran and reconcile accepted."
-            if success else
+            if pipeline_status == "completed" else
             "Facts corrected and Stage 2 re-ran, but reconcile still "
             "found conflicts. Review the updated reasons."
         ),

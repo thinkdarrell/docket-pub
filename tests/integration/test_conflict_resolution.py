@@ -660,6 +660,10 @@ def mock_rewrite_item(monkeypatch):
         "claude-haiku-4-5-20251001",
     )
     monkeypatch.setattr("docket.services.conflict_resolution.rewrite_item", mock)
+    # B5 refactor: the Stage 2 call now happens inside the pipeline.
+    # Patch pipeline's symbol too so this fixture still intercepts the
+    # actual LLM call point.
+    monkeypatch.setattr("docket.ai.pipeline.rewrite_item", mock)
     return mock
 
 
@@ -724,6 +728,8 @@ def test_re_prompt_stays_in_conflict_when_rerun_still_procedural(
             "claude-haiku-4-5-20251001",
         )
     monkeypatch.setattr("docket.services.conflict_resolution.rewrite_item", _mock)
+    # B5 refactor: pipeline owns the Stage 2 call.
+    monkeypatch.setattr("docket.ai.pipeline.rewrite_item", _mock)
 
     m = bag.add_meeting()
     iid = bag.add_conflict_item(m, dollars_amount=100_000)  # yellow tier
@@ -824,6 +830,11 @@ def test_re_prompt_returns_409_when_item_resolved_during_llm_call(
         )
     monkeypatch.setattr(
         "docket.services.conflict_resolution.rewrite_item",
+        _mock_with_concurrent_resolve,
+    )
+    # B5 refactor: pipeline owns the Stage 2 call.
+    monkeypatch.setattr(
+        "docket.ai.pipeline.rewrite_item",
         _mock_with_concurrent_resolve,
     )
 
@@ -974,6 +985,11 @@ def test_edit_facts_returns_409_when_item_resolved_during_llm_call(
         "docket.services.conflict_resolution.rewrite_item",
         _mock_with_concurrent_resolve,
     )
+    # B5 refactor: pipeline owns the Stage 2 call.
+    monkeypatch.setattr(
+        "docket.ai.pipeline.rewrite_item",
+        _mock_with_concurrent_resolve,
+    )
 
     corrected = dict(SAMPLE_FACTS)
     corrected["counterparty"] = "Real Vendor LLC"
@@ -1088,6 +1104,8 @@ def test_edit_facts_pre_llm_race_does_not_overwrite_completed_facts(
         )
 
     monkeypatch.setattr(conflict_mod, "rewrite_item", _mock_rewrite)
+    # B5 refactor: pipeline owns the Stage 2 call.
+    monkeypatch.setattr("docket.ai.pipeline.rewrite_item", _mock_rewrite)
 
     corrected = dict(SAMPLE_FACTS)
     corrected["counterparty"] = "FRESH_EDIT"
