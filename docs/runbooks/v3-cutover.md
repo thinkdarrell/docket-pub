@@ -53,7 +53,7 @@ railway ssh --service worker "cd /app && python -m docket.worker.scheduler --run
 - [ ] **Log into hc.io** with the docket.pub account
 - [ ] **Locate the 5 cron-task checks** corresponding to `HEALTHCHECK_*_UUID` env vars on the worker service: `repair_empty_agendas`, `ingest_all`, `ai_items`, `ai_meetings`, `vote_matching`
 - [ ] **Verify all 5 are currently green** (last ping success, no alerts firing)
-- [ ] **Confirm the success-ping body** isn't asserting cost > 0 — the project's success ping is a no-body GET per `src/docket/worker/health.py`, so any cost-based alerting at this layer is impossible. Quick visual confirmation only.
+- [ ] **Confirm the success-ping body** isn't asserting cost > 0 — the project's success ping is a POST with empty body per `src/docket/worker/health.py` (the body arg defaults to `None` and `_safe_run` never passes one on success), so any cost-based alerting at this layer is impossible. Quick visual confirmation only.
 - [ ] **Confirm `BudgetExceededError`-swallow path still pings success** in the AI tasks (expected per project memory — the worker treats budget-exceeded as a graceful no-op).
 
 ### Anthropic-side spend cap (CRITICAL BACKSTOP)
