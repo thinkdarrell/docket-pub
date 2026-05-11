@@ -950,6 +950,7 @@ def list_items_by_badge(
         WHERE aib.city_id = %s
           AND aib.badge_slug = %s
           AND aib.confidence >= %s
+          AND aib.status = 'applied'
           AND ai.processing_status = 'completed'
         """
     ]
@@ -966,6 +967,7 @@ def list_items_by_badge(
                   SELECT 1 FROM agenda_item_badges x
                   WHERE x.agenda_item_id = ai.id
                     AND x.badge_slug = %s
+                    AND x.status = 'applied'
               )
             """
         )
@@ -1097,6 +1099,7 @@ def category_kpis(
         WHERE aib.city_id = %s
           AND aib.badge_slug = %s
           AND aib.confidence >= 0.6
+          AND aib.status = 'applied'
           AND ai.processing_status = 'completed'
           AND m.meeting_date BETWEEN %s AND %s
         """
@@ -1114,6 +1117,7 @@ def category_kpis(
                   SELECT 1 FROM agenda_item_badges x
                   WHERE x.agenda_item_id = ai.id
                     AND x.badge_slug = %s
+                    AND x.status = 'applied'
               )
             """
         )
@@ -1563,6 +1567,7 @@ def badge_volume_year(
         WHERE aib.city_id = %s
           AND aib.badge_slug = %s
           AND aib.confidence >= 0.6
+          AND aib.status = 'applied'
           AND ai.processing_status = 'completed'
           AND m.meeting_date BETWEEN %s AND %s
         """
@@ -1620,6 +1625,7 @@ def badge_volume_recent(
         WHERE aib.city_id = %s
           AND aib.badge_slug = %s
           AND aib.confidence >= 0.6
+          AND aib.status = 'applied'
           AND ai.processing_status = 'completed'
           AND m.meeting_date >= CURRENT_DATE - %s * INTERVAL '1 day'
         """

@@ -123,6 +123,8 @@ class _Bag:
         badge_slug: str,
         *,
         confidence: float = 1.0,
+        source: str = "deterministic",
+        status: str = "applied",
     ) -> None:
         with db() as conn:
             with conn.cursor() as cur:
@@ -137,10 +139,10 @@ class _Bag:
                     """
                     INSERT INTO agenda_item_badges
                       (agenda_item_id, city_id, badge_slug, kind,
-                       confidence, source)
-                    VALUES (%s, %s, %s, %s, %s, 'deterministic')
+                       confidence, source, status)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
                     """,
-                    (item_id, city_id, badge_slug, kind, confidence),
+                    (item_id, city_id, badge_slug, kind, confidence, source, status),
                 )
 
     def insert_config_row(
@@ -492,6 +494,29 @@ def test_category_kpis_excludes_low_confidence_and_pending(bag):
     kpis = category_kpis(bag.city_id, "blight_accountability", year=2026)
     assert kpis["item_count"] == 1
     assert int(kpis["total_dollars"]) == 10_000
+
+
+def test_category_kpis_excludes_flagged_badges(bag):
+    """Refactor #2: the category landing KPI strip should only reflect
+    applied badges. A flagged (LLM-only, no deterministic backing) row
+    must not inflate item_count or total_dollars."""
+    m = bag.add_meeting(bag.city_id, "2026-04-15")
+    applied = bag.add_item(
+        m, title="Real blight item",
+        dollars_amount=50_000, significance_score=5,
+    )
+    flagged = bag.add_item(
+        m, title="Mis-tagged blight item",
+        dollars_amount=50_000, significance_score=5,
+    )
+    bag.add_badge(applied, bag.city_id, "blight_accountability",
+                  confidence=1.0, status="applied")
+    bag.add_badge(flagged, bag.city_id, "blight_accountability",
+                  confidence=0.4, source="llm", status="flagged")
+
+    kpis = category_kpis(bag.city_id, "blight_accountability", year=2026)
+    assert kpis["item_count"] == 1
+    assert int(kpis["total_dollars"]) == 50_000
 
 
 # ---------------------------------------------------------------------------

@@ -126,6 +126,8 @@ class _Bag:
         *,
         confidence: float = 1.0,
         kind: str | None = None,
+        source: str = "deterministic",
+        status: str = "applied",
     ) -> None:
         if kind is None:
             with db() as conn:
@@ -143,10 +145,10 @@ class _Bag:
                     """
                     INSERT INTO agenda_item_badges
                       (agenda_item_id, city_id, badge_slug, kind,
-                       confidence, source)
-                    VALUES (%s, %s, %s, %s, %s, 'deterministic')
+                       confidence, source, status)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
                     """,
-                    (item_id, city_id, badge_slug, kind, confidence),
+                    (item_id, city_id, badge_slug, kind, confidence, source, status),
                 )
 
     def override_min_significance(
@@ -307,6 +309,39 @@ def test_happy_path_returns_items_with_badge_in_city(bag):
     ids = [it.id for it in items]
     assert a in ids
     assert b not in ids
+
+
+def test_flagged_badges_excluded_from_list_items_by_badge(bag):
+    """Refactor #2: items whose only badge link is status='flagged'
+    should NOT appear in the citizen-facing listing. The flagged row
+    stays in the DB for the admin review queue, but readers filter on
+    status='applied' so flagged links are invisible publicly."""
+    m = bag.add_meeting(bag.city_id, "2026-04-15")
+    a = bag.add_item(m, title="Genuinely about blight", significance_score=5)
+    b = bag.add_item(m, title="LLM mis-suggested blight", significance_score=5)
+
+    bag.add_badge(a, bag.city_id, "blight_accountability",
+                  confidence=1.0, status="applied")
+    bag.add_badge(b, bag.city_id, "blight_accountability",
+                  confidence=0.4, source="llm", status="flagged")
+
+    items = list_items_by_badge(bag.city_id, "blight_accountability",
+                                min_confidence=0.0)
+    ids = [it.id for it in items]
+    assert a in ids
+    assert b not in ids
+
+
+def test_rejected_badges_excluded_from_list_items_by_badge(bag):
+    """status='rejected' rows are kept for audit but never rendered."""
+    m = bag.add_meeting(bag.city_id, "2026-04-15")
+    a = bag.add_item(m, title="Admin-rejected blight tag", significance_score=5)
+    bag.add_badge(a, bag.city_id, "blight_accountability",
+                  confidence=0.4, source="llm", status="rejected")
+
+    items = list_items_by_badge(bag.city_id, "blight_accountability",
+                                min_confidence=0.0)
+    assert a not in [it.id for it in items]
 
 
 def test_returns_meeting_date_for_category_landing_meta_strip(bag):
