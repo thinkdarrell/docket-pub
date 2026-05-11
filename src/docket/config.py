@@ -31,3 +31,14 @@ AI_MEETING_MODEL: str = os.environ.get("AI_MEETING_MODEL", "claude-sonnet-4-6")
 AI_DAILY_BUDGET_USD: float = float(os.environ.get("AI_DAILY_BUDGET_USD", "10"))
 AI_MAX_BATCH_SIZE: int = int(os.environ.get("AI_MAX_BATCH_SIZE", "200"))
 AI_ITEM_DEBOUNCE_MINUTES: int = int(os.environ.get("AI_ITEM_DEBOUNCE_MINUTES", "5"))
+
+# Decision #45 + plan §FINAL-3: the IMPACT_FIRST_ENABLED flag gates the
+# v3 worker path. When False (default), the worker runs the legacy v2
+# pipeline (Haiku item summaries + Sonnet meeting executives). When
+# True, the items task uses pipeline.process_item (Wave 0 → Stage 1 →
+# 2 → 2.5 → reconcile → atomic commit + on-write badges). Meeting
+# summaries continue to use v2 until decision #93 / Phase 2 SMART_BREVITY_UI
+# wires the citizen rendering switch.
+IMPACT_FIRST_ENABLED: bool = (
+    os.environ.get("IMPACT_FIRST_ENABLED", "false").lower() == "true"
+)

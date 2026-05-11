@@ -28,6 +28,45 @@ def claim_items_sql() -> str:
     """
 
 
+def claim_items_v3_sql() -> str:
+    """Claim items for v3 pipeline processing.
+
+    v3 filters on processing_status + the extraction/rewrite version
+    columns — NOT on the v2 ai_prompt_version column. SELECT FOR UPDATE
+    SKIP LOCKED ensures multiple workers don't double-process.
+
+    Decision #45 + plan §B5: items in 'pending' state are eligible. Items
+    in 'cross_stage_conflict' are NOT picked up — they wait for admin
+    resolution via the G4 review UI.
+
+    NOTE: this helper does NOT enforce a debounce equivalent to v2's
+    AI_ITEM_DEBOUNCE_MINUTES. The v3 pipeline's expectation is that
+    Phase 1's Wave 0 pre-classifier sets processing_status='pending'
+    only for items that survived data-quality + procedural gates — i.e.,
+    a debounce isn't needed because the eligibility filter is precise.
+    If a debounce is wanted later, add it.
+    """
+    return """
+        SELECT ai.id, ai.meeting_id, ai.title, ai.description,
+               ai.sponsor, ai.dollars_amount, ai.topic, ai.is_consent,
+               m.municipality_id AS city_id,
+               muni.name         AS city_name
+          FROM agenda_items ai
+          JOIN meetings m ON m.id = ai.meeting_id
+          JOIN municipalities muni ON muni.id = m.municipality_id
+         WHERE ai.processing_status = 'pending'::processing_status_enum
+           AND (
+                ai.ai_extraction_version IS NULL
+             OR ai.ai_extraction_version < %s
+             OR ai.ai_rewrite_version IS NULL
+             OR ai.ai_rewrite_version < %s
+           )
+         ORDER BY ai.id
+         LIMIT %s
+         FOR UPDATE OF ai SKIP LOCKED
+    """
+
+
 def claim_meetings_sql() -> str:
     """Returns the SELECT SQL. Args: (current_meeting_version, current_item_version, limit).
 
@@ -195,6 +234,7 @@ from docket.config import (
     AI_DAILY_BUDGET_USD,
     AI_ITEM_DEBOUNCE_MINUTES,
     AI_MAX_BATCH_SIZE,
+    IMPACT_FIRST_ENABLED,
 )
 
 
@@ -264,9 +304,20 @@ def run_once(*, stage: Literal["items", "meetings"],
             f"pass force_budget=True to override"
         )
 
-    client = _make_client()
+    # v2 needs an AIClient for both items + meetings; v3 (items
+    # only) does not. Construct lazily so the v3 path doesn't
+    # pay the import / API-key check.
+    client = _make_client() if (stage == "meetings" or not IMPACT_FIRST_ENABLED) else None
     summary = RunSummary(stage=stage)
-    model = client.item_model if stage == "items" else client.meeting_model
+    if client is not None:
+        model = client.item_model if stage == "items" else client.meeting_model
+    else:
+        # v3 path: model is unused for budget-validation purposes here
+        # (extract/rewrite have their own module-level clients with
+        # model IDs baked in). Use the configured item model for the
+        # ai_runs row.
+        from docket.config import AI_ITEM_MODEL
+        model = AI_ITEM_MODEL
 
     # Validate model is in PRICING before any API call so cost tracking
     # cannot fail mid-batch with an unhandled KeyError. Misconfigured model
@@ -284,7 +335,10 @@ def run_once(*, stage: Literal["items", "meetings"],
         conn.commit()
 
         if stage == "items":
-            _process_items(conn, client, limit, summary)
+            if IMPACT_FIRST_ENABLED:
+                _process_items_v3(conn, limit, summary)
+            else:
+                _process_items(conn, client, limit, summary)
         else:
             _process_meetings(conn, client, limit, summary)
 
@@ -390,5 +444,98 @@ def _process_meetings(conn, client: AIClient, limit: int, summary: RunSummary) -
             summary.rows_failed += 1
             conn.commit()
         except AIFatalError:
+            conn.rollback()
+            raise
+
+
+# ---------------------------------------------------------------------------
+# v3 worker path — pipeline.process_item dispatch (B5)
+# ---------------------------------------------------------------------------
+
+
+class _AttrAccess:
+    """Lightweight dict → attribute access for pipeline.process_item.
+
+    pipeline.process_item duck-types the item; this class adapts the
+    claim_items_v3_sql row dict to that shape. Equivalent to the
+    SimpleNamespace pattern but minimally scoped.
+    """
+    def __init__(self, d: dict):
+        self.__dict__.update(d)
+
+
+def _process_items_v3(conn, limit: int, summary: RunSummary) -> None:
+    """v3 per-item loop: calls pipeline.process_item per claimed row.
+
+    Differs from v2 (_process_items):
+      - No AIClient argument (extract/rewrite have module-level clients).
+      - No usage tracking — v3 pipeline doesn't thread the Usage struct
+        through extraction.py/rewrite.py yet (B5 v1 gap; flag as
+        follow-up). summary.cost_usd stays at 0.0; summary.rows_processed
+        counts items, summary.rows_failed counts permanent failures.
+      - Per-row commit after pipeline.process_item returns. Lock from
+        claim_items_v3_sql is held across the LLM calls (same shape
+        as v2). Single-instance worker assumption preserved.
+
+    Spec: section 7.5, decisions #45, #57.
+    """
+    from docket.ai import pipeline
+    from docket.ai.extraction import EXTRACTION_PROMPT_VERSION
+    from docket.ai.rewrite import ITEM_REWRITE_PROMPT_VERSION
+
+    with conn.cursor() as cur:
+        cur.execute(
+            claim_items_v3_sql(),
+            (EXTRACTION_PROMPT_VERSION, ITEM_REWRITE_PROMPT_VERSION, limit),
+        )
+        rows = cur.fetchall()
+
+    columns = ["id", "meeting_id", "title", "description",
+               "sponsor", "dollars_amount", "topic", "is_consent",
+               "city_id", "city_name"]
+
+    for row in rows:
+        row_dict = dict(zip(columns, row))
+        # agenda_items has no source_type column; default to 'agenda'
+        # so wave0's evaluate_data_quality + Stage 2 prompt construction
+        # can read the attribute. Mirrors run_wave_0's hard-coded 'pdf'
+        # default — both choices are conservative for the LLM-eligible
+        # subset (Wave 0 already classified these as `pending`).
+        row_dict.setdefault("source_type", "agenda")
+        # raw_text is also referenced by wave0 — same shape as source_type.
+        row_dict.setdefault("raw_text", None)
+        # Duck-typed item — pipeline.process_item accepts any object
+        # with the attributes documented in its docstring.
+        item = _AttrAccess(row_dict)
+        try:
+            pipeline.process_item(item)
+            summary.rows_processed += 1
+            conn.commit()
+        except AIRateLimited:
+            log.warning("Rate limited; ending v3 batch")
+            conn.rollback()
+            break
+        except AITransientError as e:
+            log.warning("v3 transient error on item %s: %s", row_dict["id"], e)
+            conn.rollback()
+            continue
+        except AIPermanentRowError as e:
+            log.error("v3 permanent failure on item %s: %s", row_dict["id"], e)
+            conn.rollback()
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE agenda_items
+                       SET processing_status = 'failed_permanent'::processing_status_enum,
+                           last_error_at     = NOW(),
+                           last_error_message = %s
+                     WHERE id = %s
+                    """,
+                    (str(e)[:500], row_dict["id"]),
+                )
+            summary.rows_failed += 1
+            conn.commit()
+        except AIFatalError:
+            log.critical("v3 fatal error; exiting")
             conn.rollback()
             raise
