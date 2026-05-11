@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+{% block title %}{{ badge.name }} — {{ municipality.name }} — docket.pub{% endblock %}
+
+{% block content %}
+{# Category landing page (spec §6.5).
+
+   Renders a single priority badge for a city. The dispatcher partial
+   ``smart_brevity_card.html`` chooses the right v3/v2/pending variant
+   per item — F2 does not gate on ``SMART_BREVITY_UI`` since this is a
+   v3-only surface. Sections in order: header → KPI strip → volume
+   timeline (partials/volume_timeline.html) → filter controls → item
+   list → load more.
+#}
+
+{# ── Header ───────────────────────────────────────── #}
+<section class="hero">
+    <div class="hero-top">
+        <div>
+            <div class="t-eyebrow">
+                {{ badge.kind | title }} badge · {{ municipality.name }}
+            </div>
+            <h1 class="hero-title t-display">
+                <span aria-hidden="true">{{ badge.icon }}</span>
+                {{ badge.name }}
+            </h1>
+            <p class="hero-sub">
+                {{ badge.description }}
+            </p>
+        </div>
+    </div>
+
+    {# ── KPI strip (spec §6.5) ───────────────────────
+       Uses ``.kpi-grid--lean`` modifier — auto-fit minmax layout for
+       the 2-3 cell shape this page renders. The base ``.kpi-grid``
+       (4-column fixed) is shared with city.html and must not be
+       touched here, so the modifier carries the layout difference.
+       See R3 in the F2 review packet. #}
+    <div class="kpi-grid kpi-grid--lean">
+        <div class="kpi">
+            <div class="kpi-label t-label">Items this year</div>
+            <div class="kpi-value t-display t-tnum">{{ kpis.item_count }}</div>
+            <div class="kpi-sub t-meta">tagged in {{ current_year }}</div>
+        </div>
+        <div class="kpi is-accent">
+            <div class="kpi-label t-label">Total dollars</div>
+            <div class="kpi-value t-display t-tnum">
+                {% if kpis.total_dollars %}{{ kpis.total_dollars | format_dollars }}{% else %}—{% endif %}
+            </div>
+            <div class="kpi-sub t-meta">across tagged items</div>
+        </div>
+        {# Mayor priority quote — Phase 4 wires this from mayoral_terms +
+           a yet-to-be-built priorities table. Hidden gracefully when None
+           so the F4 swap can drop it in without restructuring the strip. #}
+        {% if kpis.mayor_priority_quote %}
+        <div class="kpi">
+            <div class="kpi-label t-label">Mayor's priority</div>
+            <div class="kpi-value t-display" style="font-size: 18px; line-height: 1.3;">
+                "{{ kpis.mayor_priority_quote }}"
+            </div>
+            <div class="kpi-sub t-meta">stated {{ current_year }} priority</div>
+        </div>
+        {% endif %}
+    </div>
+</section>
+
+{# ── Volume timeline (F3) ──────────────────────────── #}
+{# Server-rendered SVG bar chart with mayoral-term overlay + consent
+   baseline split (spec §6.6, decision #68 + #95). The route always
+   passes ``timeline`` / ``mayoral_terms`` / ``year_ticks``; the
+   partial handles the empty-data case internally with citizen-
+   friendly copy (no internal pipeline jargon). #}
+{% if timeline is defined %}
+    {% include 'partials/volume_timeline.html' %}
+{% endif %}
+
+{# ── Filter controls ────────────────────────────────── #}
+{# Spec §6.5 ASCII shows a confidence dropdown and a cross-filter
+   dropdown. F2 shipped the cross-filter chip row (read-only summary of
+   active filters). F4 adds the HTMX cross-filter <select> with
+   hx-push-url so a citizen can refine by another badge and bookmark or
+   share the resulting URL. The chip row below visually surfaces the
+   current ``?and=...`` so the user knows what's filtering the list. #}
+<section class="feed">
+    <header class="feed-head">
+        <div>
+            <div class="t-eyebrow">Filters</div>
+            <h2 class="feed-title t-display" style="font-size: 22px;">
+                {% if cross_filters %}
+                    Showing items also tagged
+                {% else %}
+                    All confidence
+                {% endif %}
+            </h2>
+        </div>
+        {% if cross_filters %}
+        <a class="link t-mono"
+           href="{{ url_for('public.category_landing', slug=municipality.slug, badge_slug=badge.slug) }}">
+            Clear filters
+        </a>
+        {% endif %}
+    </header>
+
+    {# F4 cross-filter dropdown (spec §6.8). Single-select for v1 — the
+       MVP UX matches the spec's ASCII. The route already accepts a
+       comma-separated list (``?and=blight,housing``), so a future
+       multi-select is purely a UI swap (``<select multiple>`` +
+       hx-include logic). Keep this comment when revisiting.
+
+       F4 review fix-up (S6): the surrounding ``<form>`` previously
+       carried hx-target / hx-trigger / hx-push-url, but those are
+       dead code in HTMX 2.x because the form has no verb (no hx-get
+       /post/etc) — HTMX won't issue a request from the form itself.
+       The ``<select>`` is the verbed element and carries the wiring
+       directly. The form wrapper stays purely for layout / label
+       association.
+
+       F4 review fix-up (R2): the ``<select>`` still carries hx-get /
+       target / push-url — but the route now detects HX-Request and
+       returns only ``partials/_item_list.html`` for HTMX requests, so
+       the swap fetches the items section alone (not a full page). #}
+    {% if available_badges %}
+    <form class="cross-filter-form" style="padding: 8px 0;">
+        <label class="t-label" for="cross-filter-select" style="display:block; margin-bottom:4px;">
+            Combine with another badge
+        </label>
+        <select name="and" id="cross-filter-select" class="cross-filter"
+                hx-get="{{ url_for('public.category_landing', slug=municipality.slug, badge_slug=badge.slug) }}"
+                hx-target="#item-list"
+                hx-swap="outerHTML"
+                hx-include="this"
+                hx-trigger="change"
+                hx-push-url="true"
+                style="font: inherit; padding: 6px 8px; min-width: 280px;">
+            <option value="">— combine with another badge —</option>
+            {% for other in available_badges %}
+            <option value="{{ other.slug }}"
+                    {% if other.slug in cross_filters %}selected{% endif %}>
+                {{ other.icon }} {{ other.name }}
+            </option>
+            {% endfor %}
+        </select>
+    </form>
+    {% endif %}
+
+    {% if cross_filters %}
+    <div class="cross-filter-chips" style="display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 0;">
+        {# Chip labels resolved via batched ``query.resolve_badges`` (S5)
+           so cities see their per-badge name_override (e.g. "BHM Blight
+           Watch" rather than the template default). Slugs that don't
+           resolve — disabled for the city, unknown template, etc. —
+           fall back to a title-cased slug so the user sees something
+           sensible rather than a missing chip. #}
+        {% for cf in cross_filters %}
+        <span class="badge-chip" data-cross-filter="{{ cf }}">
+            {%- if cf in cross_filter_badges -%}
+                {{ cross_filter_badges[cf].name }}
+            {%- else -%}
+                {{ cf | replace('_', ' ') | title }}
+            {%- endif -%}
+        </span>
+        {% endfor %}
+    </div>
+    {% endif %}
+</section>
+
+{# ── Item list ─────────────────────────────────────── #}
+{# Item list partial — same template the route returns standalone for
+   HTMX cross-filter requests (HX-Request: true). Inline include here
+   keeps non-HTMX requests rendering the full page with items in
+   place; deep links and bookmarks see the same DOM as a full reload.
+   The ``id="item-list"`` swap target lives on the partial's wrapping
+   <section>, so HTMX's outerHTML swap replaces just that section
+   leaving the dropdown DOM (and its pre-selected option) untouched. #}
+{% include 'partials/_item_list.html' %}
+{% endblock %}

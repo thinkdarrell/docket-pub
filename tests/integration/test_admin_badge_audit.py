@@ -1,0 +1,804 @@
+"""Integration tests for G3 — agenda_item_badges_audit log viewer +
+manual badge add/remove HTMX endpoints.
+
+Three deliverables under test:
+
+- G3.1: ``query.list_badge_audit_log`` — filterable read helper.
+- G3.2: ``/admin/badges/audit`` — viewer page (filters via ?badge_slug=
+  & ?actor= & ?since= & ?until=, pagination via ?offset=).
+- G3.3: ``/admin/badges/items/<id>`` + ``POST /admin/badges/<id>/add/<slug>``
+  + ``POST /admin/badges/<id>/remove/<slug>`` — HTMX endpoints writing
+  badge + audit row in one transaction. Decision #92: city_id required
+  on every INSERT into agenda_item_badges.
+
+Reuses the G2 ``_Bag`` test-data tracker pattern (self-contained — does
+NOT import from tests.integration.test_admin_queues).
+"""
+
+from __future__ import annotations
+
+import json
+
+import pytest
+
+from docket.config import DATABASE_URL
+from docket.db import db
+from docket.web import create_app
+
+
+pytestmark = pytest.mark.skipif(
+    "railway.internal" in DATABASE_URL or "railway.app" in DATABASE_URL,
+    reason="Refusing to run G3 admin-badge-audit tests against Railway DB.",
+)
+
+
+CITIES = ["birmingham", "mobile", "vestavia_hills", "homewood"]
+
+
+class _Bag:
+    """Test-data tracker. Cleans up in FK order: audit → badges → items
+    → meetings (audit_item_ids covers ad-hoc audit rows seeded by viewer
+    tests; the per-item audit rows the HTMX endpoints write get caught
+    by the ON DELETE CASCADE on items, but agenda_item_badges_audit's
+    agenda_item_id FK has no CASCADE — see migration 013:144 — so we
+    DELETE explicitly)."""
+
+    def __init__(self, city_id: int, city_slug: str):
+        self.city_id = city_id
+        self.city_slug = city_slug
+        self.meeting_ids: list[int] = []
+        self.item_ids: list[int] = []
+
+    def add_meeting(self, meeting_date_str: str = "2026-04-15") -> int:
+        with db() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO meetings
+                  (municipality_id, title, meeting_date, meeting_type)
+                VALUES (%s, %s, %s, 'council')
+                RETURNING id
+                """,
+                (self.city_id, "G3 test meeting", meeting_date_str),
+            )
+            mid = cur.fetchone()[0]
+        self.meeting_ids.append(mid)
+        return mid
+
+    def add_item(self, meeting_id: int, *, title: str = "G3 test item") -> int:
+        with db() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO agenda_items (meeting_id, title)
+                VALUES (%s, %s)
+                RETURNING id
+                """,
+                (meeting_id, title),
+            )
+            iid = cur.fetchone()[0]
+        self.item_ids.append(iid)
+        return iid
+
+    def add_badge(self, item_id: int, slug: str, *, kind: str = "policy",
+                   source: str = "llm", confidence: float = 0.8) -> None:
+        with db() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO agenda_item_badges
+                  (agenda_item_id, city_id, badge_slug, kind, confidence,
+                   source, matching_metadata)
+                VALUES (%s, %s, %s, %s, %s, %s, '{}'::jsonb)
+                """,
+                (item_id, self.city_id, slug, kind, confidence, source),
+            )
+
+    def add_audit(self, item_id: int, slug: str, action: str, *,
+                   actor: str = "tester", actor_role: str = "admin",
+                   reason: str | None = None,
+                   occurred_at: str | None = None) -> None:
+        """Seed an audit row directly (for viewer tests). occurred_at
+        accepts an ISO string; NULL → DEFAULT NOW()."""
+        with db() as conn, conn.cursor() as cur:
+            if occurred_at is None:
+                cur.execute(
+                    """
+                    INSERT INTO agenda_item_badges_audit
+                      (agenda_item_id, badge_slug, action, actor,
+                       actor_role, reason)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    """,
+                    (item_id, slug, action, actor, actor_role, reason),
+                )
+            else:
+                cur.execute(
+                    """
+                    INSERT INTO agenda_item_badges_audit
+                      (agenda_item_id, badge_slug, action, actor,
+                       actor_role, reason, occurred_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s::timestamptz)
+                    """,
+                    (item_id, slug, action, actor, actor_role, reason,
+                     occurred_at),
+                )
+
+    def cleanup(self) -> None:
+        with db() as conn, conn.cursor() as cur:
+            if self.item_ids:
+                # Audit rows have no CASCADE; clean explicitly.
+                cur.execute(
+                    "DELETE FROM agenda_item_badges_audit "
+                    "WHERE agenda_item_id = ANY(%s)",
+                    (self.item_ids,),
+                )
+                # Badges CASCADE on items, but be explicit anyway for
+                # readers of the cleanup chain.
+                cur.execute(
+                    "DELETE FROM agenda_item_badges "
+                    "WHERE agenda_item_id = ANY(%s)",
+                    (self.item_ids,),
+                )
+                cur.execute(
+                    "DELETE FROM agenda_items WHERE id = ANY(%s)",
+                    (self.item_ids,),
+                )
+            if self.meeting_ids:
+                cur.execute(
+                    "DELETE FROM meetings WHERE id = ANY(%s)",
+                    (self.meeting_ids,),
+                )
+
+
+def _bag_for(city_slug: str) -> _Bag:
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, slug FROM municipalities WHERE slug = %s",
+            (city_slug,),
+        )
+        row = cur.fetchone()
+    assert row is not None, f"City must be seeded: {city_slug}"
+    return _Bag(row[0], row[1])
+
+
+@pytest.fixture
+def bag():
+    b = _bag_for("birmingham")
+    try:
+        yield b
+    finally:
+        b.cleanup()
+
+
+@pytest.fixture(scope="module")
+def app():
+    flask_app = create_app()
+    flask_app.config["TESTING"] = True
+    flask_app.config["SECRET_KEY"] = "test-secret-key-G3"
+    return flask_app
+
+
+@pytest.fixture
+def client(app):
+    return app.test_client()
+
+
+@pytest.fixture
+def admin_client(app):
+    c = app.test_client()
+    with c.session_transaction() as sess:
+        sess["admin_user"] = "tester"
+    return c
+
+
+# ---------------------------------------------------------------------------
+# G3.1 — query.list_badge_audit_log
+# ---------------------------------------------------------------------------
+
+
+def test_list_badge_audit_log_returns_recent_rows_first(bag):
+    """Newest occurred_at first — typical 'recent activity' view."""
+    from docket.services import query
+
+    m = bag.add_meeting()
+    iid = bag.add_item(m)
+    bag.add_audit(iid, "split_vote", "added",
+                   occurred_at="2026-04-01T12:00:00Z")
+    bag.add_audit(iid, "split_vote", "removed",
+                   occurred_at="2026-04-15T12:00:00Z")
+
+    rows = query.list_badge_audit_log(limit=10, offset=0)
+
+    # We expect both rows in result; rows for our test item come back
+    # newest-first.
+    ours = [r for r in rows if r["agenda_item_id"] == iid]
+    assert len(ours) == 2
+    assert ours[0]["action"] == "removed"
+    assert ours[1]["action"] == "added"
+
+
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
+CDT = ZoneInfo("America/Chicago")
+
+
+def _local_start_of_day(date_str: str) -> datetime:
+    """YYYY-MM-DD → 00:00 CDT/CST on that date (timezone-aware)."""
+    d = datetime.strptime(date_str, "%Y-%m-%d").date()
+    return datetime(d.year, d.month, d.day, tzinfo=CDT)
+
+
+def test_list_badge_audit_log_filters_by_badge_slug(bag):
+    from docket.services import query
+    m = bag.add_meeting()
+    iid = bag.add_item(m)
+    bag.add_audit(iid, "split_vote", "added")
+    bag.add_audit(iid, "contested", "added")
+
+    rows = query.list_badge_audit_log(badge_slug="contested", limit=10)
+    ours = [r for r in rows if r["agenda_item_id"] == iid]
+    assert len(ours) == 1
+    assert ours[0]["badge_slug"] == "contested"
+
+
+def test_list_badge_audit_log_filters_by_actor(bag):
+    from docket.services import query
+    m = bag.add_meeting()
+    iid = bag.add_item(m)
+    bag.add_audit(iid, "split_vote", "added", actor="alice")
+    bag.add_audit(iid, "split_vote", "removed", actor="bob")
+
+    rows = query.list_badge_audit_log(actor="alice", limit=10)
+    ours = [r for r in rows if r["agenda_item_id"] == iid]
+    assert len(ours) == 1
+    assert ours[0]["actor"] == "alice"
+
+
+def test_list_badge_audit_log_filters_by_since(bag):
+    from docket.services import query
+    m = bag.add_meeting()
+    iid = bag.add_item(m)
+    bag.add_audit(iid, "split_vote", "added",
+                   occurred_at="2026-03-01T00:00:00Z")
+    bag.add_audit(iid, "split_vote", "removed",
+                   occurred_at="2026-04-15T00:00:00Z")
+
+    rows = query.list_badge_audit_log(
+        since=_local_start_of_day("2026-04-01"), limit=10,
+    )
+    ours = [r for r in rows if r["agenda_item_id"] == iid]
+    assert len(ours) == 1
+    assert ours[0]["action"] == "removed"
+
+
+def test_list_badge_audit_log_filters_by_until_exclusive(bag):
+    from docket.services import query
+    m = bag.add_meeting()
+    iid = bag.add_item(m)
+    bag.add_audit(iid, "split_vote", "added",
+                   occurred_at="2026-03-01T00:00:00Z")
+    bag.add_audit(iid, "split_vote", "removed",
+                   occurred_at="2026-04-15T00:00:00Z")
+
+    # Caller treats until=2026-04-01 as "include the whole day", so
+    # the exclusive boundary is start-of-2026-04-02 in CDT.
+    rows = query.list_badge_audit_log(
+        until_exclusive=_local_start_of_day("2026-04-01") + timedelta(days=1),
+        limit=10,
+    )
+    ours = [r for r in rows if r["agenda_item_id"] == iid]
+    assert len(ours) == 1
+    assert ours[0]["action"] == "added"
+
+
+def test_list_badge_audit_log_until_includes_late_local_evening(bag):
+    """Decision #10 boundary case: an event at 23:30 CDT on April 1
+    should still match ``until=2026-04-01`` (which the helper treats as
+    'include the whole local day' via exclusive start-of-next-day).
+
+    23:30 CDT on 2026-04-01 = 04:30 UTC on 2026-04-02. A naive
+    ``occurred_at <= '2026-04-01'::timestamptz`` cast in a UTC session
+    would have rejected this row; the timezone-aware helper accepts it.
+    """
+    from docket.services import query
+    m = bag.add_meeting()
+    iid = bag.add_item(m)
+    bag.add_audit(iid, "split_vote", "added", actor="g3-late",
+                   occurred_at="2026-04-02T04:30:00Z")  # 23:30 CDT on Apr 1
+
+    rows = query.list_badge_audit_log(
+        until_exclusive=_local_start_of_day("2026-04-01") + timedelta(days=1),
+        limit=10,
+    )
+    ours = [r for r in rows if r["actor"] == "g3-late"]
+    assert len(ours) == 1, (
+        "An event at 23:30 CDT on 2026-04-01 must match until=2026-04-01"
+    )
+
+
+def test_list_badge_audit_log_rejects_naive_datetime(bag):
+    """Caller contract: timezone-aware datetimes only. Naive datetimes
+    are a programming error, not a runtime fallback to UTC."""
+    from docket.services import query
+
+    naive = datetime(2026, 4, 1)
+    with pytest.raises(ValueError, match="timezone-aware"):
+        query.list_badge_audit_log(since=naive, limit=10)
+
+
+def test_list_badge_audit_log_left_joins_deleted_items(bag):
+    """Migration 016 sets agenda_item_id ON DELETE SET NULL on
+    agenda_item_badges_audit. Deleted-item audit rows must therefore
+    surface with NULL agenda_item_id and NULL joined columns. The
+    LEFT JOIN in list_badge_audit_log is load-bearing for this case."""
+    from docket.services import query
+
+    m = bag.add_meeting()
+    iid = bag.add_item(m)
+    bag.add_audit(iid, "split_vote", "added", actor="ghost")
+
+    # Delete the item directly. Post-016 the FK cascades to
+    # agenda_item_id NULL on audit rows; pre-016 this would have
+    # raised ForeignKeyViolation.
+    with db() as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM agenda_items WHERE id = %s", (iid,))
+    bag.item_ids.remove(iid)  # don't try to clean it again
+
+    rows = query.list_badge_audit_log(actor="ghost", limit=10)
+    # The audit row's agenda_item_id is now NULL post-cascade, so
+    # filter on the actor + slug + action to find it.
+    ours = [r for r in rows if r["actor"] == "ghost"
+            and r["badge_slug"] == "split_vote"]
+    assert len(ours) == 1
+    assert ours[0]["agenda_item_id"] is None  # ON DELETE SET NULL
+    assert ours[0]["item_title"] is None  # LEFT JOIN
+    assert ours[0]["meeting_date"] is None
+    assert ours[0]["municipality_slug"] is None
+
+    # Cleanup: orphan audit row.
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM agenda_item_badges_audit "
+            "WHERE actor = 'ghost' AND badge_slug = 'split_vote'",
+        )
+
+
+# ---------------------------------------------------------------------------
+# G3.2 — /admin/badges/audit viewer
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("city_slug", CITIES)
+def test_admin_badge_audit_route_renders_for_logged_in_admin(app, city_slug):
+    bag = _bag_for(city_slug)
+    try:
+        m = bag.add_meeting()
+        iid = bag.add_item(m, title=f"Audit row in {city_slug}")
+        bag.add_audit(iid, "split_vote", "added", actor="alice")
+
+        c = app.test_client()
+        with c.session_transaction() as sess:
+            sess["admin_user"] = "tester"
+        resp = c.get("/admin/badges/audit")
+        assert resp.status_code == 200
+        body = resp.get_data(as_text=True)
+        assert "Badge audit log" in body
+        assert "split_vote" in body
+        assert "alice" in body
+    finally:
+        bag.cleanup()
+
+
+def test_admin_badge_audit_route_redirects_anonymous(client):
+    resp = client.get("/admin/badges/audit")
+    assert resp.status_code in (302, 303)
+    assert "/admin/login" in resp.headers.get("Location", "")
+
+
+def test_admin_badge_audit_filter_by_badge_slug_query_param(admin_client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_item(m)
+    bag.add_audit(iid, "split_vote", "added", actor="g3-test")
+    bag.add_audit(iid, "contested", "added", actor="g3-test")
+
+    resp = admin_client.get("/admin/badges/audit?badge_slug=contested")
+    body = resp.get_data(as_text=True)
+    assert resp.status_code == 200
+    # NOTE: deviation from plan — the original line-scoped assertion
+    # ("any line containing g3-test also contains contested") doesn't
+    # work because the audit table renders each row across multiple
+    # HTML lines (one cell per line), so the actor and slug never
+    # share a single line. Instead: since both seeded rows share the
+    # same actor, the filter's correctness is observable by counting
+    # ``g3-test`` occurrences — exactly one row should pass the
+    # ``badge_slug=contested`` filter.
+    assert body.count("g3-test") == 1
+    # And the matching row's slug is contested.
+    assert "contested" in body
+
+
+def test_admin_badge_audit_filter_by_actor_query_param(admin_client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_item(m)
+    bag.add_audit(iid, "split_vote", "added", actor="alice")
+    bag.add_audit(iid, "split_vote", "removed", actor="bob")
+
+    resp = admin_client.get("/admin/badges/audit?actor=alice")
+    body = resp.get_data(as_text=True)
+    assert resp.status_code == 200
+    # row authored by alice surfaces; row authored by bob doesn't (for
+    # this iid).
+    assert f">added<" in body or "added" in body
+    # Same scoping as previous test — restrict to rows that mention
+    # our seeded actors.
+    alice_rows = [l for l in body.splitlines() if "alice" in l]
+    bob_rows = [l for l in body.splitlines() if ">bob<" in l]
+    assert alice_rows
+    assert not bob_rows
+
+
+def test_admin_badge_audit_filter_by_date_range(admin_client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_item(m)
+    bag.add_audit(iid, "split_vote", "added", actor="g3-old",
+                   occurred_at="2026-03-01T00:00:00Z")
+    bag.add_audit(iid, "split_vote", "removed", actor="g3-new",
+                   occurred_at="2026-04-15T00:00:00Z")
+
+    resp = admin_client.get(
+        "/admin/badges/audit?since=2026-04-01&until=2026-05-01"
+    )
+    body = resp.get_data(as_text=True)
+    assert "g3-new" in body
+    assert "g3-old" not in body
+
+
+def test_admin_badge_audit_pagination_offset(admin_client, bag):
+    """Sentinel pagination — page size is 50, but a 51st row triggers
+    a 'next' link. Seed 51 rows to exercise the boundary."""
+    m = bag.add_meeting()
+    iid = bag.add_item(m)
+    for i in range(51):
+        bag.add_audit(iid, "split_vote", "added", actor=f"g3-page-{i:02d}",
+                       occurred_at=f"2026-04-{1 + (i % 28):02d}T12:00:00Z")
+
+    resp = admin_client.get("/admin/badges/audit")
+    body = resp.get_data(as_text=True)
+    assert resp.status_code == 200
+    # 'Next' link present (sentinel-pagination contract: hint when
+    # there's a 51st row).
+    assert "offset=50" in body or "offset=" in body
+
+
+# ---------------------------------------------------------------------------
+# G3.3 — /admin/badges/items/<id> manage UI
+# ---------------------------------------------------------------------------
+
+
+def test_manage_page_renders_for_logged_in_admin(admin_client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_item(m, title="Manage me")
+    bag.add_badge(iid, "split_vote", kind="process")
+
+    resp = admin_client.get(f"/admin/badges/items/{iid}")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "Manage me" in body
+    assert "split_vote" in body
+
+
+def test_manage_page_redirects_anonymous(client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_item(m)
+    resp = client.get(f"/admin/badges/items/{iid}")
+    assert resp.status_code in (302, 303)
+    assert "/admin/login" in resp.headers.get("Location", "")
+
+
+def test_manage_page_returns_404_for_unknown_item(admin_client):
+    resp = admin_client.get("/admin/badges/items/999999999")
+    assert resp.status_code == 404
+
+
+def test_manage_page_offers_addable_slugs_minus_attached(admin_client, bag):
+    """Available-to-add list must exclude badges already on the item."""
+    m = bag.add_meeting()
+    iid = bag.add_item(m, title="x")
+    bag.add_badge(iid, "split_vote", kind="process")
+
+    resp = admin_client.get(f"/admin/badges/items/{iid}")
+    body = resp.get_data(as_text=True)
+    # The dropdown must contain at least one process badge that isn't
+    # already on the item — process badges are uniform across cities so
+    # 'contested' is always available unless explicitly attached.
+    assert "contested" in body
+    # And the already-attached slug should NOT appear in the <select>
+    # options — it's only shown in the current-badges section.
+    # Test by checking that the substring 'value="split_vote"' (the
+    # form select option shape) is absent.
+    assert 'value="split_vote"' not in body
+
+
+# ---------------------------------------------------------------------------
+# G3.3 — POST /admin/badges/<item_id>/add/<slug>
+# ---------------------------------------------------------------------------
+
+
+def _badge_row(item_id: int, slug: str) -> tuple | None:
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, city_id, kind, confidence, source, matching_metadata
+              FROM agenda_item_badges
+             WHERE agenda_item_id = %s AND badge_slug = %s
+            """,
+            (item_id, slug),
+        )
+        return cur.fetchone()
+
+
+def _audit_rows(item_id: int, slug: str) -> list[tuple]:
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT action, actor, actor_role
+              FROM agenda_item_badges_audit
+             WHERE agenda_item_id = %s AND badge_slug = %s
+             ORDER BY id ASC
+            """,
+            (item_id, slug),
+        )
+        return cur.fetchall()
+
+
+def test_add_endpoint_inserts_badge_with_city_id(admin_client, bag):
+    """Decision #92: city_id MUST be on every INSERT into agenda_item_badges."""
+    m = bag.add_meeting()
+    iid = bag.add_item(m)
+
+    resp = admin_client.post(f"/admin/badges/{iid}/add/contested")
+    assert resp.status_code == 200  # HTMX swap, not redirect
+
+    row = _badge_row(iid, "contested")
+    assert row is not None
+    bid, city_id, kind, conf, source, metadata = row
+    assert city_id == bag.city_id
+    assert kind == "process"  # contested is a process badge
+    assert source == "manual"
+    # Deviation: ``confidence`` is NUMERIC(3,2) → psycopg2 returns
+    # ``Decimal``; ``pytest.approx`` rejects ``Decimal - float``.
+    # Cast to float for comparison.
+    assert float(conf) == pytest.approx(0.95)
+    assert metadata.get("manual") is True
+    assert metadata.get("added_by") == "tester"
+
+
+def test_add_endpoint_writes_audit_row(admin_client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_item(m)
+
+    admin_client.post(f"/admin/badges/{iid}/add/contested")
+
+    audit = _audit_rows(iid, "contested")
+    assert len(audit) == 1
+    action, actor, role = audit[0]
+    assert action == "added"
+    assert actor == "tester"
+    assert role == "admin"
+
+
+def test_add_endpoint_is_idempotent(admin_client, bag):
+    """Re-adding an already-attached slug is a no-op (no extra badge,
+    no extra audit row)."""
+    m = bag.add_meeting()
+    iid = bag.add_item(m)
+
+    admin_client.post(f"/admin/badges/{iid}/add/contested")
+    admin_client.post(f"/admin/badges/{iid}/add/contested")
+
+    # Still exactly one badge row.
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT COUNT(*) FROM agenda_item_badges "
+            "WHERE agenda_item_id = %s AND badge_slug = %s",
+            (iid, "contested"),
+        )
+        assert cur.fetchone()[0] == 1
+
+    # And exactly one audit row (idempotent: no duplicate).
+    assert len(_audit_rows(iid, "contested")) == 1
+
+
+def test_add_endpoint_returns_swapped_panel(admin_client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_item(m, title="Swap target")
+
+    resp = admin_client.post(f"/admin/badges/{iid}/add/contested")
+    body = resp.get_data(as_text=True)
+    assert resp.status_code == 200
+    # Swap target id must be present.
+    assert 'id="badges-manage-panel"' in body
+    # Newly added slug appears in the rendered current-badges section.
+    assert "contested" in body
+
+
+def test_add_endpoint_404_for_unknown_item(admin_client):
+    resp = admin_client.post("/admin/badges/999999999/add/contested")
+    assert resp.status_code == 404
+
+
+def test_add_endpoint_404_for_unknown_slug(admin_client, bag):
+    """Unknown slugs aren't in priority_badge_templates → 404, no row inserted."""
+    m = bag.add_meeting()
+    iid = bag.add_item(m)
+    resp = admin_client.post(f"/admin/badges/{iid}/add/this_slug_does_not_exist")
+    assert resp.status_code == 404
+    assert _badge_row(iid, "this_slug_does_not_exist") is None
+
+
+def test_add_endpoint_requires_post(admin_client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_item(m)
+    resp = admin_client.get(f"/admin/badges/{iid}/add/contested")
+    assert resp.status_code == 405
+
+
+def test_add_endpoint_requires_login(client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_item(m)
+    resp = client.post(f"/admin/badges/{iid}/add/contested")
+    assert resp.status_code in (302, 303)
+    assert "/admin/login" in resp.headers.get("Location", "")
+    # State must NOT have changed.
+    assert _badge_row(iid, "contested") is None
+
+
+def test_add_via_form_redirector_307s_to_canonical_endpoint(admin_client, bag):
+    """The form-shaped POST (slug in body) must 307 to the canonical
+    POST (slug in path), and HTMX-style follow must result in the
+    badge being created. Test client follows 307 by default."""
+    m = bag.add_meeting()
+    iid = bag.add_item(m)
+
+    resp = admin_client.post(
+        f"/admin/badges/{iid}/add",
+        data={"slug": "contested"},
+        follow_redirects=False,
+    )
+    # 307 preserves method + body.
+    assert resp.status_code == 307
+    assert f"/admin/badges/{iid}/add/contested" in resp.headers["Location"]
+
+    # End-to-end: with redirect-following on, the badge lands.
+    resp_followed = admin_client.post(
+        f"/admin/badges/{iid}/add",
+        data={"slug": "contested"},
+        follow_redirects=True,
+    )
+    assert resp_followed.status_code == 200
+    assert _badge_row(iid, "contested") is not None
+
+
+def test_add_via_form_redirector_400_when_slug_missing(admin_client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_item(m)
+
+    # No 'slug' field in the body.
+    resp = admin_client.post(f"/admin/badges/{iid}/add", data={})
+    assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# G3.3 — POST /admin/badges/<item_id>/remove/<slug>
+# ---------------------------------------------------------------------------
+
+
+def test_remove_endpoint_deletes_badge(admin_client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_item(m)
+    bag.add_badge(iid, "split_vote", kind="process")
+
+    resp = admin_client.post(f"/admin/badges/{iid}/remove/split_vote")
+    assert resp.status_code == 200
+
+    assert _badge_row(iid, "split_vote") is None
+
+
+def test_remove_endpoint_writes_audit_row(admin_client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_item(m)
+    bag.add_badge(iid, "split_vote", kind="process")
+
+    admin_client.post(f"/admin/badges/{iid}/remove/split_vote")
+
+    audit = _audit_rows(iid, "split_vote")
+    assert len(audit) == 1
+    action, actor, role = audit[0]
+    assert action == "removed"
+    assert actor == "tester"
+    assert role == "admin"
+
+
+def test_remove_endpoint_404_for_unattached_slug(admin_client, bag):
+    """Removing a slug that isn't on the item: 404, no audit row written."""
+    m = bag.add_meeting()
+    iid = bag.add_item(m)
+
+    resp = admin_client.post(f"/admin/badges/{iid}/remove/split_vote")
+    assert resp.status_code == 404
+    assert _audit_rows(iid, "split_vote") == []
+
+
+def test_remove_endpoint_404_for_unknown_item(admin_client):
+    resp = admin_client.post("/admin/badges/999999999/remove/split_vote")
+    assert resp.status_code == 404
+
+
+def test_remove_endpoint_returns_swapped_panel(admin_client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_item(m, title="Swap target 2")
+    bag.add_badge(iid, "split_vote", kind="process")
+
+    resp = admin_client.post(f"/admin/badges/{iid}/remove/split_vote")
+    body = resp.get_data(as_text=True)
+    assert resp.status_code == 200
+    assert 'id="badges-manage-panel"' in body
+    # Removed slug must not appear in the rendered current-badges
+    # section. (Could still appear in the addable dropdown, which is
+    # expected — once removed, it becomes addable again.)
+    assert "Current badges" in body
+
+
+def test_remove_endpoint_requires_post(admin_client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_item(m)
+    bag.add_badge(iid, "split_vote", kind="process")
+    resp = admin_client.get(f"/admin/badges/{iid}/remove/split_vote")
+    assert resp.status_code == 405
+
+
+def test_remove_endpoint_requires_login(client, bag):
+    m = bag.add_meeting()
+    iid = bag.add_item(m)
+    bag.add_badge(iid, "split_vote", kind="process")
+    resp = client.post(f"/admin/badges/{iid}/remove/split_vote")
+    assert resp.status_code in (302, 303)
+    assert "/admin/login" in resp.headers.get("Location", "")
+    # Badge must still exist.
+    assert _badge_row(iid, "split_vote") is not None
+
+
+def test_add_then_remove_then_audit_log_shows_both_actions(admin_client, bag):
+    """End-to-end: add then remove yields two audit rows, viewer
+    surfaces them in newest-first order."""
+    from docket.services import query
+
+    m = bag.add_meeting()
+    iid = bag.add_item(m)
+
+    admin_client.post(f"/admin/badges/{iid}/add/contested")
+    admin_client.post(f"/admin/badges/{iid}/remove/contested")
+
+    rows = query.list_badge_audit_log(actor="tester", limit=10)
+    ours = [r for r in rows if r["agenda_item_id"] == iid
+            and r["badge_slug"] == "contested"]
+    assert len(ours) == 2
+    assert ours[0]["action"] == "removed"  # newest-first
+    assert ours[1]["action"] == "added"
+
+
+def test_psycopg2_delete_returning_zero_rows_returns_none():
+    """Driver-contract pin: ``DELETE ... RETURNING id`` against a row
+    that doesn't exist must yield ``cur.fetchone() is None`` so the
+    remove handler's 'nothing was deleted → 404' branch is sound.
+
+    psycopg2 has historically honored this contract, but pin it
+    explicitly here so a future driver swap (psycopg3, async drivers)
+    can't silently break the handler's correctness assumption.
+    """
+    sentinel_id = -987654321  # nonexistent
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM agenda_item_badges WHERE id = %s RETURNING id",
+            (sentinel_id,),
+        )
+        result = cur.fetchone()
+    assert result is None

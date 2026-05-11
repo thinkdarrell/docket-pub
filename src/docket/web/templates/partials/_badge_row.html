@@ -1,0 +1,35 @@
+{# partials/_badge_row.html
+
+   Shared badge-row block used by both v3 card variants
+   (card_smart_brevity.html and card_verification_pending.html).
+
+   Process-first ordering via the `order_badges` filter, top-3 inline,
+   remaining behind a +N more HTMX expander. Verification Spark (✨)
+   and AI-verified title suffix render automatically inside badge_chip
+   when chip.confidence >= 1.0 (decision #67).
+
+   Caller must provide an `item` with an iterable `item.badges` attribute
+   (each badge a dict-like with kind/slug/confidence/name/icon/description,
+   matching the BadgeChip RealDictCursor row shape).
+#}
+{% if item.badges %}
+  {% set ordered = item.badges | order_badges %}
+  <div class="badge-row">
+    {% for chip in ordered[:3] %}
+      {% include 'partials/badge_chip.html' %}
+    {% endfor %}
+    {% if ordered|length > 3 %}
+      {# HTMX overflow target. ``public.item_badges_overflow`` is a 501
+         stub today; the real listing endpoint lands in a future F-track
+         task. Until then a click on +N more shows a "planned feature"
+         message rather than a 404. Mostly masked in production because
+         badges aren't populated until Phase 3 backfill runs. #}
+      <button class="badge-more"
+              hx-get="/items/{{ item.id }}/badges"
+              hx-target="this"
+              hx-swap="outerHTML">
+        +{{ ordered|length - 3 }} more
+      </button>
+    {% endif %}
+  </div>
+{% endif %}

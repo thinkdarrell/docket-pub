@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}Errors queue — Admin — docket.pub{% endblock %}
+
+{#
+  G2.2 — Admin errors queue. Cross-city listing of items at
+  processing_status='failed_permanent'. Same priority sort as the OCR
+  queue (decision #79).
+
+  Per-row retry / escalate POST forms:
+   - Retry  → POST /admin/errors/<id>/retry
+              resets status to pending + processing_attempts to 0.
+   - Escalate → POST /admin/errors/<id>/escalate
+                writes score_overrides.admin_escalated = true to flag
+                the item for manual review. Migration 016 candidate
+                (next available migration slot) for a dedicated
+                requires_manual_review column.
+
+  Both buttons are POST-only (state-changing operations never on GET);
+  the route returns 405 for GET.
+
+  Note on score_overrides rendering (G1 R-T2 lesson): score_overrides
+  is JSONB. We don't render the column directly; we surface a compact
+  "escalated?" cell derived from the parsed dict.
+#}
+
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center;">
+  <h1>Errors queue</h1>
+  <form method="post" action="{{ url_for('auth.logout') }}" style="margin: 0;">
+    <button type="submit" style="font-size: 0.85rem;">Sign Out ({{ session.get('admin_user', '') }})</button>
+  </form>
+</div>
+
+<p><a href="{{ url_for('admin.list_members') }}">← Council Members</a> &middot;
+   <a href="{{ url_for('admin.badges_audit') }}">Badge audit</a> &middot;
+   <a href="{{ url_for('admin.review_conflicts') }}">Conflicts</a> &middot;
+   <a href="{{ url_for('admin.calibration') }}">Calibration</a> &middot;
+   <a href="{{ url_for('admin.data_debt') }}">← OCR queue</a> &middot;
+   <a href="{{ url_for('admin.ai_panel') }}">AI Pipeline</a></p>
+
+<p class="t-meta">
+  Items at <code>failed_permanent</code> across all cities. Highest priority
+  first. <strong>Retry</strong> resets the row so the worker picks it back
+  up; <strong>Escalate</strong> flags it for manual review (worker will
+  not auto-retry).
+</p>
+
+{% with messages = get_flashed_messages() %}
+  {% if messages %}
+    <ul class="queue-flash">
+      {% for msg in messages %}
+        <li>{{ msg }}</li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+{% endwith %}
+
+{% if not items %}
+  <section class="cal-panel">
+    <h2>Empty</h2>
+    <p class="t-meta">No items currently in <code>failed_permanent</code> state.</p>
+  </section>
+{% else %}
+  <section class="cal-panel">
+    <table class="queue-table">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>City</th>
+          <th>Title</th>
+          <th>Meeting date</th>
+          <th>priority</th>
+          <th>attempts</th>
+          <th>Last error</th>
+          <th>Escalated?</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for it in items %}
+          {# score_overrides is JSONB; psycopg2 returns dict|None.
+             Iterate via .get to avoid the {{ obj }} __repr__ trap. #}
+          {% set overrides = it.score_overrides or {} %}
+          {% set is_escalated = overrides.get('admin_escalated') == true %}
+          <tr id="item-{{ it.id }}">
+            <td class="t-mono">#{{ it.id }}</td>
+            <td>{{ it.municipality_name }}</td>
+            <td>{{ it.title or '—' }}</td>
+            <td class="t-tnum">
+              {{ it.meeting_date.isoformat() if it.meeting_date else '—' }}
+            </td>
+            <td><code>{{ it.data_debt_priority or '—' }}</code></td>
+            <td class="t-tnum">{{ it.processing_attempts if it.processing_attempts is not none else '—' }}</td>
+            <td style="font-size: 0.85rem; max-width: 30ch;">
+              {{ it.last_error_message or '—' }}
+            </td>
+            <td>
+              {% if is_escalated %}<strong>yes</strong>{% else %}—{% endif %}
+            </td>
+            <td>
+              <form method="post"
+                    action="{{ url_for('admin.errors_retry', item_id=it.id) }}"
+                    style="display: inline;">
+                <button type="submit" style="font-size: 0.85rem;">Retry</button>
+              </form>
+              <form method="post"
+                    action="{{ url_for('admin.errors_escalate', item_id=it.id) }}"
+                    style="display: inline; margin-left: 4px;">
+                <button type="submit" style="font-size: 0.85rem;">Escalate</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    {% if next_offset is not none %}
+      <nav class="queue-pager">
+        <a href="{{ url_for('admin.errors', offset=next_offset) }}">Load more →</a>
+      </nav>
+    {% endif %}
+  </section>
+{% endif %}
+{% endblock %}

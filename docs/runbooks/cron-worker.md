@@ -109,6 +109,18 @@ The `--run-once` invocation through `railway ssh` is the right pattern for ad-ho
 
 **Note**: A green `docket-ingest` ping does not guarantee every city succeeded — `ingest_all` aggregates all five cities under a single check. If a specific municipality's data looks stale despite green pings, check Railway logs for per-city `ingest failed for <slug>` exceptions; per-city failures are caught and logged but do not fail the overall task.
 
+## TODO — pre-flip prerequisite for SMART_BREVITY_UI
+
+**Before flipping `SMART_BREVITY_UI=true`** (which makes the F3 category landing pages and their volume-timeline SVG public), add a 6th cron task: `REFRESH MATERIALIZED VIEW CONCURRENTLY mv_badge_volume_monthly` on a daily schedule (suggested: 09:30 CT, after `vote_matching` lands fresh consent/substantive classifications).
+
+The F3 review chain (Phase 2 Track 3) flagged this as the only D1-deferred-with-tracking item. Today the page handles an unrefreshed MV gracefully (the `ObjectNotInPrerequisiteState` swallow in `services/query.badge_volume_series` returns an empty series and the partial renders the empty-state copy), so nothing breaks before flip. After flip, citizens see a stale chart unless this task ships. Bundle the task wiring with the FINAL-N pre-flip checklist in the Phase 2 plan.
+
+Touch points when implementing:
+- `src/docket/worker/tasks.py` — add `def refresh_volume_mv()` that calls `REFRESH MATERIALIZED VIEW CONCURRENTLY mv_badge_volume_monthly` and `_safe_run`s through Healthchecks.io
+- `src/docket/worker/scheduler.py` — register the new cron entry
+- New `HEALTHCHECK_VOLUME_MV_UUID` env var on the `worker` service
+- This runbook table above gets a new row
+
 ## 18-month AI backfill (one-shot, separate from the worker)
 
 The worker handles steady-state. To populate AI summaries/scoring for the

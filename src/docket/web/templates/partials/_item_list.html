@@ -1,0 +1,74 @@
+{# Category-landing item list partial.
+
+   Returned standalone for HTMX cross-filter requests (HX-Request: true)
+   so a filter swap re-fetches only the items section, not the full
+   page (header + KPIs + timeline + filter chrome). The full-page
+   ``category_landing.html`` includes this partial in place — non-HTMX
+   requests render the full page with the item list inline, so deep
+   links and bookmarks keep working unchanged.
+
+   Required context (set by ``public.category_landing``):
+     - items                  — list of agenda-item dicts for the page
+     - next_offset            — int or None; when set, drives load-more
+     - cross_filters          — list[str] of active cross-filter slugs
+                                (used by load-more to preserve filter
+                                state in the next-page URL)
+
+   Wrapping element carries ``id="item-list"`` — that id is the HTMX
+   ``hx-target`` for the cross-filter ``<select>`` in the parent
+   template, so the swap path is symmetrical: full-page render emits
+   it inline; partial-render emits the wrapper alone. Either way the
+   browser sees the same id at the same DOM position. #}
+<section class="feed" id="item-list">
+    <header class="feed-head">
+        <div>
+            <div class="t-eyebrow">Items</div>
+            <h2 class="feed-title t-display">
+                {% if items %}
+                    {{ items | length }} item{{ 's' if items | length != 1 else '' }}
+                    {% if next_offset %}of many{% endif %}
+                {% else %}
+                    No items yet
+                {% endif %}
+            </h2>
+        </div>
+    </header>
+
+    {% if items %}
+    <div class="notable-list smart-brevity-list smart-brevity-list--regular">
+        {% for item in items %}
+            {# The dispatcher partial picks the right card variant per
+               item (smart_brevity / v2 fallback / pending / failed /
+               degraded / procedural / verification_pending) based on
+               processing_status / data_quality / ai_rewrite_version. #}
+            {% include 'partials/smart_brevity_card.html' %}
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state" style="padding: 32px 0;">
+        {# R2: citizen-friendly copy. Internal vocabulary (Wave 0,
+           Track 1, D2, matchers, backfill) deliberately removed —
+           visitors should never see pipeline stage names. Admins read
+           server logs, not the public empty state. #}
+        <p class="t-meta" style="max-width: 560px;">
+            No items tagged for this category yet. Check back as we
+            continue indexing meeting records.
+        </p>
+    </div>
+    {% endif %}
+
+    {# ── Load more ───────────────────────────────────── #}
+    {% if next_offset %}
+    <div class="load-more" style="padding: 24px 0; text-align: center;">
+        <a class="rail-link"
+           style="display: inline-flex; min-width: 200px;"
+           href="?{% if cross_filters %}and={{ cross_filters | join(',') }}&{% endif %}offset={{ next_offset }}">
+            <div>
+                <div class="rail-link-label">Load more</div>
+                <div class="t-meta">next 25 items</div>
+            </div>
+            <span class="t-mono">↓</span>
+        </a>
+    </div>
+    {% endif %}
+</section>

@@ -1,0 +1,40 @@
+{# variant: smart_brevity — full v3 card (spec §6.1).
+   ai_rewrite_version == 3, processing_status implied 'completed'.
+   Structure: header (badge chips) → headline → why_it_matters →
+   facts strip → engagement strip → source-anchor button. Sub-components
+   (badge chips, dollar tier, engagement strip, source anchor) are E2/E3/
+   E4/E5 territory — this partial leaves TODO markers where they slot in.
+
+   extracted_facts JSONB shape comes from src/docket/ai/extraction_schema.py
+   (StructuredFacts): funding_source, counterparty, procurement_method,
+   location{ward_or_district, neighborhood, address, parcel_id}, action_type,
+   next_steps{committee_referral, public_hearing_date, public_hearing_time,
+   comment_period_end, implementation_date}, parcels_affected, acres_affected.
+#}
+{# Alias municipality → city for engagement_strip.html (spec §6.3 uses `city`). #}
+{%- set city = municipality -%}
+<article class="smart-brevity-card smart-brevity-card--full" data-variant="smart_brevity">
+  <header class="smart-brevity-card__header">
+    {% include 'partials/_badge_row.html' %}
+  </header>
+
+  {% if item.headline %}
+    <h3 class="smart-brevity-card__headline">{{ item.headline }}</h3>
+  {% else %}
+    <h3 class="smart-brevity-card__headline">{{ item.title }}</h3>
+  {% endif %}
+
+  {% if item.why_it_matters %}
+    <p class="smart-brevity-card__why">{{ item.why_it_matters }}</p>
+  {% endif %}
+
+  {% include 'partials/_facts_strip.html' %}
+
+  <div class="smart-brevity-card__engagement">
+    {% include 'partials/engagement_strip.html' %}
+  </div>
+
+  <footer class="smart-brevity-card__footer">
+    {% include 'partials/source_anchor_button.html' %}
+  </footer>
+</article>

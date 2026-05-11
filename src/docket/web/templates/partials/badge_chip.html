@@ -1,0 +1,34 @@
+{# partials/badge_chip.html
+
+   Renders a single badge chip. Caller iterates an `ordered` list with
+   `{% for chip in ordered[:3] %}` so this template's local variable is
+   `chip` (renamed from spec's `badge.*` to match the loop convention used
+   in v3 partials and the spec collapse rule, spec §6.2 lines 2766-2778).
+
+   Expected `chip` shape (dict-like):
+     - kind:        'process' | 'policy'
+     - slug:        e.g. 'split_vote', 'contested', 'climate_resilience'
+     - confidence:  float in [0, 1]; >= 1.0 enables the Verification Spark (✨).
+                    None / missing is tolerated and treated as 0 (medium).
+     - description: tooltip body
+     - icon:        emoji or short string
+     - name:        display label
+     - vote_count:  optional dict {yes: int, no: int}, only meaningful for
+                    split_vote / contested; if absent, no badge-meta renders.
+
+   Verification Spark (decision #67): the ✨ icon is the primary
+   high-confidence signal — additive marking, with aria-label for SR users.
+#}
+{% set conf = chip.confidence or 0 %}
+{% set vote_count = chip.vote_count %}
+<span class="badge-chip badge-{{ chip.kind }} badge-conf-{{ 'high' if conf >= 1.0 else 'medium' }} badge-slug-{{ chip.slug }}"
+      title="{{ chip.description }}{% if conf >= 1.0 %} · AI-verified{% endif %}">
+  {{ chip.icon }} {{ chip.name }}
+  {% if chip.slug == 'split_vote' or chip.slug == 'contested' %}
+    {% if vote_count %}
+      <span class="badge-meta">{{ vote_count.yes }}-{{ vote_count.no }}</span>
+    {% endif %}
+  {% endif %}
+  {# Verification Spark — decision #67 #}
+  {% if conf >= 1.0 %}<span class="badge-spark" aria-label="AI-verified">✨</span>{% endif %}
+</span>

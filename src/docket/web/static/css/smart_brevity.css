@@ -1,0 +1,24 @@
+.badge-chip {
+  display: inline-flex; align-items: center; gap: 0.25em;
+  padding: 0.2em 0.5em; border-radius: 0.5em;
+  font-size: 0.875em; font-weight: 600;
+}
+.badge-chip.badge-conf-medium { background: rgba(0,0,0,0.05); }
+.badge-chip.badge-conf-high { background: var(--accent, #2c5f6f); color: var(--paper, #fff); }
+.badge-spark { font-size: 0.875em; }
+
+/* Mobile carousel — Brevity-First (decision #66) */
+@media (max-width: 768px) {
+  .smart-brevity-card .badge-row {
+    order: -1;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    display: flex;
+    gap: 0.5rem;
+    padding-bottom: 0.5rem;
+  }
+  .smart-brevity-card .badge-row .badge-chip {
+    flex-shrink: 0;
+    scroll-snap-align: start;
+  }
+}

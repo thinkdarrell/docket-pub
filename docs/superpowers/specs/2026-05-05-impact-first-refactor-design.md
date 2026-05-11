@@ -107,6 +107,7 @@
 | 92 | **`city_id` denormalized onto `agenda_item_badges`** | `agenda_item_badges` gains `city_id INT NOT NULL REFERENCES municipalities(id)`. Composite index `(city_id, badge_slug, confidence DESC)` keeps category landing pages fast despite render-time significance gating (decision #61). Write paths (Stage 2 on-write, nightly process_badges, manual badges, policy badges) populate `city_id` from the item's meeting at insert time. Meetings don't change cities, so no sync logic needed. |
 | 93 | **Cross-Stage Conflict Resolution UI** (Phase 2 required) | New admin route `/admin/review/conflicts` resolves items in `processing_status='cross_stage_conflict'` (decision #45). Side-by-side display of original raw text + Stage 1 facts + Stage 2 verdict + conflict reasons array. Four HTMX-powered resolution actions: (1) **Accept Stage 1** — admin manually authors headline + why_it_matters, item moves to `completed`; (2) **Accept Stage 2** — clears Stage 1 facts that confused things, item moves to `completed` as procedural; (3) **Re-prompt Stage 2** — admin writes a one-liner override, system reruns Stage 2; (4) **Edit Stage 1 facts** — fix misclassified action_type/counterparty, system reruns Stage 2 with corrected facts. All actions audited via new `processing_status_audit` table. Required in Phase 2 (when `IMPACT_FIRST_ENABLED=true` flip enables conflicts to occur live) — not deferrable. |
 | 94 | **Anthropic SDK hardening** | (a) Initialize `anthropic.Anthropic(max_retries=0)` so 429 rate-limit errors bubble up immediately to `AdaptiveWorkerPool` (decision #81) rather than being silently retried by the SDK. (b) Pre-parse helper strips markdown fences (`` ```json `` / `` ``` ``) from LLM JSON responses before `json.loads()` — prevents avoidable JSONDecodeErrors when the model wraps its output. Applies to Stage 1 extraction and Stage 2 rewrite call sites. |
+| 95 | **Volume timeline window: 5-year rolling** | The category-landing volume timeline (§6.6) shows the past 5 calendar years inclusive of `current_year`, computed dynamically as `(current_year - 4, 1, 1)` through `(current_year, 12, 31)`. The window rolls forward annually on Jan 1 — same `date.today().year` pattern the F2 KPI strip already uses, so the two surfaces stay aligned without a separate config. 5 years gives enough trend depth to read a multi-mayoral-term signal (Bell→Woodfin transition is captured) without making early-year buckets dominate the visual width or bury recent change. The materialized view `mv_badge_volume_monthly` stores all history with no horizon — this is a render-time slice, not a data retention policy. Future tuning lives in a constant in `services/query.py`, not a config table. |
 
 ---
 
@@ -1940,7 +1941,15 @@ def resolve_policy_badge(city_id: int, slug: str) -> ResolvedBadge | None:
         name=row.name_override or template.name,
         description=row.description_override or template.description,
         icon=template.icon,
-        matcher_hints=row.matcher_hints_override or template.default_matcher_hints,
+        # Per-key JSONB shallow merge: defaults || override. Override keys
+        # win on duplicates; default keys survive when not overridden.
+        # In SQL: COALESCE(t.default_matcher_hints, '{}'::jsonb)
+        #         || COALESCE(c.matcher_hints_override, '{}'::jsonb).
+        # NOT whole-object replacement (`override or defaults`) — that was
+        # a foot-gun where a city setting only `min_significance` would
+        # silently drop default `keywords` / `action_types` / `topics` /
+        # `excluded_action_types`, breaking deterministic matchers.
+        matcher_hints=merge_jsonb(template.default_matcher_hints, row.matcher_hints_override),
     )
 ```
 
@@ -2518,27 +2527,54 @@ Facts strip pulls from `extracted_facts` JSONB. Empty fields are omitted
 
 **Dollar-tier accessibility (decisions #71 + #75):** facts strip renders
 dollar amounts with both color tier AND symbolic suffix AND a
-visually-hidden screen-reader label:
+visually-hidden screen-reader label. Implemented in
+`partials/dollar_tier.html` (E5):
 
 ```jinja
 {# partials/dollar_tier.html #}
-<span class="dollars dollars--{{ tier }}"
-      aria-label="{{ amount | format_dollars }}, {{ tier|title }} tier ({{ tier_description }})">
-  {{ amount | format_dollars }}
-  ({{ tier_symbol }})<span class="sr-only">, {{ tier|title }} tier</span>
+{%- set tier_data = amount | dollar_tier -%}
+{%- if tier_data -%}
+{%- set formatted = amount | format_dollars -%}
+<span class="dollars dollars--{{ tier_data.color }}">{{ formatted }}
+  ({{ tier_data.symbol }})<span class="sr-only">, {{ tier_data.color|title }} tier ({{ tier_data.description }})</span>
 </span>
+{%- endif -%}
 ```
 
-Where:
-- Green (<$50K) → `$87,500 ($)` + sr-only ", Green tier"
-- Yellow ($50K-$250K) → `$120,000 ($$)` + sr-only ", Yellow tier"
-- Orange ($250K-$1M) → `$640,000 ($$$)` + sr-only ", Orange tier"
-- Red (>$1M) → `$1,800,000 ($$$$)` + sr-only ", Red tier"
+The `dollar_tier` filter (`docket.web.filters.dollar_tier`) returns a
+`DollarTier` NamedTuple `(color, symbol, description)` so the partial
+reads `tier_data.color` instead of three separate context variables.
+NamedTuple `__str__` returns `self.color` so legacy v2 templates that
+write `class="tier tier-{{ amt | dollar_tier }}"` continue to render
+`tier-green` etc. — no v2 template churn at the v2/v3 cutover.
 
-`tier_description` for the parent `aria-label` adds the threshold
-context (e.g., "over $1 million"). Triple-redundant signal: color +
-symbol + screen-reader text. WCAG 2.1 AA compliant; tier perception
-works without color, without sight, and on monochrome printouts.
+Where:
+- Green (<$50K) → `$87,500 ($)` + sr-only ", Green tier (under $50,000)"
+- Yellow ($50K-$250K) → `$120,000 ($$)` + sr-only ", Yellow tier ($50,000 to $250,000)"
+- Orange ($250K-$1M) → `$640,000 ($$$)` + sr-only ", Orange tier ($250,000 to $1 million)"
+- Red (≥$1M) → `$1.8M ($$$$)` + sr-only ", Red tier (over $1 million)"
+  — the visible amount abbreviates to `$N.NM` (one decimal place) at
+  the $1M threshold, matching decision #71's example markup. Sub-$1M
+  renders full precision (`$87,500`) for legibility; the abbreviation
+  only kicks in for Red-tier amounts where `$1,800,000` vs `$1.8M` is
+  a scannability call. The `format_dollars` filter
+  (`docket.web.filters.format_dollars`) owns this contract.
+
+Triple-redundant signal: color + symbol + screen-reader text. WCAG 2.1
+AA compliant; tier perception works without color, without sight, and
+on monochrome printouts.
+
+**Accessibility approach (Option A):** the partial uses the canonical
+visible-text + `.sr-only` span pattern with no `role="img"` and no
+`aria-label`. This pattern is well-supported across every major
+screen-reader / browser combination (browse-mode and focus-mode alike)
+and avoids the double-announcement risk that `role="img"` + `aria-label`
++ traversed children can produce on NVDA + Chrome and JAWS, where the
+SR can read the label and then re-read the visible children. The full
+tier semantic — formatted amount, symbol count, color name, and
+threshold-context phrase (e.g., "over $1 million") — lives entirely in
+the rendered DOM (visible text + sr-only suffix), so a single coherent
+announcement carries everything to every AT path.
 
 **Mobile Brevity-First layout (decision #66):** below 768px viewport,
 badge chips collapse to a horizontal scroll-snap row ABOVE the headline.
@@ -2853,7 +2889,7 @@ until citizen-account notifications land in Phase 4.
 {% if anchor.type == 'pdf' %}
   {% if anchor.bbox %}
     <a href="{{ anchor.url }}#page={{ anchor.page }}" class="view-source">
-      View Source: PDF page {{ anchor.page }} (region) →
+      View Source: PDF page {{ anchor.page }} →
     </a>
   {% elif anchor.page %}
     <a href="{{ anchor.url }}#page={{ anchor.page }}" class="view-source">
@@ -2895,6 +2931,19 @@ until citizen-account notifications land in Phase 4.
 Browser handles `#page=` and `?t=` natively for PDF and YouTube/Granicus
 video viewers. No client-side JS required.
 
+The `bbox` branch currently produces output identical to the `page`-only
+branch because `#page=N` is browser-honored but `#bbox=` is not a
+standard PDF Open Parameters fragment. The branch is preserved as a
+placeholder for future bbox-aware deep linking via
+`#page=N&viewrect=L,T,W,H` (PDF Open Parameters, standard since
+PDF 1.6, supported by Adobe Reader, Chrome ≥110, and Firefox via
+PDF.js). Adoption requires Stage 1 to commit to emitting `bbox` in PDF
+user-space coordinates (1 unit = 1/72 inch from page top-left). Until
+then the branch is a documented no-op that the partial-level test
+`test_pdf_bbox_emits_viewrect_deep_link` (xfail-strict) will flip from
+XFAIL to FAILED once the upgrade lands, forcing the developer to retire
+the placeholder.
+
 ### 6.5 Category landing pages
 
 New route `/al/<city>/<badge_slug>` rendered by `web/public.py`. Each
@@ -2933,7 +2982,7 @@ Service-layer query (`docket/services/query.py`):
 ```python
 def list_items_by_badge(city_id: int, badge_slug: str,
                         min_confidence: float = 0.6,
-                        cross_filter_slugs: list[str] = (),
+                        cross_filter_slugs: Sequence[str] = (),
                         limit: int = 25,
                         offset: int = 0,
                         include_low_significance: bool = False) -> list[AgendaItem]:
@@ -2963,7 +3012,13 @@ def list_items_by_badge(city_id: int, badge_slug: str,
         FROM agenda_items ai
         JOIN agenda_item_badges aib ON aib.agenda_item_id = ai.id
         JOIN meetings m ON m.id = ai.meeting_id
-        WHERE m.city_id = %s
+        -- City filter on aib.city_id (not m.*): hits the decision-#92
+        -- composite index idx_agenda_item_badges_city_slug_conf
+        -- (city_id, badge_slug, confidence DESC) for the most selective
+        -- predicate trio. NB: meetings has municipality_id, not city_id —
+        -- there is no m.city_id column. agenda_item_badges carries city_id
+        -- directly so the predicate covers the planned index.
+        WHERE aib.city_id = %s
           AND aib.badge_slug = %s
           AND aib.confidence >= %s
           AND ai.processing_status = 'completed'
@@ -2994,7 +3049,25 @@ The same render-time gate applies in two other read paths:
 - **Search results** (when narrowing by badge slug) — filtered by `significance_score >= 3` for policy badges
 - **Smart Brevity Card badge chips** — when rendering the chip list per item, policy chips with significance below threshold are filtered out (process chips always render)
 
-These three call sites share a small helper `apply_policy_significance_gate(items, badge_slug, city_id)` so the threshold logic stays in one place.
+These three call sites share a pair of helpers — same threshold logic,
+two shapes for the two ways callers consume it:
+
+- `resolve_significance_threshold(city_id, badge_slug) -> int | None` —
+  SQL-pushdown helper. Returns the integer threshold (or `None` for
+  process / unknown badges) so SQL callers can splice
+  `AND ai.significance_score >= %s` into their query. Used by the
+  listing query above and the search-narrowing call site.
+- `apply_policy_significance_gate(items, badge_slug, city_id) -> list[AgendaItem]`
+  — in-Python list filter. For callers that have items already in
+  memory (Smart Brevity Card chip rendering, where the chip loop runs
+  inside a Jinja template — SQL pushdown isn't possible). Drops items
+  with `significance_score < threshold` for policy badges; passes
+  everything through for process / unknown badges.
+
+Threshold logic stays in `resolve_matcher_hints` (and its
+single-round-trip core `_lookup_template_kind_and_hints`) so all 3 call
+sites + future deterministic matchers (Track 1 / D2 reading other hint
+keys like `keywords` / `action_types`) read consistent values.
 
 KPI strip:
 
@@ -3013,7 +3086,10 @@ or a separate `priority_quotes` table. Phase 4 work; v1 omits or hardcodes.
 
 ### 6.6 Volume timeline (SVG)
 
-Server-rendered, no client-side JS. Data shape:
+Server-rendered, no client-side JS. The route slices a 5-year rolling
+window onto the chart (decision #95): `(current_year - 4, 1, 1)` through
+`(current_year, 12, 31)`. The materialized view stores all history; the
+window is a render-time slice, not a data constraint. Data shape:
 
 ```python
 def badge_volume_series(city_id: int, badge_slug: str,

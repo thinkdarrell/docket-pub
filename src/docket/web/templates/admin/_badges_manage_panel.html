@@ -1,0 +1,51 @@
+{#
+  HTMX swap target. Re-rendered by the add/remove POST endpoints.
+  Caller must provide:
+    - item.id, item.municipality_slug
+    - current: list of dicts {slug, kind, name, icon, confidence, source}
+    - addable: list of dicts {slug, kind, name, icon, description}
+#}
+<section id="badges-manage-panel" class="manage-panel">
+  <h2>Current badges</h2>
+  {% if not current %}
+    <p class="t-meta">No badges attached to this item.</p>
+  {% else %}
+    <ul class="manage-current">
+      {% for b in current %}
+      <li>
+        <span class="manage-chip badge-{{ b.kind }}">
+          {{ b.icon }} {{ b.name }}
+          <span class="manage-meta">({{ b.source }}{% if b.confidence is not none %}, conf {{ '%.2f'|format(b.confidence|float) }}{% endif %})</span>
+        </span>
+        <form hx-post="{{ url_for('admin.badge_remove', item_id=item.id, slug=b.slug) }}"
+              hx-target="#badges-manage-panel"
+              hx-swap="outerHTML"
+              style="display: inline;">
+          <button type="submit" class="manage-remove" aria-label="Remove {{ b.name }}">× Remove</button>
+        </form>
+      </li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+
+  <h2>Add a badge</h2>
+  {% if not addable %}
+    <p class="t-meta">No additional badges available for this city.</p>
+  {% else %}
+  <form class="manage-add"
+        hx-post="{{ url_for('admin.badge_add_via_form', item_id=item.id) }}"
+        hx-target="#badges-manage-panel"
+        hx-swap="outerHTML"
+        method="post">
+    <label>
+      Badge
+      <select name="slug" required>
+        {% for b in addable %}
+        <option value="{{ b.slug }}">{{ b.icon }} {{ b.name }} ({{ b.kind }})</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button type="submit">Add</button>
+  </form>
+  {% endif %}
+</section>

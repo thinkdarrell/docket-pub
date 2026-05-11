@@ -1,0 +1,20 @@
+{#
+  G4 inline form — Re-prompt Stage 2 with admin override instruction.
+  Server cap: 500 chars. Decision #6 — 4xx error rendering via
+  hx-on:htmx:response-error. Decision #12 — TOCTOU race-loss returns
+  409 with a clear message; the same handler renders it.
+#}
+<form class="conflict-form"
+      hx-post="{{ url_for('admin.conflict_re_prompt_stage_2', item_id=item_id) }}"
+      hx-target="#row-{{ item_id }}"
+      hx-swap="outerHTML"
+      hx-on:htmx:response-error="this.querySelector('.form-error').textContent = event.detail.xhr.responseText">
+  <label>
+    Override instruction (1–500 chars)
+    <textarea name="override_instruction"
+              minlength="1" maxlength="500" rows="3" required
+              placeholder="e.g. The previous attempt missed that this IS a contract award..."></textarea>
+  </label>
+  <button type="submit" class="btn-submit">🔁 Re-run Stage 2</button>
+  <span class="form-error" role="alert"></span>
+</form>

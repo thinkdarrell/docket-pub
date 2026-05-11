@@ -1,0 +1,89 @@
+{# Engagement strip — spec §6.3 (decision #70).
+
+   Surfaces the "what's next" timeline for an agenda item: committee
+   referral, public hearing date/time, comment period end, implementation
+   date — plus the city's master calendar as a tail link when set.
+
+   Four states (auto-hides when none apply, no placeholder text):
+
+   1. ``item.next_steps`` has any of the four populated fields.
+      Renders the populated fields + master-calendar tail link.
+
+   2. ``item.action_type == 'public_hearing_set'`` AND
+      ``next_steps.public_hearing_date`` is null. Renders an
+      "Awaiting hearing date" callout with an RSS subscribe link and a
+      ``mailto:`` "report missing date" link to ``config.ADMIN_EMAIL``
+      (decision #77 retired the in-app reporting queue in favour of email).
+
+   3. ``city.master_calendar_url`` is set (and neither of the above).
+      Renders just the calendar fallback link.
+
+   4. None of the above — no markup emitted at all.
+
+   Variables expected from the parent template / dispatcher:
+     - ``item``  — ``AgendaItem`` (dataclass) or compatible mapping;
+                   must expose ``id``, ``next_steps`` (dict), and
+                   ``action_type`` (the lifted v3 sub-key — see A8).
+     - ``city``  — city dict (must expose ``slug``, ``name``,
+                   ``master_calendar_url``).
+
+   Defensive against missing data: ``or {}`` guard on ``next_steps``
+   turns NULL JSONB into an empty dict so attribute access doesn't
+   blow up.
+#}
+{% set ns = item.next_steps or {} %}
+{% set has_any = ns.committee_referral or ns.public_hearing_date
+                  or ns.comment_period_end or ns.implementation_date %}
+
+{% if has_any %}
+  <div class="engagement-strip">
+    {% if ns.public_hearing_date %}
+      📅 Public hearing
+      {{ ns.public_hearing_date | format_date }}
+      {% if ns.public_hearing_time %} at {{ ns.public_hearing_time }}{% endif %}
+    {% endif %}
+
+    {% if ns.committee_referral %}
+      • 🏛️ {{ ns.committee_referral }}
+    {% endif %}
+
+    {% if ns.comment_period_end %}
+      • 📝 Comment by {{ ns.comment_period_end | format_date }}
+    {% endif %}
+
+    {% if ns.implementation_date %}
+      • ▶️ Effective {{ ns.implementation_date | format_date }}
+    {% endif %}
+
+    {% if city and city.master_calendar_url %}
+      • <a href="{{ city.master_calendar_url }}" target="_blank" rel="noopener noreferrer">
+        📅 City master calendar →
+      </a>
+    {% endif %}
+  </div>
+
+{# Context-aware: action_type hints at upcoming hearing but date is null (decision #70) #}
+{% elif item.action_type == 'public_hearing_set' and not ns.public_hearing_date %}
+  {%- set _subject = "Missing hearing date for item " ~ (item.id | int) -%}
+  {%- set _item_url = url_for('public.item_detail', city=city.slug, item_id=(item.id | int), _external=True) -%}
+  {%- set _body = "Item URL: " ~ _item_url ~ "\r\n\r\nThis item has action_type=public_hearing_set but no hearing date is shown." -%}
+  <div class="engagement-strip engagement-strip--awaiting">
+    Awaiting hearing date —
+    <a href="{{ url_for('public.upcoming_hearings_rss', city=city.slug) }}"
+       target="_blank" rel="noopener noreferrer">
+      📅 Subscribe to upcoming hearings RSS →
+    </a>
+    <span class="report-issue-link">
+      <a href="mailto:{{ config.ADMIN_EMAIL }}?subject={{ _subject | urlencode }}&amp;body={{ _body | urlencode }}">
+        Report missing date
+      </a>
+    </span>
+  </div>
+
+{% elif city and city.master_calendar_url %}
+  <div class="engagement-strip engagement-strip--fallback">
+    <a href="{{ city.master_calendar_url }}" target="_blank" rel="noopener noreferrer">
+      📅 Check {{ city.name }}'s master calendar →
+    </a>
+  </div>
+{% endif %}

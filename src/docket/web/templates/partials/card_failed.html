@@ -1,0 +1,26 @@
+{# variant: failed — processing_status == 'failed_permanent' (spec §6.1).
+   Searchable (FTS still indexes title) but visually flagged so citizens
+   know it is not silently missing. Tooltip explains the 3-attempt retry
+   path; no modal. #}
+<article class="smart-brevity-card smart-brevity-card--failed" data-variant="failed">
+  <header class="smart-brevity-card__header">
+    <span class="processing-error-pill"
+          title="Our automated systems tried to read this item three times and could not. The original document is linked below; an admin will revisit it manually."
+          aria-label="Processing error: automated extraction failed after three attempts; manual review pending">
+      🚧 Processing Error
+    </span>
+  </header>
+
+  <h3 class="smart-brevity-card__title">{{ item.title }}</h3>
+
+  <p class="smart-brevity-card__body">
+    Our automated systems couldn't process this item after 3 attempts.
+    The original document is available below.
+  </p>
+
+  <footer class="smart-brevity-card__footer">
+    {# TODO E4: source-anchor adaptive button #}
+    {% include 'partials/_source_link_stub.html' %}
+    {# TODO: Report-this mailto link wired in E3 / F5 #}
+  </footer>
+</article>
