@@ -87,11 +87,17 @@ def test_extract_facts_returns_validated_pydantic():
     assert model_id == 'claude-haiku-4-5-20251001'
 
 
-def test_extract_facts_raises_on_schema_violation():
-    """Pydantic validation error if the tool_use block input has a bad enum value."""
+def test_extract_facts_coerces_unknown_enum_value_to_safe_default():
+    """When Haiku returns an enum value outside the schema whitelist (e.g.
+    ``funding_source='grant'`` instead of ``state_grant``/``federal_grant``),
+    the value is coerced to ``'unknown'`` and validation succeeds. Without
+    this, ``_process_items_v3`` aborts the entire batch on the first such
+    item — observed in production 2026-05-11 mid-cron after the #57 fix."""
+    from docket.ai.extraction import extract_facts_for_item
+
     item = make_item()
-    bad_input = {
-        'funding_source': 'WRONG_VALUE',  # not in enum
+    out_of_enum_input = {
+        'funding_source': 'grant',  # not in enum; should coerce to 'unknown'
         'counterparty': None,
         'procurement_method': 'not_applicable',
         'location': None,
@@ -100,14 +106,68 @@ def test_extract_facts_raises_on_schema_violation():
         'parcels_affected': None,
         'acres_affected': None,
     }
-    mock_response = _make_tool_response(bad_input)
+    mock_response = _make_tool_response(out_of_enum_input)
 
     with patch('docket.ai.extraction.anthropic_client') as mock_client:
         mock_client.messages.create.return_value = mock_response
         with patch('docket.ai.extraction.cache_get', return_value=None), \
              patch('docket.ai.extraction.cache_put'):
-            with pytest.raises(Exception):  # Pydantic ValidationError
+            facts, _ = extract_facts_for_item(item)
+    assert facts.funding_source == 'unknown'
+
+
+def test_extract_facts_raises_permanent_when_coercion_cannot_recover():
+    """If the schema violation isn't a top-level enum (e.g. required field
+    type wrong / missing), coercion doesn't help and we surface as
+    AIPermanentRowError so the worker can mark the row failed_permanent
+    and continue the batch."""
+    from docket.ai.extraction import extract_facts_for_item
+    from docket.ai.exceptions import AIPermanentRowError
+
+    item = make_item()
+    structurally_invalid = {
+        'funding_source': 'general_fund',
+        'counterparty': None,
+        # procurement_method missing entirely — required field
+        'location': None,
+        'action_type': 'other',
+        'next_steps': {},
+        'parcels_affected': None,
+        'acres_affected': 'not_a_number',  # wrong type
+    }
+    mock_response = _make_tool_response(structurally_invalid)
+
+    with patch('docket.ai.extraction.anthropic_client') as mock_client:
+        mock_client.messages.create.return_value = mock_response
+        with patch('docket.ai.extraction.cache_get', return_value=None), \
+             patch('docket.ai.extraction.cache_put'):
+            with pytest.raises(AIPermanentRowError):
                 extract_facts_for_item(item)
+
+
+def test_coerce_unknown_enums_uses_unknown_then_other_then_first():
+    """Coercion fallback ladder: prefer 'unknown', else 'other', else first."""
+    from docket.ai.extraction import _coerce_unknown_enums
+
+    schema_with_unknown = {'properties': {'f': {'type': 'string', 'enum': ['a', 'b', 'unknown']}}}
+    out = _coerce_unknown_enums({'f': 'bogus'}, schema_with_unknown)
+    assert out['f'] == 'unknown'
+
+    schema_with_other = {'properties': {'f': {'type': 'string', 'enum': ['a', 'b', 'other']}}}
+    out = _coerce_unknown_enums({'f': 'bogus'}, schema_with_other)
+    assert out['f'] == 'other'
+
+    schema_neither = {'properties': {'f': {'type': 'string', 'enum': ['a', 'b']}}}
+    out = _coerce_unknown_enums({'f': 'bogus'}, schema_neither)
+    assert out['f'] == 'a'
+
+    # Valid values pass through untouched.
+    out = _coerce_unknown_enums({'f': 'a'}, schema_with_unknown)
+    assert out['f'] == 'a'
+
+    # None passes through untouched.
+    out = _coerce_unknown_enums({'f': None}, schema_with_unknown)
+    assert out['f'] is None
 
 
 def test_extract_facts_api_call_uses_tool_use():

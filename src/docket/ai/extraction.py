@@ -17,12 +17,52 @@ from __future__ import annotations
 import logging
 
 import anthropic
+from pydantic import ValidationError
 
 from docket.ai.cache import cache_get, cache_key, cache_put
 from docket.ai.exceptions import AIPermanentRowError
 from docket.ai.extraction_schema import StructuredFacts
 
 log = logging.getLogger(__name__)
+
+
+def _coerce_unknown_enums(payload: dict, schema: dict, *, log_prefix: str = "") -> dict:
+    """Replace top-level enum field values that aren't in the schema's enum.
+
+    Anthropic's tool-use treats ``enum`` as a hint, not a hard constraint —
+    Haiku occasionally returns values outside the whitelist (observed in
+    production: ``funding_source='grant'`` instead of the schema's
+    ``state_grant`` / ``federal_grant`` / …). Without coercion, those raise
+    Pydantic ``ValidationError`` and abort the entire ``_process_items_v3``
+    batch.
+
+    Strategy: for each top-level enum field, if the value is non-null and
+    not in the enum, coerce to ``'unknown'`` if available, else ``'other'``,
+    else the first enum value. Log a warning per coercion so frequency is
+    visible — a sudden spike would signal a prompt regression.
+
+    Nested objects (e.g. ``location.ward_or_district``) aren't enum-typed
+    in the Stage 1 schema, so no recursion is needed today.
+    """
+    props = schema.get("properties", {})
+    for field, spec in props.items():
+        if "enum" not in spec or field not in payload:
+            continue
+        value = payload[field]
+        if value is None or value in spec["enum"]:
+            continue
+        if "unknown" in spec["enum"]:
+            fallback = "unknown"
+        elif "other" in spec["enum"]:
+            fallback = "other"
+        else:
+            fallback = spec["enum"][0]
+        log.warning(
+            "%senum coercion: %s=%r not in whitelist, using %r",
+            log_prefix, field, value, fallback,
+        )
+        payload[field] = fallback
+    return payload
 
 EXTRACTION_PROMPT_VERSION = 1
 
@@ -187,7 +227,25 @@ def extract_facts_for_item(item, *, model: str = "claude-haiku-4-5-20251001") ->
     served_model = response.model
 
     payload = _extract_tool_input(response, STAGE1_TOOL["name"])
-    facts = StructuredFacts.model_validate(payload)
+    item_id = getattr(item, "id", "?")
+    try:
+        facts = StructuredFacts.model_validate(payload)
+    except ValidationError:
+        # Haiku returned an enum value outside the schema's whitelist —
+        # coerce to a safe default and retry once before giving up.
+        payload = _coerce_unknown_enums(
+            payload, STAGE1_TOOL["input_schema"],
+            log_prefix=f"stage1 item={item_id} ",
+        )
+        try:
+            facts = StructuredFacts.model_validate(payload)
+        except ValidationError as e:
+            # Surface as permanent failure — the worker marks the row
+            # failed_permanent and continues the batch instead of crashing.
+            raise AIPermanentRowError(
+                f"stage1 validation failed after enum coercion for item "
+                f"{item_id}: {e}"
+            ) from e
 
     # Cache against the served model id (decision #42).
     # Guarded: a transient DB error here would otherwise drop an
