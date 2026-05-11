@@ -49,3 +49,13 @@ def test_ping_swallows_network_errors(monkeypatch, caplog):
                side_effect=ConnectionError("nope")):
         health.ping("ingest_all", "success")  # must not raise
     assert any("healthcheck ping failed" in r.message for r in caplog.records)
+
+
+def test_every_registered_task_has_a_uuid_env_entry():
+    # _safe_run calls health.ping(task, "start") *before* its try/except, so a task
+    # registered in TASKS but missing from TASK_UUID_ENV crashes apscheduler with
+    # no fail-ping fired. Keep the two dicts in sync.
+    from docket.worker.tasks import TASKS
+
+    missing = set(TASKS) - set(health.TASK_UUID_ENV)
+    assert not missing, f"tasks missing from TASK_UUID_ENV: {sorted(missing)}"
