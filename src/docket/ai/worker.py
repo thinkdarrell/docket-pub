@@ -512,7 +512,12 @@ def _process_items_v3(conn, limit: int, summary: RunSummary) -> None:
         # with the attributes documented in its docstring.
         item = _AttrAccess(row_dict)
         try:
-            pipeline.process_item(item)
+            # Pass conn so Phase C's UPDATE uses the SAME connection that
+            # holds the FOR UPDATE row lock from claim_items_v3_sql.
+            # Without this, the pipeline opens a fresh db() connection
+            # that blocks forever on the row lock (#57 — no PG deadlock
+            # detection because there's no cycle in the wait graph).
+            pipeline.process_item(item, conn=conn)
             summary.rows_processed += 1
             conn.commit()
         except AIRateLimited:

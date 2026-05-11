@@ -51,6 +51,7 @@ from __future__ import annotations
 
 import json
 import logging
+from contextlib import contextmanager
 from typing import Any
 
 from docket.ai.extraction import (
@@ -71,6 +72,37 @@ from docket.services.badges import get_enabled_policy_slugs
 log = logging.getLogger(__name__)
 
 
+@contextmanager
+def _maybe_cursor(conn):
+    """Yield a cursor on `conn` if provided, else open a fresh ``db()``.
+
+    Fix for #57: the v3 worker (``_process_items_v3``) holds row locks via
+    ``SELECT ... FOR UPDATE SKIP LOCKED`` on its own connection across the
+    call to ``process_item``. If the pipeline opens a new connection via
+    ``db()`` and tries to UPDATE the same row in Phase C, the new connection
+    blocks forever waiting for the worker's lock — PostgreSQL can't detect
+    this because there's no cycle (the worker conn isn't waiting on anything,
+    just holding the lock). Passing the worker's conn through avoids this.
+
+    When ``conn`` is provided:
+      - The block uses its cursor.
+      - No commit/rollback/close — the caller owns the transaction.
+      - Exceptions propagate; the caller decides whether to rollback.
+
+    When ``conn`` is ``None`` (admin / one-off paths):
+      - A fresh connection is opened via ``db()``, which commits on success,
+        rolls back on exception, and always closes. Preserves the existing
+        rollback semantics for the ``expected_status`` concurrency guard
+        (decision #13).
+    """
+    if conn is not None:
+        with conn.cursor() as cur:
+            yield cur
+    else:
+        with db() as fresh, fresh.cursor() as cur:
+            yield cur
+
+
 class PipelineConcurrencyError(RuntimeError):
     """Raised by ``_rerun_from_stage2`` when the optional ``expected_status``
     guard fires: the row's ``processing_status`` changed between the caller's
@@ -88,7 +120,7 @@ class PipelineConcurrencyError(RuntimeError):
     """
 
 
-def process_item(item) -> str:
+def process_item(item, *, conn=None) -> str:
     """Run the full per-item v3 pipeline against an agenda item.
 
     Args:
@@ -101,6 +133,13 @@ def process_item(item) -> str:
             See ``_ItemView`` in tests/integration/test_pipeline_e2e.py
             for the test-side adapter; the v3 worker constructs an
             equivalent shape from claim_items_v3_sql rows.
+        conn: optional psycopg2 connection. The v3 worker
+            (``_process_items_v3``) MUST pass its own connection here —
+            without it, the pipeline opens fresh ``db()`` connections for
+            Phase A / 2.5 / C writes and Phase C's UPDATE blocks forever
+            on the row lock the worker holds (#57). Admin / one-off
+            callers leave ``conn=None`` and the pipeline opens its own
+            connections (with the existing commit/rollback semantics).
 
     Returns:
         Final ``processing_status`` value (one of):
@@ -120,7 +159,7 @@ def process_item(item) -> str:
     # Phase A — Wave 0 short-circuit ----------------------------------
     quality, priority = evaluate_data_quality(item)
     if quality != "ok":
-        with db() as conn, conn.cursor() as cur:
+        with _maybe_cursor(conn) as cur:
             cur.execute(
                 """
                 UPDATE agenda_items
@@ -138,7 +177,7 @@ def process_item(item) -> str:
         return "data_quality_skipped"
 
     if is_procedural(item.title):
-        with db() as conn, conn.cursor() as cur:
+        with _maybe_cursor(conn) as cur:
             cur.execute(
                 """
                 UPDATE agenda_items
@@ -160,7 +199,7 @@ def process_item(item) -> str:
     # Delegate to _rerun_from_stage2 for the rest of the pipeline.
     # Keeps the Stage 2+ code path identical between the worker's
     # full-pipeline call and the G4 conflict-resolution admin paths.
-    return _rerun_from_stage2(item, facts)
+    return _rerun_from_stage2(item, facts, conn=conn)
 
 
 def _rerun_from_stage2(
@@ -170,6 +209,7 @@ def _rerun_from_stage2(
     override_instruction: str | None = None,
     expected_status: str | None = None,
     already_retried: bool = False,
+    conn=None,
 ) -> str:
     """Run Stage 2 → 2.5 → reconcile → atomic commit.
 
@@ -210,6 +250,12 @@ def _rerun_from_stage2(
             admin clicks: an admin override that doesn't produce a
             substantive verdict surfaces as ``cross_stage_conflict``
             in one shot, not two.
+        conn: optional psycopg2 connection (fix for #57). The worker
+            passes its own connection so Phase C's UPDATE doesn't
+            self-deadlock against the worker's ``FOR UPDATE`` row lock.
+            Admin paths pass ``None`` and get the fresh-``db()``
+            behavior with auto-commit/rollback that preserves the
+            ``expected_status`` guard rollback semantics.
 
     Returns:
         Final ``processing_status`` value: 'completed' or 'cross_stage_conflict'.
@@ -232,7 +278,7 @@ def _rerun_from_stage2(
     # Phase B (part 3) — Stage 2.5 floors (CPU + brief DB) ------------
     # apply_score_floors needs a cursor for per-city threshold overrides
     # (city_score_floor_overrides table). Brief, non-LLM-spanning DB use.
-    with db() as conn, conn.cursor() as cur:
+    with _maybe_cursor(conn) as cur:
         overrides = apply_score_floors(cur, item, facts, rewrite, item.city_id)
 
     # Phase B (part 4) — Reconcile (CPU, possibly one LLM retry) ------
@@ -250,7 +296,7 @@ def _rerun_from_stage2(
             item, facts, enabled_slugs,
             extra_instruction=result.override_instruction,
         )
-        with db() as conn, conn.cursor() as cur:
+        with _maybe_cursor(conn) as cur:
             overrides = apply_score_floors(
                 cur, item, facts, rewrite, item.city_id,
             )
@@ -273,7 +319,7 @@ def _rerun_from_stage2(
         "admin_override_used": override_instruction is not None,
     })
 
-    with db() as conn, conn.cursor() as cur:
+    with _maybe_cursor(conn) as cur:
         # Inline extraction write — mirrors persist_extraction but omits
         # its `processing_status = 'extracted'` side-effect. Setting the
         # status to 'extracted' here would (a) be immediately overwritten
@@ -326,8 +372,10 @@ def _rerun_from_stage2(
 
         if expected_status is not None and cur.rowcount == 0:
             # Concurrency guard fired. Roll back the whole Phase C
-            # (including persist_extraction's write) by raising — the
-            # `with db()` context manager catches and rolls back.
+            # (including the inline extraction UPDATE) by raising.
+            # In practice ``expected_status`` is only set by admin paths,
+            # which pass ``conn=None`` — so ``_maybe_cursor`` falls through
+            # to ``db()`` and its context manager rolls back on exception.
             log.info(
                 "pipeline._rerun_from_stage2 concurrency guard fired: "
                 "item_id=%s expected_status=%s — rolling back Phase C",
