@@ -25,6 +25,7 @@ TASK_UUID_ENV: dict[str, str] = {
     "repair_empty_agendas": "HEALTHCHECK_REPAIR_UUID",
     "process_badges":       "HEALTHCHECK_PROCESS_BADGES_UUID",
     "calibration_report":   "HEALTHCHECK_CALIBRATION_UUID",
+    "process_batches":      "HEALTHCHECK_PROCESS_BATCHES_UUID",
 }
 
 PingStatus = Literal["start", "success", "fail"]

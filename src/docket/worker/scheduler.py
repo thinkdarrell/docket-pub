@@ -81,6 +81,16 @@ def build_scheduler(timezone: str = "America/Chicago") -> BlockingScheduler:
         coalesce=True,
         max_instances=1,
     )
+    # Phase 3 backfill: poll + ingest Anthropic batch results every 30 min.
+    # Anthropic Batches API has a 24h SLA but typically completes in 1-4h —
+    # 30-min polling keeps latency low without pounding their endpoint.
+    sched.add_job(
+        TASKS["process_batches"],
+        CronTrigger(minute="0,30", timezone=timezone),
+        id="process_batches",
+        coalesce=True,
+        max_instances=1,
+    )
     return sched
 
 

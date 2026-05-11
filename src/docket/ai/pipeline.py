@@ -275,33 +275,65 @@ def _rerun_from_stage2(
         extra_instruction=override_instruction,
     )
 
+    # Reconcile pre-check for the auto-retry path (decision #45).
+    # Admin paths pass already_retried=True and skip this entirely —
+    # reconcile.py short-circuits to mark_cross_stage_conflict in that
+    # case, so no second LLM call ever fires.
+    if not already_retried:
+        precheck = reconcile_stages(facts, rewrite, item, already_retried=False)
+        if precheck.action == "retry_stage2_with_override":
+            # Worker auto-retry: one extra LLM call with the
+            # reconcile-generated override prompt.
+            rewrite, _served_retry = rewrite_item(
+                item, facts, enabled_slugs,
+                extra_instruction=precheck.override_instruction,
+            )
+
+    # Finalize is shared with batch_ingest: floors → reconcile
+    # (already_retried=True) → Phase C atomic commit.
+    return finalize_from_rewrite(
+        item, facts, rewrite,
+        conn=conn,
+        override_instruction=override_instruction,
+        expected_status=expected_status,
+    )
+
+
+def finalize_from_rewrite(
+    item,
+    facts: StructuredFacts,
+    rewrite: ItemRewrite,
+    *,
+    conn=None,
+    override_instruction: str | None = None,
+    expected_status: str | None = None,
+) -> str:
+    """Run Stage 2.5 floors → reconcile (one-shot) → atomic Phase C commit.
+
+    Pure post-LLM logic — does NOT call Anthropic. Shared by:
+      - ``_rerun_from_stage2`` (after its rewrite_item call, optionally
+        after one auto-retry).
+      - ``docket.ai.batch_ingest`` for results returned by Anthropic's
+        Batches API, where the rewrite came back in a downloaded
+        ``MessageBatchIndividualResponse`` rather than from a sync call.
+
+    Reconcile is invoked with ``already_retried=True`` — by the time we
+    reach this helper, the caller has decided whether a retry was
+    warranted. This forces reconcile.py to surface any remaining
+    Stage 1↔Stage 2 conflict as ``mark_cross_stage_conflict`` rather
+    than asking for another LLM call.
+
+    Concurrency guard semantics are unchanged: when ``expected_status``
+    is set and the row's actual status no longer matches, raise
+    ``PipelineConcurrencyError`` and let the surrounding ``_maybe_cursor``
+    (or ``db()`` fallback) roll back Phase C.
+    """
     # Phase B (part 3) — Stage 2.5 floors (CPU + brief DB) ------------
-    # apply_score_floors needs a cursor for per-city threshold overrides
-    # (city_score_floor_overrides table). Brief, non-LLM-spanning DB use.
     with _maybe_cursor(conn) as cur:
         overrides = apply_score_floors(cur, item, facts, rewrite, item.city_id)
 
-    # Phase B (part 4) — Reconcile (CPU, possibly one LLM retry) ------
-    # A1: pass `already_retried` through. Worker path = False (auto-retry
-    # enabled); admin paths = True (reconcile.py short-circuits retry to
-    # mark_cross_stage_conflict, preserving G4 pre-refactor one-shot
-    # semantics).
-    result = reconcile_stages(facts, rewrite, item, already_retried=already_retried)
-    if result.action == "retry_stage2_with_override":
-        # Auto-retry once with the reconcile-generated override.
-        # (Decision #45 — the worker auto-retry path.) Unreachable when
-        # already_retried=True was passed in, because reconcile_stages
-        # short-circuits to mark_cross_stage_conflict in that case.
-        rewrite, _served_retry = rewrite_item(
-            item, facts, enabled_slugs,
-            extra_instruction=result.override_instruction,
-        )
-        with _maybe_cursor(conn) as cur:
-            overrides = apply_score_floors(
-                cur, item, facts, rewrite, item.city_id,
-            )
-        result = reconcile_stages(facts, rewrite, item, already_retried=True)
-
+    # Phase B (part 4) — Final reconcile (no further retry) -----------
+    result = reconcile_stages(facts, rewrite, item, already_retried=True)
     final_status = (
         "cross_stage_conflict"
         if result.action == "mark_cross_stage_conflict"
@@ -338,9 +370,6 @@ def _rerun_from_stage2(
         )
 
         # Phase C UPDATE with optional concurrency guard (decision #13).
-        # The `(%s::text IS NULL OR processing_status = %s)` predicate
-        # is a no-op when expected_status is None (worker path) and a
-        # hard guard when expected_status is supplied (admin paths).
         cur.execute(
             """
             UPDATE agenda_items
@@ -371,13 +400,8 @@ def _rerun_from_stage2(
         )
 
         if expected_status is not None and cur.rowcount == 0:
-            # Concurrency guard fired. Roll back the whole Phase C
-            # (including the inline extraction UPDATE) by raising.
-            # In practice ``expected_status`` is only set by admin paths,
-            # which pass ``conn=None`` — so ``_maybe_cursor`` falls through
-            # to ``db()`` and its context manager rolls back on exception.
             log.info(
-                "pipeline._rerun_from_stage2 concurrency guard fired: "
+                "pipeline.finalize_from_rewrite concurrency guard fired: "
                 "item_id=%s expected_status=%s — rolling back Phase C",
                 item.id, expected_status,
             )
@@ -418,7 +442,7 @@ def _rerun_from_stage2(
             )
 
     log.info(
-        "pipeline._rerun_from_stage2 done: item_id=%s status=%s override=%s",
+        "pipeline.finalize_from_rewrite done: item_id=%s status=%s override=%s",
         item.id, final_status, override_instruction is not None,
     )
     return final_status
