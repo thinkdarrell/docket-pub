@@ -24,7 +24,7 @@
 ## File Structure
 
 **Create:**
-- `src/docket/migrations/020_badge_status_column.py` — migration adding `agenda_item_badges.status` + index + audit-action enum extension.
+- `src/docket/migrations/021_badge_status_column.py` — migration adding `agenda_item_badges.status` + index + audit-action enum extension. (Slot 020 was taken by `020_raise_headline_caps.py` shipped 2026-05-11 evening as a hotfix to align DB constraints with the new Pydantic caps.)
 - `src/docket/web/admin_badge_review.py` — admin blueprint with the review queue routes.
 - `src/docket/web/templates/admin/badge_review.html` — queue table + approve/reject buttons.
 - `src/docket/web/templates/admin/_badge_review_row.html` — HTMX partial for one row (returned after approve/reject for in-place swap).
@@ -49,16 +49,16 @@
 
 ## Section A — Migration + write-path refactor
 
-### Task A1: Migration 020 adds `agenda_item_badges.status`
+### Task A1: Migration 021 adds `agenda_item_badges.status`
 
 **Files:**
-- Create: `src/docket/migrations/020_badge_status_column.py`
+- Create: `src/docket/migrations/021_badge_status_column.py`
 - Modify: `src/docket/migrations/runner.py`
 
 - [ ] **Step 1: Write the migration**
 
 ```python
-# src/docket/migrations/020_badge_status_column.py
+# src/docket/migrations/021_badge_status_column.py
 """Migration 020 — agenda_item_badges.status (applied/flagged/rejected).
 
 Refactor #2 from the Wave 1 evaluation: badges suggested by Haiku
@@ -114,7 +114,7 @@ In `src/docket/migrations/runner.py:MIGRATIONS`, append after 019:
 
 ```python
 "docket.migrations.019_backfill_source_anchors",  # if 019 is already in the list
-"docket.migrations.020_badge_status_column",
+"docket.migrations.021_badge_status_column",
 ```
 
 (If 019 is not in the list yet because the source-anchor plan hasn't shipped, register 020 directly after 018.)
@@ -141,7 +141,7 @@ Expected: one row with `'applied'` and the existing count. Default backfilled ev
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/docket/migrations/020_badge_status_column.py src/docket/migrations/runner.py
+git add src/docket/migrations/021_badge_status_column.py src/docket/migrations/runner.py
 git commit -m "migrate(020): agenda_item_badges.status column for review queue
 
 applied (default — citizen-visible) | flagged (admin review) | rejected
@@ -450,7 +450,7 @@ suggestions (admin review queue)."
 
 ```bash
 git push -u origin feat/badge-status-write-path
-gh pr create --title "feat(badges): policy-badge status column + flagged for LLM-only" --body "Section A of conservative-policy-badges plan: migration 020, decide_status_and_confidence helper, 5-tuple return from compute_policy_badges, status threaded through pipeline.finalize_from_rewrite Phase C INSERT.
+gh pr create --title "feat(badges): policy-badge status column + flagged for LLM-only" --body "Section A of conservative-policy-badges plan: migration 021, decide_status_and_confidence helper, 5-tuple return from compute_policy_badges, status threaded through pipeline.finalize_from_rewrite Phase C INSERT.
 
 Reader queries still ignore status (Section C lands those). Backfill of existing LLM-only rows still pending (Section E). Net effect after this PR: new items get status correctly; existing rows unchanged."
 ```
@@ -589,7 +589,7 @@ Note the CREATE MATERIALIZED VIEW block — its SELECT shape.
 # src/docket/migrations/021_badge_mv_status_filter.py
 """Migration 021 — mv_badge_volume_monthly filters on status='applied'.
 
-Counterpart to migration 020 + Section B of the conservative-badges plan.
+Counterpart to migration 021 + Section B of the conservative-badges plan.
 The materialized view's timeline counts now reflect only badges visible
 to citizens (status='applied'), not the flagged-in-review backlog.
 """
