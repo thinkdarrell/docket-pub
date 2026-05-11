@@ -866,3 +866,121 @@ def test_process_item_e2e_idempotent_on_repeat_call(bag, monkeypatch):
     assert status_second == "completed"
     assert final_first["headline"] == final_second["headline"]
     assert final_first["headline"] == "Council awards $75K janitorial contract"
+
+
+# ---------------------------------------------------------------------------
+# Regression test for #57 (v3 ai_items hang after 2 Anthropic calls)
+# ---------------------------------------------------------------------------
+
+
+def test_process_item_uses_caller_conn_to_avoid_self_deadlock(bag, monkeypatch):
+    """The v3 worker holds ``FOR UPDATE`` row locks on its own connection
+    across the call to ``process_item`` (see ``claim_items_v3_sql``).
+    Before the fix, ``process_item`` opened a *new* connection via ``db()``
+    for Phase C's UPDATE. That new connection blocks forever waiting for
+    the worker's lock — PostgreSQL can't detect this because there's no
+    cycle in the wait graph.
+
+    The fix threads the worker's ``conn`` through ``process_item`` so all
+    DB writes go through the same connection. This test pins that
+    contract: when a conn is passed in, ``process_item`` must NOT open a
+    fresh ``db()`` connection. We assert that by patching
+    ``docket.ai.pipeline.db`` to a forbidder — if the pipeline tries to
+    fall through to ``db()`` despite the conn arg, the test fails fast.
+
+    A passing test means the regression is fixed; without the fix the
+    integration of worker + pipeline would hang for ~15 min before
+    container SIGKILL on Railway (observed 2026-05-11 FINAL-3 attempt).
+    """
+    import psycopg2
+    from docket.ai import pipeline
+    from docket.config import DATABASE_URL
+
+    monkeypatch.setattr(
+        "docket.ai.pipeline.evaluate_data_quality",
+        lambda item: ("ok", "normal"),
+    )
+    monkeypatch.setattr(
+        "docket.ai.pipeline.is_procedural", lambda title: False,
+    )
+    monkeypatch.setattr(
+        "docket.ai.pipeline.extract_facts_for_item",
+        lambda *a, **kw: (_sample_facts(), "haiku-4-5"),
+    )
+    monkeypatch.setattr(
+        "docket.ai.pipeline.rewrite_item",
+        lambda *a, **kw: (_substantive_rewrite(), "haiku-4-5"),
+    )
+
+    # The forbidder: if pipeline opens a new db() connection while a
+    # conn was provided, we fail immediately instead of deadlocking.
+    # Patches ``pipeline.db`` (the local import inside pipeline.py) —
+    # the bag fixture uses ``docket.db.db`` directly so cleanup is
+    # unaffected by this patch.
+    def _forbid_db(*args, **kwargs):
+        raise AssertionError(
+            "pipeline opened a new db() connection while caller passed "
+            "conn — would self-deadlock against worker's FOR UPDATE lock "
+            "(#57 regression)"
+        )
+    monkeypatch.setattr("docket.ai.pipeline.db", _forbid_db)
+
+    m = bag.add_meeting()
+    iid = bag.add_pending_item(m)
+
+    # Connect directly (not via the patched ``db()``) so we own the
+    # commit/rollback cycle the same way the worker does.
+    worker_conn = psycopg2.connect(DATABASE_URL)
+    try:
+        with worker_conn.cursor() as cur:
+            # Mirrors claim_items_v3_sql's lock acquisition shape.
+            cur.execute(
+                "SELECT id FROM agenda_items WHERE id = %s FOR UPDATE",
+                (iid,),
+            )
+            assert cur.fetchone() is not None, "test row should be claimable"
+        # Build the duck-typed item shape on the same connection so we
+        # don't trigger _load_item's db_cursor (which uses the patched db).
+        with worker_conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT ai.id, ai.meeting_id, ai.title, ai.description,
+                       ai.sponsor, ai.dollars_amount, ai.topic, ai.is_consent,
+                       m.municipality_id AS city_id,
+                       muni.name         AS city_name
+                  FROM agenda_items ai
+                  JOIN meetings m ON m.id = ai.meeting_id
+                  JOIN municipalities muni ON muni.id = m.municipality_id
+                 WHERE ai.id = %s
+                """,
+                (iid,),
+            )
+            columns = [
+                "id", "meeting_id", "title", "description",
+                "sponsor", "dollars_amount", "topic", "is_consent",
+                "city_id", "city_name",
+            ]
+            row_dict = dict(zip(columns, cur.fetchone()))
+            row_dict["source_type"] = "agenda"
+            row_dict["raw_text"] = None
+        item = _ItemView(row_dict)
+
+        # The critical call. Without the fix this would raise the
+        # AssertionError above (pre-fix) or hang waiting for the lock
+        # (pre-fix, no patch). With the fix it threads ``conn`` and
+        # never calls ``db()``.
+        status = pipeline.process_item(item, conn=worker_conn)
+        worker_conn.commit()
+    except Exception:
+        worker_conn.rollback()
+        raise
+    finally:
+        worker_conn.close()
+
+    assert status == "completed"
+
+    final = _load_item(iid)
+    assert final["processing_status"] == "completed"
+    assert final["headline"] == "Council awards $75K janitorial contract"
+    assert final["ai_extraction_version"] is not None
+    assert final["ai_rewrite_version"] is not None
