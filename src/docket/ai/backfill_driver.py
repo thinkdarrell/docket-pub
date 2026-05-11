@@ -72,13 +72,24 @@ def iterate_pending_items(
     start_date, end_date = date_range
     target_status = 'pending' if stage == 'stage1' else 'extracted'
 
-    sql = """
+    # backfill_session_id-is-NULL guard applies only to Stage 1: it prevents
+    # the same pending item from being claimed by two simultaneous Stage 1
+    # waves. Stage 2 items have already been through Stage 1 — they carry
+    # their Stage 1 session_id as audit, and processing_status='extracted'
+    # is the sufficient single-source guard (nothing else moves rows into
+    # that state). Without this distinction Stage 2 was returning zero
+    # rows (observed 2026-05-11 when Wave 1 Stage 2 followed a successful
+    # Stage 1 ingest).
+    session_predicate = (
+        "AND ai.backfill_session_id IS NULL" if stage == 'stage1' else ""
+    )
+    sql = f"""
         SELECT ai.id, ai.title, ai.description, ai.sponsor, ai.dollars_amount,
                ai.topic, ai.is_consent
           FROM agenda_items ai
           JOIN meetings m ON m.id = ai.meeting_id
          WHERE ai.processing_status = %s
-           AND ai.backfill_session_id IS NULL
+           {session_predicate}
            AND m.meeting_date >= %s
            AND m.meeting_date <= %s
          ORDER BY ai.id

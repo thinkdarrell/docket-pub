@@ -190,7 +190,7 @@ class TestIteratePendingItems:
             _cleanup(meeting_ids, item_ids)
 
     def test_excludes_already_claimed_items(self):
-        """Items with backfill_session_id IS NOT NULL are excluded."""
+        """Items with backfill_session_id IS NOT NULL are excluded from Stage 1."""
         meeting_ids = []
         item_ids = []
         try:
@@ -212,6 +212,41 @@ class TestIteratePendingItems:
             found_ids = {it.id for chunk in chunks for it in chunk}
             assert unclaimed_id in found_ids
             assert claimed_id not in found_ids
+        finally:
+            _cleanup(meeting_ids, item_ids)
+
+    def test_stage2_claims_extracted_items_regardless_of_session_id(self):
+        """Stage 2 must pick up items at processing_status='extracted'
+        even though Stage 1 left a backfill_session_id on them.
+
+        Regression test for the Wave 1 Stage 2 zero-results bug observed
+        2026-05-11: Stage 1 succeeded (items at 'extracted' with their
+        Stage 1 session_id), then Stage 2's iterate_pending_items
+        filtered them out via ``backfill_session_id IS NULL``. The
+        session_id guard belongs only on Stage 1's claim path
+        (prevents two simultaneous Stage 1 waves clobbering each
+        other); for Stage 2 the ``processing_status='extracted'`` filter
+        is itself the single-source guard."""
+        meeting_ids = []
+        item_ids = []
+        try:
+            stage1_session = str(uuid.uuid4())
+            with db() as conn, conn.cursor() as cur:
+                _, m_id = _insert_muni_and_meeting(cur, date(2026, 8, 1))
+                meeting_ids.append(m_id)
+                extracted_with_session = _insert_item(
+                    cur, m_id, "Stage1-done",
+                    processing_status='extracted',
+                    backfill_session_id=stage1_session,
+                )
+                item_ids.append(extracted_with_session)
+
+            chunks = list(iterate_pending_items(
+                (date(2026, 1, 1), date(2026, 12, 31)),
+                stage='stage2',
+            ))
+            found_ids = {it.id for chunk in chunks for it in chunk}
+            assert extracted_with_session in found_ids
         finally:
             _cleanup(meeting_ids, item_ids)
 
