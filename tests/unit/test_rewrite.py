@@ -363,14 +363,19 @@ class TestRewriteItemCacheBehavior:
         assert model_id == 'claude-haiku-4-5-20251001'
 
     def test_overlong_headline_is_truncated_to_max_length(self):
-        """Haiku occasionally returns a >60-char headline. Truncation lets the
+        """Haiku occasionally returns a >80-char headline. Truncation lets the
         item complete rather than failing permanent — observed in production
-        2026-05-11 on roughly 30% of items in the FINAL-3 verification cron."""
+        2026-05-11 in the FINAL-3 verification cron. Prompt-v4 raised the
+        cap from 60 to 80; this test uses a 90+ char header to still exercise
+        the truncate path."""
         item = make_item()
         facts = make_facts()
         overlong = dict(VALID_SUBSTANTIVE_RESPONSE)
-        # 72 chars — exceeds the 60-char Field(max_length=60) cap.
-        overlong['headline'] = 'City awards $326,741 drainage contract to Southeastern Sealcoating Inc'
+        # 95 chars — exceeds the 80-char Field(max_length=80) cap.
+        overlong['headline'] = (
+            'City awards $326,741 drainage and stormwater management contract '
+            'to Southeastern Sealcoating Inc'
+        )
         mock_response = _mock_api_response(overlong)
 
         with patch('docket.ai.rewrite.anthropic_client') as mock_client, \
@@ -379,12 +384,14 @@ class TestRewriteItemCacheBehavior:
             mock_client.messages.create.return_value = mock_response
             rewrite, _ = rewrite_item(item, facts, [])
 
-        assert len(rewrite.headline) <= 60
+        assert len(rewrite.headline) <= 80
         assert rewrite.headline.startswith('City awards $326,741 drainage')
 
 
 def test_truncate_overlong_strings_uses_max_length_from_ctx():
-    """Direct helper exercise — only top-level fields are touched."""
+    """Direct helper exercise — only top-level fields are touched.
+    Prompt v4 raised the headline cap from 60 to 80; this test exercises
+    the helper against the new cap with a 100-char input."""
     from docket.ai.extraction import _truncate_overlong_strings
     from pydantic import ValidationError
 
@@ -392,7 +399,7 @@ def test_truncate_overlong_strings_uses_max_length_from_ctx():
     try:
         ItemRewrite.model_validate({
             **VALID_SUBSTANTIVE_RESPONSE,
-            'headline': 'x' * 80,
+            'headline': 'x' * 100,
         })
     except ValidationError as e:
         validation_error = e
@@ -400,6 +407,6 @@ def test_truncate_overlong_strings_uses_max_length_from_ctx():
         pytest.fail("expected ValidationError")
 
     payload = dict(VALID_SUBSTANTIVE_RESPONSE)
-    payload['headline'] = 'x' * 80
+    payload['headline'] = 'x' * 100
     out = _truncate_overlong_strings(payload, validation_error)
-    assert len(out['headline']) == 60
+    assert len(out['headline']) == 80
