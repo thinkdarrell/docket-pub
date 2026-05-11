@@ -40,55 +40,33 @@ railway ssh --service worker "cd /app && python -m docket.worker.scheduler --run
 
 ## Task #52 — Monitoring audit (BLOCKS FINAL-3)
 
-**The problem:** v3 batches have `summary.cost_usd = 0.0` in `ai_runs` rows (decision #10 of the B5 plan — `usage` is not threaded through extraction.py / rewrite.py). After the flag flip, every `ai_items` v3 batch will record $0.00 cost even though Anthropic was actually called.
+**The problem:** v3 batches have `summary.cost_usd = 0.0` AND `usage = NULL` in `ai_runs` rows (decision #10 of the B5 plan — `extraction.py` and `rewrite.py` swallow `response.usage` rather than threading it through the call chain). After the flag flip, every `ai_items` v3 batch will record $0.00 cost even though Anthropic was actually called. Railway-side `AI_DAILY_BUDGET_USD` enforcement reads `cost_usd` sum, so the gate effectively never fires for v3 batches. **The Anthropic dashboard becomes the only spend enforcement.** Task #54 (post-Phase-2 cleanup) restores Railway-side enforcement by threading `usage` through the v3 pipeline.
+
+**Project monitoring stack (no Grafana / Prometheus / Datadog configured):**
+1. **Healthchecks.io** — primary cron alerting (5 UUIDs in `HEALTHCHECK_*_UUID` env vars on the `worker` service)
+2. **Railway built-in** — `railway logs --service <name>` + dashboard CPU/memory/restart count
+3. **Anthropic console** — `console.anthropic.com` for actual API spend
 
 **Action items to complete before FINAL-3:**
 
-### Healthchecks.io
+### Healthchecks.io audit
 - [ ] **Log into hc.io** with the docket.pub account
 - [ ] **Locate the 5 cron-task checks** corresponding to `HEALTHCHECK_*_UUID` env vars on the worker service: `repair_empty_agendas`, `ingest_all`, `ai_items`, `ai_meetings`, `vote_matching`
-- [ ] **Verify the success-ping body** isn't asserting cost > 0 (the project's success ping is a no-body GET per `src/docket/worker/health.py`, so this should be fine — confirm)
-- [ ] **Verify no alerting rules** depend on the ping body containing cost data
-- [ ] **Check fail-ping behavior** — the worker pings fail with the exception traceback per `_safe_run` in `worker/tasks.py`. `BudgetExceededError` is swallowed in AI tasks and pings success (expected). Confirm.
+- [ ] **Verify all 5 are currently green** (last ping success, no alerts firing)
+- [ ] **Confirm the success-ping body** isn't asserting cost > 0 — the project's success ping is a no-body GET per `src/docket/worker/health.py`, so any cost-based alerting at this layer is impossible. Quick visual confirmation only.
+- [ ] **Confirm `BudgetExceededError`-swallow path still pings success** in the AI tasks (expected per project memory — the worker treats budget-exceeded as a graceful no-op).
 
-### Grafana (if configured)
-- [ ] **Log into the Grafana instance** (if any — the project memory doesn't reference Grafana directly, but the FINAL-3 monitoring may have it)
-- [ ] **Audit dashboards for `ai_runs.cost_usd` queries** that alert on zero-spend or below-threshold:
-  - SQL pattern: `SELECT cost_usd FROM ai_runs WHERE stage='items' ORDER BY id DESC LIMIT N`
-  - Any alert with predicate `cost_usd = 0` or `cost_usd < $X` for items stage will fire constantly post-flip
-- [ ] **Temporarily mute** any such alerts, OR add a query exception for `cost_usd = 0` on v3 batches
-- [ ] **Document the v3 spend** by querying `ai_runs.usage` JSONB directly (still populated; just not the `cost_usd` column):
-  ```sql
-  SELECT
-    started_at,
-    (usage->>'input_tokens')::int AS input_tokens,
-    (usage->>'output_tokens')::int AS output_tokens,
-    (usage->>'cache_read_input_tokens')::int AS cache_read,
-    (usage->>'cache_creation_input_tokens')::int AS cache_create
-  FROM ai_runs
-  WHERE stage='items' AND started_at > NOW() - INTERVAL '24 hours'
-  ORDER BY id DESC;
-  ```
-  Wait — see "Known gap" below: v3 does NOT populate `usage` either today. The above query returns NULLs for v3 batches.
+### Anthropic-side spend cap (CRITICAL BACKSTOP)
+- [ ] **Log into console.anthropic.com** with the docket.pub Anthropic account
+- [ ] **Set a daily or monthly spend cap** on the production API key — current v3 cost expectation is ~$0.0024/item × ~37K items at peak Phase 3 backfill = ~$90 total, so a $50/day cap with $200 monthly ceiling is conservative
+- [ ] **Configure email alerts** on the spend cap at 50% / 80% / 100% thresholds
+- [ ] **Verify the production API key** matches what's in Railway's `ANTHROPIC_API_KEY` env var (so the cap actually applies to the right key)
 
-### Known gap (informational)
+Decision #10's gap means this is the only enforcement layer that will catch a v3 runaway until task #54 lands.
 
-Decision #10 of the B5 plan accepted "no `usage` tracking in v3 v1." `extraction.py` and `rewrite.py` swallow the anthropic `response.usage` field rather than returning it through the call chain. The pipeline doesn't thread it; the worker doesn't accumulate it. So `ai_runs` rows for v3-only batches will have:
-- `cost_usd = 0.0`
-- `usage = NULL` (no JSONB)
+### Known gap (recorded for FINAL-3 awareness)
 
-**This is intentional v1 scope.** The follow-up to backfill usage threading is task #54 (post-Phase-2 cleanup). Until then, v3 batches are invisible to cost-based monitoring — operators rely on:
-1. **Anthropic dashboard** for actual spend (login: console.anthropic.com)
-2. **`AI_DAILY_BUDGET_USD` enforcement** — the worker reads `ai_runs.cost_usd` sum to gate new batches. With v3 reporting $0, the gate effectively never fires for v3 batches. **Consider lowering the gate or setting an Anthropic-side spend limit** as a backstop before FINAL-3.
-
-### Anthropic-side spend limit (recommended)
-
-Before flipping the flag:
-- [ ] Log into console.anthropic.com
-- [ ] Set a daily or monthly spend cap on the production API key as a hard backstop
-- [ ] Set up email/SMS alerting on the spend cap at 50% / 80% / 100%
-
-Decision-#10's gap means Railway's `AI_DAILY_BUDGET_USD` won't catch a v3 runaway. The Anthropic dashboard is the only enforcement that will.
+`ai_runs` rows for v3-only batches will have `cost_usd = 0.0` and `usage = NULL`. **Don't be alarmed** — money is being spent, it's just not being recorded in this column. Look at the Anthropic console for actual spend during the first 24h post-flip.
 
 ## FINAL-3 flag flip procedure
 
