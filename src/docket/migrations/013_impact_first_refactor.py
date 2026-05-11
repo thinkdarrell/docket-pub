@@ -139,9 +139,17 @@ CREATE TABLE agenda_item_badges (
     UNIQUE (agenda_item_id, badge_slug)
 );
 
+-- Note: agenda_item_id is nullable + ON DELETE SET NULL (post-016 shape).
+-- Migration 016 originally relaxed this from NOT NULL/RESTRICT after the
+-- pre-016 shape caused operational issues (deletes of agenda_items were
+-- blocked while audit rows referenced them). Baking the post-016 shape
+-- directly into 013 makes the migration cycle (down → up) reproduce the
+-- correct shape, since 015 + 016 are not re-applied after a 013-only
+-- rollback. Migration 016 remains idempotent against an already-shipped
+-- DB and is a no-op against a fresh install built from this 013 UP.
 CREATE TABLE agenda_item_badges_audit (
     id              SERIAL PRIMARY KEY,
-    agenda_item_id  INT NOT NULL REFERENCES agenda_items(id),
+    agenda_item_id  INT REFERENCES agenda_items(id) ON DELETE SET NULL,
     badge_slug      TEXT NOT NULL,
     action          TEXT NOT NULL CHECK (action IN ('added', 'removed', 'modified')),
     actor           TEXT,
