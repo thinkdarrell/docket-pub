@@ -165,3 +165,4 @@ railway ssh --service docket-web "cd /app && python -m docket.ai.cli --status"
 - **#48** — fix G1 flaky date-sensitive test
 - **#50** — stray `login_required` reference at `admin.py:445`
 - **#51** — optional CSS-token drift CI script
+- **#56** — `calibration_report` SQL bug. After #55 unmasked it (KeyError was hiding it before), `QUERY_A_DIVERGENCE` in `src/docket/ai/calibration.py:124` fails with `psycopg2.errors.UndefinedColumn: column ai.updated_at does not exist` (HINT: "Perhaps you meant `m.updated_at`"). Task has been crashing every 11:00 CDT — daily diagnostic only, no production impact. Fix: trace the alias in the query, switch to the right column, add a test that exercises the query against a real cursor (the existing `test_run_calibration_queries_*` tests use a mock cursor so they didn't catch this). Discovered 2026-05-11.
