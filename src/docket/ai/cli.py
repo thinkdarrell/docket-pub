@@ -102,6 +102,26 @@ def cmd_dry_run(stage: str, limit: int) -> None:
             conn.rollback()
 
 
+def cmd_wave_n(wave: str, stage_num: str, batch_size: int) -> None:
+    """Run a Wave 0.5/1/2/3 batch submission (Batches API path)."""
+    from docket.ai.backfill_driver import run_wave
+
+    stage = f'stage{stage_num}'
+    print(f"Submitting wave={wave} stage={stage} batch_size={batch_size} ...")
+    result = run_wave(wave, stage, batch_size=batch_size)
+
+    print(f"\nWave {result.wave_name} ({result.stage}) submitted.")
+    print(f"  session_id:  {result.session_id}")
+    print(f"  batch_count: {result.batch_count}")
+    print(f"  item_count:  {result.item_count}")
+    if result.anthropic_batch_ids:
+        print("  batch IDs:")
+        for bid in result.anthropic_batch_ids:
+            print(f"    {bid}")
+    else:
+        print("  (no pending items — nothing submitted)")
+
+
 def cmd_wave_0() -> None:
     """Run Wave 0 (non-LLM pre-pass) across all configured cities."""
     from docket.ai.wave0 import run_wave_0
@@ -154,11 +174,27 @@ def main() -> None:
     group.add_argument(
         "--wave",
         type=str,
-        choices=['0'],   # Phase 1 only knows about wave 0; later phases extend
+        choices=['0', '0.5', '1', '2', '3'],
         default=None,
-        help="Run a backfill wave. '0' = Stage 0a + 0b non-LLM pre-pass (decision #78).",
+        help=(
+            "Run a backfill wave. '0' = Stage 0a + 0b non-LLM pre-pass (decision #78). "
+            "'0.5'/'1'/'2'/'3' = Batches API submission; requires --stage."
+        ),
     )
     parser.add_argument("--limit", type=int, default=AI_MAX_BATCH_SIZE)
+    parser.add_argument(
+        "--stage",
+        type=str,
+        choices=['1', '2'],
+        default=None,
+        help="Stage for --wave 0.5/1/2/3. '1' = extraction, '2' = rewrite.",
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=10_000,
+        help="Items per Anthropic batch (default 10000). Only used with --wave 0.5/1/2/3.",
+    )
     parser.add_argument("--dry-run", action="store_true",
                         help="Show what would be processed without calling AI")
     parser.add_argument("--force", action="store_true",
@@ -175,7 +211,15 @@ def main() -> None:
     )
 
     if args.wave == '0':
+        if args.stage is not None:
+            sys.exit("--stage is not valid with --wave 0 (Wave 0 is a non-LLM pre-pass)")
         cmd_wave_0()
+        return
+
+    if args.wave in ('0.5', '1', '2', '3'):
+        if args.stage is None:
+            sys.exit(f"--wave {args.wave} requires --stage 1 or --stage 2")
+        cmd_wave_n(args.wave, args.stage, args.batch_size)
         return
 
     if args.status:

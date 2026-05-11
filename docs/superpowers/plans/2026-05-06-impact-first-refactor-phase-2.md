@@ -462,9 +462,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Any
 
-from docket.db import db_cursor
+from docket.db import db
 
 
 def cache_key(model_id: str, prompt_version: int, canonical_input: str) -> str:
@@ -476,7 +475,7 @@ def cache_key(model_id: str, prompt_version: int, canonical_input: str) -> str:
 def cache_get(key: str) -> dict | None:
     """Returns the cached response payload, or None on miss.
     Side effect: bumps `accessed_at` on hit (informs cleanup TTL)."""
-    with db_cursor() as cur:
+    with db() as conn, conn.cursor() as cur:
         cur.execute("""
             UPDATE ai_response_cache
             SET accessed_at = NOW()
@@ -489,7 +488,7 @@ def cache_get(key: str) -> dict | None:
 
 def cache_put(key: str, *, model: str, prompt_version: int, payload: dict) -> None:
     """Insert or update a cache entry."""
-    with db_cursor() as cur:
+    with db() as conn, conn.cursor() as cur:
         cur.execute("""
             INSERT INTO ai_response_cache
               (cache_key, model, prompt_version, response_json)
@@ -503,7 +502,7 @@ def cache_put(key: str, *, model: str, prompt_version: int, payload: dict) -> No
 def cache_cleanup(max_age_days: int = 90) -> int:
     """Delete entries older than max_age_days (decision #91 cleanup policy).
     Called by the nightly calibration_report cron task. Returns rows deleted."""
-    with db_cursor() as cur:
+    with db() as conn, conn.cursor() as cur:
         cur.execute("""
             DELETE FROM ai_response_cache
             WHERE accessed_at < NOW() - (%s || ' days')::interval
