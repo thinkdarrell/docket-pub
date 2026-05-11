@@ -1,33 +1,51 @@
 """One-shot state snapshot for the docket.pub v3 pipeline.
 
-Run with the public DB URL exported, or it falls through to the
-local DATABASE_URL from .env. Prints ai_batches state, processing_status
-counts, and 10 random v3 headlines.
+Resolves the Railway public DB URL automatically by shelling out to the
+``railway`` CLI — no env-var dance required. Prints ai_batches state,
+processing_status counts, and 10 random v3 headlines.
 
 Usage:
-    export DATABASE_URL=$(railway variables --service docket-web --kv \\
-        | grep '^DATABASE_PUBLIC_URL=' | cut -d= -f2-)
     venv/bin/python scripts/check_state.py
 
-Or from the project root with the env preset:
-    DATABASE_URL=$DATABASE_PUBLIC_URL venv/bin/python scripts/check_state.py
+If DATABASE_URL is already set in the environment, it's used as-is
+(useful for pointing at a local DB).
 """
 
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 
 import psycopg2
 
 
+def _resolve_database_url() -> str | None:
+    """Return DATABASE_URL from env, or shell out to railway CLI for prod."""
+    env_url = os.environ.get("DATABASE_URL")
+    if env_url:
+        return env_url
+    try:
+        out = subprocess.check_output(
+            ["railway", "variables", "--service", "docket-web", "--kv"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return None
+    for line in out.splitlines():
+        if line.startswith("DATABASE_PUBLIC_URL="):
+            return line.split("=", 1)[1]
+    return None
+
+
 def main() -> int:
-    url = os.environ.get("DATABASE_URL")
+    url = _resolve_database_url()
     if not url:
         sys.exit(
-            "DATABASE_URL not set. Export it via:\n"
-            "  export DATABASE_URL=$(railway variables --service docket-web "
-            "--kv | grep '^DATABASE_PUBLIC_URL=' | cut -d= -f2-)"
+            "Could not resolve DATABASE_URL.\n"
+            "Either set it manually, or check that `railway` CLI is installed "
+            "and authenticated (try: railway whoami)."
         )
     cur = psycopg2.connect(url).cursor()
 
