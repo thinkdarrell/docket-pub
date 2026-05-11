@@ -7,6 +7,18 @@
 .badge-chip.badge-conf-high { background: var(--accent, #2c5f6f); color: var(--paper, #fff); }
 .badge-spark { font-size: 0.875em; }
 
+/* Category-landing meta strip — meeting date + item-number reference.
+   Sits between the badge row and the headline; uses .t-meta for muted color
+   (defined in styles.css). */
+.smart-brevity-card__meta-strip {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 6px 0 4px;
+}
+.smart-brevity-card__sep { opacity: 0.5; }
+.smart-brevity-card__item-ref { white-space: nowrap; }
+
 /* Mobile carousel — Brevity-First (decision #66) */
 @media (max-width: 768px) {
   .smart-brevity-card .badge-row {

@@ -309,6 +309,21 @@ def test_happy_path_returns_items_with_badge_in_city(bag):
     assert b not in ids
 
 
+def test_returns_meeting_date_for_category_landing_meta_strip(bag):
+    """Category landing cards span many meetings and need the date inline.
+    Without ``meeting_date`` in the projection the card template has no way
+    to show 'April 15, 2026' on the meta strip (regression check)."""
+    from datetime import date
+
+    m = bag.add_meeting(bag.city_id, "2026-04-15")
+    a = bag.add_item(m, title="Demolition order", significance_score=5)
+    bag.add_badge(a, bag.city_id, "blight_accountability", confidence=1.0)
+
+    items = list_items_by_badge(bag.city_id, "blight_accountability")
+    assert items, "fixture should produce one item"
+    assert items[0].meeting_date == date(2026, 4, 15)
+
+
 def test_orders_by_date_desc_then_dollars_desc_nulls_last(bag):
     m_old = bag.add_meeting(bag.city_id, "2026-01-10")
     m_new = bag.add_meeting(bag.city_id, "2026-04-20")

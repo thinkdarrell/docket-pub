@@ -395,6 +395,10 @@ def category_landing(slug: str, badge_slug: str):
             items=items,
             next_offset=next_offset,
             cross_filters=cross_filters,
+            # Category-landing cards span many meetings — surface date +
+            # item ref per card via the shared meta strip (no-op on
+            # meeting-detail surfaces where show_meeting_context is unset).
+            show_meeting_context=True,
         )
 
     return render_template(
@@ -412,6 +416,7 @@ def category_landing(slug: str, badge_slug: str):
         offset=offset,
         next_offset=next_offset,
         current_year=current_year,
+        show_meeting_context=True,
     )
 
 

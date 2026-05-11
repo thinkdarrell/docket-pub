@@ -96,6 +96,7 @@ class _Bag:
         significance_score: float | None = 5,
         dollars_amount: float | None = None,
         processing_status: str = "completed",
+        item_number: str | None = None,
     ) -> int:
         with db() as conn:
             with conn.cursor() as cur:
@@ -103,13 +104,13 @@ class _Bag:
                     """
                     INSERT INTO agenda_items
                       (meeting_id, title, significance_score, dollars_amount,
-                       processing_status)
+                       processing_status, item_number)
                     VALUES (%s, %s, %s, %s,
-                            %s::processing_status_enum)
+                            %s::processing_status_enum, %s)
                     RETURNING id
                     """,
                     (meeting_id, title, significance_score, dollars_amount,
-                     processing_status),
+                     processing_status, item_number),
                 )
                 iid = cur.fetchone()[0]
         self.item_ids.append(iid)
@@ -515,6 +516,45 @@ def test_route_200_happy_path(bag, client):
     # smart_brevity_card dispatcher will route to card_pending for a
     # v3-pre item, which still surfaces the title somewhere in markup).
     assert "Demolition order" in body
+
+
+def test_category_landing_renders_meeting_date_and_item_number(bag, client):
+    """Section A regression: every card on a category landing must show
+    its meeting date + Item-#N reference. Without these the cards have
+    no temporal context (cards span many meetings on this surface,
+    unlike meeting-detail)."""
+    m = bag.add_meeting(bag.city_id, "2026-04-15")
+    item = bag.add_item(
+        m, title="Demolition order", dollars_amount=12_345,
+        significance_score=5, item_number="42",
+    )
+    bag.add_badge(item, bag.city_id, "blight_accountability", confidence=1.0)
+
+    rv = client.get(f"/al/{bag.city_slug}/blight_accountability/")
+    assert rv.status_code == 200
+    body = rv.get_data(as_text=True)
+    assert "April 15, 2026" in body
+    assert "Item #42" in body
+
+
+def test_category_landing_meta_strip_omitted_when_neither_field_present(
+    bag, client
+):
+    """The strip's whole-block guard collapses when no date AND no item
+    number — keeps an empty meta block from rendering."""
+    m = bag.add_meeting(bag.city_id, "2026-04-15")
+    item = bag.add_item(
+        m, title="No-context item", significance_score=5, item_number=None,
+    )
+    bag.add_badge(item, bag.city_id, "blight_accountability", confidence=1.0)
+
+    rv = client.get(f"/al/{bag.city_slug}/blight_accountability/")
+    assert rv.status_code == 200
+    body = rv.get_data(as_text=True)
+    # Date is still there from the meeting itself — meta strip should render
+    # date alone, but not the empty "Item #" reference.
+    assert "April 15, 2026" in body
+    assert "Item #None" not in body
 
 
 def test_route_404_unknown_city(client):

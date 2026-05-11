@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 
@@ -83,6 +83,12 @@ class AgendaItem:
     # BadgeChip (kind, slug, name, icon, description, confidence). Empty
     # list when no badges; None when the query was run without badges.
     badges: list[dict] = field(default_factory=list)
+    # Optional parent-meeting date. Populated by list_items_by_badge so
+    # the category-landing meta strip can show the date inline (a card on
+    # /al/birmingham/blight_accountability/ spans many meetings, unlike
+    # the meeting-detail page where date is in the page chrome). Other
+    # query paths that don't surface across meetings can leave this None.
+    meeting_date: date | None = None
 
     @classmethod
     def from_row(cls, row: dict) -> AgendaItem:
@@ -137,4 +143,5 @@ class AgendaItem:
             action_type=action_type,
             location=location,
             badges=row.get("badges") or [],
+            meeting_date=row.get("meeting_date"),
         )
