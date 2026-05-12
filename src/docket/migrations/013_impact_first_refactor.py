@@ -307,6 +307,13 @@ CREATE INDEX idx_processing_status_audit_open_conflicts
     WHERE action IN ('accept_stage1', 'accept_stage2', 're_prompted', 'edit_stage1');
 
 -- 8. Materialized view for category-page volume timelines (with consent split, decision #68)
+-- Post-022 shape: ``AND aib.status = 'applied'`` filters out flagged
+-- (admin-review-only) badge rows. Migration 022 (refactor #2) added
+-- this filter to keep citizen-facing timelines in sync with the
+-- base-table readers (list_items_by_badge / category_kpis etc., which
+-- gained the same filter in Section B). Baked in here so the 013
+-- up→down→up cycle reproduces the post-022 shape; same bake-in
+-- pattern as the agenda_item_badges.status column above.
 CREATE MATERIALIZED VIEW mv_badge_volume_monthly AS
 SELECT
     m.municipality_id AS city_id,
@@ -320,6 +327,7 @@ FROM agenda_item_badges aib
 JOIN agenda_items ai ON ai.id = aib.agenda_item_id
 JOIN meetings m ON m.id = ai.meeting_id
 WHERE aib.confidence >= 0.6
+  AND aib.status = 'applied'
 GROUP BY m.municipality_id, aib.badge_slug, month
 WITH NO DATA;
 

@@ -128,6 +128,8 @@ class _Bag:
         badge_slug: str,
         *,
         confidence: float = 1.0,
+        source: str = "deterministic",
+        status: str = "applied",
     ) -> None:
         with db() as conn:
             with conn.cursor() as cur:
@@ -140,10 +142,10 @@ class _Bag:
                     """
                     INSERT INTO agenda_item_badges
                       (agenda_item_id, city_id, badge_slug, kind,
-                       confidence, source)
-                    VALUES (%s, %s, %s, %s, %s, 'deterministic')
+                       confidence, source, status)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
                     """,
-                    (item_id, self.city_id, badge_slug, kind, confidence),
+                    (item_id, self.city_id, badge_slug, kind, confidence, source, status),
                 )
 
     def cleanup(self) -> None:
@@ -620,3 +622,31 @@ def test_route_renders_empty_state_when_no_data(bag, client):
         assert jargon not in body, (
             f"public empty state contains internal jargon {jargon!r}"
         )
+
+
+def test_volume_series_excludes_flagged_badges(bag):
+    """Refactor #2 (Section B / migration 022): the volume timeline MV
+    filters status='applied' so flagged (admin-review-only) rows don't
+    inflate n_items, n_consent, n_substantive, or total_dollars on
+    citizen-facing surfaces."""
+    from datetime import date
+
+    m = bag.add_meeting("2026-04-15")
+    applied = bag.add_item(m, title="Real blight item",
+                           dollars_amount=50_000)
+    flagged = bag.add_item(m, title="Mis-tagged blight item",
+                           dollars_amount=50_000)
+    bag.add_badge(applied, "blight_accountability",
+                  confidence=1.0, status="applied")
+    bag.add_badge(flagged, "blight_accountability",
+                  confidence=0.4, source="llm", status="flagged")
+    _refresh_mv()
+
+    series = badge_volume_series(
+        bag.city_id, "blight_accountability",
+        start_date=date(2026, 4, 1),
+        end_date=date(2026, 4, 30),
+    )
+    april = [r for r in series if r["period"] == date(2026, 4, 1)][0]
+    assert april["n_items"] == 1
+    assert int(april["total_dollars"]) == 50_000
