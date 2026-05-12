@@ -1,0 +1,18 @@
+<tr id="badge-row-{{ row.badge_id }}">
+  <td>
+    <a href="/al/{{ row.city_slug }}/items/{{ row.agenda_item_id }}/">
+      {{ row.item_title | truncate(60) }}
+    </a>
+  </td>
+  <td><code>{{ row.badge_slug }}</code></td>
+  <td>{{ row.city_name }}</td>
+  <td>{{ row.meeting_date.strftime('%Y-%m-%d') }}</td>
+  <td>
+    <button hx-post="/admin/badge-review/{{ row.badge_id }}/approve"
+            hx-target="#badge-row-{{ row.badge_id }}"
+            hx-swap="outerHTML">Approve</button>
+    <button hx-post="/admin/badge-review/{{ row.badge_id }}/reject"
+            hx-target="#badge-row-{{ row.badge_id }}"
+            hx-swap="outerHTML">Reject</button>
+  </td>
+</tr>

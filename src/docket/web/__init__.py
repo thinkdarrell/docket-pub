@@ -59,12 +59,14 @@ def create_app() -> Flask:
 
     # Register blueprints
     from docket.web.admin import bp as admin_bp
+    from docket.web.admin_badge_review import bp as admin_badge_review_bp
     from docket.web.auth import bp as auth_bp
     from docket.web.public import bp as public_bp
 
     app.register_blueprint(public_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(admin_bp)
+    app.register_blueprint(admin_badge_review_bp)
 
     # Strict-Transport-Security: pin browsers to HTTPS once they've successfully
     # connected. 1 year (31536000s). includeSubDomains is intentionally omitted
