@@ -114,7 +114,10 @@ CREATE TABLE priority_badge_templates (
     icon                  TEXT NOT NULL,
     kind                  TEXT NOT NULL CHECK (kind IN ('process', 'policy')),
     default_matcher_hints JSONB NOT NULL DEFAULT '{}'::jsonb,
-    created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    accent_color          TEXT,
+    chart_title           TEXT,
+    chart_footnote        TEXT
 );
 
 CREATE TABLE priority_badges_config (

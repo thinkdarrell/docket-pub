@@ -34,6 +34,7 @@ MIGRATIONS = [
     "docket.migrations.021_badge_status_column",
     "docket.migrations.022_badge_mv_status_filter",
     "docket.migrations.023_processing_status_withdrawn",
+    "docket.migrations.024_category_landing_v1",
 ]
 
 
