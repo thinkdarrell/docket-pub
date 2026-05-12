@@ -229,11 +229,14 @@ def _load_item(item_id: int) -> dict:
 
 
 def _read_badges(item_id: int) -> list[tuple]:
-    """Read agenda_item_badges rows for assertions."""
+    """Read agenda_item_badges rows for assertions.
+
+    Tuple shape: (badge_slug, kind, confidence, source, city_id, status).
+    """
     with db() as conn, conn.cursor() as cur:
         cur.execute(
             """
-            SELECT badge_slug, kind, confidence::float, source, city_id
+            SELECT badge_slug, kind, confidence::float, source, city_id, status
               FROM agenda_item_badges
              WHERE agenda_item_id = %s
              ORDER BY badge_slug
@@ -395,6 +398,104 @@ def test_process_item_happy_path_completes_and_writes_badges(bag, monkeypatch):
     # All badges carry city_id (decision #92).
     for badge in badges:
         assert badge[4] == bag.city_id
+    # Refactor #2: process badges always write status='applied'.
+    by_slug = {b[0]: b for b in badges}
+    assert by_slug["legal_settlement"][5] == "applied"
+
+
+def test_pipeline_writes_status_flagged_for_llm_only_policy_badge(bag, monkeypatch):
+    """Refactor #2: when Stage 2 suggests a policy badge but no
+    deterministic signal backs it, the badge row lands at
+    status='flagged' so it's invisible to citizens until an admin
+    promotes it."""
+    from docket.ai import pipeline
+
+    monkeypatch.setattr(
+        "docket.ai.pipeline.evaluate_data_quality",
+        lambda item: ("ok", "normal"),
+    )
+    monkeypatch.setattr(
+        "docket.ai.pipeline.is_procedural",
+        lambda title: False,
+    )
+    monkeypatch.setattr(
+        "docket.ai.pipeline.extract_facts_for_item",
+        lambda *a, **kw: (_sample_facts(), "claude-haiku-4-5-20251001"),
+    )
+
+    rewrite = _substantive_rewrite()
+    # Force a single policy-badge slug suggestion. Bypass real
+    # enabled-badge lookup by monkeypatching compute_policy_badges to
+    # yield exactly what Section A.3 specifies for an LLM-only path.
+    monkeypatch.setattr(
+        "docket.ai.pipeline.rewrite_item",
+        lambda *a, **kw: (rewrite, "claude-haiku-4-5-20251001"),
+    )
+    monkeypatch.setattr(
+        "docket.ai.pipeline.compute_policy_badges",
+        lambda item, facts, rw, city_id: [
+            ("housing_stability", 0.4, "llm", {"llm_only": True}, "flagged"),
+        ],
+    )
+
+    m = bag.add_meeting()
+    iid = bag.add_pending_item(m, title="Routine procurement housekeeping")
+    item = _ItemView(_load_item(iid))
+
+    status = pipeline.process_item(item)
+    assert status == "completed"
+
+    badges = _read_badges(iid)
+    by_slug = {b[0]: b for b in badges}
+    assert "housing_stability" in by_slug
+    row = by_slug["housing_stability"]
+    # (badge_slug, kind, confidence, source, city_id, status)
+    assert row[1] == "policy"
+    assert row[3] == "llm"
+    assert row[5] == "flagged"
+
+
+def test_pipeline_writes_status_applied_for_deterministic_policy_badge(bag, monkeypatch):
+    """Deterministic backing → status='applied' on the policy badge."""
+    from docket.ai import pipeline
+
+    monkeypatch.setattr(
+        "docket.ai.pipeline.evaluate_data_quality",
+        lambda item: ("ok", "normal"),
+    )
+    monkeypatch.setattr(
+        "docket.ai.pipeline.is_procedural",
+        lambda title: False,
+    )
+    monkeypatch.setattr(
+        "docket.ai.pipeline.extract_facts_for_item",
+        lambda *a, **kw: (_sample_facts(), "claude-haiku-4-5-20251001"),
+    )
+    monkeypatch.setattr(
+        "docket.ai.pipeline.rewrite_item",
+        lambda *a, **kw: (_substantive_rewrite(), "claude-haiku-4-5-20251001"),
+    )
+    monkeypatch.setattr(
+        "docket.ai.pipeline.compute_policy_badges",
+        lambda item, facts, rw, city_id: [
+            ("blight_accountability", 0.8, "deterministic",
+             {"matched_keywords": ["blight"]}, "applied"),
+        ],
+    )
+
+    m = bag.add_meeting()
+    iid = bag.add_pending_item(m, title="Blight demolition order")
+    item = _ItemView(_load_item(iid))
+
+    status = pipeline.process_item(item)
+    assert status == "completed"
+
+    badges = _read_badges(iid)
+    by_slug = {b[0]: b for b in badges}
+    assert "blight_accountability" in by_slug
+    row = by_slug["blight_accountability"]
+    assert row[3] == "deterministic"
+    assert row[5] == "applied"
 
 
 # ---------------------------------------------------------------------------
@@ -719,13 +820,14 @@ def test_process_item_e2e_sole_source_fires_process_badge(bag, monkeypatch):
     slugs = {b[0] for b in badges}
     assert "sole_source" in slugs
 
-    # Pull the sole_source row, verify confidence + source + city_id.
+    # Pull the sole_source row, verify confidence + source + city_id + status.
     sole_source_row = [b for b in badges if b[0] == "sole_source"][0]
-    slug, kind, conf, source, city_id = sole_source_row
+    slug, kind, conf, source, city_id, status = sole_source_row
     assert kind == "process"
     assert conf == 1.0
     assert source == "deterministic"
     assert city_id == bag.city_id  # decision #92
+    assert status == "applied"  # refactor #2: process badges always applied
 
 
 def test_process_item_e2e_extracted_facts_persisted_inline(

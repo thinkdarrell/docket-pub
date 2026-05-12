@@ -126,6 +126,15 @@ CREATE TABLE priority_badges_config (
     UNIQUE (city_id, template_slug)
 );
 
+-- Note: status TEXT NOT NULL DEFAULT 'applied' is the post-021 shape.
+-- Migration 021 (refactor #2) added this column so LLM-only badge
+-- suggestions could land at 'flagged' instead of being auto-applied to
+-- citizen-facing surfaces. Baking the post-021 shape directly into 013
+-- preserves the up→down→up cycle invariant: a 013-only rollback drops
+-- the table, and 13's re-apply has to leave a schema with the same
+-- columns the rest of the migration list expects to find. Migration 021
+-- remains idempotent against an already-shipped DB (ADD COLUMN IF NOT
+-- EXISTS) and is a no-op against a fresh install built from this 013 UP.
 CREATE TABLE agenda_item_badges (
     id                SERIAL PRIMARY KEY,
     agenda_item_id    INT NOT NULL REFERENCES agenda_items(id) ON DELETE CASCADE,
@@ -136,6 +145,8 @@ CREATE TABLE agenda_item_badges (
     source            TEXT NOT NULL CHECK (source IN ('deterministic', 'llm', 'both', 'manual')),
     matching_metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
     detected_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    status            TEXT NOT NULL DEFAULT 'applied'
+                        CHECK (status IN ('applied', 'flagged', 'rejected')),
     UNIQUE (agenda_item_id, badge_slug)
 );
 
@@ -147,11 +158,17 @@ CREATE TABLE agenda_item_badges (
 -- correct shape, since 015 + 016 are not re-applied after a 013-only
 -- rollback. Migration 016 remains idempotent against an already-shipped
 -- DB and is a no-op against a fresh install built from this 013 UP.
+--
+-- The action CHECK is also the post-021 shape: refactor #2 added
+-- 'flagged'/'approved'/'rejected' so /admin/badge-review can record
+-- status changes through the existing audit pipeline. Same bake-in
+-- reasoning as the status column above.
 CREATE TABLE agenda_item_badges_audit (
     id              SERIAL PRIMARY KEY,
     agenda_item_id  INT REFERENCES agenda_items(id) ON DELETE SET NULL,
     badge_slug      TEXT NOT NULL,
-    action          TEXT NOT NULL CHECK (action IN ('added', 'removed', 'modified')),
+    action          TEXT NOT NULL CHECK (action IN ('added', 'removed', 'modified',
+                                                    'flagged', 'approved', 'rejected')),
     actor           TEXT,
     actor_role      TEXT NOT NULL CHECK (actor_role IN ('admin', 'cron', 'on_write')),
     reason          TEXT,
@@ -252,6 +269,11 @@ CREATE INDEX idx_agenda_item_badges_slug
 
 CREATE INDEX idx_agenda_item_badges_item
     ON agenda_item_badges (agenda_item_id);
+
+-- Post-021 shape: partial index for the admin review queue.
+CREATE INDEX idx_agenda_item_badges_status_slug
+    ON agenda_item_badges (status, city_id, badge_slug)
+    WHERE status = 'flagged';
 
 CREATE INDEX idx_priority_badges_config_city
     ON priority_badges_config (city_id) WHERE enabled = TRUE;

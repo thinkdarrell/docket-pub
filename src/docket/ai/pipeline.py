@@ -412,6 +412,7 @@ def finalize_from_rewrite(
 
         # On-write process badges (decision #57: SQL + on-write must agree).
         # Decision #92: include city_id in every INSERT.
+        # Process badges are always deterministic — status='applied'.
         for slug, conf in compute_on_write_process_badges(
             item, facts, overrides, rewrite.confidence,
         ):
@@ -419,26 +420,28 @@ def finalize_from_rewrite(
                 """
                 INSERT INTO agenda_item_badges
                   (agenda_item_id, city_id, badge_slug, kind, confidence,
-                   source, matching_metadata)
-                VALUES (%s, %s, %s, 'process', %s, 'deterministic', '{}'::jsonb)
+                   source, matching_metadata, status)
+                VALUES (%s, %s, %s, 'process', %s, 'deterministic', '{}'::jsonb, 'applied')
                 ON CONFLICT (agenda_item_id, badge_slug) DO NOTHING
                 """,
                 (item.id, item.city_id, slug, conf),
             )
 
         # Policy badges (deterministic + LLM-suggested per Section D).
-        for slug, conf, source, metadata in compute_policy_badges(
+        # Refactor #2: status='applied' when deterministic backing exists,
+        # 'flagged' when only the LLM suggested the badge.
+        for slug, conf, source, metadata, status in compute_policy_badges(
             item, facts, rewrite, item.city_id,
         ):
             cur.execute(
                 """
                 INSERT INTO agenda_item_badges
                   (agenda_item_id, city_id, badge_slug, kind, confidence,
-                   source, matching_metadata)
-                VALUES (%s, %s, %s, 'policy', %s, %s, %s::jsonb)
+                   source, matching_metadata, status)
+                VALUES (%s, %s, %s, 'policy', %s, %s, %s::jsonb, %s)
                 ON CONFLICT (agenda_item_id, badge_slug) DO NOTHING
                 """,
-                (item.id, item.city_id, slug, conf, source, json.dumps(metadata)),
+                (item.id, item.city_id, slug, conf, source, json.dumps(metadata), status),
             )
 
     log.info(

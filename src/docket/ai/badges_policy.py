@@ -64,15 +64,39 @@ def deterministic_policy_match(item, facts, rewrite, hints: dict) -> tuple[bool,
     return (False, {})
 
 
+def decide_status_and_confidence(
+    llm: bool, det: bool,
+) -> tuple[str | None, float | None]:
+    """Per-badge decision: status + confidence based on which sources fired.
+
+    Refactor #2 (2026-05-11): LLM-only suggestions no longer auto-apply
+    to public-facing surfaces. They land in the admin review queue
+    (``status='flagged'``) so a human decides whether to promote them.
+    Deterministic signals (keyword/action-type/topic match) are trusted
+    enough to apply directly.
+
+    Returns ``(None, None)`` when no row should be written.
+    """
+    if llm and det:
+        return ('applied', 1.0)
+    if det:
+        return ('applied', 0.8)
+    if llm:
+        return ('flagged', 0.4)
+    return (None, None)
+
+
 def resolve_policy_badge_confidence(slug: str,
                                       llm_suggested: bool,
                                       deterministic_match: bool) -> float | None:
-    """Returns confidence value, or None if neither source fired."""
-    if llm_suggested and deterministic_match:
-        return 1.0
-    if llm_suggested or deterministic_match:
-        return 0.6
-    return None
+    """Returns confidence value, or None if neither source fired.
+
+    Kept for the brief overlap while callers migrate to
+    decide_status_and_confidence (Task A3). Routes through the new
+    function so the contract stays in one place.
+    """
+    _, conf = decide_status_and_confidence(llm=llm_suggested, det=deterministic_match)
+    return conf
 
 
 def resolve_source(llm: bool, det: bool) -> str:
@@ -86,7 +110,12 @@ def resolve_source(llm: bool, det: bool) -> str:
 
 
 def compute_policy_badges(item, facts, rewrite, city_id: int):
-    """Returns list of (slug, confidence, source, matching_metadata) tuples."""
+    """Returns list of (slug, confidence, source, matching_metadata, status) tuples.
+
+    Status logic (refactor #2):
+      - 'applied'  — deterministic backing exists (citizen-visible)
+      - 'flagged'  — LLM-only suggestion (admin review only)
+    """
     from docket.services.badges import list_enabled_policy_badges
 
     enabled = list_enabled_policy_badges(city_id)
@@ -101,8 +130,8 @@ def compute_policy_badges(item, facts, rewrite, city_id: int):
         det, det_metadata = deterministic_policy_match(
             item, facts, rewrite, badge.matcher_hints
         )
-        conf = resolve_policy_badge_confidence(badge.slug, llm, det)
-        if conf is None:
+        status, conf = decide_status_and_confidence(llm=llm, det=det)
+        if status is None:
             continue
 
         if llm and det:
@@ -112,6 +141,6 @@ def compute_policy_badges(item, facts, rewrite, city_id: int):
         else:
             metadata = det_metadata
 
-        out.append((badge.slug, conf, resolve_source(llm, det), metadata))
+        out.append((badge.slug, conf, resolve_source(llm, det), metadata, status))
 
     return out

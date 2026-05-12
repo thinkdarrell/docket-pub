@@ -31,6 +31,7 @@ MIGRATIONS = [
     "docket.migrations.016_relax_audit_fk",
     "docket.migrations.018_ai_batches_ingested_at",
     "docket.migrations.020_raise_headline_caps",
+    "docket.migrations.021_badge_status_column",
 ]
 
 
