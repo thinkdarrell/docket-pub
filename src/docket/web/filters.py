@@ -393,6 +393,39 @@ def dollar_tier(value: Decimal | float | int | str | None) -> DollarTier | None:
     return DollarTier(color=color, symbol=symbol, description=description)
 
 
+def dollar_tier_chip(amount):
+    """Map a dollar amount to a chip-render triple for the compact-scan card.
+
+    Returns a ``SimpleNamespace`` with:
+      - ``css_class``: ``green`` / ``yellow`` / ``orange`` / ``red`` / ``na``
+      - ``chip_text``: ``"$487K"`` / ``"$2.4M"`` / ``"$0"`` / ``"undisclosed"``
+
+    Spec: ``docs/superpowers/specs/2026-05-12-category-landing-redesign-design.md``
+    §1 dollar-tier table.
+
+    ``$0`` is intentionally green-tier — a $0 land transfer is a known,
+    meaningful amount, not an "undisclosed" state. ``None`` returns the
+    ``na`` triple so the caller can decide whether to render an
+    "undisclosed" chip or omit the chip entirely.
+    """
+    from types import SimpleNamespace
+    if amount is None:
+        return SimpleNamespace(css_class="na", chip_text="undisclosed")
+    n = float(amount)
+    if n < 50_000:
+        if n >= 1_000:
+            text = f"${n / 1_000:.0f}K"
+        else:
+            text = f"${int(n):,}"
+        return SimpleNamespace(css_class="green", chip_text=text)
+    elif n < 250_000:
+        return SimpleNamespace(css_class="yellow", chip_text=f"${n / 1_000:.0f}K")
+    elif n < 1_000_000:
+        return SimpleNamespace(css_class="orange", chip_text=f"${n / 1_000:.0f}K")
+    else:
+        return SimpleNamespace(css_class="red", chip_text=f"${n / 1_000_000:.1f}M")
+
+
 def rss_rfc822(value: date | datetime | str | None) -> str:
     """Render ``value`` as an RFC-822 datetime string for RSS feeds.
 
@@ -501,6 +534,7 @@ def register(app: Flask) -> None:
     app.jinja_env.filters["format_timestamp"] = format_timestamp
     app.jinja_env.filters["format_dollars"] = format_dollars
     app.jinja_env.filters["dollar_tier"] = dollar_tier
+    app.jinja_env.filters["dollar_tier_chip"] = dollar_tier_chip
     app.jinja_env.filters["rss_rfc822"] = rss_rfc822
     app.jinja_env.filters["cdata_safe"] = cdata_safe
     app.jinja_env.globals["rss_now_rfc822"] = rss_now_rfc822

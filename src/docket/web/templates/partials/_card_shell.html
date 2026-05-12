@@ -1,0 +1,78 @@
+{# partials/_card_shell.html — shared compact-scan chrome for v3-era cards.
+
+   Spec: docs/superpowers/specs/2026-05-12-category-landing-redesign-design.md §1.
+
+   Variant partials include this shell and override the blocks below.
+
+   Block contract:
+     - card_class_modifier  : extra class on the <article> (e.g. is-pending)
+     - card_status_pill     : optional pill in the meta line
+     - card_headline_class  : extra class on the headline <a>
+     - card_headline_text   : the headline text inside the <a>
+     - card_why_block       : the why-it-matters paragraph
+     - card_facts_block     : the inline facts line
+
+   Structural commitments:
+     - <article class="smart-brevity-card"> is position:relative (via CSS).
+     - Exactly ONE <a class="card-link"> per card. CSS extends its click
+       surface across the whole article via .card-link::after { inset: 0 }.
+     - Emoji prefixes use aria-hidden + paired sr-only label so AT users
+       hear semantic content, not emoji names.
+#}
+{%- set primary_badge = (badge if badge is defined and badge else None) or (item.badges[0] if item.badges else None) -%}
+{%- set accent = (primary_badge.accent_color if primary_badge else None) or '#c8cbc0' -%}
+
+<article class="smart-brevity-card{% block card_class_modifier %}{% endblock %}"
+         style="--accent-color: {{ accent }};">
+
+  <div class="meta-line">
+    {% if show_meeting_context and item.meeting_date %}
+      <span class="meta-date">{{ item.meeting_date.strftime('%b %-d, %Y') }}</span>
+    {% endif %}
+    {% if item.meeting_date and item.item_number %}<span class="meta-sep">·</span>{% endif %}
+    {% if item.item_number %}
+      <span class="meta-item-ref t-mono">
+        <span class="sr-only">Item number:</span>#{{ item.item_number }}
+      </span>
+    {% endif %}
+    {% if primary_badge %}
+      <span class="meta-sep">·</span>
+      {% with chip = primary_badge %}
+        {% include 'partials/badge_chip.html' %}
+      {% endwith %}
+    {% endif %}
+    {% if item.dollars_amount is not none %}
+      {% set tier = item.dollars_amount | dollar_tier_chip %}
+      <span class="dollar-chip dollar-chip--{{ tier.css_class }}">
+        <span aria-hidden="true">$</span>
+        <span class="sr-only">Total cost:</span>
+        {{ tier.chip_text }}
+      </span>
+    {% elif item.extracted_facts and (item.extracted_facts.procurement_method or item.extracted_facts.action_type) %}
+      <span class="dollar-chip dollar-chip--na">
+        <span aria-hidden="true">$</span>
+        <span class="sr-only">Total cost:</span>
+        undisclosed
+      </span>
+    {% endif %}
+    {% block card_status_pill %}{% endblock %}
+  </div>
+
+  <h3 class="card-headline">
+    <a class="card-link{% block card_headline_class %}{% endblock %}"
+       href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=item.meeting_id) }}#item-{{ item.id }}">
+      {% block card_headline_text %}{{ item.headline or item.title }}{% endblock %}
+    </a>
+  </h3>
+
+  {% block card_why_block %}
+    {% if item.why_it_matters %}
+      <p class="why">{{ item.why_it_matters }}</p>
+    {% endif %}
+  {% endblock %}
+
+  {% block card_facts_block %}
+    {% include 'partials/_facts_strip.html' %}
+  {% endblock %}
+
+</article>
