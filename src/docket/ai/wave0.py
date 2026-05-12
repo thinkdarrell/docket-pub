@@ -116,18 +116,32 @@ PROCEDURAL_TITLE_PATTERNS = (
     r'^\s*recognition\s+of\s+(visitors?|guests?)',
     r'^\s*awards?\s+and\s+presentations?',
     r'^\s*reading\s+of\s+(communications?|petitions?)',
-    # Items withdrawn, deferred, or postponed on the agenda — council
-    # took no action, so there's nothing substantive to extract or score.
-    # Anchored to the Birmingham agenda shape ``<prefix> ITEM <n>. <marker>``
-    # so we don't match the same word deep inside an ordinance body
-    # (e.g. "An Ordinance regarding deferred maintenance"). The prefix
-    # accepts letters, parens, periods, slashes, and whitespace —
-    # covering shapes like ``P(ph) ITEM 1.``, ``CONSENT ITEM 11.``,
-    # ``P ITEM 5``, or just ``ITEM 7.``.
+)
+
+# WITHDRAWN / DEFERRED / POSTPONED is a different category from
+# procedural. The council was prepared to act on a SUBSTANTIVE item and
+# then chose not to (withdraw / defer / postpone) — there's no action
+# to score or summarize, but lumping these with Roll Call / Pledge of
+# Allegiance under ``procedural_skipped`` muddies the admin review
+# queue (which is dominated by true procedural rows). Migration 023
+# added a ``'withdrawn'`` status to ``processing_status_enum`` so Wave
+# 0 can route this family to its own bucket.
+#
+# Pattern anchored to the Birmingham agenda shape:
+#     <prefix> ITEM <n>. <marker>
+# so we don't match the same word deep inside an ordinance body
+# (e.g. "An Ordinance regarding deferred maintenance"). The prefix
+# accepts letters, parens, periods, slashes, and whitespace —
+# covering shapes like ``P(ph) ITEM 1.``, ``CONSENT ITEM 11.``,
+# ``P ITEM 5``, or just ``ITEM 7.``.
+WITHDRAWN_TITLE_PATTERNS = (
     r'^[a-z()./\s]*\bitem\s+\d+\.?\s+\b(?:withdrawn|deferred|postponed)\b',
 )
 
 _compiled_patterns = [re.compile(p, re.IGNORECASE) for p in PROCEDURAL_TITLE_PATTERNS]
+_compiled_withdrawn_patterns = [
+    re.compile(p, re.IGNORECASE) for p in WITHDRAWN_TITLE_PATTERNS
+]
 
 
 def is_procedural(title: str | None) -> bool:
@@ -138,10 +152,31 @@ def is_procedural(title: str | None) -> bool:
     telemetry loop (decision #26) tracks items that pass this check
     but are later judged procedural by Stage 2 — admins expand the
     pattern list over time.
+
+    WITHDRAWN/DEFERRED/POSTPONED items are deliberately NOT included
+    here — they're a separate category routed to ``processing_status=
+    'withdrawn'`` via :func:`is_withdrawn_or_deferred`.
     """
     if not title:
         return False
     for pattern in _compiled_patterns:
+        if pattern.search(title):
+            return True
+    return False
+
+
+def is_withdrawn_or_deferred(title: str | None) -> bool:
+    """Stage 0b: title-only check for items withdrawn / deferred /
+    postponed from the agenda.
+
+    Distinct from :func:`is_procedural` because the council had a
+    substantive item ready to act on and then chose not to. Routed to
+    ``processing_status='withdrawn'`` so admin queues can review them
+    separately from true procedural rows.
+    """
+    if not title:
+        return False
+    for pattern in _compiled_withdrawn_patterns:
         if pattern.search(title):
             return True
     return False
@@ -206,6 +241,21 @@ def run_wave_0(city_ids: Iterable[int]) -> Wave0Report:
                 # (VALUES) only if batch sizes exceed ~100K.
                 for row in rows:
                     item_id, title, description = row
+
+                    if is_withdrawn_or_deferred(title):
+                        # Substantive item the council removed from the
+                        # agenda — no action to score or summarize.
+                        # Distinct from procedural (decision: see
+                        # is_withdrawn_or_deferred docstring).
+                        cur.execute("""
+                            UPDATE agenda_items
+                            SET data_quality = 'ok'::data_quality_enum,
+                                data_debt_priority = 'normal'::data_debt_priority_enum,
+                                processing_status = 'withdrawn'::processing_status_enum
+                            WHERE id = %s
+                        """, [item_id])
+                        report.counts['withdrawn'] += 1
+                        continue
 
                     if is_procedural(title):
                         cur.execute("""

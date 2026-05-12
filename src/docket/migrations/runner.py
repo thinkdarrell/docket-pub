@@ -33,6 +33,7 @@ MIGRATIONS = [
     "docket.migrations.020_raise_headline_caps",
     "docket.migrations.021_badge_status_column",
     "docket.migrations.022_badge_mv_status_filter",
+    "docket.migrations.023_processing_status_withdrawn",
 ]
 
 

@@ -63,7 +63,7 @@ from docket.ai.floors import apply_score_floors
 from docket.ai.reconcile import reconcile_stages
 from docket.ai.rewrite import ITEM_REWRITE_PROMPT_VERSION, rewrite_item
 from docket.ai.rewrite_schema import ItemRewrite
-from docket.ai.wave0 import evaluate_data_quality, is_procedural
+from docket.ai.wave0 import evaluate_data_quality, is_procedural, is_withdrawn_or_deferred
 from docket.ai.badges_process import compute_on_write_process_badges
 from docket.ai.badges_policy import compute_policy_badges
 from docket.db import db
@@ -175,6 +175,23 @@ def process_item(item, *, conn=None) -> str:
             item.id, quality,
         )
         return "data_quality_skipped"
+
+    if is_withdrawn_or_deferred(item.title):
+        with _maybe_cursor(conn) as cur:
+            cur.execute(
+                """
+                UPDATE agenda_items
+                   SET data_quality      = 'ok'::data_quality_enum,
+                       processing_status = 'withdrawn'::processing_status_enum
+                 WHERE id = %s
+                """,
+                (item.id,),
+            )
+        log.info(
+            "pipeline.process_item Wave 0b withdrawn: item_id=%s",
+            item.id,
+        )
+        return "withdrawn"
 
     if is_procedural(item.title):
         with _maybe_cursor(conn) as cur:

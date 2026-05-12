@@ -1,10 +1,11 @@
-"""Tests for Stage 0b procedural regex (`is_procedural`)."""
+"""Tests for Stage 0b procedural regex (``is_procedural``) and the
+sibling withdrawal classifier (``is_withdrawn_or_deferred``)."""
 
 from __future__ import annotations
 
 import pytest
 
-from docket.ai.wave0 import is_procedural
+from docket.ai.wave0 import is_procedural, is_withdrawn_or_deferred
 
 
 class TestIsProcedural:
@@ -35,15 +36,6 @@ class TestIsProcedural:
         "Awards and Presentation",  # singular
         "Reading of Communications",
         "Reading of Petitions",
-        # Withdrawn / deferred / postponed (refactor #2 follow-up):
-        # Birmingham agenda format puts the status marker on the first
-        # line, after the item-number prefix. Council took no action.
-        'P(ph) ITEM 1. WITHDRAWN An Ordinance "TO AMEND THE ZONING DISTRICT MAP"',
-        "CONSENT ITEM 11. WITHDRAWN PER O.C.A. A Resolution rescinding ...",
-        "P ITEM 5. DEFERRED to next meeting An Ordinance authorizing",
-        "P ITEM 12. POSTPONED A Resolution authorizing the Mayor to",
-        # Case insensitive
-        "P(ph) ITEM 1. withdrawn an ordinance",
     ])
     def test_procedural_titles_match(self, title: str):
         assert is_procedural(title), f"Should match: {title!r}"
@@ -58,11 +50,14 @@ class TestIsProcedural:
         # Pattern #10 false-positive guards: substantive items mentioning minutes
         "Approval of meeting minutes available online",
         "Resolution to make minutes available for download",
-        # WITHDRAWN-family false-positive guards: words appearing inside
-        # the body of an ordinance, not as a status marker. The body
-        # lives after a newline in Birmingham's title-as-body shape.
-        "P ITEM 5. A Resolution authorizing X\nrescinding and withdrawing prior agreement",
-        "P ITEM 7. An Ordinance regarding deferred maintenance\nat municipal buildings",
+        # Withdrawn-family items are NOT procedural (own category — see
+        # is_withdrawn_or_deferred). Procedural classifier must not
+        # claim them, otherwise they'd land in procedural_skipped and
+        # pollute that queue.
+        'P(ph) ITEM 1. WITHDRAWN An Ordinance "TO AMEND THE ZONING DISTRICT MAP"',
+        "CONSENT ITEM 11. WITHDRAWN PER O.C.A. A Resolution rescinding ...",
+        "P ITEM 5. DEFERRED to next meeting An Ordinance authorizing",
+        "P ITEM 12. POSTPONED A Resolution authorizing the Mayor to",
     ])
     def test_substantive_titles_dont_match(self, title: str):
         assert not is_procedural(title), f"Should NOT match: {title!r}"
@@ -70,3 +65,37 @@ class TestIsProcedural:
     def test_empty_title(self):
         assert not is_procedural("")
         assert not is_procedural(None)
+
+
+class TestIsWithdrawnOrDeferred:
+    @pytest.mark.parametrize("title", [
+        # Birmingham agenda shape: <prefix> ITEM <n>. <marker>
+        'P(ph) ITEM 1. WITHDRAWN An Ordinance "TO AMEND THE ZONING DISTRICT MAP"',
+        "CONSENT ITEM 11. WITHDRAWN PER O.C.A. A Resolution rescinding ...",
+        "P ITEM 5. DEFERRED to next meeting An Ordinance authorizing",
+        "P ITEM 12. POSTPONED A Resolution authorizing the Mayor to",
+        # Case insensitive
+        "P(ph) ITEM 1. withdrawn an ordinance",
+        # No prefix at all, just ITEM N.
+        "ITEM 7. WITHDRAWN A Resolution to do something",
+    ])
+    def test_withdrawn_titles_match(self, title: str):
+        assert is_withdrawn_or_deferred(title), f"Should match: {title!r}"
+
+    @pytest.mark.parametrize("title", [
+        # True procedural items must NOT be claimed by this classifier.
+        "Roll Call",
+        "Pledge of Allegiance",
+        # False-positive guards: substantive items where the marker
+        # word appears in the body, not as an agenda-status marker.
+        "P ITEM 5. A Resolution authorizing X\nrescinding and withdrawing prior agreement",
+        "P ITEM 7. An Ordinance regarding deferred maintenance\nat municipal buildings",
+        # Plain substantive titles
+        "Award of HVAC contract for $87,500",
+    ])
+    def test_substantive_titles_dont_match(self, title: str):
+        assert not is_withdrawn_or_deferred(title), f"Should NOT match: {title!r}"
+
+    def test_empty_title(self):
+        assert not is_withdrawn_or_deferred("")
+        assert not is_withdrawn_or_deferred(None)
