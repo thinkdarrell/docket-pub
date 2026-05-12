@@ -6,7 +6,6 @@ section 2.3, decisions #36-39, #86.
 
 from __future__ import annotations
 
-from datetime import date
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -45,10 +44,14 @@ class LocationDetail(BaseModel):
 
 class NextSteps(BaseModel):
     committee_referral: str | None = None
-    public_hearing_date: date | None = None
+    # Date fields are free-text: the LLM's JSON tool schema declares them as
+    # strings, and source resolutions often phrase them in natural language
+    # ("May 5, 2026", "the 13th of next month") that doesn't parse as ISO.
+    # Forcing date | None rejected legitimate rows in the 2026-05-12 cron.
+    public_hearing_date: str | None = None
     public_hearing_time: str | None = None  # e.g. "6:00 PM"
-    comment_period_end: date | None = None
-    implementation_date: date | None = None
+    comment_period_end: str | None = None
+    implementation_date: str | None = None
 
 
 class StructuredFacts(BaseModel):

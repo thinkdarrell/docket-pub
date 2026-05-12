@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-from datetime import date
 from pydantic import ValidationError
 
 from docket.ai.extraction_schema import StructuredFacts, LocationDetail, NextSteps
@@ -21,11 +20,25 @@ class TestNextSteps:
     def test_populated_fields(self):
         ns = NextSteps(
             committee_referral="Public Safety Committee",
-            public_hearing_date=date(2026, 6, 5),
+            public_hearing_date="June 5, 2026",
             public_hearing_time="6:00 PM",
         )
         assert ns.committee_referral == "Public Safety Committee"
-        assert ns.public_hearing_date == date(2026, 6, 5)
+        assert ns.public_hearing_date == "June 5, 2026"
+
+    def test_date_fields_accept_natural_language_strings(self):
+        """The tool input_schema declares date-shaped next_steps fields as strings,
+        and source resolutions often use natural-language dates (e.g. 'May 5, 2026',
+        'the 13th'). Pydantic must accept those verbatim rather than rejecting them
+        — observed as the 2026-05-12 ai_items cron failure cluster (9 of 10 items)."""
+        ns = NextSteps(
+            public_hearing_date="May 5, 2026",
+            comment_period_end="the 13th",
+            implementation_date="next fiscal year",
+        )
+        assert ns.public_hearing_date == "May 5, 2026"
+        assert ns.comment_period_end == "the 13th"
+        assert ns.implementation_date == "next fiscal year"
 
 
 class TestLocationDetail:
