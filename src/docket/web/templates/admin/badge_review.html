@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Badge review — Admin — docket.pub{% endblock %}
+
+{#
+  Refactor #2, Section D — admin queue for badges Haiku suggested with
+  no deterministic backing. Approve to promote to citizen-facing
+  (status='applied'); reject to archive (status='rejected'). HTMX
+  swap removes the row from the table on action.
+#}
+
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center;">
+  <h1>Badge review queue</h1>
+  <form method="post" action="{{ url_for('auth.logout') }}" style="margin: 0;">
+    <button type="submit" style="font-size: 0.85rem;">Sign Out ({{ session.get('admin_user', '') }})</button>
+  </form>
+</div>
+
+<p><a href="{{ url_for('admin.list_members') }}">← Council Members</a> &middot;
+   <a href="{{ url_for('admin.badges_audit') }}">Badge audit</a> &middot;
+   <a href="{{ url_for('admin.review_conflicts') }}">Conflicts</a> &middot;
+   <a href="{{ url_for('admin.data_debt') }}">OCR queue</a> &middot;
+   <a href="{{ url_for('admin.errors') }}">Errors queue</a> &middot;
+   <a href="{{ url_for('admin.ai_panel') }}">AI Pipeline</a></p>
+
+<p class="t-meta">
+  Badges Haiku suggested but no deterministic signal (keyword,
+  action-type, or topic) confirmed. Approve promotes to citizen-facing;
+  reject archives. {{ flagged_badges | length }} flagged{% if flagged_badges | length == 50 %} (showing first 50){% endif %}.
+</p>
+
+{% if flagged_badges %}
+<table class="admin-table">
+  <thead>
+    <tr>
+      <th>Item</th>
+      <th>Badge</th>
+      <th>City</th>
+      <th>Meeting</th>
+      <th>Action</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in flagged_badges %}
+      {% include 'admin/_badge_review_row.html' %}
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p>No flagged badges. Queue empty.</p>
+{% endif %}
+{% endblock %}
