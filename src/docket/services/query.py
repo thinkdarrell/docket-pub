@@ -200,8 +200,20 @@ def list_agenda_items(meeting_id: int) -> list[AgendaItem]:
                 FROM agenda_item_badges b
                 JOIN priority_badge_templates t ON t.slug = b.badge_slug
                 WHERE b.agenda_item_id = ai.id
+                  -- Refactor #2 retro fix (HIGH): hide flagged badges
+                  -- from citizen meeting-detail rendering. Admins still
+                  -- see flagged badges via /admin/badge-review queries
+                  -- (which do not use this helper).
+                  AND b.status = 'applied'
             ) b_agg ON true
             WHERE ai.meeting_id = %s
+              -- Refactor #2 retro fix (HIGH): hide withdrawn items
+              -- from citizen meeting-detail rendering. Council-removed
+              -- items shouldn't render as "awaiting summary" — they
+              -- have their own dedicated bucket. A future spec may
+              -- add a "Show N withdrawn items" toggle for journalists;
+              -- not in v1.
+              AND ai.processing_status != 'withdrawn'
             -- Natural sort on item_number. Pre-A8 this was a plain
             -- TEXT sort, which lexicographically placed item "10"
             -- before "2" — wrong for the Birmingham agenda shape
