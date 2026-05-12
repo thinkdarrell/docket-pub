@@ -116,6 +116,15 @@ PROCEDURAL_TITLE_PATTERNS = (
     r'^\s*recognition\s+of\s+(visitors?|guests?)',
     r'^\s*awards?\s+and\s+presentations?',
     r'^\s*reading\s+of\s+(communications?|petitions?)',
+    # Items withdrawn, deferred, or postponed on the agenda — council
+    # took no action, so there's nothing substantive to extract or score.
+    # Anchored to the Birmingham agenda shape ``<prefix> ITEM <n>. <marker>``
+    # so we don't match the same word deep inside an ordinance body
+    # (e.g. "An Ordinance regarding deferred maintenance"). The prefix
+    # accepts letters, parens, periods, slashes, and whitespace —
+    # covering shapes like ``P(ph) ITEM 1.``, ``CONSENT ITEM 11.``,
+    # ``P ITEM 5``, or just ``ITEM 7.``.
+    r'^[a-z()./\s]*\bitem\s+\d+\.?\s+\b(?:withdrawn|deferred|postponed)\b',
 )
 
 _compiled_patterns = [re.compile(p, re.IGNORECASE) for p in PROCEDURAL_TITLE_PATTERNS]

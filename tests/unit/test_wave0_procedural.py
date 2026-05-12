@@ -35,6 +35,15 @@ class TestIsProcedural:
         "Awards and Presentation",  # singular
         "Reading of Communications",
         "Reading of Petitions",
+        # Withdrawn / deferred / postponed (refactor #2 follow-up):
+        # Birmingham agenda format puts the status marker on the first
+        # line, after the item-number prefix. Council took no action.
+        'P(ph) ITEM 1. WITHDRAWN An Ordinance "TO AMEND THE ZONING DISTRICT MAP"',
+        "CONSENT ITEM 11. WITHDRAWN PER O.C.A. A Resolution rescinding ...",
+        "P ITEM 5. DEFERRED to next meeting An Ordinance authorizing",
+        "P ITEM 12. POSTPONED A Resolution authorizing the Mayor to",
+        # Case insensitive
+        "P(ph) ITEM 1. withdrawn an ordinance",
     ])
     def test_procedural_titles_match(self, title: str):
         assert is_procedural(title), f"Should match: {title!r}"
@@ -49,6 +58,11 @@ class TestIsProcedural:
         # Pattern #10 false-positive guards: substantive items mentioning minutes
         "Approval of meeting minutes available online",
         "Resolution to make minutes available for download",
+        # WITHDRAWN-family false-positive guards: words appearing inside
+        # the body of an ordinance, not as a status marker. The body
+        # lives after a newline in Birmingham's title-as-body shape.
+        "P ITEM 5. A Resolution authorizing X\nrescinding and withdrawing prior agreement",
+        "P ITEM 7. An Ordinance regarding deferred maintenance\nat municipal buildings",
     ])
     def test_substantive_titles_dont_match(self, title: str):
         assert not is_procedural(title), f"Should NOT match: {title!r}"
