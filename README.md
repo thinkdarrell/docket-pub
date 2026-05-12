@@ -14,7 +14,11 @@ The full pipeline is live: scraping, enrichment, vote extraction (from both offi
 
 **N:M vote-to-agenda-item matching.** Every vote can link to one substantive agenda item or many consent-block items. Each vote is classified as substantive (1:1) or consent block (1:N); substantive matches run the existing three-tier heuristics (resolution number, item number, keyword overlap), while consent matches link to all `is_consent=TRUE` items for the meeting with named callouts upgraded to confidence 1.0. A strict re-parse promotes provisional consent links to official after council formally adopts the minutes. ~36,000 active links across Birmingham as of the most recent backfill.
 
-**AI summaries + scoring (v2 live in production).** Per-item summaries and 0–10 significance + consent-placement scores via Haiku 4.5; per-meeting executive summaries via Sonnet 4.6. Two-phase meeting lifecycle keyed off `minutes_adopted_at` (provisional summary first, adopted overwrites). Async batch worker (`python -m docket.ai.cli --items|--meetings`) decoupled from ingest; `SELECT FOR UPDATE SKIP LOCKED` claim semantics, per-row commits, exponential-backoff retry, daily budget cap. Cost telemetry in `ai_runs` tracks all four Anthropic billing dimensions (regular/cached input + output). Spec at `docs/superpowers/specs/2026-05-01-summaries-and-scoring-design.md`. Live at `/admin/ai` and as inline summaries on meeting detail pages.
+**AI summaries + scoring (v3 pipeline live in production).** Per-item structured outputs — `extracted_facts` (JSONB: counterparty, funding_source, procurement_method, action_type, location, next_steps), `headline`, `why_it_matters`, and 0–10 significance + consent-placement scores — via Haiku 4.5 (Stage 1 extraction + Stage 2 Smart Brevity rewrite + Stage 2.5 reconcile). Per-meeting executive summaries via Sonnet 4.6 with two-phase lifecycle (provisional → adopted on `minutes_adopted_at`). Async batch worker (`python -m docket.ai.cli`) decoupled from ingest; `SELECT FOR UPDATE SKIP LOCKED` claim semantics, per-row commits, daily budget cap. Both feature flags `IMPACT_FIRST_ENABLED=true` (worker writes v3) and `SMART_BREVITY_UI=true` (citizen rendering) are live as of 2026-05. Spec at `docs/superpowers/specs/2026-05-05-impact-first-refactor-design.md`.
+
+**Conservative policy badges (refactor #2, live 2026-05-12).** Every `agenda_item_badges` row carries a `status` field — `applied` (citizen-visible, deterministic-backed), `flagged` (admin review only, LLM-suggested without deterministic backing), or `rejected` (archived). Admin queue at `/admin/badge-review` for approve/reject with audit trail. Reader queries filter `status='applied'`; the materialized view `mv_badge_volume_monthly` does the same. Stops a previously observed 71% over-tag rate on `public_safety_tech_privacy`. Spec at `docs/superpowers/plans/2026-05-11-conservative-policy-badges.md`.
+
+**`processing_status='withdrawn'` (refactor #2 follow-up).** Items the council removes from the agenda (WITHDRAWN/DEFERRED/POSTPONED titles) get their own status bucket via migration 023, distinct from `procedural_skipped` (Roll Call / Pledge / etc.). `is_withdrawn_or_deferred()` in `wave0.py` routes them at classify time.
 
 **Cron worker (live in production as of 2026-05-04).** Railway `worker` service runs APScheduler with five scheduled tasks in `America/Chicago`: `repair_empty_agendas` (Mon 05:00) clears stuck `agenda_items_scraped` flags so the next ingest re-fetches; `ingest_all` (06:00 daily) loops the `municipalities` table with per-city failure isolation; `ai_items` (07:00) and `ai_meetings` (08:00) drive the AI pipeline within the daily budget cap; `vote_matching` (09:00) closes the loop on legislative action. Each task pings Healthchecks.io start/success/fail with the traceback as the alert body — silent data rot is impossible. Manual triggers via `railway ssh --service worker` then `python -m docket.worker.scheduler --run-once <task>`. Spec at `docs/superpowers/specs/2026-05-04-cron-worker-design.md`; runbook at `docs/runbooks/cron-worker.md`.
 
@@ -59,30 +63,30 @@ The full pipeline is live: scraping, enrichment, vote extraction (from both offi
 17. **AI Summaries + Scoring** — `src/docket/ai/` package (migration 012, branch `feat/ai-summaries-scoring`). Item summaries via Haiku 4.5, meeting executive summaries via Sonnet 4.6, two-phase lifecycle, async batch worker + CLI, admin dashboard at `/admin/ai`, Pydantic-validated structured output, prompt caching. **Live on Railway prod** as of 2026-05-02. ITEM_PROMPT_VERSION=2 (procedural-skip), MEETING_PROMPT_VERSION=2 (distinctive-vs-routine).
 18. **Cron Worker (T27)** — `src/docket/worker/` APScheduler service running 5 daily/weekly tasks (ingest_all, ai_items, ai_meetings, vote_matching, repair_empty_agendas) with Healthchecks.io heartbeats per task. **Live on Railway `worker` service as of 2026-05-04.** Runbook at `docs/runbooks/cron-worker.md`.
 19. **Impact-First Refactor — Phase 1** — Migration 013 (10 new tables, 16 indexes, `mv_badge_volume_monthly` materialized view, 11 priority badge templates, BHM mayoral terms, agenda_items v3 columns) + Wave 0 non-LLM classifier in `src/docket/ai/wave0.py`. Sets `data_quality`, `data_debt_priority`, `processing_status` on every item via Stage 0a (data-quality gate with title fallback for Granicus shape) and Stage 0b (Alabama-context procedural regex). **Live on Railway as of 2026-05-07.** Final Wave 0 distribution on 57,553 items: 65% pending, 28% data_quality_skipped, 7% procedural_skipped. Tag: `refactor-impact-first-phase-1-shipped`.
-20. **Impact-First Refactor — Phase 2 (in progress, ~85%)** — v3 pipeline (Stage 1 extraction + Stage 2 Smart Brevity rewrite + Stage 2.5 score floors), 7 process badges + 4 BHM policy badges, Smart Brevity Card UI (6 variants), category landing pages with SVG volume timeline + cross-filter HTMX dropdown, public data-debt page + RSS feeds, admin calibration dashboard, admin OCR queue + errors queue. **3-track decomposition:** Tracks 1 + 2 done; Track 3 14/17 done (Section E + F complete; G1 + G2 shipped; G3 + G4 + B5 convergence remaining). On `feat/impact-first-phase-2-track-3`, HEAD `75289d1` as of 2026-05-09. Suite: 1082 passed + 4 xfailed.
-21. **Tests** — 1082 passed + 4 xfailed (suite at `feat/impact-first-phase-2-track-3` HEAD; was 240 tests at the AI-summaries cutover). Unit + integration; live AI smoke tests gated on `ANTHROPIC_API_KEY`.
+20. **Impact-First Refactor — Phase 2 (live in production)** — v3 pipeline (Stage 1 extraction + Stage 2 Smart Brevity rewrite + Stage 2.5 score floors + reconcile + atomic-commit-with-badges), 7 process badges + 4 BHM policy badges, Smart Brevity Card UI (6 variants), category landing pages with SVG volume timeline + cross-filter HTMX dropdown, public data-debt page + RSS feeds, admin calibration dashboard, admin OCR queue + errors queue, atomic per-item `process_item()` orchestrator. Both feature flags ON in production: `IMPACT_FIRST_ENABLED=true` (worker) and `SMART_BREVITY_UI=true` (web).
+21. **Impact-First Refactor — Phase 3 (in progress)** — Anthropic Batches API backfill working through ~37K eligible items. ~652 v3-completed as of 2026-05-12.
+22. **Refactor #2 — Conservative policy badges (live 2026-05-12)** — `agenda_item_badges.status` (applied/flagged/rejected, migration 021) + admin review queue + Section E backfill (65 LLM-only rows flipped to `flagged`). PRs #16/#17/#18/#19/#21. New `processing_status='withdrawn'` (migration 023) + `is_withdrawn_or_deferred()` in Wave 0 (PR #21). Plan: `docs/superpowers/plans/2026-05-11-conservative-policy-badges.md`.
+23. **Tests** — 1366+ passing (1 pre-existing env-dependent deselect). Unit + integration; live AI smoke tests gated on `ANTHROPIC_API_KEY`.
 
 ### What's Next
 
-**Active: Impact-First Refactor Phase 2 Track 3** (14/17 done as of 2026-05-09)
-- **G3** — admin audit log viewer + manual badge add/remove HTMX endpoints
-- **G4** — cross-stage conflict resolution UI (decision #93)
-- **B5** — atomic `process_item()` convergence wiring Tracks 1+2+3 together; flips `IMPACT_FIRST_ENABLED=true`
+**Active: Impact-First Refactor Phase 3 (backfill execution)** — The v3 pipeline is live in prod and the Anthropic Batches API backfill is working through the eligible queue (~$100 estimated total over 7–14 days). Plan: `docs/superpowers/plans/2026-05-06-impact-first-refactor-phase-3.md`. Pre-flip prerequisite **D1** (6th cron task to `REFRESH MATERIALIZED VIEW CONCURRENTLY mv_badge_volume_monthly`) is still pending.
 
-**Then Phase 3 (backfill execution)** — ~$100 over 7-14 days for ~37K LLM-eligible items via Anthropic Batches API. Plan: `docs/superpowers/plans/2026-05-06-impact-first-refactor-phase-3.md`. Pre-flip prerequisite: D1 — add a 6th cron task to `REFRESH MATERIALIZED VIEW CONCURRENTLY mv_badge_volume_monthly`.
+**Then Phase 4 (cleanup)** — Migration 014 drops the legacy `agenda_items.summary` column once all completed items are at v3. Plan: `docs/superpowers/plans/2026-05-06-impact-first-refactor-phase-4.md`.
 
-**Then Phase 4 (cleanup + flag flip)** — Migration 014 drops the legacy `agenda_items.summary` column once all completed items are at v3. `SMART_BREVITY_UI=true` flips citizen rendering. Plan: `docs/superpowers/plans/2026-05-06-impact-first-refactor-phase-4.md`.
+**Refactor #2 follow-ups:**
+- **Broaden the WITHDRAWN regex** in `is_withdrawn_or_deferred()` to also catch the marker-first shape `WITHDRAWN <prefix> ITEM N.` (~240 prod rows currently in `pending` use this shape and aren't yet caught).
+- **Consent-text recovery** — 7,500 consent items live in `data_quality_skipped` with `no_agenda_text` because Birmingham's Granicus HTML treats consent block items as title-only references. The body lives in the post-meeting minutes PDF (already in `votes.raw_text`). A new ingest pipeline could cascade that text back into `agenda_items.description` and re-run Wave 0 → Stage 1/2. Needs design.
 
 **Operational follow-ups (not blocking the above):**
 - **Move `www.docket.pub` to Railway** — apex is live with HSTS; `www.docket.pub` still routes through a Namecheap URL Redirect Record (HTTP-only). Plan: delete the redirect, add `www.docket.pub` as a second Railway custom domain, swap to a CNAME, tighten HSTS to `includeSubDomains` (+ `preload`), Flask redirect from www → apex.
-- **Migration 016 candidate** — add `municipalities.admin_email` and/or `agenda_items.requires_manual_review BOOLEAN` (currently using `score_overrides.admin_escalated` JSONB stopgap from G2).
-- **Per-claim citations + discrepancy-aware summaries** — Phase 2 AI feature; v1 uses source-bounded grounding only.
-- **Council member rollups** — separate brainstorm; deferred from v1 AI summaries.
+- **Per-claim citations + discrepancy-aware summaries** — AI feature; v1 uses source-bounded grounding only.
+- **Council member rollups** — separate brainstorm.
 - **Astro frontend evaluation** — considering migration from Flask/Jinja2+HTMX to Astro.
 - **Manual link-correction admin UI** — the `is_manual` column on `vote_agenda_items` is ready; form/route deferred.
 - **Freshness Checks** — Silent Break alerts when a city's data feed stops updating.
 - **Source reconciliation** — compare video OCR vs official minutes when both exist.
-- **CSRF protection on admin POST forms** — codebase-wide gap; `SESSION_COOKIE_SAMESITE = "Lax"` provides partial mitigation. F2 council-CRUD precedent has the same gap.
+- **CSRF protection on admin POST forms** — codebase-wide gap; `SESSION_COOKIE_SAMESITE = "Lax"` provides partial mitigation.
 
 ---
 
@@ -92,10 +96,10 @@ The full pipeline is live: scraping, enrichment, vote extraction (from both offi
 |---|---|
 | Language | Python 3.10+ |
 | Web Framework | Flask + HTMX |
-| Database | PostgreSQL 16 |
+| Database | PostgreSQL 18.3 on Railway (prod); PG 16 locally |
 | Search | PostgreSQL full-text search (tsvector/tsquery with GIN indexes) |
 | Containerization | Docker + docker-compose |
-| Deployment | Railway (live) |
+| Deployment | Railway (live at https://docket.pub) |
 
 ---
 
@@ -170,7 +174,7 @@ This is a core design principle, not optional:
 
 ## Database Schema
 
-10 tables in PostgreSQL. Full schema in `src/docket/migrations/001_initial.py`.
+Core schema in `src/docket/migrations/001_initial.py` (10 base tables); migration 013 adds 10 more for the v3 Impact-First refactor (`priority_badge_templates`, `priority_badges_config`, `agenda_item_badges`, `agenda_item_badges_audit`, `city_score_floor_overrides`, `ai_batches`, `ai_batch_items`, `mayoral_terms`, `ai_response_cache`, `processing_status_audit`) plus the `mv_badge_volume_monthly` materialized view. Migration 021 adds `agenda_item_badges.status`; migration 023 adds `'withdrawn'` to the processing-status enum.
 
 ### Core Tables
 
@@ -196,20 +200,39 @@ search_vector (TSVECTOR, auto-updated), created_at, updated_at
 #### `agenda_items`
 Individual items on a meeting's agenda. This is the richest table.
 ```
+-- v1/v2 columns:
 id, meeting_id, external_id, item_number, title, description,
 section, is_consent, sponsor, topic,
 dollars_amount (NUMERIC 15,2), significance_score (REAL 0-10),
 consent_placement_score (REAL 0-10),
 video_timestamp_seconds (REAL),
-search_vector (TSVECTOR, auto-updated), created_at
+search_vector (TSVECTOR, auto-updated),
+summary, ai_metadata (JSONB), ai_prompt_version, ai_generated_at,
+created_at,
+-- v3 columns (migration 013):
+extracted_facts (JSONB), headline, why_it_matters, source_anchor (JSONB),
+data_quality (data_quality_enum), data_debt_priority (data_debt_priority_enum),
+processing_status (processing_status_enum),
+processing_attempts, last_error_at, last_error_message,
+score_overrides (JSONB),
+ai_extraction_version, ai_rewrite_version, ai_confidence,
+backfill_session_id (UUID)
 ```
 - `sponsor`: Extracted from "(Submitted by ...)" or "(sponsored by ...)" patterns. NULL if not found.
 - `topic`: Keyword-classified topic slug. One of: `zoning`, `public_safety`, `public_works`, `budget`, `grants`, `contracts`, `legal`, `parks_culture`, `licensing`, `appointments`, `routine`. NULL if unclassified.
-- `dollars_amount`: Extracted via regex from title/description. The **largest** dollar amount in the text. NULL if none found.
-- `significance_score`: 0-10 scale. Populated by `docket.ai` Haiku worker. NULL on procedural items (`is_substantive=False`) by design.
-- `consent_placement_score`: 0-10 scale. Populated by `docket.ai` Haiku worker. NULL on procedural items by design.
+- `dollars_amount`: Extracted via regex. The **largest** dollar amount in the text. NULL if none found.
+- `significance_score`: 0-10 scale. NULL on procedural items by design.
+- `consent_placement_score`: 0-10 scale. NULL on procedural items by design.
 - `is_consent`: Boolean flag — was this item on the consent agenda?
-- `summary`, `ai_metadata`, `ai_prompt_version`, `ai_generated_at`: AI-generated 1-2 sentence item summary + metadata (rationales, confidence, model, is_substantive) + prompt versioning. NULL until processed. See `docs/superpowers/specs/2026-05-01-summaries-and-scoring-design.md`.
+- `summary`, `ai_metadata`: legacy v2 outputs. Phase 4 / migration 014 drops `summary` once all completed items are at v3.
+- `extracted_facts` (JSONB, v3): structured facts from Stage 1 — `counterparty`, `funding_source`, `procurement_method`, `action_type`, `location`, `next_steps`, etc.
+- `headline`, `why_it_matters` (v3): Smart Brevity headline + why-it-matters one-liner from Stage 2. Length CHECKs: headline ≤ 80, why_it_matters ≤ 280 (migration 020).
+- `source_anchor` (JSONB): grounding metadata linking the v3 outputs back to a specific span in the source document.
+- `data_quality`: `ok` | `no_text_layer` | `no_agenda_text` | `empty` | `foreign_language`. Set by Wave 0 Stage 0a.
+- `processing_status`: `pending` | `procedural_skipped` | `data_quality_skipped` | `extracted` | `rewritten` | `badged` | `completed` | `failed_retry` | `failed_permanent` | `cross_stage_conflict` | `withdrawn`. Tracks v3 pipeline progress.
+- `score_overrides` (JSONB): admin escalations + Stage 2.5 floor triggers.
+
+See `docs/superpowers/specs/2026-05-05-impact-first-refactor-design.md` for the v3 design.
 
 #### `votes`
 Vote outcomes recorded at a meeting. Links to agenda items live in the `vote_agenda_items` join table; the legacy singular `agenda_item_id` / `match_method` / `match_confidence` columns were dropped in migration 011 after the N:M reader was verified live.
@@ -478,19 +501,24 @@ GET  /topics/                           Browse by topic index
 GET  /topics/<topic>/                   Items for a specific topic
 ```
 
-### Admin (9 routes — session-based auth required)
+### Admin (session-based auth required)
 
 ```
-GET       /admin/members/                  List all council members
-GET|POST  /admin/members/add               Add a new member
-GET|POST  /admin/members/<id>/edit         Edit member details
-POST      /admin/members/<id>/deactivate   Deactivate member
-GET       /admin/ai                        AI pipeline dashboard (queue depth, 7-day cost, recent runs)
-GET       /admin/calibration               Calibration dashboard (6 panels: per-item divergence, under/over-scoring, baseline drift, badge volume, top false positives) — G1
-GET       /admin/data-debt                 OCR queue (cross-city, items needing extraction, priority-sorted) — G2
-GET       /admin/errors                    Errors queue (cross-city, failed_permanent items) — G2
-POST      /admin/errors/<id>/retry         Reset to pending + clear backfill_session_id + last_error_* — G2
-POST      /admin/errors/<id>/escalate      Set score_overrides.admin_escalated for manual review — G2
+GET       /admin/members/                              List all council members
+GET|POST  /admin/members/add                           Add a new member
+GET|POST  /admin/members/<id>/edit                     Edit member details
+POST      /admin/members/<id>/deactivate               Deactivate member
+GET       /admin/ai                                    AI pipeline dashboard (queue depth, 7-day cost, recent runs)
+GET       /admin/calibration                           Calibration dashboard (6 panels: per-item divergence, under/over-scoring, baseline drift, badge volume, top false positives)
+GET       /admin/data-debt                             OCR queue (cross-city, items needing extraction, priority-sorted)
+GET       /admin/errors                                Errors queue (cross-city, failed_permanent items)
+POST      /admin/errors/<id>/retry                     Reset to pending + clear backfill_session_id + last_error_*
+POST      /admin/errors/<id>/escalate                  Set score_overrides.admin_escalated for manual review
+GET       /admin/badge-review                          Refactor #2 — queue of status='flagged' badges (Haiku-suggested without deterministic backing)
+POST      /admin/badge-review/<id>/approve             Promote a flagged badge to status='applied'
+POST      /admin/badge-review/<id>/reject              Archive a flagged badge as status='rejected'
+GET       /admin/review-conflicts                      cross_stage_conflict resolution queue
+GET       /admin/badges-audit                          Badge audit log viewer
 ```
 
 Auth on `/admin/*` is enforced via blueprint-level `before_request` hook in `admin.py:13–21` — new admin routes do not need an explicit `@login_required` decorator.
@@ -527,6 +555,14 @@ docket-pub/
       010_backfill_vote_agenda_items.py  # Copies legacy votes.agenda_item_id rows into the join
       011_drop_deprecated_vote_columns.py # Drops singular FK columns from votes (idempotent)
       012_ai_summaries_and_scoring.py    # AI columns on agenda_items + meetings + ai_runs table
+      013_impact_first_refactor.py       # v3 schema: 10 new tables, MV, enums, indexes, seed
+      015_search_vector_v3.py            # search_vector includes headline/why_it_matters/JSONB
+      016_relax_audit_fk.py              # agenda_item_badges_audit FK → ON DELETE SET NULL
+      018_ai_batches_ingested_at.py      # ai_batches.ingested_at + index
+      020_raise_headline_caps.py         # chk_headline_length 60→80, why_it_matters 200→280
+      021_badge_status_column.py         # refactor #2 — agenda_item_badges.status
+      022_badge_mv_status_filter.py      # refactor #2 — MV filters status='applied'
+      023_processing_status_withdrawn.py # refactor #2 follow-up — 'withdrawn' enum value
       runner.py                  # Migration runner (apply/rollback/status)
     adapters/
       __init__.py                # Adapter registry + get_adapter() factory
@@ -619,8 +655,8 @@ docket-pub/
 
 ```bash
 # 1. Clone
-git clone git@github.com:thinkdarrell/docket-pub-dw-dev.git
-cd docket-pub-dw-dev
+git clone git@github.com:thinkdarrell/docket-pub.git
+cd docket-pub
 
 # 2. Start PostgreSQL
 docker-compose up -d   # or use local Homebrew PostgreSQL
