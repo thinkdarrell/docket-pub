@@ -67,6 +67,32 @@ def _truncate_overlong_strings(
     return payload
 
 
+_STRING_NULL_TOKENS = frozenset({"null", "None", "NULL", "none"})
+# Top-level fields where the schema requires an object — string-null collapses
+# to an empty dict so Pydantic can default the nested fields, rather than None
+# which would re-trigger the validation failure.
+_REQUIRED_OBJECT_FIELDS = frozenset({"next_steps"})
+
+
+def _normalize_string_nulls(payload: dict, *, log_prefix: str = "") -> dict:
+    """Replace literal ``"null"`` / ``"None"`` strings with actual ``None``.
+
+    Haiku occasionally emits these tokens as strings rather than JSON null —
+    observed on item 1298 in the 2026-05-12 cron, where ``next_steps='null'``
+    crashed Pydantic with ``input_type=str``. Walks one level of nesting,
+    which covers ``next_steps`` and ``location`` (the only nested objects
+    in StructuredFacts).
+    """
+    for key, value in list(payload.items()):
+        if isinstance(value, str) and value in _STRING_NULL_TOKENS:
+            payload[key] = {} if key in _REQUIRED_OBJECT_FIELDS else None
+        elif isinstance(value, dict):
+            for sub_key, sub_value in list(value.items()):
+                if isinstance(sub_value, str) and sub_value in _STRING_NULL_TOKENS:
+                    value[sub_key] = None
+    return payload
+
+
 def _coerce_unknown_enums(payload: dict, schema: dict, *, log_prefix: str = "") -> dict:
     """Replace top-level enum field values that aren't in the schema's enum.
 
@@ -196,6 +222,7 @@ Do not infer. If the resolution doesn't say "set for public hearing on June 5,"
 do not populate public_hearing_date.
 
 Return ALL the schema's keys; use null when unknown.
+For unknown fields return JSON null, never the string "null" or "None".
 """
 
 
@@ -269,6 +296,10 @@ def extract_facts_for_item(item, *, model: str = "claude-haiku-4-5-20251001") ->
 
     payload = _extract_tool_input(response, STAGE1_TOOL["name"])
     item_id = getattr(item, "id", "?")
+    # Normalize unconditionally — Haiku emits string "null"/"None" often enough
+    # (and the date-typed fields would otherwise accept those as legitimate
+    # strings, surfacing them to citizens). Cost is one shallow dict walk.
+    payload = _normalize_string_nulls(payload, log_prefix=f"stage1 item={item_id} ")
     try:
         facts = StructuredFacts.model_validate(payload)
     except ValidationError:

@@ -116,6 +116,79 @@ def test_extract_facts_coerces_unknown_enum_value_to_safe_default():
     assert facts.funding_source == 'unknown'
 
 
+def test_extract_facts_accepts_natural_language_dates_in_next_steps():
+    """Haiku often returns natural-language strings for next_steps date fields
+    ('May 5, 2026', 'the 13th'). After 2026-05-12 cron failure cluster, those
+    fields are typed as ``str | None`` rather than ``date | None`` so the source
+    phrasing flows through to the citizen render verbatim."""
+    item = make_item()
+    facts_with_text_dates = {
+        **VALID_FACTS_DICT,
+        'next_steps': {
+            'committee_referral': None,
+            'public_hearing_date': 'May 5, 2026',
+            'public_hearing_time': '6:00 PM',
+            'comment_period_end': 'the 13th',
+            'implementation_date': None,
+        },
+    }
+    mock_response = _make_tool_response(facts_with_text_dates)
+
+    with patch('docket.ai.extraction.anthropic_client') as mock_client:
+        mock_client.messages.create.return_value = mock_response
+        with patch('docket.ai.extraction.cache_get', return_value=None), \
+             patch('docket.ai.extraction.cache_put'):
+            facts, _ = extract_facts_for_item(item)
+
+    assert facts.next_steps.public_hearing_date == 'May 5, 2026'
+    assert facts.next_steps.comment_period_end == 'the 13th'
+
+
+def test_extract_facts_normalizes_whole_field_null_string():
+    """Haiku occasionally returns the literal string ``"null"`` where a nested
+    object is expected (observed on item 1298 in the 2026-05-12 cron). The
+    pre-validate normalization pass converts string ``"null"`` / ``"None"`` to
+    actual ``None`` so Pydantic accepts the row."""
+    item = make_item()
+    facts_with_null_string = {**VALID_FACTS_DICT, 'next_steps': 'null'}
+    mock_response = _make_tool_response(facts_with_null_string)
+
+    with patch('docket.ai.extraction.anthropic_client') as mock_client:
+        mock_client.messages.create.return_value = mock_response
+        with patch('docket.ai.extraction.cache_get', return_value=None), \
+             patch('docket.ai.extraction.cache_put'):
+            facts, _ = extract_facts_for_item(item)
+
+    # Nested string-null collapses to a default NextSteps with all fields None.
+    assert facts.next_steps.public_hearing_date is None
+    assert facts.next_steps.committee_referral is None
+
+
+def test_extract_facts_normalizes_nested_null_string():
+    """String ``"null"`` inside a nested next_steps object is normalized to None."""
+    item = make_item()
+    facts_with_nested_null = {
+        **VALID_FACTS_DICT,
+        'next_steps': {
+            'committee_referral': 'null',
+            'public_hearing_date': 'None',
+            'public_hearing_time': None,
+            'comment_period_end': None,
+            'implementation_date': None,
+        },
+    }
+    mock_response = _make_tool_response(facts_with_nested_null)
+
+    with patch('docket.ai.extraction.anthropic_client') as mock_client:
+        mock_client.messages.create.return_value = mock_response
+        with patch('docket.ai.extraction.cache_get', return_value=None), \
+             patch('docket.ai.extraction.cache_put'):
+            facts, _ = extract_facts_for_item(item)
+
+    assert facts.next_steps.committee_referral is None
+    assert facts.next_steps.public_hearing_date is None
+
+
 def test_extract_facts_raises_permanent_when_coercion_cannot_recover():
     """If the schema violation isn't a top-level enum (e.g. required field
     type wrong / missing), coercion doesn't help and we surface as
