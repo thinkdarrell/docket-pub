@@ -127,15 +127,20 @@ PROCEDURAL_TITLE_PATTERNS = (
 # added a ``'withdrawn'`` status to ``processing_status_enum`` so Wave
 # 0 can route this family to its own bucket.
 #
-# Pattern anchored to the Birmingham agenda shape:
-#     <prefix> ITEM <n>. <marker>
-# so we don't match the same word deep inside an ordinance body
-# (e.g. "An Ordinance regarding deferred maintenance"). The prefix
-# accepts letters, parens, periods, slashes, and whitespace —
-# covering shapes like ``P(ph) ITEM 1.``, ``CONSENT ITEM 11.``,
-# ``P ITEM 5``, or just ``ITEM 7.``.
+# Two Birmingham agenda shapes carry the withdrawn-family marker:
+#   Shape A (marker-after):  <prefix> ITEM <n>. <marker>
+#       e.g. "P(ph) ITEM 1. WITHDRAWN An Ordinance ..."
+#   Shape B (marker-first):  <marker> <prefix> ITEM <n>. ...
+#       e.g. "WITHDRAWN CONSENT ITEM 22. A Resolution ..."
+# Both require an ``ITEM <n>.`` token so we don't match the same word
+# deep inside an ordinance body (e.g. "An Ordinance regarding deferred
+# maintenance") or a history reference like "(Deferred from 12/11/18
+# to 12/18/18)". The prefix accepts letters, parens, periods, slashes,
+# and whitespace — covering shapes like ``P(ph)``, ``CONSENT``,
+# ``ADDENDUM``, ``P``, or none at all.
 WITHDRAWN_TITLE_PATTERNS = (
     r'^[a-z()./\s]*\bitem\s+\d+\.?\s+\b(?:withdrawn|deferred|postponed)\b',
+    r'^\s*\b(?:withdrawn|deferred|postponed)\b[a-z()./\s]*\bitem\s+\d+\b',
 )
 
 _compiled_patterns = [re.compile(p, re.IGNORECASE) for p in PROCEDURAL_TITLE_PATTERNS]

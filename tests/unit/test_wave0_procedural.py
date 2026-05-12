@@ -69,7 +69,7 @@ class TestIsProcedural:
 
 class TestIsWithdrawnOrDeferred:
     @pytest.mark.parametrize("title", [
-        # Birmingham agenda shape: <prefix> ITEM <n>. <marker>
+        # Shape A: <prefix> ITEM <n>. <marker>
         'P(ph) ITEM 1. WITHDRAWN An Ordinance "TO AMEND THE ZONING DISTRICT MAP"',
         "CONSENT ITEM 11. WITHDRAWN PER O.C.A. A Resolution rescinding ...",
         "P ITEM 5. DEFERRED to next meeting An Ordinance authorizing",
@@ -78,6 +78,20 @@ class TestIsWithdrawnOrDeferred:
         "P(ph) ITEM 1. withdrawn an ordinance",
         # No prefix at all, just ITEM N.
         "ITEM 7. WITHDRAWN A Resolution to do something",
+        # Shape B: <marker> <prefix> ITEM <n>. — real Birmingham prod shapes
+        "WITHDRAWN ITEM 19. A Resolution approving the agreement with The Norwood Resource Center",
+        "WITHDRAWN CONSENT ITEM 22. A Resolution (1) finding that the request by ...",
+        "WITHDRAWN CONSENT               ITEM 62. A Resolution determining that the building",
+        "WITHDRAWN ADDENDUM ITEM 76. A Resolution determining that the retreat ...",
+        "WITHDRAWN CONSENT(ph)   ITEM 5. A Resolution revoking the Certificates",
+        "WITHDRAWN P             ITEM 6. An Ordinance repealing Section 5",
+        # Shape B with body wrapped to next line after "ITEM N."
+        "WITHDRAWN ITEM 8.\r\nA Resolution authorizing the Mayor",
+        # Shape B with DEFERRED / POSTPONED markers (synthetic but follows the same form)
+        "DEFERRED ITEM 4. A Resolution authorizing the Mayor to execute",
+        "POSTPONED CONSENT ITEM 9. A Resolution determining ...",
+        # Case insensitive marker-first
+        "withdrawn item 7. a resolution to do something",
     ])
     def test_withdrawn_titles_match(self, title: str):
         assert is_withdrawn_or_deferred(title), f"Should match: {title!r}"
@@ -92,6 +106,13 @@ class TestIsWithdrawnOrDeferred:
         "P ITEM 7. An Ordinance regarding deferred maintenance\nat municipal buildings",
         # Plain substantive titles
         "Award of HVAC contract for $87,500",
+        # Marker-first guard: previously-deferred history reference is NOT a
+        # marker-first withdrawal. The marker word appears in the body, not
+        # at the start, and the title shape begins with "ITEM N.".
+        "ITEM 29. A Resolution amending The World Games 2021 Agreement.  (Deferred from 12/11/18 to 12/18/18)",
+        # Marker-first guard: starts with marker word but has no "ITEM N."
+        # structure — ambiguous, so we conservatively decline.
+        "WITHDRAWN MOTION TO RECONSIDER — pending further notice",
     ])
     def test_substantive_titles_dont_match(self, title: str):
         assert not is_withdrawn_or_deferred(title), f"Should NOT match: {title!r}"
