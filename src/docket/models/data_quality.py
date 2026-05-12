@@ -84,6 +84,7 @@ class ProcessingStatus(str, enum.Enum):
     FAILED_RETRY = "failed_retry"
     FAILED_PERMANENT = "failed_permanent"
     CROSS_STAGE_CONFLICT = "cross_stage_conflict"
+    WITHDRAWN = "withdrawn"
 
     @property
     def label(self) -> str:

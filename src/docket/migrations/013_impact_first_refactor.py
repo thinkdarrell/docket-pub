@@ -25,10 +25,15 @@ CREATE TYPE data_quality_enum AS ENUM (
 
 CREATE TYPE data_debt_priority_enum AS ENUM ('low', 'normal', 'high');
 
+-- Post-023 shape: 'withdrawn' is the routing target for items the
+-- council removes from the agenda (withdrawn / deferred / postponed).
+-- Baked in here so the 013 up→down→up cycle preserves the value
+-- alongside the WITHDRAWN bake-ins on agenda_item_badges (refactor #2).
 CREATE TYPE processing_status_enum AS ENUM (
     'pending', 'procedural_skipped', 'data_quality_skipped',
     'extracted', 'rewritten', 'badged', 'completed',
-    'failed_retry', 'failed_permanent', 'cross_stage_conflict'
+    'failed_retry', 'failed_permanent', 'cross_stage_conflict',
+    'withdrawn'
 );
 
 -- 3. New columns on agenda_items
