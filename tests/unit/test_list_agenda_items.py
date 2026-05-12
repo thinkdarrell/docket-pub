@@ -565,6 +565,18 @@ def meeting_with_v3_items():
                 (v3_item_id, muni_id),
             )
 
+            # Attach a second badge to the v3 item with status='flagged'
+            # so the reader-gate test can confirm flagged badges are
+            # filtered out of the public meeting-detail render.
+            cur.execute(
+                """INSERT INTO agenda_item_badges (
+                       agenda_item_id, city_id, badge_slug, kind,
+                       confidence, source, status
+                   ) VALUES (%s, %s, 'blight_accountability', 'policy',
+                       0.4, 'llm', 'flagged')""",
+                (v3_item_id, muni_id),
+            )
+
             # Item 2: Wave-0 degraded
             cur.execute(
                 """INSERT INTO agenda_items (
@@ -600,6 +612,20 @@ def meeting_with_v3_items():
             )
             bare_item_id = cur.fetchone()["id"]
 
+            # Item 5: withdrawn — the council removed this from the agenda.
+            # Should not appear in citizen meeting-detail rendering after
+            # the PR A reader-gate fix.
+            cur.execute(
+                """INSERT INTO agenda_items (
+                       meeting_id, title, item_number, is_consent,
+                       processing_status
+                   ) VALUES (%s, 'WITHDRAWN ITEM 5. A Resolution',
+                       '5', FALSE, 'withdrawn')
+                   RETURNING id""",
+                (mid,),
+            )
+            withdrawn_item_id = cur.fetchone()["id"]
+
         conn.commit()
 
     yield {
@@ -608,6 +634,7 @@ def meeting_with_v3_items():
         "degraded_item_id": degraded_item_id,
         "v2_item_id": v2_item_id,
         "bare_item_id": bare_item_id,
+        "withdrawn_item_id": withdrawn_item_id,
     }
 
     with db() as conn:
@@ -738,6 +765,46 @@ class TestListAgendaItemsDB:
         assert bare.headline is None
         assert bare.extracted_facts is None
         assert bare.badges == []
+
+    def test_flagged_badges_hidden_from_citizen_render(self, meeting_with_v3_items):
+        """Refactor #2 retro finding: list_agenda_items must filter the
+        per-item badge JSONB-agg to status='applied' so flagged policy-
+        badge suggestions never reach citizen meeting-detail pages.
+
+        Fixture seeds: v3 item carries (a) a 'sole_source' badge with
+        default status='applied' and (b) a 'blight_accountability' badge
+        with status='flagged'. Reader must return only the applied one.
+        """
+        items = list_agenda_items(meeting_with_v3_items["meeting_id"])
+        v3 = next(i for i in items if i.id == meeting_with_v3_items["v3_item_id"])
+
+        slugs = {b["slug"] for b in v3.badges}
+        assert "sole_source" in slugs, (
+            "applied badge must still render"
+        )
+        assert "blight_accountability" not in slugs, (
+            "flagged badge must NOT reach citizens"
+        )
+
+    def test_withdrawn_items_hidden_from_citizen_render(self, meeting_with_v3_items):
+        """Refactor #2 retro finding: list_agenda_items must hide items
+        with processing_status='withdrawn' so council-removed items don't
+        render as 'awaiting summary' on citizen meeting-detail pages.
+
+        Fixture seeds five items: v3, degraded, v2, pending, withdrawn.
+        Reader must return only the first four; the withdrawn id must
+        not appear in the result set.
+        """
+        items = list_agenda_items(meeting_with_v3_items["meeting_id"])
+        item_ids = {i.id for i in items}
+
+        assert meeting_with_v3_items["withdrawn_item_id"] not in item_ids, (
+            "withdrawn item must not appear in citizen render"
+        )
+        # Four non-withdrawn items remain — same shape the original
+        # test_returns_all_items_ordered_by_item_number assertion uses
+        # (which itself depends on this same SQL predicate).
+        assert len(items) == 4
 
 
 # ---------------------------------------------------------------------------
