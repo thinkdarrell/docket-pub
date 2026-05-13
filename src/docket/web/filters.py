@@ -393,6 +393,24 @@ def dollar_tier(value: Decimal | float | int | str | None) -> DollarTier | None:
     return DollarTier(color=color, symbol=symbol, description=description)
 
 
+def format_year_month(ym):
+    """``'2026-04'`` → ``'April 2026'``. Empty/None → empty string."""
+    if not ym:
+        return ""
+    import datetime as _dt
+    d = _dt.date.fromisoformat(ym + "-01")
+    return d.strftime("%B %Y")
+
+
+def format_year_month_short(ym):
+    """``'2026-04'`` → ``"Apr '26"``. Empty/None → empty string."""
+    if not ym:
+        return ""
+    import datetime as _dt
+    d = _dt.date.fromisoformat(ym + "-01")
+    return d.strftime("%b '%y")
+
+
 def funding_source_label(enum_value):
     """Map a funding_source enum value to a display label.
 
@@ -604,6 +622,8 @@ def register(app: Flask) -> None:
     app.jinja_env.filters["action_type_label"] = action_type_label
     app.jinja_env.filters["acres_format"] = acres_format
     app.jinja_env.filters["parcels_format"] = parcels_format
+    app.jinja_env.filters["format_year_month"] = format_year_month
+    app.jinja_env.filters["format_year_month_short"] = format_year_month_short
     app.jinja_env.filters["rss_rfc822"] = rss_rfc822
     app.jinja_env.filters["cdata_safe"] = cdata_safe
     app.jinja_env.globals["rss_now_rfc822"] = rss_now_rfc822

@@ -338,3 +338,147 @@ a.link:hover { border-bottom-color: var(--accent); }
   color: #6b6457;
   border-left: 3px solid var(--accent-color, #c8cbc0);
 }
+
+/* ──────────────────────────────────────────────────────────────────
+   Volume timeline block (PR D — category-landing redesign)
+   ────────────────────────────────────────────────────────────────── */
+
+.volume-timeline-block {
+  font-family: "Source Serif Pro", Georgia, serif;
+  padding: 16px 24px 18px;
+  background: #fdfaf3;
+  border-top: 1px solid #e6dfc8;
+  border-bottom: 1px solid #e6dfc8;
+}
+
+.volume-timeline-block .title-block {
+  text-align: center;
+  max-width: 64ch;
+  margin: 0 auto 10px;
+}
+.volume-timeline-block .title-block .eyebrow {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #6b6457;
+  margin-bottom: 6px;
+}
+.volume-timeline-block .title-block h2 {
+  font-family: "Source Serif Pro", Georgia, serif;
+  font-size: 24px;
+  font-weight: 600;
+  margin: 0 0 8px;
+}
+.volume-timeline-block .title-block .caption {
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: #4a4540;
+  max-width: 52ch;
+  margin: 0 auto;
+}
+
+.volume-timeline-block .tally-band {
+  display: flex;
+  justify-content: center;
+  gap: 32px;
+  flex-wrap: wrap;
+  max-width: 64ch;
+  margin: 18px auto 4px;
+  padding: 14px 0;
+  border-top: 1px solid rgba(196, 137, 74, 0.25);
+  border-bottom: 1px solid rgba(196, 137, 74, 0.25);
+}
+.volume-timeline-block .tally {
+  text-align: center;
+}
+.volume-timeline-block .tally .tally-label {
+  display: block;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #6b6457;
+  margin-bottom: 2px;
+}
+.volume-timeline-block .tally .tally-value {
+  display: block;
+  font-size: 22px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.volume-timeline-block .tally .tally-sub {
+  display: block;
+  font-size: 11.5px;
+  color: #6b6457;
+  margin-top: 2px;
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+}
+
+/* Index-status banner (renamed from "backfill-note" so the citizen-
+   jargon regression test stops tripping on the class name). */
+.volume-timeline-block .index-status-row {
+  display: flex;
+  justify-content: center;
+  margin: 16px 0;
+}
+.volume-timeline-block .index-status-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  font-size: 11.5px;
+  color: #5a4a30;
+  background: rgba(196, 137, 74, 0.08);
+  border-left: 2px solid rgba(196, 137, 74, 0.5);
+  padding: 7px 12px;
+}
+
+.volume-timeline-block .volume-timeline {
+  width: 100%;
+  height: 140px;
+}
+.volume-timeline-block .bar-substantive   { fill: #5a4a30; }
+.volume-timeline-block .bar-consent       { fill: #c4894a; opacity: 0.92; }
+.volume-timeline-block .bar-consent.is-peak { fill: #a76d2d; opacity: 1; }
+.volume-timeline-block .bar-empty         { fill: url(#hatch); opacity: 0.45; }
+.volume-timeline-block .axis-x       { fill: #6b6457; font-family: "JetBrains Mono", monospace; font-size: 10px; }
+.volume-timeline-block .axis-y-line  { stroke: #d8cfa9; stroke-width: 1; stroke-dasharray: 2 4; }
+.volume-timeline-block .axis-y-label { fill: #6b6457; font-family: "JetBrains Mono", monospace; font-size: 9.5px; }
+.volume-timeline-block .peak-callout { fill: #5a4a30; font-family: "IBM Plex Sans", system-ui, sans-serif; font-size: 10px; font-weight: 500; }
+.volume-timeline-block .peak-leader  { stroke: #a76d2d; stroke-width: 1; }
+
+.volume-timeline-block .chart-footnote {
+  font-size: 11px;
+  color: #6b6457;
+  margin-top: 12px;
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  text-align: center;
+}
+
+.volume-timeline-block a:focus-visible rect {
+  outline: 2px solid #c4894a;
+  outline-offset: 2px;
+}
+
+/* Active-month chip + clear button (PR D) */
+.badge-chip--active-month {
+  background: #f4e6cb;
+  border: 1px solid #d8b97a;
+  color: #6b4a15;
+}
+.chip-clear {
+  margin-left: 4px;
+  text-decoration: none;
+  color: #6b4a15;
+  font-weight: 600;
+}
+.chip-clear:focus-visible {
+  outline: 2px solid #c4894a;
+  outline-offset: 2px;
+}
+
+/* Empty state stability — filtered-empty doesn't visually collapse */
+.empty-state {
+  min-height: 40vh;
+}

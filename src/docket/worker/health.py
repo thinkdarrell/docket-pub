@@ -18,14 +18,19 @@ HEALTHCHECK_BASE = "https://hc-ping.com"
 
 # Task name → env var name. Unknown task names are a programmer error.
 TASK_UUID_ENV: dict[str, str] = {
-    "ingest_all":           "HEALTHCHECK_INGEST_UUID",
-    "ai_items":             "HEALTHCHECK_AI_ITEMS_UUID",
-    "ai_meetings":          "HEALTHCHECK_AI_MEETINGS_UUID",
-    "vote_matching":        "HEALTHCHECK_VOTE_MATCH_UUID",
-    "repair_empty_agendas": "HEALTHCHECK_REPAIR_UUID",
-    "process_badges":       "HEALTHCHECK_PROCESS_BADGES_UUID",
-    "calibration_report":   "HEALTHCHECK_CALIBRATION_UUID",
-    "process_batches":      "HEALTHCHECK_PROCESS_BATCHES_UUID",
+    "ingest_all":               "HEALTHCHECK_INGEST_UUID",
+    "ai_items":                 "HEALTHCHECK_AI_ITEMS_UUID",
+    "ai_meetings":              "HEALTHCHECK_AI_MEETINGS_UUID",
+    "vote_matching":            "HEALTHCHECK_VOTE_MATCH_UUID",
+    "repair_empty_agendas":     "HEALTHCHECK_REPAIR_UUID",
+    "process_badges":           "HEALTHCHECK_PROCESS_BADGES_UUID",
+    "calibration_report":       "HEALTHCHECK_CALIBRATION_UUID",
+    "process_batches":          "HEALTHCHECK_PROCESS_BATCHES_UUID",
+    # No Healthchecks UUID configured for the MV refresh — failure
+    # mode is local (one-day stale ratio) and self-recovers. The map
+    # entry is here so ping() in _safe_run() doesn't KeyError; ping()
+    # short-circuits when the env var is unset.
+    "refresh_backfill_ratio_mv": "HEALTHCHECK_REFRESH_BACKFILL_RATIO_UUID",
 }
 
 PingStatus = Literal["start", "success", "fail"]

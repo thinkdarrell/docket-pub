@@ -135,6 +135,6 @@ def test_tasks_registry_has_all_jobs():
     expected = {
         "ingest_all", "ai_items", "ai_meetings", "vote_matching",
         "repair_empty_agendas", "process_badges", "calibration_report",
-        "process_batches",
+        "process_batches", "refresh_backfill_ratio_mv",
     }
     assert set(tasks.TASKS.keys()) == expected

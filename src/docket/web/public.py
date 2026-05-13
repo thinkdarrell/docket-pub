@@ -6,6 +6,7 @@ Business logic stays in services, not here.
 
 from __future__ import annotations
 
+import re
 import threading
 import time
 from datetime import date
@@ -320,6 +321,26 @@ def category_landing(slug: str, badge_slug: str):
         offset = 0
     offset = max(0, offset)
 
+    # ?month=YYYY-MM bar-click drill-down (PR D). Defensive regex check;
+    # bad input silently becomes no filter so a misuse from another
+    # caller can't smuggle a free-form string into the SQL params.
+    month_filter_raw = request.args.get("month", "")
+    if month_filter_raw and not re.fullmatch(
+        r"\d{4}-(0[1-9]|1[0-2])", month_filter_raw
+    ):
+        month_filter_raw = ""
+    month_filter = month_filter_raw or None
+    active_month_label = None
+    if month_filter:
+        active_month_label = date.fromisoformat(month_filter + "-01").strftime(
+            "%B %Y"
+        )
+    # Args minus ?month for the clear-month chip/link in templates.
+    # Jinja can't do dict comprehensions, so precompute here.
+    args_without_month = {
+        k: v for k, v in request.args.items() if k != "month"
+    }
+
     # LIMIT 26 sentinel pagination (S3): ask for one more than the page
     # size. If we get all 26 back, slice off the 26th and signal there's
     # a next page; if we get <= 25, there is no next page. This avoids
@@ -331,21 +352,26 @@ def category_landing(slug: str, badge_slug: str):
         cross_filter_slugs=cross_filters,
         limit=26,
         offset=offset,
+        month_filter=month_filter,
     )
     items = items_plus_one[:25]
     next_offset = (offset + 25) if len(items_plus_one) > 25 else None
 
     current_year = date.today().year
-    kpis = query.category_kpis(
+    # All-time-indexed tally replaces year-scoped KPI strip (PR D).
+    # category_kpis is retained for any out-of-scope caller but the
+    # category-landing route no longer reads it.
+    tally = query.category_tally(
         municipality["id"],
         badge_slug,
-        year=current_year,
         cross_filter_slugs=cross_filters,
     )
+    backfill_ratio = query.city_backfill_ratio(municipality["id"])
 
-    # Volume timeline window: 5-year rolling, inclusive of current_year
-    # (decision #95). Same `date.today().year` anchor the KPI strip uses
-    # so the two surfaces stay aligned without separate config.
+    # Volume timeline window: 5-year rolling, inclusive of current_year.
+    # Mayoral-term overlay dropped in PR D (decision #9) — the band
+    # competed with the bars for attention and rarely told a useful
+    # citizen-facing story.
     timeline_start = date(current_year - 4, 1, 1)
     timeline_end = date(current_year, 12, 31)
     timeline = query.badge_volume_series(
@@ -353,11 +379,6 @@ def category_landing(slug: str, badge_slug: str):
         badge_slug,
         start_date=timeline_start,
         end_date=timeline_end,
-    )
-    mayoral_terms = query.mayoral_term_overlay(
-        municipality["id"],
-        timeline_start,
-        timeline_end,
     )
     timeline_year_ticks = query.year_ticks(timeline_start, timeline_end)
 
@@ -397,6 +418,9 @@ def category_landing(slug: str, badge_slug: str):
             items=items,
             next_offset=next_offset,
             cross_filters=cross_filters,
+            month_filter=month_filter,
+            active_month_label=active_month_label,
+            args_without_month=args_without_month,
             # Category-landing cards span many meetings — surface date +
             # item ref per card via the shared meta strip (no-op on
             # meeting-detail surfaces where show_meeting_context is unset).
@@ -408,9 +432,9 @@ def category_landing(slug: str, badge_slug: str):
         municipality=municipality,
         badge=badge,
         items=items,
-        kpis=kpis,
+        tally=tally,
+        backfill_ratio=backfill_ratio,
         timeline=timeline,
-        mayoral_terms=mayoral_terms,
         year_ticks=timeline_year_ticks,
         cross_filters=cross_filters,
         cross_filter_badges=cross_filter_badges,
@@ -418,6 +442,9 @@ def category_landing(slug: str, badge_slug: str):
         offset=offset,
         next_offset=next_offset,
         current_year=current_year,
+        month_filter=month_filter,
+        active_month_label=active_month_label,
+        args_without_month=args_without_month,
         show_meeting_context=True,
     )
 

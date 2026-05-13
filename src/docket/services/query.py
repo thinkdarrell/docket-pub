@@ -867,6 +867,7 @@ def list_items_by_badge(
     limit: int = 25,
     offset: int = 0,
     include_low_significance: bool = False,
+    month_filter: str | None = None,
 ) -> list[AgendaItem]:
     """Return items in ``city_id`` carrying ``badge_slug``, ordered for the
     category landing page (spec §6.5, decision #61).
@@ -984,6 +985,18 @@ def list_items_by_badge(
             """
         )
         params.append(cross_slug)
+
+    # ?month=YYYY-MM drill-down. Defensive regex check — the route also
+    # validates, but a misuse from another caller shouldn't smuggle a
+    # free-form string into SQL. date_trunc on meeting_date is safe
+    # because meeting_date is DATE (no TZ semantics).
+    if month_filter:
+        import re as _re
+        if _re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", month_filter):
+            sql_parts.append(
+                " AND date_trunc('month', m.meeting_date)::date = %s::date "
+            )
+            params.append(f"{month_filter}-01")
 
     sql_parts.append(
         """
@@ -1143,6 +1156,160 @@ def category_kpis(
             "total_dollars": row.get("total_dollars") or 0,
             "mayor_priority_quote": None,
         }
+
+
+def category_tally(
+    city_id: int,
+    badge_slug: str,
+    *,
+    cross_filter_slugs: Sequence[str] = (),
+) -> dict:
+    """All-time-indexed tally for the category-landing chart tally band.
+
+    Replaces the year-scoped ``category_kpis()`` — partial-backfill
+    year scopes give misleading "X items this year" numbers when the
+    worker hasn't processed history yet. The all-time-indexed framing
+    is more honest: it answers "what does our index hold for this
+    badge so far?" Pairs with the chart's backfill banner which
+    discloses the % of all indexable items processed.
+
+    Returns::
+
+        {
+            "indexed_count":   int,
+            "indexed_months":  int,        # distinct months in result set
+            "total_dollars":   Decimal,
+            "peak_month": {                # or None when result set is empty
+                "year_month": "YYYY-MM",
+                "items":      int,
+                "dollars":    Decimal,
+            },
+        }
+
+    Predicate matches ``list_items_by_badge`` (same significance
+    threshold + cross-filter rules) so the tally and the listed cards
+    can never disagree.
+
+    Spec: 2026-05-12-category-landing-redesign-design.md §2 tally band.
+    """
+    from decimal import Decimal
+
+    threshold = resolve_significance_threshold(city_id, badge_slug)
+
+    where_clauses = [
+        "aib.city_id = %s",
+        "aib.badge_slug = %s",
+        "aib.confidence >= 0.6",
+        "aib.status = 'applied'",
+        "ai.processing_status = 'completed'",
+    ]
+    params: list = [city_id, badge_slug]
+
+    if threshold is not None:
+        where_clauses.append("ai.significance_score >= %s")
+        params.append(threshold)
+
+    cross_join = ""
+    for cross_slug in cross_filter_slugs:
+        cross_join += """
+              AND EXISTS (
+                  SELECT 1 FROM agenda_item_badges x
+                  WHERE x.agenda_item_id = ai.id
+                    AND x.badge_slug = %s
+                    AND x.status = 'applied'
+              )
+        """
+        params.append(cross_slug)
+
+    where_sql = " AND ".join(where_clauses) + cross_join
+
+    sql = f"""
+        WITH src AS (
+            SELECT ai.id,
+                   ai.dollars_amount,
+                   m.meeting_date,
+                   to_char(m.meeting_date, 'YYYY-MM') AS year_month
+            FROM agenda_item_badges aib
+            JOIN agenda_items ai ON ai.id = aib.agenda_item_id
+            JOIN meetings m      ON m.id = ai.meeting_id
+            WHERE {where_sql}
+        ),
+        aggregates AS (
+            SELECT
+                COUNT(*)                                  AS indexed_count,
+                COUNT(DISTINCT year_month)                AS indexed_months,
+                COALESCE(SUM(dollars_amount), 0)::numeric AS total_dollars
+            FROM src
+        ),
+        monthly AS (
+            SELECT year_month,
+                   COUNT(*)                                  AS items,
+                   COALESCE(SUM(dollars_amount), 0)::numeric AS dollars
+            FROM src GROUP BY year_month
+        ),
+        peak AS (
+            SELECT * FROM monthly ORDER BY items DESC, year_month DESC LIMIT 1
+        )
+        SELECT
+            a.indexed_count,
+            a.indexed_months,
+            a.total_dollars,
+            p.year_month AS peak_year_month,
+            p.items      AS peak_items,
+            p.dollars    AS peak_dollars
+        FROM aggregates a
+        LEFT JOIN peak p ON true
+    """
+
+    with db_cursor() as cur:
+        cur.execute(sql, params)
+        row = cur.fetchone()
+
+    peak = None
+    if row and row["peak_year_month"]:
+        peak = {
+            "year_month": row["peak_year_month"],
+            "items": int(row["peak_items"] or 0),
+            "dollars": row["peak_dollars"] or Decimal("0"),
+        }
+
+    return {
+        "indexed_count": int(row["indexed_count"] or 0) if row else 0,
+        "indexed_months": int(row["indexed_months"] or 0) if row else 0,
+        "total_dollars": (row["total_dollars"] if row else None) or Decimal("0"),
+        "peak_month": peak,
+    }
+
+
+def city_backfill_ratio(city_id: int) -> float | None:
+    """Read the cached per-city v3-completion ratio from
+    ``mv_city_backfill_ratio`` (migration 025).
+
+    Returns a float in [0.0, 1.0] for cities with indexable items,
+    or ``None`` for cities with zero indexable items (NULLIF guard).
+    Callers treat ``None`` as the conservative "< 5%" banner state.
+
+    The MV is refreshed daily by the cron worker
+    (``worker/tasks.py:refresh_backfill_ratio_mv``).
+
+    Defensive: if the MV doesn't exist yet (deploys can land the new
+    code before the migration applies in some edge cases), return
+    ``None`` rather than 500ing the whole category-landing page.
+    """
+    import psycopg2
+
+    try:
+        with db_cursor() as cur:
+            cur.execute(
+                "SELECT ratio FROM mv_city_backfill_ratio WHERE city_id = %s",
+                (city_id,),
+            )
+            row = cur.fetchone()
+    except psycopg2.errors.UndefinedTable:
+        return None
+    if not row or row["ratio"] is None:
+        return None
+    return float(row["ratio"])
 
 
 def resolve_badges(

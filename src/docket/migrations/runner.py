@@ -35,6 +35,7 @@ MIGRATIONS = [
     "docket.migrations.022_badge_mv_status_filter",
     "docket.migrations.023_processing_status_withdrawn",
     "docket.migrations.024_category_landing_v1",
+    "docket.migrations.025_mv_city_backfill_ratio",
 ]
 
 

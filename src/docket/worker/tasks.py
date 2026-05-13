@@ -17,7 +17,7 @@ from typing import Callable
 
 from docket.ai.worker import BudgetExceededError, run_once
 from docket.analysis.vote_matcher import match_all_unmatched
-from docket.db import db_cursor
+from docket.db import db, db_cursor
 from docket.services.ingest import ingest_municipality
 from docket.services.maintenance import repair_empty_agendas
 from docket.worker import health
@@ -209,15 +209,39 @@ def task_process_batches() -> None:
     _safe_run("process_batches", _do_process_batches)
 
 
+def _do_refresh_backfill_ratio_mv() -> None:
+    """Refresh ``mv_city_backfill_ratio`` (migration 025).
+
+    The MV caches the v3-completed fraction per city — read by the
+    category-landing volume-timeline partial (PR D) to pick the
+    backfill-banner copy variant. ~50ms on prod; the UNIQUE INDEX on
+    ``city_id`` lets us use CONCURRENTLY so readers don't block.
+
+    Failure mode is local (stale ratio for one day) and self-recovers
+    the next run; no Healthchecks ping.
+    """
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "REFRESH MATERIALIZED VIEW CONCURRENTLY mv_city_backfill_ratio"
+            )
+        conn.commit()
+
+
+def task_refresh_backfill_ratio_mv() -> None:
+    _safe_run("refresh_backfill_ratio_mv", _do_refresh_backfill_ratio_mv)
+
+
 # --- registry — used by scheduler.py and the --run-once flag -----------------
 
 TASKS: dict[str, Callable[[], None]] = {
-    "ingest_all":           task_ingest_all,
-    "ai_items":             task_ai_items,
-    "ai_meetings":          task_ai_meetings,
-    "vote_matching":        task_vote_matching,
-    "repair_empty_agendas": task_repair_empty_agendas,
-    "process_badges":       task_process_badges,
-    "calibration_report":   task_calibration_report,
-    "process_batches":      task_process_batches,
+    "ingest_all":               task_ingest_all,
+    "ai_items":                 task_ai_items,
+    "ai_meetings":              task_ai_meetings,
+    "vote_matching":            task_vote_matching,
+    "repair_empty_agendas":     task_repair_empty_agendas,
+    "process_badges":           task_process_badges,
+    "calibration_report":       task_calibration_report,
+    "process_batches":          task_process_batches,
+    "refresh_backfill_ratio_mv": task_refresh_backfill_ratio_mv,
 }

@@ -45,14 +45,32 @@
         {% endfor %}
     </div>
     {% else %}
-    <div class="empty-state" style="padding: 32px 0;">
+    <div class="empty-state" style="padding: 32px 0; min-height: 40vh;">
         {# R2: citizen-friendly copy. Internal vocabulary (Wave 0,
            Track 1, D2, matchers, backfill) deliberately removed —
-           visitors should never see pipeline stage names. Admins read
-           server logs, not the public empty state. #}
+           visitors should never see pipeline stage names. PR D: the
+           month-filter branch surfaces a clear-link so a citizen who
+           drilled into an empty month can recover with one click. #}
         <p class="t-meta" style="max-width: 560px;">
-            No items tagged for this category yet. Check back as we
-            continue indexing meeting records.
+            {% if month_filter %}
+                No items tagged this month. Try clearing the month
+                filter or scanning a nearby month from the chart above.
+                <a class="link"
+                   href="{{ url_for('public.category_landing',
+                                    slug=municipality.slug,
+                                    badge_slug=badge.slug,
+                                    **args_without_month) }}"
+                   hx-get="{{ url_for('public.category_landing',
+                                      slug=municipality.slug,
+                                      badge_slug=badge.slug,
+                                      **args_without_month) }}"
+                   hx-target="#item-list"
+                   hx-swap="outerHTML"
+                   hx-push-url="true">Clear month filter</a>.
+            {% else %}
+                No items tagged for this category yet. Check back as we
+                continue indexing meeting records.
+            {% endif %}
         </p>
     </div>
     {% endif %}
