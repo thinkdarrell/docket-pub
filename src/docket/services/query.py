@@ -867,6 +867,7 @@ def list_items_by_badge(
     limit: int = 25,
     offset: int = 0,
     include_low_significance: bool = False,
+    month_filter: str | None = None,
 ) -> list[AgendaItem]:
     """Return items in ``city_id`` carrying ``badge_slug``, ordered for the
     category landing page (spec §6.5, decision #61).
@@ -984,6 +985,18 @@ def list_items_by_badge(
             """
         )
         params.append(cross_slug)
+
+    # ?month=YYYY-MM drill-down. Defensive regex check — the route also
+    # validates, but a misuse from another caller shouldn't smuggle a
+    # free-form string into SQL. date_trunc on meeting_date is safe
+    # because meeting_date is DATE (no TZ semantics).
+    if month_filter:
+        import re as _re
+        if _re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", month_filter):
+            sql_parts.append(
+                " AND date_trunc('month', m.meeting_date)::date = %s::date "
+            )
+            params.append(f"{month_filter}-01")
 
     sql_parts.append(
         """

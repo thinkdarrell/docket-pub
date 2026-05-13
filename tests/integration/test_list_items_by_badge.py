@@ -948,3 +948,48 @@ def test_extracted_facts_projection_is_lean_matches_list_agenda_items(bag):
     assert facts.get("next_steps") == {"effective_date": "2026-06-01"}
     # Bonus key dropped.
     assert "should_not_appear" not in facts
+
+
+# ---------------------------------------------------------------------------
+# month_filter — ?month=YYYY-MM drill-down (PR D)
+# ---------------------------------------------------------------------------
+
+
+def test_month_filter_narrows_to_one_month(bag):
+    """month_filter='YYYY-MM' returns only items whose meeting falls
+    in that month.
+    """
+    m_jan = bag.add_meeting(bag.city_id, "2026-01-15")
+    m_feb_a = bag.add_meeting(bag.city_id, "2026-02-10")
+    m_feb_b = bag.add_meeting(bag.city_id, "2026-02-22")
+    m_mar = bag.add_meeting(bag.city_id, "2026-03-08")
+    for mid in [m_jan, m_feb_a, m_feb_b, m_mar]:
+        iid = bag.add_item(mid)
+        bag.add_badge(iid, bag.city_id, "blight_accountability", confidence=1.0)
+
+    all_items = list_items_by_badge(bag.city_id, "blight_accountability")
+    feb_items = list_items_by_badge(
+        bag.city_id, "blight_accountability", month_filter="2026-02"
+    )
+
+    assert len(all_items) == 4
+    assert len(feb_items) == 2
+    assert all(i.meeting_date.month == 2 for i in feb_items)
+
+
+def test_month_filter_bad_input_silently_dropped(bag):
+    """Defensive: a non-YYYY-MM string is silently treated as no filter.
+    The route also validates, but a misuse from another caller must not
+    smuggle a free-form string into the SQL params.
+    """
+    m_jan = bag.add_meeting(bag.city_id, "2026-01-15")
+    m_feb = bag.add_meeting(bag.city_id, "2026-02-10")
+    for mid in [m_jan, m_feb]:
+        iid = bag.add_item(mid)
+        bag.add_badge(iid, bag.city_id, "blight_accountability", confidence=1.0)
+
+    items = list_items_by_badge(
+        bag.city_id, "blight_accountability", month_filter="not-a-month"
+    )
+    assert len(items) == 2  # filter dropped, returns all
+
