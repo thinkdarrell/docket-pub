@@ -12,8 +12,8 @@
         <table class="rail-table">
             <tbody>
                 <tr><td class="t-label">meeting_type</td><td class="rail-table-val"><span class="t-mono">{{ meeting.meeting_type }}</span></td><td class="t-meta"></td></tr>
-                <tr><td class="t-label">agenda_items</td><td class="rail-table-val">{{ item_count | default('—') }}</td><td class="t-meta">scraped</td></tr>
-                <tr><td class="t-label">votes</td><td class="rail-table-val">{{ votes|length if votes else '—' }}</td><td class="t-meta">{% if votes %}{{ votes[0].source | replace('_',' ') }}{% endif %}</td></tr>
+                <tr><td class="t-label">agenda_items</td><td class="rail-table-val">{{ item_count if item_count else '—' }}</td><td class="t-meta">{{ 'scraped' if item_count else 'pending' }}</td></tr>
+                <tr><td class="t-label">votes</td><td class="rail-table-val">{{ votes|length if votes else '—' }}</td><td class="t-meta">{% if votes %}{{ votes[0].source | replace('_',' ') }}{% else %}pending{% endif %}</td></tr>
             </tbody>
         </table>
 
@@ -66,6 +66,26 @@
             {% if votes|length > 8 %}
             <div class="t-meta" style="padding-top: 0.3rem;">+ {{ votes|length - 8 }} more — <a class="link" href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=meeting.id) }}">view all</a></div>
             {% endif %}
+        </div>
+        {% else %}
+        <div class="rail-section" style="margin-top: 8px;">
+            <div class="rail-kicker t-mono">VOTES</div>
+            <div class="callout is-tight" style="margin-bottom: 4px;">
+                <div class="callout-body t-meta" style="font-size: 11px; line-height: 1.4;">
+                    {% if not item_count %}
+                    Agenda not yet available for this meeting.
+                    {% if meeting.video_url and not meeting.minutes_url %}
+                    Granicus may not have published chapter timestamps yet.
+                    {% endif %}
+                    {% elif meeting.minutes_url %}
+                    Minutes published but no votes parsed. <a class="link" href="{{ meeting.minutes_url }}" target="_blank" rel="noreferrer">View minutes ↗</a>
+                    {% elif meeting.video_url %}
+                    Awaiting video OCR or published minutes.
+                    {% else %}
+                    No votes recorded.
+                    {% endif %}
+                </div>
+            </div>
         </div>
         {% endif %}
 
