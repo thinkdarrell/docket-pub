@@ -45,6 +45,14 @@ def claim_items_v3_sql() -> str:
     only for items that survived data-quality + procedural gates — i.e.,
     a debounce isn't needed because the eligibility filter is precise.
     If a debounce is wanted later, add it.
+
+    Ordering: ``m.meeting_date DESC, ai.id ASC``. Newest meetings are
+    claimed first so freshly ingested items always render with the v3
+    smart-brevity card within one cron tick — the historical backfill
+    (36K+ pending items going back to 2025-11) consumes leftover budget
+    after recent items are drained. The original ASC ordering buried
+    recent items at the tail of the queue, where they were effectively
+    never reached at the ~200 items/day cron pace (2026-05-13 incident).
     """
     return """
         SELECT ai.id, ai.meeting_id, ai.title, ai.description,
@@ -61,7 +69,7 @@ def claim_items_v3_sql() -> str:
              OR ai.ai_rewrite_version IS NULL
              OR ai.ai_rewrite_version < %s
            )
-         ORDER BY ai.id
+         ORDER BY m.meeting_date DESC NULLS LAST, ai.id ASC
          LIMIT %s
          FOR UPDATE OF ai SKIP LOCKED
     """
