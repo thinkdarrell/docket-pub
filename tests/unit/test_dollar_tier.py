@@ -610,60 +610,6 @@ class TestDollarTierPartialWcagContract:
 
 
 # ---------------------------------------------------------------------------
-# Partial: integration with _facts_strip.html (TODO swap-in)
-# ---------------------------------------------------------------------------
-
-
-class TestFactsStripDollarTierSwap:
-    """The E5 swap replaces the old ``<span class="tier tier-...">`` block
-    inside ``_facts_strip.html`` with an ``{% include %}`` of the new
-    partial. These tests assert the integration, not the partial in
-    isolation — they catch a regression where the include is dropped
-    or the ``{% with amount = ... %}`` scope-binding is lost."""
-
-    @pytest.fixture(scope="class")
-    def facts_app(self):
-        flask_app = Flask(
-            "test_facts_strip_dollar_tier",
-            template_folder="src/docket/web/templates",
-        )
-        from docket.web.filters import register as register_filters
-
-        register_filters(flask_app)
-        return flask_app
-
-    def test_facts_strip_renders_dollar_partial(self, facts_app):
-        """When ``item.dollars_amount`` is set, the facts strip renders
-        the cost row and includes the new partial markup
-        (``dollars--<color>`` class + sr-only span)."""
-        item = make_agenda_item(dollars_amount=Decimal("87500"), extracted_facts={})
-        with facts_app.app_context():
-            html = render_template("partials/_facts_strip.html", item=item)
-        # Cost row present
-        assert "fact--cost" in html
-        assert "💵 Cost:" in html
-        # New partial output
-        assert "dollars--yellow" in html
-        assert "($$)" in html
-        assert ", Yellow tier" in html
-        assert "$87,500" in html
-        # Old hand-formatted span MUST NOT remain
-        assert 'class="tier tier-' not in html
-
-    def test_facts_strip_omits_cost_row_when_no_dollars(self, facts_app):
-        """When ``item.dollars_amount`` is None, the surrounding ``<li>``
-        guard hides the cost row entirely — the partial is never even
-        included. (Belt and suspenders — the partial would also no-render
-        on None, but skipping the include keeps the layout cleaner.)"""
-        item = make_agenda_item(dollars_amount=None, extracted_facts={})
-        with facts_app.app_context():
-            html = render_template("partials/_facts_strip.html", item=item)
-        assert "fact--cost" not in html
-        assert "💵 Cost:" not in html
-        assert "dollars--" not in html
-
-
-# ---------------------------------------------------------------------------
 # Stylesheet: .sr-only utility regression guard
 # ---------------------------------------------------------------------------
 

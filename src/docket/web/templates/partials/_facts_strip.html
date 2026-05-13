@@ -1,48 +1,70 @@
-{# Shared facts strip for v3 cards (smart_brevity + verification_pending).
-   Reads the lifted top-level fields on ``item`` (AgendaItem dataclass —
-   A8 lift of v3 sub-keys, mirroring ``headline`` / ``why_it_matters``).
-   Empty fields are omitted — no "not specified" placeholders. #}
-<div class="smart-brevity-card__facts">
-  <ul class="facts-strip">
-    {% if item.counterparty %}
-      <li class="fact fact--counterparty">🏢 Counterparty: {{ item.counterparty }}</li>
-    {% endif %}
+{# partials/_facts_strip.html — inline emoji facts line for the
+   Smart Brevity Card. Spec: §1 facts emoji vocabulary table.
 
-    {% if item.dollars_amount %}
-      {# E5: WCAG 2.1 dollar tier — color + symbol + sr-only label
-         (spec §6.1, decisions #71 + #75). Pass ``amount`` explicitly
-         to the partial — its only input is the dollar value, decoupled
-         from the parent ``item`` shape so the same partial can render
-         dollar amounts from elsewhere later (e.g. meeting-level totals).
-         The partial silently no-renders on None / 0 / invalid input,
-         but we keep the outer ``{% if item.dollars_amount %}`` guard
-         so the surrounding ``<li>`` doesn't render at all when the
-         column is NULL — leaving the strip layout cleaner. #}
-      <li class="fact fact--cost">
-        💵 Cost:
-        {% with amount = item.dollars_amount %}{% include 'partials/dollar_tier.html' %}{% endwith %}
-      </li>
-    {% endif %}
+   Order: 👥 → 🏛 → 📋 → 📍 → 📅 → 🌳. Each fact uses aria-hidden
+   on the emoji and an sr-only label so screen readers announce
+   "Counterparty: Axon Enterprise" not "people Counterparty Axon Enterprise".
 
-    {% if item.funding_source and item.funding_source != 'unknown' %}
-      <li class="fact fact--funding">🏛️ Funding: {{ item.funding_source | replace('_', ' ') | title }}</li>
-    {% endif %}
+   Reads from the lifted top-level columns on ``item`` (AgendaItem
+   dataclass — see ``models/agenda.py`` lift in ``from_row()``).
+   ``parcels_affected`` and ``acres_affected`` aren't lifted and stay
+   inside ``extracted_facts`` (defensive ``or {}`` guard for shape safety).
 
-    {% if item.location %}
-      {% set loc = item.location %}
-      {% set loc_parts = [] %}
-      {% if loc.ward_or_district %}{% set _ = loc_parts.append(loc.ward_or_district) %}{% endif %}
-      {% if loc.neighborhood %}{% set _ = loc_parts.append(loc.neighborhood) %}{% endif %}
-      {% if loc.address %}{% set _ = loc_parts.append(loc.address) %}{% endif %}
-      {% if loc_parts %}
-        <li class="fact fact--location">📍 Location: {{ loc_parts | join(' · ') }}</li>
-      {% endif %}
-    {% endif %}
+   Renders nothing when all underlying fields are null — no empty container.
+#}
+{%- set ef = (item.extracted_facts or {}) -%}
+{%- set loc = item.location -%}
+{%- set ns = item.next_steps -%}
+{%- set location_value = (loc.address if (loc and loc.address) else (loc.neighborhood if (loc and loc.neighborhood) else (loc.ward_or_district if (loc and loc.ward_or_district) else None))) -%}
+{%- set acres_v = ef.acres_affected if ef and ef.acres_affected else None -%}
+{%- set parcels_v = ef.parcels_affected if ef and ef.parcels_affected else None -%}
+{%- set land_area_value = (acres_format(acres_v) if acres_v else (parcels_format(parcels_v) if parcels_v else None)) -%}
 
-    {% if item.action_type and item.action_type != 'other' %}
-      <li class="fact fact--action">📋 Action:
-        {{ item.action_type | replace('_', ' ') | title }}{% if item.procurement_method and item.procurement_method not in ('not_applicable', 'unknown') %} ({{ item.procurement_method | replace('_', ' ') }}){% endif %}
-      </li>
-    {% endif %}
-  </ul>
+{%- set has_any = item.counterparty or item.funding_source or item.action_type or location_value or (ns and ns.public_hearing_date) or land_area_value -%}
+
+{%- if has_any -%}
+<div class="facts-line">
+  {% if item.counterparty %}
+    <span class="fact">
+      <span aria-hidden="true">👥</span>
+      <span class="sr-only">Counterparty:</span>
+      {{ item.counterparty }}
+    </span>
+  {% endif %}
+  {% if item.funding_source %}
+    <span class="fact">
+      <span aria-hidden="true">🏛</span>
+      <span class="sr-only">Funding source:</span>
+      {{ item.funding_source | funding_source_label }}
+    </span>
+  {% endif %}
+  {% if item.action_type %}
+    <span class="fact">
+      <span aria-hidden="true">📋</span>
+      <span class="sr-only">Action type:</span>
+      {{ item.action_type | action_type_label }}
+    </span>
+  {% endif %}
+  {% if location_value %}
+    <span class="fact">
+      <span aria-hidden="true">📍</span>
+      <span class="sr-only">Location:</span>
+      {{ location_value }}
+    </span>
+  {% endif %}
+  {% if ns and ns.public_hearing_date %}
+    <span class="fact">
+      <span aria-hidden="true">📅</span>
+      <span class="sr-only">Public hearing:</span>
+      {{ ns.public_hearing_date }}{% if ns.public_hearing_time %}, {{ ns.public_hearing_time }}{% endif %}
+    </span>
+  {% endif %}
+  {% if land_area_value %}
+    <span class="fact">
+      <span aria-hidden="true">🌳</span>
+      <span class="sr-only">Land area:</span>
+      {{ land_area_value }}
+    </span>
+  {% endif %}
 </div>
+{%- endif -%}

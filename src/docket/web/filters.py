@@ -393,6 +393,71 @@ def dollar_tier(value: Decimal | float | int | str | None) -> DollarTier | None:
     return DollarTier(color=color, symbol=symbol, description=description)
 
 
+def funding_source_label(enum_value):
+    """Map a funding_source enum value to a display label.
+
+    NULL/empty returns an empty string (the calling template guards on
+    truthiness). Unknown enums pass through unchanged so a typo doesn't
+    silently render empty.
+    """
+    labels = {
+        "general_fund":         "General Fund",
+        "capital_fund":         "Capital Fund",
+        "enterprise_fund":      "Enterprise Fund",
+        "grant":                "Grant",
+        "bond":                 "Bond",
+        "tif":                  "Tax Increment Financing",
+        "capital_improvement":  "Capital Improvement Plan",
+    }
+    if enum_value in labels:
+        return labels[enum_value]
+    if enum_value:
+        return enum_value.replace("_", " ").title()
+    return ""
+
+
+def action_type_label(enum_value):
+    """Map an action_type enum value to a display label.
+
+    Most enums are display-friendly after underscore→space + capitalize;
+    a few have natural reading that differs.
+    """
+    overrides = {
+        "tax_abatement":   "Tax abatement",
+        "weed_abatement":  "Weed abatement",
+        "right_of_way":    "Right-of-way easement",
+        "bid_rejection":   "Bid rejection",
+        "liquor_license":  "Liquor license",
+        "sole_source":     "Sole-source",
+    }
+    if enum_value in overrides:
+        return overrides[enum_value]
+    if enum_value:
+        return enum_value.replace("_", " ").capitalize()
+    return ""
+
+
+def acres_format(value):
+    """Format ``acres_affected`` for the inline facts line. None → None."""
+    if value is None:
+        return None
+    f = float(value)
+    if f < 1:
+        return f"{f:.2f} acres"
+    return f"{f:.1f} acres"
+
+
+def parcels_format(value):
+    """Format ``parcels_affected`` for the inline facts line.
+
+    None or 0 → None (the partial omits the fact entirely).
+    """
+    if value is None or value == 0:
+        return None
+    n = int(value)
+    return f"{n} parcel{'s' if n != 1 else ''}"
+
+
 def dollar_tier_chip(amount):
     """Map a dollar amount to a chip-render triple for the compact-scan card.
 
@@ -535,6 +600,14 @@ def register(app: Flask) -> None:
     app.jinja_env.filters["format_dollars"] = format_dollars
     app.jinja_env.filters["dollar_tier"] = dollar_tier
     app.jinja_env.filters["dollar_tier_chip"] = dollar_tier_chip
+    app.jinja_env.filters["funding_source_label"] = funding_source_label
+    app.jinja_env.filters["action_type_label"] = action_type_label
+    app.jinja_env.filters["acres_format"] = acres_format
+    app.jinja_env.filters["parcels_format"] = parcels_format
     app.jinja_env.filters["rss_rfc822"] = rss_rfc822
     app.jinja_env.filters["cdata_safe"] = cdata_safe
     app.jinja_env.globals["rss_now_rfc822"] = rss_now_rfc822
+    # acres_format / parcels_format are also used as functions inside
+    # {% set %} expressions in _facts_strip.html, so expose as globals.
+    app.jinja_env.globals["acres_format"] = acres_format
+    app.jinja_env.globals["parcels_format"] = parcels_format

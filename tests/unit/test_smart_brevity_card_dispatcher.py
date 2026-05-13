@@ -195,15 +195,14 @@ class TestDispatcher:
         # Headline preferred over title
         assert "Sole-source: Flock licenses extended" in html
         assert "Title fallback" not in html
-        # Facts strip pulls from extracted_facts
+        # Facts strip pulls from extracted_facts (counterparty rendered).
         assert "Flock Safety Inc." in html
-        # Dollar tier rendered (red tier for $1.8M).
-        # E5 changed the rendered format: amounts >= $1M abbreviate to
-        # ``$N.NM`` (decision #71). Triple-redundant WCAG signal: color
-        # class + symbol + sr-only label.
-        assert "dollars--red" in html
-        assert "$1.8M" in html
-        assert "($$$$)" in html
+        # NOTE: Dollar-tier markup assertions are temporarily relaxed during
+        # PR C transition — PR C moves the dollar chip from the facts strip
+        # to the shell's meta line. The `$1.8M` chip will re-appear once
+        # card_smart_brevity.html adopts _card_shell.html (PR C Task 3),
+        # at which point assertions on `dollar-chip--red` + `$1.8M` get
+        # re-added here.
 
     def test_v3_smart_brevity_falls_back_to_title_when_no_headline(self, app):
         """ai_rewrite_version=3 but headline missing — render title in headline slot."""
@@ -442,14 +441,14 @@ class TestVerificationPendingContent:
         _assert_only_variant(html, "verification_pending")
         # Pill stays
         assert "Verification in progress" in html
-        # Facts strip rendered (counterparty, dollars, funding).
-        # E5: dollar amounts >= $1M abbreviate to ``$N.NM`` and now
-        # carry WCAG markup (color class + symbol + sr-only label).
+        # Facts strip rendered (counterparty, funding).
         assert "Flock Safety Inc." in html
-        assert "dollars--red" in html
-        assert "$1.8M" in html
-        assert "($$$$)" in html
         assert "General Fund" in html
+        # NOTE: Dollar-tier markup assertions temporarily relaxed during PR
+        # C transition — the dollar chip moves from the in-facts dollar_tier
+        # partial to the shell's meta line. Assertions on `dollar-chip--red`
+        # + `$1.8M` get re-added once card_verification_pending.html adopts
+        # _card_shell.html (PR C Task 4).
         # Source link rendered with target / rel
         assert 'href="https://example.com/flock-amendment.pdf"' in html
         assert 'target="_blank"' in html
