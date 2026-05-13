@@ -233,9 +233,24 @@ V2_MARKER = 'class="notable-row"'
 
 
 def _render_loop(app, items, *, body=_REGULAR_LOOP_BODY, var="regular_items"):
-    """Render a meeting_detail loop body inside ``app``'s context."""
+    """Render a meeting_detail loop body inside ``app``'s context.
+
+    PR C: cards now use url_for('public.meeting_detail', slug=..., meeting_id=...)
+    inside the shell, so the test app needs a stub route + the rendered
+    context needs ``municipality``.
+    """
+    if "public.meeting_detail" not in {r.endpoint for r in app.url_map.iter_rules()}:
+        app.add_url_rule(
+            "/c/<slug>/meetings/<int:meeting_id>",
+            endpoint="public.meeting_detail",
+            view_func=lambda slug, meeting_id: "",
+        )
     with app.test_request_context("/"):
-        return render_template_string(body, **{var: items})
+        return render_template_string(
+            body,
+            **{var: items},
+            municipality={"slug": "birmingham", "id": 1},
+        )
 
 
 @pytest.fixture

@@ -13,9 +13,33 @@ before pytest.
 """
 from __future__ import annotations
 
+import importlib
+
+import pytest
 import psycopg2.extras
 
 from docket.db import db
+
+
+@pytest.fixture(scope="module", autouse=True)
+def ensure_migration_024_seeds():
+    """Re-run migration 024's SQL_UP at module start.
+
+    test_013_up_down_up_cycle (integration) rolls back migration 13,
+    dropping priority_badge_templates. When migrations re-apply,
+    schema_migrations still records 024 as applied so its UPDATEs
+    are skipped — the schema is restored from baked-in 013 but the
+    accent_color/chart_title/chart_footnote seeds are NULL.
+
+    Migration 024's SQL_UP is fully idempotent (IF NOT EXISTS on
+    columns, slug-keyed UPDATEs), so re-running it is safe regardless
+    of whether the rollback happened.
+    """
+    mod = importlib.import_module("docket.migrations.024_category_landing_v1")
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(mod.SQL_UP)
+        conn.commit()
 
 
 def test_priority_badge_templates_has_new_columns():

@@ -180,3 +180,161 @@ a.link:hover { border-bottom-color: var(--accent); }
   white-space: nowrap;
   border: 0;
 }
+
+/* ──────────────────────────────────────────────────────────────────
+   Smart Brevity Card — compact scan (spec 2026-05-12 redesign, PR C)
+   ────────────────────────────────────────────────────────────────── */
+
+.smart-brevity-card {
+  position: relative;
+  display: block;
+  padding: 14px 14px 14px 16px;
+  margin-bottom: 10px;
+  background: rgba(253, 250, 243, 0.7);
+  border-left: 3px solid var(--accent-color, #c8cbc0);
+  border-radius: 0 4px 4px 0;
+  transition: background 0.12s ease;
+}
+.smart-brevity-card:hover { background: rgba(244, 235, 212, 0.7); }
+@media (prefers-reduced-motion: reduce) {
+  .smart-brevity-card { transition: none; }
+}
+.smart-brevity-card.is-failed { opacity: 0.6; }
+
+/* Meta line — date · item ref · category chip · dollar chip · status pill */
+.smart-brevity-card .meta-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 11px;
+  color: #6b6457;
+  margin-bottom: 6px;
+}
+.smart-brevity-card .meta-line .meta-sep { color: #b8b0a2; }
+.smart-brevity-card .meta-date,
+.smart-brevity-card .meta-item-ref { white-space: nowrap; }
+
+/* Headline — the only semantic link in the card */
+.smart-brevity-card .card-headline {
+  font-family: "Source Serif Pro", Georgia, serif;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 0 0 4px;
+}
+.smart-brevity-card .card-link {
+  color: #1a1814;
+  text-decoration: none;
+}
+.smart-brevity-card .card-link.is-italic {
+  font-style: italic;
+  color: #4a4540;
+}
+.smart-brevity-card:hover .card-link {
+  text-decoration: underline;
+  text-decoration-color: #c4894a;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+/* Pseudo-element click surface — extends the link's click area across
+   the whole article. Outline shows on keyboard focus only, not pointer.
+   ─────────────────────────────────────────────────────────────────
+   FUTURE LANDMINE: if a secondary interactive element is added inside
+   the card (e.g., a Download button, inline dropdown, HTMX toggle),
+   it WILL be clickable-through by the ::after layer. Fix by giving
+   the secondary element ``position: relative; z-index: 2`` so it
+   sits above the transparent click surface. The pseudo-element is
+   z-index: 1 by being a positioned element inside the position:
+   relative article. z-index: 2 on the secondary wins.
+   ───────────────────────────────────────────────────────────────── */
+.smart-brevity-card .card-link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+.smart-brevity-card .card-link:focus-visible::after {
+  outline: 2px solid #c4894a;
+  outline-offset: 2px;
+}
+
+/* Why-it-matters body */
+.smart-brevity-card .why {
+  font-family: "Source Serif Pro", Georgia, serif;
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: #3a3530;
+  margin: 0 0 8px;
+  max-width: 70ch;
+}
+
+/* Inline facts line — emoji + value pairs separated by · */
+.smart-brevity-card .facts-line {
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  font-size: 12px;
+  color: #4a4540;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+}
+.smart-brevity-card .facts-line .fact {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.smart-brevity-card .facts-line .fact + .fact::before {
+  content: "·";
+  margin: 0 8px;
+  color: #b8b0a2;
+}
+
+/* Status pill — pending / failed / degraded / verifying */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  background: #e9ece1;
+  color: #4a4a3d;
+  border: 1px solid #c8cbc0;
+}
+.status-pill--pending   { background: #e9ece1; color: #4a4a3d; }
+.status-pill--failed    { background: #f3cdcd; color: #6b1818; border-color: #d97373; }
+.status-pill--degraded  { background: #fbe2c2; color: #7a3e10; border-color: #e0a04a; }
+.status-pill--verifying { background: #fbf3c7; color: #6b5a10; border-color: #d9c660; }
+
+/* Dollar tier chip */
+.dollar-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+.dollar-chip--na     { background: #ececec; color: #555;    border: 1px solid #bbb; }
+.dollar-chip--green  { background: #e2efd9; color: #2d5519; border: 1px solid #99c878; }
+.dollar-chip--yellow { background: #fbf3c7; color: #6b5a10; border: 1px solid #d9c660; }
+.dollar-chip--orange { background: #fbe2c2; color: #7a3e10; border: 1px solid #e0a04a; }
+.dollar-chip--red    { background: #f3cdcd; color: #6b1818; border: 1px solid #d97373; }
+
+/* Procedural one-line variant (Roll Call, Pledge, etc — decision #5) */
+.procedural-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px 6px 12px;
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: #6b6457;
+  border-left: 3px solid var(--accent-color, #c8cbc0);
+}

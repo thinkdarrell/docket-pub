@@ -1,7 +1,11 @@
-{# variant: procedural — processing_status == 'procedural_skipped' (spec §6.1).
-   Roll Call, Pledge, Invocation, "Minutes Not Ready" notices, etc. —
-   title-only. No badges, no facts, no engagement strip. Compact list
-   density when many appear sequentially. #}
-<article class="smart-brevity-card smart-brevity-card--procedural" data-variant="procedural">
-  <h3 class="smart-brevity-card__title smart-brevity-card__title--compact">{{ item.title }}</h3>
-</article>
+{# variant: procedural — Roll Call / Pledge / etc (spec §6.1, decision #5).
+   One-line compact render — procedural items would clutter the feed if
+   given the full shell chrome. No click target (procedural items don't
+   link out). PR C: adopts the left-edge accent + sr-only emoji label
+   conventions for visual + AT consistency with the other variants.
+#}
+<div class="procedural-line" data-variant="procedural" style="--accent-color: #c8cbc0;">
+  <span aria-hidden="true">🪑</span>
+  <span class="sr-only">Procedural:</span>
+  <span class="t-meta">{{ item.title }}</span>
+</div>

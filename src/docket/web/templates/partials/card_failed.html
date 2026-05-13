@@ -1,26 +1,21 @@
-{# variant: failed — processing_status == 'failed_permanent' (spec §6.1).
-   Searchable (FTS still indexes title) but visually flagged so citizens
-   know it is not silently missing. Tooltip explains the 3-attempt retry
-   path; no modal. #}
-<article class="smart-brevity-card smart-brevity-card--failed" data-variant="failed">
-  <header class="smart-brevity-card__header">
-    <span class="processing-error-pill"
-          title="Our automated systems tried to read this item three times and could not. The original document is linked below; an admin will revisit it manually."
-          aria-label="Processing error: automated extraction failed after three attempts; manual review pending">
-      🚧 Processing Error
-    </span>
-  </header>
+{# variant: failed_permanent — processing_status='failed_permanent' (spec §6.1).
+   Italic raw title; 🚧 processing-error pill; no why / facts.
+   FTS still indexes the title so the item is searchable; pill flags
+   it as not-yet-human-readable. CSS will fade the article to 0.6
+   opacity (is-failed modifier).
+#}
+{% extends 'partials/_card_shell.html' %}
 
-  <h3 class="smart-brevity-card__title">{{ item.title }}</h3>
-
-  <p class="smart-brevity-card__body">
-    Our automated systems couldn't process this item after 3 attempts.
-    The original document is available below.
-  </p>
-
-  <footer class="smart-brevity-card__footer">
-    {# TODO E4: source-anchor adaptive button #}
-    {% include 'partials/_source_link_stub.html' %}
-    {# TODO: Report-this mailto link wired in E3 / F5 #}
-  </footer>
-</article>
+{% block card_data_variant %}failed{% endblock %}
+{% block card_class_modifier %}is-failed{% endblock %}
+{% block card_headline_class %}is-italic{% endblock %}
+{% block card_headline_text %}{{ item.title }}{% endblock %}
+{% block card_status_pill %}
+  <span class="status-pill status-pill--failed">
+    <span aria-hidden="true">🚧</span>
+    <span class="sr-only">Status:</span>
+    processing error
+  </span>
+{% endblock %}
+{% block card_why_block %}{% endblock %}
+{% block card_facts_block %}{% endblock %}

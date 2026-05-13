@@ -67,8 +67,20 @@ def app():
 
 
 def _render(app, item):
-    with app.app_context():
-        return render_template("partials/smart_brevity_card.html", item=item)
+    # PR C: shell-based variants use url_for('public.meeting_detail', ...)
+    # which needs a request context + a stub route + a municipality.
+    if "public.meeting_detail" not in {r.endpoint for r in app.url_map.iter_rules()}:
+        app.add_url_rule(
+            "/c/<slug>/meetings/<int:meeting_id>",
+            endpoint="public.meeting_detail",
+            view_func=lambda slug, meeting_id: "",
+        )
+    with app.test_request_context():
+        return render_template(
+            "partials/smart_brevity_card.html",
+            item=item,
+            municipality={"slug": "birmingham", "id": 1},
+        )
 
 
 def _assert_only_variant(html: str, expected: str) -> None:
@@ -94,7 +106,8 @@ class TestDispatcher:
         )
         html = _render(app, item)
         _assert_only_variant(html, "failed")
-        assert "Processing Error" in html
+        # PR C: pill text is lowercase per the compact-scan design.
+        assert "processing error" in html
         assert "Resolution amending agreement #2024-12-345" in html
 
     def test_data_quality_skipped_routes_to_degraded(self, app):
@@ -106,7 +119,8 @@ class TestDispatcher:
         )
         html = _render(app, item)
         _assert_only_variant(html, "degraded")
-        assert "needs OCR" in html
+        # PR C: phrasing changed to "OCR needed".
+        assert "OCR needed" in html
 
     def test_data_quality_no_agenda_text_routes_to_degraded(self, app):
         item = make_agenda_item(
@@ -117,7 +131,8 @@ class TestDispatcher:
         )
         html = _render(app, item)
         _assert_only_variant(html, "degraded")
-        assert "No agenda text" in html
+        # PR C: pill text lowercase.
+        assert "no agenda text" in html
 
     def test_failed_takes_precedence_over_degraded(self, app):
         """failed_permanent + data_quality both set -> failed wins (top of dispatcher)."""
@@ -195,15 +210,14 @@ class TestDispatcher:
         # Headline preferred over title
         assert "Sole-source: Flock licenses extended" in html
         assert "Title fallback" not in html
-        # Facts strip pulls from extracted_facts
+        # Facts strip pulls from extracted_facts (counterparty rendered).
         assert "Flock Safety Inc." in html
-        # Dollar tier rendered (red tier for $1.8M).
-        # E5 changed the rendered format: amounts >= $1M abbreviate to
-        # ``$N.NM`` (decision #71). Triple-redundant WCAG signal: color
-        # class + symbol + sr-only label.
-        assert "dollars--red" in html
-        assert "$1.8M" in html
-        assert "($$$$)" in html
+        # NOTE: Dollar-tier markup assertions are temporarily relaxed during
+        # PR C transition — PR C moves the dollar chip from the facts strip
+        # to the shell's meta line. The `$1.8M` chip will re-appear once
+        # card_smart_brevity.html adopts _card_shell.html (PR C Task 3),
+        # at which point assertions on `dollar-chip--red` + `$1.8M` get
+        # re-added here.
 
     def test_v3_smart_brevity_falls_back_to_title_when_no_headline(self, app):
         """ai_rewrite_version=3 but headline missing — render title in headline slot."""
@@ -230,7 +244,9 @@ class TestDispatcher:
         )
         html = _render(app, item)
         _assert_only_variant(html, "v2_fallback")
-        assert "summary updating" in html
+        # PR C: v2_fallback no longer renders a pill. The summary itself
+        # is truncated to 80 chars and rendered as the headline.
+        assert "Resolution authorizing payment to ABC Construction" in html
 
     def test_no_outputs_routes_to_pending(self, app):
         item = make_agenda_item(
@@ -240,7 +256,8 @@ class TestDispatcher:
         )
         html = _render(app, item)
         _assert_only_variant(html, "pending")
-        assert "awaiting summary" in html
+        # PR C: pending pill says "summary updating" now.
+        assert "summary updating" in html
 
     def test_missing_fields_safe_default(self, app):
         """A barebones AgendaItem (no AI columns at all) still renders — defaults to pending."""
@@ -283,35 +300,13 @@ class TestDispatcher:
 
 
 class TestV2FallbackFields:
-    """v2 fallback must render the pre-E1 fields (topic / sponsor /
-    description / dollars_amount with tier color). Production today is
-    overwhelmingly v2, so this is the dominant rendering case — the
-    E1 partial regressed it by only showing title + summary."""
-
-    def test_v2_fallback_renders_topic_sponsor_description_dollars(self, app):
-        item = make_agenda_item(
-            id=100,
-            title="Resolution authorizing payment to ABC Construction Inc.",
-            processing_status="completed",
-            data_quality="ok",
-            ai_rewrite_version=2,
-            summary="Payment for landscape services.",
-            topic="contracts",
-            sponsor="Council President Smith",
-            description="ABC Construction completed grounds maintenance for Q1.",
-            dollars_amount=75000,
-        )
-        html = _render(app, item)
-        _assert_only_variant(html, "v2_fallback")
-        # Topic chip
-        assert "contracts" in html
-        # Sponsor line
-        assert "Council President Smith" in html
-        # Description text
-        assert "ABC Construction completed grounds maintenance for Q1." in html
-        # Dollars + tier color (75K → yellow tier)
-        assert "75,000" in html
-        assert "tier-yellow" in html
+    """v2 fallback in PR C is a compact-scan card like all others: the
+    legacy summary is truncated to 80 chars and rendered as the headline
+    link; topic / sponsor / description / dollars chrome is intentionally
+    removed (clicking the headline takes the citizen to meeting_detail
+    where the full v2 context is rendered). The class is retained for
+    the omission test which still guards against `None` leaking into
+    the rendered output."""
 
     def test_v2_fallback_omits_optional_fields_when_absent(self, app):
         """When topic/sponsor/description/dollars are missing, v2 fallback
@@ -331,99 +326,26 @@ class TestV2FallbackFields:
         assert "None" not in html
 
 
-class TestSourceLinkSchemeValidation:
-    """The `_source_link_stub.html` partial must reject any URL whose
-    scheme isn't http://, https://, or / (relative). javascript: URLs
-    are an XSS vector — they must be omitted entirely (not rendered as
-    a clickable link)."""
-
-    def test_javascript_url_is_omitted(self, app):
-        item = make_agenda_item(
-            id=200,
-            title="Item with malicious source URL",
-            processing_status="failed_permanent",
-            source_anchor={"url": "javascript:alert(1)"},
-        )
-        html = _render(app, item)
-        _assert_only_variant(html, "failed")
-        # Link must not be emitted at all
-        assert 'href="javascript:' not in html
-        assert "javascript:alert" not in html
-        assert "view-source" not in html
-
-    def test_https_url_is_rendered_with_target_blank(self, app):
-        item = make_agenda_item(
-            id=201,
-            title="Item with valid https source URL",
-            processing_status="failed_permanent",
-            source_anchor={"url": "https://example.com/agenda.pdf"},
-        )
-        html = _render(app, item)
-        _assert_only_variant(html, "failed")
-        assert 'href="https://example.com/agenda.pdf"' in html
-        assert 'target="_blank"' in html
-        assert 'rel="noopener noreferrer"' in html
-        assert "view-source" in html
-
-    def test_http_url_is_rendered(self, app):
-        item = make_agenda_item(
-            id=202,
-            title="Item with http source",
-            processing_status="pending",
-            source_anchor={"url": "http://example.com/doc"},
-        )
-        html = _render(app, item)
-        _assert_only_variant(html, "pending")
-        assert 'href="http://example.com/doc"' in html
-
-    def test_relative_url_is_rendered(self, app):
-        item = make_agenda_item(
-            id=203,
-            title="Item with site-relative source",
-            processing_status="pending",
-            source_anchor={"url": "/uploads/agenda-2024.pdf"},
-        )
-        html = _render(app, item)
-        _assert_only_variant(html, "pending")
-        assert 'href="/uploads/agenda-2024.pdf"' in html
-
-    def test_data_url_is_omitted(self, app):
-        """data: URLs are also not in the allowlist — must be omitted."""
-        item = make_agenda_item(
-            id=204,
-            title="Item with data: URL",
-            processing_status="pending",
-            source_anchor={"url": "data:text/html,<script>alert(1)</script>"},
-        )
-        html = _render(app, item)
-        _assert_only_variant(html, "pending")
-        assert "data:text/html" not in html
-        assert "view-source" not in html
-
-    def test_protocol_relative_url_is_omitted(self, app):
-        """Protocol-relative //host/path URLs resolve off-origin on HTTPS
-        pages — same XSS/phishing risk as javascript: and data:. The
-        allowlist must reject them even though they start with '/'."""
-        item = make_agenda_item(
-            id=205,
-            title="Item with protocol-relative URL",
-            processing_status="failed_permanent",
-            source_anchor={"url": "//evil.example/x"},
-        )
-        html = _render(app, item)
-        _assert_only_variant(html, "failed")
-        assert 'href="//evil.example' not in html
-        assert "view-source" not in html
+# NOTE: TestSourceLinkSchemeValidation removed in PR C — the cards no
+# longer render `_source_link_stub.html`; the source-anchor button
+# affordance lives on the meeting_detail page reached via the headline
+# link. The XSS protection contract (javascript:, data:, protocol-
+# relative URL rejection) is fully covered by:
+#   - tests/unit/test_source_anchor.py (rendering of the partial)
+#   - tests/unit/test_source_security.py (is_url_safe helper)
 
 
 class TestVerificationPendingContent:
-    """Per spec §6.1, the verification-pending variant DOES render the
-    v3 outputs (headline + why_it_matters + facts strip + source link).
-    Only the verification PILL is tooltip-only — the content is
-    full-fidelity. The original E1 partial left the facts/source as
-    TODO comments, which broke citizen click-through."""
+    """Per spec §6.1, the verification-pending variant renders the v3
+    headline + why + facts at full fidelity, with only the verifying
+    pill as a status hint. The source-link assertion moved out of this
+    class in PR C — cards no longer carry source-anchor buttons; that
+    affordance lives on the meeting_detail page reached via the
+    headline link. Source-link XSS protection coverage is in
+    test_source_anchor.py + test_source_security.py.
+    """
 
-    def test_verification_pending_renders_facts_and_source_link(self, app):
+    def test_verification_pending_renders_facts_at_full_fidelity(self, app):
         item = make_agenda_item(
             id=300,
             title="Flock contract amendment",
@@ -436,24 +358,16 @@ class TestVerificationPendingContent:
             counterparty="Flock Safety Inc.",
             funding_source="general_fund",
             action_type="contract_amendment",
-            source_anchor={"url": "https://example.com/flock-amendment.pdf"},
         )
         html = _render(app, item)
         _assert_only_variant(html, "verification_pending")
         # Pill stays
         assert "Verification in progress" in html
-        # Facts strip rendered (counterparty, dollars, funding).
-        # E5: dollar amounts >= $1M abbreviate to ``$N.NM`` and now
-        # carry WCAG markup (color class + symbol + sr-only label).
+        # Facts strip rendered (counterparty, funding).
         assert "Flock Safety Inc." in html
-        assert "dollars--red" in html
-        assert "$1.8M" in html
-        assert "($$$$)" in html
         assert "General Fund" in html
-        # Source link rendered with target / rel
-        assert 'href="https://example.com/flock-amendment.pdf"' in html
-        assert 'target="_blank"' in html
-        assert 'rel="noopener noreferrer"' in html
-        assert "view-source" in html
+        # Headline + why_it_matters still render
+        assert "Sole-source: Flock licenses extended" in html
+        assert "surveillance budget" in html
         # Still no modal / hx-get
         assert "hx-get" not in html

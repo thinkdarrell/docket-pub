@@ -1,32 +1,37 @@
 {# variant: degraded — data_quality is set and != 'ok' (spec §6.1).
-   The source document needs OCR / has empty text / etc. We render the
-   title verbatim and surface a "needs OCR" callout plus a Report-this /
-   View-original pair. data_debt_priority='high' surfaces an admin chip
-   (E2/F5 will fill that in). #}
-<article class="smart-brevity-card smart-brevity-card--degraded" data-variant="degraded">
-  <h3 class="smart-brevity-card__title">{{ item.title }}</h3>
+   Italic raw title; data-quality-specific status pill.
+#}
+{% extends 'partials/_card_shell.html' %}
 
-  <div class="smart-brevity-card__warn callout callout-warn is-tight">
-    <div class="callout-body">
-      ⚠️
-      {% if item.data_quality == 'no_text_layer' %}
-        Source document needs OCR — text not yet extractable.
-      {% elif item.data_quality == 'no_agenda_text' %}
-        No agenda text available for this item.
-      {% elif item.data_quality == 'empty' %}
-        Source document is empty.
-      {% elif item.data_quality == 'foreign_language' %}
-        Source document is not in English; awaiting translation.
-      {% else %}
-        Source document quality issue: {{ item.data_quality }}.
-      {% endif %}
-    </div>
-  </div>
-
-  <footer class="smart-brevity-card__footer">
-    {# TODO E4: source-anchor adaptive button #}
-    {% include 'partials/_source_link_stub.html' %}
-    {# TODO E3 / F5: Report-this-issue mailto link #}
-    {# TODO E2: data_debt_priority='high' admin chip (visible to logged-in admins only) #}
-  </footer>
-</article>
+{% block card_data_variant %}degraded{% endblock %}
+{% block card_class_modifier %}is-degraded{% endblock %}
+{% block card_headline_class %}is-italic{% endblock %}
+{% block card_headline_text %}{{ item.title }}{% endblock %}
+{% block card_status_pill %}
+  {%- set q = item.data_quality -%}
+  <span class="status-pill status-pill--degraded">
+    {% if q == 'no_text_layer' %}
+      <span aria-hidden="true">🔍</span>
+      <span class="sr-only">Status:</span>
+      OCR needed
+    {% elif q == 'no_agenda_text' %}
+      <span aria-hidden="true">📄</span>
+      <span class="sr-only">Status:</span>
+      no agenda text
+    {% elif q == 'empty' %}
+      <span aria-hidden="true">📄</span>
+      <span class="sr-only">Status:</span>
+      source empty
+    {% elif q == 'foreign_language' %}
+      <span aria-hidden="true">🌐</span>
+      <span class="sr-only">Status:</span>
+      awaiting translation
+    {% else %}
+      <span aria-hidden="true">⚠️</span>
+      <span class="sr-only">Status:</span>
+      {{ q | replace('_', ' ') }}
+    {% endif %}
+  </span>
+{% endblock %}
+{% block card_why_block %}{% endblock %}
+{% block card_facts_block %}{% endblock %}
