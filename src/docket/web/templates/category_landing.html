@@ -113,12 +113,6 @@
 
     {% if cross_filters %}
     <div class="cross-filter-chips" style="display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 0;">
-        {# Chip labels resolved via batched ``query.resolve_badges`` (S5)
-           so cities see their per-badge name_override (e.g. "BHM Blight
-           Watch" rather than the template default). Slugs that don't
-           resolve — disabled for the city, unknown template, etc. —
-           fall back to a title-cased slug so the user sees something
-           sensible rather than a missing chip. #}
         {% for cf in cross_filters %}
         <span class="badge-chip" data-cross-filter="{{ cf }}">
             {%- if cf in cross_filter_badges -%}
@@ -128,6 +122,32 @@
             {%- endif -%}
         </span>
         {% endfor %}
+    </div>
+    {% endif %}
+
+    {# Active-month chip (PR D) — visible when ?month=YYYY-MM is set.
+       Carries hx-get for HTMX-parity with the bar-click flow that
+       sets the filter: clearing feels identical to setting. #}
+    {% if active_month_label %}
+    <div class="active-month-chip-row" style="display: flex; gap: 8px; padding: 8px 0;">
+      <span class="badge-chip badge-chip--active-month">
+        <span aria-hidden="true">📅</span>
+        <span class="sr-only">Active month filter:</span>
+        {{ active_month_label }}
+        <a class="chip-clear"
+           href="{{ url_for('public.category_landing',
+                            slug=municipality.slug,
+                            badge_slug=badge.slug,
+                            **args_without_month) }}"
+           hx-get="{{ url_for('public.category_landing',
+                              slug=municipality.slug,
+                              badge_slug=badge.slug,
+                              **args_without_month) }}"
+           hx-target="#item-list"
+           hx-swap="outerHTML"
+           hx-push-url="true"
+           aria-label="Clear month filter">×</a>
+      </span>
     </div>
     {% endif %}
 </section>

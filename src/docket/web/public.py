@@ -335,6 +335,11 @@ def category_landing(slug: str, badge_slug: str):
         active_month_label = date.fromisoformat(month_filter + "-01").strftime(
             "%B %Y"
         )
+    # Args minus ?month for the clear-month chip/link in templates.
+    # Jinja can't do dict comprehensions, so precompute here.
+    args_without_month = {
+        k: v for k, v in request.args.items() if k != "month"
+    }
 
     # LIMIT 26 sentinel pagination (S3): ask for one more than the page
     # size. If we get all 26 back, slice off the 26th and signal there's
@@ -415,6 +420,7 @@ def category_landing(slug: str, badge_slug: str):
             cross_filters=cross_filters,
             month_filter=month_filter,
             active_month_label=active_month_label,
+            args_without_month=args_without_month,
             # Category-landing cards span many meetings — surface date +
             # item ref per card via the shared meta strip (no-op on
             # meeting-detail surfaces where show_meeting_context is unset).
@@ -438,6 +444,7 @@ def category_landing(slug: str, badge_slug: str):
         current_year=current_year,
         month_filter=month_filter,
         active_month_label=active_month_label,
+        args_without_month=args_without_month,
         show_meeting_context=True,
     )
 
