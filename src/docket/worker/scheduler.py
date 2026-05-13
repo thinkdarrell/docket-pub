@@ -91,6 +91,16 @@ def build_scheduler(timezone: str = "America/Chicago") -> BlockingScheduler:
         coalesce=True,
         max_instances=1,
     )
+    # Refresh mv_city_backfill_ratio daily before ingest_all so the
+    # volume-timeline partial reads a fresh ratio. ~50ms; concurrent
+    # refresh via the UNIQUE INDEX on city_id (migration 025).
+    sched.add_job(
+        TASKS["refresh_backfill_ratio_mv"],
+        CronTrigger(hour=4, minute=30, timezone=timezone),
+        id="refresh_backfill_ratio_mv",
+        coalesce=True,
+        max_instances=1,
+    )
     return sched
 
 
