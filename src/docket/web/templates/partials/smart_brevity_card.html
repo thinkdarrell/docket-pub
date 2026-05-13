@@ -10,7 +10,7 @@
   {% include 'partials/card_procedural.html' %}
 {% elif item.processing_status == 'cross_stage_conflict' %}
   {% include 'partials/card_verification_pending.html' %}
-{% elif item.ai_rewrite_version == 3 %}
+{% elif item.ai_rewrite_version and item.ai_rewrite_version >= 3 %}
   {% include 'partials/card_smart_brevity.html' %}
 {% elif item.summary %}
   {% include 'partials/card_v2_fallback.html' %}

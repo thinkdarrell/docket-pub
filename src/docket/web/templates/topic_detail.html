@@ -78,9 +78,13 @@
                 <div class="feed-date-m t-mono">{{ item.meeting_date }}</div>
             </div>
             <div class="feed-meta">
+                {% set display_title = item.headline or item.title %}
                 <div class="feed-meeting-title">
-                    {{ item.title[:120] }}{% if item.title | length > 120 %}…{% endif %}
+                    {{ display_title[:120] }}{% if display_title | length > 120 %}…{% endif %}
                 </div>
+                {% if item.summary %}
+                <p class="item-summary">{{ item.summary }}</p>
+                {% endif %}
             </div>
             <div class="feed-num">
                 {% if item.dollars_amount %}

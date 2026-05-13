@@ -116,6 +116,17 @@
   text-wrap: balance;
 }
 
+.legc-summary {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--ink-2);
+  font-family: var(--font-display);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
 .legc-topic {
   display: inline-flex; align-items: center; gap: 6px;
   font-size: 11px;

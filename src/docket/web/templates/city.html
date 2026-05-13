@@ -331,7 +331,10 @@
             </div>
             {% endif %}
 
-            <div class="legc-title">{{ it.title }}</div>
+            <div class="legc-title">{{ it.headline or it.title }}</div>
+            {% if it.summary %}
+            <div class="legc-summary">{{ it.summary }}</div>
+            {% endif %}
 
             <div class="legc-bottom">
                 {% if it.topic is defined and it.topic %}

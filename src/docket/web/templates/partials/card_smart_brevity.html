@@ -1,5 +1,8 @@
 {# variant: smart_brevity — full v3 card (spec §6.1).
-   ai_rewrite_version == 3, processing_status implied 'completed'.
+   ai_rewrite_version >= 3, processing_status implied 'completed'.
+   (The smart-brevity schema landed at v3; prompt-iteration bumps
+   like v4 keep the same column shape — see ITEM_REWRITE_PROMPT_VERSION
+   in src/docket/ai/rewrite.py and migration 020.)
 
    Thin wrapper around _card_shell.html. The shell handles the meta
    line, headline link, why-it-matters, and inline facts strip. This

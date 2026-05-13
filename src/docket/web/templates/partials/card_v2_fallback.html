@@ -1,5 +1,5 @@
 {# variant: v2_fallback — legacy v2 (spec §6.1).
-   ai_rewrite_version != 3 but item.summary is set. Headline = first
+   ai_rewrite_version not set (or < 3) but item.summary is set. Headline = first
    80 chars of the legacy summary (with ellipsis) or fall back to the
    raw title. Default facts/why blocks still render (no-op if blank).
    This variant disappears once Migration 014 drops the `summary` column.
