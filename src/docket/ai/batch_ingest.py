@@ -119,8 +119,26 @@ def _validate_stage1_payload(payload: dict, item_id: int) -> StructuredFacts:
             ) from e
 
 
-def _validate_stage2_payload(payload: dict, item_id: int) -> ItemRewrite:
-    """Coerce + truncate + retry wrap for Stage 2 schema validation."""
+def _validate_stage2_payload(
+    payload: dict,
+    item_id: int,
+    *,
+    retry_ctx: tuple | None = None,
+) -> ItemRewrite:
+    """Coerce + truncate + (optional) assertion-error retry for Stage 2.
+
+    Args:
+        payload: Haiku's tool_use input from the Stage 2 batch result.
+        item_id: for error messages.
+        retry_ctx: optional ``(item, facts, enabled_policy_slugs)`` tuple.
+            When provided and the remaining errors after mechanical fixes
+            are all assertion-class (procedural_consistency violations,
+            issue #26), re-prompts Haiku once with the bad payload + error
+            as feedback. Without retry_ctx the function preserves its
+            pre-retry behavior: any post-coercion failure raises
+            ``AIPermanentRowError`` so callers without the necessary
+            context (item/facts/slugs) still get the same surface.
+    """
     try:
         return ItemRewrite.model_validate(payload)
     except ValidationError as e:
@@ -130,6 +148,24 @@ def _validate_stage2_payload(payload: dict, item_id: int) -> ItemRewrite:
         try:
             return ItemRewrite.model_validate(payload)
         except ValidationError as e2:
+            from docket.ai.rewrite import (
+                _is_assertion_only_error,
+                _retry_with_assertion_feedback,
+            )
+            if retry_ctx is not None and _is_assertion_only_error(e2):
+                item, facts, enabled_slugs = retry_ctx
+                log.warning("%sassertion-error retry: %s", prefix, e2)
+                payload = _retry_with_assertion_feedback(
+                    item, facts, enabled_slugs, payload, e2,
+                    model="claude-haiku-4-5-20251001",
+                )
+                try:
+                    return ItemRewrite.model_validate(payload)
+                except ValidationError as e3:
+                    raise AIPermanentRowError(
+                        f"stage2 batch validation failed after assertion-error "
+                        f"retry for item {item_id}: {e3}"
+                    ) from e3
             raise AIPermanentRowError(
                 f"stage2 batch validation failed after coercion+truncation for item {item_id}: {e2}"
             ) from e2
@@ -197,6 +233,8 @@ def _load_item_view(item_id: int):
 
 def _ingest_stage2_message(item_id: int, message) -> None:
     """Parse a Stage 2 batch result and run the rest of the pipeline."""
+    from docket.services.badges import get_enabled_policy_slugs
+
     item, facts = _load_item_view(item_id)
     if item is None or facts is None:
         raise AIPermanentRowError(
@@ -205,7 +243,11 @@ def _ingest_stage2_message(item_id: int, message) -> None:
         )
 
     payload = _extract_tool_input_from_message(message, STAGE2_TOOL["name"])
-    rewrite = _validate_stage2_payload(payload, item_id)
+    enabled_slugs = list(get_enabled_policy_slugs(item.city_id))
+    rewrite = _validate_stage2_payload(
+        payload, item_id,
+        retry_ctx=(item, facts, enabled_slugs),
+    )
 
     # Shared with the sync worker path. No new LLM calls.
     finalize_from_rewrite(item, facts, rewrite)

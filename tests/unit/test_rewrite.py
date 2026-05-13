@@ -410,3 +410,85 @@ def test_truncate_overlong_strings_uses_max_length_from_ctx():
     payload['headline'] = 'x' * 100
     out = _truncate_overlong_strings(payload, validation_error)
     assert len(out['headline']) == 80
+
+
+# ---------------------------------------------------------------------------
+# Stage 2 assertion-error retry path
+# Issue #26: Haiku occasionally returns is_substantive=True with null
+# scores (violates procedural_consistency validator). The retry path
+# re-prompts Haiku once with the bad payload + error as feedback.
+# ---------------------------------------------------------------------------
+
+
+# A payload that passes the JSON schema but fails the procedural_consistency
+# @model_validator (substantive items must have non-null scores).
+ASSERTION_FAILING_PAYLOAD = {
+    'is_substantive': True,
+    'headline': 'Council approves new HVAC contract',
+    'why_it_matters': 'Better climate control in public buildings.',
+    'significance_rationale': 'Capital project with operational impact.',
+    'significance_score': None,  # null score on substantive item → assert fires
+    'consent_placement_rationale': 'Routine high-dollar contract.',
+    'consent_placement_score': None,
+    'suggested_badge_slugs': [],
+    'confidence': 'medium',
+}
+
+
+class TestRewriteItemAssertionRetry:
+    """Stage 2 assertion-error retry — issue #26."""
+
+    def test_retries_assertion_error_then_succeeds(self):
+        """Bad payload (null scores on substantive) → re-prompts Haiku → valid."""
+        item = make_item()
+        facts = make_facts()
+        bad_resp = _mock_api_response(ASSERTION_FAILING_PAYLOAD)
+        good_resp = _mock_api_response(VALID_SUBSTANTIVE_RESPONSE)
+
+        with patch('docket.ai.rewrite.anthropic_client') as mock_client, \
+             patch('docket.ai.rewrite.cache_get', return_value=None), \
+             patch('docket.ai.rewrite.cache_put'):
+            mock_client.messages.create.side_effect = [bad_resp, good_resp]
+            rewrite, _ = rewrite_item(item, facts, [])
+
+        assert mock_client.messages.create.call_count == 2, \
+            "expected exactly one retry after the initial assertion failure"
+        assert isinstance(rewrite, ItemRewrite)
+        assert rewrite.significance_score == 7
+
+    def test_raises_when_retry_also_fails(self):
+        """Two consecutive assertion-failing responses → AIPermanentRowError."""
+        from docket.ai.exceptions import AIPermanentRowError
+        item = make_item()
+        facts = make_facts()
+        bad_resp = _mock_api_response(ASSERTION_FAILING_PAYLOAD)
+
+        with patch('docket.ai.rewrite.anthropic_client') as mock_client, \
+             patch('docket.ai.rewrite.cache_get', return_value=None), \
+             patch('docket.ai.rewrite.cache_put'):
+            mock_client.messages.create.side_effect = [bad_resp, bad_resp]
+            with pytest.raises(AIPermanentRowError, match="assertion-error retry"):
+                rewrite_item(item, facts, [])
+
+        assert mock_client.messages.create.call_count == 2, \
+            "retry should fire exactly once, not loop"
+
+    def test_retry_feedback_includes_bad_payload_and_error(self):
+        """Retry's extra_instruction should include the bad payload and the
+        validation error so Haiku can self-correct."""
+        item = make_item()
+        facts = make_facts()
+        bad_resp = _mock_api_response(ASSERTION_FAILING_PAYLOAD)
+        good_resp = _mock_api_response(VALID_SUBSTANTIVE_RESPONSE)
+
+        with patch('docket.ai.rewrite.anthropic_client') as mock_client, \
+             patch('docket.ai.rewrite.cache_get', return_value=None), \
+             patch('docket.ai.rewrite.cache_put'):
+            mock_client.messages.create.side_effect = [bad_resp, good_resp]
+            rewrite_item(item, facts, [])
+
+        # The retry call's user message should mention the failure
+        retry_call = mock_client.messages.create.call_args_list[1]
+        retry_user_msg = retry_call.kwargs['messages'][0]['content']
+        assert 'failed validation' in retry_user_msg.lower()
+        assert 'significance_score' in retry_user_msg
