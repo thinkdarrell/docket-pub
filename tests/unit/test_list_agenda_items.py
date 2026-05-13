@@ -349,7 +349,8 @@ class TestDispatcherWithAgendaItemDataclass:
         )
         html = _render(app, item)
         assert 'data-variant="degraded"' in html
-        assert "needs OCR" in html
+        # PR C: phrasing changed to "OCR needed".
+        assert "OCR needed" in html
 
     def test_processing_status_failed_permanent_routes_to_failed(self, app):
         item = _make_item(
@@ -358,7 +359,8 @@ class TestDispatcherWithAgendaItemDataclass:
         )
         html = _render(app, item)
         assert 'data-variant="failed"' in html
-        assert "Processing Error" in html
+        # PR C: pill text lowercase.
+        assert "processing error" in html
 
     def test_processing_status_procedural_skipped_routes_to_procedural(self, app):
         item = _make_item(

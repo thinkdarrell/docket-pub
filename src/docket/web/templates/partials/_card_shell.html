@@ -28,12 +28,12 @@
 
   <div class="meta-line">
     {% if show_meeting_context and item.meeting_date %}
-      <span class="meta-date">{{ item.meeting_date.strftime('%b %-d, %Y') }}</span>
+      <span class="meta-date">{{ item.meeting_date.strftime('%B %-d, %Y') }}</span>
     {% endif %}
     {% if item.meeting_date and item.item_number %}<span class="meta-sep">·</span>{% endif %}
     {% if item.item_number %}
       <span class="meta-item-ref t-mono">
-        <span class="sr-only">Item number:</span>#{{ item.item_number }}
+        <span class="sr-only">Item number:</span>Item #{{ item.item_number }}
       </span>
     {% endif %}
     {% if primary_badge %}

@@ -392,6 +392,8 @@ def category_landing(slug: str, badge_slug: str):
     if request.headers.get("HX-Request") == "true":
         return render_template(
             "partials/_item_list.html",
+            municipality=municipality,
+            badge=badge,
             items=items,
             next_offset=next_offset,
             cross_filters=cross_filters,
