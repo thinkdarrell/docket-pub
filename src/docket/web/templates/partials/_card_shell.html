@@ -22,8 +22,9 @@
 {%- set primary_badge = (badge if badge is defined and badge else None) or (item.badges[0] if item.badges else None) -%}
 {%- set accent = (primary_badge.accent_color if primary_badge else None) or '#c8cbc0' -%}
 
-<article class="smart-brevity-card{% block card_class_modifier %}{% endblock %}"
-         style="--accent-color: {{ accent }};">
+<article class="smart-brevity-card {% block card_class_modifier %}{% endblock %}"
+         style="--accent-color: {{ accent }};"
+         data-variant="{% block card_data_variant %}smart_brevity{% endblock %}">
 
   <div class="meta-line">
     {% if show_meeting_context and item.meeting_date %}
@@ -59,7 +60,7 @@
   </div>
 
   <h3 class="card-headline">
-    <a class="card-link{% block card_headline_class %}{% endblock %}"
+    <a class="card-link {% block card_headline_class %}{% endblock %}"
        href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=item.meeting_id) }}#item-{{ item.id }}">
       {% block card_headline_text %}{{ item.headline or item.title }}{% endblock %}
     </a>

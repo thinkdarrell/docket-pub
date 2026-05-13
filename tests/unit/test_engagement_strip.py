@@ -507,69 +507,14 @@ class TestCardPartialCityAlias:
         flask_app.register_blueprint(public_bp)
         return flask_app
 
-    def test_card_smart_brevity_with_municipality_only_resolves_city(self, card_app):
-        """Render ``card_smart_brevity.html`` with ``municipality`` only
-        (no ``city`` in scope, mirroring the route handler) and verify
-        the engagement-strip's calendar tail link appears — proving the
-        ``{% set city = municipality %}`` shim works end-to-end."""
-        item = make_agenda_item(
-            id=1,
-            title="Test item",
-            processing_status="completed",
-            ai_rewrite_version=3,
-            headline="Test headline",
-            why_it_matters="Test impact statement.",
-            next_steps={"committee_referral": "Planning Committee"},
-            extracted_facts={},
-            source_anchor={"url": "https://example.com/agenda.pdf"},
-        )
-        municipality = {
-            "slug": "bham",
-            "name": "Birmingham",
-            "master_calendar_url": "https://birminghamal.gov/calendar",
-        }
-        with card_app.app_context(), card_app.test_request_context():
-            html = render_template(
-                "partials/card_smart_brevity.html",
-                item=item,
-                municipality=municipality,
-            )
-        # Engagement-strip's state-1 fields render.
-        assert "Planning Committee" in html
-        # Master calendar tail link survives the alias shim — this is the
-        # specific assertion that catches "someone removed `set city = municipality`".
-        assert "https://birminghamal.gov/calendar" in html
-        assert "City master calendar" in html
-
-    def test_card_verification_pending_with_municipality_only_resolves_city(
-        self, card_app
-    ):
-        """Same alias regression for the verification_pending variant."""
-        item = make_agenda_item(
-            id=2,
-            title="Test item",
-            processing_status="cross_stage_conflict",
-            ai_rewrite_version=3,
-            headline="Test headline",
-            why_it_matters="Test impact statement.",
-            next_steps={"committee_referral": "Public Safety Committee"},
-            extracted_facts={},
-            source_anchor={"url": "https://example.com/agenda.pdf"},
-        )
-        municipality = {
-            "slug": "mobile",
-            "name": "Mobile",
-            "master_calendar_url": "https://mobile.example.com/cal",
-        }
-        with card_app.app_context(), card_app.test_request_context():
-            html = render_template(
-                "partials/card_verification_pending.html",
-                item=item,
-                municipality=municipality,
-            )
-        assert "Public Safety Committee" in html
-        assert "https://mobile.example.com/cal" in html
-        assert "City master calendar" in html
+    # NOTE: PR C removed the engagement strip from card_smart_brevity.html
+    # and card_verification_pending.html — the compact-scan redesign moves
+    # next-steps actions off the list-page card and onto the meeting_detail
+    # page that the headline link points to. The "alias regression" tests
+    # that pinned `{% set city = municipality %}` inside those cards are
+    # obsolete and have been removed. The engagement-strip-without-city
+    # degradation test below still covers the engagement_strip partial
+    # rendered standalone (which is how meeting_detail uses it).
 
     def test_engagement_strip_without_city_silently_degrades(self, card_app):
         """If ``engagement_strip.html`` is rendered with no ``city`` in

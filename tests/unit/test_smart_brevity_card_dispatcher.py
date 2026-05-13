@@ -67,8 +67,20 @@ def app():
 
 
 def _render(app, item):
-    with app.app_context():
-        return render_template("partials/smart_brevity_card.html", item=item)
+    # PR C: shell-based variants use url_for('public.meeting_detail', ...)
+    # which needs a request context + a stub route + a municipality.
+    if "public.meeting_detail" not in {r.endpoint for r in app.url_map.iter_rules()}:
+        app.add_url_rule(
+            "/c/<slug>/meetings/<int:meeting_id>",
+            endpoint="public.meeting_detail",
+            view_func=lambda slug, meeting_id: "",
+        )
+    with app.test_request_context():
+        return render_template(
+            "partials/smart_brevity_card.html",
+            item=item,
+            municipality={"slug": "birmingham", "id": 1},
+        )
 
 
 def _assert_only_variant(html: str, expected: str) -> None:

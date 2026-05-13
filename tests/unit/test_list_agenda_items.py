@@ -64,8 +64,19 @@ def app():
 
 
 def _render(app, item):
-    with app.app_context():
-        return render_template("partials/smart_brevity_card.html", item=item)
+    # PR C: shell-based variants use url_for('public.meeting_detail', ...).
+    if "public.meeting_detail" not in {r.endpoint for r in app.url_map.iter_rules()}:
+        app.add_url_rule(
+            "/c/<slug>/meetings/<int:meeting_id>",
+            endpoint="public.meeting_detail",
+            view_func=lambda slug, meeting_id: "",
+        )
+    with app.test_request_context():
+        return render_template(
+            "partials/smart_brevity_card.html",
+            item=item,
+            municipality={"slug": "birmingham", "id": 1},
+        )
 
 
 # A minimum AgendaItem requires the 13 positional fields. Helper.
@@ -405,13 +416,12 @@ class TestDispatcherWithAgendaItemDataclass:
         assert "surveillance budget" in html
         # Facts strip
         assert "Flock Safety Inc." in html
-        # Source anchor PDF page link
-        assert "PDF page 12" in html
-        # NOTE: Dollar-tier markup assertion temporarily relaxed during PR
-        # C transition — the dollar chip moves from the in-facts dollar_tier
-        # partial to the shell's meta line (dollar-chip--red). Assertion gets
-        # re-added once card_smart_brevity.html adopts _card_shell.html (PR
-        # C Task 3).
+        # NOTE: The source-anchor PDF page link no longer renders on
+        # category-landing cards per the PR C compact-scan redesign —
+        # source links are accessed via the headline-link → meeting_detail
+        # page. Same for the dollar-tier markup, which now lives on the
+        # shell's meta line as a `dollar-chip--<color>` element rather
+        # than inline in the facts strip.
 
 
 # ---------------------------------------------------------------------------
