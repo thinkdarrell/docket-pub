@@ -214,6 +214,62 @@ def _extract_tool_input(response, tool_name: str) -> dict:
     raise AIPermanentRowError(f"No tool_use block named {tool_name} in response")
 
 
+def _is_assertion_only_error(e: ValidationError) -> bool:
+    """True when every Pydantic error in `e` is from a bare `assert` in a
+    @model_validator (Pydantic v2 surfaces these as ``type='assertion_error'``).
+
+    Used to gate the assertion-error retry path: mechanical fixes can't
+    repair cross-field invariant violations, but Haiku non-determinism
+    means a re-call with the error as feedback often produces a valid
+    response. Non-assertion errors (missing required field, bad enum)
+    should not trigger retry — they indicate a real schema mismatch.
+    """
+    return bool(e.errors()) and all(
+        err.get('type') == 'assertion_error' for err in e.errors()
+    )
+
+
+def _retry_with_assertion_feedback(
+    item,
+    facts: StructuredFacts,
+    enabled_policy_badges: list[str],
+    bad_payload: dict,
+    error: ValidationError,
+    *,
+    model: str,
+) -> dict:
+    """Re-prompt Haiku once with the bad payload + validation error as feedback.
+
+    Used when ItemRewrite's procedural_consistency assertions fire — Haiku
+    occasionally returns ``is_substantive=True`` with null scores or a
+    too-short headline. One re-call with the error explained back usually
+    produces a valid response. Returns the new (un-validated) payload for
+    the caller to validate.
+    """
+    feedback = (
+        "Your previous response failed validation:\n"
+        f"  payload: {json.dumps(bad_payload, separators=(',', ':'))}\n"
+        f"  error: {error}\n"
+        "Please re-submit with all invariants satisfied. If is_substantive=true: "
+        "BOTH significance_score and consent_placement_score must be non-null "
+        "floats in [0, 10], AND headline must be >= 10 non-whitespace chars."
+    )
+    user_msg = build_user_message(
+        item, facts, enabled_policy_badges, extra_instruction=feedback,
+    )
+    response = anthropic_client.messages.create(
+        model=model,
+        max_tokens=1024,
+        tools=[STAGE2_TOOL],
+        tool_choice={"type": "tool", "name": STAGE2_TOOL["name"]},
+        system=[
+            {"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}},
+        ],
+        messages=[{"role": "user", "content": user_msg}],
+    )
+    return _extract_tool_input(response, STAGE2_TOOL["name"])
+
+
 def build_user_message(
     item,
     facts: StructuredFacts,
@@ -300,26 +356,41 @@ def rewrite_item(
     try:
         rewrite = ItemRewrite.model_validate(payload)
     except ValidationError as e:
-        # Retry once after two cheap mechanical fixes:
+        # Recovery ladder:
         #   1. enum coercion — out-of-whitelist values (e.g.
         #      ``confidence='very_high'``) map to a safe default.
-        #   2. string truncation — Haiku occasionally exceeds the 60-char
+        #   2. string truncation — Haiku occasionally exceeds the 80-char
         #      headline cap with dense, accurate content. Truncate to
         #      the cap rather than dropping the row.
-        # Failures that survive both (e.g. procedural_consistency
-        # violations, missing required field) surface as
-        # AIPermanentRowError so the worker can mark the row
-        # failed_permanent and continue the batch.
+        #   3. assertion-error retry — procedural_consistency invariants
+        #      (issue #26) can't be repaired mechanically. Re-prompt Haiku
+        #      once with the bad payload + error as feedback. Bounded by
+        #      the assertion-only gate so genuine schema mismatches still
+        #      raise on the first failure.
         prefix = f"stage2 item={item_id} "
         payload = _coerce_unknown_enums(payload, STAGE2_TOOL["input_schema"], log_prefix=prefix)
         payload = _truncate_overlong_strings(payload, e, log_prefix=prefix)
         try:
             rewrite = ItemRewrite.model_validate(payload)
         except ValidationError as e2:
-            raise AIPermanentRowError(
-                f"stage2 validation failed after coercion+truncation for "
-                f"item {item_id}: {e2}"
-            ) from e2
+            if _is_assertion_only_error(e2):
+                log.warning("%sassertion-error retry: %s", prefix, e2)
+                payload = _retry_with_assertion_feedback(
+                    item, facts, enabled_policy_badges, payload, e2,
+                    model=model,
+                )
+                try:
+                    rewrite = ItemRewrite.model_validate(payload)
+                except ValidationError as e3:
+                    raise AIPermanentRowError(
+                        f"stage2 validation failed after assertion-error retry "
+                        f"for item {item_id}: {e3}"
+                    ) from e3
+            else:
+                raise AIPermanentRowError(
+                    f"stage2 validation failed after coercion+truncation for "
+                    f"item {item_id}: {e2}"
+                ) from e2
 
     # Cache against the served model id (decision #42).
     # Guarded: a transient DB error here would otherwise drop an

@@ -108,6 +108,110 @@ def test_validate_stage2_payload_truncates_overlong_headline():
 
 
 # ---------------------------------------------------------------------------
+# Stage 2 assertion-error retry (issue #26)
+# ---------------------------------------------------------------------------
+
+_ASSERTION_FAILING_STAGE2 = {
+    "is_substantive": True,
+    "headline": "Council approves new HVAC contract",
+    "why_it_matters": "Better climate control in public buildings.",
+    "significance_rationale": "Capital project.",
+    "significance_score": None,  # null score on substantive → assert fires
+    "consent_placement_rationale": "High-dollar.",
+    "consent_placement_score": None,
+    "suggested_badge_slugs": [],
+    "confidence": "medium",
+}
+
+_VALID_STAGE2 = {
+    **_ASSERTION_FAILING_STAGE2,
+    "significance_score": 7,
+    "consent_placement_score": 2,
+}
+
+
+def _mock_stage2_message(payload: dict) -> MagicMock:
+    block = MagicMock()
+    block.type = "tool_use"
+    block.name = "submit_item_rewrite"
+    block.input = payload
+    msg = MagicMock()
+    msg.model = "claude-haiku-4-5-20251001"
+    msg.content = [block]
+    return msg
+
+
+def test_validate_stage2_payload_no_retry_without_ctx():
+    """Without retry_ctx, assertion-class failures raise immediately (preserves
+    existing behavior for callers that don't supply context)."""
+    from docket.ai.batch_ingest import _validate_stage2_payload
+    from docket.ai.exceptions import AIPermanentRowError
+
+    with pytest.raises(AIPermanentRowError, match="batch validation failed after coercion"):
+        _validate_stage2_payload(dict(_ASSERTION_FAILING_STAGE2), item_id=42)
+
+
+def test_validate_stage2_payload_retries_assertion_error_with_ctx():
+    """retry_ctx triggers a Haiku re-call when remaining errors are
+    assertion-class; a valid retry response unblocks the row."""
+    from types import SimpleNamespace
+    from docket.ai.batch_ingest import _validate_stage2_payload
+    from docket.ai.extraction_schema import NextSteps, StructuredFacts
+    from docket.ai.rewrite_schema import ItemRewrite
+
+    item = SimpleNamespace(
+        id=42, city_name='Birmingham',
+        title='HVAC contract', description='body',
+        sponsor=None, dollars_amount=100000, topic='contracts', is_consent=False,
+    )
+    facts = StructuredFacts(
+        funding_source='general_fund', counterparty='Acme', procurement_method='competitive',
+        location=None, action_type='contract_award', next_steps=NextSteps(),
+        parcels_affected=None, acres_affected=None,
+    )
+
+    good_resp = _mock_stage2_message(_VALID_STAGE2)
+    with patch("docket.ai.rewrite.anthropic_client") as mock_client:
+        mock_client.messages.create.return_value = good_resp
+        rewrite = _validate_stage2_payload(
+            dict(_ASSERTION_FAILING_STAGE2), item_id=42,
+            retry_ctx=(item, facts, []),
+        )
+
+    assert isinstance(rewrite, ItemRewrite)
+    assert rewrite.significance_score == 7
+    assert mock_client.messages.create.call_count == 1, \
+        "exactly one retry call to Haiku is expected"
+
+
+def test_validate_stage2_payload_raises_when_retry_also_fails():
+    """If the retry response is also invalid, still raise AIPermanentRowError."""
+    from types import SimpleNamespace
+    from docket.ai.batch_ingest import _validate_stage2_payload
+    from docket.ai.exceptions import AIPermanentRowError
+    from docket.ai.extraction_schema import NextSteps, StructuredFacts
+
+    item = SimpleNamespace(
+        id=42, city_name='Birmingham', title='X', description='',
+        sponsor=None, dollars_amount=0, topic='other', is_consent=False,
+    )
+    facts = StructuredFacts(
+        funding_source='general_fund', counterparty=None, procurement_method='not_applicable',
+        location=None, action_type='other', next_steps=NextSteps(),
+        parcels_affected=None, acres_affected=None,
+    )
+
+    bad_resp = _mock_stage2_message(_ASSERTION_FAILING_STAGE2)
+    with patch("docket.ai.rewrite.anthropic_client") as mock_client:
+        mock_client.messages.create.return_value = bad_resp
+        with pytest.raises(AIPermanentRowError, match="assertion-error retry"):
+            _validate_stage2_payload(
+                dict(_ASSERTION_FAILING_STAGE2), item_id=42,
+                retry_ctx=(item, facts, []),
+            )
+
+
+# ---------------------------------------------------------------------------
 # ingest_batch / poll_and_ingest with mocked DB + Anthropic
 # ---------------------------------------------------------------------------
 
