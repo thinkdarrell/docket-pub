@@ -345,7 +345,7 @@ a.link:hover { border-bottom-color: var(--accent); }
 
 .volume-timeline-block {
   font-family: "Source Serif Pro", Georgia, serif;
-  padding: 28px 24px 32px;
+  padding: 16px 24px 18px;
   background: #fdfaf3;
   border-top: 1px solid #e6dfc8;
   border-bottom: 1px solid #e6dfc8;
@@ -354,7 +354,7 @@ a.link:hover { border-bottom-color: var(--accent); }
 .volume-timeline-block .title-block {
   text-align: center;
   max-width: 64ch;
-  margin: 0 auto 18px;
+  margin: 0 auto 10px;
 }
 .volume-timeline-block .title-block .eyebrow {
   font-family: "JetBrains Mono", monospace;
@@ -436,7 +436,7 @@ a.link:hover { border-bottom-color: var(--accent); }
 
 .volume-timeline-block .volume-timeline {
   width: 100%;
-  height: 200px;
+  height: 140px;
 }
 .volume-timeline-block .bar-substantive   { fill: #5a4a30; }
 .volume-timeline-block .bar-consent       { fill: #c4894a; opacity: 0.92; }

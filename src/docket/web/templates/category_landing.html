@@ -1,6 +1,12 @@
 {% extends "base.html" %}
 {% block title %}{{ badge.name }} — {{ municipality.name }} — docket.pub{% endblock %}
 
+{# Category-specific rail: peak-month drill-in + other badges this
+   city has enabled, instead of the default empty rail. #}
+{% block rail %}
+    {% include "partials/rail_category.html" %}
+{% endblock %}
+
 {% block content %}
 {# Category landing page (spec §6.5).
 
@@ -53,13 +59,11 @@
     <header class="feed-head">
         <div>
             <div class="t-eyebrow">Filters</div>
+            {% if cross_filters %}
             <h2 class="feed-title t-display" style="font-size: 22px;">
-                {% if cross_filters %}
-                    Showing items also tagged
-                {% else %}
-                    All confidence
-                {% endif %}
+                Showing items also tagged
             </h2>
+            {% endif %}
         </div>
         {% if cross_filters %}
         <a class="link t-mono"

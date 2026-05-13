@@ -1291,13 +1291,22 @@ def city_backfill_ratio(city_id: int) -> float | None:
 
     The MV is refreshed daily by the cron worker
     (``worker/tasks.py:refresh_backfill_ratio_mv``).
+
+    Defensive: if the MV doesn't exist yet (deploys can land the new
+    code before the migration applies in some edge cases), return
+    ``None`` rather than 500ing the whole category-landing page.
     """
-    with db_cursor() as cur:
-        cur.execute(
-            "SELECT ratio FROM mv_city_backfill_ratio WHERE city_id = %s",
-            (city_id,),
-        )
-        row = cur.fetchone()
+    import psycopg2
+
+    try:
+        with db_cursor() as cur:
+            cur.execute(
+                "SELECT ratio FROM mv_city_backfill_ratio WHERE city_id = %s",
+                (city_id,),
+            )
+            row = cur.fetchone()
+    except psycopg2.errors.UndefinedTable:
+        return None
     if not row or row["ratio"] is None:
         return None
     return float(row["ratio"])

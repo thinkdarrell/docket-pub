@@ -99,15 +99,20 @@ class TestVolumeTimeline:
         assert title, "Centered .title-block must render"
         assert "Items the AI flagged as hidden on consent" in title.text
 
-    def test_tally_band_renders_three_stats(self, app):
+    def test_tally_band_renders_two_stats(self, app):
+        """Peak-month stat removed per design feedback (drill-in lives
+        in the category rail). Tally band now shows indexed_count +
+        total_dollars only."""
         html = _render(app, **_stub_context())
         soup = BeautifulSoup(html, "html.parser")
         band = soup.find(class_="tally-band")
         assert band
         tallies = band.find_all(class_="tally")
-        assert len(tallies) == 3
-        # Peak month renders as the third stat
-        assert "April 2026" in tallies[2].text or "Apr 2026" in tallies[2].text
+        assert len(tallies) == 2
+        # Indexed-so-far stat
+        assert "Indexed so far" in tallies[0].text
+        # Total-dollars stat
+        assert "Total dollars" in tallies[1].text
 
     def test_backfill_banner_at_low_threshold(self, app):
         ctx = _stub_context(backfill_ratio=0.018)

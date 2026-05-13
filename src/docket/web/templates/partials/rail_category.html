@@ -1,0 +1,81 @@
+{# Rail variant for the category-landing page.
+
+   The compact-scan list-of-cards surface has no single meeting / member
+   / item to anchor a meeting-style rail, so we fill the rail with
+   contextual navigation: peak-month drill-in (one click sets the
+   ?month filter), then the other badges this city has enabled so the
+   reader can hop sideways without going back to the city page.
+
+   Required context (set by ``public.category_landing``):
+     - municipality
+     - badge                  — current badge dict
+     - tally                  — from category_tally()
+     - available_badges       — enabled badges for the city minus the
+                                one we're on
+#}
+<header class="rail-head">
+    <div class="rail-eyebrow t-mono">SOURCE OF TRUTH</div>
+    <div class="rail-pinned t-meta">Context for this category</div>
+</header>
+
+<div class="rail-body thin-scroll">
+    <div class="rail-section">
+        <div class="rail-kicker t-mono">CATEGORY · {{ badge.slug }}</div>
+        <h3 class="rail-title t-display">{{ badge.name }}</h3>
+        <p class="rail-lede">
+            {{ badge.description }}
+        </p>
+
+        {% if tally and tally.peak_month %}
+        <div class="rail-section-h t-eyebrow" style="margin-top: 16px;">Peak month</div>
+        <a class="rail-link"
+           href="{{ url_for('public.category_landing',
+                            slug=municipality.slug,
+                            badge_slug=badge.slug,
+                            month=tally.peak_month.year_month) }}"
+           hx-get="{{ url_for('public.category_landing',
+                              slug=municipality.slug,
+                              badge_slug=badge.slug,
+                              month=tally.peak_month.year_month) }}"
+           hx-target="#item-list"
+           hx-swap="outerHTML"
+           hx-push-url="true">
+            <div>
+                <div class="rail-link-label">
+                    {{ tally.peak_month.year_month | format_year_month }}
+                </div>
+                <div class="t-meta">
+                    {{ tally.peak_month['items'] }} item{{ 's' if tally.peak_month['items'] != 1 else '' }}
+                    {%- if tally.peak_month.dollars %} · {{ tally.peak_month.dollars | format_dollars }}{% endif -%}
+                </div>
+            </div>
+            <span class="t-mono">→</span>
+        </a>
+        {% endif %}
+
+        {% if available_badges %}
+        <div class="rail-section-h t-eyebrow" style="margin-top: 16px;">
+            Other categories in {{ municipality.name }}
+        </div>
+        <div class="rail-links">
+            {% for b in available_badges %}
+            <a class="rail-link"
+               href="{{ url_for('public.category_landing',
+                                slug=municipality.slug,
+                                badge_slug=b.slug) }}">
+                <div>
+                    <div class="rail-link-label">{{ b.name }}</div>
+                    <div class="t-meta">{{ b.kind }}</div>
+                </div>
+                <span class="t-mono">→</span>
+            </a>
+            {% endfor %}
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<footer class="rail-foot t-mono">
+    <span>docket.pub</span>
+    <span class="dim">v0.5 · pre-alpha</span>
+</footer>
