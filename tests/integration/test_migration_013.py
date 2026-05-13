@@ -108,6 +108,16 @@ def test_013_up_down_up_cycle():
     """up → down → up leaves schema in a consistent state."""
     with db() as conn:
         apply_migrations(conn)
+        # Rollback later migrations whose objects depend on 13's columns
+        # (mv_city_backfill_ratio in 025 reads ai.ai_rewrite_version, so
+        # dropping that column from 13's SQL_DOWN cascades-fails unless
+        # 025 is rolled back first). Add new entries here as later
+        # migrations introduce dependents.
+        for v in (25, 24, 23, 22, 21):
+            try:
+                rollback_migration(conn, v)
+            except Exception:
+                pass
         rollback_migration(conn, 13)
 
         with conn.cursor() as cur:
