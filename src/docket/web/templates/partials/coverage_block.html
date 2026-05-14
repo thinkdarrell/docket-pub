@@ -1,0 +1,20 @@
+{# Renders the inline coverage section. Expects ``coverage`` = list[CoverageEntry]. #}
+{% if coverage %}
+<section class="coverage-block">
+  <h2 class="coverage-block__title">Editorial coverage</h2>
+
+  {% set notes = coverage | selectattr("kind", "equalto", "note") | list %}
+  {% set citations = coverage | selectattr("kind", "equalto", "citation") | list %}
+
+  {% for note in notes %}
+    {% include "partials/coverage_note.html" %}
+  {% endfor %}
+
+  {% if citations %}
+    <h3 class="coverage-block__subtitle">Press coverage</h3>
+    {% for citation in citations %}
+      {% include "partials/coverage_citation.html" %}
+    {% endfor %}
+  {% endif %}
+</section>
+{% endif %}

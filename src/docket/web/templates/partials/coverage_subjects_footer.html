@@ -1,0 +1,32 @@
+{# Renders the "→ on Item X, Meeting Y, Member Z" footer for a coverage entry.
+   Expects either `note` or `citation` or `entry` in scope — falls back through.
+   Each subject already carries its city_slug from _hydrate_subjects_for_entries. #}
+{% set _ent = note if note is defined else (citation if citation is defined else entry) %}
+<footer class="coverage-subjects">
+  → on
+  {% for s in _ent.subjects %}
+    {% if s.subject_type == 'agenda_item' and s.city_slug %}
+      <a class="coverage-subjects__link"
+         href="{{ url_for('public.item_detail', slug=s.city_slug, item_id=s.subject_id) }}">
+        Item: {{ s.label or s.subject_id }}
+      </a>
+    {% elif s.subject_type == 'meeting' and s.city_slug %}
+      <a class="coverage-subjects__link"
+         href="{{ url_for('public.meeting_detail', slug=s.city_slug, meeting_id=s.subject_id) }}">
+        {{ s.label or 'Meeting' }}
+      </a>
+    {% elif s.subject_type == 'council_member' and s.city_slug %}
+      <a class="coverage-subjects__link"
+         href="{{ url_for('public.council_member', city_slug=s.city_slug, member_id=s.subject_id) }}">
+        {{ s.label or 'Member' }}
+      </a>
+    {% elif s.subject_type == 'badge' %}
+      {# Badges are global; no per-city url_for here. Render as plain text. #}
+      <span class="coverage-subjects__label">{{ s.label or s.subject_slug }}</span>
+    {% else %}
+      {# city_slug missing (subject row deleted upstream) — degrade to plain text #}
+      <span class="coverage-subjects__label">{{ s.label or 'Unknown subject' }}</span>
+    {% endif %}
+    {% if not loop.last %}, {% endif %}
+  {% endfor %}
+</footer>

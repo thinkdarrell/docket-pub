@@ -1,0 +1,10 @@
+{# Renders a "📝 N · 📰 M" chip. Expects ``counts`` = (notes, citations) tuple. #}
+{% set notes_n = counts[0] %}
+{% set cits_n = counts[1] %}
+{% if notes_n or cits_n %}
+<span class="coverage-chip" title="Editorial coverage available">
+  {% if notes_n %}<span class="coverage-chip__notes">📝 {{ notes_n }}</span>{% endif %}
+  {% if notes_n and cits_n %}·{% endif %}
+  {% if cits_n %}<span class="coverage-chip__cites">📰 {{ cits_n }}</span>{% endif %}
+</span>
+{% endif %}
