@@ -901,3 +901,65 @@ def rail_member(slug, member_id):
         member=member,
         vote_summary=vote_summary,
     )
+
+
+# --- Editorial coverage ----------------------------------------------------
+
+@bp.route("/coverage/", methods=["GET"])
+def coverage_listing():
+    """Paginated listing of all published coverage (notes + citations).
+
+    Query params:
+      - ``kind=note|citation`` — filter by kind; invalid values ignored
+      - ``q=<text>`` — full-text search via websearch_to_tsquery
+      - ``page=<int>`` — 1-indexed page; bad/negative input defaults to 1
+    """
+    from docket.services.query import list_published_coverage
+    kind = request.args.get('kind') or None
+    if kind not in (None, 'note', 'citation'):
+        kind = None
+    q = request.args.get('q') or None
+    try:
+        page = max(1, int(request.args.get('page', 1)))
+    except ValueError:
+        page = 1
+    rows, total = list_published_coverage(kind=kind, q=q, page=page, page_size=20)
+    total_pages = (total + 19) // 20
+    return render_template(
+        "coverage/listing.html",
+        entries=rows,
+        total=total,
+        page=page,
+        total_pages=total_pages,
+        kind=kind,
+        q=q or '',
+    )
+
+
+@bp.route("/coverage/<int:coverage_id>", methods=["GET"])
+def coverage_permalink(coverage_id: int):
+    """Permalink for a published note. 404 for citations or non-published entries.
+
+    Citations link out to the original article; they don't have internal detail
+    pages. Notes get a standalone page at /coverage/<id> so they can be linked
+    to from external sources.
+
+    Subject hydration is always performed so the subjects footer renders
+    the "→ on Item X, Meeting Y" context automatically.
+    """
+    from docket.services.query import (
+        _COVERAGE_SELECT, _hydrate_coverage_rows, _hydrate_subjects_for_entries,
+    )
+    from docket.db import db_cursor
+    with db_cursor() as cur:
+        cur.execute(
+            _COVERAGE_SELECT + " WHERE ce.id = %s AND ce.kind = 'note' "
+                               "AND ce.status = 'published'",
+            (coverage_id,),
+        )
+        entries = _hydrate_coverage_rows(cur)
+        if not entries:
+            abort(404)
+        entries = _hydrate_subjects_for_entries(cur, entries)
+        note = entries[0]
+    return render_template("coverage/permalink.html", note=note)

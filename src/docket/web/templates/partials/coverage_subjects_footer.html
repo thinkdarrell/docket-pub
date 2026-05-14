@@ -1,6 +1,11 @@
 {# Renders the "→ on Item X, Meeting Y, Member Z" footer for a coverage entry.
    Expects either `note` or `citation` or `entry` in scope — falls back through.
-   Each subject already carries its city_slug from _hydrate_subjects_for_entries. #}
+   Each subject already carries its city_slug from _hydrate_subjects_for_entries.
+
+   NOTE: council_member subjects render as plain text in v1 because there is no
+   public per-member detail route yet. A v1.1 follow-up (paired with the
+   modularity refactor's features/public/council/ slot) will promote this to a
+   proper <a> link once the route exists. #}
 {% set _ent = note if note is defined else (citation if citation is defined else entry) %}
 <footer class="coverage-subjects">
   → on
@@ -15,11 +20,10 @@
          href="{{ url_for('public.meeting_detail', slug=s.city_slug, meeting_id=s.subject_id) }}">
         {{ s.label or 'Meeting' }}
       </a>
-    {% elif s.subject_type == 'council_member' and s.city_slug %}
-      <a class="coverage-subjects__link"
-         href="{{ url_for('public.council_member', city_slug=s.city_slug, member_id=s.subject_id) }}">
-        {{ s.label or 'Member' }}
-      </a>
+    {% elif s.subject_type == 'council_member' %}
+      {# No public per-member detail route in v1 — render as text. v1.1 follow-up
+         will add the link once features/public/council/ slot lands. #}
+      <span class="coverage-subjects__label">{{ s.label or 'Member' }}</span>
     {% elif s.subject_type == 'badge' %}
       {# Badges are global; no per-city url_for here. Render as plain text. #}
       <span class="coverage-subjects__label">{{ s.label or s.subject_slug }}</span>
