@@ -57,11 +57,6 @@ def create_app() -> Flask:
 
     app.jinja_env.globals["is_source_url_safe"] = source_security.is_url_safe
 
-    # Register ``now()`` as a Jinja global so templates can compare
-    # featured_until timestamps (e.g. ``row.featured_until > now()``).
-    from datetime import datetime, timezone
-    app.jinja_env.globals.setdefault('now', lambda: datetime.now(timezone.utc))
-
     # Register blueprints
     from docket.web.admin import bp as admin_bp
     from docket.web.admin_badge_review import bp as admin_badge_review_bp

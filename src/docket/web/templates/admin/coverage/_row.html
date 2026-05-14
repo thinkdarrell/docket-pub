@@ -27,7 +27,7 @@
       <form method="post" action="{{ url_for('admin.coverage_unpublish', coverage_id=row.id) }}" style="display:inline">
         <button type="submit">Unpublish</button>
       </form>
-      {% if row.featured_until and row.featured_until > now() %}
+      {% if row.featured_until and row.featured_until > utcnow %}
         <form method="post" action="{{ url_for('admin.coverage_unfeature', coverage_id=row.id) }}" style="display:inline">
           <button type="submit">Unfeature</button>
         </form>

@@ -1137,12 +1137,14 @@ def coverage_list():
         )
         counts = {r['status']: r['n'] for r in cur.fetchall()}
 
+    from datetime import timezone
     return render_template(
         "admin/coverage/list.html",
         rows=rows,
         counts=counts,
         status_filter=status_filter,
         kind_filter=kind_filter,
+        utcnow=datetime.now(timezone.utc),
     )
 
 
