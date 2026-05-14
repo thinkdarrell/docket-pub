@@ -107,3 +107,101 @@ def test_unpublish_route_returns_to_draft(client_logged_in, seeded_note):
         with conn.cursor() as cur:
             cur.execute("SELECT status FROM coverage_entries WHERE id = %s", (entry_id,))
             assert cur.fetchone()[0] == 'draft'
+
+
+def test_coverage_new_note_form_renders(client_logged_in):
+    c, _ = client_logged_in
+    resp = c.get('/admin/coverage/new?kind=note')
+    assert resp.status_code == 200
+    assert b'New note' in resp.data
+
+
+def test_coverage_post_creates_note_and_redirects(client_logged_in):
+    c, _ = client_logged_in
+    # First seed an item to attach to
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO meetings (municipality_id, external_id, title, meeting_date) "
+                "VALUES ((SELECT id FROM municipalities LIMIT 1), %s, %s, NOW()) RETURNING id",
+                ('post-mtg', 'Post Test'),
+            )
+            mtg_id = cur.fetchone()[0]
+            cur.execute(
+                "INSERT INTO agenda_items (meeting_id, title) VALUES (%s, %s) RETURNING id",
+                (mtg_id, 'Post Test Item'),
+            )
+            item_id = cur.fetchone()[0]
+        conn.commit()
+    resp = c.post('/admin/coverage', data={
+        'kind': 'note',
+        'body': 'A new note from the form.',
+        'partner_credit': '',
+        'subject[]': [f'agenda_item:{item_id}'],
+    })
+    assert resp.status_code in (302, 303)
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id FROM coverage_entries WHERE body = %s",
+                ('A new note from the form.',),
+            )
+            assert cur.fetchone() is not None
+    # Cleanup
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM coverage_entries WHERE body = 'A new note from the form.'")
+            cur.execute("DELETE FROM agenda_items WHERE id = %s", (item_id,))
+            cur.execute("DELETE FROM meetings WHERE id = %s", (mtg_id,))
+        conn.commit()
+
+
+def test_edit_form_includes_deactivated_outlet_when_citation_uses_it(client_logged_in):
+    """Regression: editing a citation whose outlet was later deactivated must
+    still show that outlet in the dropdown — otherwise the browser would silently
+    reassign the citation to the first active outlet on save."""
+    from docket.services.coverage_writer import create_citation
+    c, uid = client_logged_in
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO outlets (slug, name) VALUES (%s, %s) RETURNING id",
+                ('test-deactivated-outlet', 'Soon-to-be-deactivated'),
+            )
+            outlet_id = cur.fetchone()[0]
+            cur.execute(
+                "INSERT INTO meetings (municipality_id, external_id, title, meeting_date) "
+                "VALUES ((SELECT id FROM municipalities LIMIT 1), %s, %s, NOW()) RETURNING id",
+                ('edit-mtg', 'Edit Test'),
+            )
+            mtg_id = cur.fetchone()[0]
+            cur.execute(
+                "INSERT INTO agenda_items (meeting_id, title) VALUES (%s, %s) RETURNING id",
+                (mtg_id, 'Edit Test Item'),
+            )
+            item_id = cur.fetchone()[0]
+        conn.commit()
+    entry_id = create_citation(
+        author_id=uid, outlet_id=outlet_id,
+        external_url='https://example.test/x', headline='Edit headline',
+        reporter_byline=None, excerpt=None, article_published_at=None,
+        subjects=[('agenda_item', item_id, None)],
+    )
+    try:
+        # Now deactivate the outlet
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE outlets SET is_active = FALSE WHERE id = %s", (outlet_id,))
+            conn.commit()
+        resp = c.get(f'/admin/coverage/{entry_id}/edit')
+        assert resp.status_code == 200
+        # The deactivated outlet must still appear in the dropdown
+        assert b'Soon-to-be-deactivated' in resp.data
+    finally:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM coverage_entries WHERE id = %s", (entry_id,))
+                cur.execute("DELETE FROM agenda_items WHERE id = %s", (item_id,))
+                cur.execute("DELETE FROM meetings WHERE id = %s", (mtg_id,))
+                cur.execute("DELETE FROM outlets WHERE id = %s", (outlet_id,))
+            conn.commit()

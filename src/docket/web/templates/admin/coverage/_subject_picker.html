@@ -1,0 +1,23 @@
+<fieldset class="subject-picker">
+  <legend>Attach to (at least one)</legend>
+  <div id="selected-subjects">
+    {% for s in subjects or [] %}
+      {% set subject = s %}
+      {% include "admin/coverage/_subject_chip.html" %}
+    {% endfor %}
+  </div>
+  <p>Add subject:</p>
+  <select id="subject-type-select" onchange="document.getElementById('subject-search').value=''; this.form.requestSubmit();">
+    <option value="agenda_item">Agenda item</option>
+    <option value="meeting">Meeting</option>
+    <option value="council_member">Council member</option>
+    <option value="badge">Badge</option>
+  </select>
+  <input type="search" id="subject-search" placeholder="Search…"
+         hx-get="{{ url_for('admin.coverage_search') }}"
+         hx-trigger="keyup changed delay:200ms"
+         hx-target="#subject-search-results"
+         hx-include="#subject-type-select"
+         name="q">
+  <div id="subject-search-results"></div>
+</fieldset>
