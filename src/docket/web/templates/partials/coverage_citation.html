@@ -1,0 +1,28 @@
+<article class="coverage-citation">
+  <header class="coverage-citation__meta">
+    <span class="coverage-citation__outlet">{{ citation.outlet_name or 'Press' }}</span>
+    {% if citation.article_published_at %}
+      · <time datetime="{{ citation.article_published_at.isoformat() }}">{{ citation.article_published_at.strftime('%b %d') }}</time>
+    {% endif %}
+    {% if citation.reporter_byline %}
+      · by {{ citation.reporter_byline }}
+    {% endif %}
+  </header>
+  <h4 class="coverage-citation__headline">
+    <a href="{{ citation.external_url }}" target="_blank" rel="noopener noreferrer">
+      {{ citation.headline }}
+    </a>
+  </h4>
+  {% if citation.excerpt %}
+    <p class="coverage-citation__excerpt">{{ citation.excerpt }}</p>
+  {% endif %}
+  <p class="coverage-citation__link">
+    <a href="{{ citation.external_url }}" target="_blank" rel="noopener noreferrer">
+      → {{ citation.external_url | replace('https://', '') | replace('http://', '') }}
+    </a>
+  </p>
+  {% if citation.subjects %}
+    {% set entry = citation %}
+    {% include "partials/coverage_subjects_footer.html" %}
+  {% endif %}
+</article>

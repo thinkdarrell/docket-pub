@@ -15,6 +15,9 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/smart_brevity.css') }}">
     {# mobile.css must load LAST so its @media (max-width:768px) rules win at narrow widths #}
     <link rel="stylesheet" href="{{ url_for('static', filename='mobile.css') }}">
+    <link rel="alternate" type="application/rss+xml"
+          title="docket.pub editorial coverage"
+          href="{{ url_for('public.coverage_rss') }}">
     <script src="https://unpkg.com/htmx.org@2.0.4"></script>
     {% block head %}{% endblock %}
 </head>

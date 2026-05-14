@@ -148,6 +148,10 @@ def _city_overview_render(slug, municipality, now_ts):
         for b in query.list_process_badges()
     ]
 
+    from docket.services.query import coverage_counts_for_items
+    notable_item_ids = [it['id'] for it in notable if 'id' in it]
+    coverage_counts = coverage_counts_for_items(notable_item_ids)
+
     rendered = render_template(
         "city.html",
         municipality=municipality,
@@ -164,6 +168,7 @@ def _city_overview_render(slug, municipality, now_ts):
         city_policy_badges=city_policy_badges,
         process_badges=process_badges,
         now=datetime.now(),
+        coverage_counts=coverage_counts,
     )
     _overview_cache[slug] = (now_ts, rendered)
     return rendered
@@ -218,6 +223,10 @@ def meeting_detail(slug, meeting_id):
     dollar_count = sum(1 for i in agenda_items if i.dollars_amount)
     topic_count = len({i.topic for i in agenda_items if i.topic})
 
+    from docket.services.query import coverage_counts_for_items
+    item_ids = [it.id for it in agenda_items]
+    coverage_counts = coverage_counts_for_items(item_ids)
+
     return render_template(
         "meeting_detail.html",
         municipality=municipality,
@@ -229,14 +238,36 @@ def meeting_detail(slug, meeting_id):
         dollar_count=dollar_count,
         topic_count=topic_count,
         item_count=len(agenda_items),
+        coverage_counts=coverage_counts,
     )
 
 
 @bp.route("/al/<slug>/items/<int:item_id>/")
 def item_detail(slug, item_id):
-    """Per-item detail page — stub for E5."""
-    # TODO(E5): wire up item-detail page
-    abort(404)
+    """Per-item detail page."""
+    municipality = query.get_municipality(slug)
+    if not municipality:
+        abort(404)
+
+    item = query.get_agenda_item(item_id)
+    if not item:
+        abort(404)
+
+    # Verify the item belongs to this city via its meeting
+    meeting = query.get_meeting(item.meeting_id)
+    if not meeting or meeting.municipality_id != municipality["id"]:
+        abort(404)
+
+    from docket.services.query import coverage_for_subject
+    coverage = coverage_for_subject('agenda_item', subject_id=item_id)
+
+    return render_template(
+        "item_detail.html",
+        municipality=municipality,
+        item=item,
+        meeting=meeting,
+        coverage=coverage,
+    )
 
 
 @bp.route("/al/<slug>/<badge_slug>/")
@@ -410,6 +441,9 @@ def category_landing(slug: str, badge_slug: str):
     # year ticks, dropdown re-render) and resolves S9 (post-swap
     # dropdown unsync). Non-HTMX requests fall through to the full
     # page render so deep links / bookmarks render unchanged.
+    from docket.services.query import coverage_counts_for_items
+    coverage_counts = coverage_counts_for_items([it.id for it in items])
+
     if request.headers.get("HX-Request") == "true":
         return render_template(
             "partials/_item_list.html",
@@ -425,6 +459,7 @@ def category_landing(slug: str, badge_slug: str):
             # item ref per card via the shared meta strip (no-op on
             # meeting-detail surfaces where show_meeting_context is unset).
             show_meeting_context=True,
+            coverage_counts=coverage_counts,
         )
 
     return render_template(
@@ -446,6 +481,7 @@ def category_landing(slug: str, badge_slug: str):
         active_month_label=active_month_label,
         args_without_month=args_without_month,
         show_meeting_context=True,
+        coverage_counts=coverage_counts,
     )
 
 
@@ -727,6 +763,10 @@ def search():
 
     municipalities = query.list_municipalities()
 
+    from docket.services.query import coverage_counts_for_items
+    result_ids = [it['id'] if isinstance(it, dict) else it.id for it in results]
+    coverage_counts = coverage_counts_for_items(result_ids)
+
     return render_template(
         "search.html",
         query=q,
@@ -734,6 +774,7 @@ def search():
         city=city,
         municipalities=municipalities,
         page=page,
+        coverage_counts=coverage_counts,
     )
 
 
@@ -798,6 +839,10 @@ def topic_detail(topic):
         offset=offset,
     )
 
+    from docket.services.query import coverage_counts_for_items
+    topic_item_ids = [it['id'] if isinstance(it, dict) else it.id for it in items]
+    coverage_counts = coverage_counts_for_items(topic_item_ids)
+
     return render_template(
         "topic_detail.html",
         topic=topic,
@@ -805,6 +850,7 @@ def topic_detail(topic):
         items=items,
         city=city,
         page=page,
+        coverage_counts=coverage_counts,
     )
 
 
@@ -855,3 +901,75 @@ def rail_member(slug, member_id):
         member=member,
         vote_summary=vote_summary,
     )
+
+
+# --- Editorial coverage ----------------------------------------------------
+
+@bp.route("/coverage/", methods=["GET"])
+def coverage_listing():
+    """Paginated listing of all published coverage (notes + citations).
+
+    Query params:
+      - ``kind=note|citation`` — filter by kind; invalid values ignored
+      - ``q=<text>`` — full-text search via websearch_to_tsquery
+      - ``page=<int>`` — 1-indexed page; bad/negative input defaults to 1
+    """
+    from docket.services.query import list_published_coverage
+    kind = request.args.get('kind') or None
+    if kind not in (None, 'note', 'citation'):
+        kind = None
+    q = request.args.get('q') or None
+    try:
+        page = max(1, int(request.args.get('page', 1)))
+    except ValueError:
+        page = 1
+    page_size = 20
+    rows, total = list_published_coverage(kind=kind, q=q, page=page, page_size=page_size)
+    total_pages = (total + page_size - 1) // page_size
+    return render_template(
+        "coverage/listing.html",
+        entries=rows,
+        total=total,
+        page=page,
+        total_pages=total_pages,
+        kind=kind,
+        q=q or '',
+    )
+
+
+@bp.route("/coverage.rss", methods=["GET"])
+def coverage_rss():
+    """RSS 2.0 feed of the last 50 published editorial coverage entries."""
+    from docket.services.query import list_published_coverage
+    entries, _ = list_published_coverage(page=1, page_size=50)
+    xml = render_template("coverage/feed.xml.j2", entries=entries)
+    return Response(xml, mimetype='application/rss+xml')
+
+
+@bp.route("/coverage/<int:coverage_id>", methods=["GET"])
+def coverage_permalink(coverage_id: int):
+    """Permalink for a published note. 404 for citations or non-published entries.
+
+    Citations link out to the original article; they don't have internal detail
+    pages. Notes get a standalone page at /coverage/<id> so they can be linked
+    to from external sources.
+
+    Subject hydration is always performed so the subjects footer renders
+    the "→ on Item X, Meeting Y" context automatically.
+    """
+    from docket.services.query import (
+        _COVERAGE_SELECT, _hydrate_coverage_rows, _hydrate_subjects_for_entries,
+    )
+    from docket.db import db_cursor
+    with db_cursor() as cur:
+        cur.execute(
+            _COVERAGE_SELECT + " WHERE ce.id = %s AND ce.kind = 'note' "
+                               "AND ce.status = 'published'",
+            (coverage_id,),
+        )
+        entries = _hydrate_coverage_rows(cur)
+        if not entries:
+            abort(404)
+        entries = _hydrate_subjects_for_entries(cur, entries)
+        note = entries[0]
+    return render_template("coverage/permalink.html", note=note)

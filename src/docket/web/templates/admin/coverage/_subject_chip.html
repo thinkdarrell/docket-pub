@@ -1,0 +1,7 @@
+<span class="subject-chip">
+  {{ subject.subject_type }}:
+  {{ subject.subject_id or subject.subject_slug }}
+  <input type="hidden" name="subject[]"
+         value="{{ subject.subject_type }}:{{ subject.subject_id or subject.subject_slug }}">
+  <button type="button" onclick="this.parentNode.remove()">✕</button>
+</span>

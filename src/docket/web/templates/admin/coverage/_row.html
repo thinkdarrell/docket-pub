@@ -1,0 +1,58 @@
+<tr id="cov-row-{{ row.id }}">
+  <td>{% if row.kind == 'note' %}📝{% else %}📰{% endif %}</td>
+  <td>
+    {% if row.kind == 'note' %}
+      {{ (row.body or '')[:80] }}{% if (row.body or '')|length > 80 %}…{% endif %}
+    {% else %}
+      <strong>{{ row.outlet_name }}</strong> — {{ row.headline }}
+    {% endif %}
+  </td>
+  <td class="subjects-cell">
+    {% set subs = subjects_by_coverage_id.get(row.id, []) %}
+    {% if subs %}
+      {% for s in subs %}{{ s.label or s.subject_type }}{% if not loop.last %}, {% endif %}{% endfor %}
+    {% else %}
+      <em>(no subjects)</em>
+    {% endif %}
+  </td>
+  <td><span class="badge badge--{{ row.status }}">{{ row.status }}</span></td>
+  <td>{{ row.author_label }}</td>
+  <td>{{ row.updated_at.strftime('%Y-%m-%d') }}</td>
+  <td>
+    <a href="{{ url_for('admin.coverage_edit', coverage_id=row.id) }}">Edit</a>
+    {% if row.status == 'draft' %}
+      <form method="post" action="{{ url_for('admin.coverage_publish', coverage_id=row.id) }}" style="display:inline">
+        <button type="submit">Publish</button>
+      </form>
+      <form method="post" action="{{ url_for('admin.coverage_delete', coverage_id=row.id) }}"
+            onsubmit="return confirm('Delete this draft?')"
+            style="display:inline">
+        <button type="submit">Delete</button>
+      </form>
+    {% elif row.status == 'proposed' %}
+      <form method="post" action="{{ url_for('admin.coverage_publish', coverage_id=row.id) }}" style="display:inline">
+        <button type="submit">Publish</button>
+      </form>
+      <form method="post" action="{{ url_for('admin.coverage_reject', coverage_id=row.id) }}" style="display:inline">
+        <button type="submit">Reject</button>
+      </form>
+    {% elif row.status == 'published' %}
+      <form method="post" action="{{ url_for('admin.coverage_unpublish', coverage_id=row.id) }}" style="display:inline">
+        <button type="submit">Unpublish</button>
+      </form>
+      {% if row.featured_until and row.featured_until > utcnow %}
+        <form method="post" action="{{ url_for('admin.coverage_unfeature', coverage_id=row.id) }}" style="display:inline">
+          <button type="submit">Unfeature</button>
+        </form>
+      {% else %}
+        <form method="post" action="{{ url_for('admin.coverage_feature', coverage_id=row.id) }}" style="display:inline">
+          <button type="submit">Feature on home</button>
+        </form>
+      {% endif %}
+    {% elif row.status == 'rejected' %}
+      <form method="post" action="{{ url_for('admin.coverage_restore', coverage_id=row.id) }}" style="display:inline">
+        <button type="submit">Restore</button>
+      </form>
+    {% endif %}
+  </td>
+</tr>

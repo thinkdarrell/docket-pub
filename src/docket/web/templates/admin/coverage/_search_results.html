@@ -1,0 +1,11 @@
+{% for r in results %}
+  <button type="button" class="result"
+          data-subject-type="{{ subject_type }}"
+          data-subject-id="{{ r.id }}"
+          data-subject-label="{{ r.label }}"
+          onclick="addSubjectChip(this)">
+    {{ r.label }}
+  </button>
+{% else %}
+  <em>No results.</em>
+{% endfor %}

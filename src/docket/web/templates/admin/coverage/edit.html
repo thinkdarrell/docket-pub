@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Edit {{ entry.kind }}{% endblock %}
+{% block content %}
+<h1>Edit {{ entry.kind }}</h1>
+<form method="post" action="{{ url_for('admin.coverage_update', coverage_id=entry.id) }}">
+  {% if entry.kind == 'note' %}
+    <label>Body
+      <textarea name="body" rows="4" required>{{ entry.body or '' }}</textarea>
+    </label>
+    <label>Partner credit
+      <input type="text" name="partner_credit" value="{{ entry.partner_credit or '' }}">
+    </label>
+  {% else %}
+    <label>Outlet
+      <select name="outlet_id">
+        {% for o in outlets %}
+        <option value="{{ o.id }}" {% if o.id == entry.outlet_id %}selected{% endif %}>
+          {{ o.name }}
+        </option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>URL <input type="url" name="external_url" value="{{ entry.external_url or '' }}"></label>
+    <label>Headline <input type="text" name="headline" value="{{ entry.headline or '' }}"></label>
+    <label>Reporter byline <input type="text" name="reporter_byline" value="{{ entry.reporter_byline or '' }}"></label>
+    <label>Excerpt <textarea name="excerpt" rows="3">{{ entry.excerpt or '' }}</textarea></label>
+    <label>Article published date
+      <input type="date" name="article_published_at"
+             value="{{ entry.article_published_at.isoformat() if entry.article_published_at else '' }}">
+    </label>
+  {% endif %}
+
+  {% if entry.published_at %}
+    <label>Byline (snapshotted on publish — editable)
+      <input type="text" name="byline" value="{{ entry.byline or '' }}">
+    </label>
+  {% endif %}
+
+  {% include "admin/coverage/_subject_picker.html" %}
+
+  <button type="submit">Save</button>
+  <a href="{{ url_for('admin.coverage_list') }}">Cancel</a>
+</form>
+
+<form method="post" action="{{ url_for('admin.coverage_delete', coverage_id=entry.id) }}"
+      onsubmit="return confirm('Delete this entry?')">
+  <button type="submit" class="btn--danger">Delete</button>
+</form>
+
+<script src="{{ url_for('static', filename='admin.js') }}" defer></script>
+{% endblock %}

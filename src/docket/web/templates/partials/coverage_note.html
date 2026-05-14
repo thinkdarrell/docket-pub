@@ -1,0 +1,16 @@
+<article class="coverage-note">
+  <header class="coverage-note__byline">
+    <span class="coverage-note__label">NOTE</span> —
+    <strong>{{ note.display_byline() }}</strong>
+    {% if note.partner_credit %}
+      <span class="coverage-note__partner">, {{ note.partner_credit }}</span>
+    {% endif %}
+    {% if note.published_at %}
+      · <time datetime="{{ note.published_at.isoformat() }}">{{ note.published_at.strftime('%b %d') }}</time>
+    {% endif %}
+  </header>
+  <p class="coverage-note__body">{{ note.body | e | replace('\n', '<br>') | safe }}</p>
+  {% if note.subjects %}
+    {% include "partials/coverage_subjects_footer.html" %}
+  {% endif %}
+</article>

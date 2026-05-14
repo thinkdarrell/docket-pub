@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from datetime import timezone as _tz
 
 from flask import Flask
 
@@ -45,6 +46,20 @@ def create_app() -> Flask:
     from . import filters
 
     filters.register(app)
+
+    # to_utc: normalize a datetime to UTC for RSS pubDate rendering.
+    # psycopg returns datetimes in the Postgres server TimeZone; locally that
+    # may be America/Chicago, making the hardcoded "+0000" suffix wrong.
+    # This filter normalises naive datetimes (assumed UTC) and aware datetimes
+    # (astimezone conversion) so the strftime always produces correct UTC output.
+    def _to_utc(dt):
+        if dt is None:
+            return None
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=_tz.utc)
+        return dt.astimezone(_tz.utc)
+
+    app.jinja_env.filters['to_utc'] = _to_utc
 
     # Source-anchor URL safety: ``is_url_safe`` resolves the domain
     # allowlist lazily through :func:`source_security.get_allowlist`

@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Editorial coverage{% endblock %}
+{% block content %}
+<h1>Editorial coverage</h1>
+
+<nav class="admin-tabs">
+  <a href="{{ url_for('admin.coverage_list') }}"
+     class="{% if not status_filter %}active{% endif %}">
+    All ({{ (counts.get('draft', 0) + counts.get('proposed', 0)
+            + counts.get('published', 0) + counts.get('rejected', 0)) }})
+  </a>
+  <a href="{{ url_for('admin.coverage_list', status='draft') }}"
+     class="{% if status_filter == 'draft' %}active{% endif %}">
+    Drafts ({{ counts.get('draft', 0) }})
+  </a>
+  <a href="{{ url_for('admin.coverage_list', status='proposed') }}"
+     class="{% if status_filter == 'proposed' %}active{% endif %}">
+    Proposed ({{ counts.get('proposed', 0) }})
+  </a>
+  <a href="{{ url_for('admin.coverage_list', status='published') }}"
+     class="{% if status_filter == 'published' %}active{% endif %}">
+    Published ({{ counts.get('published', 0) }})
+  </a>
+  <a href="{{ url_for('admin.coverage_list', status='rejected') }}"
+     class="{% if status_filter == 'rejected' %}active{% endif %}">
+    Rejected ({{ counts.get('rejected', 0) }})
+  </a>
+</nav>
+
+<p class="admin-actions">
+  <a href="{{ url_for('admin.coverage_new', kind='note') }}" class="btn">+ New note</a>
+  <a href="{{ url_for('admin.coverage_new', kind='citation') }}" class="btn">+ New citation</a>
+</p>
+
+{% if status_filter == 'proposed' and counts.get('proposed', 0) == 0 %}
+<p class="admin-empty">Proposed entries come from automation (AI proposer / press scraper). These pipelines arrive in v2.</p>
+{% endif %}
+
+<table class="admin-table">
+  <thead>
+    <tr>
+      <th></th>
+      <th>Snippet</th>
+      <th>Attached to</th>
+      <th>Status</th>
+      <th>Author</th>
+      <th>Updated</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for row in rows %}
+    {% include "admin/coverage/_row.html" %}
+  {% else %}
+    <tr><td colspan="7" class="empty">No coverage entries yet.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

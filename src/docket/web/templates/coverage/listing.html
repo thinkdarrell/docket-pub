@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Editorial coverage — docket.pub{% endblock %}
+{% block content %}
+<header>
+  <h1>Editorial coverage</h1>
+  <p>Notes and press citations on Alabama municipal meetings.</p>
+</header>
+
+<nav class="coverage-tabs">
+  <a href="{{ url_for('public.coverage_listing') }}" class="{% if not kind %}active{% endif %}">All</a>
+  <a href="{{ url_for('public.coverage_listing', kind='note') }}" class="{% if kind == 'note' %}active{% endif %}">Notes</a>
+  <a href="{{ url_for('public.coverage_listing', kind='citation') }}" class="{% if kind == 'citation' %}active{% endif %}">Citations</a>
+</nav>
+
+<form method="get" action="{{ url_for('public.coverage_listing') }}" class="coverage-search">
+  {% if kind %}<input type="hidden" name="kind" value="{{ kind }}">{% endif %}
+  <input type="search" name="q" value="{{ q }}" placeholder="Search&hellip;">
+  <button type="submit">Search</button>
+</form>
+
+{% if not entries %}
+<p class="empty">No coverage yet. Notes and press citations land here as they&rsquo;re published.</p>
+{% endif %}
+
+{% for entry in entries %}
+  {% if entry.kind == 'note' %}
+    {% set note = entry %}
+    {% include "partials/coverage_note.html" %}
+  {% else %}
+    {% set citation = entry %}
+    {% include "partials/coverage_citation.html" %}
+  {% endif %}
+{% endfor %}
+
+{% if total_pages > 1 %}
+<nav class="pagination">
+  {% if page > 1 %}
+    <a href="{{ url_for('public.coverage_listing', page=page-1, kind=kind, q=q or None) }}">&larr; Newer</a>
+  {% endif %}
+  <span>Page {{ page }} of {{ total_pages }}</span>
+  {% if page < total_pages %}
+    <a href="{{ url_for('public.coverage_listing', page=page+1, kind=kind, q=q or None) }}">Older &rarr;</a>
+  {% endif %}
+</nav>
+{% endif %}
+{% endblock %}

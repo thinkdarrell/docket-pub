@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Profile{% endblock %}
+{% block content %}
+<h1>Profile</h1>
+<p>Username: {{ user.username }}</p>
+<form method="post" action="{{ url_for('admin.profile_update_display_name') }}">
+  <label>Display name (byline)
+    <input type="text" name="display_name" value="{{ user.display_name or '' }}"
+           placeholder="Falls back to username if cleared">
+  </label>
+  <button type="submit">Save</button>
+</form>
+<p><small>This name is used as the byline on new coverage entries you publish. Editing it
+does not affect bylines on entries you've already published — those snapshot the byline
+at the moment of first publish.</small></p>
+{% endblock %}

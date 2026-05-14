@@ -5,7 +5,7 @@ Every read operation goes through this module. Returns dataclasses or dicts.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Iterable, Sequence
 
@@ -242,6 +242,82 @@ def list_agenda_items(meeting_id: int) -> list[AgendaItem]:
             (meeting_id,),
         )
         return [AgendaItem.from_row(dict(row)) for row in cur.fetchall()]
+
+
+def get_agenda_item(item_id: int) -> AgendaItem | None:
+    """Return a single agenda item by ID (same column shape as list_agenda_items).
+
+    NOTE: deliberately does NOT filter out ``processing_status='withdrawn'`` items,
+    unlike ``list_agenda_items`` which hides them from feed views.  Withdrawn items
+    should still have a permalink — journalists may need to reference council
+    withdrawals and the item's coverage block should remain reachable.  The
+    divergence from the list view is intentional, not an oversight.
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+                ai.id,
+                ai.meeting_id,
+                ai.external_id,
+                ai.item_number,
+                ai.title,
+                ai.description,
+                ai.section,
+                ai.is_consent,
+                ai.sponsor,
+                ai.dollars_amount,
+                ai.topic,
+                ai.significance_score,
+                ai.consent_placement_score,
+                ai.summary,
+                ai.ai_metadata,
+                ai.ai_prompt_version,
+                ai.ai_generated_at,
+                ai.data_quality::text       AS data_quality,
+                ai.data_debt_priority::text AS data_debt_priority,
+                ai.processing_status::text  AS processing_status,
+                ai.ai_extraction_version,
+                ai.ai_rewrite_version,
+                ai.ai_confidence,
+                ai.headline,
+                ai.why_it_matters,
+                ai.source_anchor,
+                CASE
+                    WHEN ai.extracted_facts IS NULL THEN NULL
+                    ELSE jsonb_strip_nulls(jsonb_build_object(
+                        'counterparty',       ai.extracted_facts->>'counterparty',
+                        'funding_source',     ai.extracted_facts->>'funding_source',
+                        'procurement_method', ai.extracted_facts->>'procurement_method',
+                        'action_type',        ai.extracted_facts->>'action_type',
+                        'location',           ai.extracted_facts->'location',
+                        'next_steps',         ai.extracted_facts->'next_steps'
+                    ))
+                END AS extracted_facts,
+                COALESCE(b_agg.badges, '[]'::jsonb) AS badges
+            FROM agenda_items ai
+            LEFT JOIN LATERAL (
+                SELECT jsonb_agg(jsonb_build_object(
+                           'kind',        b.kind,
+                           'slug',        b.badge_slug,
+                           'confidence',  b.confidence,
+                           'name',        t.name,
+                           'icon',        t.icon,
+                           'description', t.description
+                       ) ORDER BY b.detected_at DESC) AS badges
+                FROM agenda_item_badges b
+                JOIN priority_badge_templates t ON t.slug = b.badge_slug
+                WHERE b.agenda_item_id = ai.id
+                  AND b.status = 'applied'
+            ) b_agg ON true
+            WHERE ai.id = %s
+            """,
+            (item_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+        return AgendaItem.from_row(dict(row))
 
 
 def list_votes(meeting_id: int, *, include_excerpts: bool = False) -> list[Vote]:
@@ -2487,3 +2563,240 @@ def list_upcoming_hearings(city_id: int, *, days_ahead: int = 60, limit: int = 5
             (city_id, days_ahead, city_id, days_ahead, limit),
         )
         return [dict(row) for row in cur.fetchall()]
+
+
+# ============================================================================
+# Editorial Coverage (Migration 027)
+# ============================================================================
+# Spec: docs/superpowers/specs/2026-05-13-editorial-coverage-design.md
+# Modularity refactor will relocate this section to services/query/coverage.py
+# during PR 0.2 (services/query.py decomposition). Keep imports local and
+# clearly grouped to make that extraction mechanical.
+
+from docket.models.coverage import (
+    CoverageEntry,
+    CoverageSubjectLink,
+    CoverageSubjectType,
+)
+
+
+def _hydrate_coverage_rows(cur) -> list[CoverageEntry]:
+    """Convert cursor rows into CoverageEntry instances. Caller must have
+    selected the full row + author + outlet hydration columns in the right
+    order — see queries below."""
+    out: list[CoverageEntry] = []
+    for r in cur.fetchall():
+        out.append(CoverageEntry(
+            id=r['id'], kind=r['kind'], status=r['status'], source=r['source'],
+            body=r['body'], partner_credit=r['partner_credit'],
+            outlet_id=r['outlet_id'], external_url=r['external_url'],
+            headline=r['headline'], reporter_byline=r['reporter_byline'],
+            excerpt=r['excerpt'], article_published_at=r['article_published_at'],
+            author_id=r['author_id'], byline=r['byline'],
+            created_at=r['created_at'], updated_at=r['updated_at'],
+            published_at=r['published_at'], featured_until=r['featured_until'],
+            author_display_name=r['author_display_name'],
+            author_username=r['author_username'],
+            outlet_slug=r['outlet_slug'],
+            outlet_name=r['outlet_name'],
+        ))
+    return out
+
+
+_COVERAGE_SELECT = """
+    SELECT ce.id, ce.kind, ce.status, ce.source,
+           ce.body, ce.partner_credit,
+           ce.outlet_id, ce.external_url, ce.headline,
+           ce.reporter_byline, ce.excerpt, ce.article_published_at,
+           ce.author_id, ce.byline,
+           ce.created_at, ce.updated_at, ce.published_at, ce.featured_until,
+           au.display_name AS author_display_name,
+           au.username     AS author_username,
+           o.slug          AS outlet_slug,
+           o.name          AS outlet_name
+      FROM coverage_entries ce
+      JOIN admin_users au ON au.id = ce.author_id
+ LEFT JOIN outlets o ON o.id = ce.outlet_id
+"""
+
+
+def coverage_for_subject(
+    subject_type: CoverageSubjectType,
+    subject_id: int | None = None,
+    subject_slug: str | None = None,
+) -> list[CoverageEntry]:
+    """Return published coverage entries attached to one subject.
+
+    Exactly one of ``subject_id`` or ``subject_slug`` must be set; the choice
+    is gated by ``subject_type`` (badge → slug; others → id).
+
+    Notes are returned first (newest published_at first), then citations
+    (newest article_published_at first). Matches the template's render order.
+    """
+    if subject_type == 'badge':
+        if subject_slug is None:
+            raise ValueError("subject_slug required when subject_type='badge'")
+        where = "csl.subject_type = 'badge' AND csl.subject_slug = %s"
+        params = (subject_slug,)
+    else:
+        if subject_id is None:
+            raise ValueError(f"subject_id required when subject_type={subject_type!r}")
+        where = "csl.subject_type = %s AND csl.subject_id = %s"
+        params = (subject_type, subject_id)
+
+    # ORDER BY: notes first (0), citations after (1); within each, newest date first.
+    # We map kind to 0/1 explicitly because plain ASC on the enum's text values
+    # would sort 'citation' before 'note' alphabetically.
+    sql = _COVERAGE_SELECT + f"""
+        JOIN coverage_subject_links csl ON csl.coverage_id = ce.id
+       WHERE {where}
+         AND ce.status = 'published'
+       ORDER BY CASE WHEN ce.kind = 'note' THEN 0 ELSE 1 END ASC,
+                CASE WHEN ce.kind = 'note'
+                     THEN ce.published_at
+                     ELSE ce.article_published_at::timestamptz
+                END DESC NULLS LAST
+    """
+
+    with db_cursor() as cur:
+        cur.execute(sql, params)
+        return _hydrate_coverage_rows(cur)
+
+
+def coverage_counts_for_items(item_ids: list[int]) -> dict[int, tuple[int, int]]:
+    """Return {item_id: (note_count, citation_count)} for items with published coverage.
+
+    Items with no coverage are omitted from the returned dict — callers should
+    default to ``(0, 0)``.
+
+    Short-circuits to ``{}`` when ``item_ids`` is empty, since
+    ``WHERE subject_id IN ()`` raises a syntax error in psycopg.
+    """
+    if not item_ids:
+        return {}
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT csl.subject_id,
+                   COUNT(*) FILTER (WHERE ce.kind = 'note')     AS note_count,
+                   COUNT(*) FILTER (WHERE ce.kind = 'citation') AS cit_count
+              FROM coverage_subject_links csl
+              JOIN coverage_entries ce ON ce.id = csl.coverage_id
+             WHERE csl.subject_type = 'agenda_item'
+               AND csl.subject_id = ANY(%s)
+               AND ce.status = 'published'
+             GROUP BY csl.subject_id
+            """,
+            (item_ids,),
+        )
+        return {r['subject_id']: (r['note_count'], r['cit_count']) for r in cur.fetchall()}
+
+
+def _hydrate_subjects_for_entries(cur, entries: list[CoverageEntry]) -> list[CoverageEntry]:
+    """Populate the ``subjects`` field on each entry with one bulk query.
+
+    Resolves a human-readable label per subject from agenda_items / meetings /
+    council_members / priority_badge_templates via COALESCE'd lookups, so the
+    template can render '→ on Item 25-0042 (Westside Rezoning)' chips without
+    a second per-row trip.
+
+    Returns a NEW list (frozen dataclass — uses ``replace``).
+    """
+    if not entries:
+        return entries
+    ids = [e.id for e in entries]
+    cur.execute(
+        """
+        SELECT csl.coverage_id, csl.subject_type, csl.subject_id, csl.subject_slug,
+               CASE csl.subject_type
+                 WHEN 'agenda_item'    THEN (SELECT title FROM agenda_items WHERE id = csl.subject_id)
+                 WHEN 'meeting'        THEN (SELECT title FROM meetings WHERE id = csl.subject_id)
+                 WHEN 'council_member' THEN (SELECT name  FROM council_members WHERE id = csl.subject_id)
+                 WHEN 'badge'          THEN (SELECT name  FROM priority_badge_templates WHERE slug = csl.subject_slug)
+                 ELSE ''
+               END AS label,
+               -- City slug for url_for() in the subjects footer. NULL for badges (global) and ELSE branch.
+               CASE csl.subject_type
+                 WHEN 'agenda_item' THEN
+                   (SELECT mu.slug FROM agenda_items ai
+                      JOIN meetings m ON m.id = ai.meeting_id
+                      JOIN municipalities mu ON mu.id = m.municipality_id
+                     WHERE ai.id = csl.subject_id)
+                 WHEN 'meeting' THEN
+                   (SELECT mu.slug FROM meetings m
+                      JOIN municipalities mu ON mu.id = m.municipality_id
+                     WHERE m.id = csl.subject_id)
+                 WHEN 'council_member' THEN
+                   (SELECT mu.slug FROM council_members cm
+                      JOIN municipalities mu ON mu.id = cm.municipality_id
+                     WHERE cm.id = csl.subject_id)
+                 ELSE NULL
+               END AS city_slug
+          FROM coverage_subject_links csl
+         WHERE csl.coverage_id = ANY(%s)
+         ORDER BY csl.coverage_id, csl.id
+        """,
+        (ids,),
+    )
+    grouped: dict[int, list[CoverageSubjectLink]] = {}
+    for r in cur.fetchall():
+        grouped.setdefault(r['coverage_id'], []).append(
+            CoverageSubjectLink(
+                subject_type=r['subject_type'],
+                subject_id=r['subject_id'],
+                subject_slug=r['subject_slug'],
+                label=r['label'] or None,
+                city_slug=r['city_slug'],
+            )
+        )
+    return [replace(e, subjects=tuple(grouped.get(e.id, []))) for e in entries]
+
+
+def list_published_coverage(
+    *,
+    kind: str | None = None,
+    outlet_id: int | None = None,
+    q: str | None = None,
+    page: int = 1,
+    page_size: int = 20,
+) -> tuple[list[CoverageEntry], int]:
+    """Paginated listing of published coverage with subjects hydrated.
+
+    Returns (rows, total_count). Each row's ``subjects`` tuple is populated so
+    the listing template can render the 'on Item X, Meeting Y' context footer
+    without a second per-row query.
+
+    ``q`` runs full-text search against the generated ``search_vector`` column.
+    Empty-string ``q`` is treated as None.
+    """
+    where = ["ce.status = 'published'"]
+    params: list = []
+    if kind:
+        where.append("ce.kind = %s")
+        params.append(kind)
+    if outlet_id:
+        where.append("ce.outlet_id = %s")
+        params.append(outlet_id)
+    if q and q.strip():
+        where.append("ce.search_vector @@ websearch_to_tsquery('english', %s)")
+        params.append(q.strip())
+    where_sql = " AND ".join(where)
+
+    # Count query
+    with db_cursor() as cur:
+        cur.execute(f"SELECT COUNT(*) AS n FROM coverage_entries ce WHERE {where_sql}",
+                    tuple(params))
+        total = cur.fetchone()['n']
+
+    # Page query + subject hydration in the same cursor (one connection)
+    offset = max(0, (page - 1) * page_size)
+    sql = _COVERAGE_SELECT + f"""
+        WHERE {where_sql}
+       ORDER BY ce.published_at DESC NULLS LAST
+       LIMIT %s OFFSET %s
+    """
+    with db_cursor() as cur:
+        cur.execute(sql, tuple(params) + (page_size, offset))
+        rows = _hydrate_coverage_rows(cur)
+        rows = _hydrate_subjects_for_entries(cur, rows)
+    return rows, total

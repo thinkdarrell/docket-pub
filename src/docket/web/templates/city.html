@@ -331,7 +331,11 @@
             </div>
             {% endif %}
 
-            <div class="legc-title">{{ it.headline or it.title }}</div>
+            <div class="legc-title">
+                {{ it.headline or it.title }}
+                {% set counts = (coverage_counts or {}).get(it.id, (0, 0)) %}
+                {% include "partials/coverage_count_chip.html" %}
+            </div>
             {% if it.summary %}
             <div class="legc-summary">{{ it.summary }}</div>
             {% endif %}

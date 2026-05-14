@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}New citation{% endblock %}
+{% block content %}
+<h1>New citation</h1>
+<form method="post" action="{{ url_for('admin.coverage_create') }}">
+  <input type="hidden" name="kind" value="citation">
+  <label>Outlet
+    <select name="outlet_id" required>
+      {% for o in outlets %}
+      <option value="{{ o.id }}">{{ o.name }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>Article URL
+    <input type="url" name="external_url" required>
+  </label>
+  <label>Headline
+    <input type="text" name="headline" required>
+  </label>
+  <label>Reporter byline (optional)
+    <input type="text" name="reporter_byline">
+  </label>
+  <label>Excerpt / pull-quote (optional)
+    <textarea name="excerpt" rows="3"></textarea>
+  </label>
+  <label>Article published date
+    <input type="date" name="article_published_at">
+  </label>
+  {% set subjects = [] %}
+  {% include "admin/coverage/_subject_picker.html" %}
+  <label>
+    <input type="checkbox" name="publish_now"> Publish immediately
+  </label>
+  <button type="submit">Save</button>
+  <a href="{{ url_for('admin.coverage_list') }}">Cancel</a>
+</form>
+
+<script src="{{ url_for('static', filename='admin.js') }}" defer></script>
+{% endblock %}

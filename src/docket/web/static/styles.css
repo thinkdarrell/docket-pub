@@ -46,6 +46,14 @@
 
   --radius:   4px;
   --radius-2: 8px;
+
+  /* Semantic aliases used by editorial coverage components.
+     These map to canonical design tokens so the coverage block CSS can use
+     expressive names without embedding raw hex fallbacks. */
+  --surface-soft: var(--paper-2);
+  --border:       var(--rule);
+  --muted:        var(--ink-3);
+  --text:         var(--ink);
 }
 
 * { box-sizing: border-box; }
@@ -482,3 +490,102 @@ a.link:hover { border-bottom-color: var(--accent); }
 .empty-state {
   min-height: 40vh;
 }
+
+/* ============================================================
+   Editorial coverage — block, note, citation, chip
+   ============================================================ */
+
+.coverage-block {
+  margin: 1.5rem 0;
+  padding: 1rem 1.25rem;
+  border-left: 3px solid var(--accent);
+  background: var(--surface-soft);
+}
+
+.coverage-block__title {
+  font-family: 'Source Serif Pro', serif;
+  font-size: 1.1rem;
+  margin: 0 0 0.75rem 0;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.coverage-block__subtitle {
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 1rem 0 0.5rem 0;
+  color: var(--muted);
+}
+
+.coverage-note + .coverage-note { margin-top: 0.75rem; }
+
+.coverage-note__byline {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.25rem;
+  color: var(--muted);
+}
+.coverage-note__label {
+  font-weight: 600;
+  color: var(--accent);
+}
+.coverage-note__partner {
+  font-style: italic;
+  color: var(--muted);
+}
+.coverage-note__body {
+  font-family: 'Source Serif Pro', serif;
+  font-size: 1rem;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.coverage-citation {
+  margin: 0.5rem 0;
+  padding: 0.75rem 1rem;
+  background: white;
+  border: 1px solid var(--border);
+}
+.coverage-citation__meta {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin-bottom: 0.25rem;
+}
+.coverage-citation__outlet { font-weight: 600; }
+.coverage-citation__headline {
+  font-family: 'Source Serif Pro', serif;
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0.25rem 0;
+}
+.coverage-citation__headline a { text-decoration: none; }
+.coverage-citation__excerpt {
+  font-size: 0.9rem;
+  margin: 0.25rem 0;
+  color: var(--text);
+}
+.coverage-citation__link {
+  font-size: 0.8rem;
+  margin: 0.25rem 0 0 0;
+  color: var(--muted);
+}
+
+.coverage-chip {
+  display: inline-flex;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  padding: 0.1rem 0.4rem;
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  vertical-align: middle;
+  margin-left: 0.35rem;
+}
+.coverage-chip__notes { color: var(--accent); }
+.coverage-chip__cites { color: var(--ink); }

@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Outlets{% endblock %}
+{% block content %}
+<h1>Outlets</h1>
+<form method="post" action="{{ url_for('admin.outlets_create') }}" class="inline-form">
+  <input type="text" name="slug" placeholder="slug" required>
+  <input type="text" name="name" placeholder="Display name" required>
+  <input type="url"  name="homepage" placeholder="https://...">
+  <button type="submit">Add outlet</button>
+</form>
+<table class="admin-table">
+  <thead><tr><th>Name</th><th>Slug</th><th>Homepage</th><th>Active</th><th>Actions</th></tr></thead>
+  <tbody>
+  {% for o in outlets %}
+    <tr>
+      <td>{{ o.name }}</td>
+      <td>{{ o.slug }}</td>
+      <td>{% if o.homepage %}<a href="{{ o.homepage }}">{{ o.homepage }}</a>{% endif %}</td>
+      <td>{{ "Yes" if o.is_active else "No" }}</td>
+      <td>
+        {% if o.is_active %}
+        <form method="post" action="{{ url_for('admin.outlets_deactivate', outlet_id=o.id) }}" style="display:inline">
+          <button type="submit">Deactivate</button>
+        </form>
+        {% else %}
+        <form method="post" action="{{ url_for('admin.outlets_activate', outlet_id=o.id) }}" style="display:inline">
+          <button type="submit">Activate</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
