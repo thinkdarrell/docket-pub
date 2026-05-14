@@ -133,6 +133,10 @@ PROCEDURAL_TITLE_PATTERNS = (
     r'^\s*consideration\s+of\s+(ordinances?|resolutions?)',
     r'^\s*(old|new)(\s+and\s+(old|new))?\s+business\s*$',
     r'^\s*requests?\s+from\s+the\s+public',
+    # Issue #34 follow-up patterns — surfaced from the pending bucket
+    # after the first backfill. Narrow phrasings; low FP risk.
+    r'^\s*(introduction|first\s+reading)(\s+and\s+first\s+reading)?\s+of\s+(ordinances?|resolutions?)',
+    r'^\s*announcements?\s+of\s+boards?\s+and\s+agencies?\s+expirations?',
 )
 
 # WITHDRAWN / DEFERRED / POSTPONED is a different category from
