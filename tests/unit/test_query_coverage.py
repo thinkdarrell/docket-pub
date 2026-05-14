@@ -231,3 +231,131 @@ def test_coverage_counts_for_items_returns_counts(seeded_admin, seeded_meeting):
                     (item_id,),
                 )
             conn.commit()
+
+
+def test_list_published_coverage_returns_published_only(seeded_admin, seeded_meeting):
+    from docket.services.query import list_published_coverage
+    _, item_id = seeded_meeting
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO coverage_entries
+                   (kind, status, body, author_id, byline, published_at)
+                   VALUES ('note', 'published', 'Live note.', %s, 'Test', NOW())
+                   RETURNING id""",
+                (seeded_admin,),
+            )
+            published_id = cur.fetchone()[0]
+            cur.execute(
+                """INSERT INTO coverage_entries
+                   (kind, status, body, author_id)
+                   VALUES ('note', 'draft', 'Draft note.', %s)
+                   RETURNING id""",
+                (seeded_admin,),
+            )
+            draft_id = cur.fetchone()[0]
+        conn.commit()
+    try:
+        rows, total = list_published_coverage(page=1, page_size=50)
+        ids = [e.id for e in rows]
+        assert published_id in ids
+        assert draft_id not in ids
+    finally:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM coverage_entries WHERE id IN (%s, %s)",
+                            (published_id, draft_id))
+            conn.commit()
+
+
+def test_list_published_coverage_filters_by_kind(seeded_admin):
+    from docket.services.query import list_published_coverage
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO coverage_entries
+                   (kind, status, body, author_id, byline, published_at)
+                   VALUES ('note', 'published', 'A unique note 9c3f.', %s,
+                           'Test', NOW())
+                   RETURNING id""",
+                (seeded_admin,),
+            )
+            note_id = cur.fetchone()[0]
+        conn.commit()
+    try:
+        rows, _ = list_published_coverage(kind='note', q='9c3f')
+        assert any(e.id == note_id for e in rows)
+        rows, _ = list_published_coverage(kind='citation', q='9c3f')
+        assert not any(e.id == note_id for e in rows)
+    finally:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM coverage_entries WHERE id = %s", (note_id,))
+            conn.commit()
+
+
+def test_list_published_coverage_fts_search(seeded_admin):
+    from docket.services.query import list_published_coverage
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO coverage_entries
+                   (kind, status, body, author_id, byline, published_at)
+                   VALUES ('note', 'published',
+                           'Westside rezoning unique phrase eyeball42.',
+                           %s, 'Test', NOW())
+                   RETURNING id""",
+                (seeded_admin,),
+            )
+            note_id = cur.fetchone()[0]
+        conn.commit()
+    try:
+        rows, _ = list_published_coverage(q='eyeball42')
+        assert any(e.id == note_id for e in rows)
+    finally:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM coverage_entries WHERE id = %s", (note_id,))
+            conn.commit()
+
+
+def test_list_published_coverage_hydrates_subjects(seeded_admin, seeded_meeting):
+    """The listing must arrive with subjects populated so the template can render
+    the 'on Item X, Meeting Y' context footer per row."""
+    from docket.services.query import list_published_coverage
+    mtg_id, item_id = seeded_meeting
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO coverage_entries
+                   (kind, status, body, author_id, byline, published_at)
+                   VALUES ('note', 'published', 'Subjects-hydration probe wxyz77.',
+                           %s, 'Test', NOW())
+                   RETURNING id""",
+                (seeded_admin,),
+            )
+            entry_id = cur.fetchone()[0]
+            cur.execute(
+                """INSERT INTO coverage_subject_links
+                   (coverage_id, subject_type, subject_id) VALUES
+                   (%s, 'agenda_item', %s),
+                   (%s, 'meeting',     %s)""",
+                (entry_id, item_id, entry_id, mtg_id),
+            )
+        conn.commit()
+    try:
+        rows, _ = list_published_coverage(q='wxyz77')
+        target = next(e for e in rows if e.id == entry_id)
+        kinds = sorted(s.subject_type for s in target.subjects)
+        assert kinds == ['agenda_item', 'meeting']
+        # Labels resolved from the source tables
+        assert any(s.label for s in target.subjects)
+        # city_slug populated for item + meeting subjects (badges are global)
+        for s in target.subjects:
+            if s.subject_type in ('agenda_item', 'meeting', 'council_member'):
+                assert s.city_slug, f"city_slug missing for {s.subject_type} subject"
+    finally:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM coverage_entries WHERE id = %s", (entry_id,))
+            conn.commit()

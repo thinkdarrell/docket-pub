@@ -2627,3 +2627,112 @@ def coverage_counts_for_items(item_ids: list[int]) -> dict[int, tuple[int, int]]
             (item_ids,),
         )
         return {r['subject_id']: (r['note_count'], r['cit_count']) for r in cur.fetchall()}
+
+
+def _hydrate_subjects_for_entries(cur, entries: list[CoverageEntry]) -> list[CoverageEntry]:
+    """Populate the ``subjects`` field on each entry with one bulk query.
+
+    Resolves a human-readable label per subject from agenda_items / meetings /
+    council_members / priority_badge_templates via COALESCE'd lookups, so the
+    template can render '→ on Item 25-0042 (Westside Rezoning)' chips without
+    a second per-row trip.
+
+    Returns a NEW list (frozen dataclass — uses ``replace``).
+    """
+    if not entries:
+        return entries
+    from dataclasses import replace
+    ids = [e.id for e in entries]
+    cur.execute(
+        """
+        SELECT csl.coverage_id, csl.subject_type, csl.subject_id, csl.subject_slug,
+               COALESCE(
+                 (SELECT title FROM agenda_items     WHERE id   = csl.subject_id),
+                 (SELECT title FROM meetings         WHERE id   = csl.subject_id),
+                 (SELECT name  FROM council_members  WHERE id   = csl.subject_id),
+                 (SELECT name  FROM priority_badge_templates WHERE slug = csl.subject_slug),
+                 ''
+               ) AS label,
+               -- City slug for url_for() in the subjects footer. NULL for badges.
+               COALESCE(
+                 (SELECT mu.slug FROM agenda_items ai
+                    JOIN meetings m ON m.id = ai.meeting_id
+                    JOIN municipalities mu ON mu.id = m.municipality_id
+                   WHERE ai.id = csl.subject_id),
+                 (SELECT mu.slug FROM meetings m
+                    JOIN municipalities mu ON mu.id = m.municipality_id
+                   WHERE m.id = csl.subject_id),
+                 (SELECT mu.slug FROM council_members cm
+                    JOIN municipalities mu ON mu.id = cm.municipality_id
+                   WHERE cm.id = csl.subject_id)
+               ) AS city_slug
+          FROM coverage_subject_links csl
+         WHERE csl.coverage_id = ANY(%s)
+         ORDER BY csl.coverage_id, csl.id
+        """,
+        (ids,),
+    )
+    grouped: dict[int, list[CoverageSubjectLink]] = {}
+    for r in cur.fetchall():
+        grouped.setdefault(r['coverage_id'], []).append(
+            CoverageSubjectLink(
+                subject_type=r['subject_type'],
+                subject_id=r['subject_id'],
+                subject_slug=r['subject_slug'],
+                label=r['label'] or None,
+                city_slug=r['city_slug'],
+            )
+        )
+    return [replace(e, subjects=tuple(grouped.get(e.id, []))) for e in entries]
+
+
+def list_published_coverage(
+    *,
+    kind: str | None = None,
+    outlet_id: int | None = None,
+    q: str | None = None,
+    page: int = 1,
+    page_size: int = 20,
+) -> tuple[list[CoverageEntry], int]:
+    """Paginated listing of published coverage with subjects hydrated.
+
+    Returns (rows, total_count). Each row's ``subjects`` tuple is populated so
+    the listing template can render the 'on Item X, Meeting Y' context footer
+    without a second per-row query.
+
+    ``q`` runs full-text search against the generated ``search_vector`` column.
+    Empty-string ``q`` is treated as None.
+    """
+    where = ["ce.status = 'published'"]
+    params: list = []
+    if kind:
+        where.append("ce.kind = %s")
+        params.append(kind)
+    if outlet_id:
+        where.append("ce.outlet_id = %s")
+        params.append(outlet_id)
+    if q and q.strip():
+        where.append("ce.search_vector @@ websearch_to_tsquery('english', %s)")
+        params.append(q.strip())
+    where_sql = " AND ".join(where)
+
+    from docket.db import db_cursor
+
+    # Count query
+    with db_cursor() as cur:
+        cur.execute(f"SELECT COUNT(*) AS n FROM coverage_entries ce WHERE {where_sql}",
+                    tuple(params))
+        total = cur.fetchone()['n']
+
+    # Page query + subject hydration in the same cursor (one connection)
+    offset = max(0, (page - 1) * page_size)
+    sql = _COVERAGE_SELECT + f"""
+        WHERE {where_sql}
+       ORDER BY ce.published_at DESC NULLS LAST
+       LIMIT %s OFFSET %s
+    """
+    with db_cursor() as cur:
+        cur.execute(sql, tuple(params) + (page_size, offset))
+        rows = _hydrate_coverage_rows(cur)
+        rows = _hydrate_subjects_for_entries(cur, rows)
+    return rows, total
