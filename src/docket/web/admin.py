@@ -1096,3 +1096,342 @@ def conflict_accept_stage_2(item_id: int):
         abort(404)
 
     return render_template("admin/_conflict_resolved.html", result=result)
+
+
+# --- Editorial coverage -----------------------------------------------------
+
+@bp.route("/coverage", methods=["GET"])
+def coverage_list():
+    """List coverage entries with filter tabs."""
+    status_filter = request.args.get('status')  # 'draft' / 'proposed' / 'published' / 'rejected' / None=all
+    kind_filter = request.args.get('kind')      # 'note' / 'citation' / None=both
+
+    where = []
+    params = []
+    if status_filter:
+        where.append("ce.status = %s")
+        params.append(status_filter)
+    if kind_filter:
+        where.append("ce.kind = %s")
+        params.append(kind_filter)
+    where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+
+    with db_cursor() as cur:
+        cur.execute(
+            f"""SELECT ce.id, ce.kind, ce.status, ce.body, ce.headline,
+                       ce.updated_at, ce.featured_until,
+                       COALESCE(au.display_name, au.username) AS author_label,
+                       o.name AS outlet_name
+                  FROM coverage_entries ce
+                  JOIN admin_users au ON au.id = ce.author_id
+             LEFT JOIN outlets o ON o.id = ce.outlet_id
+              {where_sql}
+              ORDER BY ce.updated_at DESC
+              LIMIT 200""",
+            tuple(params),
+        )
+        rows = cur.fetchall()
+
+        cur.execute(
+            """SELECT status, COUNT(*) AS n FROM coverage_entries GROUP BY status"""
+        )
+        counts = {r['status']: r['n'] for r in cur.fetchall()}
+
+    return render_template(
+        "admin/coverage/list.html",
+        rows=rows,
+        counts=counts,
+        status_filter=status_filter,
+        kind_filter=kind_filter,
+    )
+
+
+@bp.route("/coverage/new", methods=["GET"])
+def coverage_new():
+    kind = request.args.get('kind', 'note')
+    if kind not in ('note', 'citation'):
+        abort(400)
+    with db_cursor() as cur:
+        cur.execute("SELECT id, slug, name FROM outlets WHERE is_active = TRUE ORDER BY name")
+        outlets = cur.fetchall()
+    template = 'admin/coverage/new_note.html' if kind == 'note' else 'admin/coverage/new_citation.html'
+    return render_template(template, outlets=outlets)
+
+
+@bp.route("/coverage", methods=["POST"])
+def coverage_create():
+    from docket.services.coverage_writer import create_note, create_citation
+    kind = request.form.get('kind')
+    subjects = _parse_subjects_from_form(request.form)
+    if not subjects:
+        flash("Attach to at least one subject.")
+        return redirect(url_for('admin.coverage_new', kind=kind or 'note'))
+    author_id = session['admin_user']
+    status = 'published' if request.form.get('publish_now') == 'on' else 'draft'
+    if kind == 'note':
+        body = (request.form.get('body') or '').strip()
+        if not body:
+            flash("Note body is required.")
+            return redirect(url_for('admin.coverage_new', kind='note'))
+        create_note(
+            author_id=author_id,
+            body=body,
+            partner_credit=(request.form.get('partner_credit') or '').strip() or None,
+            subjects=subjects,
+            status=status,
+        )
+    elif kind == 'citation':
+        outlet_id = int(request.form['outlet_id'])
+        external_url = (request.form.get('external_url') or '').strip()
+        headline = (request.form.get('headline') or '').strip()
+        if not (external_url and headline):
+            flash("Citation URL and headline are required.")
+            return redirect(url_for('admin.coverage_new', kind='citation'))
+        article_pub = request.form.get('article_published_at') or None
+        create_citation(
+            author_id=author_id,
+            outlet_id=outlet_id,
+            external_url=external_url,
+            headline=headline,
+            reporter_byline=(request.form.get('reporter_byline') or '').strip() or None,
+            excerpt=(request.form.get('excerpt') or '').strip() or None,
+            article_published_at=article_pub,
+            subjects=subjects,
+            status=status,
+        )
+    else:
+        abort(400)
+    return redirect(url_for('admin.coverage_list'))
+
+
+@bp.route("/coverage/<int:coverage_id>/edit", methods=["GET"])
+def coverage_edit(coverage_id: int):
+    with db_cursor() as cur:
+        cur.execute("SELECT * FROM coverage_entries WHERE id = %s", (coverage_id,))
+        entry = cur.fetchone()
+        if not entry:
+            abort(404)
+        cur.execute(
+            """SELECT subject_type, subject_id, subject_slug
+                 FROM coverage_subject_links WHERE coverage_id = %s""",
+            (coverage_id,),
+        )
+        subjects = cur.fetchall()
+        # CRITICAL: include the citation's current outlet even if it's been
+        # deactivated since the entry was created.
+        cur.execute(
+            "SELECT id, slug, name FROM outlets "
+            "WHERE is_active = TRUE OR id = %s "
+            "ORDER BY name",
+            (entry['outlet_id'],),
+        )
+        outlets = cur.fetchall()
+    return render_template("admin/coverage/edit.html", entry=entry, subjects=subjects, outlets=outlets)
+
+
+@bp.route("/coverage/<int:coverage_id>", methods=["POST"])
+def coverage_update(coverage_id: int):
+    from docket.services.coverage_writer import update_coverage
+    fields = {}
+    for k in ('body', 'partner_credit', 'external_url', 'headline',
+              'reporter_byline', 'excerpt', 'byline'):
+        if k in request.form:
+            v = (request.form[k] or '').strip()
+            fields[k] = v or None
+    if 'outlet_id' in request.form and request.form['outlet_id']:
+        fields['outlet_id'] = int(request.form['outlet_id'])
+    if 'article_published_at' in request.form:
+        fields['article_published_at'] = request.form['article_published_at'] or None
+    subjects = _parse_subjects_from_form(request.form) if 'subject[]' in request.form else None
+    update_coverage(coverage_id, subjects=subjects, **fields)
+    return redirect(url_for('admin.coverage_list'))
+
+
+@bp.route("/coverage/<int:coverage_id>/delete", methods=["POST"])
+def coverage_delete(coverage_id: int):
+    from docket.services.coverage_writer import delete_coverage
+    delete_coverage(coverage_id)
+    return redirect(url_for('admin.coverage_list'))
+
+
+@bp.route("/coverage/<int:coverage_id>/publish", methods=["POST"])
+def coverage_publish(coverage_id: int):
+    from docket.services.coverage_writer import set_status
+    set_status(coverage_id, 'published')
+    return redirect(request.referrer or url_for('admin.coverage_list'))
+
+
+@bp.route("/coverage/<int:coverage_id>/unpublish", methods=["POST"])
+def coverage_unpublish(coverage_id: int):
+    from docket.services.coverage_writer import set_status
+    set_status(coverage_id, 'draft')
+    return redirect(request.referrer or url_for('admin.coverage_list'))
+
+
+@bp.route("/coverage/<int:coverage_id>/reject", methods=["POST"])
+def coverage_reject(coverage_id: int):
+    from docket.services.coverage_writer import set_status
+    set_status(coverage_id, 'rejected')
+    return redirect(request.referrer or url_for('admin.coverage_list'))
+
+
+@bp.route("/coverage/<int:coverage_id>/restore", methods=["POST"])
+def coverage_restore(coverage_id: int):
+    from docket.services.coverage_writer import set_status
+    set_status(coverage_id, 'draft')
+    return redirect(request.referrer or url_for('admin.coverage_list'))
+
+
+@bp.route("/coverage/<int:coverage_id>/feature", methods=["POST"])
+def coverage_feature(coverage_id: int):
+    from docket.services.coverage_writer import set_featured_until
+    set_featured_until(coverage_id, datetime.now(ZoneInfo("America/Chicago")) + timedelta(days=14))
+    return redirect(request.referrer or url_for('admin.coverage_list'))
+
+
+@bp.route("/coverage/<int:coverage_id>/unfeature", methods=["POST"])
+def coverage_unfeature(coverage_id: int):
+    from docket.services.coverage_writer import set_featured_until
+    set_featured_until(coverage_id, None)
+    return redirect(request.referrer or url_for('admin.coverage_list'))
+
+
+@bp.route("/coverage/search", methods=["GET"])
+def coverage_search():
+    subject_type = request.args.get('subject_type', 'agenda_item')
+    q = (request.args.get('q') or '').strip()
+    results = []
+    if not q:
+        return render_template("admin/coverage/_search_results.html",
+                               results=[], subject_type=subject_type)
+    needle = f"%{_escape_like(q)}%"
+    with db_cursor() as cur:
+        if subject_type == 'agenda_item':
+            cur.execute(
+                "SELECT id, title FROM agenda_items "
+                "WHERE title ILIKE %s ESCAPE '\\' ORDER BY id DESC LIMIT 15",
+                (needle,),
+            )
+            results = [{'id': r['id'], 'label': r['title']} for r in cur.fetchall()]
+        elif subject_type == 'meeting':
+            cur.execute(
+                "SELECT id, title, meeting_date FROM meetings "
+                "WHERE title ILIKE %s ESCAPE '\\' "
+                "ORDER BY meeting_date DESC LIMIT 15",
+                (needle,),
+            )
+            results = [{'id': r['id'], 'label': f"{r['title']} ({r['meeting_date']:%Y-%m-%d})"}
+                       for r in cur.fetchall()]
+        elif subject_type == 'council_member':
+            cur.execute(
+                "SELECT id, name FROM council_members "
+                "WHERE name ILIKE %s ESCAPE '\\' LIMIT 15",
+                (needle,),
+            )
+            results = [{'id': r['id'], 'label': r['name']} for r in cur.fetchall()]
+        elif subject_type == 'badge':
+            cur.execute(
+                "SELECT slug, name FROM priority_badge_templates "
+                "WHERE (name ILIKE %s OR slug ILIKE %s) ESCAPE '\\' LIMIT 15",
+                (needle, needle),
+            )
+            results = [{'id': r['slug'], 'label': r['name']} for r in cur.fetchall()]
+    return render_template("admin/coverage/_search_results.html",
+                           results=results, subject_type=subject_type)
+
+
+def _parse_subjects_from_form(form) -> list:
+    """Parse `subject[]` form fields into the SubjectSpec list expected by the writer.
+
+    Each form value is `<subject_type>:<id_or_slug>`.
+    """
+    out = []
+    for raw in form.getlist('subject[]'):
+        if not raw or ':' not in raw:
+            continue
+        st, val = raw.split(':', 1)
+        if st == 'badge':
+            out.append((st, None, val))
+        elif st in ('agenda_item', 'meeting', 'council_member'):
+            try:
+                out.append((st, int(val), None))
+            except ValueError:
+                continue
+    return out
+
+
+def _escape_like(s: str) -> str:
+    """Escape Postgres LIKE/ILIKE wildcards in user input.
+
+    A bare ``%`` in admin input would otherwise match every row (the entire
+    table dump), and ``_`` would match any single char. Escape both, and
+    escape backslashes first so we don't double-escape our own escapes.
+    """
+    return s.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+
+
+# --- Outlets ---------------------------------------------------------------
+
+@bp.route("/outlets", methods=["GET"])
+def outlets_list():
+    with db_cursor() as cur:
+        cur.execute("SELECT id, slug, name, homepage, is_active FROM outlets ORDER BY name")
+        outlets = cur.fetchall()
+    return render_template("admin/outlets/list.html", outlets=outlets)
+
+
+@bp.route("/outlets", methods=["POST"])
+def outlets_create():
+    from docket.services.outlets_writer import create_outlet
+    create_outlet(
+        slug=request.form['slug'].strip(),
+        name=request.form['name'].strip(),
+        homepage=(request.form.get('homepage') or '').strip() or None,
+    )
+    return redirect(url_for('admin.outlets_list'))
+
+
+@bp.route("/outlets/<int:outlet_id>", methods=["POST"])
+def outlets_update(outlet_id: int):
+    from docket.services.outlets_writer import update_outlet
+    update_outlet(
+        outlet_id,
+        name=(request.form.get('name') or '').strip() or None,
+        homepage=(request.form.get('homepage') or '').strip() or None,
+    )
+    return redirect(url_for('admin.outlets_list'))
+
+
+@bp.route("/outlets/<int:outlet_id>/deactivate", methods=["POST"])
+def outlets_deactivate(outlet_id: int):
+    from docket.services.outlets_writer import deactivate_outlet
+    deactivate_outlet(outlet_id)
+    return redirect(url_for('admin.outlets_list'))
+
+
+@bp.route("/outlets/<int:outlet_id>/activate", methods=["POST"])
+def outlets_activate(outlet_id: int):
+    from docket.services.outlets_writer import activate_outlet
+    activate_outlet(outlet_id)
+    return redirect(url_for('admin.outlets_list'))
+
+
+# --- Admin profile ----------------------------------------------------------
+
+@bp.route("/profile", methods=["GET"])
+def profile():
+    uid = session['admin_user']
+    with db_cursor() as cur:
+        cur.execute("SELECT username, display_name FROM admin_users WHERE id = %s", (uid,))
+        user = cur.fetchone()
+    return render_template("admin/profile.html", user=user)
+
+
+@bp.route("/profile/display-name", methods=["POST"])
+def profile_update_display_name():
+    uid = session['admin_user']
+    new_name = (request.form.get('display_name') or '').strip() or None
+    with db_cursor() as cur:
+        cur.execute("UPDATE admin_users SET display_name = %s WHERE id = %s",
+                    (new_name, uid))
+    return redirect(url_for('admin.profile'))
