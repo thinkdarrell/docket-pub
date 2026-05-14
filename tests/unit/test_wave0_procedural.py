@@ -53,6 +53,18 @@ class TestIsProcedural:
         "CONSIDERATION OF ORDINANCES AND RESOLUTIONS FOR FINAL PASSAGE",
         "CONSIDERATION OF ORDINANCES",
         "CONSIDERATION OF RESOLUTIONS",
+        # Issue #34 follow-up: surveyed pending bucket after first backfill,
+        # 431 rows of "INTRODUCTION AND FIRST READING…" + ~50 of
+        # "ANNOUNCEMENT OF BOARDS AND AGENCIES EXPIRATIONS" still slipping
+        # through. Add patterns for both — narrow phrasings, low false-
+        # positive risk.
+        "INTRODUCTION AND FIRST READING OF ORDINANCES AND RESOLUTIONS",
+        "INTRODUCTION OF ORDINANCES",
+        "INTRODUCTION OF RESOLUTIONS",
+        "FIRST READING OF ORDINANCES",
+        "ANNOUNCEMENT OF BOARDS AND AGENCIES EXPIRATIONS - April 2018",
+        "ANNOUNCEMENT OF BOARD AND AGENCIES EXPIRATIONS - January 2022",
+        "ANNOUNCEMENTS OF BOARDS AND AGENCIES EXPIRATIONS - July 2014",
     ])
     def test_procedural_titles_match(self, title: str):
         assert is_procedural(title), f"Should match: {title!r}"
