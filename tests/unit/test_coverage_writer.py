@@ -87,3 +87,35 @@ def test_create_note_inserts_entry_and_subjects(seeded_admin, seeded_item):
                 assert cur.fetchone()[0] == 1
     finally:
         _cleanup_entry(entry_id)
+
+
+def test_create_citation_inserts_entry_with_outlet(seeded_admin, seeded_item):
+    from docket.services.coverage_writer import create_citation
+    _, item_id = seeded_item
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM outlets WHERE slug = 'birmingham-watch'")
+            outlet_id = cur.fetchone()[0]
+    entry_id = create_citation(
+        author_id=seeded_admin,
+        outlet_id=outlet_id,
+        external_url='https://birminghamwatch.org/test',
+        headline='Test headline',
+        reporter_byline='Sam Prickett',
+        excerpt='Pull quote.',
+        article_published_at=None,
+        subjects=[('agenda_item', item_id, None)],
+    )
+    try:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT kind, headline, reporter_byline FROM coverage_entries WHERE id = %s",
+                    (entry_id,),
+                )
+                row = cur.fetchone()
+                assert row[0] == 'citation'
+                assert row[1] == 'Test headline'
+                assert row[2] == 'Sam Prickett'
+    finally:
+        _cleanup_entry(entry_id)

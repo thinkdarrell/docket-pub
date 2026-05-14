@@ -70,6 +70,39 @@ def create_note(
         return entry_id
 
 
+def create_citation(
+    *,
+    author_id: int,
+    outlet_id: int,
+    external_url: str,
+    headline: str,
+    reporter_byline: str | None,
+    excerpt: str | None,
+    article_published_at,
+    subjects: Iterable[SubjectSpec],
+    status: str = 'draft',
+    featured_until: datetime | None = None,
+) -> int:
+    """Create a citation entry attached to ``subjects``. Atomic insert."""
+    subs = _validate_subjects(subjects)
+    with db_cursor() as cur:
+        cur.execute(
+            """INSERT INTO coverage_entries
+               (kind, status, outlet_id, external_url, headline,
+                reporter_byline, excerpt, article_published_at,
+                author_id, featured_until)
+               VALUES ('citation', %s, %s, %s, %s, %s, %s, %s, %s, %s)
+               RETURNING id""",
+            (status, outlet_id, external_url, headline, reporter_byline,
+             excerpt, article_published_at, author_id, featured_until),
+        )
+        entry_id = cur.fetchone()['id']
+        _insert_subjects(cur, entry_id, subs)
+        if status == 'published':
+            _set_publish_state(cur, entry_id, author_id)
+        return entry_id
+
+
 def _set_publish_state(cur, coverage_id: int, author_id: int) -> None:
     """Populate published_at + byline snapshot for a newly-published entry.
 
