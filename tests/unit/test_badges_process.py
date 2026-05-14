@@ -252,6 +252,41 @@ class TestProcessBadgeQueriesList:
             assert isinstance(q, str)
             assert len(q) > 10
 
+    def test_all_inserts_set_status_explicitly(self):
+        """Refactor #2 retro [MEDIUM #1]: every badge INSERT must set
+        ``status`` explicitly rather than relying on the DB default.
+
+        Process badges are deterministic and always land at
+        ``status='applied'`` — but expressing that as a literal in the
+        SQL keeps the writer SSOT durable against future changes to
+        the table default. Defended at the call-site level here, and
+        echoed by ``decide_status_and_confidence`` for the policy-badge
+        path (which has a real branching decision)."""
+        import re
+        for q in PROCESS_BADGE_QUERIES:
+            # Every constant inserts into agenda_item_badges; the column
+            # list must include 'status' (along with the existing five).
+            col_list_match = re.search(
+                r"INSERT INTO agenda_item_badges\s*\(([^)]+)\)",
+                q,
+                re.IGNORECASE | re.DOTALL,
+            )
+            assert col_list_match, (
+                "Could not parse column list from SQL constant — "
+                "tests/unit/test_badges_process.py assumed a single-INSERT shape"
+            )
+            cols = [c.strip() for c in col_list_match.group(1).split(",")]
+            assert "status" in cols, (
+                f"INSERT column list missing 'status' — relies on DB default. "
+                f"Cols: {cols}"
+            )
+            # The value list must contain the literal 'applied' so the
+            # writer is unambiguous even if the DB default ever moves.
+            assert "'applied'" in q, (
+                "SQL constant inserts process badges but does not set "
+                "status='applied' explicitly"
+            )
+
 
 # ===========================================================================
 # SQL integration tests — real DB

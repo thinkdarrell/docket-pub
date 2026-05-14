@@ -13,6 +13,10 @@ Six SQL constants cover 7 distinct badges:
 
 Every INSERT is idempotent via ON CONFLICT (agenda_item_id, badge_slug) DO NOTHING.
 Every INSERT includes city_id = m.municipality_id (decision #92).
+Every INSERT sets status='applied' explicitly (refactor #2 retro [MEDIUM #1]):
+process badges are deterministic with no LLM-only path, so they always
+land citizen-visible. The decision lane for the policy-badge path lives
+in ``docket.ai.badges_policy.decide_status_and_confidence``.
 
 Note on member_votes.position: the DB schema uses column `position` with values
 'yea' | 'nay' | 'abstain' | 'absent'. The spec pseudocode used 'yes'/'no' names;
@@ -27,8 +31,8 @@ import re
 
 HIDDEN_ON_CONSENT_SQL = """
 INSERT INTO agenda_item_badges
-    (agenda_item_id, city_id, badge_slug, kind, confidence, source)
-SELECT ai.id, m.municipality_id, 'hidden_on_consent', 'process', 1.0, 'deterministic'
+    (agenda_item_id, city_id, badge_slug, kind, confidence, source, status)
+SELECT ai.id, m.municipality_id, 'hidden_on_consent', 'process', 1.0, 'deterministic', 'applied'
 FROM agenda_items ai
 JOIN meetings m ON m.id = ai.meeting_id
 WHERE ai.is_consent = TRUE
@@ -51,8 +55,8 @@ ON CONFLICT (agenda_item_id, badge_slug) DO NOTHING;
 
 SOLE_SOURCE_SQL = """
 INSERT INTO agenda_item_badges
-    (agenda_item_id, city_id, badge_slug, kind, confidence, source)
-SELECT ai.id, m.municipality_id, 'sole_source', 'process', 1.0, 'deterministic'
+    (agenda_item_id, city_id, badge_slug, kind, confidence, source, status)
+SELECT ai.id, m.municipality_id, 'sole_source', 'process', 1.0, 'deterministic', 'applied'
 FROM agenda_items ai
 JOIN meetings m ON m.id = ai.meeting_id
 WHERE ai.extracted_facts->>'procurement_method' IN ('sole_source', 'no_bid')
@@ -66,8 +70,8 @@ ON CONFLICT (agenda_item_id, badge_slug) DO NOTHING;
 
 LEGAL_SETTLEMENT_SQL = """
 INSERT INTO agenda_item_badges
-    (agenda_item_id, city_id, badge_slug, kind, confidence, source)
-SELECT ai.id, m.municipality_id, 'legal_settlement', 'process', 1.0, 'deterministic'
+    (agenda_item_id, city_id, badge_slug, kind, confidence, source, status)
+SELECT ai.id, m.municipality_id, 'legal_settlement', 'process', 1.0, 'deterministic', 'applied'
 FROM agenda_items ai
 JOIN meetings m ON m.id = ai.meeting_id
 WHERE ai.extracted_facts->>'action_type' = 'settlement'
@@ -103,8 +107,8 @@ WITH dissent_counts AS (
   GROUP BY vai.agenda_item_id, ai.meeting_id, m.municipality_id
 )
 INSERT INTO agenda_item_badges
-    (agenda_item_id, city_id, badge_slug, kind, confidence, source)
-SELECT agenda_item_id, city_id, 'split_vote', 'process', 1.0, 'deterministic'
+    (agenda_item_id, city_id, badge_slug, kind, confidence, source, status)
+SELECT agenda_item_id, city_id, 'split_vote', 'process', 1.0, 'deterministic', 'applied'
 FROM dissent_counts
 WHERE n_dissent >= 1
 ON CONFLICT (agenda_item_id, badge_slug) DO NOTHING;
@@ -124,8 +128,8 @@ WITH dissent_counts AS (
   GROUP BY vai.agenda_item_id, m.municipality_id
 )
 INSERT INTO agenda_item_badges
-    (agenda_item_id, city_id, badge_slug, kind, confidence, source)
-SELECT agenda_item_id, city_id, 'contested', 'process', 1.0, 'deterministic'
+    (agenda_item_id, city_id, badge_slug, kind, confidence, source, status)
+SELECT agenda_item_id, city_id, 'contested', 'process', 1.0, 'deterministic', 'applied'
 FROM dissent_counts
 WHERE n_dissent >= 2
   AND n_voting > 0
@@ -153,8 +157,8 @@ WITH prior_contracts AS (
     AND TRIM(COALESCE(ai.extracted_facts->>'counterparty', '')) <> ''
 )
 INSERT INTO agenda_item_badges
-    (agenda_item_id, city_id, badge_slug, kind, confidence, source)
-SELECT DISTINCT ai.id, m.municipality_id, 'amends_prior_contract', 'process', 0.6, 'deterministic'
+    (agenda_item_id, city_id, badge_slug, kind, confidence, source, status)
+SELECT DISTINCT ai.id, m.municipality_id, 'amends_prior_contract', 'process', 0.6, 'deterministic', 'applied'
 FROM agenda_items ai
 JOIN meetings m ON m.id = ai.meeting_id
 JOIN prior_contracts pc
@@ -179,8 +183,8 @@ ON CONFLICT (agenda_item_id, badge_slug) DO NOTHING;
 
 EMERGENCY_ACTION_SQL = r"""
 INSERT INTO agenda_item_badges
-    (agenda_item_id, city_id, badge_slug, kind, confidence, source)
-SELECT ai.id, m.municipality_id, 'emergency_action', 'process', 1.0, 'deterministic'
+    (agenda_item_id, city_id, badge_slug, kind, confidence, source, status)
+SELECT ai.id, m.municipality_id, 'emergency_action', 'process', 1.0, 'deterministic', 'applied'
 FROM agenda_items ai
 JOIN meetings m ON m.id = ai.meeting_id
 WHERE (
