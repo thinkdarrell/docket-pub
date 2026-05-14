@@ -91,7 +91,8 @@ def test_listing_council_member_subject_renders_as_text(app):
     """Regression: council_member subject renders as text (no BuildError for missing route).
 
     Creates a coverage note attached to a council_member subject, renders the
-    listing page, and asserts no 500 and the member name appears as plain text.
+    listing page, and asserts no 500, the note body appears, and the member's
+    name appears (i.e. the CASE-discriminated hydrator returns the correct label).
     """
     with db() as conn:
         with conn.cursor() as cur:
@@ -107,7 +108,7 @@ def test_listing_council_member_subject_renders_as_text(app):
             cur.execute(
                 "INSERT INTO council_members (municipality_id, name) "
                 "VALUES (%s, %s) RETURNING id",
-                (muni_id, 'TestMemberListingRegression'),
+                (muni_id, 'Unique-Coalesce-Test-Member-zx9'),
             )
             cm_id = cur.fetchone()[0]
         conn.commit()
@@ -128,6 +129,11 @@ def test_listing_council_member_subject_renders_as_text(app):
             assert resp.status_code == 200
             # The note body must appear (entry renders successfully)
             assert b'Council member subject regression note.' in resp.data
+            # The member's name must appear in the rendered HTML — this verifies
+            # that _hydrate_subjects_for_entries correctly resolves the label from
+            # council_members (not from agenda_items, as the old COALESCE could do
+            # when IDs collide).
+            assert b'Unique-Coalesce-Test-Member-zx9' in resp.data
             # The subjects footer must render as text, not a link — verified by
             # ensuring no url_for('public.council_member') BuildError was raised
             # (a BuildError would have caused the 500 guard above to fail).

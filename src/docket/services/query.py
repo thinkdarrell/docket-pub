@@ -2701,26 +2701,30 @@ def _hydrate_subjects_for_entries(cur, entries: list[CoverageEntry]) -> list[Cov
     cur.execute(
         """
         SELECT csl.coverage_id, csl.subject_type, csl.subject_id, csl.subject_slug,
-               COALESCE(
-                 (SELECT title FROM agenda_items     WHERE id   = csl.subject_id),
-                 (SELECT title FROM meetings         WHERE id   = csl.subject_id),
-                 (SELECT name  FROM council_members  WHERE id   = csl.subject_id),
-                 (SELECT name  FROM priority_badge_templates WHERE slug = csl.subject_slug),
-                 ''
-               ) AS label,
-               -- City slug for url_for() in the subjects footer. NULL for badges.
-               COALESCE(
-                 (SELECT mu.slug FROM agenda_items ai
-                    JOIN meetings m ON m.id = ai.meeting_id
-                    JOIN municipalities mu ON mu.id = m.municipality_id
-                   WHERE ai.id = csl.subject_id),
-                 (SELECT mu.slug FROM meetings m
-                    JOIN municipalities mu ON mu.id = m.municipality_id
-                   WHERE m.id = csl.subject_id),
-                 (SELECT mu.slug FROM council_members cm
-                    JOIN municipalities mu ON mu.id = cm.municipality_id
-                   WHERE cm.id = csl.subject_id)
-               ) AS city_slug
+               CASE csl.subject_type
+                 WHEN 'agenda_item'    THEN (SELECT title FROM agenda_items WHERE id = csl.subject_id)
+                 WHEN 'meeting'        THEN (SELECT title FROM meetings WHERE id = csl.subject_id)
+                 WHEN 'council_member' THEN (SELECT name  FROM council_members WHERE id = csl.subject_id)
+                 WHEN 'badge'          THEN (SELECT name  FROM priority_badge_templates WHERE slug = csl.subject_slug)
+                 ELSE ''
+               END AS label,
+               -- City slug for url_for() in the subjects footer. NULL for badges (global) and ELSE branch.
+               CASE csl.subject_type
+                 WHEN 'agenda_item' THEN
+                   (SELECT mu.slug FROM agenda_items ai
+                      JOIN meetings m ON m.id = ai.meeting_id
+                      JOIN municipalities mu ON mu.id = m.municipality_id
+                     WHERE ai.id = csl.subject_id)
+                 WHEN 'meeting' THEN
+                   (SELECT mu.slug FROM meetings m
+                      JOIN municipalities mu ON mu.id = m.municipality_id
+                     WHERE m.id = csl.subject_id)
+                 WHEN 'council_member' THEN
+                   (SELECT mu.slug FROM council_members cm
+                      JOIN municipalities mu ON mu.id = cm.municipality_id
+                     WHERE cm.id = csl.subject_id)
+                 ELSE NULL
+               END AS city_slug
           FROM coverage_subject_links csl
          WHERE csl.coverage_id = ANY(%s)
          ORDER BY csl.coverage_id, csl.id

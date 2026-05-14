@@ -357,6 +357,83 @@ def test_list_published_coverage_fts_search(seeded_admin):
             conn.commit()
 
 
+def test_hydrate_subjects_discriminates_by_subject_type(seeded_admin):
+    """Regression for the COALESCE bug: when an agenda_item.id and a
+    council_member.id share the same integer value, the hydrator must
+    return the COUNCIL MEMBER's name for a council_member subject link,
+    not the agenda item's title."""
+    from docket.services.query import list_published_coverage
+    with db() as conn:
+        with conn.cursor() as cur:
+            # 1. Insert a meeting + agenda_item; capture the item's auto-assigned id.
+            cur.execute(
+                "INSERT INTO meetings (municipality_id, external_id, title, meeting_date) "
+                "VALUES ((SELECT id FROM municipalities LIMIT 1), %s, %s, NOW()) RETURNING id",
+                ('coll-mtg-9z', 'Collision Test Meeting'),
+            )
+            mtg_id = cur.fetchone()[0]
+            cur.execute(
+                "INSERT INTO agenda_items (meeting_id, title) VALUES (%s, %s) RETURNING id",
+                (mtg_id, 'WRONG-AGENDA-ITEM-TITLE'),
+            )
+            item_id = cur.fetchone()[0]
+
+            # 2. Force-insert a council_member whose id == item_id, creating the collision.
+            #    ON CONFLICT (id) DO UPDATE handles the rare case where that id is already taken.
+            cur.execute(
+                "INSERT INTO council_members (id, municipality_id, name) "
+                "VALUES (%s, (SELECT id FROM municipalities LIMIT 1), %s) "
+                "ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name "
+                "RETURNING id, name",
+                (item_id, 'CORRECT-COUNCIL-MEMBER-NAME'),
+            )
+            member_id, member_name = cur.fetchone()
+            assert member_id == item_id, (
+                f"Collision setup failed: member_id={member_id} != item_id={item_id}"
+            )
+
+            # 3. Create a published coverage entry attached to the council_member subject.
+            cur.execute(
+                """INSERT INTO coverage_entries
+                   (kind, status, body, author_id, byline, published_at)
+                   VALUES ('note', 'published',
+                           'Collision probe body coalesce-test-9z.',
+                           %s, 'Test', NOW())
+                   RETURNING id""",
+                (seeded_admin,),
+            )
+            entry_id = cur.fetchone()[0]
+            cur.execute(
+                """INSERT INTO coverage_subject_links
+                   (coverage_id, subject_type, subject_id)
+                   VALUES (%s, 'council_member', %s)""",
+                (entry_id, member_id),
+            )
+        conn.commit()
+
+    try:
+        rows, _ = list_published_coverage(q='coalesce-test-9z')
+        target = next(e for e in rows if e.id == entry_id)
+        labels = [s.label for s in target.subjects]
+        assert 'CORRECT-COUNCIL-MEMBER-NAME' in labels, (
+            f"Expected council member name in labels, got {labels!r}. "
+            "The CASE-discriminated fix in _hydrate_subjects_for_entries is broken."
+        )
+        assert 'WRONG-AGENDA-ITEM-TITLE' not in labels, (
+            f"Hydrator returned the agenda_item title for a council_member subject — "
+            "this is the COALESCE bug the CASE fix was supposed to address."
+        )
+    finally:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM coverage_entries WHERE id = %s", (entry_id,))
+                cur.execute("DELETE FROM coverage_subject_links WHERE coverage_id = %s", (entry_id,))
+                cur.execute("DELETE FROM agenda_items WHERE id = %s", (item_id,))
+                cur.execute("DELETE FROM meetings WHERE id = %s", (mtg_id,))
+                cur.execute("DELETE FROM council_members WHERE id = %s", (member_id,))
+            conn.commit()
+
+
 def test_list_published_coverage_hydrates_subjects(seeded_admin, seeded_meeting):
     """The listing must arrive with subjects populated so the template can render
     the 'on Item X, Meeting Y' context footer per row."""
