@@ -100,6 +100,13 @@ class TestIsWithdrawnOrDeferred:
         "ITEM 5. REQUESTED TO BE DEFERRED A Resolution authorizing",
         "CONSENT ITEM 22. REQUESTED TO BE POSTPONED A Resolution determining",
         "item 9. requested to be withdrawn a resolution lowercase",
+        # Shape (c): marker sandwiched between prefix and item number —
+        # Birmingham agenda exports occasionally put the prefix before
+        # the marker rather than after it.
+        "CONSENT(ph) WITHDRAWN ITEM 8. A Resolution authorizing",
+        "P(ph) DEFERRED ITEM 14. An Ordinance amending Chapter 5",
+        "CONSENT POSTPONED ITEM 22. A Resolution determining",
+        "p(ph) withdrawn item 9. a resolution lowercase",
     ])
     def test_withdrawn_titles_match(self, title: str):
         assert is_withdrawn_or_deferred(title), f"Should match: {title!r}"
