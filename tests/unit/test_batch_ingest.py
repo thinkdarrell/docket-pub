@@ -87,6 +87,33 @@ def test_validate_stage1_payload_raises_permanent_on_unfixable():
         _validate_stage1_payload(payload, item_id=42)
 
 
+def test_validate_stage1_payload_normalizes_next_steps_string_null():
+    """Regression: Haiku occasionally returns next_steps='null' (the string).
+    The sync path normalizes this in _normalize_string_nulls; the batch path
+    was missing the call, surfacing 29/9281 failures in Wave 2 (2026-05-14).
+    After the fix, batch validation must also normalize the string to {}."""
+    from docket.ai.batch_ingest import _validate_stage1_payload
+
+    payload = dict(VALID_STAGE1_TOOL_INPUT)
+    payload["next_steps"] = "null"  # the literal string, not a dict — the bug shape
+    # Before the fix this raised AIPermanentRowError; after the fix it succeeds
+    # because _normalize_string_nulls collapses required-object string-nulls to {}.
+    facts = _validate_stage1_payload(payload, item_id=42)
+    # next_steps is required-object; empty dict allowed (NextSteps has all-None defaults).
+    assert facts.next_steps is not None
+
+
+def test_validate_stage1_payload_normalizes_other_string_null_tokens():
+    """Verify all variants from _STRING_NULL_TOKENS are handled, not just 'null'."""
+    from docket.ai.batch_ingest import _validate_stage1_payload
+
+    for token in ("null", "None", "NULL", "none"):
+        payload = dict(VALID_STAGE1_TOOL_INPUT)
+        payload["next_steps"] = token
+        facts = _validate_stage1_payload(payload, item_id=42)
+        assert facts.next_steps is not None, f"Failed to normalize {token!r}"
+
+
 def test_validate_stage2_payload_truncates_overlong_headline():
     """Prompt v4 raised headline cap from 60 → 80. 90 chars exceeds the
     new cap and exercises the truncate-on-validate path."""

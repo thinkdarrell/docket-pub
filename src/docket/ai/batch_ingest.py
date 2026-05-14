@@ -46,6 +46,7 @@ from docket.ai.extraction import (
     EXTRACTION_PROMPT_VERSION,
     STAGE1_TOOL,
     _coerce_unknown_enums,
+    _normalize_string_nulls,
     _truncate_overlong_strings,
 )
 from docket.ai.pricing import Usage, calculate_cost_usd, usage_add
@@ -104,13 +105,22 @@ def _mark_failed_permanent(item_id: int, error_message: str) -> None:
 
 
 def _validate_stage1_payload(payload: dict, item_id: int) -> StructuredFacts:
-    """Coerce-and-retry wrap for Stage 1 schema validation."""
+    """Coerce-and-retry wrap for Stage 1 schema validation.
+
+    Mirrors the sync path's coercion chain in ``extraction.py``:
+    first normalize string-null tokens ('null'/'None'/etc.) for the
+    object-typed fields (notably ``next_steps``), then coerce out-of-
+    enum values. Without the string-null normalization, Haiku's
+    occasional ``next_steps='null'`` crashes Pydantic with
+    ``input_type=str`` — observed at 29/9281 items in Wave 2 (2026-05-14).
+    """
+    prefix = f"stage1 batch item={item_id} "
     try:
         return StructuredFacts.model_validate(payload)
     except ValidationError:
+        payload = _normalize_string_nulls(payload, log_prefix=prefix)
         payload = _coerce_unknown_enums(
-            payload, STAGE1_TOOL["input_schema"],
-            log_prefix=f"stage1 batch item={item_id} ",
+            payload, STAGE1_TOOL["input_schema"], log_prefix=prefix,
         )
         try:
             return StructuredFacts.model_validate(payload)
@@ -144,6 +154,11 @@ def _validate_stage2_payload(
         return ItemRewrite.model_validate(payload)
     except ValidationError as e:
         prefix = f"stage2 batch item={item_id} "
+        # Mirror the Stage 1 coercion order: normalize string-nulls first so
+        # any nested 'null'/'None' strings don't bleed past schema coercion.
+        # Stage 2 doesn't currently have nested object fields, but symmetry
+        # with the sync path keeps the two ingest surfaces from drifting.
+        payload = _normalize_string_nulls(payload, log_prefix=prefix)
         payload = _coerce_unknown_enums(payload, STAGE2_TOOL["input_schema"], log_prefix=prefix)
         payload = _truncate_overlong_strings(payload, e, log_prefix=prefix)
         try:
