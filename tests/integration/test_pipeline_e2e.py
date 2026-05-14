@@ -332,6 +332,61 @@ def test_process_item_short_circuits_on_procedural_title(bag, monkeypatch):
     assert final["processing_status"] == "procedural_skipped"
 
 
+def test_process_item_procedural_check_runs_before_data_quality(bag, monkeypatch):
+    """Issue #34: procedural section headers with EMPTY bodies were
+    being routed to ``data_quality_skipped`` because evaluate_data_quality
+    ran before is_procedural in pipeline.process_item. The check order
+    is now: is_withdrawn_or_deferred → is_procedural → evaluate_data_quality,
+    matching wave0.run_wave_0. Headers like "ROLL CALL" or "INVOCATION"
+    short-circuit to ``procedural_skipped`` regardless of body presence.
+
+    Uses the real is_procedural / evaluate_data_quality — not mocks — so
+    a regression in either the order OR the regex catches here.
+    """
+    from docket.ai import pipeline
+
+    # LLM spies — should NEVER fire for procedural items.
+    extract_calls = []
+    rewrite_calls = []
+    monkeypatch.setattr(
+        "docket.ai.pipeline.extract_facts_for_item",
+        lambda *a, **kw: extract_calls.append(a) or (_sample_facts(), "haiku-4-5"),
+    )
+    monkeypatch.setattr(
+        "docket.ai.pipeline.rewrite_item",
+        lambda *a, **kw: rewrite_calls.append(a) or (_substantive_rewrite(), "haiku-4-5"),
+    )
+
+    m = bag.add_meeting()
+    # Real BHM 5/12 procedural titles + EMPTY descriptions — the exact
+    # shape that surfaced the bug. Each one is a section header with
+    # no body; before the order fix, every one of these was misrouted.
+    procedural_titles = [
+        "INVOCATION: Minister Jeanetta Perdue, New Life Church of God, Graysville, Alabama",
+        "PLEDGE OF ALLEGIANCE: Council Pro-Tempore LaTonya A. Tate",
+        "ROLL CALL",
+        "MINUTES NOT READY:  February 3, 2026 – May 5, 2026",
+        "COMMUNICATIONS FROM THE MAYOR",
+        "PRESENTATIONS",
+        "CONSIDERATION OF ORDINANCES AND RESOLUTIONS FOR FINAL PASSAGE",
+        "OLD AND NEW BUSINESS",
+        "REQUEST FROM THE PUBLIC",
+        "ADJOURNMENT",
+    ]
+
+    for title in procedural_titles:
+        iid = bag.add_pending_item(m, title=title, description="")
+        item = _ItemView(_load_item(iid))
+        status = pipeline.process_item(item)
+        assert status == "procedural_skipped", (
+            f"Title {title!r} should have routed to procedural_skipped "
+            f"but got {status!r} — order regression or missing regex"
+        )
+
+    assert extract_calls == [], "No LLM calls should fire for procedural items"
+    assert rewrite_calls == []
+
+
 # ---------------------------------------------------------------------------
 # B5.2 — Full happy path: Stage 1 + 2 → completed + on-write badges
 # ---------------------------------------------------------------------------
