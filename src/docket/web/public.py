@@ -234,9 +234,30 @@ def meeting_detail(slug, meeting_id):
 
 @bp.route("/al/<slug>/items/<int:item_id>/")
 def item_detail(slug, item_id):
-    """Per-item detail page — stub for E5."""
-    # TODO(E5): wire up item-detail page
-    abort(404)
+    """Per-item detail page."""
+    municipality = query.get_municipality(slug)
+    if not municipality:
+        abort(404)
+
+    item = query.get_agenda_item(item_id)
+    if not item:
+        abort(404)
+
+    # Verify the item belongs to this city via its meeting
+    meeting = query.get_meeting(item.meeting_id)
+    if not meeting or meeting.municipality_id != municipality["id"]:
+        abort(404)
+
+    from docket.services.query import coverage_for_subject
+    coverage = coverage_for_subject('agenda_item', subject_id=item_id)
+
+    return render_template(
+        "item_detail.html",
+        municipality=municipality,
+        item=item,
+        meeting=meeting,
+        coverage=coverage,
+    )
 
 
 @bp.route("/al/<slug>/<badge_slug>/")

@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}{{ item.headline or item.title }} — {{ municipality.name }} — docket.pub{% endblock %}
+
+{% block content %}
+{# ── Hero ─────────────────────────────────────────── #}
+<section class="hero">
+    <div class="hero-top">
+        <div>
+            <div class="t-eyebrow">
+                {{ municipality.name }} ·
+                <a class="link" href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=item.meeting_id) }}">
+                    {{ meeting.title if meeting else 'Meeting' }}
+                </a>
+            </div>
+            <h1 class="hero-title t-display" style="font-size: 32px;">
+                {{ item.headline or item.title }}
+            </h1>
+            {% if item.item_number %}
+            <p class="hero-sub">Item #{{ item.item_number }}</p>
+            {% endif %}
+        </div>
+    </div>
+</section>
+
+{# ── Smart Brevity Card ────────────────────────────── #}
+{% if config.SMART_BREVITY_UI %}
+<section class="notable smart-brevity-list smart-brevity-list--regular" style="padding: 0 0 1rem 0;">
+    {% include 'partials/smart_brevity_card.html' %}
+</section>
+{% else %}
+<section class="notable" style="padding: 0 0 1rem 0;">
+    <div class="notable-row">
+        <div>
+            <div class="notable-title">{{ item.title }}</div>
+            {% if item.description %}
+            <div class="t-meta" style="margin-top: 6px; line-height: 1.5;">{{ item.description }}</div>
+            {% endif %}
+        </div>
+    </div>
+</section>
+{% endif %}
+
+{# ── Coverage block ────────────────────────────────── #}
+{% include "partials/coverage_block.html" %}
+
+{# ── Back link ─────────────────────────────────────── #}
+<div style="padding: 16px 0;">
+    <a class="link t-meta" href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=item.meeting_id) }}">
+        ← Back to meeting
+    </a>
+</div>
+{% endblock %}

@@ -244,6 +244,75 @@ def list_agenda_items(meeting_id: int) -> list[AgendaItem]:
         return [AgendaItem.from_row(dict(row)) for row in cur.fetchall()]
 
 
+def get_agenda_item(item_id: int) -> AgendaItem | None:
+    """Return a single agenda item by ID (same column shape as list_agenda_items)."""
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+                ai.id,
+                ai.meeting_id,
+                ai.external_id,
+                ai.item_number,
+                ai.title,
+                ai.description,
+                ai.section,
+                ai.is_consent,
+                ai.sponsor,
+                ai.dollars_amount,
+                ai.topic,
+                ai.significance_score,
+                ai.consent_placement_score,
+                ai.summary,
+                ai.ai_metadata,
+                ai.ai_prompt_version,
+                ai.ai_generated_at,
+                ai.data_quality::text       AS data_quality,
+                ai.data_debt_priority::text AS data_debt_priority,
+                ai.processing_status::text  AS processing_status,
+                ai.ai_extraction_version,
+                ai.ai_rewrite_version,
+                ai.ai_confidence,
+                ai.headline,
+                ai.why_it_matters,
+                ai.source_anchor,
+                CASE
+                    WHEN ai.extracted_facts IS NULL THEN NULL
+                    ELSE jsonb_strip_nulls(jsonb_build_object(
+                        'counterparty',       ai.extracted_facts->>'counterparty',
+                        'funding_source',     ai.extracted_facts->>'funding_source',
+                        'procurement_method', ai.extracted_facts->>'procurement_method',
+                        'action_type',        ai.extracted_facts->>'action_type',
+                        'location',           ai.extracted_facts->'location',
+                        'next_steps',         ai.extracted_facts->'next_steps'
+                    ))
+                END AS extracted_facts,
+                COALESCE(b_agg.badges, '[]'::jsonb) AS badges
+            FROM agenda_items ai
+            LEFT JOIN LATERAL (
+                SELECT jsonb_agg(jsonb_build_object(
+                           'kind',        b.kind,
+                           'slug',        b.badge_slug,
+                           'confidence',  b.confidence,
+                           'name',        t.name,
+                           'icon',        t.icon,
+                           'description', t.description
+                       ) ORDER BY b.detected_at DESC) AS badges
+                FROM agenda_item_badges b
+                JOIN priority_badge_templates t ON t.slug = b.badge_slug
+                WHERE b.agenda_item_id = ai.id
+                  AND b.status = 'applied'
+            ) b_agg ON true
+            WHERE ai.id = %s
+            """,
+            (item_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+        return AgendaItem.from_row(dict(row))
+
+
 def list_votes(meeting_id: int, *, include_excerpts: bool = False) -> list[Vote]:
     """Return votes for a meeting, with N:M agenda links and member votes.
 
