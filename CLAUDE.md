@@ -192,7 +192,7 @@ Single repo: `thinkdarrell/docket-pub`. `main` is the source of truth and what R
 - **Commit frequently with clear messages.** Each phase of work gets its own commit.
 - **Port code from `al-municipal-meetings`, don't copy blindly.** Adapt for PostgreSQL, multi-city, and the adapter protocol. The original repo uses SQLite and is Birmingham-only.
 - **Test against live data when possible.** The Granicus adapter should be tested against `bhamal.granicus.com`. Use polite delays (1s+) between requests.
-- **Deploy: `railway up --detach` from `main`** — Railway has no GitHub auto-deploy here; deploys are CLI-pushed Docker images. (Don't use `railway redeploy` — restarts the old build.)
+- **Deploy ONLY from `main`.** `railway up --detach` deploys whatever's in your local working tree — it doesn't care which branch is checked out. To prevent code going live before review, the norm is: merge the PR first, `git checkout main && git pull`, *then* `railway up --detach`. Don't deploy from a feature branch even when "it would be faster." This norm is the lightweight version of branch protection (parked on issue #37 LOW #9 pending GitHub Pro); the protocol is enforced by discipline, not by GitHub. (Also: don't use `railway redeploy` — restarts the old build.)
 
 ### What's been ported and what hasn't
 
