@@ -219,3 +219,13 @@ def test_feature_sets_featured_until_14_days(client_logged_in, seeded_note):
                         (entry_id,))
             stored = cur.fetchone()[0]
             assert stored is not None
+
+
+def test_profile_display_name_update(client_logged_in):
+    c, uid = client_logged_in
+    resp = c.post('/admin/profile/display-name', data={'display_name': 'Editor Smith'})
+    assert resp.status_code in (302, 303)
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT display_name FROM admin_users WHERE id = %s", (uid,))
+            assert cur.fetchone()[0] == 'Editor Smith'
