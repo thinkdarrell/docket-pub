@@ -173,3 +173,70 @@ def test_create_citation_inserts_entry_with_outlet(seeded_admin, seeded_item):
                 assert row[2] == 'Sam Prickett'
     finally:
         _cleanup_entry(entry_id)
+
+
+def test_update_coverage_modifies_scalar_fields(seeded_admin, seeded_item):
+    from docket.services.coverage_writer import create_note, update_coverage
+    _, item_id = seeded_item
+    entry_id = create_note(
+        author_id=seeded_admin,
+        body='Old body.',
+        partner_credit=None,
+        subjects=[('agenda_item', item_id, None)],
+    )
+    try:
+        update_coverage(entry_id, body='New body.', partner_credit='Co with Watch')
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT body, partner_credit FROM coverage_entries WHERE id = %s",
+                            (entry_id,))
+                row = cur.fetchone()
+                assert row[0] == 'New body.'
+                assert row[1] == 'Co with Watch'
+    finally:
+        _cleanup_entry(entry_id)
+
+
+def test_update_coverage_wipes_and_replaces_subjects(seeded_admin, seeded_item):
+    from docket.services.coverage_writer import create_note, update_coverage
+    mtg_id, item_id = seeded_item
+    entry_id = create_note(
+        author_id=seeded_admin,
+        body='Body.',
+        partner_credit=None,
+        subjects=[('agenda_item', item_id, None)],
+    )
+    try:
+        # Replace: attach to meeting instead
+        update_coverage(entry_id, subjects=[('meeting', mtg_id, None)])
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT subject_type, subject_id FROM coverage_subject_links "
+                    "WHERE coverage_id = %s ORDER BY subject_type",
+                    (entry_id,),
+                )
+                rows = cur.fetchall()
+                assert rows == [('meeting', mtg_id)]
+    finally:
+        _cleanup_entry(entry_id)
+
+
+def test_update_coverage_none_subjects_leaves_links_untouched(seeded_admin, seeded_item):
+    from docket.services.coverage_writer import create_note, update_coverage
+    _, item_id = seeded_item
+    entry_id = create_note(
+        author_id=seeded_admin, body='Body.', partner_credit=None,
+        subjects=[('agenda_item', item_id, None)],
+    )
+    try:
+        update_coverage(entry_id, body='Edited body.')  # subjects not passed
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT COUNT(*) FROM coverage_subject_links WHERE coverage_id = %s",
+                    (entry_id,),
+                )
+                assert cur.fetchone()[0] == 1
+    finally:
+        _cleanup_entry(entry_id)

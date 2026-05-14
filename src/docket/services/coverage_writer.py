@@ -129,6 +129,44 @@ def set_status(coverage_id: int, status: str) -> None:
             _set_publish_state(cur, coverage_id, row['author_id'])
 
 
+ALLOWED_UPDATE_FIELDS = {
+    'body', 'partner_credit',
+    'outlet_id', 'external_url', 'headline',
+    'reporter_byline', 'excerpt', 'article_published_at',
+    'byline',
+    'featured_until',
+}
+
+
+def update_coverage(coverage_id: int, *, subjects=None, **fields) -> None:
+    """Update an existing coverage entry.
+
+    ``fields``: scalar columns from ``ALLOWED_UPDATE_FIELDS`` to set.
+    ``subjects``: if not None, wipe-and-replace the subject links.
+        ``None``     → don't touch links (form didn't submit subjects field)
+        ``[(...)]``  → replace with these subjects (form submitted new attachment set)
+        ``[]``       → would be invalid (every entry must have ≥1 subject); raises
+    """
+    bad = set(fields) - ALLOWED_UPDATE_FIELDS
+    if bad:
+        raise ValueError(f"Cannot update fields: {sorted(bad)}")
+    with db_cursor() as cur:
+        if fields:
+            assignments = ', '.join(f"{k} = %s" for k in fields)
+            cur.execute(
+                f"UPDATE coverage_entries SET {assignments}, updated_at = NOW() "
+                f"WHERE id = %s",
+                tuple(fields.values()) + (coverage_id,),
+            )
+        if subjects is not None:
+            subs = _validate_subjects(subjects)  # raises on empty
+            cur.execute(
+                "DELETE FROM coverage_subject_links WHERE coverage_id = %s",
+                (coverage_id,),
+            )
+            _insert_subjects(cur, coverage_id, subs)
+
+
 def _set_publish_state(cur, coverage_id: int, author_id: int) -> None:
     """Populate published_at + byline snapshot for a newly-published entry.
 
