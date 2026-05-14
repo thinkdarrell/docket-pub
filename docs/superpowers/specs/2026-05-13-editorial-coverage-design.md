@@ -111,12 +111,13 @@ CREATE TABLE coverage_entries (
     outlet_id            INTEGER REFERENCES outlets(id),
     external_url         TEXT,
     headline             TEXT,
-    byline               TEXT,                       -- reporter name (optional)
+    reporter_byline      TEXT,                       -- the article's reporter (optional)
     excerpt              TEXT,                       -- optional pull-quote
     article_published_at DATE,                       -- when the outlet published it
 
     -- Authoring & audit
     author_id            INTEGER NOT NULL REFERENCES admin_users(id),
+    byline               TEXT,                       -- author byline snapshot; NULL until first publish
     created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     published_at         TIMESTAMPTZ,                -- set when status transitions to 'published'
@@ -125,19 +126,29 @@ CREATE TABLE coverage_entries (
     -- Full-text search vector (Postgres GENERATED column)
     search_vector        tsvector GENERATED ALWAYS AS (
         to_tsvector('english',
-            coalesce(body,     '') || ' ' ||
-            coalesce(headline, '') || ' ' ||
-            coalesce(excerpt,  '') || ' ' ||
-            coalesce(byline,   '')
+            coalesce(body,            '') || ' ' ||
+            coalesce(headline,        '') || ' ' ||
+            coalesce(excerpt,         '') || ' ' ||
+            coalesce(reporter_byline, '')
         )
     ) STORED,
 
     CHECK (
-        (kind = 'note' AND body IS NOT NULL AND outlet_id IS NULL)
+        (kind = 'note'
+            AND body IS NOT NULL
+            AND outlet_id IS NULL
+            AND external_url IS NULL
+            AND headline IS NULL
+            AND reporter_byline IS NULL
+            AND excerpt IS NULL
+            AND article_published_at IS NULL)
       OR
-        (kind = 'citation' AND outlet_id IS NOT NULL
-                            AND external_url IS NOT NULL
-                            AND headline IS NOT NULL)
+        (kind = 'citation'
+            AND body IS NULL
+            AND partner_credit IS NULL
+            AND outlet_id IS NOT NULL
+            AND external_url IS NOT NULL
+            AND headline IS NOT NULL)
     )
 );
 
@@ -160,6 +171,10 @@ CREATE INDEX idx_coverage_entries_search
 
 **Why `published_at` is a timestamp (not a boolean):** the listing page sorts by it; it records when something went live (auditable); republishing a previously-rejected entry updates it to `NOW()`. A row is "published" iff `status='published'` AND `published_at IS NOT NULL` — kept in sync by the writer service.
 
+**Why `byline` (the author snapshot) is on the row, not derived from `author_id`:** an editor who leaves the organization or changes their `display_name` to something inappropriate shouldn't be able to retroactively alter the byline on every historical entry they ever published. `byline` is populated by the writer service at the moment `status` transitions to `published`, copying from `admin_users.display_name OR admin_users.username` at that instant. After that snapshot, `byline` is independently editable (the admin form exposes it, defaulting to the snapshotted value). Drafts have `byline IS NULL` and render the user's live `display_name`/`username` so the editor can preview what their byline will look like. `author_id` stays as an immutable FK for audit and admin queries.
+
+**Why `reporter_byline` is named differently from `byline`:** these are two distinct people. `byline` is the docket-side author of the entry (the editor); `reporter_byline` is the journalist who wrote the cited article for the outlet. Conflating them previously led to confusion in the FTS column definition — they're now clearly separated.
+
 **Why `search_vector` is a `GENERATED ... STORED` column:** Postgres recomputes on every UPDATE — no trigger, no writer-service maintenance. The GIN index makes `?q=` search on the listing page a sub-10ms lookup.
 
 ### `coverage_subject_links` — N:M to subjects
@@ -171,8 +186,10 @@ CREATE TABLE coverage_subject_links (
     id            SERIAL PRIMARY KEY,
     coverage_id   INTEGER NOT NULL REFERENCES coverage_entries(id) ON DELETE CASCADE,
     subject_type  coverage_subject_type NOT NULL,
-    subject_id    INTEGER,         -- FK to agenda_items.id / meetings.id / council_members.id
-    subject_slug  TEXT,            -- FK to priority_badge_templates.slug when subject_type='badge'
+    subject_id    INTEGER,         -- app-level FK to agenda_items.id / meetings.id / council_members.id
+    subject_slug  TEXT REFERENCES priority_badge_templates(slug) ON UPDATE CASCADE,
+                                   -- real FK to priority_badge_templates.slug (always; subject_slug is
+                                   -- monomorphic — only set when subject_type='badge', enforced by CHECK)
     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     -- Exactly one of (subject_id, subject_slug) per row
@@ -199,7 +216,9 @@ CREATE INDEX idx_coverage_subject_links_subject_slug
 
 **Two FK columns (`subject_id` INTEGER + `subject_slug` TEXT) instead of one polymorphic column:** items, meetings, and council members are SERIAL integers; badges are TEXT slugs. Keeping the natural type per subject means each inline-render lookup uses a clean indexed query — no casting, no planner ambiguity. The CHECK constraint enforces that exactly one column is set per row, gated by `subject_type`.
 
-**No formal FK to target tables.** Postgres doesn't support polymorphic FK constraints. Application-level integrity is sufficient for a low-volume editorial feature. If a target row is deleted, the orphaned coverage link fails to render gracefully (the read query simply doesn't find the joined target). A periodic cleanup task is a future option if it ever happens at scale.
+**`subject_slug` gets a real FK with `ON UPDATE CASCADE`; `subject_id` does not.** `subject_slug` is monomorphic (the CHECK constraint guarantees it's only set when `subject_type='badge'`, so it always points to `priority_badge_templates.slug`). That lets us declare a real FK plus `ON UPDATE CASCADE`, so renaming a badge slug propagates to coverage links automatically. `subject_id` is genuinely polymorphic (points to one of three tables depending on `subject_type`) and can't carry a single FK constraint — that side stays application-enforced.
+
+**Orphan behavior when a target row is deleted:** application-level integrity for `subject_id` is sufficient for a low-volume editorial feature. If an `agenda_items` / `meetings` / `council_members` row is deleted, the orphaned coverage link fails to render gracefully (the read query simply doesn't find the joined target). A periodic cleanup task is a future option if it ever happens at scale. For badges, the FK is `ON UPDATE CASCADE` but has no `ON DELETE` clause — so deleting a badge template while coverage is attached raises a referential-integrity error, which is the right behavior (deleting a badge template is itself a heavyweight operation that should be staged).
 
 **Why N:M from day one:** one Birmingham Watch article often covers 3-5 items from one meeting. Without N:M, you'd create five duplicate citations and lose the "one article" identity (which the future auto-proposer needs for dedup-by-URL). With N:M: one `coverage_entries` row, five `coverage_subject_links` rows. This is the entire reason the citation side is normalized rather than flat.
 
@@ -235,11 +254,19 @@ All inline-render and chip-count queries hit one partial index with high selecti
 
 | Field | Source |
 |---|---|
-| **Byline** | `admin_users.display_name OR admin_users.username` for the logged-in author at render time |
+| **Byline** | `coverage_entries.byline` (snapshot-on-publish; editable post-publish). Drafts render the author's live `display_name OR username` until first publish populates the snapshot. |
 | **Partner credit** | Optional free-form text on the entry: e.g., "in partnership with Birmingham Watch" |
 | **Date** | `published_at` (display: relative "May 13" / absolute on permalink) |
 
-Byline is **not snapshotted** — changing your `display_name` retroactively changes the byline on past entries. Intentional in v1: one author, one consistent identity. If per-entry byline overrides are needed later, add a `byline_override TEXT` column to `coverage_entries` (v1.1 follow-up).
+**Byline lifecycle:**
+1. **Draft:** `byline IS NULL`. Renders live `admin_users.display_name OR username` — lets the author preview what their byline will look like, and lets them tune their `display_name` before publishing.
+2. **First publish:** writer service populates `byline` from the author's current `display_name OR username` at the moment `status` transitions to `published`. From this point on, the byline is independent of the user record.
+3. **Post-publish edit:** the admin form exposes `byline` as a free-text field, defaulting to the snapshotted value. The editor can fix a typo or add a co-byline ("Darrell Nance and Sam Prickett") without depending on `display_name`.
+4. **Republish (rejected → draft → publish):** if `byline` is still populated from a prior publish, it's preserved (not re-snapshotted). If the entry was never published before, the snapshot rule applies.
+
+**Why this design:** protects editorial integrity. A departing employee can't retroactively alter or vandalize all their historical bylines by changing their `display_name`. Account deactivation doesn't lose attribution. Bylines are part of the published record.
+
+`author_id` stays as an immutable FK on every entry — that's the audit trail of *who* the platform user was; `byline` is the *public attribution string* derived from them. The two diverge only when the editor explicitly edits the byline post-publish.
 
 ### Citations
 
@@ -247,10 +274,10 @@ Byline is **not snapshotted** — changing your `display_name` retroactively cha
 |---|---|
 | **Outlet** | `outlets.name` via FK (`outlet_id`). Controlled vocabulary; admin-managed. |
 | **Headline** | `headline` text on the entry — copied from the article as published |
-| **Byline** | Optional `byline` text (the reporter's name) |
+| **Reporter byline** | Optional `reporter_byline` text (the article's journalist) |
 | **Date** | `article_published_at` (when the outlet published) |
 | **Excerpt** | Optional pull-quote (`excerpt` text) — 1-2 sentences from the article |
-| **Link** | `external_url` — clicking the citation card goes to the article |
+| **Link** | `external_url` — clicking the citation card goes to the article. Rendered with `target="_blank" rel="noopener noreferrer"` to prevent reverse-tabnabbing and preserve the reader's place on docket. |
 
 ---
 
@@ -348,7 +375,7 @@ Filter tabs (HTMX-driven): `All / Drafts / Proposed (0) / Published / Rejected`.
 
 ### Display-name profile
 
-A "Profile" link in the admin nav lets the logged-in user set their `display_name` (one field, one form). Cleared → falls back to `username`. Changes apply to all entries (past and future) since byline is rendered live, not snapshotted.
+A "Profile" link in the admin nav lets the logged-in user set their `display_name` (one field, one form). Cleared → falls back to `username`. Changes apply to **drafts** and to **future publishes** — published entries snapshot their byline at the moment they first transitioned to `published`, so a `display_name` change doesn't retroactively rewrite those. To fix a typo or change attribution on an already-published entry, edit the `byline` field directly via the entry's edit form.
 
 ### What's NOT in the admin (v1)
 
@@ -361,7 +388,6 @@ A "Profile" link in the admin nav lets the logged-in user set their `display_nam
 | Image attachment | v1.x feature |
 | Scheduled publish | Leave drafts as drafts |
 | Browser-based draft autosave | Single-author, low collision risk |
-| Per-entry byline override | v1.1 if needed (`byline_override` column) |
 
 ---
 
@@ -418,6 +444,8 @@ Visual shape:
 - `partials/coverage_block.html` → `components/coverage/block.html` (renders the section wrapper + iterates)
 - `partials/coverage_note.html` → `components/coverage/note.html` (one note)
 - `partials/coverage_citation.html` → `components/coverage/citation.html` (one citation card)
+
+**External link safety on citation cards.** Every citation card's headline anchor and any other anchor pointing to `external_url` must include `target="_blank"` and `rel="noopener noreferrer"`. This prevents reverse-tabnabbing (the malicious-redirect attack where an opened tab can rewrite its opener via `window.opener`) and decouples referrer leakage. The citation macro is the single place these attrs are set; downstream surfaces that reuse the macro inherit the safety.
 
 The block macro accepts a list of `CoverageEntry` objects (already-filtered to `status='published'`); the iteration logic stays in the template. The query lives in `services/query.py` as `coverage_for_subject(subject_type, subject_id_or_slug)`.
 
@@ -514,7 +542,7 @@ Notes render full body inline (they're short). Citations render as a card; click
 | Entries | Latest 50 published coverage entries, newest first by `published_at` |
 | Item `<title>` | Note: first 80 chars of body. Citation: `"[OUTLET] HEADLINE"` |
 | Item `<link>` | Note: `/coverage/<id>` permalink. Citation: external article URL. |
-| Item `<description>` | Note: full body. Citation: excerpt (if present) + byline. |
+| Item `<description>` | Note: full body. Citation: excerpt (if present) + reporter byline. |
 | Item `<pubDate>` | `published_at` |
 | Channel `<title>` | "docket.pub — Editorial Coverage" |
 | Channel `<description>` | "Notes and press citations on Alabama municipal meetings." |
@@ -523,7 +551,7 @@ Reuses the existing RSS template pattern from `/al/<city>/upcoming-hearings.rss`
 
 ### Full-text search
 
-`coverage_entries.search_vector` (Postgres `GENERATED ... STORED` `tsvector`) covers `body + headline + excerpt + byline`. GIN index makes `?q=` search fast.
+`coverage_entries.search_vector` (Postgres `GENERATED ... STORED` `tsvector`) covers `body + headline + excerpt + reporter_byline`. GIN index makes `?q=` search fast.
 
 **Search surface in v1:** the `/coverage/?q=` parameter on the listing page only. Integration into the global `/search` endpoint is deferred to v1.x (requires designing a "coverage result card" that mixes correctly with existing meeting and item result cards).
 
@@ -569,8 +597,9 @@ Each independently shippable, reversible (`git revert`-clean), scoped to a singl
 - `services/query.py`: append a coverage section with:
   - `coverage_for_subject(subject_type, subject_id=None, subject_slug=None) -> list[CoverageEntry]`
   - `coverage_counts_for_items(item_ids: list[int]) -> dict[int, tuple[int, int]]`
+    — **must short-circuit to `{}` when `item_ids` is empty** before any SQL, since `WHERE agenda_item_id IN ()` raises a syntax error in psycopg.
   - `list_published_coverage(*, kind=None, outlet_id=None, q=None, page=1, page_size=20) -> tuple[list[CoverageEntry], int]`
-- New `models/coverage.py`: `CoverageEntry` dataclass with a derived `byline()` property (`author.display_name or author.username`).
+- New `models/coverage.py`: `CoverageEntry` dataclass with a derived `display_byline()` property: returns `self.byline` if set (post-publish snapshot), else `author.display_name or author.username` (live, for drafts).
 - Tests: `tests/unit/test_query_coverage.py` exercising all three reads against a fixture-seeded test DB.
 - **No UI; no admin; nothing surfaces yet.** This PR is "the data layer exists."
 
@@ -578,12 +607,30 @@ Each independently shippable, reversible (`git revert`-clean), scoped to a singl
 
 - New `services/coverage_writer.py` (mirrors `badges_writer.py` shape):
   - `create_note(*, author_id, body, partner_credit, subjects, status='draft', featured_until=None) -> int`
-  - `create_citation(*, author_id, outlet_id, external_url, headline, byline, excerpt, article_published_at, subjects, status='draft', featured_until=None) -> int`
-  - `update_coverage(coverage_id, **fields) -> None`
-  - `set_status(coverage_id, status) -> None`  *(sets `published_at = NOW()` when status='published')*
+  - `create_citation(*, author_id, outlet_id, external_url, headline, reporter_byline, excerpt, article_published_at, subjects, status='draft', featured_until=None) -> int`
+  - `update_coverage(coverage_id, *, subjects=None, **fields) -> None`
+  - `set_status(coverage_id, status) -> None` — when transitioning to `'published'`:
+    - sets `published_at = NOW()`
+    - if `byline IS NULL`, populates from `admin_users.display_name OR admin_users.username` (the snapshot)
   - `set_featured_until(coverage_id, until) -> None`
   - `delete_coverage(coverage_id) -> None`
   - Each function wraps a single transaction; multi-step writes (entry + subject_links) are atomic.
+
+**Subject-link edit semantics — wipe and replace.** `update_coverage(coverage_id, subjects=...)` uses a wipe-and-replace pattern within a single transaction:
+
+  ```python
+  def update_coverage(coverage_id, *, subjects=None, **fields):
+      with db_cursor() as cur:
+          if fields:
+              cur.execute("UPDATE coverage_entries SET ... WHERE id = %s", ...)
+          if subjects is not None:
+              # subjects=None means "form didn't include subjects, don't touch"
+              # subjects=[] means "form submitted zero subjects" (invalid; validated upstream)
+              cur.execute("DELETE FROM coverage_subject_links WHERE coverage_id = %s", (coverage_id,))
+              cur.executemany("INSERT INTO coverage_subject_links (...) VALUES (...)", rows)
+  ```
+
+  The `subjects=None` sentinel distinguishes "the form didn't submit a subjects field" from "the form submitted an empty subjects list." Diff-based reconciliation would be fragile against the polymorphic two-column shape; wipe-and-replace is one DELETE + one bulk INSERT, provably correct, ~1-10 rows of work per edit.
 - New `services/outlets_writer.py`: tiny CRUD for outlets.
 - Admin routes in `web/admin.py`: the 12 coverage routes + 5 outlet routes + 1 profile display_name route listed above.
 - New admin templates in `web/templates/admin/coverage/`:
@@ -701,6 +748,11 @@ Each follow-up is a paired chip+block unit. Each is one PR.
 - [ ] Migration 027 applied on Railway with all 4 enums + 3 tables + 1 column + 10 outlet seed rows + indexes.
 - [ ] Admin can create a note attached to one or more subjects (item, meeting, member, badge) and publish it.
 - [ ] Admin can create a citation attached to one or more subjects and publish it.
+- [ ] On publish, `byline` is snapshotted from the author's `display_name OR username` if not already set.
+- [ ] Editing the byline post-publish via the admin form persists (snapshot is editable, not derived live).
+- [ ] Editing the subject list on an existing entry wipes and replaces `coverage_subject_links` atomically.
+- [ ] All citation card external links render with `target="_blank" rel="noopener noreferrer"`.
+- [ ] `coverage_counts_for_items([])` returns `{}` without executing SQL.
 - [ ] Admin can edit, unpublish, reject, restore, feature, unfeature, and delete coverage entries.
 - [ ] Admin can manage outlets (create / update / deactivate).
 - [ ] Admin can set their `display_name`.
@@ -726,7 +778,12 @@ Each follow-up is a paired chip+block unit. Each is one PR.
 | Chip queries add per-request latency on item-list pages | Low | `coverage_counts_for_items(item_ids)` is a single indexed GROUP BY against the partial index. ~10ms expected for 30-item meeting pages. Verify with EXPLAIN before each chip-route ships. |
 | Coverage block renders for unpublished items | Very low | Read query hard-filters to `status='published'`. Unit-test confirms drafts never render. |
 | Featured-until expiry isn't enforced server-side beyond query filtering | Negligible | Old featured entries stop being featured (`WHERE featured_until > NOW()`). No cleanup needed. |
-| Display name change retroactively changes byline on existing entries | Intentional, not a risk | Current byline by design. Per-entry `byline_override` is a v1.1 add if needed. |
+| Display name change retroactively alters historical bylines (e.g., departing editor vandalizes attribution) | **Mitigated** | `byline` is snapshotted on publish from `display_name OR username`. Post-publish edits go through the admin form. `display_name` changes only affect drafts and future publishes. |
+| Ghost fields on row of wrong `kind` (e.g., a note row with a stray `external_url` from a form bug) | **Mitigated** | Exhaustive mutual-exclusion CHECK constraint rejects any row where the kind-incorrect columns are non-NULL. |
+| Renaming a badge slug orphans coverage links pointing to the old slug | **Mitigated** | `coverage_subject_links.subject_slug` declared as a real FK with `ON UPDATE CASCADE` — slug renames propagate atomically. |
+| `coverage_counts_for_items([])` raises Postgres syntax error from empty `IN ()` clause | **Mitigated** | Helper short-circuits to `{}` before any SQL when input list is empty. Unit test enforces. |
+| Citation external link enables reverse-tabnabbing or unintended referrer leakage | **Mitigated** | All citation-card external anchors render with `target="_blank" rel="noopener noreferrer"`. Single macro is the source of truth. |
+| Subject-link edits leave stale rows (diff bugs) when an entry is edited | **Mitigated** | `update_coverage(..., subjects=...)` uses wipe-and-replace within a transaction. No diff logic. |
 | Migration 027 collides with another pre-flight migration | Very low | 026 is highest current migration; verify at PR-1 prep time and bump if needed. |
 | RSS feed reveals draft content | Very low | Feed query hard-filters to `status='published'`. Unit-test confirms drafts never appear. |
 | Editorial v1 slips and blocks modularity refactor | Medium | v1 is intentionally scoped to 5 PRs (~1-2 weeks of work). Modularity waits for v1 ship — not for v1.1+. |
