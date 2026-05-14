@@ -24,7 +24,8 @@ The sketch zip provides JSX mockups for 6 surfaces: City Overview, Meeting Detai
    - Source rail (overview only): Meetings lifetime, Agenda items YTD, Votes YTD, Dollars pending vs settled — each with a per-KPI SQL explainer (`[n]` citation, hardcoded display string)
    - Dropped from the KPI strip: Council members, Topics tracked (they're nav, not numbers)
    - Freshness chip stays in the header
-   - **"Flagged items" definition (TBD before P3):** the sketch field is ambiguous against the current schema. Options: (a) count of items with `agenda_item_badges.status = 'flagged'` (admin queue items — risk: skews to LLM-only badge suggestions, citizen interpretation unclear); (b) count of items with `data_debt_priority = 'high'` (data quality issues — clearest "needs attention" signal); (c) count of meetings with `meetings.flag IS NOT NULL` (consent-placement / sources-disagree at meeting level). Lean = **(b)** — most aligned with citizen-facing "what needs attention" framing. Confirm in P3 implementation.
+   - **"Flagged items" definition:** to a citizen, the label sitting next to "Dollars YTD" reads as *controversial legislation*, not pipeline errors. So the inline KPI is a **civic signal**, not a data-quality signal. Definition: **items with contested votes** — count of agenda_items joined to votes where `votes.nays > 0 OR votes.abstentions > 0`. Pure derivation from existing data; no new column; aligns with the "Contested votes" section already on the page. (`meetings.flag` doesn't exist in the schema — was flagged as "looks new" in the sketch synthesis; rejected.)
+   - **Data-quality count is a separate metric.** If we want it visible, label it "Data issues" or "Pipeline errors" and put it in the rail or on the Source Health page — *not* in the inline strip next to dollar/meeting counts. Decided not in scope for the inline strip.
 4. **Mobile = Plan A** (lightweight launcher) for v1. Plan B (peek-sheet w/ snap-points + scroll-sync) parked as a v2 tracking issue.
 5. **Source Health = new page** (pipeline transparency, linked from the freshness chip). **Public data-debt stays as-is** (citizen-facing item list). Different concepts, different pages.
 6. **Category landing = translation pass only.** No layout changes. Inherits new shared components; follow-up issue logged for proper UX revisit later.
@@ -147,14 +148,15 @@ Roughly 3 short rows where today there are ~6 stacked elements.
 
 ### Source rail (desktop, overview only)
 - KPI explainers stacked: Meetings lifetime, Agenda items YTD, Votes YTD, Dollars pending vs settled
-- Each renders one `kpi_explainer` with value + label + "show SQL" toggle (hardcoded SQL display string in the partial; *not* live-executed)
+- Each renders one `kpi_explainer` with value + label + optional `sub` (grounding text) + "show SQL" toggle (hardcoded SQL display string in the partial; *not* live-executed)
+- **"Lifetime" KPIs get a `sub` line** indicating the start year — e.g., "Since 2017" — derived from `MIN(meetings.date)` for the city. Prevents reader confusion as historical backfill expands. Same pattern applied to any other "lifetime" or "all-time" counter.
 - Source/provenance block: adapter class, last sync time, link to source URL
 
 ### Mobile (Plan A)
 - CityLead h1 drops to 44px Source Serif
 - KPI strip becomes horizontal scroll-snap (3 × 130px cards)
-- "View source" pill — sticky bottom-right above tab bar (z-index 30) — opens `source_sheet` full-screen with the same content as the desktop rail
-- Sheet behavior: full-screen modal, simple open/close, no snap points (Plan A)
+- **"View source" entry point moves to the top of the page** — small inline link/button placed near the freshness chip in the CityLead. **No floating bottom pill** (avoids thumb-zone collision with the bottom tab bar). The two affordances are semantically distinct: freshness chip → navigates to the `/source-health/` page (pipeline view); inline "View source" link → opens the source sheet (overview's provenance + KPI rail content). Keep both visible at the top so they're equally discoverable.
+- Sheet behavior: full-screen modal, simple open/close, no snap points (Plan A). **Fixed top-right "Close" (X) button**, large hit target (≥44×44px), focus-trapped, scroll-locked. Esc closes on devices with hardware keyboards.
 
 ### Data flow / new computed values
 
@@ -192,9 +194,10 @@ Each is a scoped COUNT/SUM with `municipality_id` filter and year-to-date range.
 
 ### Verification
 - Top of page is ~3 rows tall on desktop.
-- Inline KPI strip shows 3 numbers.
-- Rail (desktop) shows 4 KPI explainers + provenance.
-- Mobile: "View source" pill opens full-screen sheet with same content.
+- Inline KPI strip shows 3 numbers (Meetings YTD / Dollars YTD / Flagged items — contested votes).
+- Rail (desktop) shows 4 KPI explainers + provenance. Lifetime KPI shows "Since YYYY" sub-label.
+- Mobile: inline "View source" link near the freshness chip opens the full-screen sheet (same content as the desktop rail). No floating bottom pill.
+- Mobile sheet has a top-right Close button (≥44×44px hit target), focus-trapped, scroll-locked, Esc closes.
 - Freshness chip links to Source Health page (built in P4).
 
 ---
@@ -207,8 +210,8 @@ One PR (or split in two if it grows). None of these pages get a rail per the ove
 - **Header:** back link → eyebrow (type pill · date · venue) → h1 (title) → NumStat strip (agenda items / recorded votes / dollars)
 - **Body:** agenda sections grouped by type (Consent / Resolutions / Ordinances / Hearings / Communications). The split already exists; new section header partial gives each a header + count.
 - Per-item vote tally stays as today, restyled with new badges/dollar tiers. Source + confidence shown inline as small mono meta.
-- **Conflict callout** appears when `votes.conflict` flag is set OR sources disagree. If the column doesn't exist yet, fall back to comparing minutes_text vs video_ocr counts in-template. Feature-flag off until/unless that data exists.
-- Route + view function unchanged (`public.py:208`).
+- **Conflict callout** appears when sources disagree. **All conflict evaluation happens in `public.py:208`**, not in the template — the view function computes a `has_conflict: bool` and passes it in. Avoids Jinja anti-patterns (heavy text comparison / multi-source reconciliation logic in template = bloated render budget + harder debugging). If/when a `votes.conflict` column is added later, the view function reads it directly; until then, the view function derives the boolean from existing `minutes_text` vs `video_ocr` vote sources. Template stays a simple `{% if has_conflict %}`.
+- Route + view function unchanged (`public.py:208`); view function gains a small private helper for the conflict computation.
 
 ### 4b. Item Detail (`src/docket/web/templates/item_detail.html`)
 - **Header:** back link → eyebrow (item_number + meeting context) → dollar tier badge (right) → h1 (title) → mono byline (sponsor · date · section) → status pill → topic dot
@@ -229,6 +232,7 @@ One PR (or split in two if it grows). None of these pages get a rail per the ove
 - **Body:** voting history table with filter chips (All / Dissent only / Sponsored only) → recent sponsored items list
 - **Data:** `council_members.attendance`, `.alignment_with_majority`, `.votes_total` all exist. Sponsorship count = `COUNT(agenda_items WHERE sponsor_member_id = ?)`. Voting history = JOIN through `member_votes` → `votes` → `agenda_items`.
 - **Performance:** memory flags member_votes JOINs as the OOM culprit. Voting history table **must paginate** (20 rows). Filter chips re-query the server; don't filter in-page.
+- **Filter chip extensibility:** the filter chip row uses the same horizontal scroll-snap container pattern as `topic_row`. v1 chips are All / Dissent / Sponsored. The row must accept additional chips without redesign — when the platform adopts strategic-priority / watchdog-theme tagging later, citizens will want to filter a member's voting history by those tags. Leave spatial + CSS room; don't hard-code three chip widths.
 - **Term scoping:** memory note — "Birmingham council has had many members; term dates must cover actual vote date ranges." Voting history scoped to the member's term/vote window, not the city's full history.
 - **Roster wire-up:** `partials/council_card.html` becomes a link to this route. Updates `council.html` and the council section on `city.html`.
 
@@ -318,9 +322,9 @@ One PR (or two if it gets big). No new layouts, no new components — each page 
 
 ### Mobile (Plan A) implementation notes
 - Single codebase, responsive at 768px hard cutoff.
-- Sheet uses `<dialog>` element if browser support is acceptable, otherwise hand-rolled with `aria-modal="true"` + focus trap + scroll lock.
+- Sheet uses `<dialog>` element if browser support is acceptable, otherwise hand-rolled with `aria-modal="true"` + focus trap + scroll lock + Esc-to-close. Fixed top-right Close button (≥44×44px hit target).
 - `sheet.js` ~50 lines vanilla JS. No external library.
-- "View source" pill appears on city overview only (per rail-overview-only rule).
+- **No floating bottom pill.** The "View source" entry point is an inline link near the freshness chip in CityLead (city overview only). Avoids thumb-zone collision with the bottom tab bar.
 - Bottom tab bar appears on every page `<768px`.
 
 ---
