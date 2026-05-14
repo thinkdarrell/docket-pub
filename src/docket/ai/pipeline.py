@@ -157,25 +157,11 @@ def process_item(item, *, conn=None) -> str:
           failed_permanent.
     """
     # Phase A — Wave 0 short-circuit ----------------------------------
-    quality, priority = evaluate_data_quality(item)
-    if quality != "ok":
-        with _maybe_cursor(conn) as cur:
-            cur.execute(
-                """
-                UPDATE agenda_items
-                   SET data_quality       = %s::data_quality_enum,
-                       data_debt_priority = %s::data_debt_priority_enum,
-                       processing_status  = 'data_quality_skipped'::processing_status_enum
-                 WHERE id = %s
-                """,
-                (quality, priority, item.id),
-            )
-        log.info(
-            "pipeline.process_item Wave 0a reject: item_id=%s quality=%s",
-            item.id, quality,
-        )
-        return "data_quality_skipped"
-
+    # Issue #34: order matches wave0.run_wave_0 — title-based routers
+    # (withdrawn + procedural) run BEFORE the body-based data-quality
+    # gate. Procedural items are content-free by construction; gating
+    # them on body presence would route "ROLL CALL" / "INVOCATION"
+    # straight to data_quality_skipped because they have no description.
     if is_withdrawn_or_deferred(item.title):
         with _maybe_cursor(conn) as cur:
             cur.execute(
@@ -209,6 +195,25 @@ def process_item(item, *, conn=None) -> str:
             item.id,
         )
         return "procedural_skipped"
+
+    quality, priority = evaluate_data_quality(item)
+    if quality != "ok":
+        with _maybe_cursor(conn) as cur:
+            cur.execute(
+                """
+                UPDATE agenda_items
+                   SET data_quality       = %s::data_quality_enum,
+                       data_debt_priority = %s::data_debt_priority_enum,
+                       processing_status  = 'data_quality_skipped'::processing_status_enum
+                 WHERE id = %s
+                """,
+                (quality, priority, item.id),
+            )
+        log.info(
+            "pipeline.process_item Wave 0a reject: item_id=%s quality=%s",
+            item.id, quality,
+        )
+        return "data_quality_skipped"
 
     # Phase B (part 1) — Stage 1 extraction (LLM) ---------------------
     facts, _served_extract = extract_facts_for_item(item)

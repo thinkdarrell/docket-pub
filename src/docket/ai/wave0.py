@@ -67,9 +67,18 @@ def evaluate_data_quality(item: _ItemView) -> tuple[DataQuality, DataDebtPriorit
 
     # Body fallback to title for adapters (e.g., Granicus/Birmingham) that
     # write the full agenda body into `title` and leave `description` NULL.
-    # A substantive title (>= 120 chars) is treated as the body when no other
+    # A substantive title (>= 60 chars) is treated as the body when no other
     # body is available — the agenda text is there, just in the wrong column.
-    if not body_clean and len(item.title.strip()) >= 120:
+    #
+    # Issue #34: threshold lowered 120 → 60 once procedural detection runs
+    # first in pipeline.process_item. Previously 120 was a guard against
+    # procedural section headers being pulled through; now those are caught
+    # earlier by ``is_procedural`` before this fallback ever runs. 60 is
+    # tight enough to leave one-line procedural-leaning titles below the
+    # bar but loose enough to catch the BHM "CONSENT ITEM N. A Resolution
+    # approving the …" shape at 70–90 chars that was previously misrouted
+    # to data_quality_skipped.
+    if not body_clean and len(item.title.strip()) >= 60:
         body_clean = item.title.strip()
         body_from_title_fallback = True
 
@@ -105,7 +114,9 @@ PROCEDURAL_TITLE_PATTERNS = (
     r'^\s*adjournment',
     r'^\s*recess',
     r'^\s*approval\s+of\s+(prior|previous|the)?\s*minutes',
-    r'^\s*minutes\s+(not\s+)?(yet\s+)?(ready|available|received)\s*$',
+    # Issue #34: drop the end anchor so date follow-ons like
+    # "MINUTES NOT READY: February 3, 2026 – May 5, 2026" still match.
+    r'^\s*minutes\s+(not\s+)?(yet\s+)?(ready|available|received)\b',
     r'^\s*reading\s+of\s+(the\s+)?minutes',
     r'^\s*proclamations?\s*$',
     r'^\s*public\s+comment\s+period',
@@ -114,8 +125,14 @@ PROCEDURAL_TITLE_PATTERNS = (
     r'^\s*(vouchers?|bills?|payroll)\s+for\s+payment',
     r'^\s*approval\s+of\s+claims',
     r'^\s*recognition\s+of\s+(visitors?|guests?)',
-    r'^\s*awards?\s+and\s+presentations?',
+    r'^\s*(awards?\s+and\s+)?presentations?\s*$',
     r'^\s*reading\s+of\s+(communications?|petitions?)',
+    # Issue #34: bare Birmingham section headers that have no body —
+    # these are agenda-organization markers, not actionable items.
+    r'^\s*communications\s+from\s+the\s+(mayor|council)',
+    r'^\s*consideration\s+of\s+(ordinances?|resolutions?)',
+    r'^\s*(old|new)(\s+and\s+(old|new))?\s+business\s*$',
+    r'^\s*requests?\s+from\s+the\s+public',
 )
 
 # WITHDRAWN / DEFERRED / POSTPONED is a different category from

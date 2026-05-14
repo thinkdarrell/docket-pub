@@ -36,6 +36,23 @@ class TestIsProcedural:
         "Awards and Presentation",  # singular
         "Reading of Communications",
         "Reading of Petitions",
+        # Issue #34: colon-prefix variants where a name or date follows
+        "INVOCATION: Minister Jeanetta Perdue, New Life Church of God",
+        "PLEDGE OF ALLEGIANCE: Council Pro-Tempore LaTonya A. Tate",
+        "MINUTES NOT READY:  February 3, 2026 – May 5, 2026",
+        # Issue #34: bare BHM section headers
+        "COMMUNICATIONS FROM THE MAYOR",
+        "COMMUNICATIONS FROM THE COUNCIL",
+        "PRESENTATIONS",
+        "PRESENTATION",  # singular
+        "OLD AND NEW BUSINESS",
+        "OLD BUSINESS",
+        "NEW BUSINESS",
+        "REQUEST FROM THE PUBLIC",
+        "REQUESTS FROM THE PUBLIC",
+        "CONSIDERATION OF ORDINANCES AND RESOLUTIONS FOR FINAL PASSAGE",
+        "CONSIDERATION OF ORDINANCES",
+        "CONSIDERATION OF RESOLUTIONS",
     ])
     def test_procedural_titles_match(self, title: str):
         assert is_procedural(title), f"Should match: {title!r}"
