@@ -1157,3 +1157,18 @@ Five PRs, ordered. Each is independently deployable. Section D can ship before B
 - Per-pattern auto-approve rules (e.g. "always approve `surveillance_alpr` when `flock` appears in the title even when LLM didn't suggest it"). Would extend `deterministic_policy_match` with a "promote to applied" pattern set per badge.
 - Bulk approve/reject UI in admin queue (currently single-row only).
 - Tighten Haiku's prompt to suggest fewer badges (additive — strictness on the writer side keeps us safe regardless of prompt quality).
+
+---
+
+## Post-ship clarifications (2026-05-14)
+
+Retrospective audit of PRs #16–#21 surfaced one correction to PR #21's
+body, recorded here for the historical record:
+
+- **PR #21 claimed "no reader filters on withdrawn".** This was
+  incomplete. `services/query.list_agenda_items` was joining badges
+  with no `status='applied'` filter AND had no `processing_status`
+  filter — so flagged badges leaked + withdrawn items rendered as
+  pending on `/al/<slug>/meetings/<id>`. Fixed in **PR #23** (the
+  HIGH-severity reader-gate fix). The full retro lives at
+  `docs/superpowers/reviews/2026-05-14-refactor-2-retro-remediation.md`.

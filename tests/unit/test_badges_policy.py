@@ -3,7 +3,7 @@ layer (docket.services.badges).
 
 Coverage:
 - deterministic_policy_match: all trigger paths + guard paths
-- resolve_policy_badge_confidence: all 4 cases
+- decide_status_and_confidence: all 4 cases (refactor #2 SSOT)
 - resolve_source: all 3 valid cases + ValueError
 - compute_policy_badges: hint merging, hallucination filtering, metadata shapes
 - Service layer (real DB): hint merging, kind filtering, enabled flag, tuple
@@ -16,7 +16,6 @@ import pytest
 from docket.ai.badges_policy import (
     compute_policy_badges,
     deterministic_policy_match,
-    resolve_policy_badge_confidence,
     resolve_source,
 )
 from docket.ai.extraction_schema import NextSteps, StructuredFacts
@@ -274,28 +273,6 @@ class TestActionTypeAndTopicMatching:
         matched, meta = deterministic_policy_match(item, facts, make_rewrite(), {})
         assert matched is False
         assert meta == {}
-
-
-# ===========================================================================
-# resolve_policy_badge_confidence
-# ===========================================================================
-
-class TestResolvePolicyBadgeConfidence:
-    """Legacy shim now delegates to decide_status_and_confidence. Values
-    changed under refactor #2: deterministic-only is more trusted (0.8),
-    LLM-only is less trusted (0.4) and lands in the admin review queue."""
-
-    def test_both_returns_high_confidence(self):
-        assert resolve_policy_badge_confidence('blight', True, True) == 1.0
-
-    def test_llm_only_returns_low(self):
-        assert resolve_policy_badge_confidence('blight', True, False) == pytest.approx(0.4)
-
-    def test_det_only_returns_medium_high(self):
-        assert resolve_policy_badge_confidence('blight', False, True) == pytest.approx(0.8)
-
-    def test_neither_returns_none(self):
-        assert resolve_policy_badge_confidence('blight', False, False) is None
 
 
 class TestDecideStatusAndConfidence:

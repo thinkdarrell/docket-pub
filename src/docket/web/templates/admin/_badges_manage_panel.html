@@ -2,7 +2,7 @@
   HTMX swap target. Re-rendered by the add/remove POST endpoints.
   Caller must provide:
     - item.id, item.municipality_slug
-    - current: list of dicts {slug, kind, name, icon, confidence, source}
+    - current: list of dicts {slug, kind, name, icon, confidence, source, status}
     - addable: list of dicts {slug, kind, name, icon, description}
 #}
 <section id="badges-manage-panel" class="manage-panel">
@@ -15,6 +15,11 @@
       <li>
         <span class="manage-chip badge-{{ b.kind }}">
           {{ b.icon }} {{ b.name }}
+          {# Refactor #2 retro [LOW #7]: status chip so admins can
+             tell at a glance which badges are citizen-visible. #}
+          {% if b.status and b.status != 'applied' %}
+          <span class="manage-status manage-status-{{ b.status }}" title="Citizen visibility">{{ b.status }}</span>
+          {% endif %}
           <span class="manage-meta">({{ b.source }}{% if b.confidence is not none %}, conf {{ '%.2f'|format(b.confidence|float) }}{% endif %})</span>
         </span>
         <form hx-post="{{ url_for('admin.badge_remove', item_id=item.id, slug=b.slug) }}"

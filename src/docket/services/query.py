@@ -2444,11 +2444,18 @@ def list_badge_audit_log(
 
 
 def list_badges_on_item(item_id: int) -> list[dict]:
-    """Return active badges on a single agenda item, joined to template
-    metadata for display. Used by the G3 manage UI.
+    """Return all badges on a single agenda item, joined to template
+    metadata for display. Used by the G3 admin manage UI.
 
     Returns dicts with: ``slug``, ``kind``, ``confidence``, ``source``,
-    ``name``, ``description``, ``icon``. Empty list if no badges.
+    ``status``, ``name``, ``description``, ``icon``. Empty list if no
+    badges.
+
+    Refactor #2 retro [LOW #7]: ``status`` is surfaced so the admin
+    manage panel can show whether a badge is citizen-visible
+    (``applied``), in the review queue (``flagged``), or archived
+    (``rejected``). Without this column the admin couldn't tell which
+    rows in the manage panel were actually public.
     """
     with db_cursor() as cur:
         cur.execute(
@@ -2457,6 +2464,7 @@ def list_badges_on_item(item_id: int) -> list[dict]:
                    aib.kind,
                    aib.confidence,
                    aib.source,
+                   aib.status,
                    t.name,
                    t.description,
                    t.icon

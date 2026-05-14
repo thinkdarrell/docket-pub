@@ -86,19 +86,6 @@ def decide_status_and_confidence(
     return (None, None)
 
 
-def resolve_policy_badge_confidence(slug: str,
-                                      llm_suggested: bool,
-                                      deterministic_match: bool) -> float | None:
-    """Returns confidence value, or None if neither source fired.
-
-    Kept for the brief overlap while callers migrate to
-    decide_status_and_confidence (Task A3). Routes through the new
-    function so the contract stays in one place.
-    """
-    _, conf = decide_status_and_confidence(llm=llm_suggested, det=deterministic_match)
-    return conf
-
-
 def resolve_source(llm: bool, det: bool) -> str:
     if llm and det:
         return 'both'

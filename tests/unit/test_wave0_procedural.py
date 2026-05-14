@@ -50,16 +50,12 @@ class TestIsProcedural:
         # Pattern #10 false-positive guards: substantive items mentioning minutes
         "Approval of meeting minutes available online",
         "Resolution to make minutes available for download",
-        # Withdrawn-family items are NOT procedural (own category — see
-        # is_withdrawn_or_deferred). Procedural classifier must not
-        # claim them, otherwise they'd land in procedural_skipped and
-        # pollute that queue.
-        'P(ph) ITEM 1. WITHDRAWN An Ordinance "TO AMEND THE ZONING DISTRICT MAP"',
-        "CONSENT ITEM 11. WITHDRAWN PER O.C.A. A Resolution rescinding ...",
-        "P ITEM 5. DEFERRED to next meeting An Ordinance authorizing",
-        "P ITEM 12. POSTPONED A Resolution authorizing the Mayor to",
     ])
     def test_substantive_titles_dont_match(self, title: str):
+        # Withdrawn-family titles (WITHDRAWN/DEFERRED/POSTPONED) are
+        # routed by ``is_withdrawn_or_deferred`` BEFORE the procedural
+        # classifier runs — see ``wave0.run_wave_0``. Their positive
+        # coverage lives in ``TestIsWithdrawnOrDeferred`` below.
         assert not is_procedural(title), f"Should NOT match: {title!r}"
 
     def test_empty_title(self):
