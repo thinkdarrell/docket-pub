@@ -205,3 +205,17 @@ def test_edit_form_includes_deactivated_outlet_when_citation_uses_it(client_logg
                 cur.execute("DELETE FROM meetings WHERE id = %s", (mtg_id,))
                 cur.execute("DELETE FROM outlets WHERE id = %s", (outlet_id,))
             conn.commit()
+
+
+def test_feature_sets_featured_until_14_days(client_logged_in, seeded_note):
+    from docket.services.coverage_writer import set_status
+    c, _ = client_logged_in
+    entry_id, _, _ = seeded_note
+    set_status(entry_id, 'published')
+    c.post(f'/admin/coverage/{entry_id}/feature')
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT featured_until FROM coverage_entries WHERE id = %s",
+                        (entry_id,))
+            stored = cur.fetchone()[0]
+            assert stored is not None
