@@ -150,6 +150,11 @@ WITHDRAWN_TITLE_PATTERNS = (
     # shape. We anchor on the specific 4-token phrase to avoid matching
     # incidental "...to be withdrawn from..." text in bodies.
     r'^[a-z()./\s]*\bitem\s+\d+\.?\s+requested\s+to\s+be\s+(?:withdrawn|deferred|postponed)\b',
+    # Shape (c): prefix appears BEFORE the marker which still precedes
+    # the item number — e.g. "CONSENT(ph) WITHDRAWN ITEM 8.". The first
+    # prefix run must be non-empty so we don't redundantly match Shape B
+    # (which already handles bare marker-first titles).
+    r'^[a-z()./\s]+\b(?:withdrawn|deferred|postponed)\b[a-z()./\s]*\bitem\s+\d+\b',
 )
 
 _compiled_patterns = [re.compile(p, re.IGNORECASE) for p in PROCEDURAL_TITLE_PATTERNS]
