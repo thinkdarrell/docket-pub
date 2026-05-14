@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block title %}{{ note.body[:60] }}&hellip; &mdash; docket.pub{% endblock %}
+{% block content %}
+<article class="coverage-permalink">
+  {% include "partials/coverage_note.html" %}
+</article>
+{% endblock %}
