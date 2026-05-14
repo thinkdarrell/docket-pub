@@ -93,7 +93,15 @@ def reject_badge(badge_id: int):
 
 
 def _set_status_and_audit(badge_id: int, new_status: str, audit_action: str):
-    """Atomic status flip + audit row write in one connection."""
+    """Atomic status flip + audit row write in one connection.
+
+    Refactor #2 retro [MEDIUM #3]: the UPDATE is gated on
+    ``status='flagged'`` so two admins acting on the same row can't
+    both succeed. If the predicate matches no row we distinguish
+    "doesn't exist" (404) from "already triaged by another admin"
+    (409) — the second admin sees a real conflict, not a silent
+    duplicate audit row.
+    """
     actor = session.get("admin_user", "unknown")
     with db() as conn:
         with conn.cursor() as cur:
@@ -102,13 +110,18 @@ def _set_status_and_audit(badge_id: int, new_status: str, audit_action: str):
                 UPDATE agenda_item_badges
                    SET status = %s
                  WHERE id = %s
+                   AND status = 'flagged'
              RETURNING agenda_item_id, badge_slug
                 """,
                 (new_status, badge_id),
             )
             row = cur.fetchone()
             if row is None:
-                abort(404)
+                cur.execute(
+                    "SELECT 1 FROM agenda_item_badges WHERE id = %s",
+                    (badge_id,),
+                )
+                abort(409 if cur.fetchone() else 404)
             agenda_item_id, badge_slug = row
             cur.execute(
                 """

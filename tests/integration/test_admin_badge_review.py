@@ -296,6 +296,105 @@ def test_approve_404_for_unknown_badge(admin_client):
     assert rv.status_code == 404
 
 
+# ---------------------------------------------------------------------------
+# D.3 — concurrency guard (refactor #2 retro [MEDIUM #3])
+#
+# Two admins acting on the same flagged badge must not both succeed: the
+# second action must see 409 Conflict and write no audit row. The fix is
+# a status='flagged' predicate on the UPDATE; we simulate the race by
+# pre-seeding a badge in the post-action state and posting against it.
+# ---------------------------------------------------------------------------
+
+
+def test_approve_returns_409_when_badge_already_applied(admin_client, bag):
+    """Race: admin A already approved this badge (status='applied').
+    Admin B's approve must 409 and not write a duplicate audit row."""
+    m = bag.add_meeting("2026-04-15")
+    iid = bag.add_item(m, title="Already-approved race target")
+    badge_id = bag.add_badge(iid, "blight_accountability",
+                             status="applied", source="llm", confidence=0.4)
+
+    rv = admin_client.post(f"/admin/badge-review/{badge_id}/approve")
+    assert rv.status_code == 409
+
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT status FROM agenda_item_badges WHERE id = %s",
+            (badge_id,),
+        )
+        assert cur.fetchone()[0] == "applied"  # unchanged
+        cur.execute(
+            """SELECT count(*) FROM agenda_item_badges_audit
+                WHERE agenda_item_id = %s""",
+            (iid,),
+        )
+        assert cur.fetchone()[0] == 0, \
+            "409 path must not write an audit row"
+
+
+def test_approve_returns_409_when_badge_already_rejected(admin_client, bag):
+    """Race: admin A rejected; admin B's approve must 409 (you can't
+    silently un-reject — needs a deliberate re-flag flow if ever wanted)."""
+    m = bag.add_meeting("2026-04-15")
+    iid = bag.add_item(m, title="Already-rejected race target")
+    badge_id = bag.add_badge(iid, "blight_accountability",
+                             status="rejected", source="llm", confidence=0.4)
+
+    rv = admin_client.post(f"/admin/badge-review/{badge_id}/approve")
+    assert rv.status_code == 409
+
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT status FROM agenda_item_badges WHERE id = %s",
+            (badge_id,),
+        )
+        assert cur.fetchone()[0] == "rejected"
+        cur.execute(
+            """SELECT count(*) FROM agenda_item_badges_audit
+                WHERE agenda_item_id = %s""",
+            (iid,),
+        )
+        assert cur.fetchone()[0] == 0
+
+
+def test_reject_returns_409_when_badge_already_rejected(admin_client, bag):
+    """Race: admin A rejected; admin B's reject must 409."""
+    m = bag.add_meeting("2026-04-15")
+    iid = bag.add_item(m, title="Double-reject race target")
+    badge_id = bag.add_badge(iid, "blight_accountability",
+                             status="rejected", source="llm", confidence=0.4)
+
+    rv = admin_client.post(f"/admin/badge-review/{badge_id}/reject")
+    assert rv.status_code == 409
+
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT count(*) FROM agenda_item_badges_audit
+                WHERE agenda_item_id = %s""",
+            (iid,),
+        )
+        assert cur.fetchone()[0] == 0
+
+
+def test_reject_returns_409_when_badge_already_applied(admin_client, bag):
+    """Race: admin A approved; admin B's reject must 409 (won't quietly
+    flip an applied badge back to rejected — needs explicit re-flag)."""
+    m = bag.add_meeting("2026-04-15")
+    iid = bag.add_item(m, title="Applied-then-reject race target")
+    badge_id = bag.add_badge(iid, "blight_accountability",
+                             status="applied", source="llm", confidence=0.4)
+
+    rv = admin_client.post(f"/admin/badge-review/{badge_id}/reject")
+    assert rv.status_code == 409
+
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT status FROM agenda_item_badges WHERE id = %s",
+            (badge_id,),
+        )
+        assert cur.fetchone()[0] == "applied"
+
+
 def test_approve_requires_login(client, bag):
     """Anonymous POST → redirect to login."""
     m = bag.add_meeting("2026-04-15")
