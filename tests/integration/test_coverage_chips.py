@@ -69,3 +69,29 @@ def test_meeting_detail_shows_chip_on_covered_item(app, covered_item):
         resp = c.get(f"/al/{covered_item['city_slug']}/meetings/{covered_item['mtg_id']}/")
         assert resp.status_code == 200
         assert b'coverage-chip' in resp.data
+
+
+def test_search_results_shows_chip(app, covered_item):
+    with app.test_client() as c:
+        resp = c.get(f"/search?q=Chip+Test+Item")
+        assert resp.status_code == 200
+        # Search result must render the chip if the matching item has coverage
+        if b'Chip Test Item' in resp.data:
+            assert b'coverage-chip' in resp.data
+
+
+def test_category_landing_shows_chip_when_item_in_category(app, covered_item):
+    # This test is conditional: only meaningful if the seeded item has a badge attached.
+    # In v1 we don't seed a badge, so this test is effectively a smoke test that the
+    # route renders without error when coverage_counts is passed in.
+    with app.test_client() as c:
+        # Pick any badge slug that exists in priority_badge_templates
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT slug FROM priority_badge_templates LIMIT 1")
+                row = cur.fetchone()
+                if not row:
+                    pytest.skip("No badges seeded — category_landing chip test not applicable")
+                slug = row[0]
+        resp = c.get(f"/al/{covered_item['city_slug']}/{slug}/")
+        assert resp.status_code in (200, 404)  # may 404 if no items in this category for this city

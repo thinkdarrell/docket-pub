@@ -81,6 +81,8 @@
                 {% set display_title = item.headline or item.title %}
                 <div class="feed-meeting-title">
                     {{ display_title[:120] }}{% if display_title | length > 120 %}…{% endif %}
+                    {% set counts = (coverage_counts or {}).get(item.id, (0, 0)) %}
+                    {% include "partials/coverage_count_chip.html" %}
                 </div>
                 {% if item.summary %}
                 <p class="item-summary">{{ item.summary }}</p>

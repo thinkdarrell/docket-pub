@@ -148,6 +148,10 @@ def _city_overview_render(slug, municipality, now_ts):
         for b in query.list_process_badges()
     ]
 
+    from docket.services.query import coverage_counts_for_items
+    notable_item_ids = [it['id'] for it in notable if 'id' in it]
+    coverage_counts = coverage_counts_for_items(notable_item_ids)
+
     rendered = render_template(
         "city.html",
         municipality=municipality,
@@ -164,6 +168,7 @@ def _city_overview_render(slug, municipality, now_ts):
         city_policy_badges=city_policy_badges,
         process_badges=process_badges,
         now=datetime.now(),
+        coverage_counts=coverage_counts,
     )
     _overview_cache[slug] = (now_ts, rendered)
     return rendered
@@ -436,6 +441,9 @@ def category_landing(slug: str, badge_slug: str):
     # year ticks, dropdown re-render) and resolves S9 (post-swap
     # dropdown unsync). Non-HTMX requests fall through to the full
     # page render so deep links / bookmarks render unchanged.
+    from docket.services.query import coverage_counts_for_items
+    coverage_counts = coverage_counts_for_items([it.id for it in items])
+
     if request.headers.get("HX-Request") == "true":
         return render_template(
             "partials/_item_list.html",
@@ -451,6 +459,7 @@ def category_landing(slug: str, badge_slug: str):
             # item ref per card via the shared meta strip (no-op on
             # meeting-detail surfaces where show_meeting_context is unset).
             show_meeting_context=True,
+            coverage_counts=coverage_counts,
         )
 
     return render_template(
@@ -472,6 +481,7 @@ def category_landing(slug: str, badge_slug: str):
         active_month_label=active_month_label,
         args_without_month=args_without_month,
         show_meeting_context=True,
+        coverage_counts=coverage_counts,
     )
 
 
@@ -753,6 +763,10 @@ def search():
 
     municipalities = query.list_municipalities()
 
+    from docket.services.query import coverage_counts_for_items
+    result_ids = [it['id'] if isinstance(it, dict) else it.id for it in results]
+    coverage_counts = coverage_counts_for_items(result_ids)
+
     return render_template(
         "search.html",
         query=q,
@@ -760,6 +774,7 @@ def search():
         city=city,
         municipalities=municipalities,
         page=page,
+        coverage_counts=coverage_counts,
     )
 
 
@@ -824,6 +839,10 @@ def topic_detail(topic):
         offset=offset,
     )
 
+    from docket.services.query import coverage_counts_for_items
+    topic_item_ids = [it['id'] if isinstance(it, dict) else it.id for it in items]
+    coverage_counts = coverage_counts_for_items(topic_item_ids)
+
     return render_template(
         "topic_detail.html",
         topic=topic,
@@ -831,6 +850,7 @@ def topic_detail(topic):
         items=items,
         city=city,
         page=page,
+        coverage_counts=coverage_counts,
     )
 
 
