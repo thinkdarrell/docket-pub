@@ -9,8 +9,23 @@ Verifies:
 
 from __future__ import annotations
 
+import pytest
+
 from docket.db import db
 from docket.migrations.runner import apply_migrations, rollback_migration
+
+
+@pytest.fixture(autouse=True)
+def _restore_schema_after_migration_test():
+    """Refactor #2 retro (out-of-band): migration tests intentionally
+    mutate schema. If a rollback path breaks mid-flight, the test DB
+    is left half-down and every downstream integration test file
+    fails until the schema is repaired. This autouse fixture always
+    re-applies all migrations after each test in this module so one
+    bad rollback can no longer cascade into the rest of the suite."""
+    yield
+    with db() as conn:
+        apply_migrations(conn)
 
 
 def test_013_applies_cleanly():
@@ -87,7 +102,20 @@ def test_013_search_vector_trigger_fires_on_insert():
         apply_migrations(conn)
 
         with conn.cursor() as cur:
-            cur.execute("SELECT id FROM meetings LIMIT 1")
+            # Seed a meeting inline so the test doesn't depend on any
+            # pre-existing data in the local DB (fresh DBs are empty).
+            cur.execute(
+                """
+                INSERT INTO meetings
+                  (municipality_id, title, meeting_date, meeting_type)
+                VALUES (
+                  (SELECT id FROM municipalities WHERE slug = 'birmingham'),
+                  'Migration 013 search-vector trigger test',
+                  '2026-04-15', 'council'
+                )
+                RETURNING id
+                """
+            )
             meeting_id = cur.fetchone()[0]
 
             cur.execute("""
@@ -100,8 +128,9 @@ def test_013_search_vector_trigger_fires_on_insert():
             # tsvector representation contains the lexemes
             assert "title" in str(sv).lower() or "test" in str(sv).lower()
 
-            # Cleanup
+            # Cleanup in FK order
             cur.execute("DELETE FROM agenda_items WHERE id = %s", [new_id])
+            cur.execute("DELETE FROM meetings WHERE id = %s", [meeting_id])
 
 
 def test_013_up_down_up_cycle():
@@ -109,11 +138,13 @@ def test_013_up_down_up_cycle():
     with db() as conn:
         apply_migrations(conn)
         # Rollback later migrations whose objects depend on 13's columns
-        # (mv_city_backfill_ratio in 025 reads ai.ai_rewrite_version, so
-        # dropping that column from 13's SQL_DOWN cascades-fails unless
-        # 025 is rolled back first). Add new entries here as later
-        # migrations introduce dependents.
-        for v in (25, 24, 23, 22, 21):
+        # or tables. Examples: mv_city_backfill_ratio in 025 reads
+        # ai.ai_rewrite_version; coverage_subject_links in 027 has an FK
+        # to priority_badge_templates(slug). Drop dependents in reverse
+        # order so each rollback runs against a self-consistent schema.
+        # Add new entries to the head as later migrations introduce
+        # dependents on 13's objects.
+        for v in (28, 27, 26, 25, 24, 23, 22, 21):
             try:
                 rollback_migration(conn, v)
             except Exception:
