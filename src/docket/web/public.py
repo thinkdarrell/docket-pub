@@ -936,6 +936,15 @@ def coverage_listing():
     )
 
 
+@bp.route("/coverage.rss", methods=["GET"])
+def coverage_rss():
+    """RSS 2.0 feed of the last 50 published editorial coverage entries."""
+    from docket.services.query import list_published_coverage
+    entries, _ = list_published_coverage(page=1, page_size=50)
+    xml = render_template("coverage/feed.xml.j2", entries=entries)
+    return Response(xml, mimetype='application/rss+xml')
+
+
 @bp.route("/coverage/<int:coverage_id>", methods=["GET"])
 def coverage_permalink(coverage_id: int):
     """Permalink for a published note. 404 for citations or non-published entries.

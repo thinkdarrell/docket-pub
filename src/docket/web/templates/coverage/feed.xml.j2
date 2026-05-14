@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>docket.pub — Editorial Coverage</title>
+    <description>Notes and press citations on Alabama municipal meetings.</description>
+    <link>{{ url_for('public.coverage_listing', _external=True) }}</link>
+    <atom:link href="{{ url_for('public.coverage_rss', _external=True) }}"
+               rel="self" type="application/rss+xml" />
+    {% for entry in entries %}
+    <item>
+      {% if entry.kind == 'note' %}
+        <title>{{ (entry.body or '')[:80] }}</title>
+        <link>{{ url_for('public.coverage_permalink', coverage_id=entry.id, _external=True) }}</link>
+        <description><![CDATA[{{ entry.body }}]]></description>
+        <guid isPermaLink="true">{{ url_for('public.coverage_permalink', coverage_id=entry.id, _external=True) }}</guid>
+      {% else %}
+        <title>[{{ entry.outlet_name }}] {{ entry.headline }}</title>
+        <link>{{ entry.external_url }}</link>
+        <description><![CDATA[{{ entry.excerpt or '' }}{% if entry.reporter_byline %} — by {{ entry.reporter_byline }}{% endif %}]]></description>
+        <guid isPermaLink="false">docket-coverage-{{ entry.id }}</guid>
+      {% endif %}
+      {% if entry.published_at %}
+      <pubDate>{{ entry.published_at.strftime('%a, %d %b %Y %H:%M:%S +0000') }}</pubDate>
+      {% endif %}
+    </item>
+    {% endfor %}
+  </channel>
+</rss>
