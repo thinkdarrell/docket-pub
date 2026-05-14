@@ -39,6 +39,61 @@ def test_unknown_model_raises():
         calculate_cost_usd("not-a-model", usage)
 
 
+# ===========================================================================
+# Usage capture (issue #33): tracks per-model LLM usage emitted by the v3
+# pipeline so worker._process_items_v3 can populate ai_runs.cost_usd and
+# enforce AI_DAILY_BUDGET_USD.
+# ===========================================================================
+
+
+def test_usage_capture_collects_emitted_usage():
+    from docket.ai.pricing import track_usage, usage_capture
+
+    with usage_capture() as sink:
+        track_usage("claude-haiku-4-5-20251001",
+                    Usage(input_tokens=1000, cache_creation_input_tokens=0,
+                          cache_read_input_tokens=0, output_tokens=500))
+        track_usage("claude-haiku-4-5-20251001",
+                    Usage(input_tokens=200, cache_creation_input_tokens=0,
+                          cache_read_input_tokens=0, output_tokens=100))
+
+    assert len(sink) == 2
+    assert sink[0][0] == "claude-haiku-4-5-20251001"
+    assert sink[0][1].input_tokens == 1000
+    assert sink[1][1].output_tokens == 100
+
+
+def test_track_usage_outside_capture_is_a_no_op():
+    from docket.ai.pricing import track_usage
+
+    # Should not raise. Called from extraction.py/rewrite.py at module
+    # init time (test imports, admin paths) where no capture is active.
+    track_usage("claude-haiku-4-5-20251001",
+                Usage(input_tokens=1, cache_creation_input_tokens=0,
+                      cache_read_input_tokens=0, output_tokens=1))
+
+
+def test_usage_capture_isolates_nested_blocks():
+    """Inner capture sees inner emits; outer capture sees its own only."""
+    from docket.ai.pricing import track_usage, usage_capture
+
+    outer_usage = Usage(input_tokens=100, cache_creation_input_tokens=0,
+                        cache_read_input_tokens=0, output_tokens=10)
+    inner_usage = Usage(input_tokens=200, cache_creation_input_tokens=0,
+                        cache_read_input_tokens=0, output_tokens=20)
+
+    with usage_capture() as outer:
+        track_usage("claude-haiku-4-5-20251001", outer_usage)
+        with usage_capture() as inner:
+            track_usage("claude-haiku-4-5-20251001", inner_usage)
+
+        assert len(inner) == 1
+        assert inner[0][1].input_tokens == 200
+        # Outer must NOT see the inner emit.
+        assert len(outer) == 1
+        assert outer[0][1].input_tokens == 100
+
+
 def test_sonnet_present():
     """Sonnet 4.6 has a pricing entry."""
     assert "claude-sonnet-4-6" in PRICING

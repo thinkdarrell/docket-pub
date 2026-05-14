@@ -236,7 +236,13 @@ from docket.ai.exceptions import (
     AIRateLimited,
     AITransientError,
 )
-from docket.ai.pricing import Usage, calculate_cost_usd, usage_add, usage_to_jsonb
+from docket.ai.pricing import (
+    Usage,
+    calculate_cost_usd,
+    usage_add,
+    usage_capture,
+    usage_to_jsonb,
+)
 from docket.config import (
     ANTHROPIC_API_KEY,
     AI_DAILY_BUDGET_USD,
@@ -481,13 +487,16 @@ def _process_items_v3(conn, limit: int, summary: RunSummary) -> None:
 
     Differs from v2 (_process_items):
       - No AIClient argument (extract/rewrite have module-level clients).
-      - No usage tracking — v3 pipeline doesn't thread the Usage struct
-        through extraction.py/rewrite.py yet (B5 v1 gap; flag as
-        follow-up). summary.cost_usd stays at 0.0; summary.rows_processed
-        counts items, summary.rows_failed counts permanent failures.
       - Per-row commit after pipeline.process_item returns. Lock from
         claim_items_v3_sql is held across the LLM calls (same shape
         as v2). Single-instance worker assumption preserved.
+
+    Cost telemetry (issue #33): each item is wrapped in a
+    ``usage_capture`` block; extraction.py and rewrite.py emit a
+    ``(model, usage)`` pair after every Anthropic call, and we
+    accumulate per-model totals into ``summary.usage`` /
+    ``summary.cost_usd``. Without this, ``ai_runs.cost_usd`` records
+    $0 for v3 runs and ``AI_DAILY_BUDGET_USD`` is silently bypassed.
 
     Spec: section 7.5, decisions #45, #57.
     """
@@ -525,7 +534,20 @@ def _process_items_v3(conn, limit: int, summary: RunSummary) -> None:
             # Without this, the pipeline opens a fresh db() connection
             # that blocks forever on the row lock (#57 — no PG deadlock
             # detection because there's no cycle in the wait graph).
-            pipeline.process_item(item, conn=conn)
+            with usage_capture() as emissions:
+                pipeline.process_item(item, conn=conn)
+            # Aggregate per-model so calculate_cost_usd gets the right
+            # rate per emission. In current prod, every emission is the
+            # same Haiku item_model, but keying by served_model future-
+            # proofs against multi-model items.
+            per_model: dict[str, Usage] = {}
+            for model, u in emissions:
+                per_model[model] = usage_add(
+                    per_model.get(model, Usage(0, 0, 0, 0)), u,
+                )
+            for model, u in per_model.items():
+                summary.usage = usage_add(summary.usage, u)
+                summary.cost_usd += calculate_cost_usd(model, u)
             summary.rows_processed += 1
             conn.commit()
         except AIRateLimited:

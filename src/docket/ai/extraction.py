@@ -22,8 +22,30 @@ from pydantic import ValidationError
 from docket.ai.cache import cache_get, cache_key, cache_put
 from docket.ai.exceptions import AIPermanentRowError
 from docket.ai.extraction_schema import StructuredFacts
+from docket.ai.pricing import Usage, track_usage
 
 log = logging.getLogger(__name__)
+
+
+def _emit_usage(response, served_model: str) -> None:
+    """Read usage off the Anthropic response and emit it for telemetry.
+
+    Issue #33: shared between extraction.py and rewrite.py via this
+    module's local copy. Lives here (not in pricing.py) because the
+    response-shape coercion is API-specific — the producer knows how to
+    read its own response object; pricing.py just collects what's
+    handed in.
+    """
+    u = getattr(response, "usage", None)
+    if u is None:
+        return
+    usage = Usage(
+        input_tokens=getattr(u, "input_tokens", 0) or 0,
+        cache_creation_input_tokens=getattr(u, "cache_creation_input_tokens", 0) or 0,
+        cache_read_input_tokens=getattr(u, "cache_read_input_tokens", 0) or 0,
+        output_tokens=getattr(u, "output_tokens", 0) or 0,
+    )
+    track_usage(served_model, usage)
 
 
 def _truncate_overlong_strings(
@@ -293,6 +315,11 @@ def extract_facts_for_item(item, *, model: str = "claude-haiku-4-5-20251001") ->
 
     # Anthropic may serve a slightly different model variant; key off that
     served_model = response.model
+
+    # Issue #33: emit usage so the v3 worker can roll it into
+    # ai_runs.cost_usd and enforce AI_DAILY_BUDGET_USD. No-op outside a
+    # ``usage_capture`` block (admin paths, tests, CLI one-offs).
+    _emit_usage(response, served_model)
 
     payload = _extract_tool_input(response, STAGE1_TOOL["name"])
     item_id = getattr(item, "id", "?")

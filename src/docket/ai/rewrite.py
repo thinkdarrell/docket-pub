@@ -21,7 +21,7 @@ from pydantic import ValidationError
 
 from docket.ai.cache import cache_get, cache_key, cache_put
 from docket.ai.exceptions import AIPermanentRowError
-from docket.ai.extraction import _coerce_unknown_enums, _truncate_overlong_strings
+from docket.ai.extraction import _coerce_unknown_enums, _emit_usage, _truncate_overlong_strings
 from docket.ai.extraction_schema import StructuredFacts
 from docket.ai.rewrite_schema import ItemRewrite
 
@@ -267,6 +267,9 @@ def _retry_with_assertion_feedback(
         ],
         messages=[{"role": "user", "content": user_msg}],
     )
+    # Issue #33: track the retry's cost so the budget cap sees every
+    # billable call, not just the first one.
+    _emit_usage(response, getattr(response, "model", model))
     return _extract_tool_input(response, STAGE2_TOOL["name"])
 
 
@@ -350,6 +353,10 @@ def rewrite_item(
 
     # Anthropic may serve a slightly different model variant; key off that
     served_model = response.model
+
+    # Issue #33: emit usage so the v3 worker can populate ai_runs.cost_usd
+    # and enforce AI_DAILY_BUDGET_USD. No-op outside a ``usage_capture``.
+    _emit_usage(response, served_model)
 
     payload = _extract_tool_input(response, STAGE2_TOOL["name"])
     item_id = getattr(item, "id", "?")
