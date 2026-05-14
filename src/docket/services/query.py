@@ -2487,3 +2487,113 @@ def list_upcoming_hearings(city_id: int, *, days_ahead: int = 60, limit: int = 5
             (city_id, days_ahead, city_id, days_ahead, limit),
         )
         return [dict(row) for row in cur.fetchall()]
+
+
+# ============================================================================
+# Editorial Coverage (Migration 027)
+# ============================================================================
+# Spec: docs/superpowers/specs/2026-05-13-editorial-coverage-design.md
+# Modularity refactor will relocate this section to services/query/coverage.py
+# during PR 0.2 (services/query.py decomposition). Keep imports local and
+# clearly grouped to make that extraction mechanical.
+
+from docket.models.coverage import (
+    CoverageEntry,
+    CoverageSubjectLink,
+    CoverageSubjectType,
+)
+
+
+def _hydrate_coverage_rows(cur) -> list[CoverageEntry]:
+    """Convert cursor rows into CoverageEntry instances. Caller must have
+    selected the full row + author + outlet hydration columns in the right
+    order — see queries below."""
+    out: list[CoverageEntry] = []
+    for r in cur.fetchall():
+        out.append(CoverageEntry(
+            id=r['id'], kind=r['kind'], status=r['status'], source=r['source'],
+            body=r['body'], partner_credit=r['partner_credit'],
+            outlet_id=r['outlet_id'], external_url=r['external_url'],
+            headline=r['headline'], reporter_byline=r['reporter_byline'],
+            excerpt=r['excerpt'], article_published_at=r['article_published_at'],
+            author_id=r['author_id'], byline=r['byline'],
+            created_at=r['created_at'], updated_at=r['updated_at'],
+            published_at=r['published_at'], featured_until=r['featured_until'],
+            author_display_name=r['author_display_name'],
+            author_username=r['author_username'],
+            outlet_slug=r.get('outlet_slug'),
+            outlet_name=r.get('outlet_name'),
+        ))
+    return out
+
+
+_COVERAGE_SELECT = """
+    SELECT ce.id, ce.kind, ce.status, ce.source,
+           ce.body, ce.partner_credit,
+           ce.outlet_id, ce.external_url, ce.headline,
+           ce.reporter_byline, ce.excerpt, ce.article_published_at,
+           ce.author_id, ce.byline,
+           ce.created_at, ce.updated_at, ce.published_at, ce.featured_until,
+           au.display_name AS author_display_name,
+           au.username     AS author_username,
+           o.slug          AS outlet_slug,
+           o.name          AS outlet_name
+      FROM coverage_entries ce
+      JOIN admin_users au ON au.id = ce.author_id
+ LEFT JOIN outlets o ON o.id = ce.outlet_id
+"""
+
+
+def coverage_for_subject(
+    subject_type: CoverageSubjectType,
+    subject_id: int | None = None,
+    subject_slug: str | None = None,
+) -> list[CoverageEntry]:
+    """Return published coverage entries attached to one subject.
+
+    Exactly one of ``subject_id`` or ``subject_slug`` must be set; the choice
+    is gated by ``subject_type`` (badge → slug; others → id).
+
+    Notes are returned first (newest published_at first), then citations
+    (newest article_published_at first). Matches the template's render order.
+    """
+    if subject_type == 'badge':
+        if subject_slug is None:
+            raise ValueError("subject_slug required when subject_type='badge'")
+        where = "csl.subject_type = 'badge' AND csl.subject_slug = %s"
+        params = (subject_slug,)
+    else:
+        if subject_id is None:
+            raise ValueError(f"subject_id required when subject_type={subject_type!r}")
+        where = "csl.subject_type = %s AND csl.subject_id = %s"
+        params = (subject_type, subject_id)
+
+    sql = _COVERAGE_SELECT + f"""
+        JOIN coverage_subject_links csl ON csl.coverage_id = ce.id
+       WHERE {where}
+         AND ce.status = 'published'
+       ORDER BY ce.kind ASC,                          -- 'citation' > 'note' alphabetically
+                CASE WHEN ce.kind = 'note'
+                     THEN ce.published_at
+                     ELSE ce.article_published_at::timestamptz
+                END DESC NULLS LAST
+    """
+    # ORDER BY kind ASC puts 'citation' after 'note' alphabetically ('citation' < 'note'
+    # is false → 'citation' sorts before 'note' actually); fix by mapping:
+    # We want notes first. 'citation' < 'note' alphabetically, so ASC gives citations first.
+    # Re-do via explicit CASE:
+    sql = _COVERAGE_SELECT + f"""
+        JOIN coverage_subject_links csl ON csl.coverage_id = ce.id
+       WHERE {where}
+         AND ce.status = 'published'
+       ORDER BY CASE WHEN ce.kind = 'note' THEN 0 ELSE 1 END ASC,
+                CASE WHEN ce.kind = 'note'
+                     THEN ce.published_at
+                     ELSE ce.article_published_at::timestamptz
+                END DESC NULLS LAST
+    """
+
+    from docket.db import db_cursor
+    with db_cursor() as cur:
+        cur.execute(sql, params)
+        return _hydrate_coverage_rows(cur)
