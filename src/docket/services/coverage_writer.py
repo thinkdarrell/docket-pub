@@ -103,6 +103,32 @@ def create_citation(
         return entry_id
 
 
+ALLOWED_STATUS = {'draft', 'proposed', 'published', 'rejected'}
+
+
+def set_status(coverage_id: int, status: str) -> None:
+    """Transition a coverage entry to ``status``.
+
+    Side-effects on ``published``:
+    - sets ``published_at = NOW()`` if currently NULL
+    - snapshots ``byline`` from the author's ``display_name OR username`` if
+      currently NULL (the snapshot rule; preserves any prior snapshot)
+    """
+    if status not in ALLOWED_STATUS:
+        raise ValueError(f"Invalid status: {status!r}")
+    with db_cursor() as cur:
+        cur.execute(
+            "UPDATE coverage_entries SET status = %s, updated_at = NOW() "
+            "WHERE id = %s RETURNING author_id",
+            (status, coverage_id),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise LookupError(f"Coverage entry {coverage_id} not found")
+        if status == 'published':
+            _set_publish_state(cur, coverage_id, row['author_id'])
+
+
 def _set_publish_state(cur, coverage_id: int, author_id: int) -> None:
     """Populate published_at + byline snapshot for a newly-published entry.
 

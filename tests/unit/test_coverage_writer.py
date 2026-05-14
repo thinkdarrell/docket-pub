@@ -89,6 +89,60 @@ def test_create_note_inserts_entry_and_subjects(seeded_admin, seeded_item):
         _cleanup_entry(entry_id)
 
 
+def test_set_status_to_published_snapshots_byline(seeded_admin, seeded_item):
+    from docket.services.coverage_writer import create_note, set_status
+    _, item_id = seeded_item
+    entry_id = create_note(
+        author_id=seeded_admin,
+        body='Body text.',
+        partner_credit=None,
+        subjects=[('agenda_item', item_id, None)],
+    )
+    try:
+        set_status(entry_id, 'published')
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT status, byline, published_at FROM coverage_entries WHERE id = %s",
+                    (entry_id,),
+                )
+                row = cur.fetchone()
+                assert row[0] == 'published'
+                assert row[1] == 'Writer Test'  # display_name of seeded_admin
+                assert row[2] is not None
+    finally:
+        _cleanup_entry(entry_id)
+
+
+def test_set_status_preserves_byline_on_republish(seeded_admin, seeded_item):
+    from docket.services.coverage_writer import create_note, set_status
+    _, item_id = seeded_item
+    entry_id = create_note(
+        author_id=seeded_admin,
+        body='Body.',
+        partner_credit=None,
+        subjects=[('agenda_item', item_id, None)],
+    )
+    try:
+        set_status(entry_id, 'published')
+        # Now change display_name and republish — byline should NOT update
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE admin_users SET display_name = 'New Name' WHERE id = %s",
+                    (seeded_admin,),
+                )
+            conn.commit()
+        set_status(entry_id, 'draft')
+        set_status(entry_id, 'published')
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT byline FROM coverage_entries WHERE id = %s", (entry_id,))
+                assert cur.fetchone()[0] == 'Writer Test'  # preserved from first publish
+    finally:
+        _cleanup_entry(entry_id)
+
+
 def test_create_citation_inserts_entry_with_outlet(seeded_admin, seeded_item):
     from docket.services.coverage_writer import create_citation
     _, item_id = seeded_item
