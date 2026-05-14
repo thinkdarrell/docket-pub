@@ -40,44 +40,47 @@ Mobile (Plan A) responsive CSS ships alongside desktop CSS in each phase — not
 
 ## Phase 1 — Foundation
 
-Touches every page lightly. Lands as one PR.
+**Scope shrunk after codebase audit (2026-05-14).** Most "foundation" infrastructure already exists in production — see "Already implemented" below. P1 lands only the genuinely-missing pieces.
 
-### Design tokens (`src/docket/web/static/css/styles.css`)
-- **Type scale:** hero 64px, section 28px, card 17px, body 15px, eyebrow 10px (mono caps), mono numeric 26px (KPI/NumStat values). Mobile hero drops to 44px.
-- **Fonts:** Source Serif 4 (display + body), IBM Plex Sans (UI/labels), JetBrains Mono (code/numeric). All already loaded.
-- **Spacing scale:** 4 / 8 / 12 / 16 / 24 / 32 / 48 / 64. No off-scale magic numbers.
-- **Colors:** existing OKLCH tokens kept. Tier colors (green/yellow/orange/red) unchanged.
+### Already implemented (NOT touched in P1)
+- Bottom tab bar: `partials/bottom_tabs.html` is fully wired (5 tabs: City / Meetings / Topics / Council / More; aria-current handling; More opens a `<dialog>` action sheet).
+- Source sheet: `partials/source_sheet.html` exists and is included in `base.html`.
+- Mobile search icon: `masthead.html:46-54` already collapses search to an icon button at mobile widths.
+- Breadcrumbs: `masthead.html:57-63` already renders crumbs for city-scoped pages via a `{% block crumb %}` Jinja block (no new partial needed).
+- Fonts: Source Serif 4, IBM Plex Sans, JetBrains Mono all loaded in `base.html:10`.
+- OKLCH color tokens, t-display/t-eyebrow/t-mono/t-meta/t-label type classes — all defined in `styles.css`.
+- `mobile.css` loads last, `@media (max-width:768px)` rules win at narrow widths.
+- Per-page `<link rel="stylesheet">` order is correct.
 
-### Masthead (`src/docket/web/templates/partials/masthead.html`)
-- One row: brand + city switcher + nav (Overview / Meetings / Legislation / Members) + search.
-- The "What is this?" narrative slot is **deleted** — it lives at `/about/`.
-- Breadcrumb trail renders below masthead.
+### Genuinely missing — what P1 actually does
 
-### Footer (`src/docket/web/templates/partials/footer.html`)
-- Desktop: 4 columns (About / Citizens / Journalists / Trust).
-- Mobile: collapses to accordion; first section open by default.
+#### 1. Design tokens (`src/docket/web/static/styles.css`)
+Add to `:root`:
+- **Type-scale variables:** `--type-hero: 64px`, `--type-hero-mobile: 44px`, `--type-section: 28px`, `--type-card: 17px`, `--type-body: 15px`, `--type-eyebrow: 10px`, `--type-mono-num: 26px`. Used by P3+ when new partials and rebuilt pages reference them.
+- **Spacing-scale variables:** `--space-1: 4px`, `--space-2: 8px`, `--space-3: 12px`, `--space-4: 16px`, `--space-6: 24px`, `--space-8: 32px`, `--space-12: 48px`, `--space-16: 64px`. Off-scale values discouraged in new partials.
 
-### Mobile chrome
-- Bottom tab bar appears `<768px`: 5 fixed tabs — City, Meetings, Topics, Council, More. Glass/blur background. Above sheet, below modal.
-- Search collapses to icon (routes to `/search`, no inline input).
-- Breakpoint = 768px hard cutoff. No tablet intermediate; tablets get desktop, landscape phones get mobile.
+#### 2. Footer mobile accordion (`src/docket/web/templates/partials/footer.html` + `tweaks.css`)
+- Wrap each `.footnote-col` body in `<details>` / `<summary>`. First column gets `open` attribute.
+- CSS in `tweaks.css`: at `min-width: 769px`, force-show content + hide disclosure arrow (`pointer-events: none` on summary, `::marker { display: none }`, `> *:not(summary) { display: block }`). At `max-width: 768px`, render as normal accordion with `+`/`−` indicator.
+- Colophon and bottom strip are NOT accordioned — they stay flat.
 
-### Files touched
-- `src/docket/web/templates/base.html`
-- `src/docket/web/templates/partials/masthead.html`, `partials/footer.html`
-- `src/docket/web/static/css/styles.css` (tokens)
-- `src/docket/web/static/css/layout.css` (masthead, footer, breadcrumb)
-- `src/docket/web/static/css/mobile.css` (tab bar, sheet z-indexing, breakpoint)
-- New: `src/docket/web/static/js/tabs.js` (active tab state from URL)
+### Spec corrections (do not implement; here for record)
+- **Footer stays 2 columns + colophon** (not 4). The original "4 columns (About / Citizens / Journalists / Trust)" target was aspirational from the sketch synthesis; production has 2 columns with real copy and a colophon. Adding "Journalists" / "Trust" columns needs copy authorship — out of scope for the visual refactor.
+- **Drop "Legislation" from masthead nav.** No `/legislation` route exists; the existing per-city nav (Overview / Meetings / Members) is correct.
+- **No new `breadcrumbs.html` partial.** Existing `{% block crumb %}` block in `masthead.html` is the right pattern; new pages override it.
 
-### Deleted
-- Hero narrative block in `base.html`
-- Large city-name banner on city pages (relocates to compressed `CityLead` in P3)
+### Files touched in P1
+- `src/docket/web/static/styles.css` (token additions)
+- `src/docket/web/templates/partials/footer.html` (wrap cols in `<details>`)
+- `src/docket/web/static/tweaks.css` (accordion CSS)
+
+That's it. Three files. ~80 lines of changes total.
 
 ### Verification
-- Every page renders with new fonts/spacing.
-- No layout breakage on existing templates.
-- Mobile tab bar visible at `<768px`, hidden at `≥768px`.
+- Tokens are visible in browser devtools `:root` inspector.
+- Footer renders identically at desktop (≥769px) — 2 columns, all content visible, no disclosure arrows.
+- Footer at mobile (<768px) shows first column open, others collapsed; tapping summary expands.
+- No pytest regressions (existing suite must pass).
 
 ---
 
