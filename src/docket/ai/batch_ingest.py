@@ -48,6 +48,7 @@ from docket.ai.extraction import (
     _coerce_unknown_enums,
     _truncate_overlong_strings,
 )
+from docket.ai.pricing import Usage, calculate_cost_usd, usage_add
 from docket.ai.extraction_schema import StructuredFacts
 from docket.ai.pipeline import finalize_from_rewrite
 from docket.ai.rewrite import STAGE2_TOOL
@@ -291,6 +292,11 @@ def ingest_batch(anthropic_batch_id: str) -> dict:
     succeeded = 0
     errored = 0
     skipped = 0
+    # Per-model usage accumulator. Anthropic Batches API only bills successful
+    # results, so we only add to this on the `succeeded` path below. After the
+    # loop we compute the total cost via the project's pricing table and write
+    # it to ai_batches.cost_usd alongside ingested_at.
+    total_usage_by_model: dict[str, Usage] = {}
 
     client = anthropic.Anthropic()
     for result in client.messages.batches.results(anthropic_batch_id):
@@ -330,22 +336,46 @@ def ingest_batch(anthropic_batch_id: str) -> dict:
                 skipped += 1
                 continue
             succeeded += 1
+            # Accumulate usage for cost telemetry. Anthropic's SDK exposes
+            # cache_* fields as None when the request didn't hit cache; coerce
+            # to 0 so usage_add stays well-typed.
+            mu = getattr(message, "usage", None)
+            if mu is not None:
+                u = Usage(
+                    input_tokens=mu.input_tokens or 0,
+                    cache_creation_input_tokens=(getattr(mu, "cache_creation_input_tokens", 0) or 0),
+                    cache_read_input_tokens=(getattr(mu, "cache_read_input_tokens", 0) or 0),
+                    output_tokens=mu.output_tokens or 0,
+                )
+                model = getattr(message, "model", "") or ""
+                if model in total_usage_by_model:
+                    total_usage_by_model[model] = usage_add(total_usage_by_model[model], u)
+                else:
+                    total_usage_by_model[model] = u
         except AIPermanentRowError as e:
             log.warning("ingest_batch: item=%s permanent failure: %s", item_id, e)
             _mark_failed_permanent(item_id, str(e))
             errored += 1
 
+    # Compute the total batch cost from per-model usage. An unknown model name
+    # raises KeyError from calculate_cost_usd — that's intentional (we want to
+    # learn about pricing-table gaps loudly, not silently log $0). If you hit
+    # this, add the new model to docket/ai/pricing.py:PRICING.
+    total_cost_usd = 0.0
+    for model, agg in total_usage_by_model.items():
+        total_cost_usd += calculate_cost_usd(model, agg)
+
     # Mark the batch as ingested so subsequent poll_and_ingest passes
     # don't reprocess it. Idempotent via the predicate at the top.
     with db() as conn, conn.cursor() as cur:
         cur.execute(
-            "UPDATE ai_batches SET ingested_at = NOW() WHERE id = %s",
-            [batch_pk],
+            "UPDATE ai_batches SET ingested_at = NOW(), cost_usd = %s WHERE id = %s",
+            [total_cost_usd, batch_pk],
         )
 
     log.info(
-        "ingest_batch: %s stage=%s succeeded=%d errored=%d skipped=%d",
-        anthropic_batch_id, stage, succeeded, errored, skipped,
+        "ingest_batch: %s stage=%s succeeded=%d errored=%d skipped=%d cost_usd=$%.4f",
+        anthropic_batch_id, stage, succeeded, errored, skipped, total_cost_usd,
     )
     return {
         "anthropic_batch_id": anthropic_batch_id,

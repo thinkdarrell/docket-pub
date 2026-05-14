@@ -306,3 +306,102 @@ def test_poll_and_ingest_continues_when_one_batch_errors():
     assert mock_ingest.call_count == 2
     assert summary.batches_ingested == 1
     assert summary.items_succeeded == 5
+
+
+# ---------------------------------------------------------------------------
+# Cost telemetry — ingest_batch must populate ai_batches.cost_usd from the
+# per-message usage returned by Anthropic. Regression: prior to 2026-05-14
+# the UPDATE only set ingested_at, so all batches had cost_usd=NULL.
+# ---------------------------------------------------------------------------
+
+
+def test_ingest_batch_writes_cost_usd_from_message_usage():
+    """ingest_batch must accumulate message.usage across all successful
+    results and write the calculated USD cost to ai_batches.cost_usd."""
+    from docket.ai.batch_ingest import ingest_batch
+
+    # Two successful Stage 1 messages with known usage.
+    # Haiku pricing (per docket.ai.pricing): input=$1/M, output=$5/M.
+    # Per-message: 1000 input + 200 output = $0.001 + $0.001 = $0.002.
+    # Two messages = $0.004 total.
+    def _msg_with_usage(input_t, output_t, model="claude-haiku-4-5-20251001"):
+        m = _mock_stage1_message()
+        m.model = model
+        usage = MagicMock()
+        usage.input_tokens = input_t
+        usage.output_tokens = output_t
+        usage.cache_creation_input_tokens = 0
+        usage.cache_read_input_tokens = 0
+        m.usage = usage
+        return m
+
+    results = [
+        _mock_succeeded_result("stage1-101-v1", _msg_with_usage(1000, 200)),
+        _mock_succeeded_result("stage1-102-v1", _msg_with_usage(1000, 200)),
+    ]
+
+    captured_sql = []
+
+    with patch("docket.ai.batch_ingest.db") as mock_db, \
+         patch("docket.ai.batch_ingest.anthropic.Anthropic") as anthropic_cls, \
+         patch("docket.ai.batch_ingest._ingest_stage1_message") as ingest_msg:
+        cur = mock_db.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value
+        # Initial SELECT for the ai_batches row: returns (batch_pk, stage, ingested_at=None)
+        cur.fetchone.return_value = (42, "stage1", None)
+        # Capture every cur.execute call so we can assert on the UPDATE.
+        cur.execute.side_effect = lambda *args, **kwargs: captured_sql.append(args)
+
+        anthropic_client = MagicMock()
+        anthropic_cls.return_value = anthropic_client
+        anthropic_client.messages.batches.results.return_value = iter(results)
+
+        ingest_msg.return_value = None  # both successful ingests are no-ops
+
+        out = ingest_batch("msgbatch_cost_test")
+
+    assert out["succeeded"] == 2
+    # Find the UPDATE on ai_batches and verify cost_usd is non-zero.
+    updates = [c for c in captured_sql if "UPDATE ai_batches" in c[0]]
+    assert len(updates) == 1
+    sql, params = updates[0]
+    assert "cost_usd" in sql, "UPDATE must write cost_usd column"
+    assert params[1] == 42  # batch_pk
+    # Expected: 2 messages × (1000 * $1/M input + 200 * $5/M output)
+    #         = 2 × ($0.001 + $0.001) = $0.004
+    expected_cost = 2 * (1000 * (1.0 / 1_000_000) + 200 * (5.0 / 1_000_000))
+    assert abs(params[0] - expected_cost) < 1e-9, (
+        f"Expected cost ~${expected_cost:.6f}, got ${params[0]:.6f}"
+    )
+
+
+def test_ingest_batch_writes_zero_cost_when_no_successful_results():
+    """A batch where every result errored should still write cost_usd=0
+    (not NULL) so the column reliably reflects ingest history."""
+    from docket.ai.batch_ingest import ingest_batch
+
+    errored = MagicMock()
+    errored.custom_id = "stage1-999-v1"
+    errored.result.type = "errored"
+
+    captured_sql = []
+
+    with patch("docket.ai.batch_ingest.db") as mock_db, \
+         patch("docket.ai.batch_ingest.anthropic.Anthropic") as anthropic_cls, \
+         patch("docket.ai.batch_ingest._mark_failed_permanent"):
+        cur = mock_db.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value
+        cur.fetchone.return_value = (43, "stage1", None)
+        cur.execute.side_effect = lambda *args, **kwargs: captured_sql.append(args)
+
+        anthropic_client = MagicMock()
+        anthropic_cls.return_value = anthropic_client
+        anthropic_client.messages.batches.results.return_value = iter([errored])
+
+        out = ingest_batch("msgbatch_all_errored")
+
+    assert out["errored"] == 1
+    assert out["succeeded"] == 0
+    updates = [c for c in captured_sql if "UPDATE ai_batches" in c[0]]
+    assert len(updates) == 1
+    _, params = updates[0]
+    assert params[0] == 0.0  # cost_usd
+    assert params[1] == 43  # batch_pk
