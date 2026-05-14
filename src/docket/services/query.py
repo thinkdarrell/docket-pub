@@ -5,7 +5,7 @@ Every read operation goes through this module. Returns dataclasses or dicts.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Iterable, Sequence
 
@@ -2521,8 +2521,8 @@ def _hydrate_coverage_rows(cur) -> list[CoverageEntry]:
             published_at=r['published_at'], featured_until=r['featured_until'],
             author_display_name=r['author_display_name'],
             author_username=r['author_username'],
-            outlet_slug=r.get('outlet_slug'),
-            outlet_name=r.get('outlet_name'),
+            outlet_slug=r['outlet_slug'],
+            outlet_name=r['outlet_name'],
         ))
     return out
 
@@ -2568,20 +2568,9 @@ def coverage_for_subject(
         where = "csl.subject_type = %s AND csl.subject_id = %s"
         params = (subject_type, subject_id)
 
-    sql = _COVERAGE_SELECT + f"""
-        JOIN coverage_subject_links csl ON csl.coverage_id = ce.id
-       WHERE {where}
-         AND ce.status = 'published'
-       ORDER BY ce.kind ASC,                          -- 'citation' > 'note' alphabetically
-                CASE WHEN ce.kind = 'note'
-                     THEN ce.published_at
-                     ELSE ce.article_published_at::timestamptz
-                END DESC NULLS LAST
-    """
-    # ORDER BY kind ASC puts 'citation' after 'note' alphabetically ('citation' < 'note'
-    # is false → 'citation' sorts before 'note' actually); fix by mapping:
-    # We want notes first. 'citation' < 'note' alphabetically, so ASC gives citations first.
-    # Re-do via explicit CASE:
+    # ORDER BY: notes first (0), citations after (1); within each, newest date first.
+    # We map kind to 0/1 explicitly because plain ASC on the enum's text values
+    # would sort 'citation' before 'note' alphabetically.
     sql = _COVERAGE_SELECT + f"""
         JOIN coverage_subject_links csl ON csl.coverage_id = ce.id
        WHERE {where}
@@ -2593,7 +2582,6 @@ def coverage_for_subject(
                 END DESC NULLS LAST
     """
 
-    from docket.db import db_cursor
     with db_cursor() as cur:
         cur.execute(sql, params)
         return _hydrate_coverage_rows(cur)
@@ -2610,7 +2598,6 @@ def coverage_counts_for_items(item_ids: list[int]) -> dict[int, tuple[int, int]]
     """
     if not item_ids:
         return {}
-    from docket.db import db_cursor
     with db_cursor() as cur:
         cur.execute(
             """
@@ -2641,7 +2628,6 @@ def _hydrate_subjects_for_entries(cur, entries: list[CoverageEntry]) -> list[Cov
     """
     if not entries:
         return entries
-    from dataclasses import replace
     ids = [e.id for e in entries]
     cur.execute(
         """
@@ -2715,8 +2701,6 @@ def list_published_coverage(
         where.append("ce.search_vector @@ websearch_to_tsquery('english', %s)")
         params.append(q.strip())
     where_sql = " AND ".join(where)
-
-    from docket.db import db_cursor
 
     # Count query
     with db_cursor() as cur:

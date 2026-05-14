@@ -2,9 +2,19 @@
 """Unit tests for editorial coverage read helpers."""
 from __future__ import annotations
 
+import pytest
+
 from datetime import datetime
 
+from docket.config import DATABASE_URL
+from docket.db import db
 from docket.models.coverage import CoverageEntry, Outlet
+
+
+pytestmark = pytest.mark.skipif(
+    "railway.internal" in DATABASE_URL or "railway.app" in DATABASE_URL,
+    reason="Refusing to run editorial-coverage tests against Railway DB.",
+)
 
 
 def test_coverage_entry_display_byline_uses_snapshot_when_set():
@@ -49,16 +59,33 @@ def test_coverage_entry_display_byline_falls_back_to_username_when_no_display_na
     assert entry.display_byline() == 'darrell'
 
 
-import pytest
+def test_coverage_entry_display_byline_final_fallback():
+    """When byline, display_name, and username are all None, falls back to 'docket.pub editorial'."""
+    entry = CoverageEntry(
+        id=1, kind='note', status='draft', source='manual',
+        body='test', partner_credit=None,
+        outlet_id=None, external_url=None, headline=None,
+        reporter_byline=None, excerpt=None, article_published_at=None,
+        author_id=1, byline=None,
+        created_at=datetime.now(), updated_at=datetime.now(),
+        published_at=None, featured_until=None,
+        author_display_name=None, author_username=None,
+    )
+    assert entry.display_byline() == 'docket.pub editorial'
 
-from docket.config import DATABASE_URL
-from docket.db import db
+
+def test_coverage_for_subject_raises_on_badge_type_without_slug():
+    """coverage_for_subject('badge') without subject_slug must raise ValueError."""
+    from docket.services.query import coverage_for_subject
+    with pytest.raises(ValueError):
+        coverage_for_subject('badge')
 
 
-pytestmark = pytest.mark.skipif(
-    "railway.internal" in DATABASE_URL or "railway.app" in DATABASE_URL,
-    reason="Refusing to run editorial-coverage tests against Railway DB.",
-)
+def test_coverage_for_subject_raises_on_item_type_without_id():
+    """coverage_for_subject('agenda_item') without subject_id must raise ValueError."""
+    from docket.services.query import coverage_for_subject
+    with pytest.raises(ValueError):
+        coverage_for_subject('agenda_item')
 
 
 @pytest.fixture
@@ -231,6 +258,17 @@ def test_coverage_counts_for_items_returns_counts(seeded_admin, seeded_meeting):
                     (item_id,),
                 )
             conn.commit()
+
+
+def test_outlet_dataclass_construction():
+    """Outlet can be constructed from al-com seed data fields."""
+    outlet = Outlet(
+        id=1, slug='al-com', name='AL.com',
+        homepage='https://al.com', is_active=True,
+        created_at=datetime.now(),
+    )
+    assert outlet.slug == 'al-com'
+    assert outlet.name == 'AL.com'
 
 
 def test_list_published_coverage_returns_published_only(seeded_admin, seeded_meeting):
