@@ -24,8 +24,14 @@ pytestmark = pytest.mark.skipif(
 @pytest.fixture
 def fresh_items_for_birmingham():
     """Insert a small set of test items into Birmingham, return their ids.
-    Cleanup after the test."""
+    Cleanup after the test.
+
+    Refactor #2 retro follow-up: seeds a meeting inline if Birmingham
+    has none, so the fixture works on a fresh DB without depending on
+    ingested data.
+    """
     ids = []
+    fixture_meeting_id: int | None = None
     fixtures = [
         # (title, description, expected outcome)
         ("Roll Call", "", "procedural_skipped"),
@@ -47,7 +53,23 @@ def fresh_items_for_birmingham():
                 "SELECT id FROM meetings WHERE municipality_id = %s LIMIT 1",
                 [city_id],
             )
-            meeting_id = cur.fetchone()[0]
+            row = cur.fetchone()
+            if row is None:
+                # Fresh DB: seed a meeting inline + remember to clean it up.
+                cur.execute(
+                    """
+                    INSERT INTO meetings
+                      (municipality_id, title, meeting_date, meeting_type)
+                    VALUES (%s, 'Wave 0 driver fixture meeting',
+                            '2026-04-15', 'council')
+                    RETURNING id
+                    """,
+                    [city_id],
+                )
+                meeting_id = cur.fetchone()[0]
+                fixture_meeting_id = meeting_id
+            else:
+                meeting_id = row[0]
 
             for title, desc, _ in fixtures:
                 cur.execute("""
@@ -62,10 +84,15 @@ def fresh_items_for_birmingham():
 
     yield ids, [f[2] for f in fixtures]
 
-    # Cleanup
+    # Cleanup in FK order
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute("DELETE FROM agenda_items WHERE id = ANY(%s)", [ids])
+            if fixture_meeting_id is not None:
+                cur.execute(
+                    "DELETE FROM meetings WHERE id = %s",
+                    [fixture_meeting_id],
+                )
 
 
 def test_run_wave_0_classifies_items(fresh_items_for_birmingham):
