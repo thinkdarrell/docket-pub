@@ -218,6 +218,10 @@ def meeting_detail(slug, meeting_id):
     dollar_count = sum(1 for i in agenda_items if i.dollars_amount)
     topic_count = len({i.topic for i in agenda_items if i.topic})
 
+    from docket.services.query import coverage_counts_for_items
+    item_ids = [it.id for it in agenda_items]
+    coverage_counts = coverage_counts_for_items(item_ids)
+
     return render_template(
         "meeting_detail.html",
         municipality=municipality,
@@ -229,6 +233,7 @@ def meeting_detail(slug, meeting_id):
         dollar_count=dollar_count,
         topic_count=topic_count,
         item_count=len(agenda_items),
+        coverage_counts=coverage_counts,
     )
 
 

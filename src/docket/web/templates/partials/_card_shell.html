@@ -57,6 +57,8 @@
       </span>
     {% endif %}
     {% block card_status_pill %}{% endblock %}
+    {% set counts = (coverage_counts or {}).get(item.id, (0, 0)) %}
+    {% include "partials/coverage_count_chip.html" %}
   </div>
 
   <h3 class="card-headline">
