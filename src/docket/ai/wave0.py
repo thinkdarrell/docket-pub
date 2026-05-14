@@ -155,6 +155,11 @@ WITHDRAWN_TITLE_PATTERNS = (
     # prefix run must be non-empty so we don't redundantly match Shape B
     # (which already handles bare marker-first titles).
     r'^[a-z()./\s]+\b(?:withdrawn|deferred|postponed)\b[a-z()./\s]*\bitem\s+\d+\b',
+    # Shape (d): dash separator between item number and marker —
+    # Birmingham exports occasionally render "ITEM 22.- WITHDRAWN".
+    # Accepts ASCII hyphen, Unicode en-dash, and em-dash with optional
+    # whitespace around either side.
+    r'^[a-z()./\s]*\bitem\s+\d+\.?\s*[-–—]\s*\b(?:withdrawn|deferred|postponed)\b',
 )
 
 _compiled_patterns = [re.compile(p, re.IGNORECASE) for p in PROCEDURAL_TITLE_PATTERNS]
