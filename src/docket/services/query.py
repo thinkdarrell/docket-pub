@@ -2597,3 +2597,33 @@ def coverage_for_subject(
     with db_cursor() as cur:
         cur.execute(sql, params)
         return _hydrate_coverage_rows(cur)
+
+
+def coverage_counts_for_items(item_ids: list[int]) -> dict[int, tuple[int, int]]:
+    """Return {item_id: (note_count, citation_count)} for items with published coverage.
+
+    Items with no coverage are omitted from the returned dict — callers should
+    default to ``(0, 0)``.
+
+    Short-circuits to ``{}`` when ``item_ids`` is empty, since
+    ``WHERE subject_id IN ()`` raises a syntax error in psycopg.
+    """
+    if not item_ids:
+        return {}
+    from docket.db import db_cursor
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT csl.subject_id,
+                   COUNT(*) FILTER (WHERE ce.kind = 'note')     AS note_count,
+                   COUNT(*) FILTER (WHERE ce.kind = 'citation') AS cit_count
+              FROM coverage_subject_links csl
+              JOIN coverage_entries ce ON ce.id = csl.coverage_id
+             WHERE csl.subject_type = 'agenda_item'
+               AND csl.subject_id = ANY(%s)
+               AND ce.status = 'published'
+             GROUP BY csl.subject_id
+            """,
+            (item_ids,),
+        )
+        return {r['subject_id']: (r['note_count'], r['cit_count']) for r in cur.fetchall()}

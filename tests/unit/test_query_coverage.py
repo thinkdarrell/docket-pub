@@ -171,3 +171,63 @@ def test_coverage_for_subject_excludes_drafts(seeded_admin, seeded_meeting):
             with conn.cursor() as cur:
                 cur.execute("DELETE FROM coverage_entries WHERE id = %s", (entry_id,))
             conn.commit()
+
+
+def test_coverage_counts_for_items_empty_input_returns_empty_dict():
+    """Empty input must short-circuit before SQL — `WHERE id IN ()` is a syntax error."""
+    from docket.services.query import coverage_counts_for_items
+    assert coverage_counts_for_items([]) == {}
+
+
+def test_coverage_counts_for_items_returns_counts(seeded_admin, seeded_meeting):
+    from docket.services.query import coverage_counts_for_items
+    _, item_id = seeded_meeting
+    with db() as conn:
+        with conn.cursor() as cur:
+            # 2 notes + 1 citation on the same item
+            for i in range(2):
+                cur.execute(
+                    """INSERT INTO coverage_entries
+                       (kind, status, body, author_id, byline, published_at)
+                       VALUES ('note', 'published', %s, %s, 'Test', NOW())
+                       RETURNING id""",
+                    (f'note {i}', seeded_admin),
+                )
+                cid = cur.fetchone()[0]
+                cur.execute(
+                    """INSERT INTO coverage_subject_links
+                       (coverage_id, subject_type, subject_id)
+                       VALUES (%s, 'agenda_item', %s)""",
+                    (cid, item_id),
+                )
+            cur.execute("SELECT id FROM outlets WHERE slug = 'al-com' LIMIT 1")
+            outlet_id = cur.fetchone()[0]
+            cur.execute(
+                """INSERT INTO coverage_entries
+                   (kind, status, outlet_id, external_url, headline,
+                    author_id, byline, published_at)
+                   VALUES ('citation', 'published', %s, %s, %s, %s, 'Test', NOW())
+                   RETURNING id""",
+                (outlet_id, 'https://al.com/foo', 'Foo Headline', seeded_admin),
+            )
+            cit_id = cur.fetchone()[0]
+            cur.execute(
+                """INSERT INTO coverage_subject_links
+                   (coverage_id, subject_type, subject_id)
+                   VALUES (%s, 'agenda_item', %s)""",
+                (cit_id, item_id),
+            )
+        conn.commit()
+    try:
+        counts = coverage_counts_for_items([item_id])
+        assert counts == {item_id: (2, 1)}
+    finally:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM coverage_entries WHERE id IN "
+                    "(SELECT coverage_id FROM coverage_subject_links "
+                    "WHERE subject_id = %s)",
+                    (item_id,),
+                )
+            conn.commit()
