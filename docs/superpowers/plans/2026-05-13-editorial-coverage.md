@@ -374,6 +374,11 @@ class CoverageSubjectLink:
     subject_slug: str | None
     # Optional human-readable label hydrated by the reader for chip rendering.
     label: str | None = None
+    # City slug, hydrated for item/meeting/member subjects — None for badge
+    # subjects (badges are global; category_landing pages are per-city).
+    # Lets the subjects footer template build correct url_for() URLs without
+    # a second query per row.
+    city_slug: str | None = None
 
 
 @dataclass(frozen=True)
@@ -970,6 +975,10 @@ def test_list_published_coverage_hydrates_subjects(seeded_admin, seeded_meeting)
         assert kinds == ['agenda_item', 'meeting']
         # Labels resolved from the source tables
         assert any(s.label for s in target.subjects)
+        # city_slug populated for item + meeting subjects (badges are global)
+        for s in target.subjects:
+            if s.subject_type in ('agenda_item', 'meeting', 'council_member'):
+                assert s.city_slug, f"city_slug missing for {s.subject_type} subject"
     finally:
         with db() as conn:
             with conn.cursor() as cur:
@@ -1013,7 +1022,20 @@ def _hydrate_subjects_for_entries(cur, entries: list[CoverageEntry]) -> list[Cov
                  (SELECT name  FROM council_members  WHERE id   = csl.subject_id),
                  (SELECT name  FROM priority_badge_templates WHERE slug = csl.subject_slug),
                  ''
-               ) AS label
+               ) AS label,
+               -- City slug for url_for() in the subjects footer. NULL for badges.
+               COALESCE(
+                 (SELECT mu.slug FROM agenda_items ai
+                    JOIN meetings m ON m.id = ai.meeting_id
+                    JOIN municipalities mu ON mu.id = m.municipality_id
+                   WHERE ai.id = csl.subject_id),
+                 (SELECT mu.slug FROM meetings m
+                    JOIN municipalities mu ON mu.id = m.municipality_id
+                   WHERE m.id = csl.subject_id),
+                 (SELECT mu.slug FROM council_members cm
+                    JOIN municipalities mu ON mu.id = cm.municipality_id
+                   WHERE cm.id = csl.subject_id)
+               ) AS city_slug
           FROM coverage_subject_links csl
          WHERE csl.coverage_id = ANY(%s)
          ORDER BY csl.coverage_id, csl.id
@@ -1028,6 +1050,7 @@ def _hydrate_subjects_for_entries(cur, entries: list[CoverageEntry]) -> list[Cov
                 subject_id=r['subject_id'],
                 subject_slug=r['subject_slug'],
                 label=r['label'] or None,
+                city_slug=r['city_slug'],
             )
         )
     return [replace(e, subjects=tuple(grouped.get(e.id, []))) for e in entries]
@@ -2304,6 +2327,57 @@ def test_coverage_post_creates_note_and_redirects(client_logged_in):
                 ('A new note from the form.',),
             )
             assert cur.fetchone() is not None
+
+
+def test_edit_form_includes_deactivated_outlet_when_citation_uses_it(client_logged_in):
+    """Regression: editing a citation whose outlet was later deactivated must
+    still show that outlet in the dropdown — otherwise the browser would silently
+    reassign the citation to the first active outlet on save."""
+    from docket.services.coverage_writer import create_citation
+    c, uid = client_logged_in
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO outlets (slug, name) VALUES (%s, %s) RETURNING id",
+                ('test-deactivated-outlet', 'Soon-to-be-deactivated'),
+            )
+            outlet_id = cur.fetchone()[0]
+            cur.execute(
+                "INSERT INTO meetings (municipality_id, external_id, title, meeting_date) "
+                "VALUES ((SELECT id FROM municipalities LIMIT 1), %s, %s, NOW()) RETURNING id",
+                ('edit-mtg', 'Edit Test'),
+            )
+            mtg_id = cur.fetchone()[0]
+            cur.execute(
+                "INSERT INTO agenda_items (meeting_id, title) VALUES (%s, %s) RETURNING id",
+                (mtg_id, 'Edit Test Item'),
+            )
+            item_id = cur.fetchone()[0]
+        conn.commit()
+    entry_id = create_citation(
+        author_id=uid, outlet_id=outlet_id,
+        external_url='https://example.test/x', headline='Edit headline',
+        reporter_byline=None, excerpt=None, article_published_at=None,
+        subjects=[('agenda_item', item_id, None)],
+    )
+    try:
+        # Now deactivate the outlet
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE outlets SET is_active = FALSE WHERE id = %s", (outlet_id,))
+            conn.commit()
+        resp = c.get(f'/admin/coverage/{entry_id}/edit')
+        assert resp.status_code == 200
+        # The deactivated outlet must still appear in the dropdown
+        assert b'Soon-to-be-deactivated' in resp.data
+    finally:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM coverage_entries WHERE id = %s", (entry_id,))
+                cur.execute("DELETE FROM agenda_items WHERE id = %s", (item_id,))
+                cur.execute("DELETE FROM meetings WHERE id = %s", (mtg_id,))
+                cur.execute("DELETE FROM outlets WHERE id = %s", (outlet_id,))
+            conn.commit()
 ```
 
 - [ ] **Step 2: Run to verify failure**
@@ -2410,7 +2484,19 @@ def coverage_edit(coverage_id: int):
             (coverage_id,),
         )
         subjects = cur.fetchall()
-        cur.execute("SELECT id, slug, name FROM outlets WHERE is_active = TRUE ORDER BY name")
+        # CRITICAL: include the citation's current outlet even if it's been
+        # deactivated since the entry was created. Without the OR clause, a
+        # deactivated outlet drops out of the <select>, the browser defaults
+        # to the first active outlet, and an unsuspecting Save silently
+        # reassigns the citation to a wrong publication. The %s parameter
+        # is NULL for notes (entry['outlet_id'] is None) — NULL = NULL is
+        # false, so the OR is a no-op for notes; only citations need it.
+        cur.execute(
+            "SELECT id, slug, name FROM outlets "
+            "WHERE is_active = TRUE OR id = %s "
+            "ORDER BY name",
+            (entry['outlet_id'],),
+        )
         outlets = cur.fetchall()
     return render_template("admin/coverage/edit.html", entry=entry, subjects=subjects, outlets=outlets)
 
@@ -2607,18 +2693,59 @@ def coverage_delete(coverage_id: int):
 ```jinja
 {% for r in results %}
   <button type="button" class="result"
-          onclick="(function(t){
-            var c=document.createElement('span');
-            c.className='subject-chip';
-            c.innerHTML='{{ subject_type }}: {{ r.label|e }} <input type=hidden name=subject[] value=\'{{ subject_type }}:{{ r.id }}\'><button type=button onclick=\'this.parentNode.remove()\'>✕</button>';
-            document.getElementById('selected-subjects').appendChild(c);
-          })(this)">
+          data-subject-type="{{ subject_type }}"
+          data-subject-id="{{ r.id }}"
+          data-subject-label="{{ r.label }}"
+          onclick="addSubjectChip(this)">
     {{ r.label }}
   </button>
 {% else %}
   <em>No results.</em>
 {% endfor %}
 ```
+
+**Why dataset attributes instead of inline IIFE concatenation:** the previous draft built the chip HTML inline using `c.innerHTML='{{ subject_type }}: {{ r.label|e }}...'`. Jinja's `|e` escapes HTML entities but does **not** escape JavaScript string-literal characters — a label containing a backslash, an unbalanced quote, or a newline would break the JS string and silently fail the onclick handler. Dataset attributes pass the data through the DOM (which Jinja's autoescape handles correctly via attribute escaping) and JavaScript reads them as already-decoded strings via `btn.dataset`. No string-concatenation hazards, no fragile escape stack.
+
+The `addSubjectChip` function is registered once in `admin/base.html` (Step 4 below) so it's available to every admin page that includes this fragment.
+
+- [ ] **Step 4b: Register the `addSubjectChip` helper in `admin/base.html`**
+
+Locate `src/docket/web/templates/admin/base.html`. Inside the body's bottom (or wherever other small admin JS lives), add a `<script>` block:
+
+```html
+<script>
+  function addSubjectChip(btn) {
+    var ds = btn.dataset;
+    var container = document.getElementById('selected-subjects');
+    if (!container) return;
+
+    // Build the chip with text nodes + element nodes (no innerHTML concatenation
+    // of user-derived strings — protects against label values containing
+    // characters that would break string-literal HTML).
+    var chip = document.createElement('span');
+    chip.className = 'subject-chip';
+
+    var label = document.createTextNode(ds.subjectType + ': ' + ds.subjectLabel + ' ');
+    chip.appendChild(label);
+
+    var hidden = document.createElement('input');
+    hidden.type = 'hidden';
+    hidden.name = 'subject[]';
+    hidden.value = ds.subjectType + ':' + ds.subjectId;
+    chip.appendChild(hidden);
+
+    var rm = document.createElement('button');
+    rm.type = 'button';
+    rm.textContent = '✕';
+    rm.addEventListener('click', function () { chip.remove(); });
+    chip.appendChild(rm);
+
+    container.appendChild(chip);
+  }
+</script>
+```
+
+The function uses `createTextNode` + `createElement` for everything (no `innerHTML` of user-derived strings), so even a label like `Smith\Jones "Quote"` renders correctly as visible text and can't break the chip construction.
 
 Add the search route to `src/docket/web/admin.py`:
 
@@ -3209,26 +3336,42 @@ Create `src/docket/web/templates/partials/coverage_subjects_footer.html`:
 
 ```jinja
 {# Renders the "→ on Item X, Meeting Y, Member Z" footer for a coverage entry.
-   Expects either `note` or `citation` or `entry` in scope — falls back through. #}
+   Expects either `note` or `citation` or `entry` in scope — falls back through.
+   Each subject already carries its city_slug from _hydrate_subjects_for_entries. #}
 {% set _ent = note if note is defined else (citation if citation is defined else entry) %}
 <footer class="coverage-subjects">
   → on
   {% for s in _ent.subjects %}
-    {% if s.subject_type == 'agenda_item' %}
-      <a class="coverage-subjects__link" href="#item-{{ s.subject_id }}">Item: {{ s.label or s.subject_id }}</a>
-    {% elif s.subject_type == 'meeting' %}
-      <a class="coverage-subjects__link" href="#meeting-{{ s.subject_id }}">{{ s.label or 'Meeting' }}</a>
-    {% elif s.subject_type == 'council_member' %}
-      <a class="coverage-subjects__link" href="#member-{{ s.subject_id }}">{{ s.label or 'Member' }}</a>
+    {% if s.subject_type == 'agenda_item' and s.city_slug %}
+      <a class="coverage-subjects__link"
+         href="{{ url_for('public.item_detail', city_slug=s.city_slug, item_id=s.subject_id) }}">
+        Item: {{ s.label or s.subject_id }}
+      </a>
+    {% elif s.subject_type == 'meeting' and s.city_slug %}
+      <a class="coverage-subjects__link"
+         href="{{ url_for('public.meeting_detail', city_slug=s.city_slug, meeting_id=s.subject_id) }}">
+        {{ s.label or 'Meeting' }}
+      </a>
+    {% elif s.subject_type == 'council_member' and s.city_slug %}
+      <a class="coverage-subjects__link"
+         href="{{ url_for('public.council_member', city_slug=s.city_slug, member_id=s.subject_id) }}">
+        {{ s.label or 'Member' }}
+      </a>
     {% elif s.subject_type == 'badge' %}
-      <a class="coverage-subjects__link" href="#badge-{{ s.subject_slug }}">{{ s.label or s.subject_slug }}</a>
+      {# Badges are global; no per-city url_for here. Render as plain text. #}
+      <span class="coverage-subjects__label">{{ s.label or s.subject_slug }}</span>
+    {% else %}
+      {# city_slug missing (subject row deleted upstream) — degrade to plain text #}
+      <span class="coverage-subjects__label">{{ s.label or 'Unknown subject' }}</span>
     {% endif %}
     {% if not loop.last %}, {% endif %}
   {% endfor %}
 </footer>
 ```
 
-**The `#item-NN` / `#meeting-NN` hrefs are placeholders.** Before this PR ships, replace each with the actual `url_for(...)` call matching the existing project URL space. For example, items use `url_for('public.item_detail', city_slug=<city>, item_id=s.subject_id)` — but the `city_slug` isn't on the subject link, so you'll need to either denormalize it (additional COALESCE in `_hydrate_subjects_for_entries` to pull city) or accept that the listing footer links use a city-agnostic redirect endpoint. The simplest fix during execution: add a `(SELECT slug FROM municipalities WHERE id = (SELECT municipality_id FROM meetings WHERE id = csl.subject_id))` for items/meetings, and pass it through. Decide on the city-slug approach at execution time and update both the helper query and this template together.
+**Endpoint-name verification at execution time.** The three `url_for` calls reference `public.item_detail`, `public.meeting_detail`, and `public.council_member`. These match the existing `web/public.py` route function names — verify the exact names at execution (one quick `grep "^def " src/docket/web/public.py`) and adjust if the project uses different names (e.g., `member_detail` instead of `council_member`). If a citation is attached to a member but no public per-member detail route exists yet, fall back to the plain-text `<span>` branch (the final `{% else %}` clause handles this gracefully).
+
+**Why badges render as text:** badges are global (one slug across all cities); the category_landing page is `/al/<slug>/<badge_slug>/` and is per-city. Picking one city arbitrarily would be misleading. Rendering as plain text in v1 is honest; a "see all coverage tagged with badge X" page would resolve this, but that's a v1.x add (per-badge listing page).
 
 - [ ] **Step 4: Create the chip partial**
 
