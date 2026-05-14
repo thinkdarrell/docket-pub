@@ -525,6 +525,10 @@ a.link:hover { border-bottom-color: var(--accent); }
   font-weight: 600;
   color: var(--accent, #cc6633);
 }
+.coverage-note__partner {
+  font-style: italic;
+  color: var(--muted, #666);
+}
 .coverage-note__body {
   font-family: 'Source Serif Pro', serif;
   font-size: 1rem;
