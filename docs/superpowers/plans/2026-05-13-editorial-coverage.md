@@ -840,11 +840,13 @@ git commit -m "feat(query): coverage_counts_for_items with empty-list short-circ
 
 ---
 
-### Task 1.5: Write `list_published_coverage` with pagination + filters + FTS
+### Task 1.5: Write `list_published_coverage` with pagination + filters + FTS + subject hydration
 
 **Files:**
 - Modify: `src/docket/services/query.py` (append)
 - Test: `tests/unit/test_query_coverage.py` (append)
+
+**Why subject hydration belongs here:** the listing page renders each row with an "→ on Item 25-0042 (Westside Rezoning), Council Mtg 5-12" footer that names the subjects the entry is attached to. Without this, the listing is a wall of contextless quotes. We populate `CoverageEntry.subjects` via a second bulk query for the page's entry IDs, so each row arrives at the template fully hydrated. The same helper is reused by the permalink route in Task 4.2.
 
 - [ ] **Step 1: Write failing tests for listing + filter + search**
 
@@ -935,6 +937,44 @@ def test_list_published_coverage_fts_search(seeded_admin):
             with conn.cursor() as cur:
                 cur.execute("DELETE FROM coverage_entries WHERE id = %s", (note_id,))
             conn.commit()
+
+
+def test_list_published_coverage_hydrates_subjects(seeded_admin, seeded_meeting):
+    """The listing must arrive with subjects populated so the template can render
+    the 'on Item X, Meeting Y' context footer per row."""
+    from docket.services.query import list_published_coverage
+    mtg_id, item_id = seeded_meeting
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO coverage_entries
+                   (kind, status, body, author_id, byline, published_at)
+                   VALUES ('note', 'published', 'Subjects-hydration probe wxyz77.',
+                           %s, 'Test', NOW())
+                   RETURNING id""",
+                (seeded_admin,),
+            )
+            entry_id = cur.fetchone()[0]
+            cur.execute(
+                """INSERT INTO coverage_subject_links
+                   (coverage_id, subject_type, subject_id) VALUES
+                   (%s, 'agenda_item', %s),
+                   (%s, 'meeting',     %s)""",
+                (entry_id, item_id, entry_id, mtg_id),
+            )
+        conn.commit()
+    try:
+        rows, _ = list_published_coverage(q='wxyz77')
+        target = next(e for e in rows if e.id == entry_id)
+        kinds = sorted(s.subject_type for s in target.subjects)
+        assert kinds == ['agenda_item', 'meeting']
+        # Labels resolved from the source tables
+        assert any(s.label for s in target.subjects)
+    finally:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM coverage_entries WHERE id = %s", (entry_id,))
+            conn.commit()
 ```
 
 - [ ] **Step 2: Run the tests to verify failure**
@@ -945,11 +985,54 @@ pytest tests/unit/test_query_coverage.py -v -k list_published
 
 Expected: 3 tests FAIL.
 
-- [ ] **Step 3: Implement `list_published_coverage`**
+- [ ] **Step 3: Implement the subject-hydration helper + `list_published_coverage`**
 
 Append to `src/docket/services/query.py`:
 
 ```python
+def _hydrate_subjects_for_entries(cur, entries: list[CoverageEntry]) -> list[CoverageEntry]:
+    """Populate the ``subjects`` field on each entry with one bulk query.
+
+    Resolves a human-readable label per subject from agenda_items / meetings /
+    council_members / priority_badge_templates via COALESCE'd lookups, so the
+    template can render '→ on Item 25-0042 (Westside Rezoning)' chips without
+    a second per-row trip.
+
+    Returns a NEW list (frozen dataclass — uses ``replace``).
+    """
+    if not entries:
+        return entries
+    from dataclasses import replace
+    ids = [e.id for e in entries]
+    cur.execute(
+        """
+        SELECT csl.coverage_id, csl.subject_type, csl.subject_id, csl.subject_slug,
+               COALESCE(
+                 (SELECT title FROM agenda_items     WHERE id   = csl.subject_id),
+                 (SELECT title FROM meetings         WHERE id   = csl.subject_id),
+                 (SELECT name  FROM council_members  WHERE id   = csl.subject_id),
+                 (SELECT name  FROM priority_badge_templates WHERE slug = csl.subject_slug),
+                 ''
+               ) AS label
+          FROM coverage_subject_links csl
+         WHERE csl.coverage_id = ANY(%s)
+         ORDER BY csl.coverage_id, csl.id
+        """,
+        (ids,),
+    )
+    grouped: dict[int, list[CoverageSubjectLink]] = {}
+    for r in cur.fetchall():
+        grouped.setdefault(r['coverage_id'], []).append(
+            CoverageSubjectLink(
+                subject_type=r['subject_type'],
+                subject_id=r['subject_id'],
+                subject_slug=r['subject_slug'],
+                label=r['label'] or None,
+            )
+        )
+    return [replace(e, subjects=tuple(grouped.get(e.id, []))) for e in entries]
+
+
 def list_published_coverage(
     *,
     kind: str | None = None,
@@ -958,7 +1041,11 @@ def list_published_coverage(
     page: int = 1,
     page_size: int = 20,
 ) -> tuple[list[CoverageEntry], int]:
-    """Paginated listing of published coverage. Returns (rows, total_count).
+    """Paginated listing of published coverage with subjects hydrated.
+
+    Returns (rows, total_count). Each row's ``subjects`` tuple is populated so
+    the listing template can render the 'on Item X, Meeting Y' context footer
+    without a second per-row query.
 
     ``q`` runs full-text search against the generated ``search_vector`` column.
     Empty-string ``q`` is treated as None.
@@ -984,7 +1071,7 @@ def list_published_coverage(
                     tuple(params))
         total = cur.fetchone()['n']
 
-    # Page query
+    # Page query + subject hydration in the same cursor (one connection)
     offset = max(0, (page - 1) * page_size)
     sql = _COVERAGE_SELECT + f"""
         WHERE {where_sql}
@@ -994,6 +1081,7 @@ def list_published_coverage(
     with db_cursor() as cur:
         cur.execute(sql, tuple(params) + (page_size, offset))
         rows = _hydrate_coverage_rows(cur)
+        rows = _hydrate_subjects_for_entries(cur, rows)
     return rows, total
 ```
 
@@ -2535,6 +2623,16 @@ def coverage_delete(coverage_id: int):
 Add the search route to `src/docket/web/admin.py`:
 
 ```python
+def _escape_like(s: str) -> str:
+    """Escape Postgres LIKE/ILIKE wildcards in user input.
+
+    A bare ``%`` in admin input would otherwise match every row (the entire
+    table dump), and ``_`` would match any single char. Escape both, and
+    escape backslashes first so we don't double-escape our own escapes.
+    """
+    return s.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+
+
 @bp.route("/coverage/search", methods=["GET"])
 def coverage_search():
     subject_type = request.args.get('subject_type', 'agenda_item')
@@ -2543,37 +2641,43 @@ def coverage_search():
     if not q:
         return render_template("admin/coverage/_search_results.html",
                                results=[], subject_type=subject_type)
+    needle = f"%{_escape_like(q)}%"
     with db_cursor() as cur:
         if subject_type == 'agenda_item':
             cur.execute(
-                "SELECT id, title FROM agenda_items WHERE title ILIKE %s ORDER BY id DESC LIMIT 15",
-                (f'%{q}%',),
+                "SELECT id, title FROM agenda_items "
+                "WHERE title ILIKE %s ESCAPE '\\' ORDER BY id DESC LIMIT 15",
+                (needle,),
             )
             results = [{'id': r['id'], 'label': r['title']} for r in cur.fetchall()]
         elif subject_type == 'meeting':
             cur.execute(
-                "SELECT id, title, meeting_date FROM meetings WHERE title ILIKE %s "
+                "SELECT id, title, meeting_date FROM meetings "
+                "WHERE title ILIKE %s ESCAPE '\\' "
                 "ORDER BY meeting_date DESC LIMIT 15",
-                (f'%{q}%',),
+                (needle,),
             )
             results = [{'id': r['id'], 'label': f"{r['title']} ({r['meeting_date']:%Y-%m-%d})"}
                        for r in cur.fetchall()]
         elif subject_type == 'council_member':
             cur.execute(
-                "SELECT id, name FROM council_members WHERE name ILIKE %s LIMIT 15",
-                (f'%{q}%',),
+                "SELECT id, name FROM council_members "
+                "WHERE name ILIKE %s ESCAPE '\\' LIMIT 15",
+                (needle,),
             )
             results = [{'id': r['id'], 'label': r['name']} for r in cur.fetchall()]
         elif subject_type == 'badge':
             cur.execute(
                 "SELECT slug, name FROM priority_badge_templates "
-                "WHERE name ILIKE %s OR slug ILIKE %s LIMIT 15",
-                (f'%{q}%', f'%{q}%'),
+                "WHERE (name ILIKE %s OR slug ILIKE %s) ESCAPE '\\' LIMIT 15",
+                (needle, needle),
             )
             results = [{'id': r['slug'], 'label': r['name']} for r in cur.fetchall()]
     return render_template("admin/coverage/_search_results.html",
                            results=results, subject_type=subject_type)
 ```
+
+**Why the `ESCAPE '\\'` clause:** Postgres' default escape character for `LIKE`/`ILIKE` is `\` already, but the project's psycopg2 setup may not pass the value through unescaped. Explicit `ESCAPE '\\'` makes the convention contract loud. The `_escape_like` helper sanitizes `\`, `%`, and `_` in user input — admin typing `100%` searches for the literal `100%`, not "everything starting with 100". An admin typing `Smith\Jones` searches for the literal string, not the escape sequence.
 
 - [ ] **Step 5: Run tests + commit**
 
@@ -3055,9 +3159,16 @@ railway up --service docket-web --detach
       · <time datetime="{{ note.published_at.isoformat() }}">{{ note.published_at.strftime('%b %d') }}</time>
     {% endif %}
   </header>
-  <p class="coverage-note__body">{{ note.body | replace('\n', '\n') | e | replace('\n', '<br>') | safe }}</p>
+  <p class="coverage-note__body">{{ note.body | e | replace('\n', '<br>') | safe }}</p>
+  {% if note.subjects %}
+    {% include "partials/coverage_subjects_footer.html" %}
+  {% endif %}
 </article>
 ```
+
+**Subjects footer rendering — context-sensitive by design.**
+
+The footer renders **only** when `entry.subjects` is non-empty. The inline `coverage_block.html` (used on item/meeting/member detail pages) loads entries via `coverage_for_subject(...)` which **does not** populate `subjects` — so the footer is silent in inline contexts (the reader is already on the subject's page; listing the subject would be redundant). The listing route (Task 4.1) and permalink route (Task 4.2) load entries via `list_published_coverage(...)` / `_hydrate_subjects_for_entries(...)` which **do** populate `subjects` — so the footer renders there. The data shape drives rendering; no per-template flag.
 
 - [ ] **Step 3: Create the citation partial — with link safety attrs**
 
@@ -3087,8 +3198,37 @@ railway up --service docket-web --detach
       → {{ citation.external_url | replace('https://', '') | replace('http://', '') }}
     </a>
   </p>
+  {% if citation.subjects %}
+    {% set entry = citation %}
+    {% include "partials/coverage_subjects_footer.html" %}
+  {% endif %}
 </article>
 ```
+
+Create `src/docket/web/templates/partials/coverage_subjects_footer.html`:
+
+```jinja
+{# Renders the "→ on Item X, Meeting Y, Member Z" footer for a coverage entry.
+   Expects either `note` or `citation` or `entry` in scope — falls back through. #}
+{% set _ent = note if note is defined else (citation if citation is defined else entry) %}
+<footer class="coverage-subjects">
+  → on
+  {% for s in _ent.subjects %}
+    {% if s.subject_type == 'agenda_item' %}
+      <a class="coverage-subjects__link" href="#item-{{ s.subject_id }}">Item: {{ s.label or s.subject_id }}</a>
+    {% elif s.subject_type == 'meeting' %}
+      <a class="coverage-subjects__link" href="#meeting-{{ s.subject_id }}">{{ s.label or 'Meeting' }}</a>
+    {% elif s.subject_type == 'council_member' %}
+      <a class="coverage-subjects__link" href="#member-{{ s.subject_id }}">{{ s.label or 'Member' }}</a>
+    {% elif s.subject_type == 'badge' %}
+      <a class="coverage-subjects__link" href="#badge-{{ s.subject_slug }}">{{ s.label or s.subject_slug }}</a>
+    {% endif %}
+    {% if not loop.last %}, {% endif %}
+  {% endfor %}
+</footer>
+```
+
+**The `#item-NN` / `#meeting-NN` hrefs are placeholders.** Before this PR ships, replace each with the actual `url_for(...)` call matching the existing project URL space. For example, items use `url_for('public.item_detail', city_slug=<city>, item_id=s.subject_id)` — but the `city_slug` isn't on the subject link, so you'll need to either denormalize it (additional COALESCE in `_hydrate_subjects_for_entries` to pull city) or accept that the listing footer links use a city-agnostic redirect endpoint. The simplest fix during execution: add a `(SELECT slug FROM municipalities WHERE id = (SELECT municipality_id FROM meetings WHERE id = csl.subject_id))` for items/meetings, and pass it through. Decide on the city-slug approach at execution time and update both the helper query and this template together.
 
 - [ ] **Step 4: Create the chip partial**
 
@@ -3113,8 +3253,9 @@ railway up --service docket-web --detach
 git add src/docket/web/templates/partials/coverage_block.html \
         src/docket/web/templates/partials/coverage_note.html \
         src/docket/web/templates/partials/coverage_citation.html \
-        src/docket/web/templates/partials/coverage_count_chip.html
-git commit -m "feat(templates): coverage block + note + citation + chip partials"
+        src/docket/web/templates/partials/coverage_count_chip.html \
+        src/docket/web/templates/partials/coverage_subjects_footer.html
+git commit -m "feat(templates): coverage block + note + citation + chip + subjects footer"
 ```
 
 ---
@@ -3927,14 +4068,16 @@ def test_permalink_404_for_citation(app):
 pytest tests/integration/test_coverage_listing.py -v -k permalink
 ```
 
-- [ ] **Step 3: Implement the route**
+- [ ] **Step 3: Implement the route — reuse the subject hydrator**
 
 Append to `src/docket/web/public.py`:
 
 ```python
 @bp.route("/coverage/<int:coverage_id>", methods=["GET"])
 def coverage_permalink(coverage_id: int):
-    from docket.services.query import _COVERAGE_SELECT, _hydrate_coverage_rows
+    from docket.services.query import (
+        _COVERAGE_SELECT, _hydrate_coverage_rows, _hydrate_subjects_for_entries,
+    )
     from docket.db import db_cursor
     with db_cursor() as cur:
         cur.execute(
@@ -3945,25 +4088,14 @@ def coverage_permalink(coverage_id: int):
         entries = _hydrate_coverage_rows(cur)
         if not entries:
             abort(404)
+        entries = _hydrate_subjects_for_entries(cur, entries)
         note = entries[0]
-        cur.execute(
-            """SELECT csl.subject_type, csl.subject_id, csl.subject_slug,
-                      COALESCE(
-                        (SELECT title FROM agenda_items WHERE id = csl.subject_id),
-                        (SELECT title FROM meetings WHERE id = csl.subject_id),
-                        (SELECT name FROM council_members WHERE id = csl.subject_id),
-                        (SELECT name FROM priority_badge_templates WHERE slug = csl.subject_slug),
-                        ''
-                      ) AS label
-                 FROM coverage_subject_links csl
-                WHERE csl.coverage_id = %s""",
-            (coverage_id,),
-        )
-        subjects = cur.fetchall()
-    return render_template("coverage/permalink.html", note=note, subjects=subjects)
+    return render_template("coverage/permalink.html", note=note)
 ```
 
 (`abort` should already be imported in `public.py`; if not, add it to the existing `from flask import ...` line.)
+
+**Why this is simpler than the original draft:** the inline COALESCE-per-row query is replaced by the shared `_hydrate_subjects_for_entries` helper. The permalink template can now drop its bespoke `subjects` loop and reuse the same `partials/coverage_subjects_footer.html` macro that the listing uses — see the template update below.
 
 - [ ] **Step 4: Create the permalink template**
 
@@ -3975,32 +4107,11 @@ def coverage_permalink(coverage_id: int):
 {% block content %}
 <article class="coverage-permalink">
   {% include "partials/coverage_note.html" %}
-
-  {% if subjects %}
-  <footer class="coverage-permalink__subjects">
-    <h3>About:</h3>
-    <ul>
-    {% for s in subjects %}
-      <li>
-        {% if s.subject_type == 'agenda_item' %}
-          <a href="{{ url_for('public.item_detail', city_slug='', item_id=s.subject_id) }}">{{ s.label or 'Item' }}</a>
-        {% elif s.subject_type == 'meeting' %}
-          <a href="#meeting-{{ s.subject_id }}">{{ s.label or 'Meeting' }}</a>
-        {% elif s.subject_type == 'council_member' %}
-          <a href="#member-{{ s.subject_id }}">{{ s.label or 'Member' }}</a>
-        {% else %}
-          <a href="#badge-{{ s.subject_slug }}">{{ s.label or s.subject_slug }}</a>
-        {% endif %}
-      </li>
-    {% endfor %}
-    </ul>
-  </footer>
-  {% endif %}
 </article>
 {% endblock %}
 ```
 
-(The subject-link URLs are sketches; replace with the actual `url_for` calls matching the project's URL space. Use the existing patterns from `meeting_detail.html` etc.)
+The `coverage_note.html` partial renders its own subjects footer when `note.subjects` is populated — and the permalink route always hydrates subjects, so the "→ on Item X, Meeting Y" footer renders here automatically. No duplicate template logic.
 
 - [ ] **Step 5: Run + commit**
 
@@ -4153,10 +4264,9 @@ Append to `src/docket/web/public.py`:
 @bp.route("/coverage.rss", methods=["GET"])
 def coverage_rss():
     from docket.services.query import list_published_coverage
-    entries, _ = list_published_coverage(page=1, page_size=50)
-    xml = render_template("coverage/feed.xml.j2", entries=entries,
-                          base_url=request.url_root.rstrip('/'))
     from flask import Response
+    entries, _ = list_published_coverage(page=1, page_size=50)
+    xml = render_template("coverage/feed.xml.j2", entries=entries)
     return Response(xml, mimetype='application/rss+xml')
 ```
 
@@ -4164,20 +4274,20 @@ def coverage_rss():
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0">
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
   <channel>
     <title>docket.pub — Editorial Coverage</title>
     <description>Notes and press citations on Alabama municipal meetings.</description>
-    <link>{{ base_url }}/coverage/</link>
-    <atom:link xmlns:atom="http://www.w3.org/2005/Atom"
-               href="{{ base_url }}/coverage.rss" rel="self" type="application/rss+xml" />
+    <link>{{ url_for('public.coverage_listing', _external=True) }}</link>
+    <atom:link href="{{ url_for('public.coverage_rss', _external=True) }}"
+               rel="self" type="application/rss+xml" />
     {% for entry in entries %}
     <item>
       {% if entry.kind == 'note' %}
         <title>{{ (entry.body or '')[:80] }}</title>
-        <link>{{ base_url }}/coverage/{{ entry.id }}</link>
+        <link>{{ url_for('public.coverage_permalink', coverage_id=entry.id, _external=True) }}</link>
         <description><![CDATA[{{ entry.body }}]]></description>
-        <guid isPermaLink="true">{{ base_url }}/coverage/{{ entry.id }}</guid>
+        <guid isPermaLink="true">{{ url_for('public.coverage_permalink', coverage_id=entry.id, _external=True) }}</guid>
       {% else %}
         <title>[{{ entry.outlet_name }}] {{ entry.headline }}</title>
         <link>{{ entry.external_url }}</link>
@@ -4192,6 +4302,8 @@ def coverage_rss():
   </channel>
 </rss>
 ```
+
+**Why `url_for(..., _external=True)` over manual base-URL concat:** Flask reads the request's host, scheme, and `SCRIPT_NAME` from the WSGI environ — correct under direct serving, behind a reverse proxy, on a sub-path, and in tests. Manual `request.url_root` concat breaks under proxy/sub-path configurations and silently produces wrong URLs in feed readers. The blueprint name `public` matches the `bp = Blueprint("public", ...)` you'll find at the top of `web/public.py` — verify and adjust if the project uses a different name.
 
 - [ ] **Step 4: Add the `<link rel="alternate">` in base.html**
 
