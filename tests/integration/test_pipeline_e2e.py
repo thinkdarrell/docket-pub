@@ -1086,3 +1086,94 @@ def test_process_item_uses_caller_conn_to_avoid_self_deadlock(bag, monkeypatch):
     assert final["headline"] == "Council awards $75K janitorial contract"
     assert final["ai_extraction_version"] is not None
     assert final["ai_rewrite_version"] is not None
+
+
+# ---------------------------------------------------------------------------
+# Issue #33 — v3 cost telemetry: _process_items_v3 must populate
+# summary.cost_usd / summary.usage so AI_DAILY_BUDGET_USD actually caps.
+# ---------------------------------------------------------------------------
+
+
+def test_process_items_v3_accumulates_cost_into_summary(bag, monkeypatch):
+    """Closes issue #33. The v3 cron path was recording ``cost_usd=$0`` on
+    every ``ai_runs`` row because extraction.py / rewrite.py didn't thread
+    Usage back to the worker — silently bypassing the daily budget cap.
+
+    Producers now emit usage via ``pricing.track_usage`` after every
+    Anthropic call; the worker wraps each item in ``usage_capture`` and
+    rolls per-model totals into ``RunSummary``. This test asserts the
+    plumbing: with mocked extract/rewrite emitting known usage, the
+    summary accumulates non-zero cost.
+    """
+    from docket.ai import worker
+    from docket.ai.pricing import (
+        Usage,
+        calculate_cost_usd,
+        track_usage,
+    )
+
+    HAIKU = "claude-haiku-4-5-20251001"
+
+    # Fake extract_facts_for_item: emits usage like the real producer
+    # would after a successful Anthropic call.
+    def _fake_extract(*args, **kwargs):
+        track_usage(HAIKU, Usage(
+            input_tokens=1000, cache_creation_input_tokens=0,
+            cache_read_input_tokens=0, output_tokens=200,
+        ))
+        return _sample_facts(), HAIKU
+
+    def _fake_rewrite(*args, **kwargs):
+        track_usage(HAIKU, Usage(
+            input_tokens=500, cache_creation_input_tokens=0,
+            cache_read_input_tokens=0, output_tokens=150,
+        ))
+        return _substantive_rewrite(), HAIKU
+
+    # Patch at the pipeline.py import sites — same shape the existing
+    # process_item tests use. The producers' real implementations would
+    # call track_usage themselves; the fakes simulate that behavior.
+    monkeypatch.setattr(
+        "docket.ai.pipeline.evaluate_data_quality",
+        lambda item: ("ok", "normal"),
+    )
+    monkeypatch.setattr(
+        "docket.ai.pipeline.is_procedural", lambda title: False,
+    )
+    monkeypatch.setattr(
+        "docket.ai.pipeline.extract_facts_for_item", _fake_extract,
+    )
+    monkeypatch.setattr(
+        "docket.ai.pipeline.rewrite_item", _fake_rewrite,
+    )
+
+    m = bag.add_meeting()
+    iid = bag.add_pending_item(m)
+
+    # Drive _process_items_v3 directly with a fresh connection.
+    import psycopg2
+
+    from docket.config import DATABASE_URL
+
+    summary = worker.RunSummary(stage="items")
+    conn = psycopg2.connect(DATABASE_URL)
+    try:
+        # limit=1 to scope tightly to the one item the bag fixture seeded,
+        # so the assertions can be exact even if other unrelated pending
+        # items exist in the local DB.
+        worker._process_items_v3(conn, limit=1, summary=summary)
+        conn.commit()
+    finally:
+        conn.close()
+
+    assert summary.rows_processed == 1
+
+    # Per-item we emit two calls: 1000+200 (extract) + 500+150 (rewrite).
+    # Aggregated: 1500 input, 350 output.
+    assert summary.usage.input_tokens == 1500
+    assert summary.usage.output_tokens == 350
+
+    # And cost_usd is the Haiku-priced sum, non-zero.
+    expected = calculate_cost_usd(HAIKU, summary.usage)
+    assert summary.cost_usd > 0
+    assert summary.cost_usd == pytest.approx(expected, rel=1e-9)
