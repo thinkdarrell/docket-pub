@@ -88,6 +88,12 @@ class TestIsWithdrawnOrDeferred:
         "POSTPONED CONSENT ITEM 9. A Resolution determining ...",
         # Case insensitive marker-first
         "withdrawn item 7. a resolution to do something",
+        # Shape (a): parenthesized marker after item number — real Birmingham shape
+        "ITEM 5. (WITHDRAWN) A Resolution authorizing the Mayor",
+        "CONSENT ITEM 22. (WITHDRAWN) A Resolution determining",
+        "P(ph) ITEM 14. (DEFERRED) An Ordinance amending Chapter 5",
+        "ITEM 9. ( WITHDRAWN ) A Resolution with extra spaces in parens",
+        "item 11. (postponed) a resolution lowercase",
     ])
     def test_withdrawn_titles_match(self, title: str):
         assert is_withdrawn_or_deferred(title), f"Should match: {title!r}"
@@ -109,6 +115,10 @@ class TestIsWithdrawnOrDeferred:
         # Marker-first guard: starts with marker word but has no "ITEM N."
         # structure — ambiguous, so we conservatively decline.
         "WITHDRAWN MOTION TO RECONSIDER — pending further notice",
+        # Shape (a) guard: parenthesized text after an item number that
+        # ISN'T the marker word stays substantive.
+        "ITEM 5. (UPDATED) A Resolution authorizing the Mayor",
+        "ITEM 8. (revised) A Resolution awarding the contract",
     ])
     def test_substantive_titles_dont_match(self, title: str):
         assert not is_withdrawn_or_deferred(title), f"Should NOT match: {title!r}"

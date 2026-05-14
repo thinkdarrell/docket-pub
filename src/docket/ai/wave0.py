@@ -141,6 +141,10 @@ PROCEDURAL_TITLE_PATTERNS = (
 WITHDRAWN_TITLE_PATTERNS = (
     r'^[a-z()./\s]*\bitem\s+\d+\.?\s+\b(?:withdrawn|deferred|postponed)\b',
     r'^\s*\b(?:withdrawn|deferred|postponed)\b[a-z()./\s]*\bitem\s+\d+\b',
+    # Shape (a): parenthesized marker after item number — Birmingham
+    # also writes "ITEM N. (WITHDRAWN)" with the marker bracketed.
+    # Inner whitespace inside the parens is tolerated.
+    r'^[a-z()./\s]*\bitem\s+\d+\.?\s*\(\s*(?:withdrawn|deferred|postponed)\s*\)',
 )
 
 _compiled_patterns = [re.compile(p, re.IGNORECASE) for p in PROCEDURAL_TITLE_PATTERNS]
