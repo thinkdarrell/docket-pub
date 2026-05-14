@@ -5,7 +5,7 @@ import pytest
 
 from docket.config import DATABASE_URL
 from docket.db import db
-from docket.services.coverage_writer import create_note, set_status
+from docket.services.coverage_writer import create_note, create_citation, set_status
 from docket.web import create_app
 
 
@@ -218,3 +218,70 @@ def test_permalink_404_for_citation(app):
                 cur.execute("DELETE FROM meetings WHERE id = %s", (mtg_id,))
                 cur.execute("DELETE FROM admin_users WHERE id = %s", (uid,))
             conn.commit()
+
+
+def test_listing_renders_published_citation(app, published_entries):
+    """Regression: listing must render citation cards (template ``{% else %}`` branch
+    of partials/coverage_citation.html), not just notes."""
+    uid = published_entries['uid']
+    item_id = published_entries['item_id']
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM outlets WHERE slug='al-com'")
+            outlet_id = cur.fetchone()[0]
+    cit_id = create_citation(
+        author_id=uid, outlet_id=outlet_id,
+        external_url='https://al.com/listing-cit',
+        headline='Unique-Listing-Citation-token-7g',
+        reporter_byline=None, excerpt=None, article_published_at=None,
+        subjects=[('agenda_item', item_id, None)],
+    )
+    set_status(cit_id, 'published')
+    try:
+        with app.test_client() as c:
+            resp = c.get('/coverage/')
+            assert resp.status_code == 200
+            assert b'Unique-Listing-Citation-token-7g' in resp.data
+            assert b'coverage-citation' in resp.data
+    finally:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM coverage_entries WHERE id = %s", (cit_id,))
+            conn.commit()
+
+
+def test_listing_filter_tab_notes_only(app, published_entries):
+    """Regression: ?kind=note filter must exclude citations from the listing."""
+    uid = published_entries['uid']
+    item_id = published_entries['item_id']
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM outlets WHERE slug='al-com'")
+            outlet_id = cur.fetchone()[0]
+    cit_id = create_citation(
+        author_id=uid, outlet_id=outlet_id,
+        external_url='https://al.com/filter-test',
+        headline='Filter-Tab-Citation-token-9h',
+        reporter_byline=None, excerpt=None, article_published_at=None,
+        subjects=[('agenda_item', item_id, None)],
+    )
+    set_status(cit_id, 'published')
+    try:
+        with app.test_client() as c:
+            resp = c.get('/coverage/?kind=note')
+            assert resp.status_code == 200
+            assert b'Filter-Tab-Citation-token-9h' not in resp.data
+            resp_cit = c.get('/coverage/?kind=citation')
+            assert b'Filter-Tab-Citation-token-9h' in resp_cit.data
+    finally:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM coverage_entries WHERE id = %s", (cit_id,))
+            conn.commit()
+
+
+def test_permalink_404_for_nonexistent_id(app):
+    """Regression: GET /coverage/<nonexistent> returns 404."""
+    with app.test_client() as c:
+        resp = c.get('/coverage/999999999')
+        assert resp.status_code == 404

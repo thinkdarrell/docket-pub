@@ -245,7 +245,14 @@ def list_agenda_items(meeting_id: int) -> list[AgendaItem]:
 
 
 def get_agenda_item(item_id: int) -> AgendaItem | None:
-    """Return a single agenda item by ID (same column shape as list_agenda_items)."""
+    """Return a single agenda item by ID (same column shape as list_agenda_items).
+
+    NOTE: deliberately does NOT filter out ``processing_status='withdrawn'`` items,
+    unlike ``list_agenda_items`` which hides them from feed views.  Withdrawn items
+    should still have a permalink — journalists may need to reference council
+    withdrawals and the item's coverage block should remain reachable.  The
+    divergence from the list view is intentional, not an oversight.
+    """
     with db_cursor() as cur:
         cur.execute(
             """

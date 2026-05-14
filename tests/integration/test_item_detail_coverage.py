@@ -5,7 +5,7 @@ import pytest
 
 from docket.config import DATABASE_URL
 from docket.db import db
-from docket.services.coverage_writer import create_note, set_status
+from docket.services.coverage_writer import create_note, create_citation, set_status
 from docket.web import create_app
 
 
@@ -90,3 +90,31 @@ def test_item_detail_omits_draft_coverage(app, seeded):
     with app.test_client() as c:
         resp = c.get(f"/al/{seeded['city_slug']}/items/{seeded['item_id']}/")
         assert b'Should not render' not in resp.data
+
+
+def test_item_detail_renders_published_citation(app, seeded):
+    """Citation rendering branch in coverage_block is currently untested."""
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM outlets WHERE slug='al-com'")
+            outlet_id = cur.fetchone()[0]
+    cit_id = create_citation(
+        author_id=seeded['uid'], outlet_id=outlet_id,
+        external_url='https://al.com/item-cit-test',
+        headline='Item-Detail-Citation-token-3f',
+        reporter_byline='Sam Prickett', excerpt='Pull quote.',
+        article_published_at=None,
+        subjects=[('agenda_item', seeded['item_id'], None)],
+    )
+    set_status(cit_id, 'published')
+    try:
+        with app.test_client() as c:
+            resp = c.get(f"/al/{seeded['city_slug']}/items/{seeded['item_id']}/")
+            assert resp.status_code == 200
+            assert b'Item-Detail-Citation-token-3f' in resp.data
+            assert b'coverage-citation' in resp.data
+    finally:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM coverage_entries WHERE id = %s", (cit_id,))
+            conn.commit()

@@ -380,6 +380,15 @@ def test_hydrate_subjects_discriminates_by_subject_type(seeded_admin):
 
             # 2. Force-insert a council_member whose id == item_id, creating the collision.
             #    ON CONFLICT (id) DO UPDATE handles the rare case where that id is already taken.
+            #
+            # SEQUENCE ASSUMPTION: council_members and agenda_items share the global
+            # Postgres integer sequence space, so a freshly inserted agenda_item id is
+            # likely to be below or equal to some council_members id range on a dev DB
+            # that has had council members seeded at lower ids.  The explicit-id INSERT
+            # here does NOT advance the council_members id sequence; the next
+            # auto-assigned council_member id will skip this value naturally because
+            # the row already exists.  This is safe on a local dev DB — it is NOT a
+            # long-term contract and must not be relied on in production tests.
             cur.execute(
                 "INSERT INTO council_members (id, municipality_id, name) "
                 "VALUES (%s, (SELECT id FROM municipalities LIMIT 1), %s) "

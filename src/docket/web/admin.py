@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from flask import (
@@ -1162,7 +1162,6 @@ def coverage_list():
                     {'subject_type': r['subject_type'], 'label': r['label'] or ''}
                 )
 
-    from datetime import timezone
     return render_template(
         "admin/coverage/list.html",
         rows=rows,
@@ -1209,7 +1208,10 @@ def coverage_create():
             status=status,
         )
     elif kind == 'citation':
-        outlet_id = int(request.form['outlet_id'])
+        try:
+            outlet_id = int(request.form['outlet_id'])
+        except (KeyError, ValueError):
+            abort(400)
         external_url = (request.form.get('external_url') or '').strip()
         headline = (request.form.get('headline') or '').strip()
         if not (external_url and headline):

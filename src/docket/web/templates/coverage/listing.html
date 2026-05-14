@@ -35,11 +35,11 @@
 {% if total_pages > 1 %}
 <nav class="pagination">
   {% if page > 1 %}
-    <a href="{{ url_for('public.coverage_listing', page=page-1, kind=kind, q=q) }}">&larr; Newer</a>
+    <a href="{{ url_for('public.coverage_listing', page=page-1, kind=kind, q=q or None) }}">&larr; Newer</a>
   {% endif %}
   <span>Page {{ page }} of {{ total_pages }}</span>
   {% if page < total_pages %}
-    <a href="{{ url_for('public.coverage_listing', page=page+1, kind=kind, q=q) }}">Older &rarr;</a>
+    <a href="{{ url_for('public.coverage_listing', page=page+1, kind=kind, q=q or None) }}">Older &rarr;</a>
   {% endif %}
 </nav>
 {% endif %}

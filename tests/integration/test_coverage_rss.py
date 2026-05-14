@@ -99,3 +99,16 @@ def test_rss_excludes_drafts(app, rss_entries):
     with app.test_client() as c:
         resp = c.get('/coverage.rss')
         assert b'unique-rss-token' not in resp.data
+
+
+def test_rss_feed_renders_when_empty(app):
+    """Regression: feed must render valid empty XML when no published entries exist."""
+    import xml.etree.ElementTree as ET
+    with app.test_client() as c:
+        resp = c.get('/coverage.rss')
+        assert resp.status_code == 200
+        root = ET.fromstring(resp.data)
+        assert root.tag == 'rss'
+        # Channel exists, possibly with zero <item> children
+        channel = root.find('channel')
+        assert channel is not None

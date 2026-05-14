@@ -4,7 +4,7 @@ All multi-step writes are wrapped in a single transaction via db_cursor().
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Iterable
 
 from docket.db import db_cursor
@@ -78,7 +78,7 @@ def create_citation(
     headline: str,
     reporter_byline: str | None,
     excerpt: str | None,
-    article_published_at,
+    article_published_at: date | None,
     subjects: Iterable[SubjectSpec],
     status: str = 'draft',
     featured_until: datetime | None = None,

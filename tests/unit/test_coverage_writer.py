@@ -287,3 +287,37 @@ def test_delete_coverage_cascades_subjects(seeded_admin, seeded_item):
                 (entry_id,),
             )
             assert cur.fetchone()[0] == 0
+
+
+def test_set_status_raises_on_invalid_status(seeded_admin, seeded_item):
+    from docket.services.coverage_writer import create_note, set_status
+    _, item_id = seeded_item
+    entry_id = create_note(
+        author_id=seeded_admin, body='probe.', partner_credit=None,
+        subjects=[('agenda_item', item_id, None)],
+    )
+    try:
+        with pytest.raises(ValueError):
+            set_status(entry_id, 'invalid_status_xyz')
+    finally:
+        _cleanup_entry(entry_id)
+
+
+def test_set_status_raises_on_nonexistent_coverage_id():
+    from docket.services.coverage_writer import set_status
+    with pytest.raises(LookupError):
+        set_status(999999999, 'published')
+
+
+def test_update_coverage_raises_on_empty_subjects(seeded_admin, seeded_item):
+    from docket.services.coverage_writer import create_note, update_coverage
+    _, item_id = seeded_item
+    entry_id = create_note(
+        author_id=seeded_admin, body='body.', partner_credit=None,
+        subjects=[('agenda_item', item_id, None)],
+    )
+    try:
+        with pytest.raises(ValueError):
+            update_coverage(entry_id, subjects=[])
+    finally:
+        _cleanup_entry(entry_id)

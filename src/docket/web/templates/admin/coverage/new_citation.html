@@ -35,31 +35,5 @@
   <a href="{{ url_for('admin.coverage_list') }}">Cancel</a>
 </form>
 
-<script>
-  function addSubjectChip(btn) {
-    var ds = btn.dataset;
-    var container = document.getElementById('selected-subjects');
-    if (!container) return;
-
-    var chip = document.createElement('span');
-    chip.className = 'subject-chip';
-
-    var label = document.createTextNode(ds.subjectType + ': ' + ds.subjectLabel + ' ');
-    chip.appendChild(label);
-
-    var hidden = document.createElement('input');
-    hidden.type = 'hidden';
-    hidden.name = 'subject[]';
-    hidden.value = ds.subjectType + ':' + ds.subjectId;
-    chip.appendChild(hidden);
-
-    var rm = document.createElement('button');
-    rm.type = 'button';
-    rm.textContent = '✕';
-    rm.addEventListener('click', function () { chip.remove(); });
-    chip.appendChild(rm);
-
-    container.appendChild(chip);
-  }
-</script>
+<script src="{{ url_for('static', filename='admin.js') }}" defer></script>
 {% endblock %}

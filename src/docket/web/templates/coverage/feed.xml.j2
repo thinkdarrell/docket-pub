@@ -9,18 +9,18 @@
     {% for entry in entries %}
     <item>
       {% if entry.kind == 'note' %}
-        <title>{{ (entry.body or '')[:80] }}</title>
+        <title>{{ (entry.body or '')[:80] | e }}</title>
         <link>{{ url_for('public.coverage_permalink', coverage_id=entry.id, _external=True) }}</link>
         <description><![CDATA[{{ entry.body }}]]></description>
         <guid isPermaLink="true">{{ url_for('public.coverage_permalink', coverage_id=entry.id, _external=True) }}</guid>
       {% else %}
-        <title>[{{ entry.outlet_name }}] {{ entry.headline }}</title>
+        <title>[{{ entry.outlet_name | e }}] {{ entry.headline | e }}</title>
         <link>{{ entry.external_url }}</link>
         <description><![CDATA[{{ entry.excerpt or '' }}{% if entry.reporter_byline %} — by {{ entry.reporter_byline }}{% endif %}]]></description>
         <guid isPermaLink="false">docket-coverage-{{ entry.id }}</guid>
       {% endif %}
       {% if entry.published_at %}
-      <pubDate>{{ entry.published_at.strftime('%a, %d %b %Y %H:%M:%S +0000') }}</pubDate>
+      <pubDate>{{ (entry.published_at | to_utc).strftime('%a, %d %b %Y %H:%M:%S +0000') }}</pubDate>
       {% endif %}
     </item>
     {% endfor %}

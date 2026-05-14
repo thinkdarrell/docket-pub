@@ -923,8 +923,9 @@ def coverage_listing():
         page = max(1, int(request.args.get('page', 1)))
     except ValueError:
         page = 1
-    rows, total = list_published_coverage(kind=kind, q=q, page=page, page_size=20)
-    total_pages = (total + 19) // 20
+    page_size = 20
+    rows, total = list_published_coverage(kind=kind, q=q, page=page, page_size=page_size)
+    total_pages = (total + page_size - 1) // page_size
     return render_template(
         "coverage/listing.html",
         entries=rows,
