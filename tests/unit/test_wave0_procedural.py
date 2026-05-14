@@ -94,6 +94,12 @@ class TestIsWithdrawnOrDeferred:
         "P(ph) ITEM 14. (DEFERRED) An Ordinance amending Chapter 5",
         "ITEM 9. ( WITHDRAWN ) A Resolution with extra spaces in parens",
         "item 11. (postponed) a resolution lowercase",
+        # Shape (b): "REQUESTED TO BE WITHDRAWN" phrase between item
+        # number and marker — Birmingham administrative shape.
+        "(ph) ITEM 12. REQUESTED TO BE WITHDRAWN An Ordinance amending",
+        "ITEM 5. REQUESTED TO BE DEFERRED A Resolution authorizing",
+        "CONSENT ITEM 22. REQUESTED TO BE POSTPONED A Resolution determining",
+        "item 9. requested to be withdrawn a resolution lowercase",
     ])
     def test_withdrawn_titles_match(self, title: str):
         assert is_withdrawn_or_deferred(title), f"Should match: {title!r}"

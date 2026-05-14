@@ -145,6 +145,11 @@ WITHDRAWN_TITLE_PATTERNS = (
     # also writes "ITEM N. (WITHDRAWN)" with the marker bracketed.
     # Inner whitespace inside the parens is tolerated.
     r'^[a-z()./\s]*\bitem\s+\d+\.?\s*\(\s*(?:withdrawn|deferred|postponed)\s*\)',
+    # Shape (b): "REQUESTED TO BE WITHDRAWN/DEFERRED/POSTPONED" phrase
+    # between the item number and the marker. Birmingham administrative
+    # shape. We anchor on the specific 4-token phrase to avoid matching
+    # incidental "...to be withdrawn from..." text in bodies.
+    r'^[a-z()./\s]*\bitem\s+\d+\.?\s+requested\s+to\s+be\s+(?:withdrawn|deferred|postponed)\b',
 )
 
 _compiled_patterns = [re.compile(p, re.IGNORECASE) for p in PROCEDURAL_TITLE_PATTERNS]
