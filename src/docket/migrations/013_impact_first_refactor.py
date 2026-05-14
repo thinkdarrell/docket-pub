@@ -470,7 +470,13 @@ DROP TABLE IF EXISTS city_score_floor_overrides;
 DROP TABLE IF EXISTS agenda_item_badges_audit;
 DROP TABLE IF EXISTS agenda_item_badges;
 DROP TABLE IF EXISTS priority_badges_config;
-DROP TABLE IF EXISTS priority_badge_templates;
+-- CASCADE on priority_badge_templates: later migrations add FKs
+-- referencing this table (e.g. migration 027 adds
+-- coverage_subject_links.subject_slug → priority_badge_templates.slug).
+-- The down-rollback test peels off those dependents explicitly, but
+-- CASCADE here is defense-in-depth so a future cross-migration FK
+-- doesn't silently break the rollback cycle.
+DROP TABLE IF EXISTS priority_badge_templates CASCADE;
 
 ALTER TABLE municipalities DROP COLUMN IF EXISTS master_calendar_url;
 
