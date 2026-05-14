@@ -229,3 +229,58 @@ def test_profile_display_name_update(client_logged_in):
         with conn.cursor() as cur:
             cur.execute("SELECT display_name FROM admin_users WHERE id = %s", (uid,))
             assert cur.fetchone()[0] == 'Editor Smith'
+
+
+def test_coverage_search_route_accepts_subject_type_via_form_field(client_logged_in):
+    """Regression: subject_type select must transmit its value via HTMX hx-include.
+    Without name='subject_type' on the <select>, the route silently defaults to
+    agenda_item, breaking meeting/member/badge searches."""
+    c, _ = client_logged_in
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO meetings (municipality_id, external_id, title, meeting_date) "
+                "VALUES ((SELECT id FROM municipalities LIMIT 1), %s, %s, NOW()) RETURNING id",
+                ('search-mtg', 'Unique-Search-Meeting-Token-xyz1'),
+            )
+            mtg_id = cur.fetchone()[0]
+        conn.commit()
+    try:
+        resp = c.get('/admin/coverage/search?subject_type=meeting&q=Unique-Search-Meeting-Token-xyz1')
+        assert resp.status_code == 200
+        assert b'Unique-Search-Meeting-Token-xyz1' in resp.data
+    finally:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM meetings WHERE id = %s", (mtg_id,))
+            conn.commit()
+
+
+def test_coverage_search_badge_path_does_not_crash(client_logged_in):
+    """Regression: badge ILIKE used `WHERE (a OR b) ESCAPE '\\'` which is
+    a Postgres syntax error. The route must accept badge searches without crashing."""
+    c, _ = client_logged_in
+    resp = c.get('/admin/coverage/search?subject_type=badge&q=property')
+    assert resp.status_code == 200  # whether it finds results or not, must NOT 500
+
+
+def test_coverage_list_shows_attached_to_column(client_logged_in, seeded_note):
+    """Regression: list view must show the 'Attached to' column with subject labels."""
+    c, _ = client_logged_in
+    entry_id, item_id, mtg_id = seeded_note
+    resp = c.get('/admin/coverage')
+    assert resp.status_code == 200
+    assert b'Attached to' in resp.data
+    # The seeded_note attaches the entry to an agenda_item; the title is 'Admin Cov Item'
+    assert b'Admin Cov Item' in resp.data
+
+
+def test_draft_row_has_delete_button(client_logged_in, seeded_note):
+    """Regression: draft rows must include a Delete button (spec quick-actions table)."""
+    c, _ = client_logged_in
+    entry_id, _, _ = seeded_note
+    resp = c.get('/admin/coverage')
+    assert resp.status_code == 200
+    # The delete form action URL for this entry
+    expected_action = f'/admin/coverage/{entry_id}/delete'
+    assert expected_action.encode() in resp.data

@@ -41,6 +41,7 @@
     <tr>
       <th></th>
       <th>Snippet</th>
+      <th>Attached to</th>
       <th>Status</th>
       <th>Author</th>
       <th>Updated</th>
@@ -51,7 +52,7 @@
   {% for row in rows %}
     {% include "admin/coverage/_row.html" %}
   {% else %}
-    <tr><td colspan="6" class="empty">No coverage entries yet.</td></tr>
+    <tr><td colspan="7" class="empty">No coverage entries yet.</td></tr>
   {% endfor %}
   </tbody>
 </table>

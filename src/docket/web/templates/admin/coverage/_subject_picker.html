@@ -7,7 +7,7 @@
     {% endfor %}
   </div>
   <p>Add subject:</p>
-  <select id="subject-type-select" onchange="document.getElementById('subject-search').value=''; this.form.requestSubmit();">
+  <select id="subject-type-select" name="subject_type" onchange="document.getElementById('subject-search').value=''; this.form.requestSubmit();">
     <option value="agenda_item">Agenda item</option>
     <option value="meeting">Meeting</option>
     <option value="council_member">Council member</option>

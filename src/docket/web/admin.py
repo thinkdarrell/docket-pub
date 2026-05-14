@@ -1137,6 +1137,31 @@ def coverage_list():
         )
         counts = {r['status']: r['n'] for r in cur.fetchall()}
 
+        # Fetch attached subjects for each row in one bulk query
+        row_ids = [r['id'] for r in rows]
+        subjects_by_coverage_id = {}
+        if row_ids:
+            cur.execute(
+                """
+                SELECT csl.coverage_id, csl.subject_type,
+                       COALESCE(
+                         (SELECT title FROM agenda_items     WHERE id   = csl.subject_id),
+                         (SELECT title FROM meetings         WHERE id   = csl.subject_id),
+                         (SELECT name  FROM council_members  WHERE id   = csl.subject_id),
+                         (SELECT name  FROM priority_badge_templates WHERE slug = csl.subject_slug),
+                         ''
+                       ) AS label
+                  FROM coverage_subject_links csl
+                 WHERE csl.coverage_id = ANY(%s)
+                 ORDER BY csl.coverage_id, csl.id
+                """,
+                (row_ids,),
+            )
+            for r in cur.fetchall():
+                subjects_by_coverage_id.setdefault(r['coverage_id'], []).append(
+                    {'subject_type': r['subject_type'], 'label': r['label'] or ''}
+                )
+
     from datetime import timezone
     return render_template(
         "admin/coverage/list.html",
@@ -1145,6 +1170,7 @@ def coverage_list():
         status_filter=status_filter,
         kind_filter=kind_filter,
         utcnow=datetime.now(timezone.utc),
+        subjects_by_coverage_id=subjects_by_coverage_id,
     )
 
 
@@ -1334,7 +1360,7 @@ def coverage_search():
         elif subject_type == 'badge':
             cur.execute(
                 "SELECT slug, name FROM priority_badge_templates "
-                "WHERE (name ILIKE %s OR slug ILIKE %s) ESCAPE '\\' LIMIT 15",
+                "WHERE name ILIKE %s ESCAPE '\\' OR slug ILIKE %s ESCAPE '\\' LIMIT 15",
                 (needle, needle),
             )
             results = [{'id': r['slug'], 'label': r['name']} for r in cur.fetchall()]
