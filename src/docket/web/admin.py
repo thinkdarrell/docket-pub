@@ -741,12 +741,16 @@ def badge_add(item_id: int, slug: str):
                 # Slug not in templates → reject.
                 abort(404)
 
+            # Refactor #2 retro [MEDIUM #1]: status='applied' set explicitly
+            # — admin manual adds are always citizen-visible by intent. The
+            # decision lane for the LLM-suggested policy-badge path lives in
+            # docket.ai.badges_policy.decide_status_and_confidence.
             cur.execute(
                 """
                 INSERT INTO agenda_item_badges
                   (agenda_item_id, city_id, badge_slug, kind, confidence,
-                   source, matching_metadata)
-                VALUES (%s, %s, %s, %s, 0.95, 'manual', %s::jsonb)
+                   source, matching_metadata, status)
+                VALUES (%s, %s, %s, %s, 0.95, 'manual', %s::jsonb, 'applied')
                 ON CONFLICT (agenda_item_id, badge_slug) DO NOTHING
                 RETURNING id
                 """,
