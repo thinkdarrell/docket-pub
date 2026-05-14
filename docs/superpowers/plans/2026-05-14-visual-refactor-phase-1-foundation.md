@@ -1,6 +1,13 @@
 # Visual Refactor — Phase 1 (Foundation) Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+>
+> **🛑 HUMAN VERIFICATION GATES.** Every task that produces a visible CSS change ends with a **Human Verification Gate** that the agent MUST NOT pass on its own. Agents have no browser, no DevTools, no eyes. At each gate the agent must:
+> 1. Post a clear message to the operator describing what to check (URL, expected outcome, mobile vs desktop).
+> 2. **HALT and wait** for an explicit "approved" / "go" from the operator.
+> 3. Only after operator approval, proceed to the commit step.
+>
+> Agents that "confirm visual verification passed" without operator input are violating this plan. Programmatic verification (curl/grep/pytest/awk) is allowed and expected at every step; visual verification is operator-only.
 
 **Goal:** Land the foundation tokens (type scale, spacing scale) and fix a footer-grid mismatch so later phases of the visual refactor build on a clean base.
 
@@ -43,8 +50,8 @@ Expected: zero matches (these token names are not yet in use). If any matches su
 
 - [ ] **Step 2: Search every CSS file for hardcoded size values that will be replaced by tokens (for visibility, not yet for change)**
 
-Run: `grep -rEn "font-size:\s*(64|44|28|17|15|10)px" src/docket/web/static/`
-Expected: many matches — these are the call sites that *could* eventually consume the new type tokens. **Do not edit them in P1**. The point is to confirm token values match what the design already uses in practice; if a number is wildly off, the token is wrong.
+Run: `grep -rEn "font-size:\s*(64|44|28|26|17|15|10)px" src/docket/web/static/`
+Expected: many matches — these are the call sites that *could* eventually consume the new type tokens (including the 26px mono-numeric value used for KPI/NumStat). **Do not edit them in P1**. The point is to confirm token values match what the design already uses in practice; if a number is wildly off, the token is wrong.
 
 - [ ] **Step 3: Confirm no commits, no changes yet**
 
@@ -90,51 +97,55 @@ Immediately AFTER `--radius-2: 8px;` (and BEFORE the "Semantic aliases" comment 
   --type-mono-num:    26px;
 ```
 
-- [ ] **Step 3: Verify the file is still syntactically valid by re-reading the `:root` block**
+- [ ] **Step 3: Verify the `:root` block is still syntactically intact by dynamically extracting it**
 
-Run: `sed -n '3,75p' src/docket/web/static/styles.css`
-Expected: the `:root { ... }` block now contains the new `--type-*` block; no stray braces; the closing `}` and `* { box-sizing: border-box; }` line that follows are still intact.
+Run: `awk '/^:root {/{flag=1} flag; /^}/{flag=0; print ""; exit}' src/docket/web/static/styles.css`
+Expected: the full `:root { ... }` block prints to stdout. It must contain the new `--type-*` block. The output must end with `}` followed by a blank line (the awk extractor exits at the first `^}` it finds, which is the close of `:root`).
+
+If the awk output is truncated or missing a closing `}`, the file is broken — STOP and inspect with the Read tool.
 
 - [ ] **Step 4: Confirm no other CSS files were touched**
 
 Run: `git diff --stat`
-Expected: exactly one file modified (`src/docket/web/static/styles.css`), with additions only.
+Expected: exactly one file modified (`src/docket/web/static/styles.css`), with additions only (the diff line count should show all `+`, no `-`).
 
-- [ ] **Step 5: Start the local dev server (or restart if running)**
+- [ ] **Step 5: Verify the tokens are served correctly by Flask via curl**
 
-Run: `venv/bin/flask run` (from repo root, with `.env` set so `DATABASE_URL` points to local docket_db).
+Start the dev server in the background if not already running. From repo root:
 
-If the server is already running and serving static files with no-cache, no action needed. Otherwise, start it and leave it running in another shell.
+Run: `DATABASE_URL=postgresql://docket@localhost:5432/docket_db venv/bin/flask --app docket.web run --port 5000 &`
 
-- [ ] **Step 6: Visual verification — confirm tokens are present in browser**
+Wait ~2 seconds for boot, then:
 
-Open `http://localhost:5000/al/birmingham/` (or any page) in a browser.
+Run: `curl -sS http://localhost:5000/static/styles.css | grep -E -- "--type-(hero|hero-mobile|section|card|body|eyebrow|mono-num):"`
 
-Open devtools, Elements panel, select `<html>`, look at the Styles panel. Filter for `--type-`. All 7 tokens (`--type-hero`, `--type-hero-mobile`, `--type-section`, `--type-card`, `--type-body`, `--type-eyebrow`, `--type-mono-num`) should be visible on the `:root` rule.
+Expected output: 7 lines, one per token, each matching the values inserted in Step 2.
 
-Expected: 7 tokens present with the values from Step 2.
+If fewer than 7 lines, the file was not served correctly OR the edit was incomplete — investigate.
 
-- [ ] **Step 7: Visual verification — confirm NO existing page rendering has changed**
-
-The tokens are declared but not yet consumed. Visit:
-- `http://localhost:5000/` (homepage)
-- `http://localhost:5000/al/birmingham/` (city overview)
-- `http://localhost:5000/al/birmingham/meetings/` (meeting list)
-- Pick any meeting → meeting detail
-- Pick any agenda item → item detail
-
-Each page must look identical to before this commit. (Open before/after browser tabs side-by-side if uncertain.)
-
-Expected: zero visible difference. If anything looks different, something else got edited by mistake — `git diff` and investigate.
-
-- [ ] **Step 8: Run pytest to catch any incidental regressions**
+- [ ] **Step 6: Run pytest to catch any template-rendering regressions**
 
 Run: `venv/bin/pytest -x --ignore=tests/live 2>&1 | tail -20`
 Expected: all tests pass. The `--ignore=tests/live` skips the live-API gated tests that require `ANTHROPIC_API_KEY`.
 
 If any test fails, do NOT proceed. Investigate, fix, then re-run.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 7: 🛑 HUMAN VERIFICATION GATE — visual sweep of the local site**
+
+Post this exact message to the operator and HALT:
+
+> "Type-scale tokens added to `styles.css`. The dev server is running at `http://localhost:5000`. Please visually verify the following pages look **identical to before** (tokens are declared but not yet consumed, so there should be zero visible difference):
+> - `/` (homepage)
+> - `/al/birmingham/` (city overview)
+> - `/al/birmingham/meetings/` (meeting list)
+> - Any meeting detail
+> - Any item detail
+>
+> Reply 'approved' to proceed to commit, or describe what looks off."
+
+**Do not run the next step until the operator replies with explicit approval.**
+
+- [ ] **Step 8: Commit**
 
 ```bash
 git add src/docket/web/static/styles.css
@@ -183,23 +194,33 @@ Edit `src/docket/web/static/styles.css`. Immediately AFTER `--type-mono-num:    
 
 Note the naming: the trailing number is the *value in 4px units divided by 4 for clarity at common sizes*. So `--space-4` = 16px (4×4), `--space-8` = 32px (4×8), etc. Adopt this naming convention for any future spacing additions.
 
-- [ ] **Step 3: Verify the file is still syntactically valid**
+- [ ] **Step 3: Verify the `:root` block is still syntactically intact**
 
-Run: `sed -n '3,85p' src/docket/web/static/styles.css`
-Expected: `:root` block contains both the type-scale block and the new spacing-scale block; closing `}` intact; following `* { box-sizing: border-box; }` intact.
+Run: `awk '/^:root {/{flag=1} flag; /^}/{flag=0; print ""; exit}' src/docket/web/static/styles.css`
+Expected: full `:root { ... }` block prints, containing BOTH the `--type-*` block from Task 2 AND the new `--space-*` block from this task. Block ends with `}` followed by blank line.
 
-- [ ] **Step 4: Visual verification — tokens visible in devtools, no rendering change**
+- [ ] **Step 4: Verify the spacing tokens are served via curl**
 
-Same as Task 2 Step 6: filter `:root` styles for `--space-`. Expect 8 tokens visible.
+The dev server should still be running from Task 2 Step 5. If not, restart it (see Task 2 Step 5 command).
 
-Same as Task 2 Step 7: every page renders identically.
+Run: `curl -sS http://localhost:5000/static/styles.css | grep -E -- "--space-(1|2|3|4|6|8|12|16):"`
+
+Expected: 8 lines, one per spacing token, matching the values from Step 2.
 
 - [ ] **Step 5: Run pytest**
 
 Run: `venv/bin/pytest -x --ignore=tests/live 2>&1 | tail -20`
 Expected: all tests pass.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: 🛑 HUMAN VERIFICATION GATE — visual sweep**
+
+Post this message to the operator and HALT:
+
+> "Spacing-scale tokens added to `styles.css`. The dev server is running at `http://localhost:5000`. Please visually verify the pages from Task 2 Step 7 still look **identical** (spacing tokens are declared but not consumed yet — zero visible difference expected). Reply 'approved' to proceed to commit."
+
+**Do not run the next step until the operator replies with explicit approval.**
+
+- [ ] **Step 7: Commit**
 
 ```bash
 git add src/docket/web/static/styles.css
@@ -268,30 +289,36 @@ Leave gap, padding-bottom, and border-bottom unchanged.
 Run: `sed -n '5,11p' src/docket/web/static/tweaks.css`
 Expected: line 6 now reads `display: grid; grid-template-columns: repeat(2, 1fr);`. Other lines unchanged.
 
-- [ ] **Step 5: Visual verification — desktop footer now fills full width**
+- [ ] **Step 5: Verify the new grid value is served by Flask**
 
-In the dev-server browser tab (≥769px wide window), scroll to the bottom of any page (e.g., `http://localhost:5000/al/birmingham/`).
+Run: `curl -sS http://localhost:5000/static/tweaks.css | grep -A 1 "footnote-cols"`
+Expected output includes the line `display: grid; grid-template-columns: repeat(2, 1fr);`. If it still says `repeat(4, 1fr)`, the file wasn't saved or Flask is serving a cached version.
 
-Before this change: the "About" and "For citizens" columns sat in the left half of the footer; the right half was empty whitespace.
+- [ ] **Step 6: Confirm mobile override is unchanged (defensive check)**
 
-After this change: the two columns now span the full width of the page container, each taking 50% with the 32px gap between them. Colophon and bottom strip render the same.
-
-Expected: no empty whitespace to the right of the columns at desktop.
-
-- [ ] **Step 6: Visual verification — mobile footer accordion still works**
-
-Resize the browser window to <768px (or open devtools responsive mode at iPhone width).
-
-The `mobile.css:313-318` rule overrides `.footnote-cols` to `display: flex; flex-direction: column;` at narrow widths, so the desktop grid-template-columns value doesn't affect mobile rendering. Accordion behavior should be unchanged: first column open, others tappable to expand.
-
-Expected: footer accordion works as before; first column open by default; tapping a closed column header expands it.
+Run: `grep -A 5 "13\. Footer accordion" src/docket/web/static/mobile.css | head -8`
+Expected: the mobile `@media` override still sets `.footnote-cols` to `display: flex; flex-direction: column;`. That rule must NOT have been touched in this task — mobile accordion behavior depends on it.
 
 - [ ] **Step 7: Run pytest**
 
 Run: `venv/bin/pytest -x --ignore=tests/live 2>&1 | tail -20`
 Expected: all tests pass.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 8: 🛑 HUMAN VERIFICATION GATE — desktop AND mobile footer**
+
+Post this exact message to the operator and HALT (this gate has a real visual change, unlike Tasks 2/3):
+
+> "Footer grid corrected from 4 cols → 2 cols. The dev server is running at `http://localhost:5000`. Two things to verify:
+>
+> **At desktop width (≥769px window):** Scroll to the bottom of `http://localhost:5000/al/birmingham/`. The 'About' and 'For citizens' columns should now span the full width of the page container (each ~50% with 32px gap), instead of sitting in the left half with empty whitespace on the right.
+>
+> **At mobile width (<768px, e.g. devtools responsive mode at iPhone 14):** Scroll to the bottom of the same page. The footer accordion should behave EXACTLY as before — first column open by default, tapping a closed column header expands it. **No change at mobile is expected.**
+>
+> Reply 'approved' to proceed to commit, or describe what looks off."
+
+**Do not run the next step until the operator replies with explicit approval.**
+
+- [ ] **Step 9: Commit**
 
 ```bash
 git add src/docket/web/static/tweaks.css
@@ -315,6 +342,8 @@ Expected: commit succeeds.
 
 ## Task 5: Final verification across the site
 
+**Background:** This task splits into two phases — programmatic route-smoke (agent runs) and visual sweep (operator runs). The agent must complete the programmatic phase, then HALT at the human gate before declaring P1 done.
+
 **Files:** read-only verification of all rendered pages.
 
 - [ ] **Step 1: Re-run the full pytest suite**
@@ -322,42 +351,83 @@ Expected: commit succeeds.
 Run: `venv/bin/pytest --ignore=tests/live 2>&1 | tail -10`
 Expected: all tests pass.
 
-- [ ] **Step 2: Visual sweep at desktop width (≥1024px window)**
+- [ ] **Step 2: Programmatic route-smoke — confirm every page in scope returns HTTP 200**
 
-Open each of these in the dev-server browser and confirm no unexpected layout shift vs. pre-P1:
+The dev server should be running on port 5000 from Task 2. For each URL, curl with `-o /dev/null -w '%{http_code}\n'` to capture only the status code:
 
-- `http://localhost:5000/` — homepage
-- `http://localhost:5000/al/birmingham/` — city overview
-- `http://localhost:5000/al/birmingham/meetings/` — meeting list
-- `http://localhost:5000/al/birmingham/meetings/<any-id>/` — meeting detail
-- `http://localhost:5000/al/birmingham/items/<any-id>/` — item detail
-- `http://localhost:5000/al/birmingham/council/` — council roster
-- `http://localhost:5000/al/birmingham/budget/` (or any badge slug) — category landing
-- `http://localhost:5000/search` — search results page
-- `http://localhost:5000/topics/` — topics index
-- `http://localhost:5000/coverage/` — coverage listing
-- `http://localhost:5000/about/` — about page
+Run:
+```bash
+for path in \
+  "/" \
+  "/al/birmingham/" \
+  "/al/birmingham/meetings/" \
+  "/al/birmingham/council/" \
+  "/search" \
+  "/topics/" \
+  "/coverage/" \
+  "/about/" \
+  "/about/how-we-read-minutes/" \
+  "/about/corrections/" \
+  "/councilors/"; do
+  code=$(curl -sS -o /dev/null -w "%{http_code}" "http://localhost:5000${path}")
+  echo "${code} ${path}"
+done
+```
 
-Expected: every page renders identically to before P1 *except* that the footer now spans full width at desktop (the only intentional visible change).
+Expected: every line begins with `200`. Any `5xx` is a regression — STOP and investigate.
 
-- [ ] **Step 3: Visual sweep at mobile width (<768px responsive mode, e.g., iPhone 14 Pro)**
+For meeting-detail and item-detail (parameterized routes), pick one meeting_id and one item_id from the local DB:
 
-Same page list as Step 2.
+Run: `psql -d docket_db -c "SELECT id FROM meetings WHERE municipality_id = (SELECT id FROM municipalities WHERE slug='birmingham') ORDER BY date DESC LIMIT 1;"`
 
-Expected: every page renders identically to before P1 (mobile footer accordion already worked; the desktop grid change does not affect mobile because `mobile.css` overrides `.footnote-cols`).
+Use that ID:
+```bash
+mid=$(psql -d docket_db -tA -c "SELECT id FROM meetings WHERE municipality_id = (SELECT id FROM municipalities WHERE slug='birmingham') ORDER BY date DESC LIMIT 1;")
+iid=$(psql -d docket_db -tA -c "SELECT id FROM agenda_items WHERE meeting_id = ${mid} LIMIT 1;")
+curl -sS -o /dev/null -w "%{http_code} /al/birmingham/meetings/${mid}/\n" "http://localhost:5000/al/birmingham/meetings/${mid}/"
+curl -sS -o /dev/null -w "%{http_code} /al/birmingham/items/${iid}/\n" "http://localhost:5000/al/birmingham/items/${iid}/"
+```
 
-- [ ] **Step 4: Confirm devtools shows the new tokens**
+Expected: both `200`.
 
-In the open browser session, devtools → Elements → select `<html>` → Styles panel → scroll the `:root` rule.
+- [ ] **Step 3: Programmatic token sweep — confirm tokens are served on every page response**
 
-Expected:
-- 7 `--type-*` tokens visible (`--type-hero`, `--type-hero-mobile`, `--type-section`, `--type-card`, `--type-body`, `--type-eyebrow`, `--type-mono-num`)
-- 8 `--space-*` tokens visible (`--space-1` through `--space-16`)
+Tokens are in `styles.css`, included via `<link>` from `base.html`. If `base.html` renders, every page references the file. Confirm one fetch of the file shows all 15 tokens (7 type + 8 space):
 
-- [ ] **Step 5: Confirm `git log` shows three clean commits**
+Run: `curl -sS http://localhost:5000/static/styles.css | grep -cE -- "--(type|space)-"`
+Expected: `15` or higher (the count of matching lines — 7 type + 8 space = 15 lines, possibly more if any other `--type-*` or `--space-*` rules exist in the file).
+
+- [ ] **Step 4: Confirm `git log` shows three clean commits**
 
 Run: `git log --oneline -5`
-Expected: three commits at the top (type tokens, spacing tokens, footer grid fix) authored to `hello@docket.pub`.
+Expected: three commits at the top (type tokens, spacing tokens, footer grid fix) authored to `hello@docket.pub`. Earlier commits are pre-P1.
+
+- [ ] **Step 5: 🛑 HUMAN VERIFICATION GATE — full visual sweep**
+
+Post this exact message to the operator and HALT:
+
+> "P1 programmatic verification complete: all routes return 200, all 15 tokens served, pytest green, three clean commits in the log. Before P1 can be considered done, please run a visual sweep:
+>
+> **At desktop width (≥1024px window):**
+> - `/` — homepage
+> - `/al/birmingham/` — city overview
+> - `/al/birmingham/meetings/` — meeting list
+> - One meeting detail
+> - One item detail
+> - `/al/birmingham/council/` — council roster
+> - `/al/birmingham/<any-badge>/` — category landing (e.g., `/budget/`)
+> - `/search`, `/topics/`, `/coverage/`, `/about/`
+>
+> **Expected difference:** the **footer** now spans full width at desktop (no right-side whitespace). Every other element should look unchanged.
+>
+> **At mobile width (<768px, devtools responsive mode):**
+> - Same page list
+> - Footer accordion still works (first column open, tap to expand others)
+> - **Expected difference: none.**
+>
+> Reply 'approved' if everything looks right, or describe regressions. Once approved, P1 local work is done and ready for PR + merge + deploy (Task 6)."
+
+**Do not declare P1 complete until the operator replies with explicit approval.**
 
 ---
 
@@ -382,26 +452,43 @@ Expected: build succeeds (CSS-only change, no migration). Deploy completes withi
 
 **Do NOT use** `railway redeploy` — per CLAUDE.md, that restarts the old build without picking up new code.
 
-- [ ] **Step 4: Post-deploy verification on production**
+- [ ] **Step 4: Programmatic production verification — confirm tokens are live on docket.pub**
 
-Open `https://docket.pub/al/birmingham/` in a browser.
+CDN/browser caches will mask a successful deploy if you check via a normal browser request without a cache-bust. The agent should use a cache-busting query param so curl gets fresh bytes:
 
-In devtools, Elements → `<html>` → Styles → `:root`:
-- Confirm 7 `--type-*` tokens present
-- Confirm 8 `--space-*` tokens present
+Run: `curl -sS "https://docket.pub/static/styles.css?v=$(date +%s)" | grep -cE -- "--(type|space)-"`
+Expected: `15` or higher (same count as the local check in Task 5 Step 3). If `0`, the deploy didn't pick up the change OR a CDN layer is serving an older asset — investigate before proceeding.
 
-Scroll to the footer at desktop width:
-- Confirm 2 columns span the full container width with 32px gap (no right-side whitespace).
+Confirm a specific token sample:
 
-Resize to mobile width:
-- Confirm footer accordion still works: first column open, others tappable to expand.
+Run: `curl -sS "https://docket.pub/static/styles.css?v=$(date +%s)" | grep -- "--type-hero:"`
+Expected: a line matching `--type-hero:        64px;` (or with similar whitespace).
 
-Expected: production matches local verification from Task 5.
+Confirm the footer grid fix is live:
+
+Run: `curl -sS "https://docket.pub/static/tweaks.css?v=$(date +%s)" | grep -A 1 "footnote-cols"`
+Expected output includes `grid-template-columns: repeat(2, 1fr);`.
 
 - [ ] **Step 5: Skim Railway logs for any new errors after deploy**
 
 Run: `railway logs --service docket-web 2>&1 | tail -50`
 Expected: no new 500s, no template render errors, no static-asset 404s.
+
+- [ ] **Step 6: 🛑 HUMAN VERIFICATION GATE — production visual confirmation**
+
+Post this exact message to the operator and HALT:
+
+> "P1 deployed to Railway. Programmatic checks confirm the new tokens + footer grid fix are live in the served CSS. **Browser/CDN caches will lie to you on the first visit** — please do a hard refresh (Cmd+Shift+R on Mac, Ctrl+Shift+R elsewhere) on `https://docket.pub/al/birmingham/` before checking, or append `?v=$(date +%s)` to the URL to bypass cache. Then:
+>
+> 1. Confirm the desktop footer spans full width (no right-side whitespace).
+> 2. Confirm the mobile footer accordion still works.
+> 3. Confirm no other visible regression on the page.
+>
+> If anything looks wrong on first hard-refresh, try a private/incognito window — that bypasses local cache definitively. If still wrong, the deploy may need a Railway redeploy or there's a CDN issue worth flagging.
+>
+> Reply 'approved' once production looks correct."
+
+**Do not declare P1 fully shipped until the operator replies with explicit approval.**
 
 ---
 
@@ -420,3 +507,10 @@ Placeholder scan:
 Type consistency:
 - ✓ Token names (`--type-hero`, etc.) used consistently across Tasks 2, 3, 5 verification, and Task 6 verification
 - ✓ File paths use the full `src/docket/web/...` prefix consistently
+
+Agent-execution audit (added after first review pass):
+- ✓ No "open browser" / "open devtools" / "resize window" instructions for the agent — all visual verification routed to **Human Verification Gates** that explicitly HALT and request operator approval
+- ✓ Programmatic verification uses `curl`, `grep`, `awk`, `pytest`, `psql`, and Railway CLI — all CLI-native, agent-executable
+- ✓ Syntax-check uses the dynamic `awk '/^:root {/{flag=1} flag; /^}/{flag=0; print ""; exit}'` extractor instead of hardcoded `sed -n 'M,Np'` line bounds that would silently break if upstream changes alter line numbers
+- ✓ Type-scale audit regex in Task 1 Step 2 includes `26` (the mono-numeric value) — was missing in the first pass
+- ✓ Production verification (Task 6 Step 4) appends `?v=$(date +%s)` cache-bust to every CDN-served URL and explicitly tells the operator to hard-refresh before visual confirmation
