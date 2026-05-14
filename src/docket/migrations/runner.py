@@ -37,6 +37,7 @@ MIGRATIONS = [
     "docket.migrations.024_category_landing_v1",
     "docket.migrations.025_mv_city_backfill_ratio",
     "docket.migrations.026_mv_city_backfill_ratio_v4",
+    "docket.migrations.027_editorial_coverage",
 ]
 
 
