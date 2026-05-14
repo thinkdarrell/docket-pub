@@ -460,6 +460,20 @@ def finalize_from_rewrite(
                 """,
                 (item.id, item.city_id, slug, conf, source, json.dumps(metadata), status),
             )
+            # Refactor #2 retro [MEDIUM #2]: record on-write provenance
+            # for flagged badges so /admin/badge-review reflects when
+            # and how a badge first became invisible to citizens.
+            if status == "flagged" and cur.rowcount > 0:
+                cur.execute(
+                    """
+                    INSERT INTO agenda_item_badges_audit
+                      (agenda_item_id, badge_slug, action,
+                       actor, actor_role, reason)
+                    VALUES (%s, %s, 'flagged', 'pipeline', 'on_write', %s)
+                    """,
+                    (item.id, slug,
+                     "LLM-only policy badge gated for admin review"),
+                )
 
     log.info(
         "pipeline.finalize_from_rewrite done: item_id=%s status=%s override=%s",
