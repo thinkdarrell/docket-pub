@@ -240,3 +240,50 @@ def test_update_coverage_none_subjects_leaves_links_untouched(seeded_admin, seed
                 assert cur.fetchone()[0] == 1
     finally:
         _cleanup_entry(entry_id)
+
+
+def test_set_featured_until(seeded_admin, seeded_item):
+    from docket.services.coverage_writer import create_note, set_featured_until
+    from datetime import datetime, timedelta, timezone
+    _, item_id = seeded_item
+    entry_id = create_note(
+        author_id=seeded_admin, body='Body.', partner_credit=None,
+        subjects=[('agenda_item', item_id, None)],
+    )
+    try:
+        until = datetime.now(timezone.utc) + timedelta(days=14)
+        set_featured_until(entry_id, until)
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT featured_until FROM coverage_entries WHERE id = %s",
+                            (entry_id,))
+                stored = cur.fetchone()[0]
+                assert stored is not None
+                assert abs((stored - until).total_seconds()) < 5
+        set_featured_until(entry_id, None)
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT featured_until FROM coverage_entries WHERE id = %s",
+                            (entry_id,))
+                assert cur.fetchone()[0] is None
+    finally:
+        _cleanup_entry(entry_id)
+
+
+def test_delete_coverage_cascades_subjects(seeded_admin, seeded_item):
+    from docket.services.coverage_writer import create_note, delete_coverage
+    _, item_id = seeded_item
+    entry_id = create_note(
+        author_id=seeded_admin, body='Body.', partner_credit=None,
+        subjects=[('agenda_item', item_id, None)],
+    )
+    delete_coverage(entry_id)
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM coverage_entries WHERE id = %s", (entry_id,))
+            assert cur.fetchone()[0] == 0
+            cur.execute(
+                "SELECT COUNT(*) FROM coverage_subject_links WHERE coverage_id = %s",
+                (entry_id,),
+            )
+            assert cur.fetchone()[0] == 0

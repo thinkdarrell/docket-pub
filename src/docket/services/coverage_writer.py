@@ -167,6 +167,21 @@ def update_coverage(coverage_id: int, *, subjects=None, **fields) -> None:
             _insert_subjects(cur, coverage_id, subs)
 
 
+def set_featured_until(coverage_id: int, until: datetime | None) -> None:
+    """Set or clear the featured_until timestamp."""
+    with db_cursor() as cur:
+        cur.execute(
+            "UPDATE coverage_entries SET featured_until = %s, updated_at = NOW() WHERE id = %s",
+            (until, coverage_id),
+        )
+
+
+def delete_coverage(coverage_id: int) -> None:
+    """Hard-delete a coverage entry. ON DELETE CASCADE removes its subject links."""
+    with db_cursor() as cur:
+        cur.execute("DELETE FROM coverage_entries WHERE id = %s", (coverage_id,))
+
+
 def _set_publish_state(cur, coverage_id: int, author_id: int) -> None:
     """Populate published_at + byline snapshot for a newly-published entry.
 
