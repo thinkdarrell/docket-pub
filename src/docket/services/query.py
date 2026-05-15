@@ -653,6 +653,51 @@ def list_upcoming_meetings(days: int = 14, limit: int = 20) -> list[dict]:
         return [dict(row) for row in cur.fetchall()]
 
 
+def list_recent_meetings_for_city(slug: str, days: int = 7, limit: int = 4) -> list[dict]:
+    """Recent meetings for ONE city — filters in SQL so the city's
+    meetings never get crowded out by other cities' activity.
+
+    Replaces the post-fetch slug filter pattern in city_overview, which
+    silently returned [] when other cities had more recent activity than
+    the target."""
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT mt.*, m.name AS municipality_name, m.slug AS municipality_slug
+            FROM meetings mt
+            JOIN municipalities m ON mt.municipality_id = m.id
+            WHERE m.slug = %s
+              AND m.active = TRUE
+              AND mt.meeting_date >= CURRENT_DATE - %s
+              AND mt.meeting_date <= CURRENT_DATE
+            ORDER BY mt.meeting_date DESC
+            LIMIT %s
+            """,
+            (slug, days, limit),
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+
+def list_upcoming_meetings_for_city(slug: str, days: int = 14, limit: int = 4) -> list[dict]:
+    """Upcoming meetings for ONE city — SQL-side filter (see above)."""
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT mt.*, m.name AS municipality_name, m.slug AS municipality_slug
+            FROM meetings mt
+            JOIN municipalities m ON mt.municipality_id = m.id
+            WHERE m.slug = %s
+              AND m.active = TRUE
+              AND mt.meeting_date > CURRENT_DATE
+              AND mt.meeting_date <= CURRENT_DATE + %s
+            ORDER BY mt.meeting_date ASC
+            LIMIT %s
+            """,
+            (slug, days, limit),
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+
 # --- Search -----------------------------------------------------------------
 
 

@@ -106,3 +106,41 @@ def test_kpi_stats_first_card_is_meetings_lifetime():
     stats = query._kpi_stats_for_municipality(municipality)
     assert "Meetings" in stats[0]["label"]
     assert "lifetime" in stats[0]["label"].lower()
+
+
+def test_list_recent_meetings_for_city_returns_city_only():
+    """SQL-side city filter — never gets crowded out by other cities."""
+    rows = query.list_recent_meetings_for_city("birmingham", days=30, limit=20)
+    assert isinstance(rows, list)
+    for r in rows:
+        assert r["municipality_slug"] == "birmingham", (
+            f"got cross-city row: {r['municipality_slug']}"
+        )
+
+
+def test_list_recent_meetings_for_city_respects_window():
+    """meeting_date must be within `days` of today and <= today."""
+    from datetime import date, timedelta
+    rows = query.list_recent_meetings_for_city("birmingham", days=7, limit=20)
+    today = date.today()
+    cutoff = today - timedelta(days=7)
+    for r in rows:
+        assert cutoff <= r["meeting_date"] <= today, (
+            f"meeting_date {r['meeting_date']} outside [{cutoff}, {today}]"
+        )
+
+
+def test_list_upcoming_meetings_for_city_returns_city_only():
+    rows = query.list_upcoming_meetings_for_city("birmingham", days=60, limit=20)
+    for r in rows:
+        assert r["municipality_slug"] == "birmingham"
+
+
+def test_list_upcoming_meetings_for_city_only_future():
+    """meeting_date must be > today and <= today + days."""
+    from datetime import date, timedelta
+    rows = query.list_upcoming_meetings_for_city("birmingham", days=30, limit=20)
+    today = date.today()
+    horizon = today + timedelta(days=30)
+    for r in rows:
+        assert today < r["meeting_date"] <= horizon

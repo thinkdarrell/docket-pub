@@ -107,17 +107,16 @@ def _city_overview_render(slug, municipality, now_ts):
     result = query.list_meetings(slug, limit=6)
     topics = query.topic_counts(municipality_slug=slug)
     members = query.list_council_members(slug)
-    recent = query.list_recent_meetings(days=7, limit=4)
-    upcoming = query.list_upcoming_meetings(days=14, limit=4)
     notable = query.list_high_dollar_items(municipality_slug=slug, limit=6, days=180)
     stats = query.dashboard_stats()
     # TODO: precompute these — too heavy for cold page loads on Railway
     contested = []
     recent_votes = []
 
-    # Filter timeline to this city
-    recent_city = [m for m in recent if m.get("municipality_slug") == slug]
-    upcoming_city = [m for m in upcoming if m.get("municipality_slug") == slug]
+    # P3 follow-up — SQL-side city filter so this city's meetings never
+    # get crowded out by other cities' activity in the global ranking:
+    recent_city = query.list_recent_meetings_for_city(slug, days=7, limit=4)
+    upcoming_city = query.list_upcoming_meetings_for_city(slug, days=14, limit=4)
 
     # F4 Browse-by-Priority (spec §6.7): two grids passed as
     # pre-decorated dicts — counts are zipped on here in the route, NOT
