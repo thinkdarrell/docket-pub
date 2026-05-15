@@ -690,3 +690,30 @@
    Namespaced with -chip- to avoid collision with the legacy .freshness-sub
    rule at line 166 (which styles the old .freshness button on city.html
    until P3 replaces it with this chip). */
+
+/* ── topic_row partial ──────────────────────────────────── */
+/* .topic-row reused from councilmatic.css (line 50). No redeclaration.     */
+/* .topic-pill: new name chosen because existing .topic-chip is used inline  */
+/* in city.html with slightly different props; namespacing avoids a visual   */
+/* collision during the P2a→P3 transition when both coexist.                 */
+.topic-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 12px 6px 8px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 999px;
+  background: var(--paper);
+  font-size: 12px; color: var(--ink);
+  text-decoration: none;
+  cursor: pointer; transition: border-color .12s, background .12s;
+  white-space: nowrap;
+}
+.topic-pill:hover { border-color: var(--ink-3); }
+.topic-pill-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--topic-color, var(--ink-3));
+  flex-shrink: 0;
+}
+.topic-pill-label { /* inherits font-size from .topic-pill */ }
+.topic-pill-count {
+  font-size: 10px; color: var(--ink-3); font-feature-settings: "tnum" 1;
+}

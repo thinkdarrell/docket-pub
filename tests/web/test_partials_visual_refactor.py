@@ -113,3 +113,26 @@ def test_freshness_chip_unknown_state_falls_back_to_neutral_copy(render_partial)
     )
     assert 'Broken · feed down' not in html
     assert 'unknown' in html.lower() or 'status' in html.lower()
+
+
+def test_topic_row_renders_pills(render_partial):
+    topics = [
+        {'slug': 'budget', 'label': 'Budget', 'count': 42, 'color': '#1a73e8'},
+        {'slug': 'housing', 'label': 'Housing', 'count': 18, 'color': '#34a853'},
+    ]
+    html = render_partial('partials/topic_row.html', topics=topics, city_slug='birmingham')
+    assert 'topic-row' in html
+    assert 'Budget' in html
+    assert 'Housing' in html
+    assert '42' in html
+    # Pills link into the city-scoped topic page
+    assert '/topics/budget/' in html
+    assert 'topic-pill' in html
+
+def test_topic_row_handles_empty_list(render_partial):
+    """No topics → render empty (or with a 'no topics yet' affordance)."""
+    html = render_partial('partials/topic_row.html', topics=[], city_slug='birmingham')
+    # Render must not crash; container may or may not be present.
+    # Spec choice: when topics is empty, render nothing (empty string after stripping)
+    # so the row's vertical space isn't reserved for a missing element.
+    assert 'topic-row' in html or html.strip() == ''
