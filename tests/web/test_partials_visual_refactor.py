@@ -26,3 +26,41 @@ def test_render_partial_fixture_works(render_partial):
         now=datetime(2026, 5, 14),
     )
     assert 'docket.pub' in html
+
+
+def test_num_stat_renders_label_and_value(render_partial):
+    html = render_partial(
+        'partials/num_stat.html',
+        label='Meetings YTD',
+        value='42',
+    )
+    assert 'Meetings YTD' in html
+    assert '42' in html
+    assert 'num-stat' in html  # CSS hook class
+
+def test_num_stat_renders_sub_when_provided(render_partial):
+    html = render_partial(
+        'partials/num_stat.html',
+        label='Meetings',
+        value='1,003',
+        sub='Since 2017',
+    )
+    assert 'Since 2017' in html
+
+def test_num_stat_omits_sub_when_absent(render_partial):
+    html = render_partial(
+        'partials/num_stat.html',
+        label='Votes',
+        value='12',
+    )
+    # No <div class="num-stat-sub"> when sub is not passed.
+    assert 'num-stat-sub' not in html
+
+def test_num_stat_accent_modifier_class(render_partial):
+    html = render_partial(
+        'partials/num_stat.html',
+        label='Flagged',
+        value='4',
+        accent=True,
+    )
+    assert 'is-accent' in html

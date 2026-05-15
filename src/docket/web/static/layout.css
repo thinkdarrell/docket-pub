@@ -630,3 +630,34 @@
   opacity: 0.6;
   cursor: wait;
 }
+
+/* ── P2a partials ───────────────────────────────────────── */
+
+.num-stat {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--paper);
+}
+.num-stat-label {
+  font-size: var(--type-eyebrow);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.num-stat-value {
+  font-size: var(--type-mono-num);
+  font-family: var(--font-mono);
+  font-feature-settings: "tnum" 1, "lnum" 1;
+  color: var(--ink);
+}
+.num-stat-sub {
+  font-size: 11px;
+  color: var(--ink-3);
+}
+.num-stat.is-accent .num-stat-value {
+  color: var(--accent-ink);
+}
