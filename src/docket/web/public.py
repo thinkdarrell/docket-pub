@@ -107,17 +107,16 @@ def _city_overview_render(slug, municipality, now_ts):
     result = query.list_meetings(slug, limit=6)
     topics = query.topic_counts(municipality_slug=slug)
     members = query.list_council_members(slug)
-    recent = query.list_recent_meetings(days=7, limit=4)
-    upcoming = query.list_upcoming_meetings(days=14, limit=4)
     notable = query.list_high_dollar_items(municipality_slug=slug, limit=6, days=180)
     stats = query.dashboard_stats()
     # TODO: precompute these — too heavy for cold page loads on Railway
     contested = []
     recent_votes = []
 
-    # Filter timeline to this city
-    recent_city = [m for m in recent if m.get("municipality_slug") == slug]
-    upcoming_city = [m for m in upcoming if m.get("municipality_slug") == slug]
+    # P3 follow-up — SQL-side city filter so this city's meetings never
+    # get crowded out by other cities' activity in the global ranking:
+    recent_city = query.list_recent_meetings_for_city(slug, days=7, limit=4)
+    upcoming_city = query.list_upcoming_meetings_for_city(slug, days=14, limit=4)
 
     # F4 Browse-by-Priority (spec §6.7): two grids passed as
     # pre-decorated dicts — counts are zipped on here in the route, NOT
@@ -152,55 +151,23 @@ def _city_overview_render(slug, municipality, now_ts):
     notable_item_ids = [it['id'] for it in notable if 'id' in it]
     coverage_counts = coverage_counts_for_items(notable_item_ids)
 
-    # KPI explainer stack — rendered by partials/source_rail.html on the
-    # overview's right rail. sql_display strings are display-only; queries
-    # are parameterized in query.py.
+    # P3 — city_stats for the new 3-card YTD strip at the top of overview.
+    # Replaces P2b's kpi_stats build; overview no longer renders the KPI
+    # explainer stack at the bottom (that moves to interior pages — Task 7).
     mid = municipality["id"]
-    min_year = query.min_meeting_year(mid)
-    dollars = query.dollars_pending_vs_settled(mid)
-    # sql_display strings are display-only; queries are parameterized in query.py.
-    kpi_stats = [
-        {
-            "label": "Meetings (lifetime)",
-            "value": f"{query.count_meetings_lifetime(mid):,}",
-            "sub": f"Since {min_year}" if min_year else None,
-            "sql_display": f"SELECT count(*) FROM meetings WHERE municipality_id = {mid}",
-        },
-        {
-            "label": "Agenda items YTD",
-            "value": f"{query.count_agenda_items_ytd(mid):,}",
-            "sub": None,
-            "sql_display": (
-                f"SELECT count(*) FROM agenda_items ai\n"
-                f"JOIN meetings m ON m.id = ai.meeting_id\n"
-                f"WHERE m.municipality_id = {mid}\n"
-                f"AND m.meeting_date >= date_trunc('year', now())"
-            ),
-        },
-        {
-            "label": "Votes YTD",
-            "value": f"{query.count_votes_ytd(mid):,}",
-            "sub": None,
-            "sql_display": (
-                f"SELECT count(*) FROM votes v\n"
-                f"JOIN meetings m ON m.id = v.meeting_id\n"
-                f"WHERE m.municipality_id = {mid}\n"
-                f"AND m.meeting_date >= date_trunc('year', now())"
-            ),
-        },
-        {
-            "label": "Dollars (pending / settled)",
-            "value": f"${(dollars['pending']/1_000_000):.1f}M / ${(dollars['settled']/1_000_000):.1f}M",
-            "sub": None,
-            "sql_display": (
-                f"SELECT sum(dollars_amount) FILTER (WHERE minutes_adopted_at IS NULL) AS pending,\n"
-                f"       sum(dollars_amount) FILTER (WHERE minutes_adopted_at IS NOT NULL) AS settled\n"
-                f"FROM agenda_items ai\n"
-                f"JOIN meetings m ON m.id = ai.meeting_id\n"
-                f"WHERE m.municipality_id = {mid}"
-            ),
-        },
-    ]
+    ytd_dollars = query.sum_dollars_ytd(mid)
+    if ytd_dollars >= 1_000_000_000:
+        dollars_formatted = f"${ytd_dollars / 1_000_000_000:.1f}B"
+    elif ytd_dollars >= 1_000_000:
+        dollars_formatted = f"${ytd_dollars / 1_000_000:.1f}M"
+    else:
+        dollars_formatted = f"${int(ytd_dollars):,}"
+    city_stats = {
+        "meetings_ytd": query.count_meetings_ytd(mid),
+        "dollars_ytd_formatted": dollars_formatted,
+        "flagged_count": query.count_contested_votes_ytd(mid),
+    }
+    freshness = query._freshness_state(query.most_recent_ingest_at(mid))
 
     rendered = render_template(
         "city.html",
@@ -219,7 +186,8 @@ def _city_overview_render(slug, municipality, now_ts):
         process_badges=process_badges,
         now=datetime.now(),
         coverage_counts=coverage_counts,
-        kpi_stats=kpi_stats,
+        city_stats=city_stats,
+        freshness=freshness,
     )
     _overview_cache[slug] = (now_ts, rendered)
     return rendered
@@ -245,6 +213,8 @@ def city_meetings(slug):
     )
     total_pages = (result.total + per_page - 1) // per_page
 
+    kpi_stats = query._kpi_stats_for_municipality(municipality)
+
     return render_template(
         "meetings.html",
         municipality=municipality,
@@ -253,6 +223,7 @@ def city_meetings(slug):
         page=page,
         total_pages=total_pages,
         meeting_type=meeting_type,
+        kpi_stats=kpi_stats,
     )
 
 
@@ -278,6 +249,8 @@ def meeting_detail(slug, meeting_id):
     item_ids = [it.id for it in agenda_items]
     coverage_counts = coverage_counts_for_items(item_ids)
 
+    kpi_stats = query._kpi_stats_for_municipality(municipality)
+
     return render_template(
         "meeting_detail.html",
         municipality=municipality,
@@ -290,6 +263,7 @@ def meeting_detail(slug, meeting_id):
         topic_count=topic_count,
         item_count=len(agenda_items),
         coverage_counts=coverage_counts,
+        kpi_stats=kpi_stats,
     )
 
 
@@ -513,6 +487,8 @@ def category_landing(slug: str, badge_slug: str):
             coverage_counts=coverage_counts,
         )
 
+    kpi_stats = query._kpi_stats_for_municipality(municipality)
+
     return render_template(
         "category_landing.html",
         municipality=municipality,
@@ -533,6 +509,7 @@ def category_landing(slug: str, badge_slug: str):
         args_without_month=args_without_month,
         show_meeting_context=True,
         coverage_counts=coverage_counts,
+        kpi_stats=kpi_stats,
     )
 
 
@@ -786,11 +763,13 @@ def city_council(slug):
         abort(404)
 
     members = query.list_council_members(slug)
+    kpi_stats = query._kpi_stats_for_municipality(municipality)
 
     return render_template(
         "council.html",
         municipality=municipality,
         members=members,
+        kpi_stats=kpi_stats,
     )
 
 
@@ -818,6 +797,13 @@ def search():
     result_ids = [it['id'] if isinstance(it, dict) else it.id for it in results]
     coverage_counts = coverage_counts_for_items(result_ids)
 
+    municipality = query.get_municipality(city) if city else None
+    kpi_stats = (
+        query._kpi_stats_for_municipality(municipality)
+        if municipality is not None
+        else None
+    )
+
     return render_template(
         "search.html",
         query=q,
@@ -826,6 +812,7 @@ def search():
         municipalities=municipalities,
         page=page,
         coverage_counts=coverage_counts,
+        kpi_stats=kpi_stats,
     )
 
 
@@ -894,6 +881,13 @@ def topic_detail(topic):
     topic_item_ids = [it['id'] if isinstance(it, dict) else it.id for it in items]
     coverage_counts = coverage_counts_for_items(topic_item_ids)
 
+    municipality = query.get_municipality(city) if city else None
+    kpi_stats = (
+        query._kpi_stats_for_municipality(municipality)
+        if municipality is not None
+        else None
+    )
+
     return render_template(
         "topic_detail.html",
         topic=topic,
@@ -902,6 +896,7 @@ def topic_detail(topic):
         city=city,
         page=page,
         coverage_counts=coverage_counts,
+        kpi_stats=kpi_stats,
     )
 
 

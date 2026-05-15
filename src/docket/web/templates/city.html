@@ -2,83 +2,79 @@
 {% block title %}{{ municipality.name }}, {{ municipality.state }} — docket.pub{% endblock %}
 
 {% block content %}
-{# ── Hero ─────────────────────────────────────────── #}
-<section class="hero">
-    <div class="hero-top">
+{% include 'partials/city_lead.html' %}
+{% include 'partials/kpi_strip.html' %}
+
+{# ── Upcoming (persistent + empty state) ──────────────────── #}
+<section class="tw tw-upcoming-section">
+    <header class="tw-head">
         <div>
-            <div class="t-eyebrow">{{ municipality.council_type or 'City Council' }} · Pop. {{ municipality.county }} County</div>
-            <h1 class="hero-title t-display">{{ municipality.name }}, {{ municipality.state }}</h1>
-            <p class="hero-sub">
-                Tracking <strong>{{ meeting_count | default(0) }}</strong> meetings.
-                Source: <a class="link" href="#">City Council page</a>,
-                published via <span class="t-mono">{{ municipality.adapter_class | replace('Adapter', '') }}</span>.
-            </p>
-
-            {# F4 badge legend (decision #74, spec line 2754).
-               Citizen-facing one-liner explaining the two badge kinds and
-               the ✨ Verification Spark. Keeps mobile users informed —
-               desktop hover-tooltips alone don't reach mobile. Copy is
-               jargon-free: no "Wave 0" / "matchers" / "Track 1". The
-               "Learn more" link is intentionally omitted in v1 since
-               public.about_badges does not yet exist; it can be wired
-               on later as a same-style permalink without restructuring
-               the legend.
-
-               F4 review fix-up (R4): the ✨ glyph carries
-               ``aria-label="AI-verified"`` (was ``aria-hidden``). With
-               aria-hidden, screen readers read "A means independent
-               sources agree on the tag" — ungrammatical without the
-               glyph. ``aria-label="AI-verified"`` matches decision #67
-               spec line 2745-2746 and ``partials/badge_chip.html:33``.
-
-               F4 review fix-up (S8): the "policy, like blight or
-               housing" parenthetical is gated on ``city_policy_badges``.
-               Mobile/Vestavia/Homewood render zero policy tiles in v1;
-               on those cities the legend now reads with only the
-               process parenthetical so it doesn't promise a category
-               the page doesn't render. #}
-            <p class="badge-legend t-meta" id="badge-legend"
-               style="margin-top: 8px; max-width: 640px;">
-                Badges flag oversight signals
-                (<span class="badge-process-sample t-mono">process</span>,
-                like sole-source contracts or split votes){% if city_policy_badges %}
-                and city priorities
-                (<span class="badge-policy-sample t-mono">policy</span>,
-                like blight or housing){% endif %}.
-                A <span class="badge-spark" aria-label="AI-verified">✨</span>
-                means independent sources agree on the tag.
-            </p>
+            <div class="t-eyebrow">Upcoming</div>
+            <h2 class="feed-title t-display">On the agenda</h2>
         </div>
-        <button class="freshness is-good">
-            <span class="dot"></span>
-            <div>
-                <div class="freshness-state t-mono">Live · feed active</div>
-                <div class="freshness-sub t-meta">{{ municipality.adapter_class }}</div>
+    </header>
+    <div class="tw-strip">
+        {% if upcoming_meetings %}
+            {% for m in upcoming_meetings[:4] %}
+            <a href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=m.id) }}"
+               class="tw-card tw-upcoming">
+                <div class="tw-when t-mono">
+                    <span class="tw-dot tw-dot-upcoming"></span>
+                    {{ m.meeting_date }}
+                </div>
+                <div class="tw-title">{{ m.title }}</div>
+                <div class="tw-venue t-meta">{{ m.municipality_name }}</div>
+            </a>
+            {% endfor %}
+        {% else %}
+            <div class="tw-card tw-empty" aria-label="No upcoming meetings scheduled">
+                <div class="tw-when t-mono">
+                    <span class="tw-dot tw-dot-empty"></span>
+                    Upcoming
+                </div>
+                <div class="tw-title">No agenda posted yet</div>
+                <div class="tw-venue t-meta">
+                    Check back — agendas typically post a few days before each meeting.
+                </div>
             </div>
-        </button>
+        {% endif %}
     </div>
+</section>
 
-    <div class="kpi-grid">
-        <div class="kpi">
-            <div class="kpi-label t-label">Meetings</div>
-            <div class="kpi-value t-display t-tnum">{{ meeting_count | default(0) }}</div>
-            <div class="kpi-sub t-meta">total indexed</div>
+{# ── Recent / Last week (persistent + empty state) ────────── #}
+<section class="tw tw-recent-section">
+    <header class="tw-head">
+        <div>
+            <div class="t-eyebrow">Recent</div>
+            <h2 class="feed-title t-display">Last week</h2>
         </div>
-        <div class="kpi">
-            <div class="kpi-label t-label">Agenda items</div>
-            <div class="kpi-value t-display t-tnum">{{ stats.agenda_items | default(0) }}</div>
-            <div class="kpi-sub t-meta">across all meetings</div>
-        </div>
-        <div class="kpi">
-            <div class="kpi-label t-label">Council members</div>
-            <div class="kpi-value t-display t-tnum">{{ members | length }}</div>
-            <div class="kpi-sub t-meta">active</div>
-        </div>
-        <div class="kpi is-accent">
-            <div class="kpi-label t-label">Topics tracked</div>
-            <div class="kpi-value t-display t-tnum">{{ topics | length }}</div>
-            <div class="kpi-sub t-meta">keyword-classified</div>
-        </div>
+        <a href="{{ url_for('public.city_meetings', slug=municipality.slug) }}" class="t-mono tw-cal">All meetings →</a>
+    </header>
+    <div class="tw-strip">
+        {% if recent_meetings %}
+            {% for m in recent_meetings[:4] %}
+            <a href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=m.id) }}"
+               class="tw-card tw-past">
+                <div class="tw-when t-mono">
+                    <span class="tw-dot tw-dot-past"></span>
+                    {{ m.meeting_date }}
+                </div>
+                <div class="tw-title">{{ m.title }}</div>
+                <div class="tw-venue t-meta">{{ m.municipality_name }}</div>
+            </a>
+            {% endfor %}
+        {% else %}
+            <div class="tw-card tw-empty" aria-label="No recent meetings in the last week">
+                <div class="tw-when t-mono">
+                    <span class="tw-dot tw-dot-empty"></span>
+                    Recent
+                </div>
+                <div class="tw-title">No meetings in the last 7 days</div>
+                <div class="tw-venue t-meta">
+                    The council may be between sessions — see "All meetings →" for the full history.
+                </div>
+            </div>
+        {% endif %}
     </div>
 </section>
 
@@ -138,43 +134,6 @@
         {% endfor %}
     </div>
     {% endif %}
-</section>
-{% endif %}
-
-{# ── This Week ────────────────────────────────────── #}
-{% if recent_meetings or upcoming_meetings %}
-<section class="tw">
-    <header class="tw-head">
-        <div>
-            <div class="t-eyebrow">This week</div>
-            <h2 class="feed-title t-display">On the agenda</h2>
-        </div>
-        <a href="{{ url_for('public.city_meetings', slug=municipality.slug) }}" class="t-mono tw-cal">All meetings →</a>
-    </header>
-    <div class="tw-strip">
-        {% for m in upcoming_meetings[:2] %}
-        <a href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=m.id) }}"
-           class="tw-card tw-upcoming">
-            <div class="tw-when t-mono">
-                <span class="tw-dot tw-dot-upcoming"></span>
-                {{ m.meeting_date }}
-            </div>
-            <div class="tw-title">{{ m.title }}</div>
-            <div class="tw-venue t-meta">{{ m.municipality_name }}</div>
-        </a>
-        {% endfor %}
-        {% for m in recent_meetings[:2] %}
-        <a href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=m.id) }}"
-           class="tw-card tw-past">
-            <div class="tw-when t-mono">
-                <span class="tw-dot tw-dot-past"></span>
-                {{ m.meeting_date }}
-            </div>
-            <div class="tw-title">{{ m.title }}</div>
-            <div class="tw-venue t-meta">{{ m.municipality_name }}</div>
-        </a>
-        {% endfor %}
-    </div>
 </section>
 {% endif %}
 

@@ -653,6 +653,51 @@ def list_upcoming_meetings(days: int = 14, limit: int = 20) -> list[dict]:
         return [dict(row) for row in cur.fetchall()]
 
 
+def list_recent_meetings_for_city(slug: str, days: int = 7, limit: int = 4) -> list[dict]:
+    """Recent meetings for ONE city — filters in SQL so the city's
+    meetings never get crowded out by other cities' activity.
+
+    Replaces the post-fetch slug filter pattern in city_overview, which
+    silently returned [] when other cities had more recent activity than
+    the target."""
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT mt.*, m.name AS municipality_name, m.slug AS municipality_slug
+            FROM meetings mt
+            JOIN municipalities m ON mt.municipality_id = m.id
+            WHERE m.slug = %s
+              AND m.active = TRUE
+              AND mt.meeting_date >= CURRENT_DATE - %s
+              AND mt.meeting_date <= CURRENT_DATE
+            ORDER BY mt.meeting_date DESC
+            LIMIT %s
+            """,
+            (slug, days, limit),
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+
+def list_upcoming_meetings_for_city(slug: str, days: int = 14, limit: int = 4) -> list[dict]:
+    """Upcoming meetings for ONE city — SQL-side filter (see above)."""
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT mt.*, m.name AS municipality_name, m.slug AS municipality_slug
+            FROM meetings mt
+            JOIN municipalities m ON mt.municipality_id = m.id
+            WHERE m.slug = %s
+              AND m.active = TRUE
+              AND mt.meeting_date > CURRENT_DATE
+              AND mt.meeting_date <= CURRENT_DATE + %s
+            ORDER BY mt.meeting_date ASC
+            LIMIT %s
+            """,
+            (slug, days, limit),
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+
 # --- Search -----------------------------------------------------------------
 
 
@@ -2896,3 +2941,155 @@ def dollars_pending_vs_settled(municipality_id: int) -> dict:
             "pending": row["pending"] if row else 0,
             "settled": row["settled"] if row else 0,
         }
+
+
+def count_meetings_ytd(municipality_id: int) -> int:
+    """Count meetings with meeting_date in the current calendar year."""
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT count(*) AS n FROM meetings
+            WHERE municipality_id = %s
+              AND meeting_date >= date_trunc('year', now())::date
+            """,
+            (municipality_id,),
+        )
+        row = cur.fetchone()
+        return int(row["n"] or 0)
+
+
+def sum_dollars_ytd(municipality_id: int):
+    """Sum of agenda_items.dollars_amount in this city's meetings YTD.
+
+    Returns a Decimal (may be 0 if no items / no dollar amounts)."""
+    from decimal import Decimal
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT coalesce(sum(ai.dollars_amount), 0) AS total
+            FROM agenda_items ai
+            JOIN meetings m ON m.id = ai.meeting_id
+            WHERE m.municipality_id = %s
+              AND m.meeting_date >= date_trunc('year', now())::date
+            """,
+            (municipality_id,),
+        )
+        row = cur.fetchone()
+        return Decimal(row["total"] or 0)
+
+
+def count_contested_votes_ytd(municipality_id: int) -> int:
+    """Count votes recorded YTD where any member dissented.
+
+    Matches the convention from list_contested_votes (above): a contested
+    vote has at least one nay (votes.nays > 0). Uses the aggregate column,
+    no member_votes join needed."""
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT count(*) AS n FROM votes v
+            JOIN meetings m ON m.id = v.meeting_id
+            WHERE m.municipality_id = %s
+              AND m.meeting_date >= date_trunc('year', now())::date
+              AND v.nays > 0
+            """,
+            (municipality_id,),
+        )
+        row = cur.fetchone()
+        return int(row["n"] or 0)
+
+
+def most_recent_ingest_at(municipality_id: int):
+    """Returns datetime of the most recently created meeting for this city,
+    or None if no meetings exist. Powers the CityLead freshness chip."""
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT MAX(created_at) AS most_recent FROM meetings
+            WHERE municipality_id = %s
+            """,
+            (municipality_id,),
+        )
+        row = cur.fetchone()
+        return row["most_recent"] if row and row["most_recent"] else None
+
+
+def _freshness_state(last_ingest):
+    """Maps a most-recent-ingest timestamp to a freshness state dict.
+
+    Thresholds: good < 24h, warn < 7d, bad >= 7d. None → unknown.
+
+    Returns: {'state': str, 'label': str, 'last_synced': datetime | None}
+    """
+    from datetime import datetime, timedelta, timezone
+
+    if last_ingest is None:
+        return {"state": "unknown", "label": "No data yet", "last_synced": None}
+
+    now = datetime.now(timezone.utc)
+    if last_ingest.tzinfo is None:
+        last_ingest = last_ingest.replace(tzinfo=timezone.utc)
+    age = now - last_ingest
+
+    if age < timedelta(hours=24):
+        return {"state": "good", "label": "Live", "last_synced": last_ingest}
+    if age < timedelta(days=7):
+        return {"state": "warn", "label": "Recent", "last_synced": last_ingest}
+    return {"state": "bad", "label": "Stale", "last_synced": last_ingest}
+
+
+def _kpi_stats_for_municipality(municipality: dict) -> list[dict]:
+    """Builds the 4-card KPI explainer stack for page_sources.html.
+
+    Reuses the P2b helpers (count_meetings_lifetime, count_agenda_items_ytd,
+    count_votes_ytd, dollars_pending_vs_settled, min_meeting_year)."""
+    mid = municipality["id"]
+    min_year = min_meeting_year(mid)
+    dollars = dollars_pending_vs_settled(mid)
+    return [
+        {
+            "label": "Meetings (lifetime)",
+            "value": f"{count_meetings_lifetime(mid):,}",
+            "sub": f"Since {min_year}" if min_year else None,
+            "sql_display": (
+                f"SELECT count(*) FROM meetings WHERE municipality_id = {mid}"
+            ),
+        },
+        {
+            "label": "Agenda items YTD",
+            "value": f"{count_agenda_items_ytd(mid):,}",
+            "sub": None,
+            "sql_display": (
+                f"SELECT count(*) FROM agenda_items ai\n"
+                f"JOIN meetings m ON m.id = ai.meeting_id\n"
+                f"WHERE m.municipality_id = {mid}\n"
+                f"AND m.meeting_date >= date_trunc('year', now())"
+            ),
+        },
+        {
+            "label": "Votes YTD",
+            "value": f"{count_votes_ytd(mid):,}",
+            "sub": None,
+            "sql_display": (
+                f"SELECT count(*) FROM votes v\n"
+                f"JOIN meetings m ON m.id = v.meeting_id\n"
+                f"WHERE m.municipality_id = {mid}\n"
+                f"AND m.meeting_date >= date_trunc('year', now())"
+            ),
+        },
+        {
+            "label": "Dollars (pending / settled)",
+            "value": (
+                f"${(dollars['pending']/1_000_000):.1f}M / "
+                f"${(dollars['settled']/1_000_000):.1f}M"
+            ),
+            "sub": None,
+            "sql_display": (
+                f"SELECT sum(dollars_amount) FILTER (WHERE minutes_adopted_at IS NULL),\n"
+                f"       sum(dollars_amount) FILTER (WHERE minutes_adopted_at IS NOT NULL)\n"
+                f"FROM agenda_items ai\n"
+                f"JOIN meetings m ON m.id = ai.meeting_id\n"
+                f"WHERE m.municipality_id = {mid}"
+            ),
+        },
+    ]

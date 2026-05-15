@@ -39,6 +39,7 @@ MIGRATIONS = [
     "docket.migrations.026_mv_city_backfill_ratio_v4",
     "docket.migrations.027_editorial_coverage",
     "docket.migrations.028_coverage_links_unique_nulls",
+    "docket.migrations.029_municipalities_metadata",
 ]
 
 

@@ -40,36 +40,6 @@
     </div>
 </section>
 
-{# ── Source links ─────────────────────────────────── #}
-<section class="mtg-sources">
-    <div class="rail-links" style="flex-direction: row; flex-wrap: wrap; gap: 8px; padding: 24px 0;">
-        {% if meeting.agenda_url %}
-        <a class="rail-link" href="{{ meeting.agenda_url }}" target="_blank" rel="noreferrer" style="flex: 1; min-width: 180px;">
-            <div><div class="rail-link-label">Agenda</div><div class="t-meta">primary source</div></div>
-            <span class="t-mono">↗</span>
-        </a>
-        {% endif %}
-        {% if meeting.minutes_url %}
-        <a class="rail-link" href="{{ meeting.minutes_url }}" target="_blank" rel="noreferrer" style="flex: 1; min-width: 180px;">
-            <div><div class="rail-link-label">Official minutes</div><div class="t-meta">published</div></div>
-            <span class="t-mono">↗</span>
-        </a>
-        {% endif %}
-        {% if meeting.video_url %}
-        <a class="rail-link" href="{{ meeting.video_url }}" target="_blank" rel="noreferrer" style="flex: 1; min-width: 180px;">
-            <div><div class="rail-link-label">Watch video</div><div class="t-meta">Granicus player</div></div>
-            <span class="t-mono">↗</span>
-        </a>
-        {% endif %}
-        {% if meeting.source_url %}
-        <a class="rail-link" href="{{ meeting.source_url }}" target="_blank" rel="noreferrer" style="flex: 1; min-width: 180px;">
-            <div><div class="rail-link-label">Original source</div><div class="t-meta">city website</div></div>
-            <span class="t-mono">↗</span>
-        </a>
-        {% endif %}
-    </div>
-</section>
-
 {# ── Executive Summary ────────────────────────────── #}
 {% if meeting.executive_summary %}
 <section class="exec-summary">
@@ -327,4 +297,34 @@
     </div>
 </section>
 {% endif %}
+
+{# ── Source links ─────────────────────────────────── #}
+<section class="mtg-sources">
+    <div class="rail-links" style="flex-direction: row; flex-wrap: wrap; gap: 8px; padding: 24px 0;">
+        {% if meeting.agenda_url %}
+        <a class="rail-link" href="{{ meeting.agenda_url }}" target="_blank" rel="noreferrer" style="flex: 1; min-width: 180px;">
+            <div><div class="rail-link-label">Agenda</div><div class="t-meta">primary source</div></div>
+            <span class="t-mono">↗</span>
+        </a>
+        {% endif %}
+        {% if meeting.minutes_url %}
+        <a class="rail-link" href="{{ meeting.minutes_url }}" target="_blank" rel="noreferrer" style="flex: 1; min-width: 180px;">
+            <div><div class="rail-link-label">Official minutes</div><div class="t-meta">published</div></div>
+            <span class="t-mono">↗</span>
+        </a>
+        {% endif %}
+        {% if meeting.video_url %}
+        <a class="rail-link" href="{{ meeting.video_url }}" target="_blank" rel="noreferrer" style="flex: 1; min-width: 180px;">
+            <div><div class="rail-link-label">Watch video</div><div class="t-meta">Granicus player</div></div>
+            <span class="t-mono">↗</span>
+        </a>
+        {% endif %}
+        {% if meeting.source_url %}
+        <a class="rail-link" href="{{ meeting.source_url }}" target="_blank" rel="noreferrer" style="flex: 1; min-width: 180px;">
+            <div><div class="rail-link-label">Original source</div><div class="t-meta">city website</div></div>
+            <span class="t-mono">↗</span>
+        </a>
+        {% endif %}
+    </div>
+</section>
 {% endblock %}

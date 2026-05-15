@@ -27,7 +27,6 @@
         </p>
         {% if municipality is defined and municipality %}
         <div class="footnote-grid t-mono">
-            <div><span class="t-label">Adapter</span><div>{{ municipality.adapter_class }} · {{ municipality.adapter_class | replace('Adapter', '') }}</div></div>
             <div><span class="t-label">Schema</span><div>10 tables · PostgreSQL 16 · FTS via tsvector</div></div>
             <div><span class="t-label">Source</span><div>{{ municipality.name | lower }}al.gov · public domain</div></div>
             <div><span class="t-label">Updated</span><div>{{ now.strftime('%b %d, %Y') if now is defined else 'N/A' }}</div></div>

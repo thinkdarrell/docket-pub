@@ -110,6 +110,15 @@ def _make_municipality(**overrides):
     return SimpleNamespace(**defaults)
 
 
+def _sample_city_stats():
+    """Minimal city_stats dict required by kpi_strip.html (P3 top-of-overview)."""
+    return SimpleNamespace(
+        meetings_ytd=42,
+        dollars_ytd_formatted="$1.4M",
+        flagged_count=7,
+    )
+
+
 def _make_meeting(id=1, title="City Council Regular Meeting"):
     return SimpleNamespace(
         id=id,
@@ -147,6 +156,7 @@ def test_city_html_rendered_no_rail_refs(render_partial):
         now=datetime.datetime.now(),
         coverage_counts={},
         kpi_stats=[],
+        city_stats=_sample_city_stats(),
     )
     assert "rail_meeting" not in html, "Rendered city.html emits rail_meeting"
     assert 'hx-target="#source-rail"' not in html, (
@@ -194,6 +204,7 @@ def test_city_html_recent_meetings_have_href(render_partial):
         now=datetime.datetime.now(),
         coverage_counts={},
         kpi_stats=[],
+        city_stats=_sample_city_stats(),
     )
     # The feed-row should link to meeting_detail
     assert "/al/birmingham/meetings/42/" in html, (

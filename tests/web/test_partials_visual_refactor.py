@@ -465,3 +465,141 @@ def test_council_card_button_has_type_button(render_partial):
     municipality = {'slug': 'birmingham'}
     html = render_partial("partials/council_card.html", m=m, municipality=municipality)
     assert 'type="button"' in html
+
+
+# ── P3 Task 4: city_lead — eyebrow + h1 + freshness chip ────────────────────
+
+
+def test_city_lead_renders_full_metadata(render_partial):
+    """CityLead with all 3 metadata fields renders eyebrow + h1 + chip."""
+    municipality = {
+        "id": 1, "slug": "birmingham", "name": "Birmingham", "state": "AL",
+        "adapter_class": "GranicusAdapter",
+        "metadata": {
+            "council_type": "Mayor-council",
+            "county": "Jefferson County",
+            "population": 196910,
+            "population_year": 2020,
+        },
+    }
+    freshness = {"state": "good", "label": "Live", "last_synced": None}
+    html = render_partial("partials/city_lead.html", municipality=municipality, freshness=freshness)
+    assert 'class="city-lead' in html
+    assert "Mayor-council" in html
+    assert "Jefferson County" in html
+    assert "196,910" in html  # comma-formatted
+    assert "Birmingham, AL" in html
+    assert "city-lead-chip" in html
+
+
+def test_city_lead_eyebrow_collapses_when_metadata_empty(render_partial):
+    """No metadata → eyebrow row renders no content (degrades gracefully)."""
+    municipality = {
+        "id": 99, "slug": "newcity", "name": "New City", "state": "AL",
+        "adapter_class": "GranicusAdapter",
+        "metadata": {},
+    }
+    freshness = {"state": "unknown", "label": "No data yet", "last_synced": None}
+    html = render_partial("partials/city_lead.html", municipality=municipality, freshness=freshness)
+    assert "New City, AL" in html  # h1 still renders
+    # No accidental literal eyebrow text from a populated city
+    assert "Mayor-council" not in html
+    assert "Jefferson County" not in html
+    # The eyebrow div container can exist but its content should be empty
+    # of metadata strings — no "·" separators from joining
+    eyebrow_text = html.split('class="city-lead-eyebrow')[1].split("</div>")[0]
+    assert "·" not in eyebrow_text
+
+
+def test_city_lead_partial_metadata_renders_partial_eyebrow(render_partial):
+    """Some metadata present → render what's available."""
+    municipality = {
+        "id": 99, "slug": "partial", "name": "Partial City", "state": "AL",
+        "adapter_class": "GranicusAdapter",
+        "metadata": {"county": "Some County"},
+    }
+    freshness = {"state": "good", "label": "Live", "last_synced": None}
+    html = render_partial("partials/city_lead.html", municipality=municipality, freshness=freshness)
+    assert "Some County" in html
+    assert "pop." not in html  # population missing → not rendered
+
+
+def test_city_lead_freshness_chip_renders_state(render_partial):
+    """Freshness chip exposes its state via class + data attribute."""
+    municipality = {
+        "id": 1, "slug": "birmingham", "name": "Birmingham", "state": "AL",
+        "adapter_class": "GranicusAdapter", "metadata": {},
+    }
+    for state in ("good", "warn", "bad", "unknown"):
+        freshness = {"state": state, "label": state.title(), "last_synced": None}
+        html = render_partial("partials/city_lead.html", municipality=municipality, freshness=freshness)
+        assert f"is-{state}" in html
+        assert f'data-state="{state}"' in html
+
+
+# ── P3 Task 8: .tw section condensation regression ──────────────────────────
+
+
+def test_tw_section_compact_class_present():
+    """P3: .tw section uses tight vertical spacing — no oversized literal pads."""
+    import re
+    for path in (
+        "src/docket/web/static/councilmatic.css",
+        "src/docket/web/static/layout.css",
+        "src/docket/web/static/styles.css",
+    ):
+        css = (PROJECT_ROOT / path).read_text() if (PROJECT_ROOT / path).exists() else ""
+        if ".tw {" in css or ".tw\n{" in css or ".tw{" in css:
+            # Found the .tw rule — verify it's not using oversized literal pads
+            rule = re.search(r"\.tw\s*\{[^}]*\}", css)
+            if rule:
+                # Should NOT carry padding > 48px literal
+                bad = re.findall(r"padding:[^;]*?(\d{2,3})px", rule.group(0))
+                if bad:
+                    assert max(int(x) for x in bad) <= 48, (
+                        f".tw padding too loose: {rule.group(0)}"
+                    )
+            return  # found and verified
+    # If no .tw {} block found, the rules may live in a media query or
+    # composite selector — skip the structural check.
+
+
+# ── P3 Task 5: kpi_strip — 3-card YTD KPI row ───────────────────────────────
+
+
+def test_kpi_strip_renders_three_cards(render_partial):
+    """kpi_strip wraps 3 num_stat partials in a single .kpi-strip row."""
+    city_stats = {
+        "meetings_ytd": 38,
+        "dollars_ytd_formatted": "$1.4B",
+        "flagged_count": 12,
+    }
+    html = render_partial("partials/kpi_strip.html", city_stats=city_stats)
+    assert 'class="kpi-strip' in html
+    # All three values present
+    assert "38" in html
+    assert "1.4B" in html
+    assert "12" in html
+    # All three labels present
+    assert "Meetings YTD" in html
+    assert "Dollars YTD" in html
+    assert "Flagged" in html  # "Flagged items"
+
+
+# ── P3 Task 10: .hero-title token migration ──────────────────────────────────
+
+
+def test_hero_title_uses_type_hero_token():
+    """P3 (resolves P2a follow-up #1): .hero-title consumes the
+    --type-hero token, not a literal 72px."""
+    import re
+    css = (PROJECT_ROOT / "src/docket/web/static/layout.css").read_text()
+    match = re.search(r"\.hero-title\s*\{[^}]*\}", css)
+    assert match, ".hero-title rule missing from layout.css"
+    rule_body = match.group(0)
+    assert "var(--type-hero)" in rule_body, (
+        ".hero-title not consuming --type-hero token"
+    )
+    assert "font-size: 72px" not in rule_body, (
+        ".hero-title still has the legacy 72px literal"
+    )

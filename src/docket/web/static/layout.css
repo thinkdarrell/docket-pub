@@ -143,7 +143,7 @@
 /* ── hero ─────────────────────────────────────────── */
 .hero { padding: 48px 0 56px; border-bottom: 1px solid var(--rule); }
 .hero-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 32px; margin-bottom: 40px; }
-.hero-title { font-size: 72px; margin: 12px 0 16px; }
+.hero-title { font-size: var(--type-hero); margin: 12px 0 16px; }
 .hero-sub { font-size: 17px; max-width: 700px; color: var(--ink-2); margin: 0; line-height: 1.55; }
 .hero-sub strong { color: var(--ink); font-weight: 500; }
 
@@ -1001,3 +1001,62 @@
 .dollars--yellow { background: var(--color-dollar-yellow-bg); color: var(--color-dollar-yellow-ink); border-color: var(--color-dollar-yellow-rule); }
 .dollars--orange { background: var(--color-dollar-orange-bg); color: var(--color-dollar-orange-ink); border-color: var(--color-dollar-orange-rule); }
 .dollars--red    { background: var(--color-dollar-red-bg);    color: var(--color-dollar-red-ink);    border-color: var(--color-dollar-red-rule); }
+
+/* ── CityLead (P3) ─────────────────────────────────────────── */
+.city-lead { padding: var(--space-3) 0 var(--space-2); }
+.city-lead-eyebrow {
+  font-size: var(--type-eyebrow);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  min-height: 1.2em;  /* prevents collapse jump when empty */
+  margin-bottom: var(--space-3);
+}
+.city-lead-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+.city-lead-h1 {
+  font-family: var(--font-display);
+  font-size: var(--type-hero);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+  margin: 0;
+  color: var(--ink);
+}
+.city-lead-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  background: var(--paper);
+  font-size: 13px;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.city-lead-chip-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--ink-3);  /* default = unknown */
+}
+.city-lead-chip.is-good .city-lead-chip-dot {
+  background: var(--good, #5a8a4e);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--good, #5a8a4e) 24%, transparent);
+}
+.city-lead-chip.is-warn .city-lead-chip-dot { background: var(--warn, #b8860b); }
+.city-lead-chip.is-bad .city-lead-chip-dot { background: var(--bad, #b03a3a); }
+.city-lead-chip-label { font-weight: 500; }
+.city-lead-chip-meta { color: var(--ink-3); font-size: 11px; }
+
+/* ── KPI strip (P3 top-of-overview) ─────────────────────────── */
+.kpi-strip {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-4);
+  margin: var(--space-2) 0 var(--space-3);
+}
