@@ -458,13 +458,18 @@ def test_council_card_omits_attendance_alignment_when_missing(render_partial):
     assert 'District 3' in html
 
 
-def test_council_card_button_has_type_button(render_partial):
-    """Regression: <button class='cc'> must specify type='button' so
-    placing the card inside any future <form> doesn't trigger submit."""
+def test_council_card_is_anchor_to_member_detail(render_partial):
+    """P4-2: council_card.html became an anchor to /al/<slug>/council/<id>/.
+
+    Replaces the P2b/P3 contract (button with type='button' because no nav
+    target existed yet). With member_detail in P4-2, the card navigates.
+    """
     m = {'id': 7, 'name': 'Jane Doe', 'district_name': 'District 3', 'photo_url': None}
     municipality = {'slug': 'birmingham'}
     html = render_partial("partials/council_card.html", m=m, municipality=municipality)
-    assert 'type="button"' in html
+    assert '<a class="cc"' in html
+    assert '/al/birmingham/council/7/' in html
+    assert 'type="button"' not in html
 
 
 # ── P3 Task 4: city_lead — eyebrow + h1 + freshness chip ────────────────────

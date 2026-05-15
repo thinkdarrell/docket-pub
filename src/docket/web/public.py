@@ -773,6 +773,99 @@ def city_council(slug):
     )
 
 
+_member_cache: dict[tuple, tuple] = {}
+_member_lock = threading.Lock()
+
+
+@bp.route("/al/<slug>/council/<int:member_id>/")
+def member_detail(slug, member_id):
+    """Council member detail — voting history, stats, sponsored items.
+
+    Cross-city tamper guard: 404 when member.municipality_id != municipality.id.
+    Cursor pagination on (meeting_date DESC, vote_id DESC).
+    """
+    municipality = query.get_municipality(slug)
+    if not municipality:
+        abort(404)
+
+    member = query.get_council_member(member_id)
+    if not member or member["municipality_id"] != municipality["id"]:
+        abort(404)
+
+    cursor = request.args.get("cursor")
+    filter_mode = request.args.get("filter", "all")
+    if filter_mode not in ("all", "dissent", "sponsored"):
+        filter_mode = "all"
+
+    # Cache only the no-cursor first-page render (common case). Paginated
+    # follow-up requests re-execute the query — cheap enough at member-page
+    # traffic and avoids cursor key explosion.
+    cache_key = (slug, member_id, filter_mode)
+    if cursor is None:
+        cached = _member_cache.get(cache_key)
+        if cached and (time.time() - cached[0]) < _CACHE_TTL:
+            return cached[1]
+
+    return _member_detail_render(
+        slug, municipality, member, filter_mode, cursor
+    )
+
+
+def _member_detail_render(slug, municipality, member, filter_mode, cursor):
+    stats = query.get_member_stats(member["id"])
+    sponsorship_count = query.count_sponsored_items_for_member(member["name"])
+
+    if filter_mode == "sponsored":
+        history = query.list_sponsored_items_for_member(
+            member["name"],
+            cursor=cursor,
+            limit=20,
+            municipality_id=municipality["id"],
+        )
+    else:
+        history = query.list_member_voting_history(
+            member["id"],
+            cursor=cursor,
+            limit=20,
+            filter_mode=filter_mode,
+        )
+
+    rendered = render_template(
+        "member_detail.html",
+        municipality=municipality,
+        member=member,
+        stats=stats,
+        sponsorship_count=sponsorship_count,
+        history=history,
+        filter_mode=filter_mode,
+    )
+
+    if cursor is None:
+        with _member_lock:
+            _member_cache[(slug, member["id"], filter_mode)] = (time.time(), rendered)
+    return rendered
+
+
+@bp.route("/al/<slug>/source-health/")
+def source_health(slug):
+    """Pipeline-stage health for a city's data chain.
+
+    Reachable from the city_lead freshness chip. Surfaces upstream source URL,
+    adapter class, last successful parse, and last ingest — derived entirely
+    from existing tables (no live probes in v1).
+    """
+    municipality = query.get_municipality(slug)
+    if not municipality:
+        abort(404)
+
+    health = query.source_health_for_city(municipality)
+    return render_template(
+        "source_health.html",
+        municipality=municipality,
+        health=health,
+    )
+
+
 @bp.route("/search")
 def search():
     """Search results page — scoped to city or cross-city."""

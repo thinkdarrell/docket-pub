@@ -1,7 +1,8 @@
 {# Council member card — rendered by both city.html and council.html.
-   Expects: m (council member dict), municipality (with .slug). #}
+   Expects: m (council member dict), municipality (with .slug).
+   P4-2: now navigates to member_detail (was a no-op button in P2b/P3). #}
 {% set hue = (m.id * 137) % 360 %}
-<button class="cc" type="button">
+<a class="cc" href="{{ url_for('public.member_detail', slug=municipality.slug, member_id=m.id) }}">
     <div class="cc-portrait" style="background: oklch(0.45 0.12 {{ hue }})">
         <svg viewBox="0 0 100 100" class="cc-portrait-bg" aria-hidden="true">
             <defs>
@@ -44,4 +45,4 @@
             <span class="cc-arrow">→</span>
         </div>
     </div>
-</button>
+</a>

@@ -1,0 +1,29 @@
+{# Breadcrumbs — nav trail. Used on detail/leaf pages to surface hierarchy
+   without consuming hero space.
+   Spec: docs/superpowers/specs/2026-05-14-visual-refactor-design.md (P4)
+
+   Args (parent scope):
+     crumbs (list[dict], required) — ordered list. Each dict:
+       label (str, required)
+       url   (str | None, optional) — None renders as the current/leaf crumb.
+                                     The final crumb is always rendered as
+                                     leaf (no link), regardless of url.
+#}
+{%- if crumbs and crumbs | length > 0 -%}
+<nav class="breadcrumbs t-mono" aria-label="Breadcrumb">
+  <ol class="breadcrumbs-list">
+    {%- for crumb in crumbs -%}
+      <li class="breadcrumbs-item">
+        {%- if crumb.url and not loop.last -%}
+          <a class="breadcrumbs-link" href="{{ crumb.url }}">{{ crumb.label }}</a>
+        {%- else -%}
+          <span class="breadcrumbs-current" aria-current="page">{{ crumb.label }}</span>
+        {%- endif -%}
+        {%- if not loop.last -%}
+          <span class="breadcrumbs-sep" aria-hidden="true">/</span>
+        {%- endif -%}
+      </li>
+    {%- endfor -%}
+  </ol>
+</nav>
+{%- endif -%}

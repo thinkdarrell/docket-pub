@@ -140,6 +140,89 @@
 .crumbs a.is-current { color: var(--ink); font-weight: 500; }
 .crumbs .dim { color: var(--ink-4); }
 
+/* ── member detail (P4-2) ─────────────────────────── */
+.member-hero { padding-bottom: 32px; }
+.member-hero-id { display: flex; align-items: center; gap: 20px; }
+.member-portrait {
+  position: relative; width: 88px; height: 88px; flex: none;
+  border-radius: 50%; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+}
+.member-portrait .cc-initials { color: white; font-size: 32px; letter-spacing: -0.02em; }
+.member-filters { padding: 16px 0 8px; border-top: 1px solid var(--rule); }
+.filter-chips { display: flex; gap: 8px; flex-wrap: wrap; }
+.filter-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 12px; border-radius: 999px;
+  border: 1px solid var(--rule-strong);
+  font-size: 11px; color: var(--ink-2); text-decoration: none;
+  background: var(--paper); cursor: pointer;
+  transition: border-color .12s, background .12s;
+}
+.filter-chip:hover { border-color: var(--accent); }
+.filter-chip.is-active { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.member-history { padding: 16px 0 40px; }
+.member-history-list { display: flex; flex-direction: column; gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: var(--radius); overflow: hidden; }
+.member-history-row {
+  display: grid; grid-template-columns: 110px 1fr auto;
+  gap: 16px; align-items: center;
+  padding: 12px 16px; background: var(--paper);
+  text-decoration: none; color: var(--ink);
+  transition: background .12s;
+}
+.member-history-row:hover { background: var(--paper-2); }
+.member-history-date { color: var(--ink-3); font-size: 11px; }
+.member-history-body { min-width: 0; }
+.member-history-title { font-size: 14px; line-height: 1.4; }
+.member-history-more { padding: 16px 0; text-align: center; }
+.member-history-empty { padding: 24px 16px; border: 1px dashed var(--rule); border-radius: var(--radius); text-align: center; }
+
+/* ── source health (P4-2) ─────────────────────────── */
+.source-health-hero { padding-bottom: 32px; }
+.source-health-overall {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 8px 14px; border-radius: 999px;
+  border: 1px solid var(--rule-strong); background: var(--paper);
+  font-size: 12px;
+}
+.source-health-overall.is-good { border-color: var(--good); }
+.source-health-overall.is-warn { border-color: var(--warn); }
+.source-health-overall.is-bad  { border-color: var(--bad); }
+.source-health-overall-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+}
+.source-health-overall.is-good .source-health-overall-dot { background: var(--good); }
+.source-health-overall.is-warn .source-health-overall-dot { background: var(--warn); }
+.source-health-overall.is-bad  .source-health-overall-dot { background: var(--bad); }
+.source-health-overall.is-unknown .source-health-overall-dot { background: var(--ink-3); }
+.source-pipeline { padding: 16px 0 40px; }
+.source-pipeline-list { display: flex; flex-direction: column; gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: var(--radius); overflow: hidden; padding: 0; margin: 0; list-style: none; }
+.source-stage {
+  display: grid; grid-template-columns: 48px 1fr 32px;
+  gap: 16px; align-items: center;
+  padding: 16px; background: var(--paper);
+}
+.source-stage-num { font-size: 20px; color: var(--ink-4); }
+.source-stage-body { min-width: 0; }
+.source-stage-label { color: var(--ink-3); font-size: 10px; letter-spacing: 0.08em; }
+.source-stage-title { font-size: 16px; margin: 2px 0 4px; }
+.source-stage-link { word-break: break-all; }
+.source-stage-dot { width: 14px; height: 14px; border-radius: 50%; }
+.source-stage-dot.is-good { background: var(--good); box-shadow: 0 0 0 4px color-mix(in oklab, var(--good) 18%, transparent); }
+.source-stage-dot.is-warn { background: var(--warn); }
+.source-stage-dot.is-bad  { background: var(--bad); }
+.source-stage-dot.is-unknown { background: var(--ink-3); }
+.source-pipeline-foot { margin-top: 16px; max-width: 600px; }
+
+/* ── breadcrumbs (page-level hierarchy block, distinct from masthead .crumbs) ── */
+.breadcrumbs { padding: 16px 0 8px; font-size: 11px; color: var(--ink-3); letter-spacing: 0.04em; }
+.breadcrumbs-list { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.breadcrumbs-item { display: inline-flex; align-items: center; gap: 6px; }
+.breadcrumbs-link { color: var(--ink-3); text-decoration: none; }
+.breadcrumbs-link:hover { color: var(--accent-ink); text-decoration: underline; }
+.breadcrumbs-current { color: var(--ink); font-weight: 500; }
+.breadcrumbs-sep { color: var(--ink-4); }
+
 /* ── hero ─────────────────────────────────────────── */
 .hero { padding: 48px 0 56px; border-bottom: 1px solid var(--rule); }
 .hero-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 32px; margin-bottom: 40px; }
@@ -296,8 +379,10 @@
   background: var(--paper); border: 1px solid var(--rule-strong);
   border-radius: var(--radius-2); overflow: hidden;
   text-align: left; padding: 0; cursor: pointer;
+  color: inherit; text-decoration: none; /* anchor reset (P4-2: button→link) */
   transition: border-color .12s, transform .15s, box-shadow .15s;
 }
+.cc:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .cc:hover { border-color: var(--ink-3); transform: translateY(-2px); box-shadow: var(--shadow-2); }
 .cc.is-selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
 
@@ -1039,7 +1124,11 @@
   font-size: 13px;
   color: var(--ink);
   white-space: nowrap;
+  text-decoration: none; /* P4-2: chip is now an anchor */
+  transition: border-color .12s, background .12s;
 }
+.city-lead-chip:hover { border-color: var(--ink-3); background: var(--paper-2); }
+.city-lead-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .city-lead-chip-dot {
   width: 8px; height: 8px; border-radius: 50%;
   background: var(--ink-3);  /* default = unknown */

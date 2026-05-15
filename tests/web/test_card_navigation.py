@@ -76,11 +76,31 @@ def test_council_card_no_dead_rail_hx_get():
     )
 
 
-def test_council_card_still_has_button_type_button():
-    """council_card.html button must keep type='button' (Task 7 contract)."""
+def test_city_lead_chip_links_to_source_health():
+    """city_lead.html freshness chip is now an anchor to source_health (P4-2)."""
+    src = _template_text("partials/city_lead.html")
+    assert 'class="city-lead-chip' in src
+    assert "public.source_health" in src, (
+        "city_lead chip must url_for('public.source_health')"
+    )
+    # Should be an anchor, not a div
+    assert '<a class="city-lead-chip' in src
+    assert '<div class="city-lead-chip' not in src
+
+
+def test_council_card_navigates_to_member_detail():
+    """council_card.html is now an anchor to /al/<slug>/council/<id>/ (P4-2).
+
+    P2b/P3 contract was <button type="button"> because there was nowhere to
+    navigate. P4-2 introduces member_detail; this test pins the new shape.
+    """
     src = _template_text("partials/council_card.html")
-    assert '<button class="cc" type="button">' in src, (
-        "council_card.html button element or type='button' missing"
+    assert '<a class="cc"' in src, "council_card.html must use anchor element"
+    assert "public.member_detail" in src, (
+        "council_card.html must url_for('public.member_detail')"
+    )
+    assert '<button class="cc"' not in src, (
+        "council_card.html should not retain the old button element"
     )
 
 

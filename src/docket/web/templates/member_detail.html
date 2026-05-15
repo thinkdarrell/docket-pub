@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% block title %}{{ member.name }} — {{ member.district_name or 'Council' }} — {{ municipality.name }} — docket.pub{% endblock %}
+{% block crumb %}council/{{ member.name | lower | replace(' ', '-') }}{% endblock %}
+
+{% block content %}
+{% set crumbs = [
+  {'label': 'Home',              'url': url_for('public.index')},
+  {'label': municipality.name,   'url': url_for('public.city_overview', slug=municipality.slug)},
+  {'label': 'Council',           'url': url_for('public.city_council', slug=municipality.slug)},
+  {'label': member.name,         'url': None},
+] %}
+{% include 'partials/breadcrumbs.html' %}
+
+{# ── Hero ─────────────────────────────────────────── #}
+<section class="hero member-hero">
+  <div class="hero-top">
+    <div class="member-hero-id">
+      {% set hue = (member.id * 137) % 360 %}
+      <div class="member-portrait" style="background: oklch(0.45 0.12 {{ hue }})">
+        <svg viewBox="0 0 100 100" class="cc-portrait-bg" aria-hidden="true">
+          <defs>
+            <pattern id="mp{{ member.id }}" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(-30)">
+              <line x1="0" y1="0" x2="0" y2="6" stroke="rgba(255,255,255,0.18)" stroke-width="2"/>
+            </pattern>
+          </defs>
+          <rect width="100" height="100" fill="url(#mp{{ member.id }})" />
+        </svg>
+        <div class="cc-initials t-display">{{ member.name.split()[0][0] }}{{ member.name.split()[-1][0] }}</div>
+      </div>
+      <div>
+        <div class="t-eyebrow">{{ municipality.name }} · Council</div>
+        <h1 class="hero-title">{{ member.name }}</h1>
+        <p class="hero-sub t-mono">
+          {{ member.district_name or 'At-Large' }}
+          {%- if member.term_start %} · term {{ member.term_start.strftime('%Y') }}{% if member.term_end %}–{{ member.term_end.strftime('%Y') }}{% endif %}{% endif -%}
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <div class="kpi-strip">
+    {% with label='Attendance', value=(stats.attendance_pct ~ '%' if stats.attendance_pct is not none else '—'), sub=(stats.votes_total ~ ' roll calls') %}
+      {% include 'partials/num_stat.html' with context %}
+    {% endwith %}
+    {% with label='Alignment with majority', value=(stats.alignment_pct ~ '%' if stats.alignment_pct is not none else '—'), sub='of votes cast' %}
+      {% include 'partials/num_stat.html' with context %}
+    {% endwith %}
+    {% with label='Items sponsored', value=('{:,}'.format(sponsorship_count)), sub='from agenda search', accent=true %}
+      {% include 'partials/num_stat.html' with context %}
+    {% endwith %}
+  </div>
+</section>
+
+{# ── Filter chips ─────────────────────────────────── #}
+<section class="member-filters">
+  <div class="filter-chips t-mono">
+    <a class="filter-chip {{ 'is-active' if filter_mode == 'all' else '' }}"
+       href="{{ url_for('public.member_detail', slug=municipality.slug, member_id=member.id) }}">All votes</a>
+    <a class="filter-chip {{ 'is-active' if filter_mode == 'dissent' else '' }}"
+       href="{{ url_for('public.member_detail', slug=municipality.slug, member_id=member.id, filter='dissent') }}">Dissent</a>
+    <a class="filter-chip {{ 'is-active' if filter_mode == 'sponsored' else '' }}"
+       href="{{ url_for('public.member_detail', slug=municipality.slug, member_id=member.id, filter='sponsored') }}">Sponsored items</a>
+  </div>
+</section>
+
+{# ── History table ────────────────────────────────── #}
+<section class="member-history">
+  {% if history.rows %}
+    {% if filter_mode == 'sponsored' %}
+      <h2 class="t-display feed-title">Sponsored agenda items</h2>
+      <div class="member-history-list">
+        {% for item in history.rows %}
+        <a class="member-history-row"
+           href="{{ url_for('public.meeting_detail', slug=item.municipality_slug, meeting_id=item.meeting_id) }}#item-{{ item.id }}">
+          <div class="member-history-date t-mono">{{ item.meeting_date.strftime('%Y-%m-%d') }}</div>
+          <div class="member-history-body">
+            <div class="member-history-title">
+              {% if item.item_number %}<span class="t-mono t-meta">#{{ item.item_number }}</span> {% endif %}
+              {{ (item.headline or item.title)[:140] }}{% if (item.headline or item.title) | length > 140 %}…{% endif %}
+            </div>
+            <div class="t-meta">{{ item.meeting_title[:60] }}{% if item.meeting_title | length > 60 %}…{% endif %}</div>
+          </div>
+          {% if item.dollars_amount %}
+          <span class="tier tier-{{ item.dollars_amount | dollar_tier }}">${{ "{:,.0f}".format(item.dollars_amount) }}</span>
+          {% endif %}
+        </a>
+        {% endfor %}
+      </div>
+    {% else %}
+      <h2 class="t-display feed-title">
+        {%- if filter_mode == 'dissent' -%}Dissenting votes{%- else -%}Voting history{%- endif -%}
+      </h2>
+      <div class="member-history-list">
+        {% for row in history.rows %}
+        <a class="member-history-row vote-row"
+           href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=row.meeting_id) }}#vote-{{ row.vote_id }}">
+          <div class="member-history-date t-mono">{{ row.meeting_date.strftime('%Y-%m-%d') }}</div>
+          <div class="member-history-body">
+            <div class="member-history-title">
+              {% if row.agenda_links and row.agenda_links | length == 1 %}
+                {% set lk = row.agenda_links[0] %}
+                {% if lk.item_number %}<span class="t-mono t-meta">#{{ lk.item_number }}</span> {% endif %}
+                {{ lk.item_title[:140] }}{% if lk.item_title | length > 140 %}…{% endif %}
+              {% elif row.agenda_links %}
+                Consent block — {{ row.agenda_links | length }} items
+              {% else %}
+                {{ row.meeting_title[:120] }}{% if row.meeting_title | length > 120 %}…{% endif %}
+              {% endif %}
+            </div>
+            <div class="t-meta">{{ row.yeas }}–{{ row.nays }} · {{ row.result }}</div>
+          </div>
+          <span class="chip chip-{{ row.position }}">{{ row.position | upper }}</span>
+        </a>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    {% if history.next_cursor %}
+    <div class="member-history-more">
+      <a class="link t-mono" href="{{ url_for('public.member_detail', slug=municipality.slug, member_id=member.id, filter=filter_mode, cursor=history.next_cursor) }}">More →</a>
+    </div>
+    {% endif %}
+  {% else %}
+    <div class="member-history-empty">
+      <p class="t-meta">
+        {% if filter_mode == 'dissent' %}
+          No dissenting votes on record yet.
+        {% elif filter_mode == 'sponsored' %}
+          No sponsored items found in the agenda archive.
+        {% else %}
+          No recorded roll-call votes yet.
+        {% endif %}
+      </p>
+    </div>
+  {% endif %}
+</section>
+{% endblock %}

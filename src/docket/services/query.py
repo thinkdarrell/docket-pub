@@ -539,6 +539,230 @@ def get_council_member(member_id: int) -> dict | None:
         return dict(row) if row else None
 
 
+def get_member_stats(member_id: int) -> dict:
+    """Compute attendance%, alignment-with-majority%, and total roll-call count.
+
+    attendance_pct = (votes where position != 'absent') / total_votes
+    alignment_pct  = (votes where position aligns with majority) / non_absent
+        - aligned: position in ('yea','yes') AND result == 'passed'
+                 OR position in ('nay','no')  AND result == 'failed'
+
+    Returns ``{attendance_pct, alignment_pct, votes_total}``. Percent values
+    are ints 0–100. Both pct values are None when the member has no roll-call
+    record (avoids ZeroDivisionError and lets the UI hide the stat).
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+              COUNT(*) AS total,
+              COUNT(*) FILTER (WHERE mv.position <> 'absent') AS present,
+              COUNT(*) FILTER (
+                WHERE mv.position <> 'absent'
+                  AND (
+                    (mv.position IN ('yea','yes') AND v.result = 'passed')
+                    OR (mv.position IN ('nay','no')  AND v.result = 'failed')
+                  )
+              ) AS aligned
+            FROM member_votes mv
+            JOIN votes v ON v.id = mv.vote_id
+            WHERE mv.council_member_id = %s
+            """,
+            (member_id,),
+        )
+        row = cur.fetchone()
+        total = row["total"] or 0
+        present = row["present"] or 0
+        aligned = row["aligned"] or 0
+        return {
+            "votes_total": total,
+            "attendance_pct": round(100 * present / total) if total else None,
+            "alignment_pct": round(100 * aligned / present) if present else None,
+        }
+
+
+def count_sponsored_items_for_member(member_name: str) -> int:
+    """Count agenda_items where sponsor ILIKE %member_name%.
+
+    Backed by the trigram index added in migration 030. Substring matching
+    can collide on common surnames — acceptable for an at-a-glance count.
+    """
+    if not member_name:
+        return 0
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT COUNT(*) AS n FROM agenda_items WHERE sponsor ILIKE %s",
+            (f"%{member_name}%",),
+        )
+        return int(cur.fetchone()["n"])
+
+
+def _encode_cursor(meeting_date, vote_id: int) -> str:
+    import base64
+
+    raw = f"{meeting_date.isoformat()}|{vote_id}".encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def _decode_cursor(cursor: str) -> tuple | None:
+    """Returns (date_iso, vote_id_int) or None if malformed."""
+    import base64
+    from datetime import date
+
+    if not cursor:
+        return None
+    try:
+        padding = "=" * (-len(cursor) % 4)
+        raw = base64.urlsafe_b64decode(cursor + padding).decode("utf-8")
+        date_str, vid_str = raw.split("|", 1)
+        return date.fromisoformat(date_str), int(vid_str)
+    except (ValueError, UnicodeDecodeError):
+        return None
+
+
+def list_member_voting_history(
+    member_id: int,
+    *,
+    cursor: str | None = None,
+    limit: int = 20,
+    filter_mode: str = "all",
+) -> dict:
+    """Cursor-paginated voting history for a member.
+
+    Args:
+        cursor: opaque token from previous page's ``next_cursor``.
+        limit:  rows per page.
+        filter_mode: ``"all"`` or ``"dissent"`` (dissent = position was in the
+                     minority for the vote, i.e. *not* aligned with result).
+
+    Returns ``{rows: list[dict], next_cursor: str | None}``. Each row:
+        vote_id, meeting_id, meeting_date, meeting_title, position, result,
+        yeas, nays, agenda_links (list of {item_number, item_title}).
+    """
+    where_filter = ""
+    if filter_mode == "dissent":
+        where_filter = """
+          AND mv.position <> 'absent'
+          AND NOT (
+            (mv.position IN ('yea','yes') AND v.result = 'passed')
+            OR (mv.position IN ('nay','no')  AND v.result = 'failed')
+          )
+        """
+
+    params: list = [member_id]
+    where_cursor = ""
+    decoded = _decode_cursor(cursor) if cursor else None
+    if decoded is not None:
+        where_cursor = "AND (m.meeting_date, v.id) < (%s, %s)"
+        params.extend([decoded[0], decoded[1]])
+    params.append(limit + 1)  # fetch one extra to detect next page
+
+    with db_cursor() as cur:
+        cur.execute(
+            f"""
+            SELECT v.id AS vote_id, v.result, v.source, v.yeas, v.nays,
+                   CASE WHEN mv.position IN ('yea','yes') THEN 'yea'
+                        WHEN mv.position IN ('nay','no')  THEN 'nay'
+                        ELSE mv.position END AS position,
+                   m.id AS meeting_id, m.meeting_date, m.title AS meeting_title
+            FROM member_votes mv
+            JOIN votes v    ON mv.vote_id = v.id
+            JOIN meetings m ON v.meeting_id = m.id
+            WHERE mv.council_member_id = %s
+              {where_cursor}
+              {where_filter}
+            ORDER BY m.meeting_date DESC, v.id DESC
+            LIMIT %s
+            """,
+            params,
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+
+        next_cursor = None
+        if len(rows) > limit:
+            rows = rows[:limit]
+            # Next page resumes strictly after the last returned row in DESC order
+            last = rows[-1]
+            next_cursor = _encode_cursor(last["meeting_date"], last["vote_id"])
+
+        if rows:
+            vote_ids = [r["vote_id"] for r in rows]
+            cur.execute(
+                """SELECT vai.vote_id, ai.item_number, ai.title AS item_title
+                   FROM vote_agenda_items vai
+                   JOIN agenda_items ai ON ai.id = vai.agenda_item_id
+                   WHERE vai.vote_id = ANY(%s) AND vai.is_active
+                   ORDER BY vai.vote_id, vai.match_confidence DESC, vai.id ASC""",
+                (vote_ids,),
+            )
+            links_by_vote: dict = {}
+            for r in cur.fetchall():
+                links_by_vote.setdefault(r["vote_id"], []).append(dict(r))
+            for v in rows:
+                v["agenda_links"] = links_by_vote.get(v["vote_id"], [])
+        return {"rows": rows, "next_cursor": next_cursor}
+
+
+def list_sponsored_items_for_member(
+    member_name: str,
+    *,
+    cursor: str | None = None,
+    limit: int = 20,
+    municipality_id: int | None = None,
+) -> dict:
+    """Cursor-paginated agenda items sponsored by the named member.
+
+    Same ``(meeting_date DESC, item_id DESC)`` cursor shape as the voting
+    history. Filters withdrawn items. Optional municipality scope.
+
+    Returns ``{rows: list[dict], next_cursor: str | None}``. Each row carries
+    the agenda_item shape plus meeting context (matches
+    ``list_agenda_items_by_topic``).
+    """
+    if not member_name:
+        return {"rows": [], "next_cursor": None}
+
+    params: list = [f"%{member_name}%"]
+    where_extra = ""
+    if municipality_id is not None:
+        where_extra += " AND m.id = %s"
+        params.append(municipality_id)
+
+    decoded = _decode_cursor(cursor) if cursor else None
+    if decoded is not None:
+        where_extra += " AND (mt.meeting_date, ai.id) < (%s, %s)"
+        params.extend([decoded[0], decoded[1]])
+    params.append(limit + 1)
+
+    with db_cursor() as cur:
+        cur.execute(
+            f"""
+            SELECT ai.*,
+                   mt.title AS meeting_title,
+                   mt.meeting_date,
+                   m.name   AS municipality_name,
+                   m.slug   AS municipality_slug
+            FROM agenda_items ai
+            JOIN meetings mt        ON ai.meeting_id = mt.id
+            JOIN municipalities m   ON mt.municipality_id = m.id
+            WHERE m.active = TRUE
+              AND ai.sponsor ILIKE %s
+              AND ai.processing_status::text <> 'withdrawn'
+              {where_extra}
+            ORDER BY mt.meeting_date DESC, ai.id DESC
+            LIMIT %s
+            """,
+            params,
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+        next_cursor = None
+        if len(rows) > limit:
+            rows = rows[:limit]
+            last = rows[-1]
+            next_cursor = _encode_cursor(last["meeting_date"], last["id"])
+        return {"rows": rows, "next_cursor": next_cursor}
+
+
 def get_member_vote_summary(member_id: int) -> dict:
     """Return vote summary stats and recent votes for a council member.
 
@@ -822,6 +1046,130 @@ def topic_counts(municipality_slug: str | None = None) -> list[dict]:
             WHERE m.active = TRUE AND {where}
             GROUP BY ai.topic
             ORDER BY count DESC
+            """,
+            params,
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+
+# --- Related items (P4-2 §5; consumed by P4-1 item_detail) ------------------
+
+
+def list_related_items_by_topic(
+    item_id: int,
+    *,
+    limit: int = 3,
+    same_city_only: bool = True,
+) -> list[dict]:
+    """Return up to ``limit`` agenda items sharing the seed item's topic.
+
+    Excludes the seed item itself and any other item from the same meeting
+    (to surface cross-meeting context rather than sibling agenda items).
+    Filters out withdrawn items, matching ``list_agenda_items`` semantics.
+    Returns ``[]`` when the seed has no topic or doesn't exist.
+
+    Column shape matches ``list_agenda_items_by_topic`` so callers can render
+    via ``partials/card_smart_brevity.html`` without adaptation.
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT seed.topic, seed.meeting_id, mt_seed.municipality_id
+            FROM agenda_items seed
+            JOIN meetings mt_seed ON mt_seed.id = seed.meeting_id
+            WHERE seed.id = %s
+            """,
+            (item_id,),
+        )
+        seed = cur.fetchone()
+        if not seed or not seed["topic"]:
+            return []
+
+        where_city = "AND mt.municipality_id = %s" if same_city_only else ""
+        params: list = [seed["topic"], item_id, seed["meeting_id"]]
+        if same_city_only:
+            params.append(seed["municipality_id"])
+        params.append(limit)
+
+        cur.execute(
+            f"""
+            SELECT ai.*,
+                   mt.title AS meeting_title,
+                   mt.meeting_date,
+                   m.name   AS municipality_name,
+                   m.slug   AS municipality_slug
+            FROM agenda_items ai
+            JOIN meetings mt        ON ai.meeting_id = mt.id
+            JOIN municipalities m   ON mt.municipality_id = m.id
+            WHERE m.active = TRUE
+              AND ai.topic = %s
+              AND ai.id <> %s
+              AND ai.meeting_id <> %s
+              AND ai.processing_status::text <> 'withdrawn'
+              {where_city}
+            ORDER BY mt.meeting_date DESC
+            LIMIT %s
+            """,
+            params,
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+
+def list_related_items_by_sponsor(
+    item_id: int,
+    *,
+    limit: int = 3,
+    same_city_only: bool = True,
+) -> list[dict]:
+    """Return up to ``limit`` agenda items sharing the seed item's sponsor text.
+
+    Uses ILIKE against ``agenda_items.sponsor`` (TEXT column, no FK). The
+    trigram index added in migration 030 supports the ``%substring%`` pattern.
+    Excludes the seed item and other items from the same meeting.
+    Filters out withdrawn items. Returns ``[]`` when the seed has no sponsor.
+
+    Caveat: ILIKE substring matching can catch unrelated names (e.g. ``Smith``
+    matches ``Smithson``). Acceptable for a 3-item related list; not safe for
+    counts or attribution. Column shape matches ``list_agenda_items_by_topic``.
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT seed.sponsor, seed.meeting_id, mt_seed.municipality_id
+            FROM agenda_items seed
+            JOIN meetings mt_seed ON mt_seed.id = seed.meeting_id
+            WHERE seed.id = %s
+            """,
+            (item_id,),
+        )
+        seed = cur.fetchone()
+        if not seed or not seed["sponsor"]:
+            return []
+
+        where_city = "AND mt.municipality_id = %s" if same_city_only else ""
+        params: list = [f"%{seed['sponsor']}%", item_id, seed["meeting_id"]]
+        if same_city_only:
+            params.append(seed["municipality_id"])
+        params.append(limit)
+
+        cur.execute(
+            f"""
+            SELECT ai.*,
+                   mt.title AS meeting_title,
+                   mt.meeting_date,
+                   m.name   AS municipality_name,
+                   m.slug   AS municipality_slug
+            FROM agenda_items ai
+            JOIN meetings mt        ON ai.meeting_id = mt.id
+            JOIN municipalities m   ON mt.municipality_id = m.id
+            WHERE m.active = TRUE
+              AND ai.sponsor ILIKE %s
+              AND ai.id <> %s
+              AND ai.meeting_id <> %s
+              AND ai.processing_status::text <> 'withdrawn'
+              {where_city}
+            ORDER BY mt.meeting_date DESC
+            LIMIT %s
             """,
             params,
         )
@@ -3036,6 +3384,89 @@ def _freshness_state(last_ingest):
     if age < timedelta(days=7):
         return {"state": "warn", "label": "Recent", "last_synced": last_ingest}
     return {"state": "bad", "label": "Stale", "last_synced": last_ingest}
+
+
+def source_health_for_city(municipality: dict) -> dict:
+    """Pipeline-stage health for a city's data chain.
+
+    Stages mirror the ingest flow (Source → Adapter → Parser → Index).
+    Source and Adapter are configuration facts; Parser and Index carry
+    freshness state derived from the most recent successful step.
+
+    Returns dict with keys: source_url, adapter_class, parser, index,
+    overall (the highest-severity state across all stages).
+    """
+    mid = municipality["id"]
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT source_url FROM meetings
+            WHERE municipality_id = %s AND source_url IS NOT NULL
+            ORDER BY meeting_date DESC LIMIT 1
+            """,
+            (mid,),
+        )
+        row = cur.fetchone()
+        last_source_url = row["source_url"] if row else None
+
+        cur.execute(
+            """
+            SELECT MAX(m.meeting_date) AS last_parsed
+            FROM meetings m
+            WHERE m.municipality_id = %s
+              AND EXISTS (
+                SELECT 1 FROM agenda_items a WHERE a.meeting_id = m.id
+              )
+            """,
+            (mid,),
+        )
+        last_parsed = cur.fetchone()["last_parsed"]
+
+        cur.execute(
+            "SELECT COUNT(*) AS n FROM meetings WHERE municipality_id = %s",
+            (mid,),
+        )
+        meeting_count = cur.fetchone()["n"]
+
+    last_ingest = most_recent_ingest_at(mid)
+    index_state = _freshness_state(last_ingest)
+
+    parser_state = _date_age_state(last_parsed)
+
+    states = [index_state["state"], parser_state["state"]]
+    severity = {"good": 0, "warn": 1, "bad": 2, "unknown": 1}
+    overall = max(states, key=lambda s: severity.get(s, 1))
+
+    return {
+        "source_url": last_source_url,
+        "adapter_class": municipality.get("adapter_class"),
+        "parser": {
+            "state": parser_state["state"],
+            "label": parser_state["label"],
+            "last_success": last_parsed,
+        },
+        "index": {
+            "state": index_state["state"],
+            "label": index_state["label"],
+            "last_success": last_ingest,
+            "meeting_count": meeting_count,
+        },
+        "overall": overall,
+    }
+
+
+def _date_age_state(d) -> dict:
+    """Variant of _freshness_state for a plain date (no tz). 24h becomes 1 day."""
+    from datetime import date, timedelta
+
+    if d is None:
+        return {"state": "unknown", "label": "No data yet"}
+    age = date.today() - d
+    if age < timedelta(days=1):
+        return {"state": "good", "label": "Live"}
+    if age < timedelta(days=7):
+        return {"state": "warn", "label": "Recent"}
+    return {"state": "bad", "label": "Stale"}
 
 
 def _kpi_stats_for_municipality(municipality: dict) -> list[dict]:

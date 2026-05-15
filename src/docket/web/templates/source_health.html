@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}Source health — {{ municipality.name }} — docket.pub{% endblock %}
+{% block crumb %}source-health{% endblock %}
+
+{% block content %}
+{% set crumbs = [
+  {'label': 'Home',              'url': url_for('public.index')},
+  {'label': municipality.name,   'url': url_for('public.city_overview', slug=municipality.slug)},
+  {'label': 'Source health',     'url': None},
+] %}
+{% include 'partials/breadcrumbs.html' %}
+
+{# ── Hero ─────────────────────────────────────────── #}
+<section class="hero source-health-hero">
+  <div class="hero-top">
+    <div>
+      <div class="t-eyebrow">Data transparency · {{ municipality.name }}</div>
+      <h1 class="hero-title">Source health</h1>
+      <p class="hero-sub">
+        Where each piece of {{ municipality.name }}'s docket data comes from,
+        and how fresh it is.
+      </p>
+    </div>
+    <div class="source-health-overall is-{{ health.overall }}">
+      <span class="source-health-overall-dot" aria-hidden="true"></span>
+      <span class="t-mono">
+        {%- if health.overall == 'good' %}All systems live
+        {%- elif health.overall == 'warn' %}Some stages stale
+        {%- elif health.overall == 'bad' %}Pipeline behind
+        {%- else %}Status unknown{% endif -%}
+      </span>
+    </div>
+  </div>
+</section>
+
+{# ── Pipeline stages ──────────────────────────────── #}
+<section class="source-pipeline">
+  <ol class="source-pipeline-list">
+    {# 1. Source #}
+    <li class="source-stage">
+      <div class="source-stage-num t-mono">1</div>
+      <div class="source-stage-body">
+        <div class="source-stage-label t-mono">Source</div>
+        <div class="source-stage-title">Upstream city portal</div>
+        {% if health.source_url %}
+        <a class="source-stage-link link t-meta" href="{{ health.source_url }}" target="_blank" rel="noreferrer">{{ health.source_url }}</a>
+        {% else %}
+        <div class="t-meta">No upstream URL recorded.</div>
+        {% endif %}
+      </div>
+      <div class="source-stage-dot is-good" aria-hidden="true"></div>
+    </li>
+
+    {# 2. Adapter #}
+    <li class="source-stage">
+      <div class="source-stage-num t-mono">2</div>
+      <div class="source-stage-body">
+        <div class="source-stage-label t-mono">Adapter</div>
+        <div class="source-stage-title">{{ health.adapter_class.split('.')[-1] if health.adapter_class else 'unknown' }}</div>
+        {% if health.adapter_class %}
+        <div class="t-meta">{{ health.adapter_class }}</div>
+        {% endif %}
+      </div>
+      <div class="source-stage-dot is-good" aria-hidden="true"></div>
+    </li>
+
+    {# 3. Parser #}
+    <li class="source-stage">
+      <div class="source-stage-num t-mono">3</div>
+      <div class="source-stage-body">
+        <div class="source-stage-label t-mono">Parser</div>
+        <div class="source-stage-title">Last successful agenda parse</div>
+        <div class="t-meta">
+          {{ health.parser.label }}
+          {%- if health.parser.last_success %} · {{ health.parser.last_success.strftime('%B %-d, %Y') }}{% endif -%}
+        </div>
+      </div>
+      <div class="source-stage-dot is-{{ health.parser.state }}" aria-hidden="true"></div>
+    </li>
+
+    {# 4. Index #}
+    <li class="source-stage">
+      <div class="source-stage-num t-mono">4</div>
+      <div class="source-stage-body">
+        <div class="source-stage-label t-mono">Index</div>
+        <div class="source-stage-title">{{ health.index.meeting_count }} meetings indexed</div>
+        <div class="t-meta">
+          {{ health.index.label }}
+          {%- if health.index.last_success %} · synced {{ health.index.last_success.strftime('%b %-d, %Y') }}{% endif -%}
+        </div>
+      </div>
+      <div class="source-stage-dot is-{{ health.index.state }}" aria-hidden="true"></div>
+    </li>
+  </ol>
+
+  <p class="t-meta source-pipeline-foot">
+    State thresholds: live (&lt;24h) · recent (&lt;7d) · stale (&geq;7d).
+    For per-failure detail, see the
+    <a class="link" href="{{ url_for('admin.errors') }}">errors queue</a>
+    (admin login required).
+  </p>
+</section>
+{% endblock %}
