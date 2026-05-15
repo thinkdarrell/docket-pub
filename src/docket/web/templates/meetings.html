@@ -58,10 +58,7 @@
         </div>
         {% for m in meetings %}
         <a href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=m.id) }}"
-           class="feed-row"
-           hx-get="{{ url_for('public.rail_meeting', slug=municipality.slug, meeting_id=m.id) }}"
-           hx-target="#source-rail"
-           hx-swap="innerHTML">
+           class="feed-row">
             <div class="feed-date">
                 <div class="feed-date-d t-display t-tnum">{{ m.meeting_date.day if m.meeting_date and m.meeting_date.day is defined else (m.meeting_date[-2:] if m.meeting_date else '—') }}</div>
                 <div class="feed-date-m t-mono">{{ m.meeting_date }}</div>

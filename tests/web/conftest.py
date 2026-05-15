@@ -51,3 +51,17 @@ def render_partial():
             return render_template(template_path, **context)
 
     return _render
+
+
+@pytest.fixture(scope="module")
+def client():
+    """Flask test client for route-level HTTP assertions.
+
+    Scope is ``module`` to match ``render_partial`` — one app per module,
+    shared across all tests in the file.  Routes that return 404 do so
+    without DB access, so no database fixture is needed.
+    """
+    app = create_app()
+    app.config["TESTING"] = True
+    with app.test_client() as c:
+        yield c

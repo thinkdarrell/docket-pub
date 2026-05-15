@@ -434,10 +434,12 @@ class TestDollarTierPartialPerTier:
         html = _render(app, Decimal("25000"))
         # CSS hook
         assert "dollars--green" in html
-        # Visible amount text
+        # Visible amount text (in .dollars-amount span)
         assert "$25,000" in html
-        # Visible symbol in parens
-        assert "($)" in html
+        assert 'class="dollars-amount t-tnum"' in html
+        # Visible symbol (in .dollars-symbol span, no parens)
+        assert 'class="dollars-symbol"' in html
+        assert "$" in html
         # sr-only span — case-titled for natural screen-reader prose,
         # carries tier color + threshold-context phrase
         assert 'class="sr-only"' in html
@@ -447,14 +449,18 @@ class TestDollarTierPartialPerTier:
         html = _render(app, Decimal("120000"))
         assert "dollars--yellow" in html
         assert "$120,000" in html
-        assert "($$)" in html
+        assert 'class="dollars-amount t-tnum"' in html
+        assert 'class="dollars-symbol"' in html
+        assert "$$" in html
         assert ", Yellow tier ($50,000 to $250,000)" in html
 
     def test_orange_tier_full_render(self, app):
         html = _render(app, Decimal("640000"))
         assert "dollars--orange" in html
         assert "$640,000" in html
-        assert "($$$)" in html
+        assert 'class="dollars-amount t-tnum"' in html
+        assert 'class="dollars-symbol"' in html
+        assert "$$$" in html
         assert ", Orange tier ($250,000 to $1 million)" in html
 
     def test_red_tier_full_render(self, app):
@@ -463,7 +469,9 @@ class TestDollarTierPartialPerTier:
         html = _render(app, Decimal("1800000"))
         assert "dollars--red" in html
         assert "$1.8M" in html
-        assert "($$$$)" in html
+        assert 'class="dollars-amount t-tnum"' in html
+        assert 'class="dollars-symbol"' in html
+        assert "$$$$" in html
         assert ", Red tier (over $1 million)" in html
 
 
@@ -542,8 +550,9 @@ class TestDollarTierPartialWcagContract:
         # Channel 1: color in CSS class
         assert "dollars--yellow" in html
 
-        # Channel 2: visible symbol in parens
-        assert "($$)" in html
+        # Channel 2: visible symbol in .dollars-symbol span (no parens in new markup)
+        assert 'class="dollars-symbol"' in html
+        assert "$$" in html
 
         # Channel 3: sr-only span carrying tier name + threshold context
         assert 'class="sr-only"' in html
@@ -561,14 +570,15 @@ class TestDollarTierPartialWcagContract:
         color + threshold context to every AT path. Option A relies on
         the visible text + sr-only span as the single coherent
         announcement (no aria-label fallback). The full tier story —
-        ``$1.8M``, ``($$$$)``, ``Red tier``, ``over $1 million`` — must
+        ``$1.8M``, ``$$$$``, ``Red tier``, ``over $1 million`` — must
         all be in the rendered HTML so any AT that traverses the DOM
         gets the complete semantic."""
         html = _render(app, Decimal("1800000"))
-        # Visible amount
+        # Visible amount (in .dollars-amount span)
         assert "$1.8M" in html
-        # Visible symbol
-        assert "($$$$)" in html
+        # Visible symbol in .dollars-symbol span (no parens in new markup)
+        assert 'class="dollars-symbol"' in html
+        assert "$$$$" in html
         # sr-only tier name + threshold prose
         assert ", Red tier (over $1 million)" in html
         # And the sr-only suffix is inside the .sr-only span (so it's
@@ -579,12 +589,19 @@ class TestDollarTierPartialWcagContract:
         assert "Red tier (over $1 million)" in sr_only_block
 
     def test_simplified_markup_no_role_no_aria_label(self, app):
-        """Option A: drop role/aria-label, rely on visible + sr-only."""
+        """Option A: drop role/aria-label, rely on visible + sr-only.
+        Note: .dollars-symbol has aria-hidden='true' (keeps AT from
+        double-reading the symbol — it's already covered by .sr-only tier
+        description). The outer .dollars span has no role or aria-label."""
         rendered = _render(app, Decimal("1800000"))
         assert 'role="img"' not in rendered
-        assert "aria-label=" not in rendered
+        # outer .dollars span must have no aria-label
+        idx = rendered.index('class="dollars dollars--')
+        end = rendered.index(">", idx)
+        outer_attrs = rendered[idx:end]
+        assert "aria-label=" not in outer_attrs
         assert "$1.8M" in rendered
-        assert "($$$$)" in rendered
+        assert "$$$$" in rendered
         assert ", Red tier (over $1 million)" in rendered  # in sr-only span
 
     def test_outer_span_has_no_role_or_aria_label_attributes(self, app):
@@ -600,13 +617,14 @@ class TestDollarTierPartialWcagContract:
         assert "role=" not in outer_attrs
         assert "aria-label=" not in outer_attrs
 
-    def test_dom_structure_two_spans_only(self, app):
-        """The simplified markup is exactly two ``<span>`` tags: an outer
-        ``.dollars`` wrapper and an inner ``.sr-only`` suffix. Anything
-        more (or fewer) would suggest a regression."""
+    def test_dom_structure_four_spans_only(self, app):
+        """The P2b markup is exactly four ``<span>`` tags: outer
+        ``.dollars`` wrapper, inner ``.dollars-amount``, ``.dollars-symbol``,
+        and ``.sr-only`` suffix. Anything more (or fewer) would suggest
+        a regression."""
         html = _render(app, Decimal("87500"))
-        assert html.count("<span") == 2
-        assert html.count("</span>") == 2
+        assert html.count("<span") == 4
+        assert html.count("</span>") == 4
 
 
 # ---------------------------------------------------------------------------
@@ -620,6 +638,41 @@ class TestSrOnlyUtilityInStylesCss:
     refactor deletes it (or renames it), the SR text becomes visible
     junk in the layout. This test reads the stylesheet and asserts the
     standard visually-hidden recipe is intact."""
+
+    def test_dollar_tier_does_not_inherit_amount_from_outer_scope(self, app):
+        """Regression: dollar_tier must not silently render when called
+        without amount. Jinja2 ``without context`` isolates the partial
+        completely — no parent-scope ``{% set amount %}`` leaks in.
+        If the partial renders here, it means it grabbed a variable from
+        a scope it shouldn't have access to."""
+        with app.app_context():
+            from flask import render_template_string
+            rendered = render_template_string(
+                "{% set amount = 1234567 %}"
+                "{% include 'partials/dollar_tier.html' without context %}"
+            )
+        assert rendered.strip() == "", (
+            f"dollar_tier inherited amount from outer scope; got: {rendered!r}"
+        )
+
+    def test_dollar_tier_with_explicit_amount_via_with_without_context(self, app):
+        """Positive case: the canonical call pattern must work.
+
+        Callers use ``{% with amount=X %}{% include … with context %}{% endwith %}``
+        which makes the arg explicit (``{% with %}`` creates a scoped block
+        and ``with context`` passes that scoped context to the partial).
+        The partial's ``amount|default(None)`` safety belt handles the
+        case where a caller omits the ``{% with %}`` wrapper.
+        """
+        with app.app_context():
+            from flask import render_template_string
+            rendered = render_template_string(
+                "{% with amount=250000 %}"
+                "{% include 'partials/dollar_tier.html' with context %}"
+                "{% endwith %}"
+            )
+        assert 'dollars--orange' in rendered  # $250K is the orange tier
+        assert '$250,000' in rendered or '$250K' in rendered
 
     def test_sr_only_class_is_visually_hidden_in_styles_css(self):
         styles_path = (

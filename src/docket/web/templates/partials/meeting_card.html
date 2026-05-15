@@ -42,9 +42,10 @@
       <span class="meeting-card__count t-mono">{{ meeting.agenda_count }} items</span>
     {% endif %}
     {% if variant == 'grid' and meeting.dollars_total %}
-      {%- set amount = meeting.dollars_total -%}
       <span class="meeting-card__dollars">
-        {% include 'partials/dollar_tier.html' with context %}
+        {% with amount=meeting.dollars_total %}
+          {% include 'partials/dollar_tier.html' with context %}
+        {% endwith %}
       </span>
     {% endif %}
   </div>

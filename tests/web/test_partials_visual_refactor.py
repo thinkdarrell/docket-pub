@@ -12,7 +12,10 @@ with templates that have conditional logic and ``url_for`` calls.
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 from types import SimpleNamespace
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_render_partial_fixture_works(render_partial):
@@ -262,76 +265,203 @@ def test_meeting_card_handles_zero_dollars(render_partial):
     assert 'meeting-card' in html
 
 
-def test_source_rail_includes_provenance_and_kpis(render_partial):
-    muni = SimpleNamespace(
-        slug='birmingham',
-        name='Birmingham',
-        state='AL',
-        adapter_class='GranicusAdapter',
-    )
-    kpi_stats = [
-        {'label': 'Meetings lifetime', 'value': '1,003', 'sub': 'Since 2017',
-         'sql_display': 'SELECT count(*) FROM meetings WHERE municipality_id = $1'},
-        {'label': 'Agenda items YTD', 'value': '14,212', 'sub': None,
-         'sql_display': 'SELECT count(*) FROM agenda_items ai JOIN meetings m ...'},
-        {'label': 'Votes YTD', 'value': '892', 'sub': None,
-         'sql_display': 'SELECT count(*) FROM votes v JOIN meetings m ...'},
-        {'label': 'Dollars pending', 'value': '$48.2M', 'sub': 'vs $112M settled',
-         'sql_display': 'SELECT sum(dollars_amount) FROM agenda_items ...'},
-    ]
+# ── P2b Task 2: CSS bloat cleanup ───────────────────────────────────────────
+
+
+def test_stat_card_base_class_exists_in_layout_css():
+    """.stat-card-base is the shared base for num_stat and kpi_explainer cards.
+    Both partials' root element should carry this class so common rules
+    (padding, border, background) live in one selector."""
+    css = (PROJECT_ROOT / "src/docket/web/static/layout.css").read_text()
+    assert ".stat-card-base" in css, ".stat-card-base shared rule missing"
+
+
+def test_num_stat_renders_t_tnum_on_value(render_partial):
+    """num_stat's value span carries both t-tnum (tabular numerics) and
+    t-display (serif display sizing). Replacing one with the other drops
+    the Source Serif display font — both must be present."""
     html = render_partial(
-        'partials/source_rail.html',
-        municipality=muni,
-        meeting_count=1003,
-        kpi_stats=kpi_stats,
+        'partials/num_stat.html',
+        label='Meetings YTD',
+        value='42',
     )
-    # Provenance section comes through from rail_default include
-    assert 'GranicusAdapter' in html
-    assert 'Birmingham' in html
-    # All 4 KPI explainers render
-    assert 'Meetings lifetime' in html
-    assert 'Agenda items YTD' in html
-    assert 'Votes YTD' in html
-    assert 'Dollars pending' in html
-    # Sample SQL substrings show up (autoescape will render `<` → `&lt;`
-    # if present; the strings above don't contain those characters)
-    assert 'FROM agenda_items' in html
+    # Both t-tnum (tabular numerics) and t-display (serif display sizing) must be present.
+    assert 't-tnum' in html, "t-tnum class missing from num-stat value"
+    assert 't-display' in html, "t-display class missing from num-stat value"
 
 
-def test_source_rail_handles_empty_kpi_stats(render_partial):
-    """Rail renders even when stats are missing (defensive)."""
-    muni = SimpleNamespace(
-        slug='birmingham', name='Birmingham', state='AL',
-        adapter_class='GranicusAdapter',
-    )
+def test_kpi_explainer_renders_t_display_and_t_tnum_on_value(render_partial):
+    """kpi_explainer's value span carries both t-tnum and t-display,
+    mirroring num_stat. Dropping t-display silently switches the value
+    to the mono fallback font."""
     html = render_partial(
-        'partials/source_rail.html',
-        municipality=muni,
-        meeting_count=1003,
-        kpi_stats=[],
+        'partials/kpi_explainer.html',
+        label='Meetings',
+        value='42',
+        sub=None,
+        sql_display='SELECT count(*) FROM meetings',
     )
-    # Provenance still renders
-    assert 'GranicusAdapter' in html
-    # KPI section is absent or empty — no card chrome
-    assert 'Meetings lifetime' not in html
+    assert 't-tnum' in html, "t-tnum class missing from kpi-explainer value"
+    assert 't-display' in html, "t-display class missing from kpi-explainer value"
 
 
-def test_source_rail_tolerates_missing_stat_keys(render_partial):
-    """A stats dict missing optional keys (e.g., 'sub') should not raise.
-    Implementation uses stat.get('key') to be defensive under strict_undefined."""
-    muni = SimpleNamespace(
-        slug='birmingham', name='Birmingham', state='AL',
-        adapter_class='GranicusAdapter',
-    )
-    kpi_stats = [
-        # 'sub' deliberately omitted entirely
-        {'label': 'Meetings YTD', 'value': '42',
-         'sql_display': 'SELECT count(*) FROM meetings'},
-    ]
+# ── P2b Task 5: badge_chip restyle regression anchor ────────────────────────
+
+
+def test_badge_chip_restyle_renders_full_structure(render_partial):
+    """The restyled chip must render its full DOM tree:
+    icon-leading, name, optional vote-count, verification spark
+    for high-confidence variants."""
+    chip = {
+        'kind': 'process',
+        'slug': 'split_vote',
+        'confidence': 1.0,
+        'description': 'Council split on this item',
+        'icon': '⚡',
+        'name': 'Split vote',
+        'vote_count': {'yes': 5, 'no': 4},
+    }
+    html = render_partial("partials/badge_chip.html", chip=chip)
+    assert 'class="badge-chip' in html
+    assert 'badge-process' in html
+    assert 'badge-conf-high' in html
+    assert 'badge-slug-split_vote' in html
+    assert '⚡' in html
+    assert 'Split vote' in html
+    assert '5-4' in html
+    assert '✨' in html  # verification spark for high confidence
+    assert 'aria-label="AI-verified"' in html
+
+
+# ── P2b Task 6: card_smart_brevity + card_v2_fallback regression anchor ──────
+
+
+def test_card_smart_brevity_legislation_idiom_structure(render_partial):
+    """The restyled card preserves the LegislationCard idiom:
+    accent-tinted left border, meta-line eyebrow, serif headline,
+    why-it-matters body, facts-line. Asserts the DOM contract, not
+    the visual values."""
+    item = {
+        "id": 42,
+        "title": "Resolution authorizing demolition of 1234 Main St",
+        "headline": "City to demolish 1234 Main St",
+        "why_it_matters": "Vacant property declared a public nuisance.",
+        "item_number": "5-A",
+        "meeting_id": 100,
+        "meeting_date": date_cls(2026, 5, 1),
+        "processing_status": "completed",
+        "ai_rewrite_version": 3,
+        "data_quality": "ok",
+        "dollars_amount": 50000,
+        "extracted_facts": {"action_type": "demolition"},
+        "badges": [],
+        "summary": None,
+        # facts-strip fields (all None — no facts rendered for this item)
+        "counterparty": None,
+        "funding_source": None,
+        "action_type": None,
+        "location": None,
+        "next_steps": None,
+    }
+    municipality = {"slug": "birmingham", "display_name": "Birmingham"}
     html = render_partial(
-        'partials/source_rail.html',
-        municipality=muni,
-        meeting_count=42,
-        kpi_stats=kpi_stats,
+        "partials/card_smart_brevity.html",
+        item=item,
+        municipality=municipality,
+        show_meeting_context=True,
+        coverage_counts={},
     )
-    assert 'Meetings YTD' in html
+    # Idiom contract — structural hooks
+    assert 'class="smart-brevity-card' in html
+    assert 'class="meta-line"' in html
+    assert 'class="card-headline"' in html
+    assert 'class="card-link' in html
+    # Body copy
+    assert 'City to demolish 1234 Main St' in html
+    assert 'Vacant property declared a public nuisance' in html
+    # Meta line content
+    assert '#5-A' in html or 'Item #5-A' in html
+    assert 'May 1, 2026' in html
+
+
+def test_card_v2_fallback_legislation_idiom_structure(render_partial):
+    """v2_fallback inherits _card_shell.html, so the same structural
+    LegislationCard idiom applies. The variant suppresses why-it-matters
+    and uses the legacy summary as headline text."""
+    item = {
+        "id": 43,
+        "title": "Budget amendment for parks department",
+        "headline": None,  # v2 uses summary, not headline
+        "why_it_matters": None,  # suppressed in v2 variant
+        "item_number": "7-B",
+        "meeting_id": 101,
+        "meeting_date": date_cls(2026, 5, 1),
+        "processing_status": "completed",
+        "ai_rewrite_version": 2,
+        "data_quality": "ok",
+        "dollars_amount": None,
+        "extracted_facts": None,
+        "badges": [],
+        "summary": "Parks department budget amendment approved by council for summer programming.",
+        # facts-strip fields
+        "counterparty": None,
+        "funding_source": None,
+        "action_type": None,
+        "location": None,
+        "next_steps": None,
+    }
+    municipality = {"slug": "birmingham", "display_name": "Birmingham"}
+    html = render_partial(
+        "partials/card_v2_fallback.html",
+        item=item,
+        municipality=municipality,
+        show_meeting_context=True,
+        coverage_counts={},
+    )
+    # Same structural idiom as smart_brevity
+    assert 'class="smart-brevity-card' in html
+    assert 'class="meta-line"' in html
+    assert 'class="card-headline"' in html
+    assert 'class="card-link' in html
+    # v2 variant data
+    assert 'data-variant="v2_fallback"' in html
+    assert 'is-v2-fallback' in html
+    # Headline should contain the summary text (truncated to 80 chars or full)
+    assert 'Parks department budget amendment' in html
+
+
+# ── P2b Task 7: council_card baseball-card stats block ──────────────────────
+
+
+def test_council_card_renders_attendance_alignment_when_provided(render_partial):
+    """Optional stats render when both attendance_pct and alignment_pct
+    are provided on the member dict."""
+    m = {
+        'id': 7, 'name': 'Jane Doe', 'district_name': 'District 3',
+        'attendance_pct': 92, 'alignment_pct': 78, 'photo_url': None,
+    }
+    municipality = {'slug': 'birmingham'}
+    html = render_partial("partials/council_card.html", m=m, municipality=municipality)
+    assert 'cc-stats' in html
+    assert '92' in html and '%' in html
+    assert '78' in html
+
+
+def test_council_card_omits_attendance_alignment_when_missing(render_partial):
+    """No stats block renders when fields are absent — current P2b consumer path."""
+    m = {'id': 7, 'name': 'Jane Doe', 'district_name': 'District 3', 'photo_url': None}
+    municipality = {'slug': 'birmingham'}
+    html = render_partial("partials/council_card.html", m=m, municipality=municipality)
+    assert 'cc-stats' not in html
+    # Card body still renders core fields
+    assert 'Jane Doe' in html
+    assert 'District 3' in html
+
+
+def test_council_card_button_has_type_button(render_partial):
+    """Regression: <button class='cc'> must specify type='button' so
+    placing the card inside any future <form> doesn't trigger submit."""
+    m = {'id': 7, 'name': 'Jane Doe', 'district_name': 'District 3', 'photo_url': None}
+    municipality = {'slug': 'birmingham'}
+    html = render_partial("partials/council_card.html", m=m, municipality=municipality)
+    assert 'type="button"' in html

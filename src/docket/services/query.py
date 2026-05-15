@@ -2808,3 +2808,91 @@ def list_published_coverage(
         rows = _hydrate_coverage_rows(cur)
         rows = _hydrate_subjects_for_entries(cur, rows)
     return rows, total
+
+
+# ---------------------------------------------------------------------------
+# City overview KPI helpers — used by city_overview() to build kpi_stats for
+# source_rail.html. All queries are scoped to a single municipality_id with
+# parameterised SQL. sql_display strings (rendered in the page as read-only
+# text) are constructed in public.py via f-string interpolation of the
+# integer id — never executed as SQL.
+# ---------------------------------------------------------------------------
+
+
+def count_meetings_lifetime(municipality_id: int) -> int:
+    """Total meetings ingested for this city (no date filter)."""
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT count(*) AS n FROM meetings WHERE municipality_id = %s",
+            (municipality_id,),
+        )
+        row = cur.fetchone()
+        return int(row["n"] or 0)
+
+
+def min_meeting_year(municipality_id: int) -> int | None:
+    """Earliest meeting year for the 'Since YYYY' sub-label."""
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT EXTRACT(YEAR FROM MIN(meeting_date))::int AS y FROM meetings WHERE municipality_id = %s",
+            (municipality_id,),
+        )
+        row = cur.fetchone()
+        return int(row["y"]) if row and row["y"] is not None else None
+
+
+def count_agenda_items_ytd(municipality_id: int) -> int:
+    """Agenda items YTD (calendar year-to-date)."""
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT count(*) AS n
+            FROM agenda_items ai
+            JOIN meetings m ON m.id = ai.meeting_id
+            WHERE m.municipality_id = %s
+              AND m.meeting_date >= date_trunc('year', now())::date
+            """,
+            (municipality_id,),
+        )
+        row = cur.fetchone()
+        return int(row["n"] or 0)
+
+
+def count_votes_ytd(municipality_id: int) -> int:
+    """Recorded votes YTD."""
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT count(*) AS n
+            FROM votes v
+            JOIN meetings m ON m.id = v.meeting_id
+            WHERE m.municipality_id = %s
+              AND m.meeting_date >= date_trunc('year', now())::date
+            """,
+            (municipality_id,),
+        )
+        row = cur.fetchone()
+        return int(row["n"] or 0)
+
+
+def dollars_pending_vs_settled(municipality_id: int) -> dict:
+    """Returns {'pending': Decimal, 'settled': Decimal} aggregated over all
+    agenda items in this city. Pending = items whose meeting has no
+    minutes_adopted_at; settled = items whose meeting is adopted."""
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+              coalesce(sum(ai.dollars_amount) FILTER (WHERE m.minutes_adopted_at IS NULL), 0) AS pending,
+              coalesce(sum(ai.dollars_amount) FILTER (WHERE m.minutes_adopted_at IS NOT NULL), 0) AS settled
+            FROM agenda_items ai
+            JOIN meetings m ON m.id = ai.meeting_id
+            WHERE m.municipality_id = %s
+            """,
+            (municipality_id,),
+        )
+        row = cur.fetchone()
+        return {
+            "pending": row["pending"] if row else 0,
+            "settled": row["settled"] if row else 0,
+        }

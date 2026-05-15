@@ -1,0 +1,85 @@
+{# page_sources.html — page-bottom citations + page-specific KPIs.
+   Sits between main content and the site footer on every page.
+   Renders the source-of-truth provenance for the city (unconditionally
+   when `municipality` is in context). Renders the KPI explainer stack
+   only when `kpi_stats` is passed (currently city overview only —
+   P3+ may pass this on other pages).
+
+   Args (all from page render context, no explicit passing needed):
+     municipality   (dict, optional) — the active city; provenance hidden if absent
+     meeting_count  (int, optional)  — for "indexed" line; defaults to 0
+     kpi_stats      (list, optional) — list of {label, value, sub, sql_display}
+                                       dicts; KPI section hidden when absent
+
+   The provenance section repurposes ``rail_default.html``'s data (platform,
+   adapter, source documents links) in a horizontal layout. The KPI section
+   reuses ``kpi_explainer.html`` partials. This partial replaces the
+   pre-P2b rail entirely.
+#}
+{% if municipality is defined and municipality %}
+<aside class="page-sources" aria-label="Source of truth">
+  <div class="page-sources-inner">
+    <header class="page-sources-head">
+      <div class="page-sources-eyebrow t-mono">SOURCE OF TRUTH</div>
+      <h2 class="page-sources-title t-display">{{ municipality.name }}{% if municipality.state %}, {{ municipality.state }}{% endif %}</h2>
+      <p class="page-sources-lede">
+        Provenance for every figure on this page. Click any vote, dollar amount, or meeting
+        card to view the underlying source — agenda PDF, official minutes, or the city's CMS.
+      </p>
+    </header>
+
+    <div class="page-sources-grid">
+      <div class="page-sources-meta">
+        <div class="page-sources-row">
+          <span class="t-label">Platform</span>
+          <span class="page-sources-row-val">{{ municipality.adapter_class | replace('Adapter', '') }}</span>
+          <span class="t-meta">Public meeting publisher</span>
+        </div>
+        <div class="page-sources-row">
+          <span class="t-label">Adapter</span>
+          <span class="page-sources-row-val"><span class="t-mono">{{ municipality.adapter_class }}</span></span>
+          <span class="t-meta">src/docket/adapters/</span>
+        </div>
+        <div class="page-sources-row">
+          <span class="t-label">Records</span>
+          <span class="page-sources-row-val"><span class="t-tnum">{{ meeting_count | default(0) }} meetings</span></span>
+          <span class="t-meta">indexed</span>
+        </div>
+      </div>
+
+      <nav class="page-sources-links" aria-label="Source documents">
+        <a class="page-sources-link" href="{{ url_for('public.city_meetings', slug=municipality.slug) }}">
+          <div>
+            <div class="page-sources-link-label">Browse all meetings</div>
+            <div class="t-meta">{{ meeting_count | default(0) }} indexed</div>
+          </div>
+          <span class="t-mono">→</span>
+        </a>
+        <a class="page-sources-link" href="{{ url_for('public.city_council', slug=municipality.slug) }}">
+          <div>
+            <div class="page-sources-link-label">Council members</div>
+            <div class="t-meta">voting records</div>
+          </div>
+          <span class="t-mono">→</span>
+        </a>
+      </nav>
+    </div>
+
+    {% if kpi_stats %}
+    <section class="page-sources-kpis" aria-labelledby="page-sources-kpis-h">
+      <h3 id="page-sources-kpis-h" class="page-sources-section-h t-eyebrow">By the numbers</h3>
+      <div class="page-sources-kpis-grid">
+        {% for stat in kpi_stats %}
+          {% with label=stat.get('label'),
+                  value=stat.get('value'),
+                  sub=stat.get('sub'),
+                  sql_display=stat.get('sql_display') %}
+            {% include 'partials/kpi_explainer.html' %}
+          {% endwith %}
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+  </div>
+</aside>
+{% endif %}

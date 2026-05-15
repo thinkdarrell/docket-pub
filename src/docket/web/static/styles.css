@@ -75,6 +75,21 @@
   --border:       var(--rule);
   --muted:        var(--ink-3);
   --text:         var(--ink);
+
+  /* Dollar-tier palette — P2b extraction from .dollar-chip--* literals.
+     Shared between .dollar-chip--* (legacy chip) and .dollars--* (new pill). */
+  --color-dollar-green-bg:    #e2efd9;
+  --color-dollar-green-ink:   #2d5519;
+  --color-dollar-green-rule:  #99c878;
+  --color-dollar-yellow-bg:   #fbf3c7;
+  --color-dollar-yellow-ink:  #6b5a10;
+  --color-dollar-yellow-rule: #d9c660;
+  --color-dollar-orange-bg:   #fbe2c2;
+  --color-dollar-orange-ink:  #7a3e10;
+  --color-dollar-orange-rule: #e0a04a;
+  --color-dollar-red-bg:      #f3cdcd;
+  --color-dollar-red-ink:     #6b1818;
+  --color-dollar-red-rule:    #d97373;
 }
 
 * { box-sizing: border-box; }
@@ -217,14 +232,14 @@ a.link:hover { border-bottom-color: var(--accent); }
 .smart-brevity-card {
   position: relative;
   display: block;
-  padding: 14px 14px 14px 16px;
+  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4);
   margin-bottom: 10px;
-  background: rgba(253, 250, 243, 0.7);
-  border-left: 3px solid var(--accent-color, #c8cbc0);
-  border-radius: 0 4px 4px 0;
+  background: var(--paper);
+  border-left: 3px solid var(--accent-color, var(--rule));
+  border-radius: 0 var(--radius) var(--radius) 0;
   transition: background 0.12s ease;
 }
-.smart-brevity-card:hover { background: rgba(244, 235, 212, 0.7); }
+.smart-brevity-card:hover { background: var(--paper-2); }
 @media (prefers-reduced-motion: reduce) {
   .smart-brevity-card { transition: none; }
 }
@@ -235,35 +250,35 @@ a.link:hover { border-bottom-color: var(--accent); }
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 11px;
-  color: #6b6457;
-  margin-bottom: 6px;
+  gap: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--type-eyebrow);
+  color: var(--ink-3);
+  margin-bottom: var(--space-2);
 }
-.smart-brevity-card .meta-line .meta-sep { color: #b8b0a2; }
+.smart-brevity-card .meta-line .meta-sep { color: var(--ink-4); }
 .smart-brevity-card .meta-date,
 .smart-brevity-card .meta-item-ref { white-space: nowrap; }
 
 /* Headline — the only semantic link in the card */
 .smart-brevity-card .card-headline {
-  font-family: "Source Serif Pro", Georgia, serif;
-  font-size: 17px;
+  font-family: var(--font-display);
+  font-size: var(--type-card);
   font-weight: 600;
   line-height: 1.3;
-  margin: 0 0 4px;
+  margin: 0 0 var(--space-1);
 }
 .smart-brevity-card .card-link {
-  color: #1a1814;
+  color: var(--ink);
   text-decoration: none;
 }
 .smart-brevity-card .card-link.is-italic {
   font-style: italic;
-  color: #4a4540;
+  color: var(--ink-2);
 }
 .smart-brevity-card:hover .card-link {
   text-decoration: underline;
-  text-decoration-color: #c4894a;
+  text-decoration-color: var(--accent);
   text-decoration-thickness: 1px;
   text-underline-offset: 3px;
 }
@@ -285,25 +300,25 @@ a.link:hover { border-bottom-color: var(--accent); }
   inset: 0;
 }
 .smart-brevity-card .card-link:focus-visible::after {
-  outline: 2px solid #c4894a;
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
 /* Why-it-matters body */
 .smart-brevity-card .why {
-  font-family: "Source Serif Pro", Georgia, serif;
-  font-size: 13.5px;
+  font-family: var(--font-display);
+  font-size: 13.5px;  /* no exact P1 token — --type-body is 15px (too large) */
   line-height: 1.45;
-  color: #3a3530;
-  margin: 0 0 8px;
+  color: var(--ink-2);
+  margin: 0 0 var(--space-2);
   max-width: 70ch;
 }
 
 /* Inline facts line — emoji + value pairs separated by · */
 .smart-brevity-card .facts-line {
-  font-family: "IBM Plex Sans", system-ui, sans-serif;
-  font-size: 12px;
-  color: #4a4540;
+  font-family: var(--font-ui);
+  font-size: 12px;  /* no exact P1 token — --type-eyebrow is 10px (too small) */
+  color: var(--ink-2);
   display: flex;
   flex-wrap: wrap;
   gap: 0;
@@ -311,12 +326,12 @@ a.link:hover { border-bottom-color: var(--accent); }
 .smart-brevity-card .facts-line .fact {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
 }
 .smart-brevity-card .facts-line .fact + .fact::before {
   content: "·";
-  margin: 0 8px;
-  color: #b8b0a2;
+  margin: 0 var(--space-2);
+  color: var(--ink-4);
 }
 
 /* Status pill — pending / failed / degraded / verifying */
@@ -351,10 +366,10 @@ a.link:hover { border-bottom-color: var(--accent); }
   font-weight: 600;
 }
 .dollar-chip--na     { background: #ececec; color: #555;    border: 1px solid #bbb; }
-.dollar-chip--green  { background: #e2efd9; color: #2d5519; border: 1px solid #99c878; }
-.dollar-chip--yellow { background: #fbf3c7; color: #6b5a10; border: 1px solid #d9c660; }
-.dollar-chip--orange { background: #fbe2c2; color: #7a3e10; border: 1px solid #e0a04a; }
-.dollar-chip--red    { background: #f3cdcd; color: #6b1818; border: 1px solid #d97373; }
+.dollar-chip--green  { background: var(--color-dollar-green-bg);  color: var(--color-dollar-green-ink);  border: 1px solid var(--color-dollar-green-rule); }
+.dollar-chip--yellow { background: var(--color-dollar-yellow-bg); color: var(--color-dollar-yellow-ink); border: 1px solid var(--color-dollar-yellow-rule); }
+.dollar-chip--orange { background: var(--color-dollar-orange-bg); color: var(--color-dollar-orange-ink); border: 1px solid var(--color-dollar-orange-rule); }
+.dollar-chip--red    { background: var(--color-dollar-red-bg);    color: var(--color-dollar-red-ink);    border: 1px solid var(--color-dollar-red-rule); }
 
 /* Procedural one-line variant (Roll Call, Pledge, etc — decision #5) */
 .procedural-line {
@@ -373,7 +388,7 @@ a.link:hover { border-bottom-color: var(--accent); }
    ────────────────────────────────────────────────────────────────── */
 
 .volume-timeline-block {
-  font-family: "Source Serif Pro", Georgia, serif;
+  font-family: var(--font-display);
   padding: 16px 24px 18px;
   background: #fdfaf3;
   border-top: 1px solid #e6dfc8;
@@ -394,7 +409,7 @@ a.link:hover { border-bottom-color: var(--accent); }
   margin-bottom: 6px;
 }
 .volume-timeline-block .title-block h2 {
-  font-family: "Source Serif Pro", Georgia, serif;
+  font-family: var(--font-display);
   font-size: 24px;
   font-weight: 600;
   margin: 0 0 8px;
@@ -524,7 +539,7 @@ a.link:hover { border-bottom-color: var(--accent); }
 }
 
 .coverage-block__title {
-  font-family: 'Source Serif Pro', serif;
+  font-family: var(--font-display);
   font-size: 1.1rem;
   margin: 0 0 0.75rem 0;
   letter-spacing: 0.02em;
@@ -559,7 +574,7 @@ a.link:hover { border-bottom-color: var(--accent); }
   color: var(--muted);
 }
 .coverage-note__body {
-  font-family: 'Source Serif Pro', serif;
+  font-family: var(--font-display);
   font-size: 1rem;
   line-height: 1.5;
   margin: 0;
@@ -580,7 +595,7 @@ a.link:hover { border-bottom-color: var(--accent); }
 }
 .coverage-citation__outlet { font-weight: 600; }
 .coverage-citation__headline {
-  font-family: 'Source Serif Pro', serif;
+  font-family: var(--font-display);
   font-size: 1rem;
   font-weight: 600;
   margin: 0.25rem 0;

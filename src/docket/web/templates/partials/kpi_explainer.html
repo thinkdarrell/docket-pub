@@ -7,9 +7,9 @@
      sql_display (str, required) — hardcoded query for transparency.
                                    Not executed at render time.
 #}
-<article class="kpi-explainer">
+<article class="kpi-explainer stat-card-base">
   <div class="kpi-explainer-label t-mono">{{ label }}</div>
-  <div class="kpi-explainer-value t-display">{{ value }}</div>
+  <div class="kpi-explainer-value t-display t-tnum">{{ value }}</div>
   {% if sub %}
     <div class="kpi-explainer-sub t-meta">{{ sub }}</div>
   {% endif %}

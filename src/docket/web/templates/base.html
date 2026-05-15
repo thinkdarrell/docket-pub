@@ -23,23 +23,14 @@
 </head>
 <body>
     {% block body %}
-    <div class="app">
-        <main class="app-main">
-            {% include "partials/masthead.html" %}
-            {% block content %}{% endblock %}
-            {% include "partials/footer.html" %}
-        </main>
-        <div class="app-rail">
-            <aside class="rail" aria-label="Source of truth" id="source-rail">
-                {% block rail %}
-                {% include "partials/rail_default.html" %}
-                {% endblock %}
-            </aside>
-        </div>
-    </div>
+    <main class="app-main">
+        {% include "partials/masthead.html" %}
+        {% block content %}{% endblock %}
+        {% include "partials/page_sources.html" %}
+        {% include "partials/footer.html" %}
+    </main>
 
-    {# ── Mobile-only chrome (hidden via CSS at >=769px) ────────────────────── #}
-    {% include "partials/source_sheet.html" %}
+    {# Bottom tabs — site-wide primary mobile nav. NOT gated. #}
     {% include "partials/bottom_tabs.html" %}
     {% endblock %}
 
