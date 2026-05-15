@@ -5,18 +5,17 @@
 {% include 'partials/city_lead.html' %}
 {% include 'partials/kpi_strip.html' %}
 
-{# ── This Week / On the agenda — persistent, with empty state ──── #}
-<section class="tw">
+{# ── Upcoming (persistent + empty state) ──────────────────── #}
+<section class="tw tw-upcoming-section">
     <header class="tw-head">
         <div>
-            <div class="t-eyebrow">This week</div>
+            <div class="t-eyebrow">Upcoming</div>
             <h2 class="feed-title t-display">On the agenda</h2>
         </div>
-        <a href="{{ url_for('public.city_meetings', slug=municipality.slug) }}" class="t-mono tw-cal">All meetings →</a>
     </header>
     <div class="tw-strip">
         {% if upcoming_meetings %}
-            {% for m in upcoming_meetings[:2] %}
+            {% for m in upcoming_meetings[:4] %}
             <a href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=m.id) }}"
                class="tw-card tw-upcoming">
                 <div class="tw-when t-mono">
@@ -39,17 +38,43 @@
                 </div>
             </div>
         {% endif %}
-        {% for m in recent_meetings[:2] %}
-        <a href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=m.id) }}"
-           class="tw-card tw-past">
-            <div class="tw-when t-mono">
-                <span class="tw-dot tw-dot-past"></span>
-                {{ m.meeting_date }}
+    </div>
+</section>
+
+{# ── Recent / Last week (persistent + empty state) ────────── #}
+<section class="tw tw-recent-section">
+    <header class="tw-head">
+        <div>
+            <div class="t-eyebrow">Recent</div>
+            <h2 class="feed-title t-display">Last week</h2>
+        </div>
+        <a href="{{ url_for('public.city_meetings', slug=municipality.slug) }}" class="t-mono tw-cal">All meetings →</a>
+    </header>
+    <div class="tw-strip">
+        {% if recent_meetings %}
+            {% for m in recent_meetings[:4] %}
+            <a href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=m.id) }}"
+               class="tw-card tw-past">
+                <div class="tw-when t-mono">
+                    <span class="tw-dot tw-dot-past"></span>
+                    {{ m.meeting_date }}
+                </div>
+                <div class="tw-title">{{ m.title }}</div>
+                <div class="tw-venue t-meta">{{ m.municipality_name }}</div>
+            </a>
+            {% endfor %}
+        {% else %}
+            <div class="tw-card tw-empty" aria-label="No recent meetings in the last week">
+                <div class="tw-when t-mono">
+                    <span class="tw-dot tw-dot-empty"></span>
+                    Recent
+                </div>
+                <div class="tw-title">No meetings in the last 7 days</div>
+                <div class="tw-venue t-meta">
+                    The council may be between sessions — see "All meetings →" for the full history.
+                </div>
             </div>
-            <div class="tw-title">{{ m.title }}</div>
-            <div class="tw-venue t-meta">{{ m.municipality_name }}</div>
-        </a>
-        {% endfor %}
+        {% endif %}
     </div>
 </section>
 

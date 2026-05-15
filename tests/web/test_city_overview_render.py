@@ -110,23 +110,34 @@ def test_overview_no_longer_renders_old_hero_or_kpi_grid(client):
 
 
 def test_overview_always_renders_this_week_section(client):
-    """The 'This week / On the agenda' section is persistent — renders
-    even when no recent or upcoming meetings exist."""
+    """The Upcoming / On the agenda section is persistent — renders
+    even when no recent or upcoming meetings exist.
+
+    Updated in Task 8e: the single 'tw' section was split into
+    tw-upcoming-section + tw-recent-section; both still carry the 'tw'
+    base class but as part of a multi-class attribute."""
     resp = client.get("/al/birmingham/")
     assert resp.status_code == 200
     html = resp.data.decode()
-    assert 'class="tw"' in html, "'This week' section missing"
+    # Both new sections carry the tw base class as part of multi-class attrs
+    assert 'class="tw tw-upcoming-section"' in html or 'tw-upcoming-section' in html, (
+        "Upcoming section missing"
+    )
     assert "On the agenda" in html
 
 
 def test_overview_section_order_tw_before_browse(client):
     """P3: 'This week' section appears above 'Browse by Priority' on the
     overview — agendas/meetings are the headline action; priority browse
-    is a deeper-context section that should follow."""
+    is a deeper-context section that should follow.
+
+    Updated in Task 8e: matches tw-upcoming-section (the first of the two
+    split sections) as the anchor instead of bare class=\"tw\"."""
     resp = client.get("/al/birmingham/")
     assert resp.status_code == 200
     html = resp.data.decode()
-    tw_pos = html.find('class="tw"')
+    # Find the first tw section — now tw-upcoming-section
+    tw_pos = html.find('tw-upcoming-section')
     # Browse by Priority block — locate via either its heading copy or its
     # class. Adjust the matcher if the block uses a different identifier.
     # Try a couple of plausible markers:
@@ -137,10 +148,10 @@ def test_overview_section_order_tw_before_browse(client):
         if p > -1:
             browse_pos = p
             break
-    assert tw_pos > -1, "'This week' section missing"
+    assert tw_pos > -1, "'Upcoming' section missing"
     assert browse_pos > -1, "'Browse by Priority' section not found via any known marker"
     assert tw_pos < browse_pos, (
-        f"'This week' (at {tw_pos}) should appear before "
+        f"'Upcoming' (at {tw_pos}) should appear before "
         f"'Browse by Priority' (at {browse_pos})"
     )
 
@@ -169,4 +180,53 @@ def test_overview_renders_no_upcoming_empty_state_when_list_empty(client, monkey
             or "agenda" in html.lower()
             or "scheduled" in html.lower()), (
         "expected empty-state copy explaining no agenda scheduled"
+    )
+
+
+def test_overview_has_separate_upcoming_and_recent_sections(client):
+    """P3: Upcoming + Recent are separate sections, not one combined."""
+    resp = client.get("/al/birmingham/")
+    assert resp.status_code == 200
+    html = resp.data.decode()
+    assert "tw-upcoming-section" in html
+    assert "tw-recent-section" in html
+    # Distinct headers
+    # "Upcoming" eyebrow above "On the agenda" h2
+    assert "Upcoming" in html
+    # "Recent" eyebrow above "Last week" h2
+    assert "Last week" in html
+
+
+def test_overview_upcoming_section_renders_empty_state_for_birmingham(client):
+    """Birmingham has no upcoming meeting → empty-state card visible in
+    the Upcoming section."""
+    resp = client.get("/al/birmingham/")
+    html = resp.data.decode()
+    # Empty-state card markup
+    assert "tw-empty" in html
+    assert "No agenda posted yet" in html
+
+
+def test_overview_recent_section_renders_either_cards_or_empty_state(client):
+    """Recent section either shows cards or its own empty-state."""
+    resp = client.get("/al/birmingham/")
+    html = resp.data.decode()
+    # In a slice of the HTML that's specific to the recent section,
+    # either the past-dot class OR an empty-state for recent appears.
+    # Heuristic: grab the substring between the recent-section start and
+    # the next major section (e.g., Browse by Priority).
+    start = html.find("tw-recent-section")
+    if start == -1:
+        # Section name might use different class — fall back to checking
+        # for "Last week" header
+        start = html.find("Last week")
+    assert start > -1, "Recent section not found"
+    # In Birmingham's data: should have the May 12 meeting via tw-past
+    # OR a recent-empty-state. One of the two must appear.
+    recent_slice = html[start:start+5000]
+    has_card = "tw-past" in recent_slice
+    has_empty = "tw-empty" in recent_slice
+    assert has_card or has_empty, (
+        "Recent section has neither real card nor empty-state — "
+        "should always render something"
     )
