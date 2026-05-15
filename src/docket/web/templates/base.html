@@ -29,17 +29,14 @@
             {% block content %}{% endblock %}
             {% include "partials/footer.html" %}
         </main>
-        <div class="app-rail">
-            <aside class="rail" aria-label="Source of truth" id="source-rail">
-                {% block rail %}
-                {% include "partials/rail_default.html" %}
-                {% endblock %}
-            </aside>
-        </div>
+        {# Rail = overview-only (P2b). Pages that want a rail override `block rail`. #}
+        {% block rail %}{% endblock %}
     </div>
 
-    {# ── Mobile-only chrome (hidden via CSS at >=769px) ────────────────────── #}
-    {% include "partials/source_sheet.html" %}
+    {# Mobile source sheet — overview-only (paired with desktop rail). #}
+    {% block mobile_chrome %}{% endblock %}
+
+    {# Bottom tabs — site-wide primary mobile nav. NOT gated. #}
     {% include "partials/bottom_tabs.html" %}
     {% endblock %}
 

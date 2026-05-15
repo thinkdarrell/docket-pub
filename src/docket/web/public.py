@@ -152,6 +152,56 @@ def _city_overview_render(slug, municipality, now_ts):
     notable_item_ids = [it['id'] for it in notable if 'id' in it]
     coverage_counts = coverage_counts_for_items(notable_item_ids)
 
+    # KPI explainer stack — rendered by partials/source_rail.html on the
+    # overview's right rail. sql_display strings are display-only; queries
+    # are parameterized in query.py.
+    mid = municipality["id"]
+    min_year = query.min_meeting_year(mid)
+    dollars = query.dollars_pending_vs_settled(mid)
+    # sql_display strings are display-only; queries are parameterized in query.py.
+    kpi_stats = [
+        {
+            "label": "Meetings (lifetime)",
+            "value": f"{query.count_meetings_lifetime(mid):,}",
+            "sub": f"Since {min_year}" if min_year else None,
+            "sql_display": f"SELECT count(*) FROM meetings WHERE municipality_id = {mid}",
+        },
+        {
+            "label": "Agenda items YTD",
+            "value": f"{query.count_agenda_items_ytd(mid):,}",
+            "sub": None,
+            "sql_display": (
+                f"SELECT count(*) FROM agenda_items ai\n"
+                f"JOIN meetings m ON m.id = ai.meeting_id\n"
+                f"WHERE m.municipality_id = {mid}\n"
+                f"AND m.meeting_date >= date_trunc('year', now())"
+            ),
+        },
+        {
+            "label": "Votes YTD",
+            "value": f"{query.count_votes_ytd(mid):,}",
+            "sub": None,
+            "sql_display": (
+                f"SELECT count(*) FROM votes v\n"
+                f"JOIN meetings m ON m.id = v.meeting_id\n"
+                f"WHERE m.municipality_id = {mid}\n"
+                f"AND m.meeting_date >= date_trunc('year', now())"
+            ),
+        },
+        {
+            "label": "Dollars (pending / settled)",
+            "value": f"${(dollars['pending']/1_000_000):.1f}M / ${(dollars['settled']/1_000_000):.1f}M",
+            "sub": None,
+            "sql_display": (
+                f"SELECT sum(dollars_amount) FILTER (WHERE minutes_adopted_at IS NULL) AS pending,\n"
+                f"       sum(dollars_amount) FILTER (WHERE minutes_adopted_at IS NOT NULL) AS settled\n"
+                f"FROM agenda_items ai\n"
+                f"JOIN meetings m ON m.id = ai.meeting_id\n"
+                f"WHERE m.municipality_id = {mid}"
+            ),
+        },
+    ]
+
     rendered = render_template(
         "city.html",
         municipality=municipality,
@@ -169,6 +219,7 @@ def _city_overview_render(slug, municipality, now_ts):
         process_badges=process_badges,
         now=datetime.now(),
         coverage_counts=coverage_counts,
+        kpi_stats=kpi_stats,
     )
     _overview_cache[slug] = (now_ts, rendered)
     return rendered
