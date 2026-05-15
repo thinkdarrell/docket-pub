@@ -136,3 +136,22 @@ def test_topic_row_handles_empty_list(render_partial):
     # Spec choice: when topics is empty, render nothing (empty string after stripping)
     # so the row's vertical space isn't reserved for a missing element.
     assert 'topic-row' in html or html.strip() == ''
+
+
+def test_topic_row_renders_zero_count(render_partial):
+    """count=0 is valid data (topic exists, nothing chaptered yet). The
+    template must render '0' rather than falsy-suppress it."""
+    topics = [{'slug': 'transit', 'label': 'Transit', 'count': 0, 'color': '#aaaaaa'}]
+    html = render_partial('partials/topic_row.html', topics=topics, city_slug='birmingham')
+    assert 'Transit' in html
+    assert '>0<' in html  # the count span specifically renders the literal 0
+
+
+def test_topic_row_tolerates_missing_color_key(render_partial):
+    """Topics dicts may not have a 'color' key (vs. having color=None).
+    The Jinja `or` fallback handles None; the dot's CSS fallback
+    (var(--topic-color, var(--ink-3))) handles undefined too."""
+    topics = [{'slug': 'parks', 'label': 'Parks', 'count': 4}]  # no 'color' key
+    html = render_partial('partials/topic_row.html', topics=topics, city_slug='birmingham')
+    assert 'Parks' in html
+    assert 'topic-pill' in html

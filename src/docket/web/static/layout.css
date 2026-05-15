@@ -713,7 +713,8 @@
   background: var(--topic-color, var(--ink-3));
   flex-shrink: 0;
 }
-.topic-pill-label { /* inherits font-size from .topic-pill */ }
+/* .topic-pill-label inherits font-size + color from .topic-pill — no own rules. */
 .topic-pill-count {
-  font-size: 10px; color: var(--ink-3); font-feature-settings: "tnum" 1;
+  /* font-feature-settings: "tnum" 1 comes from .t-mono on the element. */
+  font-size: 10px; color: var(--ink-3);
 }
