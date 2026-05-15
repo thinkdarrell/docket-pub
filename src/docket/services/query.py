@@ -3386,6 +3386,89 @@ def _freshness_state(last_ingest):
     return {"state": "bad", "label": "Stale", "last_synced": last_ingest}
 
 
+def source_health_for_city(municipality: dict) -> dict:
+    """Pipeline-stage health for a city's data chain.
+
+    Stages mirror the ingest flow (Source → Adapter → Parser → Index).
+    Source and Adapter are configuration facts; Parser and Index carry
+    freshness state derived from the most recent successful step.
+
+    Returns dict with keys: source_url, adapter_class, parser, index,
+    overall (the highest-severity state across all stages).
+    """
+    mid = municipality["id"]
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT source_url FROM meetings
+            WHERE municipality_id = %s AND source_url IS NOT NULL
+            ORDER BY meeting_date DESC LIMIT 1
+            """,
+            (mid,),
+        )
+        row = cur.fetchone()
+        last_source_url = row["source_url"] if row else None
+
+        cur.execute(
+            """
+            SELECT MAX(m.meeting_date) AS last_parsed
+            FROM meetings m
+            WHERE m.municipality_id = %s
+              AND EXISTS (
+                SELECT 1 FROM agenda_items a WHERE a.meeting_id = m.id
+              )
+            """,
+            (mid,),
+        )
+        last_parsed = cur.fetchone()["last_parsed"]
+
+        cur.execute(
+            "SELECT COUNT(*) AS n FROM meetings WHERE municipality_id = %s",
+            (mid,),
+        )
+        meeting_count = cur.fetchone()["n"]
+
+    last_ingest = most_recent_ingest_at(mid)
+    index_state = _freshness_state(last_ingest)
+
+    parser_state = _date_age_state(last_parsed)
+
+    states = [index_state["state"], parser_state["state"]]
+    severity = {"good": 0, "warn": 1, "bad": 2, "unknown": 1}
+    overall = max(states, key=lambda s: severity.get(s, 1))
+
+    return {
+        "source_url": last_source_url,
+        "adapter_class": municipality.get("adapter_class"),
+        "parser": {
+            "state": parser_state["state"],
+            "label": parser_state["label"],
+            "last_success": last_parsed,
+        },
+        "index": {
+            "state": index_state["state"],
+            "label": index_state["label"],
+            "last_success": last_ingest,
+            "meeting_count": meeting_count,
+        },
+        "overall": overall,
+    }
+
+
+def _date_age_state(d) -> dict:
+    """Variant of _freshness_state for a plain date (no tz). 24h becomes 1 day."""
+    from datetime import date, timedelta
+
+    if d is None:
+        return {"state": "unknown", "label": "No data yet"}
+    age = date.today() - d
+    if age < timedelta(days=1):
+        return {"state": "good", "label": "Live"}
+    if age < timedelta(days=7):
+        return {"state": "warn", "label": "Recent"}
+    return {"state": "bad", "label": "Stale"}
+
+
 def _kpi_stats_for_municipality(municipality: dict) -> list[dict]:
     """Builds the 4-card KPI explainer stack for page_sources.html.
 

@@ -846,6 +846,26 @@ def _member_detail_render(slug, municipality, member, filter_mode, cursor):
     return rendered
 
 
+@bp.route("/al/<slug>/source-health/")
+def source_health(slug):
+    """Pipeline-stage health for a city's data chain.
+
+    Reachable from the city_lead freshness chip. Surfaces upstream source URL,
+    adapter class, last successful parse, and last ingest — derived entirely
+    from existing tables (no live probes in v1).
+    """
+    municipality = query.get_municipality(slug)
+    if not municipality:
+        abort(404)
+
+    health = query.source_health_for_city(municipality)
+    return render_template(
+        "source_health.html",
+        municipality=municipality,
+        health=health,
+    )
+
+
 @bp.route("/search")
 def search():
     """Search results page — scoped to city or cross-city."""

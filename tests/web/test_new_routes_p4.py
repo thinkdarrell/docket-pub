@@ -107,3 +107,28 @@ def test_member_detail_invalid_filter_falls_back_to_all(client, two_cities_with_
         f"/al/{fx['alpha_slug']}/council/{fx['alpha_member_id']}/?filter=garbage"
     )
     assert resp.status_code == 200
+
+
+def test_source_health_200(client, two_cities_with_members):
+    fx = two_cities_with_members
+    resp = client.get(f"/al/{fx['alpha_slug']}/source-health/")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    # 4-stage pipeline rendered
+    assert "Source" in body
+    assert "Adapter" in body
+    assert "Parser" in body
+    assert "Index" in body
+
+
+def test_source_health_404_unknown_city(client):
+    resp = client.get("/al/no_such_city_xyz/source-health/")
+    assert resp.status_code == 404
+
+
+def test_source_health_renders_adapter_class(client, two_cities_with_members):
+    """The Alpha test city was inserted with GranicusAdapter — verify it surfaces."""
+    fx = two_cities_with_members
+    resp = client.get(f"/al/{fx['alpha_slug']}/source-health/")
+    body = resp.get_data(as_text=True)
+    assert "GranicusAdapter" in body

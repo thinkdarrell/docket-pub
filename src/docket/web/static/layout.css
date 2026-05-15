@@ -177,6 +177,43 @@
 .member-history-more { padding: 16px 0; text-align: center; }
 .member-history-empty { padding: 24px 16px; border: 1px dashed var(--rule); border-radius: var(--radius); text-align: center; }
 
+/* ── source health (P4-2) ─────────────────────────── */
+.source-health-hero { padding-bottom: 32px; }
+.source-health-overall {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 8px 14px; border-radius: 999px;
+  border: 1px solid var(--rule-strong); background: var(--paper);
+  font-size: 12px;
+}
+.source-health-overall.is-good { border-color: var(--good); }
+.source-health-overall.is-warn { border-color: var(--warn); }
+.source-health-overall.is-bad  { border-color: var(--bad); }
+.source-health-overall-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+}
+.source-health-overall.is-good .source-health-overall-dot { background: var(--good); }
+.source-health-overall.is-warn .source-health-overall-dot { background: var(--warn); }
+.source-health-overall.is-bad  .source-health-overall-dot { background: var(--bad); }
+.source-health-overall.is-unknown .source-health-overall-dot { background: var(--ink-3); }
+.source-pipeline { padding: 16px 0 40px; }
+.source-pipeline-list { display: flex; flex-direction: column; gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: var(--radius); overflow: hidden; padding: 0; margin: 0; list-style: none; }
+.source-stage {
+  display: grid; grid-template-columns: 48px 1fr 32px;
+  gap: 16px; align-items: center;
+  padding: 16px; background: var(--paper);
+}
+.source-stage-num { font-size: 20px; color: var(--ink-4); }
+.source-stage-body { min-width: 0; }
+.source-stage-label { color: var(--ink-3); font-size: 10px; letter-spacing: 0.08em; }
+.source-stage-title { font-size: 16px; margin: 2px 0 4px; }
+.source-stage-link { word-break: break-all; }
+.source-stage-dot { width: 14px; height: 14px; border-radius: 50%; }
+.source-stage-dot.is-good { background: var(--good); box-shadow: 0 0 0 4px color-mix(in oklab, var(--good) 18%, transparent); }
+.source-stage-dot.is-warn { background: var(--warn); }
+.source-stage-dot.is-bad  { background: var(--bad); }
+.source-stage-dot.is-unknown { background: var(--ink-3); }
+.source-pipeline-foot { margin-top: 16px; max-width: 600px; }
+
 /* ── breadcrumbs (page-level hierarchy block, distinct from masthead .crumbs) ── */
 .breadcrumbs { padding: 16px 0 8px; font-size: 11px; color: var(--ink-3); letter-spacing: 0.04em; }
 .breadcrumbs-list { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; padding: 0; list-style: none; }
