@@ -633,6 +633,16 @@
 
 /* ── P2a partials ───────────────────────────────────────── */
 
+/* Shared base for num_stat and kpi_explainer cards.
+   Common padding, border, background live here; each card adds its own
+   layout specifics (flex-direction, gap) in its own selector. */
+.stat-card-base {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--paper);
+}
+
 .num-stat {
   display: flex;
   flex-direction: column;
@@ -651,7 +661,6 @@
 .num-stat-value {
   font-size: var(--type-mono-num);
   font-family: var(--font-mono);
-  font-feature-settings: "tnum" 1, "lnum" 1;
   color: var(--ink);
 }
 /* .num-stat-sub has no own rules — it inherits font-size + color from
@@ -685,7 +694,7 @@
 .freshness-chip.is-good .freshness-chip-dot { background: var(--good); }
 .freshness-chip.is-warn .freshness-chip-dot { background: var(--warn); }
 .freshness-chip.is-bad  .freshness-chip-dot { background: var(--bad); }
-.freshness-chip-state-label { font-size: var(--type-eyebrow); letter-spacing: 0.1em; text-transform: uppercase; }
+.freshness-chip-state-label { font-size: var(--type-eyebrow); letter-spacing: 0.12em; text-transform: uppercase; }
 /* .freshness-chip-sub inherits font-size + color from .t-meta (no own rules).
    Namespaced with -chip- to avoid collision with the legacy .freshness-sub
    rule at line 166 (which styles the old .freshness button on city.html
@@ -738,7 +747,6 @@
 .kpi-explainer-value {
   font-size: var(--type-mono-num);
   font-family: var(--font-mono);
-  font-feature-settings: "tnum" 1, "lnum" 1;
   color: var(--ink);
 }
 /* .kpi-explainer-sub inherits font-size + color from .t-meta. No own rules. */

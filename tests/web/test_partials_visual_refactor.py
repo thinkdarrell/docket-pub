@@ -12,7 +12,10 @@ with templates that have conditional logic and ``url_for`` calls.
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 from types import SimpleNamespace
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_render_partial_fixture_works(render_partial):
@@ -335,3 +338,25 @@ def test_source_rail_tolerates_missing_stat_keys(render_partial):
         kpi_stats=kpi_stats,
     )
     assert 'Meetings YTD' in html
+
+
+# ── P2b Task 2: CSS bloat cleanup ───────────────────────────────────────────
+
+
+def test_stat_card_base_class_exists_in_layout_css():
+    """.stat-card-base is the shared base for num_stat and kpi_explainer cards.
+    Both partials' root element should carry this class so common rules
+    (padding, border, background) live in one selector."""
+    css = (PROJECT_ROOT / "src/docket/web/static/layout.css").read_text()
+    assert ".stat-card-base" in css, ".stat-card-base shared rule missing"
+
+
+def test_num_stat_renders_t_tnum_on_value(render_partial):
+    """num_stat's value span uses the .t-tnum utility instead of redeclaring
+    font-feature-settings inline."""
+    html = render_partial(
+        'partials/num_stat.html',
+        label='Meetings YTD',
+        value='42',
+    )
+    assert 'class="num-stat-value t-tnum"' in html or 'class="t-tnum num-stat-value"' in html
