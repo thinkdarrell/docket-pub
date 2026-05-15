@@ -50,7 +50,9 @@
 {%- set tier_data = amount | dollar_tier -%}
 {%- if tier_data -%}
 {%- set formatted = amount | format_dollars -%}
-<span class="dollars dollars--{{ tier_data.color }}">{{ formatted }}
-  ({{ tier_data.symbol }})<span class="sr-only">, {{ tier_data.color|title }} tier ({{ tier_data.description }})</span>
+<span class="dollars dollars--{{ tier_data.color }}">
+  <span class="dollars-amount t-tnum">{{ formatted }}</span>
+  <span class="dollars-symbol" aria-hidden="true">{{ tier_data.symbol }}</span>
+  <span class="sr-only">, {{ tier_data.color|title }} tier ({{ tier_data.description }})</span>
 </span>
 {%- endif -%}

@@ -75,6 +75,21 @@
   --border:       var(--rule);
   --muted:        var(--ink-3);
   --text:         var(--ink);
+
+  /* Dollar-tier palette — P2b extraction from .dollar-chip--* literals.
+     Shared between .dollar-chip--* (legacy chip) and .dollars--* (new pill). */
+  --color-dollar-green-bg:    #e2efd9;
+  --color-dollar-green-ink:   #2d5519;
+  --color-dollar-green-rule:  #99c878;
+  --color-dollar-yellow-bg:   #fbf3c7;
+  --color-dollar-yellow-ink:  #6b5a10;
+  --color-dollar-yellow-rule: #d9c660;
+  --color-dollar-orange-bg:   #fbe2c2;
+  --color-dollar-orange-ink:  #7a3e10;
+  --color-dollar-orange-rule: #e0a04a;
+  --color-dollar-red-bg:      #f3cdcd;
+  --color-dollar-red-ink:     #6b1818;
+  --color-dollar-red-rule:    #d97373;
 }
 
 * { box-sizing: border-box; }
@@ -351,10 +366,10 @@ a.link:hover { border-bottom-color: var(--accent); }
   font-weight: 600;
 }
 .dollar-chip--na     { background: #ececec; color: #555;    border: 1px solid #bbb; }
-.dollar-chip--green  { background: #e2efd9; color: #2d5519; border: 1px solid #99c878; }
-.dollar-chip--yellow { background: #fbf3c7; color: #6b5a10; border: 1px solid #d9c660; }
-.dollar-chip--orange { background: #fbe2c2; color: #7a3e10; border: 1px solid #e0a04a; }
-.dollar-chip--red    { background: #f3cdcd; color: #6b1818; border: 1px solid #d97373; }
+.dollar-chip--green  { background: var(--color-dollar-green-bg);  color: var(--color-dollar-green-ink);  border: 1px solid var(--color-dollar-green-rule); }
+.dollar-chip--yellow { background: var(--color-dollar-yellow-bg); color: var(--color-dollar-yellow-ink); border: 1px solid var(--color-dollar-yellow-rule); }
+.dollar-chip--orange { background: var(--color-dollar-orange-bg); color: var(--color-dollar-orange-ink); border: 1px solid var(--color-dollar-orange-rule); }
+.dollar-chip--red    { background: var(--color-dollar-red-bg);    color: var(--color-dollar-red-ink);    border: 1px solid var(--color-dollar-red-rule); }
 
 /* Procedural one-line variant (Roll Call, Pledge, etc — decision #5) */
 .procedural-line {

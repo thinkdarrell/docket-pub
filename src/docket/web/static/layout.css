@@ -882,3 +882,22 @@
   color: var(--ink-3);
   margin-bottom: var(--space-2);
 }
+
+/* ─── P2b: dollar_tier pill (.dollars / .dollars--*) ───────────────────── */
+
+.dollars {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius);
+  border: 1px solid;
+  font: 500 var(--type-eyebrow) var(--font-mono);
+}
+.dollars-amount { font-weight: 600; }
+.dollars-symbol { opacity: 0.7; letter-spacing: 0.04em; }
+
+.dollars--green  { background: var(--color-dollar-green-bg);  color: var(--color-dollar-green-ink);  border-color: var(--color-dollar-green-rule); }
+.dollars--yellow { background: var(--color-dollar-yellow-bg); color: var(--color-dollar-yellow-ink); border-color: var(--color-dollar-yellow-rule); }
+.dollars--orange { background: var(--color-dollar-orange-bg); color: var(--color-dollar-orange-ink); border-color: var(--color-dollar-orange-rule); }
+.dollars--red    { background: var(--color-dollar-red-bg);    color: var(--color-dollar-red-ink);    border-color: var(--color-dollar-red-rule); }
