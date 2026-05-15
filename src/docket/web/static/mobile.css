@@ -621,3 +621,39 @@
     width: 100%;
   }
 }
+
+/* ── CityLead + KPI strip (P3, <768px) ─────────────────────── */
+@media (max-width: 768px) {
+  .city-lead {
+    padding: var(--space-2) 0;
+  }
+  .city-lead-h1 {
+    font-size: 44px;
+    line-height: 1.05;
+  }
+  .city-lead-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-2);
+  }
+  .city-lead-chip {
+    font-size: 12px;
+    padding: 4px 10px;
+  }
+
+  /* KPI strip → horizontal scroll-snap on mobile (3 × 130px cards). */
+  .kpi-strip {
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: 130px;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    padding-bottom: var(--space-2);
+    margin: var(--space-2) calc(-1 * var(--space-4)) var(--space-3);
+    padding-left: var(--space-4);
+    padding-right: var(--space-4);
+  }
+  .kpi-strip > * {
+    scroll-snap-align: start;
+  }
+}
