@@ -194,3 +194,69 @@ def test_kpi_explainer_omits_sub_when_none(render_partial):
         sql_display='SELECT 1',
     )
     assert 'kpi-explainer-sub' not in html
+
+
+from datetime import date as date_cls
+
+
+def _sample_meeting():
+    return SimpleNamespace(
+        id=42,
+        date=date_cls(2026, 5, 13),
+        title='City Council · Regular Meeting',
+        meeting_type='regular',
+        summary='Routine agenda; one large procurement item.',
+        agenda_count=18,
+        dollars_total=2_400_000,
+    )
+
+
+def test_meeting_card_strip_variant_renders(render_partial):
+    m = _sample_meeting()
+    html = render_partial(
+        'partials/meeting_card.html',
+        meeting=m,
+        variant='strip',
+        municipality=SimpleNamespace(slug='birmingham'),
+    )
+    assert 'meeting-card' in html
+    assert 'meeting-card--strip' in html
+    assert 'City Council' in html
+    # Strip variant should reference the date and item count compactly.
+    assert '18' in html
+
+
+def test_meeting_card_grid_variant_renders(render_partial):
+    m = _sample_meeting()
+    html = render_partial(
+        'partials/meeting_card.html',
+        meeting=m,
+        variant='grid',
+        municipality=SimpleNamespace(slug='birmingham'),
+    )
+    assert 'meeting-card--grid' in html
+    assert 'Routine agenda' in html  # Summary visible in grid, not strip
+
+
+def test_meeting_card_link_to_meeting_detail(render_partial):
+    m = _sample_meeting()
+    html = render_partial(
+        'partials/meeting_card.html',
+        meeting=m,
+        variant='grid',
+        municipality=SimpleNamespace(slug='birmingham'),
+    )
+    assert '/al/birmingham/meetings/42/' in html
+
+
+def test_meeting_card_handles_zero_dollars(render_partial):
+    m = _sample_meeting()
+    m.dollars_total = 0
+    html = render_partial(
+        'partials/meeting_card.html',
+        meeting=m,
+        variant='grid',
+        municipality=SimpleNamespace(slug='birmingham'),
+    )
+    # Card should still render — zero dollars is valid data, not missing.
+    assert 'meeting-card' in html
