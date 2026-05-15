@@ -64,3 +64,37 @@ def test_num_stat_accent_modifier_class(render_partial):
         accent=True,
     )
     assert 'is-accent' in html
+
+
+def test_freshness_chip_renders_state_and_timestamp(render_partial):
+    html = render_partial(
+        'partials/freshness_chip.html',
+        state='good',
+        last_synced='2 hours ago',
+        source_health_url='/al/birmingham/source-health/',
+    )
+    assert 'freshness-chip' in html
+    assert 'is-good' in html
+    assert '2 hours ago' in html
+    assert 'href="/al/birmingham/source-health/"' in html
+
+def test_freshness_chip_state_classes(render_partial):
+    for state in ('good', 'warn', 'bad'):
+        html = render_partial(
+            'partials/freshness_chip.html',
+            state=state,
+            last_synced='just now',
+            source_health_url='/al/test/source-health/',
+        )
+        assert f'is-{state}' in html
+
+def test_freshness_chip_dot_aria_hidden(render_partial):
+    """The visual dot must be aria-hidden so screen readers
+    hear only the state label + timestamp."""
+    html = render_partial(
+        'partials/freshness_chip.html',
+        state='good',
+        last_synced='now',
+        source_health_url='/al/test/source-health/',
+    )
+    assert 'aria-hidden="true"' in html
