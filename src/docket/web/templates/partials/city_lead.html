@@ -9,8 +9,7 @@
      freshness (dict, optional) — {state, label, last_synced}. Defaults
                                   to neutral "unknown" if absent.
 
-   The freshness chip is STATIC in P3 (no link, no click). P4 wires
-   the source-health route and makes it clickable.
+   P4-2: the freshness chip is now an anchor to source_health.
 #}
 {%- set md = (municipality.metadata if municipality.metadata is defined else {}) or {} -%}
 {%- set parts = [] -%}
@@ -24,9 +23,10 @@
   </div>
   <div class="city-lead-row">
     <h1 class="city-lead-h1">{{ municipality.name }}, {{ municipality.state }}</h1>
-    <div class="city-lead-chip is-{{ (freshness or {}).get('state', 'unknown') }}"
-         data-state="{{ (freshness or {}).get('state', 'unknown') }}"
-         aria-label="Data freshness: {{ (freshness or {}).get('label', 'Unknown') }}">
+    <a class="city-lead-chip is-{{ (freshness or {}).get('state', 'unknown') }}"
+       href="{{ url_for('public.source_health', slug=municipality.slug) }}"
+       data-state="{{ (freshness or {}).get('state', 'unknown') }}"
+       aria-label="Data freshness: {{ (freshness or {}).get('label', 'Unknown') }} — open source health">
       <span class="city-lead-chip-dot" aria-hidden="true"></span>
       <span class="city-lead-chip-label">{{ (freshness or {}).get('label', 'Unknown') }}</span>
       {% if (freshness or {}).get('last_synced') %}
@@ -34,6 +34,6 @@
           synced {{ (freshness or {}).get('last_synced').strftime('%b %d') }}
         </span>
       {% endif %}
-    </div>
+    </a>
   </div>
 </section>
