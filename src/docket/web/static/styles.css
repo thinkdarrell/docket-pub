@@ -47,6 +47,27 @@
   --radius:   4px;
   --radius-2: 8px;
 
+  /* type scale — declared in P1 (visual refactor), consumed by P2+ partials.
+     Source: docs/superpowers/specs/2026-05-14-visual-refactor-design.md */
+  --type-hero:        64px;
+  --type-hero-mobile: 44px;
+  --type-section:     28px;
+  --type-card:        17px;
+  --type-body:        15px;
+  --type-eyebrow:     10px;
+  --type-mono-num:    26px;
+
+  /* spacing scale — declared in P1, consumed by P2+ partials.
+     Off-scale values discouraged in new partials. */
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-6:  24px;
+  --space-8:  32px;
+  --space-12: 48px;
+  --space-16: 64px;
+
   /* Semantic aliases used by editorial coverage components.
      These map to canonical design tokens so the coverage block CSS can use
      expressive names without embedding raw hex fallbacks. */
