@@ -214,6 +214,8 @@ def city_meetings(slug):
     )
     total_pages = (result.total + per_page - 1) // per_page
 
+    kpi_stats = query._kpi_stats_for_municipality(municipality)
+
     return render_template(
         "meetings.html",
         municipality=municipality,
@@ -222,6 +224,7 @@ def city_meetings(slug):
         page=page,
         total_pages=total_pages,
         meeting_type=meeting_type,
+        kpi_stats=kpi_stats,
     )
 
 
@@ -247,6 +250,8 @@ def meeting_detail(slug, meeting_id):
     item_ids = [it.id for it in agenda_items]
     coverage_counts = coverage_counts_for_items(item_ids)
 
+    kpi_stats = query._kpi_stats_for_municipality(municipality)
+
     return render_template(
         "meeting_detail.html",
         municipality=municipality,
@@ -259,6 +264,7 @@ def meeting_detail(slug, meeting_id):
         topic_count=topic_count,
         item_count=len(agenda_items),
         coverage_counts=coverage_counts,
+        kpi_stats=kpi_stats,
     )
 
 
@@ -482,6 +488,8 @@ def category_landing(slug: str, badge_slug: str):
             coverage_counts=coverage_counts,
         )
 
+    kpi_stats = query._kpi_stats_for_municipality(municipality)
+
     return render_template(
         "category_landing.html",
         municipality=municipality,
@@ -502,6 +510,7 @@ def category_landing(slug: str, badge_slug: str):
         args_without_month=args_without_month,
         show_meeting_context=True,
         coverage_counts=coverage_counts,
+        kpi_stats=kpi_stats,
     )
 
 
@@ -755,11 +764,13 @@ def city_council(slug):
         abort(404)
 
     members = query.list_council_members(slug)
+    kpi_stats = query._kpi_stats_for_municipality(municipality)
 
     return render_template(
         "council.html",
         municipality=municipality,
         members=members,
+        kpi_stats=kpi_stats,
     )
 
 
@@ -787,6 +798,13 @@ def search():
     result_ids = [it['id'] if isinstance(it, dict) else it.id for it in results]
     coverage_counts = coverage_counts_for_items(result_ids)
 
+    municipality = query.get_municipality(city) if city else None
+    kpi_stats = (
+        query._kpi_stats_for_municipality(municipality)
+        if municipality is not None
+        else None
+    )
+
     return render_template(
         "search.html",
         query=q,
@@ -795,6 +813,7 @@ def search():
         municipalities=municipalities,
         page=page,
         coverage_counts=coverage_counts,
+        kpi_stats=kpi_stats,
     )
 
 
@@ -863,6 +882,13 @@ def topic_detail(topic):
     topic_item_ids = [it['id'] if isinstance(it, dict) else it.id for it in items]
     coverage_counts = coverage_counts_for_items(topic_item_ids)
 
+    municipality = query.get_municipality(city) if city else None
+    kpi_stats = (
+        query._kpi_stats_for_municipality(municipality)
+        if municipality is not None
+        else None
+    )
+
     return render_template(
         "topic_detail.html",
         topic=topic,
@@ -871,6 +897,7 @@ def topic_detail(topic):
         city=city,
         page=page,
         coverage_counts=coverage_counts,
+        kpi_stats=kpi_stats,
     )
 
 

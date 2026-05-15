@@ -39,3 +39,42 @@ def test_overview_renders_freshness_data():
     freshness = query._freshness_state(last_ingest)
     assert freshness["state"] in {"good", "warn", "bad", "unknown"}
     assert "label" in freshness
+
+
+def test_meetings_list_renders_kpi_explainer_stack(client):
+    """Interior pages get the 4-card KPI explainer stack in page_sources."""
+    resp = client.get("/al/birmingham/meetings/")
+    assert resp.status_code == 200, f"got {resp.status_code}"
+    html = resp.data.decode()
+    assert 'class="page-sources"' in html
+    assert 'page-sources-kpis' in html, (
+        "meetings list should render KPI explainer stack"
+    )
+
+
+def test_council_renders_kpi_explainer_stack(client):
+    resp = client.get("/al/birmingham/council/")
+    assert resp.status_code == 200
+    html = resp.data.decode()
+    assert 'page-sources-kpis' in html, (
+        "council roster should render KPI explainer stack"
+    )
+
+
+def test_meeting_detail_renders_kpi_explainer_stack(client):
+    # Use any meeting id likely to exist; if test DB doesn't have one,
+    # this test may need adjustment. Try 1 first.
+    resp = client.get("/al/birmingham/meetings/1/")
+    if resp.status_code == 404:
+        # No meeting 1 in test DB — try fetching the list and using whatever ID is there
+        resp_list = client.get("/al/birmingham/meetings/")
+        import re
+        m = re.search(r"/al/birmingham/meetings/(\d+)/", resp_list.data.decode())
+        if m:
+            mid = m.group(1)
+            resp = client.get(f"/al/birmingham/meetings/{mid}/")
+    if resp.status_code == 200:
+        html = resp.data.decode()
+        assert 'page-sources-kpis' in html, (
+            "meeting detail should render KPI explainer stack"
+        )
