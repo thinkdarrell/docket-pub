@@ -251,3 +251,38 @@ def test_footer_colophon_no_adapter_tile(client):
     assert "Schema</span>" in colophon
     assert "Source</span>" in colophon
     assert "Updated</span>" in colophon
+
+
+def test_meeting_detail_source_links_below_executive_summary(client):
+    """P3: per-meeting source links (Agenda / Video / Original source)
+    sit at the bottom of the meeting detail content, consistent with
+    the 'sources at page bottom' pattern."""
+    resp = client.get("/al/birmingham/meetings/2231/")
+    if resp.status_code == 404:
+        # Meeting 2231 might not exist locally; pick any available
+        # by listing first.
+        listing = client.get("/al/birmingham/meetings/")
+        import re
+        m = re.search(r"/al/birmingham/meetings/(\d+)/", listing.data.decode())
+        if not m:
+            return  # nothing to test
+        resp = client.get(f"/al/birmingham/meetings/{m.group(1)}/")
+    assert resp.status_code == 200
+    html = resp.data.decode()
+    # The source-links section ("Agenda" rail-link-label is unique to it)
+    sources_pos = html.find('class="mtg-sources"')
+    # The KPI grid at top has class="kpi-grid" (or similar) — must be earlier
+    kpi_pos = html.find('class="kpi-grid"')
+    # Roll call / votes section ("Roll call" eyebrow appears in body)
+    rollcall_pos = html.find("ROLL CALL")
+    if rollcall_pos == -1:
+        rollcall_pos = html.find("Roll call")
+    assert sources_pos > -1, "mtg-sources section missing"
+    assert kpi_pos > -1, "kpi-grid section missing"
+    assert rollcall_pos > -1, "roll-call section missing"
+    # The source links should appear AFTER the KPI grid AND after the
+    # roll-call section.
+    assert sources_pos > kpi_pos, "sources should be below KPI grid"
+    assert sources_pos > rollcall_pos, (
+        f"sources at {sources_pos} should be below roll-call at {rollcall_pos}"
+    )
