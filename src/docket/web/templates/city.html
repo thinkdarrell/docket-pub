@@ -153,30 +153,26 @@
     </header>
     <div class="tw-strip">
         {% for m in upcoming_meetings[:2] %}
-        <button class="tw-card tw-upcoming"
-                hx-get="{{ url_for('public.rail_meeting', slug=municipality.slug, meeting_id=m.id) }}"
-                hx-target="#source-rail"
-                hx-swap="innerHTML">
+        <a href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=m.id) }}"
+           class="tw-card tw-upcoming">
             <div class="tw-when t-mono">
                 <span class="tw-dot tw-dot-upcoming"></span>
                 {{ m.meeting_date }}
             </div>
             <div class="tw-title">{{ m.title }}</div>
             <div class="tw-venue t-meta">{{ m.municipality_name }}</div>
-        </button>
+        </a>
         {% endfor %}
         {% for m in recent_meetings[:2] %}
-        <button class="tw-card tw-past"
-                hx-get="{{ url_for('public.rail_meeting', slug=municipality.slug, meeting_id=m.id) }}"
-                hx-target="#source-rail"
-                hx-swap="innerHTML">
+        <a href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=m.id) }}"
+           class="tw-card tw-past">
             <div class="tw-when t-mono">
                 <span class="tw-dot tw-dot-past"></span>
                 {{ m.meeting_date }}
             </div>
             <div class="tw-title">{{ m.title }}</div>
             <div class="tw-venue t-meta">{{ m.municipality_name }}</div>
-        </button>
+        </a>
         {% endfor %}
     </div>
 </section>
@@ -197,11 +193,9 @@
 
     <div style="display: flex; flex-direction: column; gap: 12px;">
     {% for vote in contested_votes %}
-        <button class="vote-block {{ 'is-pass' if vote.result == 'passed' else 'is-fail' }}"
-                style="cursor: pointer; text-align: left; width: 100%;"
-                hx-get="{{ url_for('public.rail_meeting', slug=municipality.slug, meeting_id=vote.meeting_id) }}"
-                hx-target="#source-rail"
-                hx-swap="innerHTML">
+        <a href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=vote.meeting_id) }}"
+           class="vote-block {{ 'is-pass' if vote.result == 'passed' else 'is-fail' }}"
+           style="display: block; text-align: left; width: 100%;">
             <div class="vote-block-head">
                 <span class="vote-block-result">{{ vote.result }}</span>
                 <span class="t-meta">{{ vote.meeting_date.strftime('%b %-d, %Y') }} · {{ vote.title }}</span>
@@ -218,7 +212,7 @@
                 {% endfor %}
             </div>
             {% endif %}
-        </button>
+        </a>
     {% endfor %}
     </div>
 </section>
@@ -244,10 +238,8 @@
             <span></span>
         </div>
         {% for vote in recent_votes %}
-        <button class="feed-row"
-                hx-get="{{ url_for('public.rail_meeting', slug=municipality.slug, meeting_id=vote.meeting_id) }}"
-                hx-target="#source-rail"
-                hx-swap="innerHTML">
+        <a href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=vote.meeting_id) }}"
+           class="feed-row">
             <div class="feed-date">
                 <div class="feed-date-d t-display">{{ vote.meeting_date.day }}</div>
                 <div class="feed-date-m">{{ vote.meeting_date.strftime('%b %Y') }}</div>
@@ -259,7 +251,7 @@
             <div class="feed-num t-mono">{{ vote.yeas }}–{{ vote.nays }}</div>
             <div class="feed-num t-meta">{{ vote.source | replace('_',' ') }}</div>
             <div class="feed-arrow">→</div>
-        </button>
+        </a>
         {% endfor %}
     </div>
 </section>
@@ -306,10 +298,8 @@
 
     <div class="leg-grid">
         {% for it in notable_items %}
-        <button class="legc"
-                hx-get="{{ url_for('public.rail_meeting', slug=municipality.slug, meeting_id=it.meeting_id if it.meeting_id is defined else 0) }}"
-                hx-target="#source-rail"
-                hx-swap="innerHTML">
+        <a href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=it.meeting_id if it.meeting_id is defined else 0) }}"
+           class="legc">
             <div class="legc-top">
                 <div class="legc-status-row">
                     {% if it.is_consent is defined and it.is_consent %}
@@ -357,7 +347,7 @@
                     {% endif %}
                 </div>
             </div>
-        </button>
+        </a>
         {% endfor %}
     </div>
 
@@ -386,10 +376,7 @@
         </div>
         {% for m in meetings %}
         <a href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=m.id) }}"
-           class="feed-row"
-           hx-get="{{ url_for('public.rail_meeting', slug=municipality.slug, meeting_id=m.id) }}"
-           hx-target="#source-rail"
-           hx-swap="innerHTML">
+           class="feed-row">
             <div class="feed-date">
                 <div class="feed-date-d t-display t-tnum">{{ m.meeting_date.day if m.meeting_date.day is defined else m.meeting_date[-2:] }}</div>
                 <div class="feed-date-m t-mono">{{ m.meeting_date.strftime('%b %Y') if m.meeting_date.strftime is defined else m.meeting_date }}</div>

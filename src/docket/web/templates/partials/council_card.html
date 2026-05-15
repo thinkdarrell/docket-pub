@@ -1,10 +1,7 @@
 {# Council member card — rendered by both city.html and council.html.
    Expects: m (council member dict), municipality (with .slug). #}
 {% set hue = (m.id * 137) % 360 %}
-<button class="cc" type="button"
-        hx-get="{{ url_for('public.rail_member', slug=municipality.slug, member_id=m.id) }}"
-        hx-target="#source-rail"
-        hx-swap="innerHTML">
+<button class="cc" type="button">
     <div class="cc-portrait" style="background: oklch(0.45 0.12 {{ hue }})">
         <svg viewBox="0 0 100 100" class="cc-portrait-bg" aria-hidden="true">
             <defs>
