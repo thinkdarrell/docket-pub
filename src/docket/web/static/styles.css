@@ -232,14 +232,14 @@ a.link:hover { border-bottom-color: var(--accent); }
 .smart-brevity-card {
   position: relative;
   display: block;
-  padding: 14px 14px 14px 16px;
+  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4);
   margin-bottom: 10px;
-  background: rgba(253, 250, 243, 0.7);
-  border-left: 3px solid var(--accent-color, #c8cbc0);
-  border-radius: 0 4px 4px 0;
+  background: var(--paper);
+  border-left: 3px solid var(--accent-color, var(--rule));
+  border-radius: 0 var(--radius) var(--radius) 0;
   transition: background 0.12s ease;
 }
-.smart-brevity-card:hover { background: rgba(244, 235, 212, 0.7); }
+.smart-brevity-card:hover { background: var(--paper-2); }
 @media (prefers-reduced-motion: reduce) {
   .smart-brevity-card { transition: none; }
 }
@@ -250,35 +250,35 @@ a.link:hover { border-bottom-color: var(--accent); }
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 11px;
-  color: #6b6457;
-  margin-bottom: 6px;
+  gap: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--type-eyebrow);
+  color: var(--ink-3);
+  margin-bottom: var(--space-2);
 }
-.smart-brevity-card .meta-line .meta-sep { color: #b8b0a2; }
+.smart-brevity-card .meta-line .meta-sep { color: var(--ink-4); }
 .smart-brevity-card .meta-date,
 .smart-brevity-card .meta-item-ref { white-space: nowrap; }
 
 /* Headline — the only semantic link in the card */
 .smart-brevity-card .card-headline {
-  font-family: "Source Serif Pro", Georgia, serif;
-  font-size: 17px;
+  font-family: var(--font-display);
+  font-size: var(--type-card);
   font-weight: 600;
   line-height: 1.3;
-  margin: 0 0 4px;
+  margin: 0 0 var(--space-1);
 }
 .smart-brevity-card .card-link {
-  color: #1a1814;
+  color: var(--ink);
   text-decoration: none;
 }
 .smart-brevity-card .card-link.is-italic {
   font-style: italic;
-  color: #4a4540;
+  color: var(--ink-2);
 }
 .smart-brevity-card:hover .card-link {
   text-decoration: underline;
-  text-decoration-color: #c4894a;
+  text-decoration-color: var(--accent);
   text-decoration-thickness: 1px;
   text-underline-offset: 3px;
 }
@@ -300,25 +300,25 @@ a.link:hover { border-bottom-color: var(--accent); }
   inset: 0;
 }
 .smart-brevity-card .card-link:focus-visible::after {
-  outline: 2px solid #c4894a;
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
 /* Why-it-matters body */
 .smart-brevity-card .why {
-  font-family: "Source Serif Pro", Georgia, serif;
-  font-size: 13.5px;
+  font-family: var(--font-display);
+  font-size: 13.5px;  /* no exact P1 token — --type-body is 15px (too large) */
   line-height: 1.45;
-  color: #3a3530;
-  margin: 0 0 8px;
+  color: var(--ink-2);
+  margin: 0 0 var(--space-2);
   max-width: 70ch;
 }
 
 /* Inline facts line — emoji + value pairs separated by · */
 .smart-brevity-card .facts-line {
-  font-family: "IBM Plex Sans", system-ui, sans-serif;
-  font-size: 12px;
-  color: #4a4540;
+  font-family: var(--font-ui);
+  font-size: 12px;  /* no exact P1 token — --type-eyebrow is 10px (too small) */
+  color: var(--ink-2);
   display: flex;
   flex-wrap: wrap;
   gap: 0;
@@ -326,12 +326,12 @@ a.link:hover { border-bottom-color: var(--accent); }
 .smart-brevity-card .facts-line .fact {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
 }
 .smart-brevity-card .facts-line .fact + .fact::before {
   content: "·";
-  margin: 0 8px;
-  color: #b8b0a2;
+  margin: 0 var(--space-2);
+  color: var(--ink-4);
 }
 
 /* Status pill — pending / failed / degraded / verifying */

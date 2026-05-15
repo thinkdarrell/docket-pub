@@ -406,3 +406,100 @@ def test_badge_chip_restyle_renders_full_structure(render_partial):
     assert '5-4' in html
     assert '✨' in html  # verification spark for high confidence
     assert 'aria-label="AI-verified"' in html
+
+
+# ── P2b Task 6: card_smart_brevity + card_v2_fallback regression anchor ──────
+
+
+def test_card_smart_brevity_legislation_idiom_structure(render_partial):
+    """The restyled card preserves the LegislationCard idiom:
+    accent-tinted left border, meta-line eyebrow, serif headline,
+    why-it-matters body, facts-line. Asserts the DOM contract, not
+    the visual values."""
+    item = {
+        "id": 42,
+        "title": "Resolution authorizing demolition of 1234 Main St",
+        "headline": "City to demolish 1234 Main St",
+        "why_it_matters": "Vacant property declared a public nuisance.",
+        "item_number": "5-A",
+        "meeting_id": 100,
+        "meeting_date": date_cls(2026, 5, 1),
+        "processing_status": "completed",
+        "ai_rewrite_version": 3,
+        "data_quality": "ok",
+        "dollars_amount": 50000,
+        "extracted_facts": {"action_type": "demolition"},
+        "badges": [],
+        "summary": None,
+        # facts-strip fields (all None — no facts rendered for this item)
+        "counterparty": None,
+        "funding_source": None,
+        "action_type": None,
+        "location": None,
+        "next_steps": None,
+    }
+    municipality = {"slug": "birmingham", "display_name": "Birmingham"}
+    html = render_partial(
+        "partials/card_smart_brevity.html",
+        item=item,
+        municipality=municipality,
+        show_meeting_context=True,
+        coverage_counts={},
+    )
+    # Idiom contract — structural hooks
+    assert 'class="smart-brevity-card' in html
+    assert 'class="meta-line"' in html
+    assert 'class="card-headline"' in html
+    assert 'class="card-link' in html
+    # Body copy
+    assert 'City to demolish 1234 Main St' in html
+    assert 'Vacant property declared a public nuisance' in html
+    # Meta line content
+    assert '#5-A' in html or 'Item #5-A' in html
+    assert 'May 1, 2026' in html
+
+
+def test_card_v2_fallback_legislation_idiom_structure(render_partial):
+    """v2_fallback inherits _card_shell.html, so the same structural
+    LegislationCard idiom applies. The variant suppresses why-it-matters
+    and uses the legacy summary as headline text."""
+    item = {
+        "id": 43,
+        "title": "Budget amendment for parks department",
+        "headline": None,  # v2 uses summary, not headline
+        "why_it_matters": None,  # suppressed in v2 variant
+        "item_number": "7-B",
+        "meeting_id": 101,
+        "meeting_date": date_cls(2026, 5, 1),
+        "processing_status": "completed",
+        "ai_rewrite_version": 2,
+        "data_quality": "ok",
+        "dollars_amount": None,
+        "extracted_facts": None,
+        "badges": [],
+        "summary": "Parks department budget amendment approved by council for summer programming.",
+        # facts-strip fields
+        "counterparty": None,
+        "funding_source": None,
+        "action_type": None,
+        "location": None,
+        "next_steps": None,
+    }
+    municipality = {"slug": "birmingham", "display_name": "Birmingham"}
+    html = render_partial(
+        "partials/card_v2_fallback.html",
+        item=item,
+        municipality=municipality,
+        show_meeting_context=True,
+        coverage_counts={},
+    )
+    # Same structural idiom as smart_brevity
+    assert 'class="smart-brevity-card' in html
+    assert 'class="meta-line"' in html
+    assert 'class="card-headline"' in html
+    assert 'class="card-link' in html
+    # v2 variant data
+    assert 'data-variant="v2_fallback"' in html
+    assert 'is-v2-fallback' in html
+    # Headline should contain the summary text (truncated to 80 chars or full)
+    assert 'Parks department budget amendment' in html
