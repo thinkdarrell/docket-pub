@@ -2,7 +2,7 @@
 
 /* ── This week strip ──────────────────────────────── */
 /* Tighten .tw sections — P3 Task 8 follow-up: condense vertical rhythm. */
-.tw { padding: 18px 0 20px; border-bottom: 1px solid var(--rule); }
+.tw { padding: 10px 0 18px; border-bottom: 1px solid var(--rule); }
 .tw + .tw { border-top: 0; padding-top: 0; }
 .tw:first-of-type { border-bottom: 0; }  /* remove divider between the paired sections */
 .tw-head {

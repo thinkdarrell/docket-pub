@@ -1003,7 +1003,7 @@
 .dollars--red    { background: var(--color-dollar-red-bg);    color: var(--color-dollar-red-ink);    border-color: var(--color-dollar-red-rule); }
 
 /* ── CityLead (P3) ─────────────────────────────────────────── */
-.city-lead { padding: var(--space-8) 0 var(--space-4); }
+.city-lead { padding: var(--space-3) 0 var(--space-2); }
 .city-lead-eyebrow {
   font-size: var(--type-eyebrow);
   letter-spacing: 0.14em;
@@ -1058,5 +1058,5 @@
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: var(--space-4);
-  margin: var(--space-4) 0 var(--space-8);
+  margin: var(--space-2) 0 var(--space-3);
 }
