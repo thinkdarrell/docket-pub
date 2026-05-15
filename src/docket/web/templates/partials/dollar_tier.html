@@ -5,7 +5,7 @@
    compliant — tier perception works without color, without sight, and on
    monochrome printouts.
 
-   Inputs (via implicit context — parent passes ``amount``):
+   Args (pass via ``{% with amount=… %}`` + ``{% include … without context %}``):
      - ``amount``  — Decimal | None. When None or invalid, renders nothing.
 
    The partial calls the ``dollar_tier`` filter once at top to compute
@@ -40,6 +40,7 @@
    leaks for invalid amounts. Same posture as E4's source-anchor button
    rendering nothing when ``source_anchor`` is missing.
 #}
+{%- set amount = amount|default(None) -%}
 {%- set tier_data = amount | dollar_tier -%}
 {%- if tier_data -%}
 {%- set formatted = amount | format_dollars -%}

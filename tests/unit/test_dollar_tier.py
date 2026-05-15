@@ -621,6 +621,41 @@ class TestSrOnlyUtilityInStylesCss:
     junk in the layout. This test reads the stylesheet and asserts the
     standard visually-hidden recipe is intact."""
 
+    def test_dollar_tier_does_not_inherit_amount_from_outer_scope(self, app):
+        """Regression: dollar_tier must not silently render when called
+        without amount. Jinja2 ``without context`` isolates the partial
+        completely — no parent-scope ``{% set amount %}`` leaks in.
+        If the partial renders here, it means it grabbed a variable from
+        a scope it shouldn't have access to."""
+        with app.app_context():
+            from flask import render_template_string
+            rendered = render_template_string(
+                "{% set amount = 1234567 %}"
+                "{% include 'partials/dollar_tier.html' without context %}"
+            )
+        assert rendered.strip() == "", (
+            f"dollar_tier inherited amount from outer scope; got: {rendered!r}"
+        )
+
+    def test_dollar_tier_with_explicit_amount_via_with_without_context(self, app):
+        """Positive case: the canonical call pattern must work.
+
+        Callers use ``{% with amount=X %}{% include … with context %}{% endwith %}``
+        which makes the arg explicit (``{% with %}`` creates a scoped block
+        and ``with context`` passes that scoped context to the partial).
+        The partial's ``amount|default(None)`` safety belt handles the
+        case where a caller omits the ``{% with %}`` wrapper.
+        """
+        with app.app_context():
+            from flask import render_template_string
+            rendered = render_template_string(
+                "{% with amount=250000 %}"
+                "{% include 'partials/dollar_tier.html' with context %}"
+                "{% endwith %}"
+            )
+        assert 'dollars--orange' in rendered  # $250K is the orange tier
+        assert '$250,000' in rendered or '$250K' in rendered
+
     def test_sr_only_class_is_visually_hidden_in_styles_css(self):
         styles_path = (
             Path(__file__).resolve().parents[2]
