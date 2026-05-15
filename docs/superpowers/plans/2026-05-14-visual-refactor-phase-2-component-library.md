@@ -73,10 +73,10 @@ ln -s /Users/darrellnance/docket-pub/.env .env
 Confirm clean baseline (deselecting the pre-existing env-blocked test from P1):
 
 ```bash
-venv/bin/pytest --ignore=tests/live --deselect tests/unit/test_ai_worker_run.py::test_run_once_refuses_over_budget -q 2>&1 | tail -3
+venv/bin/pytest --ignore=tests/live -q 2>&1 | tail -3
 ```
 
-Expected: `1536 passed`. Same baseline as P1.
+Expected: `1540 passed`. (P1 baseline was 1536; PR #52 conftest chore added a root `tests/conftest.py` that sets a dummy `ANTHROPIC_API_KEY` so `test_run_once_refuses_over_budget` no longer needs `--deselect`, plus a few new tests of its own. Hence the full suite now runs cleanly without any deselect flag.)
 
 ### Step 2: Dispatch implementer subagent (sonnet)
 
@@ -102,7 +102,7 @@ Expected: `1536 passed`. Same baseline as P1.
 >
 > **Verification:** Run `venv/bin/pytest tests/web/test_partials_visual_refactor.py -v 2>&1 | tail -10`. Expected: one test passes.
 >
-> Then run the deselected full suite: `venv/bin/pytest --ignore=tests/live --deselect tests/unit/test_ai_worker_run.py::test_run_once_refuses_over_budget -q 2>&1 | tail -3`. Expected: `1537 passed` (1536 baseline + 1 new).
+> Then run the full suite: `venv/bin/pytest --ignore=tests/live -q 2>&1 | tail -3`. Expected: `1541 passed` (1540 baseline after PR #52 + 1 new).
 >
 > **Commit message:**
 > ```
@@ -126,11 +126,11 @@ Expected: `1536 passed`. Same baseline as P1.
 ls tests/web/
 cat tests/web/conftest.py | head -40
 venv/bin/pytest tests/web/test_partials_visual_refactor.py -v 2>&1 | tail -10
-venv/bin/pytest --ignore=tests/live --deselect tests/unit/test_ai_worker_run.py::test_run_once_refuses_over_budget -q 2>&1 | tail -3
+venv/bin/pytest --ignore=tests/live -q 2>&1 | tail -3
 git log --oneline -2
 ```
 
-Expected: `conftest.py` contains a `render_partial` fixture; new test passes; suite at 1537 passed; one commit on top of the worktree base.
+Expected: `conftest.py` contains a `render_partial` fixture; new test passes; suite at 1541 passed; one commit on top of the worktree base.
 
 If anything is off, do NOT dispatch reviewers — dispatch a fix subagent with specifics.
 
@@ -295,7 +295,7 @@ If NEEDS_CHANGES: implementer fixes, reviewer re-reviews, until APPROVED.
 >
 > Run tests again: `venv/bin/pytest tests/web/test_partials_visual_refactor.py -v -k num_stat 2>&1 | tail -10`. All four should PASS.
 >
-> Run full suite: `venv/bin/pytest --ignore=tests/live --deselect tests/unit/test_ai_worker_run.py::test_run_once_refuses_over_budget -q 2>&1 | tail -3`. Expected: `1541 passed` (1537 baseline after Task 1 + 4 new).
+> Run full suite: `venv/bin/pytest --ignore=tests/live -q 2>&1 | tail -3`. Expected: `1545 passed` (1541 after Task 1 + 4 new).
 >
 > **Commit message:**
 > ```
@@ -318,10 +318,10 @@ If NEEDS_CHANGES: implementer fixes, reviewer re-reviews, until APPROVED.
 cat src/docket/web/templates/partials/num_stat.html
 git diff src/docket/web/static/layout.css | tail -40
 venv/bin/pytest tests/web/test_partials_visual_refactor.py -v -k num_stat 2>&1 | tail -10
-venv/bin/pytest --ignore=tests/live --deselect tests/unit/test_ai_worker_run.py::test_run_once_refuses_over_budget -q 2>&1 | tail -3
+venv/bin/pytest --ignore=tests/live -q 2>&1 | tail -3
 ```
 
-Expected: partial exists, CSS appended at file end, 4 num_stat tests pass, suite at 1541 passed.
+Expected: partial exists, CSS appended at file end, 4 num_stat tests pass, suite at 1545 passed.
 
 ### Step 3: Spec reviewer (sonnet)
 
@@ -460,7 +460,7 @@ If NEEDS_CHANGES: implementer fixes, reviewer re-reviews.
 > .freshness-sub { font-size: 11px; color: var(--ink-3); }
 > ```
 >
-> Run tests: pass. Run full suite: 1544 passed (1541 + 3 new).
+> Run tests: pass. Run full suite: 1548 passed (1545 + 3 new).
 >
 > **Commit message:**
 > ```
@@ -472,7 +472,7 @@ If NEEDS_CHANGES: implementer fixes, reviewer re-reviews.
 
 ### Step 2-5: Controller verify → spec reviewer → code reviewer → mark complete
 
-Same pattern as Task 2. Controller cross-checks: partial exists, CSS appended, 3 new tests pass, suite at 1544.
+Same pattern as Task 2. Controller cross-checks: partial exists, CSS appended, 3 new tests pass, suite at 1548.
 
 Spec reviewer prompt template (substitute task-specific spec): "Spec compliance reviewer for P2a Task 3. Spec: freshness_chip with args (state, last_synced, source_health_url). States: good/warn/bad. Includes aria-hidden dot. CSS in layout.css P2a section. Tests cover render, all 3 states, aria-hidden assertion." COMPLIANT / NON_COMPLIANT.
 
@@ -579,7 +579,7 @@ Code reviewer prompt template: "Code-quality reviewer for P2a Task 3. Comment on
 > .topic-pill-count { font-size: var(--type-eyebrow); color: var(--ink-3); }
 > ```
 >
-> Run tests: pass. Suite: 1546 passed.
+> Run tests: pass. Suite: 1550 passed.
 >
 > **Commit message:**
 > ```
@@ -725,7 +725,7 @@ Reviewer prompts substitute "topic_row" / topics. Code reviewer should also chec
 > }
 > ```
 >
-> Tests pass → suite at 1549.
+> Tests pass → suite at 1553.
 >
 > **Commit message:**
 > ```
@@ -836,7 +836,7 @@ Code reviewer should specifically check: does using native `<details>` break any
 >
 > CSS in `layout.css` (P2a section) for both variants. Add `mobile.css` overrides under a new `/* ── P2a partials ─── */` section near the end: strip variant cards become 240px wide; grid variant becomes single-column at <768px.
 >
-> Test all four cases → suite at 1553.
+> Test all four cases → suite at 1557.
 >
 > **Commit message:**
 > ```
@@ -984,7 +984,7 @@ Code reviewer should specifically check: does using native `<details>` break any
 > }
 > ```
 >
-> Run tests → suite at 1555.
+> Run tests → suite at 1559.
 >
 > **Commit message:**
 > ```
@@ -1010,7 +1010,7 @@ Code reviewer should specifically check: does using native `<details>` break any
 
 ```bash
 echo "== Suite =="
-venv/bin/pytest --ignore=tests/live --deselect tests/unit/test_ai_worker_run.py::test_run_once_refuses_over_budget -q 2>&1 | tail -3
+venv/bin/pytest --ignore=tests/live -q 2>&1 | tail -3
 
 echo "== New partial files =="
 ls -la src/docket/web/templates/partials/{num_stat,freshness_chip,topic_row,kpi_explainer,meeting_card,source_rail}.html
@@ -1027,7 +1027,7 @@ git log --oneline origin/main..HEAD
 ```
 
 Expected:
-- Suite: 1555 passed
+- Suite: 1559 passed
 - 6 partial files exist
 - "P2a partials" appears at least once in each of layout.css + mobile.css
 - Diff stat: ~7 files (`tests/web/conftest.py`, `tests/web/test_partials_visual_refactor.py`, 6 partials, layout.css, mobile.css)
@@ -1057,7 +1057,7 @@ Expected: every line begins with `200`. No `5xx`.
 
 - [ ] Post this message to the operator and HALT:
 
-> "P2a worktree complete. All 6 new partials shipped with snapshot tests; suite at 1555 (1536 baseline + 19 new). Zero changes to rendered pages — the new partials aren't included by any template yet. Route-smoke confirms every public page still returns 200. No commits modify existing partials, view functions, or page templates.
+> "P2a worktree complete. All 6 new partials shipped with snapshot tests; suite at 1559 (1540 baseline + 19 new). Zero changes to rendered pages — the new partials aren't included by any template yet. Route-smoke confirms every public page still returns 200. No commits modify existing partials, view functions, or page templates.
 >
 > Before I push the branch and open the PR, please:
 > - Skim the diff: `git -C /Users/darrellnance/docket-pub/.claude/worktrees/worktree-visual-refactor-p2a diff origin/main..HEAD`
@@ -1089,7 +1089,7 @@ P2b will land separately: restyling `_card_shell.html` / `council_card.html` / `
 
 ## Test plan
 
-- [x] `pytest --ignore=tests/live --deselect tests/unit/test_ai_worker_run.py::test_run_once_refuses_over_budget` → 1555 passed (1536 baseline + 19 new partial-snapshot tests).
+- [x] `pytest --ignore=tests/live` → 1559 passed (1540 baseline after PR #52 conftest chore + 19 new partial-snapshot tests).
 - [x] Each new partial has a snapshot test covering basic render + edge cases (empty inputs, optional args, state variants).
 - [x] Route-smoke at desktop: every public page returns 200 — no template render regressions.
 - [ ] **Post-merge production verification:** curl `https://docket.pub/static/styles.css?v=$(date +%s)` confirms layout.css additions are live; route-smoke against docket.pub confirms zero rendering regressions. Visual sweep confirms no unintended visual changes anywhere.
