@@ -7,11 +7,11 @@
      source_health_url (str, required)
 #}
 <a class="freshness-chip is-{{ state }}" href="{{ source_health_url }}">
-  <span class="freshness-dot" aria-hidden="true"></span>
-  <span class="freshness-state-label t-mono">
+  <span class="freshness-chip-dot" aria-hidden="true"></span>
+  <span class="freshness-chip-state-label t-mono">
     {% if state == 'good' %}Live · feed active
     {%- elif state == 'warn' %}Stale · check source
     {%- else %}Broken · feed down{% endif %}
   </span>
-  <span class="freshness-sub t-meta">updated {{ last_synced }}</span>
+  <span class="freshness-chip-sub t-meta">updated {{ last_synced }}</span>
 </a>

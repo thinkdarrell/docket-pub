@@ -674,14 +674,17 @@
   transition: border-color 0.15s, color 0.15s;
 }
 .freshness-chip:hover { border-color: var(--rule-strong); color: var(--ink); }
-.freshness-dot {
+.freshness-chip-dot {
   width: 7px;
   height: 7px;
   border-radius: 50%;
   background: var(--ink-4);
 }
-.freshness-chip.is-good .freshness-dot { background: var(--good); }
-.freshness-chip.is-warn .freshness-dot { background: var(--warn); }
-.freshness-chip.is-bad  .freshness-dot { background: var(--bad); }
-.freshness-state-label { font-size: var(--type-eyebrow); letter-spacing: 0.1em; text-transform: uppercase; }
-.freshness-sub { /* font-size + color from .t-meta */ }
+.freshness-chip.is-good .freshness-chip-dot { background: var(--good); }
+.freshness-chip.is-warn .freshness-chip-dot { background: var(--warn); }
+.freshness-chip.is-bad  .freshness-chip-dot { background: var(--bad); }
+.freshness-chip-state-label { font-size: var(--type-eyebrow); letter-spacing: 0.1em; text-transform: uppercase; }
+/* .freshness-chip-sub inherits font-size + color from .t-meta (no own rules).
+   Namespaced with -chip- to avoid collision with the legacy .freshness-sub
+   rule at line 166 (which styles the old .freshness button on city.html
+   until P3 replaces it with this chip). */
