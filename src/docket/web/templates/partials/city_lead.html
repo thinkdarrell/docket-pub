@@ -1,0 +1,39 @@
+{# CityLead — eyebrow (council type · county · population) + h1 (city, state)
+   + freshness chip. P3 top-of-overview block. Renders gracefully when
+   municipality.metadata is partially or fully empty (newly-onboarded
+   cities will lack fields until populated).
+
+   Args:
+     municipality (dict) — required. Must include name, state, slug,
+                          adapter_class. metadata may be empty.
+     freshness (dict, optional) — {state, label, last_synced}. Defaults
+                                  to neutral "unknown" if absent.
+
+   The freshness chip is STATIC in P3 (no link, no click). P4 wires
+   the source-health route and makes it clickable.
+#}
+{%- set md = (municipality.metadata if municipality.metadata is defined else {}) or {} -%}
+{%- set parts = [] -%}
+{%- if md.get('council_type') -%}{%- set _ = parts.append(md.get('council_type')) -%}{%- endif -%}
+{%- if md.get('county') -%}{%- set _ = parts.append(md.get('county')) -%}{%- endif -%}
+{%- if md.get('population') -%}{%- set _ = parts.append("{:,} pop.".format(md.get('population'))) -%}{%- endif -%}
+
+<section class="city-lead">
+  <div class="city-lead-eyebrow t-mono">
+    {%- if parts %}{{ parts | join(' · ') }}{% endif -%}
+  </div>
+  <div class="city-lead-row">
+    <h1 class="city-lead-h1">{{ municipality.name }}, {{ municipality.state }}</h1>
+    <div class="city-lead-chip is-{{ (freshness or {}).get('state', 'unknown') }}"
+         data-state="{{ (freshness or {}).get('state', 'unknown') }}"
+         aria-label="Data freshness: {{ (freshness or {}).get('label', 'Unknown') }}">
+      <span class="city-lead-chip-dot" aria-hidden="true"></span>
+      <span class="city-lead-chip-label">{{ (freshness or {}).get('label', 'Unknown') }}</span>
+      {% if (freshness or {}).get('last_synced') %}
+        <span class="city-lead-chip-meta t-mono">
+          synced {{ (freshness or {}).get('last_synced').strftime('%b %d') }}
+        </span>
+      {% endif %}
+    </div>
+  </div>
+</section>

@@ -465,3 +465,73 @@ def test_council_card_button_has_type_button(render_partial):
     municipality = {'slug': 'birmingham'}
     html = render_partial("partials/council_card.html", m=m, municipality=municipality)
     assert 'type="button"' in html
+
+
+# ── P3 Task 4: city_lead — eyebrow + h1 + freshness chip ────────────────────
+
+
+def test_city_lead_renders_full_metadata(render_partial):
+    """CityLead with all 3 metadata fields renders eyebrow + h1 + chip."""
+    municipality = {
+        "id": 1, "slug": "birmingham", "name": "Birmingham", "state": "AL",
+        "adapter_class": "GranicusAdapter",
+        "metadata": {
+            "council_type": "Mayor-council",
+            "county": "Jefferson County",
+            "population": 196910,
+            "population_year": 2020,
+        },
+    }
+    freshness = {"state": "good", "label": "Live", "last_synced": None}
+    html = render_partial("partials/city_lead.html", municipality=municipality, freshness=freshness)
+    assert 'class="city-lead' in html
+    assert "Mayor-council" in html
+    assert "Jefferson County" in html
+    assert "196,910" in html  # comma-formatted
+    assert "Birmingham, AL" in html
+    assert "city-lead-chip" in html
+
+
+def test_city_lead_eyebrow_collapses_when_metadata_empty(render_partial):
+    """No metadata → eyebrow row renders no content (degrades gracefully)."""
+    municipality = {
+        "id": 99, "slug": "newcity", "name": "New City", "state": "AL",
+        "adapter_class": "GranicusAdapter",
+        "metadata": {},
+    }
+    freshness = {"state": "unknown", "label": "No data yet", "last_synced": None}
+    html = render_partial("partials/city_lead.html", municipality=municipality, freshness=freshness)
+    assert "New City, AL" in html  # h1 still renders
+    # No accidental literal eyebrow text from a populated city
+    assert "Mayor-council" not in html
+    assert "Jefferson County" not in html
+    # The eyebrow div container can exist but its content should be empty
+    # of metadata strings — no "·" separators from joining
+    eyebrow_text = html.split('class="city-lead-eyebrow')[1].split("</div>")[0]
+    assert "·" not in eyebrow_text
+
+
+def test_city_lead_partial_metadata_renders_partial_eyebrow(render_partial):
+    """Some metadata present → render what's available."""
+    municipality = {
+        "id": 99, "slug": "partial", "name": "Partial City", "state": "AL",
+        "adapter_class": "GranicusAdapter",
+        "metadata": {"county": "Some County"},
+    }
+    freshness = {"state": "good", "label": "Live", "last_synced": None}
+    html = render_partial("partials/city_lead.html", municipality=municipality, freshness=freshness)
+    assert "Some County" in html
+    assert "pop." not in html  # population missing → not rendered
+
+
+def test_city_lead_freshness_chip_renders_state(render_partial):
+    """Freshness chip exposes its state via class + data attribute."""
+    municipality = {
+        "id": 1, "slug": "birmingham", "name": "Birmingham", "state": "AL",
+        "adapter_class": "GranicusAdapter", "metadata": {},
+    }
+    for state in ("good", "warn", "bad", "unknown"):
+        freshness = {"state": state, "label": state.title(), "last_synced": None}
+        html = render_partial("partials/city_lead.html", municipality=municipality, freshness=freshness)
+        assert f"is-{state}" in html
+        assert f'data-state="{state}"' in html
