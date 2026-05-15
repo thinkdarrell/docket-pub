@@ -866,3 +866,18 @@
 .meeting-card--grid .meeting-card__title {
   -webkit-line-clamp: 2;
 }
+
+/* ─── P2a: source_rail KPI explainer stack ─────────────────────────────── */
+
+.source-rail-kpis {
+  margin-top: var(--space-6);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--rule);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.source-rail-section-h {
+  color: var(--ink-3);
+  margin-bottom: var(--space-2);
+}
