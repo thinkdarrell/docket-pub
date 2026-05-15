@@ -40,6 +40,7 @@ MIGRATIONS = [
     "docket.migrations.027_editorial_coverage",
     "docket.migrations.028_coverage_links_unique_nulls",
     "docket.migrations.029_municipalities_metadata",
+    "docket.migrations.030_sponsor_trgm_and_hoover",
 ]
 
 
