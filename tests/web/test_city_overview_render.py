@@ -78,3 +78,32 @@ def test_meeting_detail_renders_kpi_explainer_stack(client):
         assert 'page-sources-kpis' in html, (
             "meeting detail should render KPI explainer stack"
         )
+
+
+def test_overview_renders_city_lead(client):
+    """P3: city.html consumes the city_lead partial at the top."""
+    resp = client.get("/al/birmingham/")
+    assert resp.status_code == 200
+    html = resp.data.decode()
+    assert 'class="city-lead' in html
+    assert "Birmingham, AL" in html
+
+
+def test_overview_renders_kpi_strip(client):
+    """P3: city.html consumes the kpi_strip partial below city_lead."""
+    resp = client.get("/al/birmingham/")
+    html = resp.data.decode()
+    assert 'class="kpi-strip' in html
+    assert "Meetings YTD" in html
+    assert "Dollars YTD" in html
+    assert "Flagged" in html
+
+
+def test_overview_no_longer_renders_old_hero_or_kpi_grid(client):
+    """Old top section deleted: hero narrative + 4-card kpi-grid gone."""
+    resp = client.get("/al/birmingham/")
+    html = resp.data.decode()
+    # The old hero section had class="hero" (not city-lead)
+    assert 'class="hero"' not in html
+    # The old 4-card KPI grid had class="kpi-grid"
+    assert 'class="kpi-grid"' not in html

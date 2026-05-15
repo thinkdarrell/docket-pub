@@ -492,96 +492,73 @@ def test_city_homepage_process_tile_shows_count_with_30day_label(bag, client):
 
 # ---------------------------------------------------------------------------
 # F4.3 — Badge legend on city.html
+# P3 update: the badge legend paragraph was deleted as part of the hero
+# section removal (Task 8). The `id="badge-legend"` element no longer
+# exists in city.html; these tests have been updated to reflect P3 state.
 # ---------------------------------------------------------------------------
 
 
 def test_city_homepage_has_badge_legend(client):
+    """P3: badge legend (id=badge-legend) was removed with the hero section.
+    The page still renders (200) and the Browse by Priority section still
+    surfaces process/policy vocabulary — the per-tile layout replaces the
+    inline legend paragraph."""
     rv = client.get("/al/birmingham/")
     body = rv.get_data(as_text=True)
-    assert 'class="badge-legend' in body or 'class="badge-legend"' in body
-    assert 'id="badge-legend"' in body
+    assert rv.status_code == 200
+    # Badge legend paragraph deleted in P3 — city_lead replaces the hero
+    assert 'id="badge-legend"' not in body, (
+        "P3: badge-legend paragraph should have been removed with the hero"
+    )
+    # Browse-by-priority section still provides process/policy vocabulary
+    assert "process" in body.lower()
 
 
 def test_badge_legend_explains_process_and_policy(client):
+    """P3: badge legend removed from hero; process/policy vocabulary still
+    reachable via Browse by Priority tiles."""
     rv = client.get("/al/birmingham/")
     body = rv.get_data(as_text=True)
-    # Both kinds named in citizen vocabulary.
+    # Both kinds named in citizen vocabulary via Browse by Priority tiles.
     assert "process" in body.lower()
     assert "policy" in body.lower()
-    # Verification Spark callout — the ✨ emoji must appear in the
-    # legend region (it appears elsewhere in the page too, so this is
-    # a soft check).
-    assert "✨" in body
 
 
 def test_badge_legend_has_no_internal_jargon(client):
-    """R2-style guard: legend must not surface pipeline vocabulary."""
+    """P3: badge-legend paragraph deleted; jargon check is now a no-op.
+    The page must still render cleanly."""
     rv = client.get("/al/birmingham/")
     body = rv.get_data(as_text=True)
-    # Pull the legend region and only check that.
-    start = body.find('id="badge-legend"')
-    assert start != -1
-    end = body.find("</p>", start)
-    legend_region = body[start:end]
-    for jargon in ("Wave 0", "Track 1", "D2", "matchers", "backfill",
-                   "Stage 0", "matcher_hints", "v3"):
-        assert jargon not in legend_region, (
-            f"legend contains internal jargon {jargon!r}"
-        )
+    assert rv.status_code == 200
+    # id="badge-legend" is gone — no region to scan for jargon
+    assert 'id="badge-legend"' not in body
 
 
 def test_badge_legend_spark_has_aria_label(client):
-    """F4 review fix-up (R4): the ✨ Verification Spark glyph must carry
-    ``aria-label="AI-verified"`` (was ``aria-hidden="true"``). With
-    aria-hidden, screen readers read "A means independent sources
-    agree on the tag" — ungrammatical without the glyph.
-
-    Matches decision #67 spec line 2745-2746 + ``partials/badge_chip.html:33``.
-    """
+    """P3: badge-legend paragraph (with the ✨ spark) deleted from hero.
+    The page still renders; the spark may appear in badge chips elsewhere."""
     rv = client.get("/al/birmingham/")
     body = rv.get_data(as_text=True)
-    # Pin to the legend region so we don't accidentally pass on a chip
-    # elsewhere in the page that happens to use the right label.
-    start = body.find('id="badge-legend"')
-    end = body.find("</p>", start)
-    region = body[start:end]
-    assert 'aria-label="AI-verified"' in region, (
-        "badge-spark must carry aria-label=\"AI-verified\""
-    )
-    assert 'aria-hidden="true"' not in region or 'badge-spark' not in region, (
-        "badge-spark span should not still carry aria-hidden=\"true\""
-    )
+    assert rv.status_code == 200
+    # id="badge-legend" is gone
+    assert 'id="badge-legend"' not in body
 
 
 def test_badge_legend_policy_parenthetical_gated_on_city_policy_badges(client):
-    """F4 review fix-up (S8): the legend's "policy, like blight or
-    housing" parenthetical promises a category that non-BHM cities
-    don't render (Mobile/Vestavia/Homewood have no policy tiles in v1
-    seed). The Jinja guard hides the parenthetical when
-    ``city_policy_badges`` is empty.
-
-    BHM (with 4 seeded policy badges) keeps the parenthetical; Mobile
-    drops it.
-    """
+    """P3: badge-legend paragraph deleted from hero; gating logic gone too.
+    Both BHM and Mobile render (200) without the legend element."""
     rv = client.get("/al/birmingham/")
-    body = rv.get_data(as_text=True)
-    start = body.find('id="badge-legend"')
-    end = body.find("</p>", start)
-    bhm_region = body[start:end]
-    assert "policy" in bhm_region.lower(), (
-        "BHM legend should still mention policy"
+    assert rv.status_code == 200
+    bhm_body = rv.get_data(as_text=True)
+    assert 'id="badge-legend"' not in bhm_body, (
+        "P3: badge-legend should be absent from BHM city page"
     )
 
     rv = client.get("/al/mobile/")
-    body = rv.get_data(as_text=True)
-    start = body.find('id="badge-legend"')
-    end = body.find("</p>", start)
-    mobile_region = body[start:end]
-    # Mobile has zero policy badges — the parenthetical should be
-    # suppressed. The word "policy" inside ``badge-policy-sample`` is
-    # part of that parenthetical, so it should be absent.
-    assert "badge-policy-sample" not in mobile_region, (
-        "Mobile legend should suppress the policy parenthetical"
+    assert rv.status_code == 200
+    mobile_body = rv.get_data(as_text=True)
+    assert 'id="badge-legend"' not in mobile_body, (
+        "P3: badge-legend should be absent from Mobile city page"
     )
 
 
