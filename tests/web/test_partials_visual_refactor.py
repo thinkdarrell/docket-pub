@@ -584,3 +584,22 @@ def test_kpi_strip_renders_three_cards(render_partial):
     assert "Meetings YTD" in html
     assert "Dollars YTD" in html
     assert "Flagged" in html  # "Flagged items"
+
+
+# ── P3 Task 10: .hero-title token migration ──────────────────────────────────
+
+
+def test_hero_title_uses_type_hero_token():
+    """P3 (resolves P2a follow-up #1): .hero-title consumes the
+    --type-hero token, not a literal 72px."""
+    import re
+    css = (PROJECT_ROOT / "src/docket/web/static/layout.css").read_text()
+    match = re.search(r"\.hero-title\s*\{[^}]*\}", css)
+    assert match, ".hero-title rule missing from layout.css"
+    rule_body = match.group(0)
+    assert "var(--type-hero)" in rule_body, (
+        ".hero-title not consuming --type-hero token"
+    )
+    assert "font-size: 72px" not in rule_body, (
+        ".hero-title still has the legacy 72px literal"
+    )
