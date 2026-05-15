@@ -21,7 +21,7 @@ from flask import render_template
 from docket.web import create_app
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def render_partial():
     """Return a helper that renders a Jinja template inside a request context.
 
@@ -31,6 +31,18 @@ def render_partial():
 
     where ``template_path`` is relative to the app's template directory
     (e.g. ``'partials/num_stat.html'``).
+
+    Scope is ``module`` to match the project convention for app-creating
+    fixtures (see ``tests/unit/test_card_shell.py``, etc.). ``create_app``
+    is stateless across renders, so sharing one app across a module's
+    tests is safe and avoids the per-test factory cost.
+
+    Context-key safety: Flask's default ``jinja_env`` uses ``Undefined``
+    (not ``StrictUndefined``), so a missing context key silently renders
+    as an empty string. This is by design — many of the partials being
+    tested have ``{% if optional_thing %}`` guards, and tests of those
+    branches intentionally omit the key. If you want a missing key to
+    raise, supply the key with an ``Undefined``-typed sentinel explicitly.
     """
     app = create_app()
 
