@@ -360,7 +360,11 @@ to:
 {% endif %}
 ```
 
-**Why `without context`:** Jinja includes parent context by default, which would silently fall back to any outer-scope `amount` if `{% with %}` were ever removed or mistyped. `without context` makes the contract strict — only the `{% with %}`-bound vars reach the partial. `dollar_tier.html` doesn't use `now`, `municipality`, `request`, or any other parent-scope global, so this is safe. (Jinja filters like `dollar_tier` and `format_dollars` come from the environment, not template context, so they remain available under `without context`.) Any future caller that adopts the partial MUST also use `{% with amount=… %}{% include … without context %}`.
+**Jinja note (corrected during Task 3 execution):** my original wording said "use `without context`" — that's broken. Jinja's `without context` strips ALL parent scope, **including `{% with %}`-bound vars**. So `{% with amount=X %}{% include … without context %}{% endwith %}` passes nothing to the partial — the partial would render empty.
+
+The correct working idiom is `{% with amount=X %}{% include … with context %}{% endwith %}`. The `{% with %}` block creates a new scope that SHADOWS any outer `amount`; `with context` (the default) propagates that shadowed scope into the partial. Outer-scope leakage is prevented by the `{% with %}` shadow, not by `without context`.
+
+The negative isolation test (`test_dollar_tier_does_not_inherit_amount_from_outer_scope`) still uses `without context` correctly — it asserts what happens when an explicit-arg pattern is NOT used. Real call sites use `with context`. Both meeting_card.html (Task 3) and card_smart_brevity.html (Task 6) follow this pattern.
 
 ### Step 4: Run all relevant tests
 
@@ -697,7 +701,7 @@ Expected: FAIL (new structure not yet implemented).
     </div>
     {% if item.dollars_total %}
       {% with amount=item.dollars_total %}
-        {% include 'partials/dollar_tier.html' without context %}
+        {% include 'partials/dollar_tier.html' with context %}
       {% endwith %}
     {% endif %}
   </div>
