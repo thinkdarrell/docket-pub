@@ -1,0 +1,22 @@
+{# 3-card YTD KPI strip for P3 city overview top.
+
+   Args:
+     city_stats (dict) — required. Must include:
+       - meetings_ytd (int)
+       - dollars_ytd_formatted (str, e.g. "$1.4B" — pre-formatted by view)
+       - flagged_count (int)
+
+   Wraps 3 num_stat partials. On desktop 3 equal columns; on mobile
+   becomes horizontal scroll-snap (mobile.css).
+#}
+<div class="kpi-strip">
+  {% with label="Meetings YTD", value="{:,}".format(city_stats.meetings_ytd) %}
+    {% include 'partials/num_stat.html' with context %}
+  {% endwith %}
+  {% with label="Dollars YTD", value=city_stats.dollars_ytd_formatted %}
+    {% include 'partials/num_stat.html' with context %}
+  {% endwith %}
+  {% with label="Flagged items", value="{:,}".format(city_stats.flagged_count), sub="contested votes YTD" %}
+    {% include 'partials/num_stat.html' with context %}
+  {% endwith %}
+</div>

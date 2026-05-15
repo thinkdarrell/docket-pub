@@ -1052,3 +1052,11 @@
 .city-lead-chip.is-bad .city-lead-chip-dot { background: var(--bad, #b03a3a); }
 .city-lead-chip-label { font-weight: 500; }
 .city-lead-chip-meta { color: var(--ink-3); font-size: 11px; }
+
+/* ── KPI strip (P3 top-of-overview) ─────────────────────────── */
+.kpi-strip {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-4);
+  margin: var(--space-4) 0 var(--space-8);
+}

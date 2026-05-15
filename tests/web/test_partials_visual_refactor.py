@@ -535,3 +535,25 @@ def test_city_lead_freshness_chip_renders_state(render_partial):
         html = render_partial("partials/city_lead.html", municipality=municipality, freshness=freshness)
         assert f"is-{state}" in html
         assert f'data-state="{state}"' in html
+
+
+# ── P3 Task 5: kpi_strip — 3-card YTD KPI row ───────────────────────────────
+
+
+def test_kpi_strip_renders_three_cards(render_partial):
+    """kpi_strip wraps 3 num_stat partials in a single .kpi-strip row."""
+    city_stats = {
+        "meetings_ytd": 38,
+        "dollars_ytd_formatted": "$1.4B",
+        "flagged_count": 12,
+    }
+    html = render_partial("partials/kpi_strip.html", city_stats=city_stats)
+    assert 'class="kpi-strip' in html
+    # All three values present
+    assert "38" in html
+    assert "1.4B" in html
+    assert "12" in html
+    # All three labels present
+    assert "Meetings YTD" in html
+    assert "Dollars YTD" in html
+    assert "Flagged" in html  # "Flagged items"
