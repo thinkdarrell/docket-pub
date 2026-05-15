@@ -15,7 +15,7 @@
 
 **Tech Stack:**
 - Jinja2 templates (no framework changes)
-- Pytest with Flask's `application_context` for partial rendering
+- Pytest with Flask's `test_request_context` for partial rendering (provides both app + request context so partials that call `url_for` work)
 - CSS custom properties from P1 (`--type-*`, `--space-*`) consumed in partial CSS
 - No new Python dependencies, no migrations, no JS changes
 
@@ -31,7 +31,7 @@
 
 | File | Action | Responsibility |
 |------|--------|----------------|
-| `tests/web/conftest.py` | Modify or create | Add a pytest fixture `render_partial(name, **ctx)` that renders a single Jinja partial with the supplied context inside a Flask `app_context`. Used by every new test in P2a and by P3+. |
+| `tests/web/conftest.py` | Modify or create | Add a pytest fixture `render_partial(name, **ctx)` that renders a single Jinja partial with the supplied context inside a Flask `test_request_context` (required for partials that call `url_for`). Used by every new test in P2a and by P3+. |
 | `tests/web/test_partials_visual_refactor.py` | Create | One test function per new partial, each asserting render success + presence of key DOM elements. |
 | `src/docket/web/templates/partials/num_stat.html` | Create | Reusable KPI / NumStat block — label + value + optional sub. |
 | `src/docket/web/templates/partials/freshness_chip.html` | Create | Status pill — state dot + last_synced timestamp + link to `/al/<slug>/source-health/`. |
@@ -494,6 +494,8 @@ Code reviewer prompt template: "Code-quality reviewer for P2a Task 3. Comment on
 >
 > **Look at existing topic-pill markup in `city.html`** (`grep -A 5 "topic-pill\|topic-row" src/docket/web/templates/city.html`) — your partial should produce equivalent HTML so when P3 swaps the inline markup for the partial, the visual is identical.
 >
+> **Before writing the `url_for` call, verify the exact route kwarg name.** Run `grep -nE "@bp\.route.*topic|def topic_detail" src/docket/web/public.py`. You'll see the endpoint name is `public.topic_detail` and its kwarg name is whatever the function signature shows. Use that exact kwarg name in `url_for('public.topic_detail', <kwarg>=topic.slug)`. A wrong kwarg name raises `werkzeug.routing.BuildError` at test time and the agent will loop trying to debug a Jinja issue that's actually a routing-arity issue.
+>
 > **TDD tests first:**
 >
 > ```python
@@ -754,6 +756,8 @@ Code reviewer should specifically check: does using native `<details>` break any
 >
 > **Look at existing meeting-card markup in `city.html`** (the This-Week strip section) and `meetings.html` (the grid) to see what data fields meetings expose. Match those field references exactly — `meeting.date`, `meeting.title`, `meeting.summary`, `meeting.agenda_count`, `meeting.dollars_total`, `meeting.meeting_type`, `meeting.id`. Use `municipality.slug` for the link target.
 >
+> **Before writing the `url_for` call, verify the exact route kwarg names.** Run `grep -nE "@bp\.route.*meeting|def meeting_detail" src/docket/web/public.py`. You'll see the endpoint name is `public.meeting_detail` and its kwarg names match its function signature. Use `url_for('public.meeting_detail', <slug_kwarg>=municipality.slug, <id_kwarg>=meeting.id)` with the exact kwarg names from the signature. A wrong kwarg name raises `werkzeug.routing.BuildError` at test time.
+>
 > **TDD tests first:**
 >
 > ```python
@@ -943,12 +947,18 @@ Code reviewer should specifically check: does using native `<details>` break any
 > {# 1. Provenance section — re-uses existing rail_default content. #}
 > {% include 'partials/rail_default.html' %}
 >
-> {# 2. KPI explainer stack — new in P2a. #}
+> {# 2. KPI explainer stack — new in P2a.
+>    Defensive dict access: stat is a dict, and `sub` may be intentionally
+>    omitted (not just None). Use Jinja's get() so a missing key resolves
+>    to None instead of raising / rendering Undefined under strict_undefined. #}
 > {% if kpi_stats %}
 > <section class="source-rail-kpis">
 >   <div class="source-rail-section-h t-eyebrow">By the numbers</div>
 >   {% for stat in kpi_stats %}
->     {% with label=stat.label, value=stat.value, sub=stat.sub, sql_display=stat.sql_display %}
+>     {% with label=stat.get('label'),
+>             value=stat.get('value'),
+>             sub=stat.get('sub'),
+>             sql_display=stat.get('sql_display') %}
 >       {% include 'partials/kpi_explainer.html' %}
 >     {% endwith %}
 >   {% endfor %}
