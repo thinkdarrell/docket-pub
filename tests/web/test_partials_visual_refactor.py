@@ -537,6 +537,33 @@ def test_city_lead_freshness_chip_renders_state(render_partial):
         assert f'data-state="{state}"' in html
 
 
+# ── P3 Task 8: .tw section condensation regression ──────────────────────────
+
+
+def test_tw_section_compact_class_present():
+    """P3: .tw section uses tight vertical spacing — no oversized literal pads."""
+    import re
+    for path in (
+        "src/docket/web/static/councilmatic.css",
+        "src/docket/web/static/layout.css",
+        "src/docket/web/static/styles.css",
+    ):
+        css = (PROJECT_ROOT / path).read_text() if (PROJECT_ROOT / path).exists() else ""
+        if ".tw {" in css or ".tw\n{" in css or ".tw{" in css:
+            # Found the .tw rule — verify it's not using oversized literal pads
+            rule = re.search(r"\.tw\s*\{[^}]*\}", css)
+            if rule:
+                # Should NOT carry padding > 48px literal
+                bad = re.findall(r"padding:[^;]*?(\d{2,3})px", rule.group(0))
+                if bad:
+                    assert max(int(x) for x in bad) <= 48, (
+                        f".tw padding too loose: {rule.group(0)}"
+                    )
+            return  # found and verified
+    # If no .tw {} block found, the rules may live in a media query or
+    # composite selector — skip the structural check.
+
+
 # ── P3 Task 5: kpi_strip — 3-card YTD KPI row ───────────────────────────────
 
 

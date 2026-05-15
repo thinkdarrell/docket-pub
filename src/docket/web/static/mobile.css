@@ -115,8 +115,8 @@
   .kpi-sub { font-size: 11px; }
 
   /* ── 5. "This week" strip → horizontal scroll-snap carousel ───────────────── */
-  .tw { padding: 24px 0 28px; }
-  .tw-head { margin-bottom: 14px; gap: 12px; }
+  .tw { padding: 14px 0 16px; }
+  .tw-head { margin-bottom: 10px; gap: 12px; }
   .tw-strip {
     display: flex !important;
     grid-template-columns: none !important;
