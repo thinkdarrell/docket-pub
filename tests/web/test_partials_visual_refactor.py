@@ -352,11 +352,29 @@ def test_stat_card_base_class_exists_in_layout_css():
 
 
 def test_num_stat_renders_t_tnum_on_value(render_partial):
-    """num_stat's value span uses the .t-tnum utility instead of redeclaring
-    font-feature-settings inline."""
+    """num_stat's value span carries both t-tnum (tabular numerics) and
+    t-display (serif display sizing). Replacing one with the other drops
+    the Source Serif display font — both must be present."""
     html = render_partial(
         'partials/num_stat.html',
         label='Meetings YTD',
         value='42',
     )
-    assert 'class="num-stat-value t-tnum"' in html or 'class="t-tnum num-stat-value"' in html
+    # Both t-tnum (tabular numerics) and t-display (serif display sizing) must be present.
+    assert 't-tnum' in html, "t-tnum class missing from num-stat value"
+    assert 't-display' in html, "t-display class missing from num-stat value"
+
+
+def test_kpi_explainer_renders_t_display_and_t_tnum_on_value(render_partial):
+    """kpi_explainer's value span carries both t-tnum and t-display,
+    mirroring num_stat. Dropping t-display silently switches the value
+    to the mono fallback font."""
+    html = render_partial(
+        'partials/kpi_explainer.html',
+        label='Meetings',
+        value='42',
+        sub=None,
+        sql_display='SELECT count(*) FROM meetings',
+    )
+    assert 't-tnum' in html, "t-tnum class missing from kpi-explainer value"
+    assert 't-display' in html, "t-display class missing from kpi-explainer value"

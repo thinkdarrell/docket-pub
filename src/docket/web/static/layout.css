@@ -634,10 +634,9 @@
 /* ── P2a partials ───────────────────────────────────────── */
 
 /* Shared base for num_stat and kpi_explainer cards.
-   Common padding, border, background live here; each card adds its own
-   layout specifics (flex-direction, gap) in its own selector. */
+   Truly shared chrome (border, background) lives here; padding is
+   per-card because the two cards use different values. */
 .stat-card-base {
-  padding: var(--space-3) var(--space-4);
   border: 1px solid var(--rule);
   border-radius: var(--radius);
   background: var(--paper);
@@ -648,9 +647,6 @@
   flex-direction: column;
   gap: var(--space-1);
   padding: var(--space-3) var(--space-4);
-  border: 1px solid var(--rule);
-  border-radius: var(--radius);
-  background: var(--paper);
 }
 .num-stat-label {
   font-size: var(--type-eyebrow);
@@ -731,9 +727,6 @@
 /* ── kpi_explainer partial ──────────────────────────────── */
 .kpi-explainer {
   padding: var(--space-3);
-  border: 1px solid var(--rule);
-  border-radius: var(--radius);
-  background: var(--paper);
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
