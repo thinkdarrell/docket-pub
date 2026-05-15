@@ -140,6 +140,15 @@
 .crumbs a.is-current { color: var(--ink); font-weight: 500; }
 .crumbs .dim { color: var(--ink-4); }
 
+/* ── breadcrumbs (page-level hierarchy block, distinct from masthead .crumbs) ── */
+.breadcrumbs { padding: 16px 0 8px; font-size: 11px; color: var(--ink-3); letter-spacing: 0.04em; }
+.breadcrumbs-list { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.breadcrumbs-item { display: inline-flex; align-items: center; gap: 6px; }
+.breadcrumbs-link { color: var(--ink-3); text-decoration: none; }
+.breadcrumbs-link:hover { color: var(--accent-ink); text-decoration: underline; }
+.breadcrumbs-current { color: var(--ink); font-weight: 500; }
+.breadcrumbs-sep { color: var(--ink-4); }
+
 /* ── hero ─────────────────────────────────────────── */
 .hero { padding: 48px 0 56px; border-bottom: 1px solid var(--rule); }
 .hero-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 32px; margin-bottom: 40px; }

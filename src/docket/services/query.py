@@ -828,6 +828,130 @@ def topic_counts(municipality_slug: str | None = None) -> list[dict]:
         return [dict(row) for row in cur.fetchall()]
 
 
+# --- Related items (P4-2 §5; consumed by P4-1 item_detail) ------------------
+
+
+def list_related_items_by_topic(
+    item_id: int,
+    *,
+    limit: int = 3,
+    same_city_only: bool = True,
+) -> list[dict]:
+    """Return up to ``limit`` agenda items sharing the seed item's topic.
+
+    Excludes the seed item itself and any other item from the same meeting
+    (to surface cross-meeting context rather than sibling agenda items).
+    Filters out withdrawn items, matching ``list_agenda_items`` semantics.
+    Returns ``[]`` when the seed has no topic or doesn't exist.
+
+    Column shape matches ``list_agenda_items_by_topic`` so callers can render
+    via ``partials/card_smart_brevity.html`` without adaptation.
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT seed.topic, seed.meeting_id, mt_seed.municipality_id
+            FROM agenda_items seed
+            JOIN meetings mt_seed ON mt_seed.id = seed.meeting_id
+            WHERE seed.id = %s
+            """,
+            (item_id,),
+        )
+        seed = cur.fetchone()
+        if not seed or not seed["topic"]:
+            return []
+
+        where_city = "AND mt.municipality_id = %s" if same_city_only else ""
+        params: list = [seed["topic"], item_id, seed["meeting_id"]]
+        if same_city_only:
+            params.append(seed["municipality_id"])
+        params.append(limit)
+
+        cur.execute(
+            f"""
+            SELECT ai.*,
+                   mt.title AS meeting_title,
+                   mt.meeting_date,
+                   m.name   AS municipality_name,
+                   m.slug   AS municipality_slug
+            FROM agenda_items ai
+            JOIN meetings mt        ON ai.meeting_id = mt.id
+            JOIN municipalities m   ON mt.municipality_id = m.id
+            WHERE m.active = TRUE
+              AND ai.topic = %s
+              AND ai.id <> %s
+              AND ai.meeting_id <> %s
+              AND ai.processing_status::text <> 'withdrawn'
+              {where_city}
+            ORDER BY mt.meeting_date DESC
+            LIMIT %s
+            """,
+            params,
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+
+def list_related_items_by_sponsor(
+    item_id: int,
+    *,
+    limit: int = 3,
+    same_city_only: bool = True,
+) -> list[dict]:
+    """Return up to ``limit`` agenda items sharing the seed item's sponsor text.
+
+    Uses ILIKE against ``agenda_items.sponsor`` (TEXT column, no FK). The
+    trigram index added in migration 030 supports the ``%substring%`` pattern.
+    Excludes the seed item and other items from the same meeting.
+    Filters out withdrawn items. Returns ``[]`` when the seed has no sponsor.
+
+    Caveat: ILIKE substring matching can catch unrelated names (e.g. ``Smith``
+    matches ``Smithson``). Acceptable for a 3-item related list; not safe for
+    counts or attribution. Column shape matches ``list_agenda_items_by_topic``.
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT seed.sponsor, seed.meeting_id, mt_seed.municipality_id
+            FROM agenda_items seed
+            JOIN meetings mt_seed ON mt_seed.id = seed.meeting_id
+            WHERE seed.id = %s
+            """,
+            (item_id,),
+        )
+        seed = cur.fetchone()
+        if not seed or not seed["sponsor"]:
+            return []
+
+        where_city = "AND mt.municipality_id = %s" if same_city_only else ""
+        params: list = [f"%{seed['sponsor']}%", item_id, seed["meeting_id"]]
+        if same_city_only:
+            params.append(seed["municipality_id"])
+        params.append(limit)
+
+        cur.execute(
+            f"""
+            SELECT ai.*,
+                   mt.title AS meeting_title,
+                   mt.meeting_date,
+                   m.name   AS municipality_name,
+                   m.slug   AS municipality_slug
+            FROM agenda_items ai
+            JOIN meetings mt        ON ai.meeting_id = mt.id
+            JOIN municipalities m   ON mt.municipality_id = m.id
+            WHERE m.active = TRUE
+              AND ai.sponsor ILIKE %s
+              AND ai.id <> %s
+              AND ai.meeting_id <> %s
+              AND ai.processing_status::text <> 'withdrawn'
+              {where_city}
+            ORDER BY mt.meeting_date DESC
+            LIMIT %s
+            """,
+            params,
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+
 # --- Badge-filtered item queries (Phase 2 / F1) -----------------------------
 
 
