@@ -905,55 +905,6 @@ def topic_detail(topic):
     )
 
 
-# --- HTMX rail partials (return HTML fragments, no base template) -----------
-
-
-@bp.route("/al/<slug>/_rail/default")
-def rail_default(slug):
-    """Source rail default state."""
-    municipality = query.get_municipality(slug)
-    if not municipality:
-        abort(404)
-    result = query.list_meetings(slug, limit=1)
-    return render_template(
-        "partials/rail_default.html",
-        municipality=municipality,
-        meeting_count=result.total,
-    )
-
-
-@bp.route("/al/<slug>/_rail/meeting/<int:meeting_id>")
-def rail_meeting(slug, meeting_id):
-    """Source rail for a selected meeting."""
-    municipality = query.get_municipality(slug)
-    meeting = query.get_meeting(meeting_id)
-    if not municipality or not meeting:
-        abort(404)
-    items = query.list_agenda_items(meeting_id)
-    votes = query.list_votes(meeting_id)
-    return render_template(
-        "partials/rail_meeting.html",
-        municipality=municipality,
-        meeting=meeting,
-        item_count=len(items),
-        votes=votes,
-    )
-
-
-@bp.route("/al/<slug>/_rail/member/<int:member_id>")
-def rail_member(slug, member_id):
-    """Source rail for a selected council member."""
-    member = query.get_council_member(member_id)
-    if not member:
-        abort(404)
-    vote_summary = query.get_member_vote_summary(member_id)
-    return render_template(
-        "partials/rail_member.html",
-        member=member,
-        vote_summary=vote_summary,
-    )
-
-
 # --- Editorial coverage ----------------------------------------------------
 
 @bp.route("/coverage/", methods=["GET"])

@@ -199,3 +199,18 @@ def test_city_html_recent_meetings_have_href(render_partial):
     assert "/al/birmingham/meetings/42/" in html, (
         "Recent meetings feed-row has no link to meeting_detail"
     )
+
+
+def test_deleted_rail_routes_return_404(client):
+    """rail_default / rail_meeting / rail_member view functions were
+    deleted in Task 10 (P2b). Their URL bindings must 404 now."""
+    paths = [
+        "/al/birmingham/_rail/default",
+        "/al/birmingham/_rail/meeting/1",
+        "/al/birmingham/_rail/member/1",
+    ]
+    for path in paths:
+        resp = client.get(path)
+        assert resp.status_code == 404, (
+            f"{path} returned {resp.status_code}, expected 404"
+        )
