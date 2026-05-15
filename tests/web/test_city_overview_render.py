@@ -119,6 +119,32 @@ def test_overview_always_renders_this_week_section(client):
     assert "On the agenda" in html
 
 
+def test_overview_section_order_tw_before_browse(client):
+    """P3: 'This week' section appears above 'Browse by Priority' on the
+    overview — agendas/meetings are the headline action; priority browse
+    is a deeper-context section that should follow."""
+    resp = client.get("/al/birmingham/")
+    assert resp.status_code == 200
+    html = resp.data.decode()
+    tw_pos = html.find('class="tw"')
+    # Browse by Priority block — locate via either its heading copy or its
+    # class. Adjust the matcher if the block uses a different identifier.
+    # Try a couple of plausible markers:
+    browse_pos = -1
+    for marker in ('class="priority-grid', 'Browse by Priority', 'class="browse-by-priority',
+                   'id="browse-by-priority'):
+        p = html.find(marker)
+        if p > -1:
+            browse_pos = p
+            break
+    assert tw_pos > -1, "'This week' section missing"
+    assert browse_pos > -1, "'Browse by Priority' section not found via any known marker"
+    assert tw_pos < browse_pos, (
+        f"'This week' (at {tw_pos}) should appear before "
+        f"'Browse by Priority' (at {browse_pos})"
+    )
+
+
 def test_overview_renders_no_upcoming_empty_state_when_list_empty(client, monkeypatch):
     """When upcoming_meetings is empty, the section renders an empty-state
     card explaining the state instead of silently omitting the upcoming row.

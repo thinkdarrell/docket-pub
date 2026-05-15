@@ -5,6 +5,54 @@
 {% include 'partials/city_lead.html' %}
 {% include 'partials/kpi_strip.html' %}
 
+{# ── This Week / On the agenda — persistent, with empty state ──── #}
+<section class="tw">
+    <header class="tw-head">
+        <div>
+            <div class="t-eyebrow">This week</div>
+            <h2 class="feed-title t-display">On the agenda</h2>
+        </div>
+        <a href="{{ url_for('public.city_meetings', slug=municipality.slug) }}" class="t-mono tw-cal">All meetings →</a>
+    </header>
+    <div class="tw-strip">
+        {% if upcoming_meetings %}
+            {% for m in upcoming_meetings[:2] %}
+            <a href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=m.id) }}"
+               class="tw-card tw-upcoming">
+                <div class="tw-when t-mono">
+                    <span class="tw-dot tw-dot-upcoming"></span>
+                    {{ m.meeting_date }}
+                </div>
+                <div class="tw-title">{{ m.title }}</div>
+                <div class="tw-venue t-meta">{{ m.municipality_name }}</div>
+            </a>
+            {% endfor %}
+        {% else %}
+            <div class="tw-card tw-empty" aria-label="No upcoming meetings scheduled">
+                <div class="tw-when t-mono">
+                    <span class="tw-dot tw-dot-empty"></span>
+                    Upcoming
+                </div>
+                <div class="tw-title">No agenda posted yet</div>
+                <div class="tw-venue t-meta">
+                    Check back — agendas typically post a few days before each meeting.
+                </div>
+            </div>
+        {% endif %}
+        {% for m in recent_meetings[:2] %}
+        <a href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=m.id) }}"
+           class="tw-card tw-past">
+            <div class="tw-when t-mono">
+                <span class="tw-dot tw-dot-past"></span>
+                {{ m.meeting_date }}
+            </div>
+            <div class="tw-title">{{ m.title }}</div>
+            <div class="tw-venue t-meta">{{ m.municipality_name }}</div>
+        </a>
+        {% endfor %}
+    </div>
+</section>
+
 {# ── Browse by Priority (F4, spec §6.7) ─────────────── #}
 {# Two grids:
      - Policy grid: 4 BHM-specific policy badges (this year)
@@ -63,54 +111,6 @@
     {% endif %}
 </section>
 {% endif %}
-
-{# ── This Week / On the agenda — persistent, with empty state ──── #}
-<section class="tw">
-    <header class="tw-head">
-        <div>
-            <div class="t-eyebrow">This week</div>
-            <h2 class="feed-title t-display">On the agenda</h2>
-        </div>
-        <a href="{{ url_for('public.city_meetings', slug=municipality.slug) }}" class="t-mono tw-cal">All meetings →</a>
-    </header>
-    <div class="tw-strip">
-        {% if upcoming_meetings %}
-            {% for m in upcoming_meetings[:2] %}
-            <a href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=m.id) }}"
-               class="tw-card tw-upcoming">
-                <div class="tw-when t-mono">
-                    <span class="tw-dot tw-dot-upcoming"></span>
-                    {{ m.meeting_date }}
-                </div>
-                <div class="tw-title">{{ m.title }}</div>
-                <div class="tw-venue t-meta">{{ m.municipality_name }}</div>
-            </a>
-            {% endfor %}
-        {% else %}
-            <div class="tw-card tw-empty" aria-label="No upcoming meetings scheduled">
-                <div class="tw-when t-mono">
-                    <span class="tw-dot tw-dot-empty"></span>
-                    Upcoming
-                </div>
-                <div class="tw-title">No agenda posted yet</div>
-                <div class="tw-venue t-meta">
-                    Check back — agendas typically post a few days before each meeting.
-                </div>
-            </div>
-        {% endif %}
-        {% for m in recent_meetings[:2] %}
-        <a href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=m.id) }}"
-           class="tw-card tw-past">
-            <div class="tw-when t-mono">
-                <span class="tw-dot tw-dot-past"></span>
-                {{ m.meeting_date }}
-            </div>
-            <div class="tw-title">{{ m.title }}</div>
-            <div class="tw-venue t-meta">{{ m.municipality_name }}</div>
-        </a>
-        {% endfor %}
-    </div>
-</section>
 
 {# ── Contested Votes ──────────────────────────────── #}
 {% if contested_votes %}
