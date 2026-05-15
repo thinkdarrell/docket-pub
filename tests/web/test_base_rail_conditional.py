@@ -1,51 +1,49 @@
-"""Verify rail is overview-only after P2b.
+"""Verify page_sources renders on every page; KPI section only on overview.
 
-base.html now declares empty `block rail` and `block mobile_chrome`;
-city.html overrides them to include source_rail + source_sheet.
-bottom_tabs.html stays as an unconditional site-wide include — gating
-it would trap mobile users on sub-pages.
+P2b dropped the rail entirely in favor of a page-bottom 'page_sources'
+block. Provenance (Platform / Adapter / Records + Source documents
+links) renders on every page with a municipality in context. KPI
+explainer stack renders only where the view function passes kpi_stats.
 
-These tests render templates directly (no live DB) to verify the
-structural contract of the block override pattern.
+These tests render templates via ``render_partial`` (no live DB) to
+verify the structural contract of the new page_sources pattern.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
-from datetime import date as date_cls
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 # ---------------------------------------------------------------------------
-# base.html structural contract
+# base.html structural contract (source-text checks)
 # ---------------------------------------------------------------------------
 
 
-def test_base_html_has_empty_rail_block():
-    """base.html must declare `{% block rail %}{% endblock %}` (empty by
-    default). The old unconditional <aside id="source-rail"> must be gone."""
+def test_base_html_has_page_sources_include():
+    """base.html must include page_sources.html unconditionally between
+    content and footer — replacing the old rail block pattern."""
     base_html = (PROJECT_ROOT / "src/docket/web/templates/base.html").read_text()
-    # Must declare the rail block
-    assert "{% block rail %}" in base_html, "base.html missing {% block rail %}"
-    # Must NOT have the unconditional aside with source-rail ID
-    assert 'id="source-rail"' not in base_html, (
-        "base.html still has unconditional source-rail aside — "
-        "should have moved to city.html override"
+    assert '{% include "partials/page_sources.html" %}' in base_html, (
+        "base.html must include page_sources.html"
     )
 
 
-def test_base_html_has_empty_mobile_chrome_block():
-    """base.html must declare `{% block mobile_chrome %}{% endblock %}` (empty
-    by default). The old unconditional source_sheet include must be gone."""
+def test_base_html_no_rail_block():
+    """base.html must NOT declare {% block rail %} — dropped in P2b."""
     base_html = (PROJECT_ROOT / "src/docket/web/templates/base.html").read_text()
-    assert "{% block mobile_chrome %}" in base_html, (
-        "base.html missing {% block mobile_chrome %}"
+    assert "{% block rail %}" not in base_html, (
+        "base.html still has {% block rail %} — should be dropped in P2b"
     )
-    # source_sheet.html must NOT be unconditionally included in base.html
-    assert 'source_sheet.html' not in base_html, (
-        "base.html still has unconditional source_sheet include"
+
+
+def test_base_html_no_mobile_chrome_block():
+    """base.html must NOT declare {% block mobile_chrome %} — dropped in P2b."""
+    base_html = (PROJECT_ROOT / "src/docket/web/templates/base.html").read_text()
+    assert "{% block mobile_chrome %}" not in base_html, (
+        "base.html still has {% block mobile_chrome %} — should be dropped in P2b"
     )
 
 
@@ -59,37 +57,28 @@ def test_base_html_still_has_bottom_tabs():
 
 
 # ---------------------------------------------------------------------------
-# city.html structural contract
+# city.html structural contract (source-text checks)
 # ---------------------------------------------------------------------------
 
 
-def test_city_html_overrides_rail_block():
-    """city.html must override `block rail` and include source_rail.html
-    inside an <aside id='source-rail'> wrapper."""
+def test_city_html_no_rail_block_override():
+    """city.html must NOT override {% block rail %} — dropped in P2b."""
     city_html = (PROJECT_ROOT / "src/docket/web/templates/city.html").read_text()
-    assert "{% block rail %}" in city_html, "city.html missing {% block rail %} override"
-    assert 'id="source-rail"' in city_html, (
-        "city.html's rail block must contain <aside id='source-rail'>"
-    )
-    assert 'source_rail.html' in city_html, (
-        "city.html must include partials/source_rail.html inside the rail block"
+    assert "{% block rail %}" not in city_html, (
+        "city.html still has {% block rail %} override — should be removed in P2b"
     )
 
 
-def test_city_html_overrides_mobile_chrome_block():
-    """city.html must override `block mobile_chrome` and include
-    source_sheet.html."""
+def test_city_html_no_source_sheet_include():
+    """city.html must NOT include source_sheet.html — no rail to mirror."""
     city_html = (PROJECT_ROOT / "src/docket/web/templates/city.html").read_text()
-    assert "{% block mobile_chrome %}" in city_html, (
-        "city.html missing {% block mobile_chrome %} override"
-    )
-    assert 'source_sheet.html' in city_html, (
-        "city.html mobile_chrome block must include source_sheet.html"
+    assert "source_sheet.html" not in city_html, (
+        "city.html still includes source_sheet.html — should be retired in P2b"
     )
 
 
 # ---------------------------------------------------------------------------
-# Template render: overview has rail, non-overview pages do not
+# page_sources.html partial render tests
 # ---------------------------------------------------------------------------
 
 
@@ -120,24 +109,65 @@ def _sample_kpi_stats():
             "sub": None,
             "sql_display": "SELECT count(*) FROM agenda_items ai JOIN meetings m ...",
         },
-        {
-            "label": "Votes YTD",
-            "value": "892",
-            "sub": None,
-            "sql_display": "SELECT count(*) FROM votes v JOIN meetings m ...",
-        },
-        {
-            "label": "Dollars (pending / settled)",
-            "value": "$48.2M / $112.0M",
-            "sub": None,
-            "sql_display": "SELECT sum(dollars_amount) FILTER ... FROM agenda_items ...",
-        },
     ]
 
 
-def test_overview_renders_source_rail(render_partial):
-    """city.html rendered via render_partial contains the source rail
-    with KPI explainer stack when kpi_stats is provided."""
+def test_page_sources_renders_provenance(render_partial):
+    """page_sources.html renders the provenance block when municipality is in context."""
+    muni = _make_municipality()
+    html = render_partial(
+        "partials/page_sources.html",
+        municipality=muni,
+        meeting_count=1003,
+    )
+    assert 'class="page-sources"' in html
+    assert "SOURCE OF TRUTH" in html
+    assert "Birmingham" in html
+    assert "GranicusAdapter" in html
+    assert "1003 meetings" in html
+
+
+def test_page_sources_renders_kpi_stack_when_provided(render_partial):
+    """page_sources.html renders the KPI explainer stack when kpi_stats is passed."""
+    muni = _make_municipality()
+    html = render_partial(
+        "partials/page_sources.html",
+        municipality=muni,
+        meeting_count=1003,
+        kpi_stats=_sample_kpi_stats(),
+    )
+    assert "page-sources-kpis" in html, "KPI section not rendered when kpi_stats provided"
+    assert "Meetings (lifetime)" in html
+    assert "Agenda items YTD" in html
+
+
+def test_page_sources_omits_kpi_stack_without_kpi_stats(render_partial):
+    """page_sources.html hides KPI section when kpi_stats is absent (non-overview pages)."""
+    muni = _make_municipality()
+    html = render_partial(
+        "partials/page_sources.html",
+        municipality=muni,
+        meeting_count=503,
+    )
+    assert "page-sources-kpis" not in html, (
+        "KPI stack should be absent when kpi_stats not in context"
+    )
+    # Provenance block still renders
+    assert "SOURCE OF TRUTH" in html
+
+
+def test_page_sources_omits_block_when_no_municipality(render_partial):
+    """page_sources.html renders nothing when municipality is absent (e.g. homepage)."""
+    html = render_partial("partials/page_sources.html")
+    # No municipality — entire aside should be absent
+    assert 'class="page-sources"' not in html
+    assert "SOURCE OF TRUTH" not in html
+
+
+def test_city_html_page_sources_rendered_with_kpis(render_partial):
+    """city.html inherits page_sources from base.html — overview context
+    includes kpi_stats so the KPI grid appears."""
+    import datetime
     muni = _make_municipality()
     html = render_partial(
         "city.html",
@@ -154,23 +184,21 @@ def test_overview_renders_source_rail(render_partial):
         stats={},
         city_policy_badges=[],
         process_badges=[],
-        now=__import__("datetime").datetime.now(),
+        now=datetime.datetime.now(),
         coverage_counts={},
         kpi_stats=_sample_kpi_stats(),
     )
-    assert 'id="source-rail"' in html, "source-rail aside not rendered in city.html"
-    assert "source-rail-kpis" in html, "kpi_stats not rendered into rail (missing source-rail-kpis)"
-    assert "Meetings (lifetime)" in html
-    assert "Agenda items YTD" in html
+    assert 'class="page-sources"' in html, "page-sources block missing from city.html render"
+    assert "SOURCE OF TRUTH" in html
+    assert "page-sources-kpis" in html, "KPI stack missing when kpi_stats provided"
+    # No rail
+    assert 'id="source-rail"' not in html, "source-rail should be gone in P2b"
+    assert 'class="app-rail"' not in html, "app-rail should be gone in P2b"
 
 
-def test_overview_renders_source_sheet_mobile_chrome(render_partial):
-    """city.html renders source_sheet (mobile chrome) inside mobile_chrome block.
-
-    source_sheet.html renders a <dialog id="source-sheet"> — that specific
-    element is the gate. The masthead also uses 'source-sheet-*' prefixed
-    class names for its mobile menu, so we check for the dialog ID specifically.
-    """
+def test_city_html_no_source_sheet_rendered(render_partial):
+    """city.html no longer renders source_sheet dialog — mobile_chrome block dropped."""
+    import datetime
     muni = _make_municipality()
     html = render_partial(
         "city.html",
@@ -187,20 +215,18 @@ def test_overview_renders_source_sheet_mobile_chrome(render_partial):
         stats={},
         city_policy_badges=[],
         process_badges=[],
-        now=__import__("datetime").datetime.now(),
+        now=datetime.datetime.now(),
         coverage_counts={},
         kpi_stats=[],
     )
-    # source_sheet renders a <dialog id="source-sheet"> (see source_sheet.html).
-    # Note: masthead also uses `source-sheet-*` class prefixes for its mobile
-    # menu — check for the dialog ID specifically, not class substring.
-    assert 'id="source-sheet"' in html, (
-        "city.html should render source_sheet dialog (id='source-sheet') via mobile_chrome block"
+    assert 'id="source-sheet"' not in html, (
+        "source_sheet dialog should not render — mobile_chrome block removed in P2b"
     )
 
 
-def test_overview_has_bottom_tabs(render_partial):
-    """city.html inherits bottom_tabs from base.html (unconditional)."""
+def test_city_html_bottom_tabs_still_present(render_partial):
+    """city.html inherits bottom_tabs from base.html — must remain unconditional."""
+    import datetime
     muni = _make_municipality()
     html = render_partial(
         "city.html",
@@ -217,28 +243,10 @@ def test_overview_has_bottom_tabs(render_partial):
         stats={},
         city_policy_badges=[],
         process_badges=[],
-        now=__import__("datetime").datetime.now(),
+        now=datetime.datetime.now(),
         coverage_counts={},
         kpi_stats=[],
     )
     assert 'class="bottom-tabs"' in html, (
         "bottom_tabs must be site-wide — should appear in city.html via base.html include"
-    )
-
-
-def test_non_city_template_has_no_source_rail(render_partial):
-    """A non-city template (e.g. a bare base.html render) must NOT have
-    id='source-rail' — the block rail override is city-only."""
-    # Render base.html with content block only — no rail override
-    # We use a minimal template that just extends base.html to verify
-    # the empty default blocks produce no rail markup.
-    # Since we can't render base.html directly without a child, we
-    # check base.html source text instead (already done above).
-    # Here we verify source_rail.html itself doesn't self-render the aside:
-    from pathlib import Path
-    source_rail_text = (PROJECT_ROOT / "src/docket/web/templates/partials/source_rail.html").read_text()
-    # source_rail.html should NOT wrap itself in an aside — city.html does that
-    assert 'id="source-rail"' not in source_rail_text, (
-        "source_rail.html must not contain id='source-rail' — "
-        "the aside wrapper belongs in city.html's rail block override"
     )

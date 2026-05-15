@@ -23,18 +23,12 @@
 </head>
 <body>
     {% block body %}
-    <div class="app">
-        <main class="app-main">
-            {% include "partials/masthead.html" %}
-            {% block content %}{% endblock %}
-            {% include "partials/footer.html" %}
-        </main>
-        {# Rail = overview-only (P2b). Pages that want a rail override `block rail`. #}
-        {% block rail %}{% endblock %}
-    </div>
-
-    {# Mobile source sheet — overview-only (paired with desktop rail). #}
-    {% block mobile_chrome %}{% endblock %}
+    <main class="app-main">
+        {% include "partials/masthead.html" %}
+        {% block content %}{% endblock %}
+        {% include "partials/page_sources.html" %}
+        {% include "partials/footer.html" %}
+    </main>
 
     {# Bottom tabs — site-wide primary mobile nav. NOT gated. #}
     {% include "partials/bottom_tabs.html" %}

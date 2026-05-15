@@ -1,18 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ municipality.name }}, {{ municipality.state }} — docket.pub{% endblock %}
 
-{% block rail %}
-<div class="app-rail">
-    <aside class="rail" aria-label="Source of truth" id="source-rail">
-        {% include "partials/source_rail.html" %}
-    </aside>
-</div>
-{% endblock %}
-
-{% block mobile_chrome %}
-{% include "partials/source_sheet.html" %}
-{% endblock %}
-
 {% block content %}
 {# ── Hero ─────────────────────────────────────────── #}
 <section class="hero">
