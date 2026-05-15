@@ -718,3 +718,50 @@
   /* font-feature-settings: "tnum" 1 comes from .t-mono on the element. */
   font-size: 10px; color: var(--ink-3);
 }
+
+/* ── kpi_explainer partial ──────────────────────────────── */
+.kpi-explainer {
+  padding: var(--space-3);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--paper);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.kpi-explainer-label {
+  font-size: var(--type-eyebrow);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.kpi-explainer-value {
+  font-size: var(--type-mono-num);
+  font-family: var(--font-mono);
+  font-feature-settings: "tnum" 1, "lnum" 1;
+  color: var(--ink);
+}
+/* .kpi-explainer-sub inherits font-size + color from .t-meta. No own rules. */
+.kpi-explainer-sql { margin-top: var(--space-2); }
+.kpi-explainer-sql summary {
+  cursor: pointer;
+  font-size: var(--type-eyebrow);
+  color: var(--accent);
+  list-style: none;
+}
+.kpi-explainer-sql summary::-webkit-details-marker { display: none; }
+.kpi-explainer-sql summary::marker { display: none; }
+.kpi-explainer-sql summary::after { content: " →"; }
+.kpi-explainer-sql[open] summary::after { content: " ↓"; }
+.kpi-explainer-sql-pre {
+  margin: var(--space-2) 0 0;
+  padding: var(--space-2);
+  background: var(--paper-2);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  font-size: var(--type-eyebrow);
+  color: var(--ink-2);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
