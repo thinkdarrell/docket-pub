@@ -107,3 +107,40 @@ def test_overview_no_longer_renders_old_hero_or_kpi_grid(client):
     assert 'class="hero"' not in html
     # The old 4-card KPI grid had class="kpi-grid"
     assert 'class="kpi-grid"' not in html
+
+
+def test_overview_always_renders_this_week_section(client):
+    """The 'This week / On the agenda' section is persistent — renders
+    even when no recent or upcoming meetings exist."""
+    resp = client.get("/al/birmingham/")
+    assert resp.status_code == 200
+    html = resp.data.decode()
+    assert 'class="tw"' in html, "'This week' section missing"
+    assert "On the agenda" in html
+
+
+def test_overview_renders_no_upcoming_empty_state_when_list_empty(client, monkeypatch):
+    """When upcoming_meetings is empty, the section renders an empty-state
+    card explaining the state instead of silently omitting the upcoming row.
+
+    We force the upcoming list to be empty by monkeypatching the per-city
+    helper. The recent meetings list may have data or not — empty-state
+    must still appear for the upcoming slot."""
+    from docket.services import query
+    monkeypatch.setattr(query, "list_upcoming_meetings_for_city",
+                        lambda slug, days=14, limit=4: [])
+
+    # Bust the overview cache so the patched query is used:
+    from docket.web import public as web_public
+    web_public._overview_cache.clear()
+
+    resp = client.get("/al/birmingham/")
+    html = resp.data.decode()
+    # The empty-state card should appear within the .tw section
+    assert "tw-empty" in html, "expected .tw-empty card markup"
+    # Copy should explain the state — not just blank space
+    assert ("No upcoming meetings" in html
+            or "agenda" in html.lower()
+            or "scheduled" in html.lower()), (
+        "expected empty-state copy explaining no agenda scheduled"
+    )

@@ -41,6 +41,21 @@
 }
 .tw-dollars { color: var(--ink); font-weight: 500; }
 
+/* "This Week" empty-state card — when no upcoming meeting is scheduled. */
+.tw-card.tw-empty {
+  border-style: dashed;
+  background: transparent;
+  color: var(--ink-3);
+  cursor: default;
+}
+.tw-card.tw-empty:hover { border-color: var(--rule); transform: none; box-shadow: none; }
+.tw-dot.tw-dot-empty {
+  background: transparent;
+  border: 1.5px dashed var(--ink-4);
+  box-shadow: none;
+}
+.tw-card.tw-empty .tw-title { font-style: italic; color: var(--ink-3); }
+
 /* ── Topic row ─────────────────────────────────────── */
 .topics { padding: 28px 0 8px; }
 .topics-head {
