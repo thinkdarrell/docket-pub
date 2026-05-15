@@ -678,7 +678,9 @@
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--ink-4);
+  /* Default uses --ink-3 (not --ink-4) so the unknown-state dot meets
+     WCAG SC 1.4.11 (≥3:1 vs --paper). --ink-4 was 2.76:1 and failed. */
+  background: var(--ink-3);
 }
 .freshness-chip.is-good .freshness-chip-dot { background: var(--good); }
 .freshness-chip.is-warn .freshness-chip-dot { background: var(--warn); }

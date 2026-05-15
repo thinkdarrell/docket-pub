@@ -11,7 +11,8 @@
   <span class="freshness-chip-state-label t-mono">
     {% if state == 'good' %}Live · feed active
     {%- elif state == 'warn' %}Stale · check source
-    {%- else %}Broken · feed down{% endif %}
+    {%- elif state == 'bad' %}Broken · feed down
+    {%- else %}Source status unknown{% endif %}
   </span>
   <span class="freshness-chip-sub t-meta">updated {{ last_synced }}</span>
 </a>

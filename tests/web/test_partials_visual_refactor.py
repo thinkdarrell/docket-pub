@@ -98,3 +98,18 @@ def test_freshness_chip_dot_aria_hidden(render_partial):
         source_health_url='/al/test/source-health/',
     )
     assert 'aria-hidden="true"' in html
+
+def test_freshness_chip_unknown_state_falls_back_to_neutral_copy(render_partial):
+    """Unknown state must NOT inherit the 'bad' copy ('Broken · feed down').
+    That would mislead citizens into thinking the feed is confirmed-broken
+    when in fact the caller didn't pass a valid state. Render neutral
+    'unknown' copy instead. The default --ink-3 dot meets WCAG SC 1.4.11
+    contrast on --paper (~5.5:1)."""
+    html = render_partial(
+        'partials/freshness_chip.html',
+        state='unknown',
+        last_synced='now',
+        source_health_url='/al/test/source-health/',
+    )
+    assert 'Broken · feed down' not in html
+    assert 'unknown' in html.lower() or 'status' in html.lower()
