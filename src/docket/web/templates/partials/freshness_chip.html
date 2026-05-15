@@ -1,0 +1,18 @@
+{# Freshness chip — dot + state label + last-synced timestamp.
+   Spec: docs/superpowers/specs/2026-05-14-visual-refactor-design.md
+   Links to the city's Source Health page (P4).
+   Args:
+     state             ('good' | 'warn' | 'bad', required)
+     last_synced       (pre-formatted string, e.g., "2 hours ago", required)
+     source_health_url (str, required)
+#}
+<a class="freshness-chip is-{{ state }}" href="{{ source_health_url }}">
+  <span class="freshness-chip-dot" aria-hidden="true"></span>
+  <span class="freshness-chip-state-label t-mono">
+    {% if state == 'good' %}Live · feed active
+    {%- elif state == 'warn' %}Stale · check source
+    {%- elif state == 'bad' %}Broken · feed down
+    {%- else %}Source status unknown{% endif %}
+  </span>
+  <span class="freshness-chip-sub t-meta">updated {{ last_synced }}</span>
+</a>

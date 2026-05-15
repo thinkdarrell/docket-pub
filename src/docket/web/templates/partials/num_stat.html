@@ -1,0 +1,15 @@
+{# NumStat partial — label + value + optional sub.
+   Spec: docs/superpowers/specs/2026-05-14-visual-refactor-design.md (P2/P3).
+   Args:
+     label  (str, required)  — e.g. "Meetings YTD"
+     value  (str|int, req.)  — pre-formatted (e.g. "1,003", "$12.4M")
+     sub    (str, optional)  — grounding text (e.g. "Since 2017")
+     accent (bool, optional) — adds .is-accent for visual emphasis
+#}
+<div class="num-stat{% if accent %} is-accent{% endif %}">
+  <div class="num-stat-label t-mono">{{ label }}</div>
+  <div class="num-stat-value t-display">{{ value }}</div>
+  {% if sub %}
+    <div class="num-stat-sub t-meta">{{ sub }}</div>
+  {% endif %}
+</div>

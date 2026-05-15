@@ -1,0 +1,19 @@
+{# Horizontal scroll-snap pills, one per topic.
+   Args:
+     topics    list of dicts with slug / label / count / color
+     city_slug str — used to scope topic links (informational; the route
+                     itself does not currently scope by city)
+#}
+{% if topics %}
+<div class="topic-row">
+  {% for topic in topics %}
+    <a class="topic-pill"
+       href="{{ url_for('public.topic_detail', topic=topic.slug) }}"
+       style="--topic-color: {{ topic.color or 'var(--ink-3)' }};">
+      <span class="topic-pill-dot" aria-hidden="true"></span>
+      <span class="topic-pill-label">{{ topic.label }}</span>
+      <span class="topic-pill-count t-mono">{{ topic.count }}</span>
+    </a>
+  {% endfor %}
+</div>
+{% endif %}

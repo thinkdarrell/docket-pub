@@ -604,3 +604,20 @@
     padding: 14px 18px;
   }
 }
+
+/* ── P2a meeting_card ─── */
+@media (max-width: 767px) {
+  /* Strip cards: slightly wider on small screens so touch targets are
+     comfortable; horizontal scroll container stays horizontal. */
+  .meeting-card--strip {
+    width: 240px;
+  }
+
+  /* Grid cards: single-column (full-width) below 768px.
+     The grid parent (e.g. .meetings-grid) should be overridden by the
+     consuming layout; this fallback ensures the card itself fills its
+     container when the grid collapses to one column. */
+  .meeting-card--grid {
+    width: 100%;
+  }
+}

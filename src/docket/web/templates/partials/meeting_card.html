@@ -1,0 +1,52 @@
+{# Two-variant meeting card partial — P2a Task 6.
+
+   Variants:
+     strip — fixed-width (~220px) for horizontal-scroll This-Week /
+             Upcoming sections on city overview. Shows date + weekday +
+             dot, h3 title (CSS line-clamp ~2 lines), agenda count chip.
+             Summary omitted to keep the card compact.
+
+     grid  — wider card for meeting list / homepage grids. Shows date +
+             weekday + dot, h3 title, summary paragraph (CSS line-clamp
+             ~3 lines), bottom row with agenda count + dollar tier
+             indicator when dollars_total > 0.
+
+   Both variants wrap in <a class="meeting-card meeting-card--{{ variant }}">
+   linking to public.meeting_detail.
+
+   Required context:
+     meeting      — object with .id, .date (date), .title, .meeting_type,
+                    .summary, .agenda_count, .dollars_total
+     variant      — 'strip' or 'grid'
+     municipality — object with .slug (for url_for)
+#}
+<a class="meeting-card meeting-card--{{ variant }}"
+   href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=meeting.id) }}">
+
+  <div class="meeting-card__header">
+    <span class="meeting-card__eyebrow t-mono">
+      {{- meeting.date.strftime('%b %-d, %Y') -}}
+      <span class="meeting-card__dot" aria-hidden="true"></span>
+      {{- meeting.date.strftime('%a') -}}
+    </span>
+  </div>
+
+  <h3 class="meeting-card__title">{{ meeting.title }}</h3>
+
+  {% if variant == 'grid' and meeting.summary %}
+    <p class="meeting-card__summary">{{ meeting.summary }}</p>
+  {% endif %}
+
+  <div class="meeting-card__footer">
+    {% if meeting.agenda_count is not none %}
+      <span class="meeting-card__count t-mono">{{ meeting.agenda_count }} items</span>
+    {% endif %}
+    {% if variant == 'grid' and meeting.dollars_total %}
+      {%- set amount = meeting.dollars_total -%}
+      <span class="meeting-card__dollars">
+        {% include 'partials/dollar_tier.html' with context %}
+      </span>
+    {% endif %}
+  </div>
+
+</a>
