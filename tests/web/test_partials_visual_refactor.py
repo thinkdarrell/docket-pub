@@ -503,3 +503,40 @@ def test_card_v2_fallback_legislation_idiom_structure(render_partial):
     assert 'is-v2-fallback' in html
     # Headline should contain the summary text (truncated to 80 chars or full)
     assert 'Parks department budget amendment' in html
+
+
+# ── P2b Task 7: council_card baseball-card stats block ──────────────────────
+
+
+def test_council_card_renders_attendance_alignment_when_provided(render_partial):
+    """Optional stats render when both attendance_pct and alignment_pct
+    are provided on the member dict."""
+    m = {
+        'id': 7, 'name': 'Jane Doe', 'district_name': 'District 3',
+        'attendance_pct': 92, 'alignment_pct': 78, 'photo_url': None,
+    }
+    municipality = {'slug': 'birmingham'}
+    html = render_partial("partials/council_card.html", m=m, municipality=municipality)
+    assert 'cc-stats' in html
+    assert '92' in html and '%' in html
+    assert '78' in html
+
+
+def test_council_card_omits_attendance_alignment_when_missing(render_partial):
+    """No stats block renders when fields are absent — current P2b consumer path."""
+    m = {'id': 7, 'name': 'Jane Doe', 'district_name': 'District 3', 'photo_url': None}
+    municipality = {'slug': 'birmingham'}
+    html = render_partial("partials/council_card.html", m=m, municipality=municipality)
+    assert 'cc-stats' not in html
+    # Card body still renders core fields
+    assert 'Jane Doe' in html
+    assert 'District 3' in html
+
+
+def test_council_card_button_has_type_button(render_partial):
+    """Regression: <button class='cc'> must specify type='button' so
+    placing the card inside any future <form> doesn't trigger submit."""
+    m = {'id': 7, 'name': 'Jane Doe', 'district_name': 'District 3', 'photo_url': None}
+    municipality = {'slug': 'birmingham'}
+    html = render_partial("partials/council_card.html", m=m, municipality=municipality)
+    assert 'type="button"' in html

@@ -1,7 +1,7 @@
 {# Council member card — rendered by both city.html and council.html.
    Expects: m (council member dict), municipality (with .slug). #}
 {% set hue = (m.id * 137) % 360 %}
-<button class="cc"
+<button class="cc" type="button"
         hx-get="{{ url_for('public.rail_member', slug=municipality.slug, member_id=m.id) }}"
         hx-target="#source-rail"
         hx-swap="innerHTML">
@@ -24,6 +24,23 @@
             <div class="cc-name">{{ m.name }}</div>
             <div class="cc-district t-mono">{{ m.district_name or 'At-Large' }}</div>
         </div>
+
+        {% if m.attendance_pct is defined and m.attendance_pct is not none %}
+          <div class="cc-stats">
+            <div class="stat-row">
+              <span class="stat-label t-mono">ATTEND.</span>
+              <span class="stat-value t-tnum">{{ m.attendance_pct }}%</span>
+            </div>
+            <div class="stat-bar"><div class="stat-fill" style="width: {{ m.attendance_pct }}%"></div></div>
+            {% if m.alignment_pct is defined and m.alignment_pct is not none %}
+              <div class="stat-row">
+                <span class="stat-label t-mono">ALIGN.</span>
+                <span class="stat-value t-tnum">{{ m.alignment_pct }}%</span>
+              </div>
+              <div class="stat-bar"><div class="stat-fill is-accent" style="width: {{ m.alignment_pct }}%"></div></div>
+            {% endif %}
+          </div>
+        {% endif %}
 
         <div class="cc-foot t-mono">
             <span>View record →</span>
