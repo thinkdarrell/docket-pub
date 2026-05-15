@@ -654,10 +654,8 @@
   font-feature-settings: "tnum" 1, "lnum" 1;
   color: var(--ink);
 }
-.num-stat-sub {
-  font-size: 11px;
-  color: var(--ink-3);
-}
+/* .num-stat-sub has no own rules — it inherits font-size + color from
+   the .t-meta class also applied to the element. */
 .num-stat.is-accent .num-stat-value {
   color: var(--accent-ink);
 }
