@@ -1,11 +1,60 @@
+/* ── Badge chip — P2b restyle (Task 5) ───────────────────────────────────── */
 .badge-chip {
-  display: inline-flex; align-items: center; gap: 0.25em;
-  padding: 0.2em 0.5em; border-radius: 0.5em;
-  font-size: 0.875em; font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-2);
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  font: 500 var(--type-meta, var(--type-mono-num)) var(--font-mono);
+  letter-spacing: 0.02em;
+  background: var(--paper);
+  color: var(--ink);
+  line-height: 1.4;
+  white-space: nowrap;
 }
-.badge-chip.badge-conf-medium { background: rgba(0,0,0,0.05); }
-.badge-chip.badge-conf-high { background: var(--accent, #2c5f6f); color: var(--paper, #fff); }
-.badge-spark { font-size: 0.875em; }
+
+/* Kind variants */
+.badge-chip.badge-process {
+  background: rgba(0,0,0,0.03);
+  border-color: rgba(0,0,0,0.12);
+}
+.badge-chip.badge-policy {
+  background: rgba(44,95,111,0.08);
+  border-color: rgba(44,95,111,0.25);
+  color: var(--accent, #2c5f6f);
+}
+
+/* Confidence variants — visually distinct */
+.badge-chip.badge-conf-medium {
+  /* base styling is sufficient for medium */
+}
+.badge-chip.badge-conf-high {
+  background: var(--accent, #2c5f6f);
+  color: var(--paper);
+  border-color: var(--accent, #2c5f6f);
+}
+.badge-chip.badge-conf-high.badge-policy {
+  /* high-confidence policy uses solid accent — overrides .badge-policy */
+  background: var(--accent, #2c5f6f);
+  color: var(--paper);
+  border-color: var(--accent, #2c5f6f);
+}
+
+/* Vote-count meta (e.g. "5-4") */
+.badge-meta {
+  font-size: 0.85em;
+  opacity: 0.85;
+  margin-left: 2px;
+}
+
+/* Verification spark — slight scale + warm tint */
+.badge-spark {
+  font-size: 0.95em;
+  display: inline-block;
+  transform: translateY(-0.5px);
+  margin-left: 1px;
+}
 
 /* Category-landing meta strip — meeting date + item-number reference.
    Sits between the badge row and the headline; uses .t-meta for muted color

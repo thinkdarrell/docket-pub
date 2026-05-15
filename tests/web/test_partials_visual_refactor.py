@@ -378,3 +378,31 @@ def test_kpi_explainer_renders_t_display_and_t_tnum_on_value(render_partial):
     )
     assert 't-tnum' in html, "t-tnum class missing from kpi-explainer value"
     assert 't-display' in html, "t-display class missing from kpi-explainer value"
+
+
+# ── P2b Task 5: badge_chip restyle regression anchor ────────────────────────
+
+
+def test_badge_chip_restyle_renders_full_structure(render_partial):
+    """The restyled chip must render its full DOM tree:
+    icon-leading, name, optional vote-count, verification spark
+    for high-confidence variants."""
+    chip = {
+        'kind': 'process',
+        'slug': 'split_vote',
+        'confidence': 1.0,
+        'description': 'Council split on this item',
+        'icon': '⚡',
+        'name': 'Split vote',
+        'vote_count': {'yes': 5, 'no': 4},
+    }
+    html = render_partial("partials/badge_chip.html", chip=chip)
+    assert 'class="badge-chip' in html
+    assert 'badge-process' in html
+    assert 'badge-conf-high' in html
+    assert 'badge-slug-split_vote' in html
+    assert '⚡' in html
+    assert 'Split vote' in html
+    assert '5-4' in html
+    assert '✨' in html  # verification spark for high confidence
+    assert 'aria-label="AI-verified"' in html
