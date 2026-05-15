@@ -539,6 +539,230 @@ def get_council_member(member_id: int) -> dict | None:
         return dict(row) if row else None
 
 
+def get_member_stats(member_id: int) -> dict:
+    """Compute attendance%, alignment-with-majority%, and total roll-call count.
+
+    attendance_pct = (votes where position != 'absent') / total_votes
+    alignment_pct  = (votes where position aligns with majority) / non_absent
+        - aligned: position in ('yea','yes') AND result == 'passed'
+                 OR position in ('nay','no')  AND result == 'failed'
+
+    Returns ``{attendance_pct, alignment_pct, votes_total}``. Percent values
+    are ints 0–100. Both pct values are None when the member has no roll-call
+    record (avoids ZeroDivisionError and lets the UI hide the stat).
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+              COUNT(*) AS total,
+              COUNT(*) FILTER (WHERE mv.position <> 'absent') AS present,
+              COUNT(*) FILTER (
+                WHERE mv.position <> 'absent'
+                  AND (
+                    (mv.position IN ('yea','yes') AND v.result = 'passed')
+                    OR (mv.position IN ('nay','no')  AND v.result = 'failed')
+                  )
+              ) AS aligned
+            FROM member_votes mv
+            JOIN votes v ON v.id = mv.vote_id
+            WHERE mv.council_member_id = %s
+            """,
+            (member_id,),
+        )
+        row = cur.fetchone()
+        total = row["total"] or 0
+        present = row["present"] or 0
+        aligned = row["aligned"] or 0
+        return {
+            "votes_total": total,
+            "attendance_pct": round(100 * present / total) if total else None,
+            "alignment_pct": round(100 * aligned / present) if present else None,
+        }
+
+
+def count_sponsored_items_for_member(member_name: str) -> int:
+    """Count agenda_items where sponsor ILIKE %member_name%.
+
+    Backed by the trigram index added in migration 030. Substring matching
+    can collide on common surnames — acceptable for an at-a-glance count.
+    """
+    if not member_name:
+        return 0
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT COUNT(*) AS n FROM agenda_items WHERE sponsor ILIKE %s",
+            (f"%{member_name}%",),
+        )
+        return int(cur.fetchone()["n"])
+
+
+def _encode_cursor(meeting_date, vote_id: int) -> str:
+    import base64
+
+    raw = f"{meeting_date.isoformat()}|{vote_id}".encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def _decode_cursor(cursor: str) -> tuple | None:
+    """Returns (date_iso, vote_id_int) or None if malformed."""
+    import base64
+    from datetime import date
+
+    if not cursor:
+        return None
+    try:
+        padding = "=" * (-len(cursor) % 4)
+        raw = base64.urlsafe_b64decode(cursor + padding).decode("utf-8")
+        date_str, vid_str = raw.split("|", 1)
+        return date.fromisoformat(date_str), int(vid_str)
+    except (ValueError, UnicodeDecodeError):
+        return None
+
+
+def list_member_voting_history(
+    member_id: int,
+    *,
+    cursor: str | None = None,
+    limit: int = 20,
+    filter_mode: str = "all",
+) -> dict:
+    """Cursor-paginated voting history for a member.
+
+    Args:
+        cursor: opaque token from previous page's ``next_cursor``.
+        limit:  rows per page.
+        filter_mode: ``"all"`` or ``"dissent"`` (dissent = position was in the
+                     minority for the vote, i.e. *not* aligned with result).
+
+    Returns ``{rows: list[dict], next_cursor: str | None}``. Each row:
+        vote_id, meeting_id, meeting_date, meeting_title, position, result,
+        yeas, nays, agenda_links (list of {item_number, item_title}).
+    """
+    where_filter = ""
+    if filter_mode == "dissent":
+        where_filter = """
+          AND mv.position <> 'absent'
+          AND NOT (
+            (mv.position IN ('yea','yes') AND v.result = 'passed')
+            OR (mv.position IN ('nay','no')  AND v.result = 'failed')
+          )
+        """
+
+    params: list = [member_id]
+    where_cursor = ""
+    decoded = _decode_cursor(cursor) if cursor else None
+    if decoded is not None:
+        where_cursor = "AND (m.meeting_date, v.id) < (%s, %s)"
+        params.extend([decoded[0], decoded[1]])
+    params.append(limit + 1)  # fetch one extra to detect next page
+
+    with db_cursor() as cur:
+        cur.execute(
+            f"""
+            SELECT v.id AS vote_id, v.result, v.source, v.yeas, v.nays,
+                   CASE WHEN mv.position IN ('yea','yes') THEN 'yea'
+                        WHEN mv.position IN ('nay','no')  THEN 'nay'
+                        ELSE mv.position END AS position,
+                   m.id AS meeting_id, m.meeting_date, m.title AS meeting_title
+            FROM member_votes mv
+            JOIN votes v    ON mv.vote_id = v.id
+            JOIN meetings m ON v.meeting_id = m.id
+            WHERE mv.council_member_id = %s
+              {where_cursor}
+              {where_filter}
+            ORDER BY m.meeting_date DESC, v.id DESC
+            LIMIT %s
+            """,
+            params,
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+
+        next_cursor = None
+        if len(rows) > limit:
+            rows = rows[:limit]
+            # Next page resumes strictly after the last returned row in DESC order
+            last = rows[-1]
+            next_cursor = _encode_cursor(last["meeting_date"], last["vote_id"])
+
+        if rows:
+            vote_ids = [r["vote_id"] for r in rows]
+            cur.execute(
+                """SELECT vai.vote_id, ai.item_number, ai.title AS item_title
+                   FROM vote_agenda_items vai
+                   JOIN agenda_items ai ON ai.id = vai.agenda_item_id
+                   WHERE vai.vote_id = ANY(%s) AND vai.is_active
+                   ORDER BY vai.vote_id, vai.match_confidence DESC, vai.id ASC""",
+                (vote_ids,),
+            )
+            links_by_vote: dict = {}
+            for r in cur.fetchall():
+                links_by_vote.setdefault(r["vote_id"], []).append(dict(r))
+            for v in rows:
+                v["agenda_links"] = links_by_vote.get(v["vote_id"], [])
+        return {"rows": rows, "next_cursor": next_cursor}
+
+
+def list_sponsored_items_for_member(
+    member_name: str,
+    *,
+    cursor: str | None = None,
+    limit: int = 20,
+    municipality_id: int | None = None,
+) -> dict:
+    """Cursor-paginated agenda items sponsored by the named member.
+
+    Same ``(meeting_date DESC, item_id DESC)`` cursor shape as the voting
+    history. Filters withdrawn items. Optional municipality scope.
+
+    Returns ``{rows: list[dict], next_cursor: str | None}``. Each row carries
+    the agenda_item shape plus meeting context (matches
+    ``list_agenda_items_by_topic``).
+    """
+    if not member_name:
+        return {"rows": [], "next_cursor": None}
+
+    params: list = [f"%{member_name}%"]
+    where_extra = ""
+    if municipality_id is not None:
+        where_extra += " AND m.id = %s"
+        params.append(municipality_id)
+
+    decoded = _decode_cursor(cursor) if cursor else None
+    if decoded is not None:
+        where_extra += " AND (mt.meeting_date, ai.id) < (%s, %s)"
+        params.extend([decoded[0], decoded[1]])
+    params.append(limit + 1)
+
+    with db_cursor() as cur:
+        cur.execute(
+            f"""
+            SELECT ai.*,
+                   mt.title AS meeting_title,
+                   mt.meeting_date,
+                   m.name   AS municipality_name,
+                   m.slug   AS municipality_slug
+            FROM agenda_items ai
+            JOIN meetings mt        ON ai.meeting_id = mt.id
+            JOIN municipalities m   ON mt.municipality_id = m.id
+            WHERE m.active = TRUE
+              AND ai.sponsor ILIKE %s
+              AND ai.processing_status::text <> 'withdrawn'
+              {where_extra}
+            ORDER BY mt.meeting_date DESC, ai.id DESC
+            LIMIT %s
+            """,
+            params,
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+        next_cursor = None
+        if len(rows) > limit:
+            rows = rows[:limit]
+            last = rows[-1]
+            next_cursor = _encode_cursor(last["meeting_date"], last["id"])
+        return {"rows": rows, "next_cursor": next_cursor}
+
+
 def get_member_vote_summary(member_id: int) -> dict:
     """Return vote summary stats and recent votes for a council member.
 
