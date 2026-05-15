@@ -3,7 +3,7 @@
 /* footnote */
 .footnote { padding: 64px 0 32px; }
 .footnote-cols {
-  display: grid; grid-template-columns: repeat(4, 1fr);
+  display: grid; grid-template-columns: repeat(2, 1fr);
   gap: 32px;
   padding-bottom: 32px;
   border-bottom: 1px solid var(--rule);
