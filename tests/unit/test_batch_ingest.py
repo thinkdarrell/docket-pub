@@ -401,6 +401,51 @@ def test_ingest_batch_writes_cost_usd_from_message_usage():
     )
 
 
+def test_ingest_batch_captures_anthropic_error_message_on_errored_result():
+    """Pattern B from issue #34 follow-up: when Anthropic's Batches API
+    returns ``result.type='errored'`` for a specific item, we want to
+    capture the SDK's ``result.error`` so operators can diagnose. Before
+    the fix, ``last_error_message`` was just the marker
+    ``"batch result type=errored"`` — no actual reason.
+    """
+    from docket.ai.batch_ingest import ingest_batch
+
+    errored = MagicMock()
+    errored.custom_id = "stage1-999-v1"
+    errored.result.type = "errored"
+    errored.result.error = MagicMock()
+    errored.result.error.type = "invalid_request_error"
+    errored.result.error.message = "prompt is too long: 250000 tokens > max 200000"
+
+    captured_mark_args: list = []
+
+    def _capture_mark(item_id, reason):
+        captured_mark_args.append((item_id, reason))
+
+    with patch("docket.ai.batch_ingest.db") as mock_db, \
+         patch("docket.ai.batch_ingest.anthropic.Anthropic") as anthropic_cls, \
+         patch("docket.ai.batch_ingest._mark_failed_permanent",
+               side_effect=_capture_mark):
+        cur = mock_db.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value
+        cur.fetchone.return_value = (44, "stage1", None)
+
+        anthropic_client = MagicMock()
+        anthropic_cls.return_value = anthropic_client
+        anthropic_client.messages.batches.results.return_value = iter([errored])
+
+        ingest_batch("msgbatch_errored_with_reason")
+
+    assert len(captured_mark_args) == 1
+    item_id, reason = captured_mark_args[0]
+    assert item_id == 999
+    # The reason should include both the type and the SDK's message,
+    # so an operator can diagnose without round-tripping back to
+    # Anthropic's console.
+    assert "errored" in reason
+    assert "invalid_request_error" in reason
+    assert "prompt is too long" in reason
+
+
 def test_ingest_batch_writes_zero_cost_when_no_successful_results():
     """A batch where every result errored should still write cost_usd=0
     (not NULL) so the column reliably reflects ingest history."""

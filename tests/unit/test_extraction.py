@@ -189,6 +189,38 @@ def test_extract_facts_normalizes_nested_null_string():
     assert facts.next_steps.public_hearing_date is None
 
 
+def test_extract_facts_recovers_when_haiku_omits_procurement_method():
+    """Pattern A from issue #34 follow-up: Haiku sometimes omits
+    procurement_method for items where no procurement is happening
+    (demolitions, proclamations). Stage 1 schema marks the field
+    required, so before this fix the row failed_permanent. Coercion
+    now fills the missing field with the standard fallback so the
+    row recovers."""
+    item = make_item()
+    payload_missing_procurement = {
+        'funding_source': 'general_fund',
+        'counterparty': None,
+        # procurement_method MISSING — the bug shape from issue #34 follow-up
+        'location': None,
+        'action_type': 'demolition',
+        'next_steps': {},
+        'parcels_affected': None,
+        'acres_affected': None,
+    }
+    mock_response = _make_tool_response(payload_missing_procurement)
+
+    with patch('docket.ai.extraction.anthropic_client') as mock_client:
+        mock_client.messages.create.return_value = mock_response
+        with patch('docket.ai.extraction.cache_get', return_value=None), \
+             patch('docket.ai.extraction.cache_put'):
+            facts, _ = extract_facts_for_item(item)
+
+    # Coercion fills with 'unknown' per the existing fallback ladder
+    # ('unknown' is in the enum, so it wins over 'not_applicable').
+    assert facts.procurement_method == 'unknown'
+    assert facts.action_type == 'demolition'  # preserved
+
+
 def test_extract_facts_raises_permanent_when_coercion_cannot_recover():
     """If the schema violation isn't a top-level enum (e.g. required field
     type wrong / missing), coercion doesn't help and we surface as
@@ -241,6 +273,62 @@ def test_coerce_unknown_enums_uses_unknown_then_other_then_first():
     # None passes through untouched.
     out = _coerce_unknown_enums({'f': None}, schema_with_unknown)
     assert out['f'] is None
+
+
+def test_coerce_unknown_enums_fills_missing_required_enum_field():
+    """Pattern A from issue #34 follow-up: Haiku occasionally omits a
+    required enum field entirely (e.g. ``procurement_method`` for a
+    demolition or proclamation item where no procurement is happening).
+    Coercion fills the gap with the same fallback ladder used for
+    out-of-whitelist values so the row clears Pydantic validation
+    instead of being marked failed_permanent.
+
+    Only fills fields listed in ``required`` so optional fields aren't
+    silently invented. Existing values still pass through unchanged.
+    """
+    from docket.ai.extraction import _coerce_unknown_enums
+
+    schema = {
+        'required': ['proc'],
+        'properties': {
+            'proc': {
+                'type': 'string',
+                'enum': ['competitive', 'sole_source', 'not_applicable', 'unknown'],
+            },
+        },
+    }
+
+    # Missing required enum field gets filled with the fallback.
+    out = _coerce_unknown_enums({}, schema)
+    assert out['proc'] == 'unknown'
+
+    # Schema without 'unknown' falls through to 'other'.
+    schema2 = {
+        'required': ['kind'],
+        'properties': {'kind': {'type': 'string', 'enum': ['a', 'b', 'other']}},
+    }
+    out = _coerce_unknown_enums({}, schema2)
+    assert out['kind'] == 'other'
+
+    # Schema without 'unknown' or 'other' falls through to first.
+    schema3 = {
+        'required': ['kind'],
+        'properties': {'kind': {'type': 'string', 'enum': ['a', 'b']}},
+    }
+    out = _coerce_unknown_enums({}, schema3)
+    assert out['kind'] == 'a'
+
+    # Optional enum field (not in 'required') is NOT filled.
+    schema_opt = {
+        'required': [],
+        'properties': {'opt': {'type': 'string', 'enum': ['x', 'unknown']}},
+    }
+    out = _coerce_unknown_enums({}, schema_opt)
+    assert 'opt' not in out
+
+    # Existing valid values pass through unchanged.
+    out = _coerce_unknown_enums({'proc': 'competitive'}, schema)
+    assert out['proc'] == 'competitive'
 
 
 def test_extract_facts_api_call_uses_tool_use():

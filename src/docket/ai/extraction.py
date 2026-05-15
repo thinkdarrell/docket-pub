@@ -116,36 +116,59 @@ def _normalize_string_nulls(payload: dict, *, log_prefix: str = "") -> dict:
 
 
 def _coerce_unknown_enums(payload: dict, schema: dict, *, log_prefix: str = "") -> dict:
-    """Replace top-level enum field values that aren't in the schema's enum.
+    """Replace top-level enum field values that aren't in the schema's enum,
+    AND fill in required enum fields that Haiku omitted entirely.
 
     Anthropic's tool-use treats ``enum`` as a hint, not a hard constraint —
     Haiku occasionally returns values outside the whitelist (observed in
     production: ``funding_source='grant'`` instead of the schema's
-    ``state_grant`` / ``federal_grant`` / …). Without coercion, those raise
-    Pydantic ``ValidationError`` and abort the entire ``_process_items_v3``
-    batch.
+    ``state_grant`` / ``federal_grant`` / …). Issue #34 follow-up surfaced
+    a second failure mode: Haiku sometimes omits a required enum field
+    entirely (e.g. ``procurement_method`` for a demolition or proclamation
+    where no procurement is happening). Without coercion, both raise
+    Pydantic ``ValidationError`` and abort the entire batch.
 
-    Strategy: for each top-level enum field, if the value is non-null and
-    not in the enum, coerce to ``'unknown'`` if available, else ``'other'``,
-    else the first enum value. Log a warning per coercion so frequency is
-    visible — a sudden spike would signal a prompt regression.
+    Strategy: for each top-level enum field, the fallback ladder is
+    ``'unknown'`` if available, else ``'other'``, else the first enum
+    value. Two trigger conditions:
+      1. Field present, value non-null, value NOT in enum → coerce.
+      2. Field listed in ``required`` AND missing from payload → fill.
+
+    Optional enum fields (not in ``required``) that are missing aren't
+    invented — we only fill where Pydantic would have rejected.
+
+    Log a warning per coercion / fill so frequency is visible — a sudden
+    spike would signal a prompt regression.
 
     Nested objects (e.g. ``location.ward_or_district``) aren't enum-typed
     in the Stage 1 schema, so no recursion is needed today.
     """
     props = schema.get("properties", {})
+    required = set(schema.get("required", []))
+
+    def _fallback(enum_values):
+        if "unknown" in enum_values:
+            return "unknown"
+        if "other" in enum_values:
+            return "other"
+        return enum_values[0]
+
     for field, spec in props.items():
-        if "enum" not in spec or field not in payload:
+        if "enum" not in spec:
+            continue
+        if field not in payload:
+            if field in required:
+                fallback = _fallback(spec["enum"])
+                log.warning(
+                    "%senum fill: %s missing from required payload, using %r",
+                    log_prefix, field, fallback,
+                )
+                payload[field] = fallback
             continue
         value = payload[field]
         if value is None or value in spec["enum"]:
             continue
-        if "unknown" in spec["enum"]:
-            fallback = "unknown"
-        elif "other" in spec["enum"]:
-            fallback = "other"
-        else:
-            fallback = spec["enum"][0]
+        fallback = _fallback(spec["enum"])
         log.warning(
             "%senum coercion: %s=%r not in whitelist, using %r",
             log_prefix, field, value, fallback,

@@ -331,11 +331,24 @@ def ingest_batch(anthropic_batch_id: str) -> dict:
         result_type = getattr(result.result, "type", "?")
         if result_type != "succeeded":
             # Anthropic returned errored / expired / canceled for this item.
+            # Issue #34 follow-up: capture the SDK's specific error if
+            # present so the operator can diagnose without round-tripping
+            # to Anthropic's console. ``result.result.error`` is an object
+            # with ``type`` + ``message`` attributes when type=='errored';
+            # absent for ``expired`` / ``canceled``.
+            err_obj = getattr(result.result, "error", None)
+            err_detail = ""
+            if err_obj is not None:
+                err_type = getattr(err_obj, "type", None)
+                err_message = getattr(err_obj, "message", None)
+                if err_type or err_message:
+                    err_detail = f": {err_type or ''}: {err_message or ''}".rstrip(": ")
+            reason = f"batch result type={result_type}{err_detail}"
             log.warning(
-                "ingest_batch: item=%s batch=%s result_type=%s — marking failed_permanent",
-                item_id, anthropic_batch_id, result_type,
+                "ingest_batch: item=%s batch=%s %s — marking failed_permanent",
+                item_id, anthropic_batch_id, reason,
             )
-            _mark_failed_permanent(item_id, f"batch result type={result_type}")
+            _mark_failed_permanent(item_id, reason)
             errored += 1
             continue
 
