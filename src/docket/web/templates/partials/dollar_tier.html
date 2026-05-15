@@ -5,8 +5,14 @@
    compliant — tier perception works without color, without sight, and on
    monochrome printouts.
 
-   Args (pass via ``{% with amount=… %}`` + ``{% include … without context %}``):
+   Args (pass via ``{% with amount=… %}{% include … with context %}{% endwith %}``):
      - ``amount``  — Decimal | None. When None or invalid, renders nothing.
+
+   Jinja note: ``{% with %}`` creates a new scope that shadows any outer
+   ``amount``; ``with context`` (the default) propagates that scoped block
+   into the partial. ``without context`` would strip the {% with %} vars
+   along with all parent scope and pass nothing — useful for the negative
+   isolation test (tests/unit/test_dollar_tier.py), not for real call sites.
 
    The partial calls the ``dollar_tier`` filter once at top to compute
    color / symbol / threshold-description, then templates them into the
