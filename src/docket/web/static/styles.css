@@ -388,7 +388,7 @@ a.link:hover { border-bottom-color: var(--accent); }
    ────────────────────────────────────────────────────────────────── */
 
 .volume-timeline-block {
-  font-family: "Source Serif Pro", Georgia, serif;
+  font-family: var(--font-display);
   padding: 16px 24px 18px;
   background: #fdfaf3;
   border-top: 1px solid #e6dfc8;
@@ -409,7 +409,7 @@ a.link:hover { border-bottom-color: var(--accent); }
   margin-bottom: 6px;
 }
 .volume-timeline-block .title-block h2 {
-  font-family: "Source Serif Pro", Georgia, serif;
+  font-family: var(--font-display);
   font-size: 24px;
   font-weight: 600;
   margin: 0 0 8px;
@@ -539,7 +539,7 @@ a.link:hover { border-bottom-color: var(--accent); }
 }
 
 .coverage-block__title {
-  font-family: 'Source Serif Pro', serif;
+  font-family: var(--font-display);
   font-size: 1.1rem;
   margin: 0 0 0.75rem 0;
   letter-spacing: 0.02em;
@@ -574,7 +574,7 @@ a.link:hover { border-bottom-color: var(--accent); }
   color: var(--muted);
 }
 .coverage-note__body {
-  font-family: 'Source Serif Pro', serif;
+  font-family: var(--font-display);
   font-size: 1rem;
   line-height: 1.5;
   margin: 0;
@@ -595,7 +595,7 @@ a.link:hover { border-bottom-color: var(--accent); }
 }
 .coverage-citation__outlet { font-weight: 600; }
 .coverage-citation__headline {
-  font-family: 'Source Serif Pro', serif;
+  font-family: var(--font-display);
   font-size: 1rem;
   font-weight: 600;
   margin: 0.25rem 0;
