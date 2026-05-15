@@ -22,6 +22,7 @@ The constraint that makes this non-trivial: docket.pub is a civic transparency p
 - Analytics data lives in the existing Railway Postgres so Claude can query it via the same `DATABASE_PUBLIC_URL` pattern already used for editorial data — no MCP server, no API wrapper.
 - Insulated from Umami's schema evolution via a thin read-only view layer that we own.
 - Bounded resource impact on the existing `docket-web` / `worker` services.
+- Publicly readable dashboard (via Umami's share-link feature) as an on-brand transparency artifact for the civic platform.
 
 ## Non-Goals
 
@@ -182,17 +183,32 @@ A single `<script>` tag added to `base.html`, just before `</head>`:
 ```javascript
 // Single source of truth for custom event tracking.
 // Wraps umami.track() with a try/catch so a blocked analytics script
-// can never break a click handler.
+// can never break a click handler. Also enforces the PII guardrail:
+// any string-valued property longer than QUERY_MAX_LEN is dropped
+// (not truncated — truncation can still leak the prefix of an address).
+const QUERY_MAX_LEN = 40;
+
+function sanitizeProps(props) {
+  const out = {};
+  for (const [k, v] of Object.entries(props || {})) {
+    if (typeof v === 'string' && v.length > QUERY_MAX_LEN) continue;
+    out[k] = v;
+  }
+  return out;
+}
+
 window.docketTrack = function (name, props) {
   try {
     if (window.umami && typeof window.umami.track === 'function') {
-      window.umami.track(name, props || {});
+      window.umami.track(name, sanitizeProps(props));
     }
   } catch (e) {
     // Analytics blocked or failed — never break the page.
   }
 };
 ```
+
+The 40-character drop rule is the PII guardrail: most legitimate topic searches ("flock cameras", "zoning board", "budget") are short; addresses and personal identifiers almost always run long. Dropping rather than truncating prevents leaking the *prefix* of an address ("1234 Maple S…" still identifies a house). The drop is silent — `result_count` still records, so zero-result-search signal survives even when the query itself is suppressed.
 
 Loaded via one `<script src="{{ url_for('static', filename='js/track.js') }}" defer></script>` in `base.html`. Templates emit events via inline handlers or delegated listeners that call `docketTrack(name, props)`.
 
@@ -216,6 +232,8 @@ Implementation: a delegated `click` listener on `.rail` in `base.html` reads `da
 
 Answers: are the rails earning their visual weight in the layout? Which variant converts on which source page?
 
+Query guidance for the cheat sheet: primary aggregation is by `rail_variant × source_page_type`. `target_id` is a high-cardinality drill-down, not a default grouping — use it only when investigating "which specific meeting did this rail variant funnel readers toward."
+
 ### outbound_source_click
 
 Fires when a visitor clicks a link to a primary municipal document (Granicus video timestamp, minutes PDF, city website page, agenda PDF). This is docket.pub's North Star metric — the civic mission is to route readers back to the source.
@@ -234,13 +252,13 @@ Answers: is the platform actually fulfilling its civic-transparency mission? Whi
 Fires on search form submission.
 
 Properties:
-- `query` — the submitted query string (lowercased, trimmed)
-- `result_count` — integer, including 0
-- `city` — current city scope, when scoped
+- `query` — the submitted query string (lowercased, trimmed). Dropped by `docketTrack` if it exceeds 40 characters (PII guardrail — see Event helper).
+- `result_count` — integer, including 0. Recorded even when `query` is dropped.
+- `city` — current city scope, when scoped.
 
 Implementation: the search form posts to `/search`. The server-rendered results page emits a one-shot `docketTrack('search_submit', {...})` call in a `<script>` tag at the top of `search.html`, with values templated from the request and result count.
 
-Zero-result searches are the high-value signal: they are literal product roadmap input from readers. The `result_count` property makes them filterable in a single SQL query.
+Zero-result searches are the high-value signal: they are literal product roadmap input from readers. The `result_count` property makes them filterable in a single SQL query, and the 40-char drop rule means long PII-shaped queries still contribute to the zero-result-rate metric even when the query text itself is suppressed.
 
 Answers: what do readers want that we don't have? What's the gap between editorial assumption and reader intent?
 
@@ -299,6 +317,14 @@ Umami's built-in dashboard at `https://stats.docket.pub` covers A-tier traffic a
 
 The `prune_analytics` task pings Healthchecks.io monthly. The `analytics` service itself has no Healthchecks integration in v1 — Railway's container health is sufficient (failure mode is "stats site down," not "data lost," because the script gracefully no-ops on a missing tracker).
 
+### Public stats page
+
+Enabled in v1. In the Umami admin → Website settings → Sharing, generate a share token. The resulting URL `https://stats.docket.pub/share/<token>/docket.pub` exposes the dashboard publicly (read-only, no admin access).
+
+Linked from the footer and the `about/` page as "Site usage" or similar. For a civic-transparency platform, making the site's own traffic data publicly scannable is on-brand: it proves there's nothing hidden about who/what the platform is reaching, and it reinforces the privacy-first nature of the analytics (a tracker that publishes its own dashboard isn't doing anything sneaky in the dark).
+
+Zero engineering effort beyond the toggle and the link. Reversible at any time by revoking the share token.
+
 ## Agentic Query Layer
 
 No service, no MCP, no API wrapper. Three artifacts:
@@ -331,7 +357,8 @@ When Umami upgrades and breaks a column, the failure surfaces as a query error d
 ## Testing
 
 - **Unit tests:** `tests/unit/test_track_js.py` is N/A (frontend JS). Manual verification only.
-- **Integration test:** new `tests/integration/test_analytics_views.py` — boots a temporary Postgres, runs Umami's schema-init SQL (or a fixture dump of an empty Umami DB), applies `db/umami_views.sql`, inserts hand-crafted rows into `website_event` and `event_data`, asserts each view returns the expected aggregation. This catches view-definition breakage on Umami version bumps before they hit production.
+- **Integration test:** new `tests/integration/test_analytics_views.py` — loads a static schema fixture, applies `db/umami_views.sql`, inserts hand-crafted rows into `website_event` and `event_data`, asserts each view returns the expected aggregation. This catches view-definition breakage on Umami version bumps before they hit production.
+  - **Schema fixture approach:** Umami uses Prisma migrations, and extracting a clean `schema.sql` from a Prisma project without booting the Node environment is awkward. The fixture is generated *once* per Umami version bump: boot the official Umami image locally, point it at a throwaway Postgres, let Umami create the schema, then `pg_dump --schema-only` the result into `tests/fixtures/umami_schema_<version>.sql`. The integration test loads this static fixture — no Node, no Prisma, no Docker at test time. Updated only when we deliberately bump the pinned Umami image tag.
 - **Smoke test post-deploy:** documented in the runbook (step 10 above). Manual, takes ~3 minutes.
 - **Worker test:** `tests/unit/test_prune_analytics.py` — mocks the DB cursor, asserts the DELETE is issued with the right interval, asserts the row count is returned.
 
@@ -341,9 +368,10 @@ When Umami upgrades and breaks a column, the failure surfaces as a query error d
 |---|---|---|
 | Umami schema changes between releases | Medium (Umami is actively maintained) | View layer absorbs it. Integration test catches breakage. Pin the Umami image to a specific tag, not `latest`, so upgrades are explicit. |
 | Connection pool starvation against the editorial app | Low | `CONNECTION LIMIT 8` on the `umami` role + `connection_limit=5` in Prisma URL. Three-connection headroom. |
+| Analytics events dropped under extreme load | Documented behavior, not a bug | Under a traffic spike that exceeds Prisma's queue capacity, Prisma's internal queue times out (default 10s) and the failing event is dropped. This is the intended failure mode: the editorial platform never experiences connection pressure from analytics. **Analytics fails open.** A surge that breaks tracking does not degrade `docket-web`. Acceptable tradeoff — we lose a small slice of event data during a viral moment; we keep the platform online. No additional mitigation needed beyond noting it explicitly here. |
 | WAL bloat on the small Railway DB volume | Low (analytics writes are small per row) | The Railway volume is now 1GB (resized 2026-05-12 after the Wave 0 incident). Umami writes are ~200 bytes per row; at 10K pageviews/day this is 2MB/day of base data, well under WAL pressure. |
 | Adblockers neutralize the tracker globally | Medium | `data-do-not-track="true"` honors DNT explicitly. Custom subdomain captures default-list blockers. CNAME-aware blockers escape; documented Phase 2 path is the in-app reverse proxy. |
-| Sensitive data in event properties (e.g., query strings containing PII) | Low (we control what gets tracked) | Search queries are lowercased and trimmed but not redacted — readers searching for personal context (their own address, etc.) is a possible PII exposure. Mitigation: in `search_submit`, strip queries longer than 80 chars or containing digits adjacent to street suffixes. Defer the precise filter until we see real data; document the concern. |
+| Sensitive data in event properties (e.g., query strings containing PII) | Low (we control what gets tracked) | `docketTrack()` drops any string-valued property longer than 40 characters before sending. Most legitimate topic searches are short; addresses and personal identifiers run long. Dropping (not truncating) prevents prefix leakage. `result_count` still records so zero-result-search signal survives. |
 | Umami container OOM | Low | Umami is light (~150MB RAM idle). Railway's default per-service memory is sufficient. |
 | `stats.docket.pub` Let's Encrypt cert provisioning delay | Low | One-time concern at setup. Document in runbook with a 10-minute wait window. |
 
@@ -359,14 +387,18 @@ Rollout order:
 4. `track.js` + `base.html` script tag → deploy `docket-web`.
 5. Three event handlers wired in templates → deploy `docket-web`.
 6. `prune_analytics` task + worker env vars → deploy `worker`.
-7. Two weeks of baseline observation. Then decide which of the three deferred events (coverage_pair_click, month_filter, item_badge_click) to add next.
+7. Generate share token in Umami admin, link from footer / `about/` page.
+8. Two weeks of baseline observation. Then decide which of the three deferred events (coverage_pair_click, month_filter, item_badge_click) to add next.
 
 Rollback for any individual step is single-file: removing the script tag from `base.html` and redeploying takes the entire tracker offline cleanly, leaving the data intact for forensic review.
 
-## Open Questions
+## Future Directions
 
-1. **Search query PII filtering** — what's the right rule? Discussed in Risks. Recommend deferring to see real data, then defining the filter precisely. Marked here so it's not forgotten.
-2. **Public stats page** — Umami can expose a public read-only dashboard at `stats.docket.pub/share/<token>`. Could be a transparency artifact on-brand for civic mission ("here's what's been read on docket.pub"). Not part of v1; flagged as a low-cost enhancement.
+Not built in v1; documented so the path is visible.
+
+1. **Three deferred B-tier events** — `coverage_pair_click`, `month_filter`, `item_badge_click`. Add a follow-up after two weeks of baseline observation; the decision of which to add first should be informed by what the v1 data shows.
+2. **Attention-driven editorial signal** — once `v_pageviews_daily` has 60+ days of history, a worker task could detect anomalies (e.g., an older meeting summary suddenly 500% above its baseline) and flag the item for editorial review. This turns reader attention into a feedback loop for the Impact-First curation, letting civic attention guide promotion decisions. Quiet, durable enhancement — worth queuing once baseline data exists.
+3. **In-app reverse proxy** — if CNAME-resolving adblockers materially degrade capture, swap the public `stats.docket.pub` subdomain for a Flask reverse proxy serving `docket.pub/s/script.js` and `docket.pub/s/api/send`, with the `analytics` service made internal-only.
 
 ## References
 
