@@ -89,6 +89,17 @@ class AgendaItem:
     # the meeting-detail page where date is in the page chrome). Other
     # query paths that don't surface across meetings can leave this None.
     meeting_date: date | None = None
+    # Optional parent-meeting and parent-municipality context. Populated
+    # by cross-meeting/cross-city listings (search_agenda_items) so the
+    # Smart Brevity Card chain can render meeting context + build link
+    # hrefs without a separate fetch. Single-meeting consumers
+    # (list_agenda_items) leave these None — the page chrome carries the
+    # context. Templates that read them (rss/_macros.xml.j2,
+    # member_detail.html, _card_shell.html's municipality fallback)
+    # already tolerate None.
+    municipality_slug: str | None = None
+    municipality_name: str | None = None
+    meeting_title: str | None = None
 
     @classmethod
     def from_row(cls, row: dict) -> AgendaItem:
@@ -144,4 +155,7 @@ class AgendaItem:
             location=location,
             badges=row.get("badges") or [],
             meeting_date=row.get("meeting_date"),
+            municipality_slug=row.get("municipality_slug"),
+            municipality_name=row.get("municipality_name"),
+            meeting_title=row.get("meeting_title"),
         )

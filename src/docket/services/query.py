@@ -963,10 +963,17 @@ def search_agenda_items(
     municipality_slug: str | None = None,
     limit: int = 20,
     offset: int = 0,
-) -> list[dict]:
+) -> list[AgendaItem]:
     """Full-text search across agenda item titles and descriptions.
 
     Scoped to a single city by default. Pass municipality_slug=None for cross-city.
+
+    Returns ``AgendaItem`` instances enriched with the cross-meeting context
+    columns (``meeting_title``, ``meeting_date``, ``municipality_name``,
+    ``municipality_slug``) and the lean ``extracted_facts`` + lifted
+    sub-keys + badge chips that the Smart Brevity Card chain renders. Same
+    shape as ``list_items_by_badge`` so search-result cards reach parity
+    with category-landing cards.
     """
     with db_cursor() as cur:
         where = "m.active = TRUE AND ai.search_vector @@ websearch_to_tsquery('english', %s)"
@@ -978,19 +985,74 @@ def search_agenda_items(
 
         cur.execute(
             f"""
-            SELECT ai.*, mt.title AS meeting_title, mt.meeting_date,
-                   m.name AS municipality_name, m.slug AS municipality_slug,
-                   ts_rank(ai.search_vector, websearch_to_tsquery('english', %s)) AS rank
+            SELECT
+                ai.id,
+                ai.meeting_id,
+                ai.external_id,
+                ai.item_number,
+                ai.title,
+                ai.description,
+                ai.section,
+                ai.is_consent,
+                ai.sponsor,
+                ai.dollars_amount,
+                ai.topic,
+                ai.significance_score,
+                ai.consent_placement_score,
+                ai.summary,
+                ai.ai_metadata,
+                ai.ai_prompt_version,
+                ai.ai_generated_at,
+                ai.data_quality::text       AS data_quality,
+                ai.data_debt_priority::text AS data_debt_priority,
+                ai.processing_status::text  AS processing_status,
+                ai.ai_extraction_version,
+                ai.ai_rewrite_version,
+                ai.ai_confidence,
+                ai.headline,
+                ai.why_it_matters,
+                ai.source_anchor,
+                CASE
+                    WHEN ai.extracted_facts IS NULL THEN NULL
+                    ELSE jsonb_strip_nulls(jsonb_build_object(
+                        'counterparty',       ai.extracted_facts->>'counterparty',
+                        'funding_source',     ai.extracted_facts->>'funding_source',
+                        'procurement_method', ai.extracted_facts->>'procurement_method',
+                        'action_type',        ai.extracted_facts->>'action_type',
+                        'location',           ai.extracted_facts->'location',
+                        'next_steps',         ai.extracted_facts->'next_steps'
+                    ))
+                END AS extracted_facts,
+                COALESCE(b_agg.badges, '[]'::jsonb) AS badges,
+                mt.title AS meeting_title,
+                mt.meeting_date,
+                m.name AS municipality_name,
+                m.slug AS municipality_slug,
+                ts_rank(ai.search_vector, websearch_to_tsquery('english', %s)) AS rank
             FROM agenda_items ai
             JOIN meetings mt ON ai.meeting_id = mt.id
             JOIN municipalities m ON mt.municipality_id = m.id
+            LEFT JOIN LATERAL (
+                SELECT jsonb_agg(jsonb_build_object(
+                           'kind',        b.kind,
+                           'slug',        b.badge_slug,
+                           'confidence',  b.confidence,
+                           'name',        t.name,
+                           'icon',        t.icon,
+                           'description', t.description
+                       ) ORDER BY b.detected_at DESC) AS badges
+                FROM agenda_item_badges b
+                JOIN priority_badge_templates t ON t.slug = b.badge_slug
+                WHERE b.agenda_item_id = ai.id
+                  AND b.status = 'applied'
+            ) b_agg ON true
             WHERE {where}
             ORDER BY rank DESC, mt.meeting_date DESC
             LIMIT %s OFFSET %s
             """,
             (query, *params, limit, offset),
         )
-        return [dict(row) for row in cur.fetchall()]
+        return [AgendaItem.from_row(dict(row)) for row in cur.fetchall()]
 
 
 # --- Topic browsing ---------------------------------------------------------
