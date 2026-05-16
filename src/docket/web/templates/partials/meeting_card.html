@@ -15,7 +15,7 @@
    linking to public.meeting_detail.
 
    Required context:
-     meeting      — object with .id, .date (date), .title, .meeting_type,
+     meeting      — object with .id, .meeting_date (date), .title, .meeting_type,
                     .summary, .agenda_count, .dollars_total
      variant      — 'strip' or 'grid'
      municipality — object with .slug (for url_for)
@@ -25,9 +25,9 @@
 
   <div class="meeting-card__header">
     <span class="meeting-card__eyebrow t-mono">
-      {{- meeting.date.strftime('%b %-d, %Y') -}}
+      {{- meeting.meeting_date.strftime('%b %-d, %Y') -}}
       <span class="meeting-card__dot" aria-hidden="true"></span>
-      {{- meeting.date.strftime('%a') -}}
+      {{- meeting.meeting_date.strftime('%a') -}}
     </span>
   </div>
 

@@ -205,7 +205,7 @@ from datetime import date as date_cls
 def _sample_meeting():
     return SimpleNamespace(
         id=42,
-        date=date_cls(2026, 5, 13),
+        meeting_date=date_cls(2026, 5, 13),
         title='City Council · Regular Meeting',
         meeting_type='regular',
         summary='Routine agenda; one large procurement item.',
