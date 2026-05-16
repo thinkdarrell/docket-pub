@@ -2,9 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Self-hosted Umami analytics on Railway, sharing the existing Postgres in a separate `umami` database. Three v1 custom events (rail_click, outbound_source_click, search_submit) plus pageviews / geo / referrers. Claude queries the data via stable read-only views.
+**Goal:** Self-hosted Umami analytics on Railway, sharing the existing Postgres in a separate `umami` database. Two v1 custom events (outbound_source_click, search_submit) plus pageviews / geo / referrers. Claude queries the data via stable read-only views.
 
-**Architecture:** New `analytics` Railway service runs `ghcr.io/umami-software/umami:postgres-latest`, connects to a fresh `umami` database on the existing Postgres instance. A `db/umami_views.sql` file defines the stable read-only views consumers query (never raw Umami tables). One JS helper `track.js` wraps `umami.track()` with try/catch and a 40-char PII drop rule. Three event handlers wired in templates. One new `prune_analytics` task on the existing `worker` scheduler enforces 24-month retention.
+**Architecture:** New `analytics` Railway service runs `ghcr.io/umami-software/umami:postgres-latest`, connects to a fresh `umami` database on the existing Postgres instance. A `db/umami_views.sql` file defines the stable read-only views consumers query (never raw Umami tables). One JS helper `track.js` wraps `umami.track()` with try/catch and a 40-char PII drop rule. Two event handlers wired in templates. One new `prune_analytics` task on the existing `worker` scheduler enforces 24-month retention.
+
+**Scope note (revised 2026-05-16):** The spec named three v1 events. The third — `rail_click` — was cut after the visual refactor (PRs #54/#55/#56/#57/#58/#59) dropped the sidecar "rail" UI entirely in favor of a page-bottom `page_sources` block. The widget that event was designed to validate no longer exists in the form the spec described. Outbound + search remain in v1 with the same intent; the rail-equivalent question will be revisited once baseline data from v1 informs what the new navigational widgets are worth tracking.
 
 **Tech Stack:** Umami v2 (Node, official Docker image), PostgreSQL 18.3 on Railway, Flask/Jinja2 templates, vanilla JS (no framework), APScheduler (existing worker), pytest.
 
@@ -798,28 +800,30 @@ Add the two `<script>` tags to the app shell. The website-id UUID captured durin
 **Files:**
 - Modify: `src/docket/web/templates/base.html`
 
-- [ ] **Step 1: Find the `</head>` insertion point**
+- [ ] **Step 1: Confirm `base.html` shape against current main**
 
 ```bash
-grep -n "</head>" ~/docket-pub/src/docket/web/templates/base.html
+sed -n '1,40p' ~/docket-pub/src/docket/web/templates/base.html
 ```
 
-Note the line number for the next step.
+Expected: `<head>` block ends around line 22–23 with `{% block head %}{% endblock %}` then `</head>`. The bottom of the file has a single `<script src="{{ url_for('static', filename='sheet.js') }}" defer></script>` before `</body>`.
 
-- [ ] **Step 2: Add the tracking + helper script tags before `</head>`**
+- [ ] **Step 2: Add the tracking + helper script tags before `{% block head %}`**
 
-In `src/docket/web/templates/base.html`, immediately before `</head>`, insert (replacing `<UMAMI_WEBSITE_ID>` with the UUID captured during manual setup):
+In `src/docket/web/templates/base.html`, find the line `<script src="https://unpkg.com/htmx.org@2.0.4"></script>` (currently line 21). Insert immediately after it (replacing `<UMAMI_WEBSITE_ID>` with the UUID captured during manual setup):
 
 ```html
-  {# Privacy-first analytics. Cookieless, no consent banner. #}
-  {# Spec: docs/superpowers/specs/2026-05-15-umami-analytics-design.md #}
-  <script defer
-          src="https://stats.docket.pub/script.js"
-          data-website-id="<UMAMI_WEBSITE_ID>"
-          data-do-not-track="true"
-          data-exclude-search="true"></script>
-  <script src="{{ url_for('static', filename='js/track.js') }}" defer></script>
+    {# Privacy-first analytics. Cookieless, no consent banner. #}
+    {# Spec: docs/superpowers/specs/2026-05-15-umami-analytics-design.md #}
+    <script defer
+            src="https://stats.docket.pub/script.js"
+            data-website-id="<UMAMI_WEBSITE_ID>"
+            data-do-not-track="true"
+            data-exclude-search="true"></script>
+    <script src="{{ url_for('static', filename='js/track.js') }}" defer></script>
 ```
+
+Indentation: 4 spaces, matching the surrounding lines in `<head>`.
 
 - [ ] **Step 3: Visual smoke**
 
@@ -847,163 +851,16 @@ git commit -m "feat(analytics): wire umami tracker + docketTrack into base.html"
 
 ---
 
-## Task 7: `rail_click` event wiring
+## Task 7: `outbound_source_click` event wiring (was Task 8)
 
-Instrument the four rail partials with `data-*` attributes, add a delegated listener in `base.html`.
+Delegated listener on all `a[href]` that target external hosts. Classification by URL pattern lives in `track.js`. This is docket.pub's North Star metric — every click that routes a reader back to a primary municipal document.
 
-**Files:**
-- Modify: `src/docket/web/templates/partials/rail_default.html`
-- Modify: `src/docket/web/templates/partials/rail_meeting.html`
-- Modify: `src/docket/web/templates/partials/rail_member.html`
-- Modify: `src/docket/web/templates/partials/source_rail.html`
-- Modify: `src/docket/web/templates/base.html`
-
-- [ ] **Step 1: Inspect current rail partials to map the existing markup**
-
-```bash
-grep -nE "<a |<li " ~/docket-pub/src/docket/web/templates/partials/rail_default.html | head -10
-grep -nE "<a |<li " ~/docket-pub/src/docket/web/templates/partials/rail_meeting.html | head -10
-grep -nE "<a |<li " ~/docket-pub/src/docket/web/templates/partials/rail_member.html | head -10
-grep -nE "<a |<li " ~/docket-pub/src/docket/web/templates/partials/source_rail.html | head -10
-```
-
-Read each file. Identify the anchor tags that link to meetings/items/members/categories.
-
-- [ ] **Step 2: Parameterize the rail_variant value and add tracking attrs**
-
-The `source_rail.html` partial composes `rail_default.html` + `kpi_explainer.html`. If we hardcode `data-track-rail="default"` inside `rail_default.html`, anchors rendered via `source_rail.html` will misreport their variant. Solution: parameterize the variant via a Jinja variable that defaults to the partial's own name but can be overridden by the including partial.
-
-**In `rail_default.html`** — at the top of the file, after the docstring/comment block, add:
-
-```jinja
-{%- set _rail_variant = rail_variant|default('default') -%}
-```
-
-Then on every anchor that targets a meeting/item/member/source-doc inside this partial, add:
-
-- `data-track-rail="{{ _rail_variant }}"`
-- `data-target-type="<type>"` — one of `meeting`, `item`, `member`, `category`, `source_doc`.
-- `data-target-id="{{ ... }}"` — the numeric ID or slug from the loop variable.
-
-**In `rail_meeting.html`** — same pattern with `'meeting'` as the default:
-
-```jinja
-{%- set _rail_variant = rail_variant|default('meeting') -%}
-```
-
-**In `rail_member.html`** — same with `'member'` as the default.
-
-**In `source_rail.html`** — find the `{% include 'partials/rail_default.html' %}` line. Replace with:
-
-```jinja
-{% include 'partials/rail_default.html' with context %}
-```
-
-…and right before it, set the override:
-
-```jinja
-{%- set rail_variant = 'source_rail' -%}
-{% include 'partials/rail_default.html' with context %}
-```
-
-(If the existing include syntax is `{% include 'partials/rail_default.html' %}` without `with context`, Jinja still inherits the parent's context by default — keep the `{% set %}` line above and the bare include works. Confirm the rendered HTML shows `data-track-rail="source_rail"` on anchors when source_rail is the wrapper.)
-
-Example final transformation inside `rail_meeting.html` — an anchor like:
-
-```html
-<a href="{{ url_for('public.item_detail', slug=city.slug, item_id=item.id) }}">{{ item.title }}</a>
-```
-
-Becomes:
-
-```html
-<a href="{{ url_for('public.item_detail', slug=city.slug, item_id=item.id) }}"
-   data-track-rail="{{ _rail_variant }}"
-   data-target-type="item"
-   data-target-id="{{ item.id }}">{{ item.title }}</a>
-```
-
-- [ ] **Step 3: Add the delegated listener to `base.html`**
-
-In `src/docket/web/templates/base.html`, find the existing `<script src="{{ url_for('static', filename='js/track.js') }}" defer></script>` (added in Task 6). Add a second inline script tag immediately after it:
-
-```html
-  <script defer>
-    document.addEventListener('click', function (e) {
-      var a = e.target.closest('a[data-track-rail]');
-      if (!a) return;
-      var pageType = document.body.dataset.pageType || 'unknown';
-      docketTrack('rail_click', {
-        rail_variant: a.dataset.trackRail,
-        source_page_type: pageType,
-        target_type: a.dataset.targetType || 'unknown',
-        target_id: a.dataset.targetId || '',
-      });
-    });
-  </script>
-```
-
-- [ ] **Step 4: Add `data-page-type` to `<body>` in `base.html`**
-
-In `base.html`, find the `<body>` tag. Replace with:
-
-```html
-<body data-page-type="{{ page_type|default('unknown') }}">
-```
-
-This lets each rendered route declare its page type (e.g., `home`, `city`, `meeting`, `item`, `category_landing`). Add `page_type` to the Jinja render context in `src/docket/web/public.py` for each route, e.g.:
-
-```python
-return render_template("index.html", page_type="home", ...)
-return render_template("city.html", page_type="city", ...)
-return render_template("meeting_detail.html", page_type="meeting", ...)
-return render_template("item_detail.html", page_type="item", ...)
-return render_template("category_landing.html", page_type="category_landing", ...)
-return render_template("coverage/listing.html", page_type="coverage", ...)
-return render_template("topics.html", page_type="topic", ...)
-return render_template("topic_detail.html", page_type="topic", ...)
-return render_template("search.html", page_type="search", ...)
-return render_template("councilors.html", page_type="councilor", ...)
-return render_template("council.html", page_type="councilor", ...)
-```
-
-(Pages not enumerated above keep the `'unknown'` default — `about/`, `data-debt`, admin pages, etc. Acceptable; they're not the B-priority surfaces.)
-
-- [ ] **Step 5: Local smoke test**
-
-```bash
-flask run
-```
-
-Visit `http://localhost:5000/`. Open the dev console. Click a rail link. Run in console:
-
-```javascript
-// Override umami.track temporarily to capture calls
-window.umami = { track: function (name, props) { console.log('TRACK', name, props); } };
-```
-
-Then click another rail link. Expected console output:
-
-```
-TRACK rail_click {rail_variant: "default", source_page_type: "home", target_type: "meeting", target_id: "..."}
-```
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add src/docket/web/templates/partials/rail_*.html src/docket/web/templates/partials/source_rail.html src/docket/web/templates/base.html src/docket/web/public.py
-git commit -m "feat(analytics): rail_click event + per-route page_type"
-```
-
----
-
-## Task 8: `outbound_source_click` event wiring
-
-Delegated listener on all `a[href]` that target external hosts. Classification by URL pattern lives in `track.js`.
+In the post-visual-refactor layout the dominant outbound surface is `partials/page_sources.html` at page bottom (rendered on every page) plus the per-card source-anchor buttons. Internal links inside `page_sources` (Browse all meetings, Council members) do NOT fire this event because they're same-host — the classifier short-circuits on `u.hostname === window.location.hostname`.
 
 **Files:**
 - Modify: `src/docket/web/static/js/track.js`
 - Modify: `src/docket/web/templates/base.html`
+- Modify: `src/docket/web/templates/partials/source_anchor_button.html`
 
 - [ ] **Step 1: Add the classifier to `track.js`**
 
@@ -1086,13 +943,19 @@ Every match should have either `data-item-id` or `data-meeting-id` on it.
 flask run
 ```
 
-Visit a meeting page with a "View source" link. With the console-override pattern from Task 7 Step 5, click the link (use middle-click to prevent navigation). Expected console output:
+Visit a meeting page with a "View source" link. Open the dev console and override `umami.track` to capture calls without depending on the real tracker:
+
+```javascript
+window.umami = { track: function (name, props) { console.log('TRACK', name, props); } };
+```
+
+Click the "View source" link (use Cmd-click / middle-click to open in a new tab and prevent navigation). Expected console output:
 
 ```
 TRACK outbound_source_click {source_type: "granicus_video", target_domain: "bhamal.granicus.com", item_id: "..."}
 ```
 
-Sanity-check internal-link non-firing: click an in-app link (e.g., "Meetings" in the nav). Expected: no `outbound_source_click` call.
+Sanity-check internal-link non-firing: click an in-app link (e.g., a meeting card, or "Browse all meetings" inside `page_sources`). Expected: NO `outbound_source_click` call — the classifier returns null on same-host URLs.
 
 - [ ] **Step 5: Commit**
 
@@ -1103,7 +966,7 @@ git commit -m "feat(analytics): outbound_source_click event with domain classifi
 
 ---
 
-## Task 9: `search_submit` event wiring
+## Task 8: `search_submit` event wiring (was Task 9)
 
 One-shot emit from the search-results page using server-rendered values.
 
@@ -1111,30 +974,34 @@ One-shot emit from the search-results page using server-rendered values.
 - Modify: `src/docket/web/templates/search.html`
 - Reference: `src/docket/web/public.py` search route
 
-- [ ] **Step 1: Verify the search route's render context**
+- [ ] **Step 1: Confirm route + template variable names**
 
-```bash
-grep -nA 15 "def search" ~/docket-pub/src/docket/web/public.py | head -40
-```
+Per `src/docket/web/public.py:886-926` (verified against current main on 2026-05-16):
+- `query=q` — string, the user-typed search.
+- `results=results` — list of result rows.
+- `city=city` — string slug (or `None`/empty when unscoped); NOT an object.
+- `municipality=municipality` — dict-like or `None`; carries `.slug` when present.
 
-Confirm the route exposes `query` (string) and `results` (list) — or whatever names are used. Note the variable names for use in the template.
+The template emit will use `query`, `results`, and `city` (the string slug).
 
 - [ ] **Step 2: Add the emit script to `search.html`**
 
-In `src/docket/web/templates/search.html`, add at the very bottom of the file (or in a `{% block scripts %}` block if `base.html` defines one):
+In `src/docket/web/templates/search.html`, append at the very bottom of the file, immediately before `{% endblock %}` on line 105:
 
 ```html
 {% if query %}
 <script>
   // Fired on the server-rendered results page; values come from the request.
+  // sanitizeProps in track.js drops `query` if it exceeds 40 chars (PII guardrail);
+  // result_count is always recorded so zero-result-rate stats survive that drop.
   (function () {
     if (typeof docketTrack !== 'function') return;
     var props = {
       query: {{ query | tojson }},
-      result_count: {{ (results | length) if results is defined else 0 }},
+      result_count: {{ (results | length) if results is defined else 0 }}
     };
-    {% if city is defined and city %}
-    props.city = {{ city.slug | tojson }};
+    {% if city %}
+    props.city = {{ city | tojson }};
     {% endif %}
     docketTrack('search_submit', props);
   })();
@@ -1142,7 +1009,7 @@ In `src/docket/web/templates/search.html`, add at the very bottom of the file (o
 {% endif %}
 ```
 
-(Adjust `query`, `results`, and `city` variable names to match what the route actually passes — verified in Step 1.)
+(`city` is a string slug; no `.slug` attribute access needed.)
 
 - [ ] **Step 3: Local smoke test**
 
@@ -1150,7 +1017,7 @@ In `src/docket/web/templates/search.html`, add at the very bottom of the file (o
 flask run
 ```
 
-Visit `http://localhost:5000/search?q=zoning`. With the console-override pattern:
+Visit `http://localhost:5000/search?q=zoning`. Open the dev console and override `umami.track` to capture calls without depending on the real tracker:
 
 ```javascript
 window.umami = { track: function (n, p) { console.log('TRACK', n, p); } };
@@ -1184,7 +1051,7 @@ git commit -m "feat(analytics): search_submit event from results page"
 
 ---
 
-## Task 10: Public stats page link in footer
+## Task 9: Public stats page link in footer (was Task 10)
 
 Surface the Umami public-share URL as an on-brand transparency artifact.
 
@@ -1240,7 +1107,7 @@ git commit -m "feat(analytics): public stats link in footer and about page"
 
 ---
 
-## Task 11: Analytics queries cheat sheet
+## Task 10: Analytics queries cheat sheet (was Task 11)
 
 The reference doc for ad-hoc Claude-driven analytics queries.
 
@@ -1293,27 +1160,6 @@ GROUP BY 1
 ORDER BY 2 DESC
 LIMIT 20;
 ```
-
-### Rail variant performance (the B-priority question)
-
-**Default aggregation grain is `rail_variant × source_page_type`.** `target_id` is high-cardinality — use it only when investigating a specific entity, not as a default grouping.
-
-```sql
-SELECT
-  rv.prop_value AS rail_variant,
-  sp.prop_value AS source_page_type,
-  COUNT(*) AS clicks
-FROM v_event_props_daily rv
-JOIN v_event_props_daily sp USING (day, event_name)
-WHERE rv.event_name = 'rail_click'
-  AND rv.prop_key = 'rail_variant'
-  AND sp.prop_key = 'source_page_type'
-  AND rv.day >= current_date - 14
-GROUP BY 1, 2
-ORDER BY 3 DESC;
-```
-
-(For more precise per-click joining than this prop-by-prop summing, you'd need to widen the view layer to surface `event_id` — fine to add later; not needed for v1 rollup questions.)
 
 ### Zero-result searches (editorial roadmap)
 
@@ -1384,7 +1230,7 @@ git commit -m "docs(analytics): query cheat sheet for view layer"
 
 ---
 
-## Task 12: `CLAUDE.md` agentic pointer
+## Task 11: `CLAUDE.md` agentic pointer (was Task 12)
 
 Tell Claude where the analytics data lives and how to query it.
 
@@ -1410,7 +1256,7 @@ git commit -m "docs(claude): point at umami analytics views and runbook"
 
 ## Final verification
 
-After all 12 tasks are committed, run the full smoke-test sequence:
+After all 11 tasks are committed, run the full smoke-test sequence:
 
 - [ ] **Step 1: Run the test suite**
 
@@ -1434,9 +1280,9 @@ Expected: pre-existing tests continue to pass. Stop on the first failure for dia
 ```bash
 cd ~/docket-pub
 git status                # confirm clean
-git log --oneline -15    # confirm the 12 task commits
-railway up --detach      # deploys docket-web with migrations runner first
-railway up --service worker --detach   # deploys worker with the new prune_analytics job
+git log --oneline -15    # confirm the 11 task commits
+railway up --service docket-web --detach   # deploys docket-web with migrations runner first
+railway up --service worker --detach       # deploys worker with the new prune_analytics job
 ```
 
 - [ ] **Step 4: Production smoke**
@@ -1446,7 +1292,7 @@ Hit `https://docket.pub/` in a browser. Open dev tools Network tab. Confirm:
 - `track.js` from `docket.pub/static/js/track.js` returns 200.
 - Console: `typeof docketTrack === 'function'` returns `true`.
 
-Click a rail link, then a "View source" link, then perform a search. After ~30 seconds (Umami's ingest delay):
+Click a "View source" link on a meeting or item page (fires `outbound_source_click`), then perform a search at `/search?q=zoning` (fires `search_submit`). After ~30 seconds (Umami's ingest delay):
 
 ```bash
 source ~/.docket-pub.env.local
@@ -1454,7 +1300,7 @@ source ~/.docket-pub.env.local
   "SELECT event_name, count FROM v_event_counts_daily WHERE day = current_date;"
 ```
 
-Expected: rows for `rail_click`, `outbound_source_click`, `search_submit`.
+Expected: rows for `outbound_source_click` and `search_submit`. Pageviews also accruing — verify via `SELECT SUM(pageviews) FROM v_pageviews_daily WHERE day = current_date;`.
 
 - [ ] **Step 5: Worker dry-run for `prune_analytics`**
 
@@ -1478,8 +1324,10 @@ Save a project memory recording the ship: file `~/.claude-personal/projects/-Use
 
 **Why the integration test waits for the fixture:** the fixture is the captured output of Umami's first-boot schema initialization. We could try to extract it from the Prisma source, but that requires a Node toolchain at test time. A static fixture, regenerated only on deliberate Umami version bumps, is simpler and version-locks the test.
 
-**Why `page_type` is set in Python, not detected from the URL:** route → page-type is one mapping; URL-pattern matching is two. Setting it explicitly in `render_template` is one trivially-greppable line per route and survives URL refactors.
+**Why `rail_click` was cut from v1 (2026-05-16 revision):** The visual refactor (PRs #54–#60) dropped the sidecar "rail" widget entirely. `rail_default.html`, `rail_meeting.html`, `rail_member.html`, and `source_rail.html` no longer exist as rendered surfaces — only `rail_category.html` survives, on category landing pages. `page_sources.html` is the new universal source widget at page bottom. Tracking the now-deprecated rail concept would produce no data; the next iteration should instrument whatever post-refactor navigational widgets prove worth measuring, informed by v1 baseline.
 
-**Manual phase isolation:** Tasks 1–4 ship code that doesn't *do* anything until manual phase happens. This is intentional — the operator can review and merge the foundation PRs at their pace, then book a focused window for the Railway/DNS/admin manual work, then continue with Tasks 5–12.
+**Future events queue:** once v1 baseline data lands, candidates for v2 include: `page_sources_internal_click` (navigation inside the page-bottom widget), `card_action_click` (interactions with Smart Brevity Cards beyond the `view-source` button), `kpi_explainer_toggle` (does anyone open the SQL toggles), `category_chip_click` (rail_category, the surviving rail surface). Hold these until v1 data informs which are worth the wiring.
+
+**Manual phase isolation:** Tasks 1–4 ship code that doesn't *do* anything until manual phase happens. This is intentional — the operator can review and merge the foundation PRs at their pace, then book a focused window for the Railway/DNS/admin manual work, then continue with Tasks 5–11.
 
 **Rollback:** removing the two `<script>` tags from `base.html` and redeploying disables all tracking cleanly (the prune task and view layer are independent, harmless if left in place). For a full teardown: drop the `analytics` Railway service, drop the `umami` database, remove the related env vars from `worker`.
