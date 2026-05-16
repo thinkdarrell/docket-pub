@@ -193,3 +193,59 @@ def test_coverage_permalink_renders_for_all_subject_kinds(client):
         # The hero structural hooks must be present
         assert 'class="hero hero--detail"' in permalink_body
         assert "breadcrumbs" in permalink_body
+
+
+def test_coverage_permalink_template_renders_hero_and_breadcrumbs():
+    """Direct render of coverage/permalink.html with a stub note.
+
+    The route-level polymorphic test skips when no permalink anchors
+    exist in the listing or the DB has no coverage entries. This unit
+    test exercises the new template structure (hero + breadcrumbs) in
+    every env so a regression to either is caught.
+    """
+    from types import SimpleNamespace
+    from docket.web import create_app
+    from flask import render_template
+
+    app = create_app()
+    note = SimpleNamespace(
+        id=1,
+        body="A short editorial note body for rendering.",
+        kind="note",
+        display_byline=lambda: "Editor",
+        published_at=None,
+        partner_credit=None,
+        subjects=[],
+    )
+    with app.test_request_context():
+        body = render_template("coverage/permalink.html", note=note)
+    assert 'class="hero hero--detail"' in body
+    assert 'class="breadcrumbs t-mono"' in body
+    assert 'aria-current="page"' in body  # set by breadcrumbs partial on leaf
+    # Hero h1 contains the body text (short note → no ellipsis)
+    assert "A short editorial note body for rendering." in body
+    # Article wrapper preserved
+    assert 'class="coverage-permalink"' in body
+
+
+def test_coverage_permalink_template_truncates_long_body_with_ellipsis():
+    """The hero h1 truncates at 80 chars and appends … only when over 80."""
+    from types import SimpleNamespace
+    from docket.web import create_app
+    from flask import render_template
+
+    app = create_app()
+    long_body = "x" * 200
+    note = SimpleNamespace(
+        id=1,
+        body=long_body,
+        kind="note",
+        display_byline=lambda: "Editor",
+        published_at=None,
+        partner_credit=None,
+        subjects=[],
+    )
+    with app.test_request_context():
+        body = render_template("coverage/permalink.html", note=note)
+    # 80 chars of "x" + … should appear in the h1
+    assert ("x" * 80 + "…") in body
