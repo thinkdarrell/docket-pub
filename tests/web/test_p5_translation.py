@@ -132,13 +132,18 @@ def test_coverage_listing_uses_hero_detail(client):
 
 
 def test_coverage_listing_uses_topsearch_chrome(client):
-    """FTS bar adopts the same .topsearch chrome the masthead uses."""
+    """FTS bar adopts the same .topsearch chrome the masthead uses.
+
+    Both the masthead and the FTS form render .topsearch, so we expect
+    at least two occurrences. Without the inner one (i.e. if the FTS bar
+    drops the wrapper), only the masthead's would remain.
+    """
     resp = client.get("/coverage/")
     if resp.status_code != 200:
         pytest.skip("Coverage listing route not available in this env")
     body = resp.get_data(as_text=True)
     assert 'class="coverage-search"' in body
-    assert 'class="topsearch"' in body
+    assert body.count('class="topsearch"') >= 2
 
 
 def test_coverage_listing_uses_coverage_tabs(client):
@@ -149,3 +154,17 @@ def test_coverage_listing_uses_coverage_tabs(client):
     assert 'class="coverage-tabs t-mono"' in body
     # All tab should be active by default (no kind kwarg)
     assert 'class="coverage-tab is-active"' in body
+
+
+def test_coverage_listing_preserves_kind_in_search_form(client):
+    """When the user is on the Notes (or Citations) tab and uses the FTS
+    bar, the form must carry the kind through as a hidden input so the
+    search stays scoped to the active tab. Regression-guard for the
+    {% if kind %} gate around the hidden input.
+    """
+    resp = client.get("/coverage/?kind=note")
+    if resp.status_code != 200:
+        pytest.skip("Coverage listing route not available in this env")
+    body = resp.get_data(as_text=True)
+    assert 'name="kind"' in body
+    assert 'value="note"' in body

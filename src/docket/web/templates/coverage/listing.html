@@ -12,9 +12,15 @@
 </section>
 
 <nav class="coverage-tabs t-mono">
-  <a href="{{ url_for('public.coverage_listing') }}" class="coverage-tab{% if not kind %} is-active{% endif %}">All</a>
-  <a href="{{ url_for('public.coverage_listing', kind='note') }}" class="coverage-tab{% if kind == 'note' %} is-active{% endif %}">Notes</a>
-  <a href="{{ url_for('public.coverage_listing', kind='citation') }}" class="coverage-tab{% if kind == 'citation' %} is-active{% endif %}">Citations</a>
+  <a href="{{ url_for('public.coverage_listing') }}"
+     class="coverage-tab{% if not kind %} is-active{% endif %}"
+     {% if not kind %}aria-current="page"{% endif %}>All</a>
+  <a href="{{ url_for('public.coverage_listing', kind='note') }}"
+     class="coverage-tab{% if kind == 'note' %} is-active{% endif %}"
+     {% if kind == 'note' %}aria-current="page"{% endif %}>Notes</a>
+  <a href="{{ url_for('public.coverage_listing', kind='citation') }}"
+     class="coverage-tab{% if kind == 'citation' %} is-active{% endif %}"
+     {% if kind == 'citation' %}aria-current="page"{% endif %}>Citations</a>
 </nav>
 
 <form method="get" action="{{ url_for('public.coverage_listing') }}" class="coverage-search">
