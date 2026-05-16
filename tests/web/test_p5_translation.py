@@ -48,3 +48,19 @@ def test_meetings_list_drops_kpi_grid(client):
         pytest.skip("Birmingham meetings route not available in this env")
     body = resp.get_data(as_text=True)
     assert 'class="kpi-grid"' not in body
+
+
+def test_topics_index_uses_topic_row_partial(client):
+    body = client.get("/topics/").get_data(as_text=True)
+    # Old kpi-grid dropped regardless of seed state
+    assert 'class="kpi-grid"' not in body
+    # Old council-grid dropped (was being misused for topic cards)
+    assert "council-grid" not in body
+    # When the env has tagged items, the topic_row partial renders.
+    # When it doesn't, the empty-state branch renders instead — skip the
+    # structural-hook assertion in that case (matches the meeting_card
+    # test's "skip if no seeded data" pattern).
+    if "Nothing classified yet" in body:
+        pytest.skip("No tagged items seeded in this env")
+    # topic_row's structural hooks (verified by existing partial tests)
+    assert "topic-row" in body or "topic-pill" in body
