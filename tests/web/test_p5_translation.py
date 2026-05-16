@@ -88,3 +88,20 @@ def test_500_renders_custom_template_via_direct_render(render_partial):
     body = render_partial("errors/500.html")
     assert "500" in body
     assert "docket.pub" in body
+
+
+def test_search_results_use_card_smart_brevity(client):
+    """Search a common term that's likely to return results in any
+    backfill state; skip if zero results in CI."""
+    resp = client.get("/search?q=council")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    # If results exist, they render via card_smart_brevity, not feed-table.
+    if "No results" not in body and "Type a query" not in body:
+        assert "smart-brevity-card" in body
+        assert "feed-table" not in body
+
+
+def test_search_drops_kpi_grid(client):
+    body = client.get("/search?q=council").get_data(as_text=True)
+    assert 'class="kpi-grid"' not in body

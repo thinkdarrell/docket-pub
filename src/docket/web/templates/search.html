@@ -19,7 +19,7 @@
 {% endfor %}
 
 {# ── Hero ─────────────────────────────────────────── #}
-<section class="hero">
+<section class="hero hero--detail">
     <div class="hero-top">
         <div>
             <div class="t-eyebrow">Full-text search · agenda items</div>
@@ -35,26 +35,6 @@
             </p>
         </div>
     </div>
-
-    {% if query %}
-    <div class="kpi-grid">
-        <div class="kpi">
-            <div class="kpi-label t-label">Results</div>
-            <div class="kpi-value t-display t-tnum">{{ results | length }}</div>
-            <div class="kpi-sub t-meta">on this page</div>
-        </div>
-        <div class="kpi">
-            <div class="kpi-label t-label">With dollar amounts</div>
-            <div class="kpi-value t-display t-tnum">{{ ns.dollar_items }}</div>
-            <div class="kpi-sub t-meta">extracted</div>
-        </div>
-        <div class="kpi is-accent">
-            <div class="kpi-label t-label">Scope</div>
-            <div class="kpi-value t-display" style="font-size: 28px;">{{ city_name or (city if city else 'All cities') }}</div>
-            <div class="kpi-sub t-meta">{% if is_cross_city %}cross-city{% else %}city-scoped{% endif %}</div>
-        </div>
-    </div>
-    {% endif %}
 </section>
 
 {# ── Search form ─────────────────────────────────── #}
@@ -95,48 +75,13 @@
             <div class="t-mono t-meta">{{ results | length }} on this page</div>
         </header>
 
-        <div class="feed-table">
-            <div class="feed-th t-label">
-                <span>Date</span>
-                <span>Title</span>
-                <span>Amount</span>
-                <span>{% if is_cross_city %}City{% else %}#{% endif %}</span>
-                <span>Meeting</span>
-                <span></span>
-            </div>
+        {% with show_meeting_context=true %}
+        <div class="notable-list smart-brevity-list smart-brevity-list--regular">
             {% for item in results %}
-            <a href="{{ url_for('public.meeting_detail', slug=item.municipality_slug, meeting_id=item.meeting_id) }}#item-{{ item.id }}"
-               class="feed-row">
-                <div class="feed-date">
-                    <div class="feed-date-d t-display t-tnum">{{ item.meeting_date.day if item.meeting_date and item.meeting_date.day is defined else (item.meeting_date[-2:] if item.meeting_date else '—') }}</div>
-                    <div class="feed-date-m t-mono">{{ item.meeting_date }}</div>
-                </div>
-                <div class="feed-meta">
-                    {% set display_title = item.headline or item.title %}
-                    <div class="feed-meeting-title">
-                        {{ display_title[:120] }}{% if display_title | length > 120 %}…{% endif %}
-                        {% set counts = (coverage_counts or {}).get(item.id, (0, 0)) %}
-                        {% include "partials/coverage_count_chip.html" %}
-                    </div>
-                    {% if item.summary %}
-                    <p class="item-summary">{{ item.summary }}</p>
-                    {% endif %}
-                </div>
-                <div class="feed-num">
-                    {% if item.dollars_amount %}
-                    <span class="chip chip-{{ item.dollars_amount | dollar_tier }}">${{ "{:,.0f}".format(item.dollars_amount) }}</span>
-                    {% else %}
-                    <span class="t-meta t-mono">—</span>
-                    {% endif %}
-                </div>
-                <div class="feed-num t-mono t-meta">
-                    {% if is_cross_city %}{{ item.municipality_name }}{% elif item.item_number %}#{{ item.item_number }}{% else %}—{% endif %}
-                </div>
-                <div class="feed-num t-mono t-meta">{{ item.meeting_title[:40] }}{% if item.meeting_title | length > 40 %}…{% endif %}</div>
-                <div class="feed-arrow t-mono">→</div>
-            </a>
+                {% include 'partials/card_smart_brevity.html' %}
             {% endfor %}
         </div>
+        {% endwith %}
     </section>
     {% else %}
     <section class="feed">
