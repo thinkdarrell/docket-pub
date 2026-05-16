@@ -15,7 +15,7 @@
    linking to public.meeting_detail.
 
    Required context:
-     meeting      — object with .id, .date (date), .title, .meeting_type,
+     meeting      — object with .id, .meeting_date (date), .title, .meeting_type,
                     .summary, .agenda_count, .dollars_total
      variant      — 'strip' or 'grid'
      municipality — object with .slug (for url_for)
@@ -25,9 +25,9 @@
 
   <div class="meeting-card__header">
     <span class="meeting-card__eyebrow t-mono">
-      {{- meeting.date.strftime('%b %-d, %Y') -}}
+      {{- meeting.meeting_date.strftime('%b %-d, %Y') -}}
       <span class="meeting-card__dot" aria-hidden="true"></span>
-      {{- meeting.date.strftime('%a') -}}
+      {{- meeting.meeting_date.strftime('%a') -}}
     </span>
   </div>
 
@@ -38,10 +38,10 @@
   {% endif %}
 
   <div class="meeting-card__footer">
-    {% if meeting.agenda_count is not none %}
+    {% if meeting.agenda_count is defined and meeting.agenda_count is not none %}
       <span class="meeting-card__count t-mono">{{ meeting.agenda_count }} items</span>
     {% endif %}
-    {% if variant == 'grid' and meeting.dollars_total %}
+    {% if variant == 'grid' and meeting.dollars_total is defined and meeting.dollars_total %}
       <span class="meeting-card__dollars">
         {% with amount=meeting.dollars_total %}
           {% include 'partials/dollar_tier.html' with context %}

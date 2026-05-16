@@ -15,22 +15,16 @@
     </div>
 
     {% if stats %}
-    <div class="kpi-grid" style="grid-template-columns: repeat(3, 1fr);">
-        <div class="kpi">
-            <div class="kpi-label t-label">Cities</div>
-            <div class="kpi-value t-display t-tnum">{{ stats.municipalities }}</div>
-            <div class="kpi-sub t-meta">Alabama municipalities</div>
-        </div>
-        <div class="kpi">
-            <div class="kpi-label t-label">Meetings</div>
-            <div class="kpi-value t-display t-tnum">{{ stats.meetings }}</div>
-            <div class="kpi-sub t-meta">indexed</div>
-        </div>
-        <div class="kpi is-accent">
-            <div class="kpi-label t-label">Agenda items</div>
-            <div class="kpi-value t-display t-tnum">{{ stats.agenda_items }}</div>
-            <div class="kpi-sub t-meta">extracted</div>
-        </div>
+    <div class="kpi-strip">
+        {% with label='Cities', value='{:,}'.format(stats.municipalities), sub='Alabama municipalities' %}
+            {% include 'partials/num_stat.html' with context %}
+        {% endwith %}
+        {% with label='Meetings', value='{:,}'.format(stats.meetings), sub='indexed' %}
+            {% include 'partials/num_stat.html' with context %}
+        {% endwith %}
+        {% with label='Agenda items', value='{:,}'.format(stats.agenda_items), sub='extracted', accent=true %}
+            {% include 'partials/num_stat.html' with context %}
+        {% endwith %}
     </div>
     {% endif %}
 </section>
@@ -76,24 +70,14 @@
     </header>
     <div class="tw-strip">
         {% for m in upcoming_meetings[:4] %}
-        <div class="tw-card tw-upcoming">
-            <div class="tw-when t-mono">
-                <span class="tw-dot tw-dot-upcoming"></span>
-                {{ m.meeting_date }}
-            </div>
-            <div class="tw-title">{{ m.title }}</div>
-            <div class="tw-venue t-meta">{{ m.municipality_name }}</div>
-        </div>
+            {% with meeting=m, variant='strip', municipality={'slug': m.municipality_slug} %}
+                {% include 'partials/meeting_card.html' with context %}
+            {% endwith %}
         {% endfor %}
         {% for m in recent_meetings[:4] %}
-        <div class="tw-card tw-past">
-            <div class="tw-when t-mono">
-                <span class="tw-dot tw-dot-past"></span>
-                {{ m.meeting_date }}
-            </div>
-            <div class="tw-title">{{ m.title }}</div>
-            <div class="tw-venue t-meta">{{ m.municipality_name }}</div>
-        </div>
+            {% with meeting=m, variant='strip', municipality={'slug': m.municipality_slug} %}
+                {% include 'partials/meeting_card.html' with context %}
+            {% endwith %}
         {% endfor %}
     </div>
 </section>

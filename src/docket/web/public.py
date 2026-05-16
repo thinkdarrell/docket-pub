@@ -933,12 +933,28 @@ def topics_index():
     all_topic_defs = all_topics()
     municipalities = query.list_municipalities()
 
+    # P5 — topic_row partial needs flat {slug, label, count} dicts.
+    # `topics` is list[dict] with keys {topic, count}; `all_topic_defs` is
+    # list[dict] with keys {slug, name}. Iterate over the canonical
+    # all_topic_defs order so we don't lose the TOPIC_DEFINITIONS sort.
+    # Per-topic colors are deferred until/unless TOPIC_DEFINITIONS grows a `color` field.
+    count_by_slug = {tc["topic"]: tc["count"] for tc in topics}
+    topic_row_items = [
+        {
+            "slug": t["slug"],
+            "label": t["name"],
+            "count": count_by_slug.get(t["slug"], 0),
+        }
+        for t in all_topic_defs
+        if count_by_slug.get(t["slug"], 0) > 0
+    ]
+
     return render_template(
         "topics.html",
-        topics=topics,
         all_topics=all_topic_defs,
         city=city,
         municipalities=municipalities,
+        topic_row_items=topic_row_items,
     )
 
 

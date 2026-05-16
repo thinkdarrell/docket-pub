@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from datetime import timezone as _tz
 
-from flask import Flask
+from flask import Flask, render_template
 
 from docket.config import ADMIN_EMAIL, FLASK_ENV, SECRET_KEY
 
@@ -94,5 +94,16 @@ def create_app() -> Flask:
                 "Strict-Transport-Security", "max-age=31536000"
             )
             return response
+
+    # P5 task B4 — custom error templates. Both inherit base.html so the
+    # masthead + footer + typography from P1 render even on error pages,
+    # which is friendlier than Flask's bare default error responses.
+    @app.errorhandler(404)
+    def _not_found(e):
+        return render_template("errors/404.html"), 404
+
+    @app.errorhandler(500)
+    def _server_error(e):
+        return render_template("errors/500.html"), 500
 
     return app
