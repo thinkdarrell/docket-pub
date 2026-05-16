@@ -313,6 +313,40 @@ class TestAgendaItemDataclass:
         assert item.location is None
         assert item.next_steps is None
 
+    def test_cross_meeting_context_fields_lifted_from_row(self):
+        """Cross-meeting/cross-city listings (search_agenda_items,
+        list_agenda_items_by_topic) JOIN meetings + municipalities and
+        rely on these optional fields to carry the link/header context
+        through the AgendaItem dataclass into the Smart Brevity Card
+        chain. Single-meeting consumers leave them None."""
+        row = {
+            "id": 16,
+            "meeting_id": 42,
+            "title": "Cross-meeting item",
+            "is_consent": False,
+            "meeting_title": "City Council Regular Meeting",
+            "municipality_slug": "birmingham",
+            "municipality_name": "Birmingham",
+        }
+        item = AgendaItem.from_row(row)
+        assert item.municipality_slug == "birmingham"
+        assert item.municipality_name == "Birmingham"
+        assert item.meeting_title == "City Council Regular Meeting"
+
+    def test_cross_meeting_context_fields_default_none(self):
+        """Same-meeting consumers (list_agenda_items) don't JOIN these
+        columns; the lift falls through to None without raising."""
+        row = {
+            "id": 17,
+            "meeting_id": 42,
+            "title": "Same-meeting item",
+            "is_consent": False,
+        }
+        item = AgendaItem.from_row(row)
+        assert item.municipality_slug is None
+        assert item.municipality_name is None
+        assert item.meeting_title is None
+
 
 # ---------------------------------------------------------------------------
 # Dispatcher round-trip: build an AgendaItem and feed it through the

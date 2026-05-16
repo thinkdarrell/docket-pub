@@ -107,6 +107,30 @@ def test_search_drops_kpi_grid(client):
     assert 'class="kpi-grid"' not in body
 
 
+def test_search_returns_agenda_item_instances_with_enriched_columns():
+    """``search_agenda_items`` returns ``AgendaItem`` instances enriched
+    with cross-meeting context (municipality_slug/name, meeting_title)
+    plus the lean extracted_facts + lifted sub-keys + badge chips —
+    same shape as ``list_items_by_badge`` so search-result cards reach
+    parity with category-landing cards.
+
+    Skips if no items match in the test DB.
+    """
+    from docket.services.query import search_agenda_items
+    from docket.models.agenda import AgendaItem
+    results = search_agenda_items("council", limit=5)
+    if not results:
+        pytest.skip("No search hits for 'council' in this env")
+    for item in results:
+        assert isinstance(item, AgendaItem)
+        # Cross-meeting context lifted onto the dataclass
+        assert item.municipality_slug is not None
+        assert item.municipality_name is not None
+        assert item.meeting_title is not None
+        # Badge JOIN guarantees `badges` is always a list (possibly empty)
+        assert isinstance(item.badges, list)
+
+
 def test_search_city_scoped_renders_page_sources(client):
     """City-scoped search must wire `municipality` so page_sources renders.
 
