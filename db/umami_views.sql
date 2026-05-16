@@ -18,7 +18,7 @@ SELECT
     WHEN url_path ~ '^/al/[^/]+/items/\d+' THEN
          regexp_replace(url_path, '/items/\d+', '/items/[id]')
     WHEN url_path ~ '^/coverage/\d+' THEN '/coverage/[id]'
-    WHEN url_path ~ '^/items/\d+/badges' THEN '/items/[id]/badges'
+    WHEN url_path ~ '^/items/\d+/badges$' THEN '/items/[id]/badges'
     ELSE url_path
   END AS normalized_path,
   COUNT(*) AS pageviews,
@@ -32,7 +32,7 @@ CREATE VIEW v_event_counts_daily AS
 SELECT
   date_trunc('day', created_at)::date AS day,
   event_name,
-  COUNT(*) AS count,
+  COUNT(*) AS event_count,
   COUNT(DISTINCT session_id) AS sessions
 FROM website_event
 WHERE event_type = 2  -- custom event
@@ -45,7 +45,7 @@ SELECT
   we.event_name,
   ed.data_key   AS prop_key,
   ed.string_value AS prop_value,
-  COUNT(*) AS count
+  COUNT(*) AS event_count
 FROM website_event we
 JOIN event_data ed ON ed.website_event_id = we.event_id
 WHERE we.event_type = 2
