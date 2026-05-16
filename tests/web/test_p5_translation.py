@@ -78,9 +78,13 @@ def test_404_renders_custom_template(client):
 
 
 def test_500_renders_custom_template_via_direct_render(render_partial):
-    """The 500 handler only kicks in when app.debug is False; in pytest
-    we don't exercise it directly (test_client raises). Just smoke-load
-    the template via render_template to verify syntax."""
+    """Smoke-load the 500 template via render_partial.
+
+    The test_client doesn't easily trigger the 500 handler in pytest:
+    Flask's TESTING=True config makes it propagate exceptions instead of
+    returning the rendered error page. Smoke-rendering the template
+    verifies its syntax and that the brand mark / status code are visible.
+    """
     body = render_partial("errors/500.html")
     assert "500" in body
     assert "docket.pub" in body

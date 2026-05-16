@@ -265,6 +265,34 @@ def test_meeting_card_handles_zero_dollars(render_partial):
     assert 'meeting-card' in html
 
 
+def test_meeting_card_omits_count_when_field_absent(render_partial):
+    """Production data (list_recent_meetings, list_meetings) doesn't include
+    agenda_count. The guard must check `is defined` — otherwise Jinja's
+    default Undefined makes `is not none` evaluate True and the chip
+    renders empty (' items' with no number)."""
+    m = SimpleNamespace(id=1, meeting_date=date_cls(2026, 5, 13), title='Sample Meeting')
+    html = render_partial(
+        'partials/meeting_card.html',
+        meeting=m,
+        variant='grid',
+        municipality=SimpleNamespace(slug='birmingham'),
+    )
+    assert ' items' not in html  # no empty count chip
+    assert 'meeting-card__count' not in html  # the count span itself omitted
+
+
+def test_meeting_card_omits_dollars_when_field_absent(render_partial):
+    """Same Undefined hazard on dollars_total — defensively guarded."""
+    m = SimpleNamespace(id=1, meeting_date=date_cls(2026, 5, 13), title='Sample Meeting')
+    html = render_partial(
+        'partials/meeting_card.html',
+        meeting=m,
+        variant='grid',
+        municipality=SimpleNamespace(slug='birmingham'),
+    )
+    assert 'meeting-card__dollars' not in html
+
+
 # ── P2b Task 2: CSS bloat cleanup ───────────────────────────────────────────
 
 
