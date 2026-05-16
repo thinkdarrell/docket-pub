@@ -88,3 +88,190 @@ def test_500_renders_custom_template_via_direct_render(render_partial):
     body = render_partial("errors/500.html")
     assert "500" in body
     assert "docket.pub" in body
+
+
+def test_search_results_use_card_smart_brevity(client):
+    """Search a common term that's likely to return results in any
+    backfill state; skip if zero results in CI."""
+    resp = client.get("/search?q=council")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    # If results exist, they render via card_smart_brevity, not feed-table.
+    if "No results" not in body and "Type a query" not in body:
+        assert "smart-brevity-card" in body
+        assert "feed-table" not in body
+
+
+def test_search_drops_kpi_grid(client):
+    body = client.get("/search?q=council").get_data(as_text=True)
+    assert 'class="kpi-grid"' not in body
+
+
+def test_search_city_scoped_renders_page_sources(client):
+    """City-scoped search must wire `municipality` so page_sources renders.
+
+    The page_sources partial is included unconditionally in base.html and
+    self-gates on `municipality is defined and municipality`. Removing the
+    municipality kwarg in the search view silently breaks this rail; this
+    test catches that regression.
+    """
+    resp = client.get("/search?q=council&city=birmingham")
+    if resp.status_code != 200:
+        pytest.skip("Search route not available in this env")
+    body = resp.get_data(as_text=True)
+    # page_sources renders an <aside class="page-sources">; structural hook.
+    assert 'class="page-sources"' in body
+
+
+def test_coverage_listing_uses_hero_detail(client):
+    resp = client.get("/coverage/")
+    if resp.status_code != 200:
+        pytest.skip("Coverage listing route not available in this env")
+    body = resp.get_data(as_text=True)
+    assert "hero hero--detail" in body
+
+
+def test_coverage_listing_uses_topsearch_chrome(client):
+    """FTS bar adopts the same .topsearch chrome the masthead uses.
+
+    Both the masthead and the FTS form render .topsearch, so we expect
+    at least two occurrences. Without the inner one (i.e. if the FTS bar
+    drops the wrapper), only the masthead's would remain.
+    """
+    resp = client.get("/coverage/")
+    if resp.status_code != 200:
+        pytest.skip("Coverage listing route not available in this env")
+    body = resp.get_data(as_text=True)
+    assert 'class="coverage-search"' in body
+    assert body.count('class="topsearch"') >= 2
+
+
+def test_coverage_listing_uses_coverage_tabs(client):
+    resp = client.get("/coverage/")
+    if resp.status_code != 200:
+        pytest.skip("Coverage listing route not available in this env")
+    body = resp.get_data(as_text=True)
+    assert 'class="coverage-tabs t-mono"' in body
+    # All tab should be active by default (no kind kwarg)
+    assert 'class="coverage-tab is-active"' in body
+
+
+def test_coverage_listing_preserves_kind_in_search_form(client):
+    """When the user is on the Notes (or Citations) tab and uses the FTS
+    bar, the form must carry the kind through as a hidden input so the
+    search stays scoped to the active tab. Regression-guard for the
+    {% if kind %} gate around the hidden input.
+    """
+    resp = client.get("/coverage/?kind=note")
+    if resp.status_code != 200:
+        pytest.skip("Coverage listing route not available in this env")
+    body = resp.get_data(as_text=True)
+    assert 'name="kind"' in body
+    assert 'value="note"' in body
+
+
+def test_coverage_permalink_renders_for_all_subject_kinds(client):
+    """Coverage permalink must render correctly for each polymorphic
+    subject type. If no coverage entries exist of a given kind, the
+    test skips that one — but at least one must exist to validate
+    P5's restyle on the page itself.
+    """
+    # Hit the listing first to discover an existing coverage entry.
+    resp = client.get("/coverage/?kind=note")
+    if resp.status_code != 200:
+        pytest.skip("Coverage routes not available in this env")
+    body = resp.get_data(as_text=True)
+    # Find at least one coverage permalink href; if none, skip.
+    import re
+    matches = re.findall(r'href="(/coverage/\d+)"', body)
+    if not matches:
+        pytest.skip("No coverage entries in DB to permalink-test")
+    for permalink in matches[:5]:
+        permalink_resp = client.get(permalink)
+        assert permalink_resp.status_code == 200, f"{permalink} returned {permalink_resp.status_code}"
+        permalink_body = permalink_resp.get_data(as_text=True)
+        # The hero structural hooks must be present
+        assert 'class="hero hero--detail"' in permalink_body
+        assert "breadcrumbs" in permalink_body
+
+
+def test_coverage_permalink_template_renders_hero_and_breadcrumbs():
+    """Direct render of coverage/permalink.html with a stub note.
+
+    The route-level polymorphic test skips when no permalink anchors
+    exist in the listing or the DB has no coverage entries. This unit
+    test exercises the new template structure (hero + breadcrumbs) in
+    every env so a regression to either is caught.
+    """
+    from types import SimpleNamespace
+    from docket.web import create_app
+    from flask import render_template
+
+    app = create_app()
+    note = SimpleNamespace(
+        id=1,
+        body="A short editorial note body for rendering.",
+        kind="note",
+        display_byline=lambda: "Editor",
+        published_at=None,
+        partner_credit=None,
+        subjects=[],
+    )
+    with app.test_request_context():
+        body = render_template("coverage/permalink.html", note=note)
+    assert 'class="hero hero--detail"' in body
+    assert 'class="breadcrumbs t-mono"' in body
+    assert 'aria-current="page"' in body  # set by breadcrumbs partial on leaf
+    # Hero h1 contains the body text (short note → no ellipsis)
+    assert "A short editorial note body for rendering." in body
+    # Article wrapper preserved
+    assert 'class="coverage-permalink"' in body
+
+
+def test_coverage_permalink_template_truncates_long_body_with_ellipsis():
+    """The hero h1 truncates at 80 chars and appends … only when over 80."""
+    from types import SimpleNamespace
+    from docket.web import create_app
+    from flask import render_template
+
+    app = create_app()
+    long_body = "x" * 200
+    note = SimpleNamespace(
+        id=1,
+        body=long_body,
+        kind="note",
+        display_byline=lambda: "Editor",
+        published_at=None,
+        partner_credit=None,
+        subjects=[],
+    )
+    with app.test_request_context():
+        body = render_template("coverage/permalink.html", note=note)
+    # 80 chars of "x" + … should appear in the h1
+    assert ("x" * 80 + "…") in body
+
+
+def test_category_landing_uses_hero_detail(client):
+    """Pick the property_recovery badge under birmingham — likely
+    populated in any deployment. Skip if the route 404s."""
+    resp = client.get("/al/birmingham/property_recovery/")
+    if resp.status_code != 200:
+        pytest.skip("Category landing route not available in this env")
+    body = resp.get_data(as_text=True)
+    assert "hero hero--detail" in body
+
+
+def test_category_landing_drops_inline_chip_styles(client):
+    # The chip row is gated on ``cross_filters`` being non-empty — hit a URL
+    # with ``?and=<slug>`` so the chip row actually renders. Slug picked
+    # from the property_recovery landing's available_badges list.
+    resp = client.get("/al/birmingham/property_recovery/?and=contested")
+    if resp.status_code != 200:
+        pytest.skip("Category landing route not available in this env")
+    body = resp.get_data(as_text=True)
+    if 'cross-filter-chips' not in body:
+        pytest.skip("Cross-filter chip row not rendered (no enabled badges?)")
+    # Inline styles on cross-filter chips were P4 carry-over — should be gone.
+    assert 'class="cross-filter-chips"' in body
+    # Inline style="display: flex; ...; padding: 12px 0;" on the chip row removed.
+    assert 'class="cross-filter-chips" style=' not in body

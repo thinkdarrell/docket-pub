@@ -19,7 +19,7 @@
 #}
 
 {# ── Header ───────────────────────────────────────── #}
-<section class="hero">
+<section class="hero hero--detail">
     <div class="hero-top">
         <div>
             <div class="t-eyebrow">
@@ -92,8 +92,8 @@
        returns only ``partials/_item_list.html`` for HTMX requests, so
        the swap fetches the items section alone (not a full page). #}
     {% if available_badges %}
-    <form class="cross-filter-form" style="padding: 8px 0;">
-        <label class="t-label" for="cross-filter-select" style="display:block; margin-bottom:4px;">
+    <form class="cross-filter-form">
+        <label class="t-label" for="cross-filter-select">
             Combine with another badge
         </label>
         <select name="and" id="cross-filter-select" class="cross-filter"
@@ -102,8 +102,7 @@
                 hx-swap="outerHTML"
                 hx-include="this"
                 hx-trigger="change"
-                hx-push-url="true"
-                style="font: inherit; padding: 6px 8px; min-width: 280px;">
+                hx-push-url="true">
             <option value="">— combine with another badge —</option>
             {% for other in available_badges %}
             <option value="{{ other.slug }}"
@@ -116,7 +115,7 @@
     {% endif %}
 
     {% if cross_filters %}
-    <div class="cross-filter-chips" style="display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 0;">
+    <div class="cross-filter-chips">
         {% for cf in cross_filters %}
         <span class="badge-chip" data-cross-filter="{{ cf }}">
             {%- if cf in cross_filter_badges -%}
@@ -133,7 +132,7 @@
        Carries hx-get for HTMX-parity with the bar-click flow that
        sets the filter: clearing feels identical to setting. #}
     {% if active_month_label %}
-    <div class="active-month-chip-row" style="display: flex; gap: 8px; padding: 8px 0;">
+    <div class="active-month-chip-row">
       <span class="badge-chip badge-chip--active-month">
         <span aria-hidden="true">📅</span>
         <span class="sr-only">Active month filter:</span>

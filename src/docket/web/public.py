@@ -921,6 +921,7 @@ def search():
         municipalities=municipalities,
         page=page,
         coverage_counts=coverage_counts,
+        municipality=municipality,
         kpi_stats=kpi_stats,
     )
 
