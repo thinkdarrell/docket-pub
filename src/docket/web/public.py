@@ -243,7 +243,15 @@ def meeting_detail(slug, meeting_id):
     consent_items = [i for i in agenda_items if i.is_consent]
     regular_items = [i for i in agenda_items if not i.is_consent]
     dollar_count = sum(1 for i in agenda_items if i.dollars_amount)
-    topic_count = len({i.topic for i in agenda_items if i.topic})
+    total_dollars_value = sum((i.dollars_amount or 0) for i in agenda_items)
+    if total_dollars_value >= 1_000_000_000:
+        total_dollars_formatted = f"${total_dollars_value / 1_000_000_000:.1f}B"
+    elif total_dollars_value >= 1_000_000:
+        total_dollars_formatted = f"${total_dollars_value / 1_000_000:.1f}M"
+    elif total_dollars_value > 0:
+        total_dollars_formatted = f"${int(total_dollars_value):,}"
+    else:
+        total_dollars_formatted = "$0"
 
     from docket.services.query import coverage_counts_for_items
     item_ids = [it.id for it in agenda_items]
@@ -260,8 +268,8 @@ def meeting_detail(slug, meeting_id):
         regular_items=regular_items,
         votes=votes,
         dollar_count=dollar_count,
-        topic_count=topic_count,
         item_count=len(agenda_items),
+        total_dollars_formatted=total_dollars_formatted,
         coverage_counts=coverage_counts,
         kpi_stats=kpi_stats,
     )
@@ -286,12 +294,20 @@ def item_detail(slug, item_id):
     from docket.services.query import coverage_for_subject
     coverage = coverage_for_subject('agenda_item', subject_id=item_id)
 
+    related_by_topic = query.list_related_items_by_topic(item_id, limit=3)
+    related_by_sponsor = query.list_related_items_by_sponsor(item_id, limit=3)
+
+    kpi_stats = query._kpi_stats_for_municipality(municipality)
+
     return render_template(
         "item_detail.html",
         municipality=municipality,
         item=item,
         meeting=meeting,
         coverage=coverage,
+        related_by_topic=related_by_topic,
+        related_by_sponsor=related_by_sponsor,
+        kpi_stats=kpi_stats,
     )
 
 
@@ -987,6 +1003,7 @@ def topic_detail(topic):
         topic_name=display_name,
         items=items,
         city=city,
+        municipality=municipality,
         page=page,
         coverage_counts=coverage_counts,
         kpi_stats=kpi_stats,

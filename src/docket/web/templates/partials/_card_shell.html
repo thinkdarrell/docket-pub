@@ -62,8 +62,12 @@
   </div>
 
   <h3 class="card-headline">
+    {# Cross-city callers (topic_detail, cross-city listings) pass no page-level
+       `municipality`; fall back to the item's own `municipality_slug` lifted by
+       the JOIN. Same-city callers continue using the page-level municipality. #}
+    {% set card_slug = (municipality.slug if (municipality is defined and municipality) else item.municipality_slug) %}
     <a class="card-link {% block card_headline_class %}{% endblock %}"
-       href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=item.meeting_id) }}#item-{{ item.id }}">
+       href="{{ url_for('public.meeting_detail', slug=card_slug, meeting_id=item.meeting_id) }}#item-{{ item.id }}">
       {% block card_headline_text %}{{ item.headline or item.title }}{% endblock %}
     </a>
   </h3>

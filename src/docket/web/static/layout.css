@@ -225,6 +225,16 @@
 
 /* ── hero ─────────────────────────────────────────── */
 .hero { padding: 48px 0 56px; border-bottom: 1px solid var(--rule); }
+/* Detail pages (meeting / item / topic) get tighter rhythm: the new compact
+   3-card NumStat strip + page_sources at page-bottom doesn't need the same
+   visual breathing room as the old 4-card kpi-grid era. */
+.hero--detail { padding: 24px 0 12px; }
+.hero--detail .hero-top { margin-bottom: 0; }
+.hero--detail + .feed,
+.hero--detail + .notable,
+.hero--detail + .exec-summary,
+.hero--detail + .item-body,
+.hero--detail + .related-items { padding-top: 24px; }
 .hero-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 32px; margin-bottom: 40px; }
 .hero-title { font-size: var(--type-hero); margin: 12px 0 16px; }
 .hero-sub { font-size: 17px; max-width: 700px; color: var(--ink-2); margin: 0; line-height: 1.55; }
@@ -1142,10 +1152,93 @@
 .city-lead-chip-label { font-weight: 500; }
 .city-lead-chip-meta { color: var(--ink-3); font-size: 11px; }
 
-/* ── KPI strip (P3 top-of-overview) ─────────────────────────── */
+/* ── KPI strip (P3 top-of-overview, P4-1 detail pages) ──────── */
 .kpi-strip {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: var(--space-4);
   margin: var(--space-2) 0 var(--space-3);
+}
+
+/* ── Back link (P4-1 detail pages) ───────────────────────────── */
+.back-link {
+  display: inline-block;
+  margin: var(--space-2) 0 var(--space-3);
+  font-size: 12px;
+  color: var(--ink-3);
+  text-decoration: none;
+  letter-spacing: 0.02em;
+}
+.back-link:hover {
+  color: var(--ink-1);
+  text-decoration: underline;
+}
+
+/* ── Detail-page eyebrow row (P4-1) ─────────────────────────── */
+.detail-eyebrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.meeting-type-pill {
+  text-transform: capitalize;
+}
+
+/* ── Item detail hero (P4-1) ─────────────────────────────────── */
+.item-detail-hero-top {
+  display: flex;
+  gap: var(--space-6);
+  align-items: flex-start;
+  justify-content: space-between;
+}
+.item-detail-hero-text {
+  flex: 1;
+  min-width: 0;
+}
+.item-detail-hero-dollar {
+  flex: 0 0 auto;
+  margin-top: var(--space-2);
+}
+.item-eyebrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.item-byline {
+  margin-top: var(--space-2);
+  color: var(--ink-3);
+  font-size: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: baseline;
+}
+.item-byline .byline-sep {
+  color: var(--ink-4, var(--ink-3));
+  opacity: 0.6;
+}
+.item-status-row {
+  margin-top: var(--space-3);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.item-body {
+  margin: var(--space-6) 0;
+}
+.item-body-why {
+  font-size: 17px;
+  line-height: 1.55;
+  margin: 0 0 var(--space-4);
+}
+
+.related-items {
+  margin-top: var(--space-12);
+}
+.related-items .feed-head {
+  margin-bottom: var(--space-4);
 }

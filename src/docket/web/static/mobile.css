@@ -656,4 +656,13 @@
   .kpi-strip > * {
     scroll-snap-align: start;
   }
+
+  /* Item detail hero → stack dollar chip below text on narrow screens. */
+  .item-detail-hero-top {
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+  .item-detail-hero-dollar {
+    margin-top: 0;
+  }
 }
