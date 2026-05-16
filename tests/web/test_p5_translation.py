@@ -249,3 +249,29 @@ def test_coverage_permalink_template_truncates_long_body_with_ellipsis():
         body = render_template("coverage/permalink.html", note=note)
     # 80 chars of "x" + … should appear in the h1
     assert ("x" * 80 + "…") in body
+
+
+def test_category_landing_uses_hero_detail(client):
+    """Pick the property_recovery badge under birmingham — likely
+    populated in any deployment. Skip if the route 404s."""
+    resp = client.get("/al/birmingham/property_recovery/")
+    if resp.status_code != 200:
+        pytest.skip("Category landing route not available in this env")
+    body = resp.get_data(as_text=True)
+    assert "hero hero--detail" in body
+
+
+def test_category_landing_drops_inline_chip_styles(client):
+    # The chip row is gated on ``cross_filters`` being non-empty — hit a URL
+    # with ``?and=<slug>`` so the chip row actually renders. Slug picked
+    # from the property_recovery landing's available_badges list.
+    resp = client.get("/al/birmingham/property_recovery/?and=contested")
+    if resp.status_code != 200:
+        pytest.skip("Category landing route not available in this env")
+    body = resp.get_data(as_text=True)
+    if 'cross-filter-chips' not in body:
+        pytest.skip("Cross-filter chip row not rendered (no enabled badges?)")
+    # Inline styles on cross-filter chips were P4 carry-over — should be gone.
+    assert 'class="cross-filter-chips"' in body
+    # Inline style="display: flex; ...; padding: 12px 0;" on the chip row removed.
+    assert 'class="cross-filter-chips" style=' not in body

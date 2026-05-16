@@ -1291,3 +1291,31 @@
   padding: var(--space-3) 0;
 }
 .coverage-search .topsearch { flex: 1; max-width: 480px; }
+
+/* ── P5 task C1: category landing inline-style migration ──── */
+.cross-filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: var(--space-3) 0;
+}
+.active-month-chip-row {
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+}
+.cross-filter-form {
+  padding: var(--space-2) 0;
+}
+.cross-filter-form .t-label {
+  display: block;
+  margin-bottom: var(--space-1);
+}
+.cross-filter {
+  font: inherit;
+  padding: var(--space-2) var(--space-2);
+  min-width: 280px;
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  color: var(--ink);
+}
