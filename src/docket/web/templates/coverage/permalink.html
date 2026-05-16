@@ -1,6 +1,23 @@
 {% extends "base.html" %}
-{% block title %}{{ note.body[:60] }}&hellip; &mdash; docket.pub{% endblock %}
+{% block title %}{{ note.body[:60] }}… — Coverage — docket.pub{% endblock %}
+
 {% block content %}
+{% set crumbs = [
+  {'label': 'Home',     'url': url_for('public.index')},
+  {'label': 'Coverage', 'url': url_for('public.coverage_listing')},
+  {'label': 'Entry',    'url': None},
+] %}
+{% include 'partials/breadcrumbs.html' %}
+
+<section class="hero hero--detail">
+    <div class="hero-top">
+        <div>
+            <div class="t-eyebrow">Editorial coverage · {{ note.kind | title }}</div>
+            <h1 class="hero-title t-display">{{ note.body[:80] }}{% if note.body | length > 80 %}…{% endif %}</h1>
+        </div>
+    </div>
+</section>
+
 <article class="coverage-permalink">
   {% include "partials/coverage_note.html" %}
 </article>
