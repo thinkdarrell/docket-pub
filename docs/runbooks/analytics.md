@@ -123,6 +123,20 @@ source ~/.docket-pub.env.local
 
 See `docs/analytics-queries.md` for the cheat sheet.
 
+### track.js sanity check
+
+After Task 6 lands `track.js` in `base.html`, verify the helper loaded and the PII guardrail works. Open the browser dev console on any docket.pub page and run:
+
+```javascript
+__docketTrackInternals.sanitizeProps({short: 'ok', long: 'x'.repeat(50), num: 42});
+// Expected: {short: 'ok', num: 42}   (the 50-char `long` value is dropped)
+
+docketTrack('test_event', {q: 'topic'});               // should not throw
+docketTrack('test_event', {q: 'x'.repeat(100)});       // should not throw; `q` is dropped
+```
+
+If `docketTrack` is `undefined`, the script tag in `base.html` is not loading — check the dev tools Network tab for `track.js`.
+
 ### Manual retention trigger
 
 ```bash
