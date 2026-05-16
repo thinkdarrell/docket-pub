@@ -1,0 +1,141 @@
+# Analytics Runbook
+
+Operational procedures for the `analytics` Railway service (self-hosted Umami) and the `umami` database on the existing Railway Postgres instance.
+
+Spec: `docs/superpowers/specs/2026-05-15-umami-analytics-design.md`
+
+## Initial Setup (one-time)
+
+Prerequisites: `psql`, Railway CLI, registered SSH key (`railway ssh keys`), Namecheap DNS access for docket.pub.
+
+### 1. Provision DB and roles
+
+Generate two strong passwords (record in 1Password under "docket.pub / Umami"):
+
+```bash
+UMAMI_PW=$(openssl rand -base64 32)
+UMAMI_READER_PW=$(openssl rand -base64 32)
+```
+
+Connect to the existing Railway Postgres via the public proxy:
+
+```bash
+/opt/homebrew/opt/postgresql@18/bin/psql "$DATABASE_PUBLIC_URL"
+```
+
+Run, substituting `<UMAMI_PW>` and `<UMAMI_READER_PW>`:
+
+```sql
+CREATE ROLE umami WITH LOGIN PASSWORD '<UMAMI_PW>' CONNECTION LIMIT 8;
+CREATE DATABASE umami OWNER umami;
+GRANT ALL PRIVILEGES ON DATABASE umami TO umami;
+
+CREATE ROLE umami_reader WITH LOGIN PASSWORD '<UMAMI_READER_PW>';
+GRANT CONNECT ON DATABASE umami TO umami_reader;
+```
+
+(The `GRANT SELECT` on views happens after the view layer is applied in step 5.)
+
+### 2. Create the `analytics` Railway service
+
+In the Railway dashboard for the docket.pub project:
+1. New → Empty Service → name it `analytics`.
+2. Settings → Source → Docker Image → `ghcr.io/umami-software/umami:postgres-latest`.
+3. Settings → Environment → add:
+   - `DATABASE_URL=postgres://umami:<UMAMI_PW>@<RAILWAY_PG_PUBLIC_HOST>:<PORT>/umami?connection_limit=5` (use the public host/port — internal hosts only resolve within Railway's VPC; the analytics service lives in the same project but uses the public URL pattern for consistency)
+   - `APP_SECRET=$(openssl rand -base64 48)` (record in 1Password)
+   - `HASH_SALT=$(openssl rand -base64 24)` (record in 1Password)
+4. Settings → Networking → Generate Domain (note the `*.up.railway.app` URL temporarily).
+5. Deploy. Tail logs until `> Ready` appears (~30 seconds).
+
+### 3. Custom domain (`stats.docket.pub`)
+
+In Railway Settings → Custom Domain for the `analytics` service:
+1. Add `stats.docket.pub`. Railway provides a CNAME target.
+2. In Namecheap (docket.pub DNS): add `CNAME stats → <railway-target>`. TTL 5 min for initial provisioning.
+3. Wait for Let's Encrypt cert (typically 2–10 min). Refresh Railway domain page until "Active" appears.
+4. Visit `https://stats.docket.pub` — should redirect to Umami's login page with valid cert.
+
+### 4. First-boot admin
+
+Default credentials are `admin / umami`. **Immediately:**
+1. Log in.
+2. Settings → Profile → change password (record in 1Password under "docket.pub / Umami admin").
+3. Settings → Websites → Add Website → Name: "docket.pub", Domain: "docket.pub".
+4. Copy the generated **Tracking Code** UUID. Record it in 1Password and as `UMAMI_WEBSITE_ID` for task 6.
+5. Edit Website → Excluded URLs (one per line):
+   ```
+   /admin/*
+   /healthz
+   *.rss
+   /al/*/data-debt.rss
+   /al/*/upcoming-hearings.rss
+   /coverage.rss
+   ```
+6. Settings → Websites → docket.pub → Share → enable public sharing. Copy the **Share URL** (looks like `https://stats.docket.pub/share/<token>/docket.pub`). Record for task 10.
+
+### 5. Capture schema fixture and apply views
+
+The fixture seeds the integration test; the view layer is the queryable surface.
+
+```bash
+# From the laptop. Captures only Umami's schema, no data.
+/opt/homebrew/opt/postgresql@18/bin/pg_dump --schema-only --no-owner --no-privileges \
+  "postgres://umami:<UMAMI_PW>@<RAILWAY_PG_PUBLIC_HOST>:<PORT>/umami" \
+  > tests/fixtures/umami_schema_v2.sql
+
+# Apply our view layer
+/opt/homebrew/opt/postgresql@18/bin/psql \
+  "postgres://umami:<UMAMI_PW>@<RAILWAY_PG_PUBLIC_HOST>:<PORT>/umami" \
+  -f db/umami_views.sql
+```
+
+### 6. Worker env vars (for the retention task — task 4)
+
+In Railway dashboard, `worker` service → Variables, add:
+- `ANALYTICS_DATABASE_URL=postgres://umami:<UMAMI_PW>@<HOST>:<PORT>/umami?connection_limit=2`
+- `HEALTHCHECK_PRUNE_ANALYTICS_UUID=<new-uuid-from-healthchecks.io>`
+
+Create a new Healthchecks.io check (`prune_analytics`, monthly cron). Paste the UUID.
+
+### 7. Reader credentials for ad-hoc Claude queries
+
+Add to `~/.docket-pub.env.local` (not committed):
+
+```bash
+UMAMI_READER_URL="postgres://umami_reader:<UMAMI_READER_PW>@<HOST>:<PORT>/umami"
+```
+
+## Routine Operations
+
+### Querying analytics
+
+```bash
+source ~/.docket-pub.env.local
+/opt/homebrew/opt/postgresql@18/bin/psql "$UMAMI_READER_URL" \
+  -c "SELECT normalized_path, SUM(pageviews) AS views FROM v_pageviews_daily WHERE day >= current_date - 7 GROUP BY 1 ORDER BY 2 DESC LIMIT 20;"
+```
+
+See `docs/analytics-queries.md` for the cheat sheet.
+
+### Manual retention trigger
+
+```bash
+railway ssh --service worker
+cd /app && python -m docket.worker.scheduler --run-once prune_analytics
+```
+
+### Umami version bump
+
+1. Update the `analytics` service image tag in Railway dashboard.
+2. After redeploy, re-capture the schema fixture (step 5 above).
+3. Run the integration tests: `pytest tests/integration/test_analytics_views.py -v`.
+4. If any view definition broke, fix `db/umami_views.sql` and re-apply.
+5. Commit both the new fixture and any view changes.
+
+## Failure Modes
+
+- **Tracker JS blocked by adblocker**: `docketTrack()` no-ops. Expected. Pageviews still missing.
+- **Prisma queue timeout under spike**: events drop, `docket-web` unaffected. See spec Risks.
+- **`umami` role hits 8-connection cap**: Postgres rejects new Umami connections until existing ones close. Container does not crash thanks to `connection_limit=5` on the Prisma side.
+- **stats.docket.pub cert expired**: Let's Encrypt auto-renews via Railway. If it lapses, regenerate via the Custom Domain panel.
