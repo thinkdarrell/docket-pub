@@ -43,7 +43,8 @@ echo "HASH_SALT=$(openssl rand -base64 24)"
 
 In the Railway dashboard for the docket.pub project:
 1. New → Empty Service → name it `analytics`.
-2. Settings → Source → Docker Image → `ghcr.io/umami-software/umami:postgres-latest`.
+2. Settings → Source → Docker Image → `umamisoftware/umami:postgresql-v2.20.2`.
+   (Image notes: Umami's official Postgres-flavored builds live on Docker Hub under `umamisoftware/umami`. The `ghcr.io/umami-software/umami` repo only carries old v1 tags. The Postgres tag prefix is `postgresql-`, not `postgres-`. Pinning to v2.20.2 — the last v2 stable — instead of `postgresql-latest` keeps upgrades explicit; to bump, update this tag and re-run the schema-fixture capture in step 5.)
 3. Settings → Environment → add these three variables (paste the values you generated above):
    - `DATABASE_URL=postgres://umami:<UMAMI_PW>@postgres.railway.internal:5432/umami?connection_limit=5` (use the internal hostname — the analytics service runs inside the Railway VPC so `postgres.railway.internal` resolves; reserve the public host for laptop-based connections only)
    - `APP_SECRET=<paste value from terminal>` (record in 1Password)

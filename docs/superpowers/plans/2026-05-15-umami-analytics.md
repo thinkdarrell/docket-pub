@@ -4,7 +4,7 @@
 
 **Goal:** Self-hosted Umami analytics on Railway, sharing the existing Postgres in a separate `umami` database. Three v1 custom events (rail_click, outbound_source_click, search_submit) plus pageviews / geo / referrers. Claude queries the data via stable read-only views.
 
-**Architecture:** New `analytics` Railway service runs `ghcr.io/umami-software/umami:postgres-latest`, connects to a fresh `umami` database on the existing Postgres instance. A `db/umami_views.sql` file defines the stable read-only views consumers query (never raw Umami tables). One JS helper `track.js` wraps `umami.track()` with try/catch and a 40-char PII drop rule. Three event handlers wired in templates. One new `prune_analytics` task on the existing `worker` scheduler enforces 24-month retention.
+**Architecture:** New `analytics` Railway service runs `umamisoftware/umami:postgresql-v2.20.2`, connects to a fresh `umami` database on the existing Postgres instance. A `db/umami_views.sql` file defines the stable read-only views consumers query (never raw Umami tables). One JS helper `track.js` wraps `umami.track()` with try/catch and a 40-char PII drop rule. Three event handlers wired in templates. One new `prune_analytics` task on the existing `worker` scheduler enforces 24-month retention.
 
 **Tech Stack:** Umami v2 (Node, official Docker image), PostgreSQL 18.3 on Railway, Flask/Jinja2 templates, vanilla JS (no framework), APScheduler (existing worker), pytest.
 
@@ -64,7 +64,7 @@ GRANT CONNECT ON DATABASE umami TO umami_reader;
 
 In the Railway dashboard for the docket.pub project:
 1. New → Empty Service → name it `analytics`.
-2. Settings → Source → Docker Image → `ghcr.io/umami-software/umami:postgres-latest`.
+2. Settings → Source → Docker Image → `umamisoftware/umami:postgresql-v2.20.2`.
 3. Settings → Environment → add:
    - `DATABASE_URL=postgres://umami:<UMAMI_PW>@<RAILWAY_PG_PUBLIC_HOST>:<PORT>/umami?connection_limit=5` (use the public host/port — internal hosts only resolve within Railway's VPC; the analytics service lives in the same project but uses the public URL pattern for consistency)
    - `APP_SECRET=$(openssl rand -base64 48)` (record in 1Password)
@@ -566,7 +566,7 @@ git commit -m "feat(worker): prune_analytics monthly retention task"
 **Before any subsequent tasks**, the operator follows `docs/runbooks/analytics.md` sections 1–7 to:
 
 1. Create the `umami` and `umami_reader` Postgres roles and the `umami` database.
-2. Create the `analytics` Railway service running `ghcr.io/umami-software/umami:postgres-latest`.
+2. Create the `analytics` Railway service running `umamisoftware/umami:postgresql-v2.20.2`.
 3. Configure `stats.docket.pub` custom domain + Let's Encrypt cert.
 4. Boot the Umami container, complete first-boot admin, register the website, capture the **website ID UUID**.
 5. Configure excluded URLs in Umami.
