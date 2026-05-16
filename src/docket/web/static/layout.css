@@ -1266,3 +1266,28 @@
   line-height: 2;
 }
 .error-affordances li { margin: 0; }
+
+/* ── P5 task B2: coverage listing tabs + FTS bar ──── */
+.coverage-tabs {
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--rule);
+}
+.coverage-tab {
+  text-decoration: none;
+  color: var(--ink-3);
+  padding: var(--space-2) 0;
+  border-bottom: 2px solid transparent;
+}
+.coverage-tab.is-active {
+  color: var(--ink-1);
+  border-bottom-color: var(--accent);
+}
+.coverage-search {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  padding: var(--space-3) 0;
+}
+.coverage-search .topsearch { flex: 1; max-width: 480px; }

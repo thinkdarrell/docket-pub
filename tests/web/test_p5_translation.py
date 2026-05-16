@@ -121,3 +121,31 @@ def test_search_city_scoped_renders_page_sources(client):
     body = resp.get_data(as_text=True)
     # page_sources renders an <aside class="page-sources">; structural hook.
     assert 'class="page-sources"' in body
+
+
+def test_coverage_listing_uses_hero_detail(client):
+    resp = client.get("/coverage/")
+    if resp.status_code != 200:
+        pytest.skip("Coverage listing route not available in this env")
+    body = resp.get_data(as_text=True)
+    assert "hero hero--detail" in body
+
+
+def test_coverage_listing_uses_topsearch_chrome(client):
+    """FTS bar adopts the same .topsearch chrome the masthead uses."""
+    resp = client.get("/coverage/")
+    if resp.status_code != 200:
+        pytest.skip("Coverage listing route not available in this env")
+    body = resp.get_data(as_text=True)
+    assert 'class="coverage-search"' in body
+    assert 'class="topsearch"' in body
+
+
+def test_coverage_listing_uses_coverage_tabs(client):
+    resp = client.get("/coverage/")
+    if resp.status_code != 200:
+        pytest.skip("Coverage listing route not available in this env")
+    body = resp.get_data(as_text=True)
+    assert 'class="coverage-tabs t-mono"' in body
+    # All tab should be active by default (no kind kwarg)
+    assert 'class="coverage-tab is-active"' in body

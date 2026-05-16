@@ -1,21 +1,29 @@
 {% extends "base.html" %}
 {% block title %}Editorial coverage — docket.pub{% endblock %}
 {% block content %}
-<header>
-  <h1>Editorial coverage</h1>
-  <p>Notes and press citations on Alabama municipal meetings.</p>
-</header>
+<section class="hero hero--detail">
+    <div class="hero-top">
+        <div>
+            <div class="t-eyebrow">Editorial coverage</div>
+            <h1 class="hero-title t-display">Editorial coverage</h1>
+            <p class="hero-sub">Notes and press citations on Alabama municipal meetings.</p>
+        </div>
+    </div>
+</section>
 
-<nav class="coverage-tabs">
-  <a href="{{ url_for('public.coverage_listing') }}" class="{% if not kind %}active{% endif %}">All</a>
-  <a href="{{ url_for('public.coverage_listing', kind='note') }}" class="{% if kind == 'note' %}active{% endif %}">Notes</a>
-  <a href="{{ url_for('public.coverage_listing', kind='citation') }}" class="{% if kind == 'citation' %}active{% endif %}">Citations</a>
+<nav class="coverage-tabs t-mono">
+  <a href="{{ url_for('public.coverage_listing') }}" class="coverage-tab{% if not kind %} is-active{% endif %}">All</a>
+  <a href="{{ url_for('public.coverage_listing', kind='note') }}" class="coverage-tab{% if kind == 'note' %} is-active{% endif %}">Notes</a>
+  <a href="{{ url_for('public.coverage_listing', kind='citation') }}" class="coverage-tab{% if kind == 'citation' %} is-active{% endif %}">Citations</a>
 </nav>
 
 <form method="get" action="{{ url_for('public.coverage_listing') }}" class="coverage-search">
   {% if kind %}<input type="hidden" name="kind" value="{{ kind }}">{% endif %}
-  <input type="search" name="q" value="{{ q }}" placeholder="Search&hellip;">
-  <button type="submit">Search</button>
+  <div class="topsearch">
+    <span class="topsearch-icon t-mono">⌕</span>
+    <input type="search" name="q" value="{{ q }}" placeholder="Search coverage…">
+  </div>
+  <button type="submit" class="leg-viewall t-mono">Search →</button>
 </form>
 
 {% if not entries %}
