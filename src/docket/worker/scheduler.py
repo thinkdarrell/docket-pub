@@ -101,6 +101,16 @@ def build_scheduler(timezone: str = "America/Chicago") -> BlockingScheduler:
         coalesce=True,
         max_instances=1,
     )
+    # Monthly retention: drop Umami events older than 24 months.
+    # 1st of the month at 04:00 America/Chicago — before the morning task
+    # cluster, when DB pressure is lowest.
+    sched.add_job(
+        TASKS["prune_analytics"],
+        CronTrigger(day=1, hour=4, minute=0, timezone=timezone),
+        id="prune_analytics",
+        coalesce=True,
+        max_instances=1,
+    )
     return sched
 
 

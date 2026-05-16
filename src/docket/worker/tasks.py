@@ -12,8 +12,11 @@ modules do the work.
 from __future__ import annotations
 
 import logging
+import os
 import traceback
 from typing import Callable
+
+import psycopg2 as psycopg
 
 from docket.ai.worker import BudgetExceededError, run_once
 from docket.analysis.vote_matcher import match_all_unmatched
@@ -232,16 +235,40 @@ def task_refresh_backfill_ratio_mv() -> None:
     _safe_run("refresh_backfill_ratio_mv", _do_refresh_backfill_ratio_mv)
 
 
+def _do_prune_analytics() -> dict[str, int]:
+    """Delete Umami events older than 24 months.
+
+    Connects to the umami database via $ANALYTICS_DATABASE_URL (a separate
+    DSN from the editorial $DATABASE_URL — different role, different db).
+    Idempotent; returns the deleted row count.
+    """
+    dsn = os.environ["ANALYTICS_DATABASE_URL"]
+    with psycopg.connect(dsn) as conn, conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM website_event "
+            "WHERE created_at < NOW() - INTERVAL '24 months'"
+        )
+        deleted = cur.rowcount
+        conn.commit()
+    log.info("prune_analytics deleted=%d", deleted)
+    return {"deleted": deleted}
+
+
+def task_prune_analytics() -> None:
+    _safe_run("prune_analytics", _do_prune_analytics)
+
+
 # --- registry — used by scheduler.py and the --run-once flag -----------------
 
 TASKS: dict[str, Callable[[], None]] = {
-    "ingest_all":               task_ingest_all,
-    "ai_items":                 task_ai_items,
-    "ai_meetings":              task_ai_meetings,
-    "vote_matching":            task_vote_matching,
-    "repair_empty_agendas":     task_repair_empty_agendas,
-    "process_badges":           task_process_badges,
-    "calibration_report":       task_calibration_report,
-    "process_batches":          task_process_batches,
+    "repair_empty_agendas":      task_repair_empty_agendas,
+    "ingest_all":                task_ingest_all,
+    "ai_items":                  task_ai_items,
+    "ai_meetings":               task_ai_meetings,
+    "vote_matching":             task_vote_matching,
+    "process_badges":            task_process_badges,
+    "calibration_report":        task_calibration_report,
+    "process_batches":           task_process_batches,
     "refresh_backfill_ratio_mv": task_refresh_backfill_ratio_mv,
+    "prune_analytics":           task_prune_analytics,
 }
