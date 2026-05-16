@@ -240,6 +240,9 @@ def _do_prune_analytics() -> dict[str, int]:
 
     Connects to the umami database via $ANALYTICS_DATABASE_URL (a separate
     DSN from the editorial $DATABASE_URL — different role, different db).
+    `docket.db.db()` is hardcoded to $DATABASE_URL, so we open a psycopg2
+    connection directly here instead of going through the project's
+    connection helper.
     Idempotent; returns the deleted row count.
     """
     dsn = os.environ["ANALYTICS_DATABASE_URL"]
