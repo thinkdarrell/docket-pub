@@ -64,3 +64,23 @@ def test_topics_index_uses_topic_row_partial(client):
         pytest.skip("No tagged items seeded in this env")
     # topic_row's structural hooks (verified by existing partial tests)
     assert "topic-row" in body or "topic-pill" in body
+
+
+def test_404_renders_custom_template(client):
+    resp = client.get("/this/path/definitely/does/not/exist")
+    assert resp.status_code == 404
+    body = resp.get_data(as_text=True)
+    # Custom 404 template renders the masthead from P1
+    assert "docket.pub" in body  # brand mark
+    assert "404" in body  # the status code shown to user
+    # Friendly affordance
+    assert "Home" in body or "home" in body
+
+
+def test_500_renders_custom_template_via_direct_render(render_partial):
+    """The 500 handler only kicks in when app.debug is False; in pytest
+    we don't exercise it directly (test_client raises). Just smoke-load
+    the template via render_template to verify syntax."""
+    body = render_partial("errors/500.html")
+    assert "500" in body
+    assert "docket.pub" in body

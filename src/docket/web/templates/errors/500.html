@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Something broke — docket.pub{% endblock %}
+
+{% block content %}
+<section class="hero hero--detail">
+    <div class="hero-top">
+        <div>
+            <div class="t-eyebrow t-mono">Error · 500</div>
+            <h1 class="hero-title t-display">Something on our end broke</h1>
+            <p class="hero-sub">
+                docket.pub hit an unexpected error rendering this page. The fault is ours, not yours.
+                We log every 500; nothing about your request is hidden from the operator. Try again in
+                a moment, or take a different path below.
+            </p>
+        </div>
+    </div>
+</section>
+
+<section class="feed">
+    <header class="feed-head">
+        <div>
+            <div class="t-eyebrow">Try these</div>
+            <h2 class="feed-title t-display">Where to next</h2>
+        </div>
+    </header>
+    <ul class="error-affordances t-mono">
+        <li><a class="link" href="{{ url_for('public.index') }}">← Home</a></li>
+        <li><a class="link" href="{{ url_for('public.search') }}">Search</a></li>
+    </ul>
+</section>
+{% endblock %}

@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Not found — docket.pub{% endblock %}
+
+{% block content %}
+<section class="hero hero--detail">
+    <div class="hero-top">
+        <div>
+            <div class="t-eyebrow t-mono">Error · 404</div>
+            <h1 class="hero-title t-display">We couldn't find that page</h1>
+            <p class="hero-sub">
+                The page or meeting you're looking for may have been removed, retracted by the
+                city, or never existed. Public meeting records change over time — that's the nature
+                of municipal transparency.
+            </p>
+        </div>
+    </div>
+</section>
+
+<section class="feed">
+    <header class="feed-head">
+        <div>
+            <div class="t-eyebrow">Try these</div>
+            <h2 class="feed-title t-display">Where to next</h2>
+        </div>
+    </header>
+    <ul class="error-affordances t-mono">
+        <li><a class="link" href="{{ url_for('public.index') }}">← Home</a></li>
+        <li><a class="link" href="{{ url_for('public.topics_index') }}">Browse topics</a></li>
+        <li><a class="link" href="{{ url_for('public.search') }}">Search agenda items</a></li>
+    </ul>
+</section>
+{% endblock %}
