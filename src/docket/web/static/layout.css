@@ -958,6 +958,21 @@
   -webkit-line-clamp: 2;
 }
 
+/* ── P5: meeting-card grid layout (meetings.html) ──────────────────── */
+.meeting-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+}
+
+/* ── P5: pagination controls (meetings.html) ───────────────────────── */
+.pagination-controls {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+}
+
 /* ─── P2a: source_rail KPI explainer stack ─────────────────────────────── */
 
 .source-rail-kpis {

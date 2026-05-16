@@ -620,6 +620,11 @@
   .meeting-card--grid {
     width: 100%;
   }
+
+  /* P5: meeting-card-grid collapses to single column on mobile. */
+  .meeting-card-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* ── CityLead + KPI strip (P3, <768px) ─────────────────────── */
