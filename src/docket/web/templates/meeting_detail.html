@@ -2,41 +2,36 @@
 {% block title %}{{ meeting.title }} — {{ municipality.name }} — docket.pub{% endblock %}
 
 {% block content %}
-{# ── Hero ─────────────────────────────────────────── #}
-<section class="hero">
+{# ── Header (P4-1) ─────────────────────────────────── #}
+<a class="back-link t-mono" href="{{ url_for('public.city_overview', slug=municipality.slug) }}">
+    ← Back to {{ municipality.name }}
+</a>
+
+<section class="hero hero--detail">
     <div class="hero-top">
         <div>
-            <div class="t-eyebrow">{{ meeting.meeting_type or 'meeting' }} · {{ municipality.name }}</div>
-            <h1 class="hero-title t-display" style="font-size: 48px;">{{ meeting.title }}</h1>
-            <p class="hero-sub">
-                {{ meeting.meeting_date.strftime('%A, %B %-d, %Y') if meeting.meeting_date else '' }}
-                · <strong>{{ agenda_items | length }}</strong> agenda items
-                · <strong>{{ votes | length }}</strong> vote{{ 's' if votes | length != 1 else '' }} recorded
-            </p>
+            <div class="t-eyebrow detail-eyebrow">
+                <span class="chip meeting-type-pill">{{ meeting.meeting_type or 'meeting' }}</span>
+                <span class="t-meta">{{ municipality.name }}</span>
+                {% if meeting.meeting_date %}
+                <span class="t-meta">·</span>
+                <span class="t-meta">{{ meeting.meeting_date.strftime('%A, %B %-d, %Y') }}</span>
+                {% endif %}
+            </div>
+            <h1 class="hero-title t-display">{{ meeting.title }}</h1>
         </div>
     </div>
 
-    <div class="kpi-grid" style="grid-template-columns: repeat(4, 1fr);">
-        <div class="kpi">
-            <div class="kpi-label t-label">Agenda items</div>
-            <div class="kpi-value t-display t-tnum">{{ agenda_items | length }}</div>
-            <div class="kpi-sub t-meta">{{ consent_items | length }} consent · {{ regular_items | length }} regular</div>
-        </div>
-        <div class="kpi">
-            <div class="kpi-label t-label">Votes</div>
-            <div class="kpi-value t-display t-tnum">{{ votes | length }}</div>
-            <div class="kpi-sub t-meta">{% if votes %}{{ votes[0].source | replace('_', ' ') }}{% else %}none recorded{% endif %}</div>
-        </div>
-        <div class="kpi">
-            <div class="kpi-label t-label">Dollar items</div>
-            <div class="kpi-value t-display t-tnum">{{ dollar_count }}</div>
-            <div class="kpi-sub t-meta">with amounts</div>
-        </div>
-        <div class="kpi is-accent">
-            <div class="kpi-label t-label">Topics</div>
-            <div class="kpi-value t-display t-tnum">{{ topic_count }}</div>
-            <div class="kpi-sub t-meta">classified</div>
-        </div>
+    <div class="kpi-strip">
+        {% with label='Agenda items', value='{:,}'.format(agenda_items | length), sub=(consent_items | length ~ ' consent · ' ~ regular_items | length ~ ' regular') %}
+            {% include 'partials/num_stat.html' with context %}
+        {% endwith %}
+        {% with label='Votes', value='{:,}'.format(votes | length), sub=(votes[0].source | replace('_', ' ') if votes else 'none recorded') %}
+            {% include 'partials/num_stat.html' with context %}
+        {% endwith %}
+        {% with label='Total dollars', value=total_dollars_formatted, sub=(dollar_count ~ ' item' ~ ('s' if dollar_count != 1 else '') ~ ' with amounts'), accent=true %}
+            {% include 'partials/num_stat.html' with context %}
+        {% endwith %}
     </div>
 </section>
 

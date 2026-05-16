@@ -2,51 +2,112 @@
 {% block title %}{{ item.headline or item.title }} — {{ municipality.name }} — docket.pub{% endblock %}
 
 {% block content %}
-{# ── Hero ─────────────────────────────────────────── #}
-<section class="hero">
-    <div class="hero-top">
-        <div>
-            <div class="t-eyebrow">
-                {{ municipality.name }} ·
-                <a class="link" href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=item.meeting_id) }}">
+{# ── Back link ────────────────────────────────────── #}
+<a class="back-link t-mono" href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=item.meeting_id) }}">
+    ← Back to meeting
+</a>
+
+{# ── Header (P4-1) ─────────────────────────────────── #}
+<section class="hero hero--detail item-detail-hero">
+    <div class="item-detail-hero-top">
+        <div class="item-detail-hero-text">
+            <div class="t-eyebrow detail-eyebrow">
+                {% if item.item_number %}
+                <span class="t-mono">Item #{{ item.item_number }}</span>
+                <span class="t-meta">·</span>
+                {% endif %}
+                <a class="link t-meta" href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=item.meeting_id) }}">
                     {{ meeting.title if meeting else 'Meeting' }}
                 </a>
             </div>
-            <h1 class="hero-title t-display" style="font-size: 32px;">
-                {{ item.headline or item.title }}
-            </h1>
-            {% if item.item_number %}
-            <p class="hero-sub">Item #{{ item.item_number }}</p>
+            <h1 class="hero-title t-display">{{ item.headline or item.title }}</h1>
+            {% set has_byline = item.sponsor or meeting.meeting_date or item.section %}
+            {% if has_byline %}
+            <div class="item-byline t-mono">
+                {% if item.sponsor %}<span>{{ item.sponsor }}</span>{% endif %}
+                {% if item.sponsor and meeting.meeting_date %}<span class="byline-sep">·</span>{% endif %}
+                {% if meeting.meeting_date %}<span>{{ meeting.meeting_date.strftime('%b %-d, %Y') }}</span>{% endif %}
+                {% if meeting.meeting_date and item.section %}<span class="byline-sep">·</span>{% endif %}
+                {% if item.section %}<span>{{ item.section }}</span>{% endif %}
+            </div>
             {% endif %}
+            <div class="item-status-row">
+                {% if item.processing_status == 'pending' %}
+                <span class="chip is-warn"><span class="dot"></span>under review</span>
+                {% endif %}
+                {% if item.is_consent %}
+                <span class="badge-consent">Consent</span>
+                {% endif %}
+                {% if item.topic %}
+                <span class="chip topic-chip"><span class="dot"></span>{{ item.topic | topic_name }}</span>
+                {% endif %}
+            </div>
         </div>
+        {% if item.dollars_amount %}
+        <div class="item-detail-hero-dollar">
+            {% with amount=item.dollars_amount %}
+                {% include 'partials/dollar_tier.html' with context %}
+            {% endwith %}
+        </div>
+        {% endif %}
     </div>
 </section>
 
-{# ── Smart Brevity Card ────────────────────────────── #}
-{% if config.SMART_BREVITY_UI %}
-<section class="notable smart-brevity-list smart-brevity-list--regular" style="padding: 0 0 1rem 0;">
-    {% include 'partials/smart_brevity_card.html' %}
-</section>
-{% else %}
-<section class="notable" style="padding: 0 0 1rem 0;">
-    <div class="notable-row">
-        <div>
-            <div class="notable-title">{{ item.title }}</div>
-            {% if item.description %}
-            <div class="t-meta" style="margin-top: 6px; line-height: 1.5;">{{ item.description }}</div>
-            {% endif %}
-        </div>
-    </div>
+{# ── Why it matters + facts ────────────────────────── #}
+{% if item.why_it_matters or item.summary %}
+<section class="item-body">
+    {% if item.why_it_matters %}
+    <p class="item-body-why">{{ item.why_it_matters }}</p>
+    {% elif item.summary %}
+    <p class="item-body-why">{{ item.summary }}</p>
+    {% endif %}
+    {% include 'partials/_facts_strip.html' %}
 </section>
 {% endif %}
+
+{# ── Vote result block — DEFERRED to P4-1 follow-up ───
+   Plan §3.2 calls for a vote-result block "if vote exists", but P4-2
+   didn't ship list_votes_for_item() and the consent-block 1:N case
+   warrants its own design pass. Tracked as a follow-up. #}
 
 {# ── Coverage block ────────────────────────────────── #}
 {% include "partials/coverage_block.html" %}
 
-{# ── Back link ─────────────────────────────────────── #}
-<div style="padding: 16px 0;">
-    <a class="link t-meta" href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=item.meeting_id) }}">
-        ← Back to meeting
-    </a>
-</div>
+{# ── Related items — capture seed before loops shadow `item` ── #}
+{% set seed_topic = item.topic %}
+{% set seed_sponsor = item.sponsor %}
+
+{# ── Related by topic ──────────────────────────────── #}
+{% if related_by_topic %}
+<section class="related-items related-items--topic">
+    <header class="feed-head">
+        <div>
+            <div class="t-eyebrow">Related coverage</div>
+            <h2 class="feed-title t-display">More on {{ seed_topic | topic_name }}</h2>
+        </div>
+    </header>
+    <div class="notable-list smart-brevity-list smart-brevity-list--regular">
+        {% for item in related_by_topic %}
+            {% include 'partials/card_smart_brevity.html' %}
+        {% endfor %}
+    </div>
+</section>
+{% endif %}
+
+{# ── Related by sponsor ────────────────────────────── #}
+{% if related_by_sponsor %}
+<section class="related-items related-items--sponsor">
+    <header class="feed-head">
+        <div>
+            <div class="t-eyebrow">Related coverage</div>
+            <h2 class="feed-title t-display">More from {{ seed_sponsor }}</h2>
+        </div>
+    </header>
+    <div class="notable-list smart-brevity-list smart-brevity-list--regular">
+        {% for item in related_by_sponsor %}
+            {% include 'partials/card_smart_brevity.html' %}
+        {% endfor %}
+    </div>
+</section>
+{% endif %}
 {% endblock %}
