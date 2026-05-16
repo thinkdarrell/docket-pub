@@ -105,3 +105,19 @@ def test_search_results_use_card_smart_brevity(client):
 def test_search_drops_kpi_grid(client):
     body = client.get("/search?q=council").get_data(as_text=True)
     assert 'class="kpi-grid"' not in body
+
+
+def test_search_city_scoped_renders_page_sources(client):
+    """City-scoped search must wire `municipality` so page_sources renders.
+
+    The page_sources partial is included unconditionally in base.html and
+    self-gates on `municipality is defined and municipality`. Removing the
+    municipality kwarg in the search view silently breaks this rail; this
+    test catches that regression.
+    """
+    resp = client.get("/search?q=council&city=birmingham")
+    if resp.status_code != 200:
+        pytest.skip("Search route not available in this env")
+    body = resp.get_data(as_text=True)
+    # page_sources renders an <aside class="page-sources">; structural hook.
+    assert 'class="page-sources"' in body

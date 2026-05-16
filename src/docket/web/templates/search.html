@@ -2,21 +2,10 @@
 {% block title %}Search{% if query %}: {{ query }}{% endif %} — docket.pub{% endblock %}
 
 {% block content %}
-{# city is a slug string (or empty/None) — cross-city when falsy. #}
-{% set is_cross_city = not city %}
-
 {% set city_name = '' %}
 {% if city %}
 {% for mu in municipalities %}{% if mu.slug == city %}{% set city_name = mu.name %}{% endif %}{% endfor %}
 {% endif %}
-
-{% set ns = namespace(total_dollars=0, dollar_items=0) %}
-{% for it in results %}
-    {% if it.dollars_amount %}
-    {% set ns.total_dollars = ns.total_dollars + it.dollars_amount %}
-    {% set ns.dollar_items = ns.dollar_items + 1 %}
-    {% endif %}
-{% endfor %}
 
 {# ── Hero ─────────────────────────────────────────── #}
 <section class="hero hero--detail">
