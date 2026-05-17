@@ -81,75 +81,83 @@ def umami_db():
     # Derive DSN for the new DB by swapping out the dbname segment.
     test_dsn = base_url.rsplit("/", 1)[0] + "/" + test_db
 
-    # --- Load Umami v3 schema fixture ---
-    # The fixture was pg_dump'd from PG 18.  Two PG 18-only statements are
-    # stripped before loading so the fixture is portable to PG 16:
-    #
-    #   SET transaction_timeout = 0   — added in PG 17; PG 16 rejects it.
-    #   \restrict / \unrestrict       — pg_dump 18 metacommands; unknown to PG 16
-    #                                   psql but only produce warnings, not errors,
-    #                                   so they are kept as-is (harmless).
-    _PG18_ONLY = {
-        "SET transaction_timeout",
-    }
-    fixture_sql = "\n".join(
-        ln
-        for ln in FIXTURE.read_text().splitlines()
-        if not any(ln.strip().startswith(tok) for tok in _PG18_ONLY)
-    )
-    subprocess.run(
-        [psql, test_dsn, "-v", "ON_ERROR_STOP=1", "-q"],
-        input=fixture_sql,
-        text=True,
-        check=True,
-        capture_output=True,
-    )
-
-    # --- Apply views, stripping GRANT blocks (umami_reader role doesn't exist locally) ---
-    # The GRANT section in umami_views.sql is multi-line:
-    #   GRANT USAGE ON SCHEMA public TO umami_reader;
-    #   GRANT SELECT ON
-    #     v_pageviews_daily,
-    #     ...
-    #   TO umami_reader;
-    # A simple per-line filter leaves the view-name lines as orphaned SQL, so
-    # we use a small state machine: skip from any GRANT line until the next
-    # semicolon (inclusive).
-    views_lines = VIEWS.read_text().splitlines()
-    filtered: list[str] = []
-    in_grant = False
-    for ln in views_lines:
-        stripped = ln.strip()
-        if in_grant:
-            if stripped.endswith(";"):
-                in_grant = False  # end of GRANT block — drop this line too
-            # else: interior of GRANT block — drop
-        elif stripped.upper().startswith("GRANT"):
-            in_grant = True
-            if stripped.endswith(";"):
-                in_grant = False  # single-line GRANT — drop and done
-            # else: multi-line GRANT starts here — stay in_grant
-        else:
-            filtered.append(ln)
-    views_sql = "\n".join(filtered)
-    subprocess.run(
-        [psql, test_dsn, "-v", "ON_ERROR_STOP=1", "-q"],
-        input=views_sql,
-        text=True,
-        check=True,
-        capture_output=True,
-    )
-
-    yield test_dsn
-
-    # --- Teardown ---
-    admin = psycopg.connect(base_url)
-    admin.set_session(autocommit=True)
     try:
-        with admin.cursor() as cur:
-            cur.execute(f'DROP DATABASE IF EXISTS "{test_db}"')
+        # --- Load Umami v3 schema fixture ---
+        # The fixture was pg_dump'd from PG 18.  Two PG 18-only statements are
+        # stripped before loading so the fixture is portable to PG 16:
+        #
+        #   SET transaction_timeout = 0   — added in PG 17; PG 16 rejects it.
+        #   \restrict / \unrestrict       — pg_dump 18 metacommands; unknown to PG 16
+        #                                   psql but only produce warnings, not errors,
+        #                                   so they are kept as-is (harmless).
+        _PG18_ONLY = {
+            "SET transaction_timeout",
+        }
+        fixture_sql = "\n".join(
+            ln
+            for ln in FIXTURE.read_text().splitlines()
+            if not any(ln.strip().startswith(tok) for tok in _PG18_ONLY)
+        )
+        try:
+            subprocess.run(
+                [psql, test_dsn, "-v", "ON_ERROR_STOP=1", "-q"],
+                input=fixture_sql,
+                text=True,
+                check=True,
+                capture_output=True,
+            )
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(f"psql fixture load failed:\n{e.stderr}") from e
+
+        # --- Apply views, stripping GRANT blocks (umami_reader role doesn't exist locally) ---
+        # The GRANT section in umami_views.sql is multi-line:
+        #   GRANT USAGE ON SCHEMA public TO umami_reader;
+        #   GRANT SELECT ON
+        #     v_pageviews_daily,
+        #     ...
+        #   TO umami_reader;
+        # A simple per-line filter leaves the view-name lines as orphaned SQL, so
+        # we use a small state machine: skip from any GRANT line until the next
+        # semicolon (inclusive).
+        views_lines = VIEWS.read_text().splitlines()
+        filtered: list[str] = []
+        in_grant = False
+        for ln in views_lines:
+            stripped = ln.strip()
+            if in_grant:
+                if stripped.endswith(";"):
+                    in_grant = False  # end of GRANT block — drop this line too
+                # else: interior of GRANT block — drop
+            elif stripped.upper().startswith("GRANT"):
+                in_grant = True
+                if stripped.endswith(";"):
+                    in_grant = False  # single-line GRANT — drop and done
+                # else: multi-line GRANT starts here — stay in_grant
+            else:
+                filtered.append(ln)
+        views_sql = "\n".join(filtered)
+        try:
+            subprocess.run(
+                [psql, test_dsn, "-v", "ON_ERROR_STOP=1", "-q"],
+                input=views_sql,
+                text=True,
+                check=True,
+                capture_output=True,
+            )
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(f"psql views load failed:\n{e.stderr}") from e
+
+        yield test_dsn
+
     finally:
-        admin.close()
+        # --- Teardown — always runs even if fixture/views load raised ---
+        admin = psycopg.connect(base_url)
+        admin.set_session(autocommit=True)
+        try:
+            with admin.cursor() as cur:
+                cur.execute(f'DROP DATABASE IF EXISTS "{test_db}"')
+        finally:
+            admin.close()
 
 
 # ---------------------------------------------------------------------------
@@ -161,8 +169,10 @@ def conn(umami_db):
     """Open a connection to the throwaway DB, roll back after the test."""
     c = psycopg.connect(umami_db)
     yield c
-    c.rollback()
-    c.close()
+    try:
+        c.rollback()
+    finally:
+        c.close()
 
 
 # ---------------------------------------------------------------------------
