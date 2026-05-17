@@ -12,6 +12,12 @@
   border-bottom: 1px solid var(--rule);
   padding: 0 56px;
 }
+
+/* Anchor-target offset: masthead is 64px tall + 16px breathing room so deep
+   links like #item-N / #vote-N land below the sticky header rather than
+   under it. Attribute selectors cover every anchored element without
+   per-class plumbing. */
+[id^="item-"], [id^="vote-"] { scroll-margin-top: 80px; }
 .masthead-row {
   display: grid;
   grid-template-columns: auto auto auto 1fr auto;

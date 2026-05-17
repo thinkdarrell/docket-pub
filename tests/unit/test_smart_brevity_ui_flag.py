@@ -129,7 +129,7 @@ _REGULAR_LOOP_BODY = """\
     {% if config.SMART_BREVITY_UI %}
         {% include 'partials/smart_brevity_card.html' %}
     {% else %}
-        <div class="notable-row" style="cursor: default;">
+        <div id="item-{{ item.id }}" class="notable-row" style="cursor: default;">
             <div class="notable-num t-mono">
                 {% if item.item_number %}{{ item.item_number }}{% else %}—{% endif %}
             </div>
@@ -184,7 +184,7 @@ _CONSENT_LOOP_BODY = """\
     {% if config.SMART_BREVITY_UI %}
         {% include 'partials/smart_brevity_card.html' %}
     {% else %}
-        <div class="notable-row" style="cursor: default;">
+        <div id="item-{{ item.id }}" class="notable-row" style="cursor: default;">
             <div class="notable-num t-mono">
                 {% if item.item_number %}{{ item.item_number }}{% else %}—{% endif %}
             </div>
