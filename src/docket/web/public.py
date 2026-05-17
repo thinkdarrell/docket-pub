@@ -297,6 +297,8 @@ def item_detail(slug, item_id):
     related_by_topic = query.list_related_items_by_topic(item_id, limit=3)
     related_by_sponsor = query.list_related_items_by_sponsor(item_id, limit=3)
 
+    vote_data = query.get_vote_for_item(item_id)
+
     kpi_stats = query._kpi_stats_for_municipality(municipality)
 
     return render_template(
@@ -307,6 +309,7 @@ def item_detail(slug, item_id):
         coverage=coverage,
         related_by_topic=related_by_topic,
         related_by_sponsor=related_by_sponsor,
+        vote_data=vote_data,
         kpi_stats=kpi_stats,
     )
 
