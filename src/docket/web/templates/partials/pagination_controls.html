@@ -1,0 +1,43 @@
+{# Partial: pagination_controls
+
+   Renders prev / next links for a paginated list.
+   Modeled on the existing pager in meetings.html:47-63.
+
+   Required context:
+     page      — current 1-indexed page (int)
+     has_next  — bool, True if another page of results likely exists
+                 (callers set via len(results) == per_page heuristic
+                 to avoid a separate COUNT query on large corpora)
+
+   Other query params (q, city, type, …) are preserved by reading
+   request.args and emitting a relative URL — that keeps the current
+   path and only rewrites the `page` value. Filters / sort options
+   carried in the URL survive pagination clicks for free.
+
+   Renders nothing when page <= 1 and there's no next page (single-page
+   result set — no nav needed).
+#}
+{%- macro _page_url(new_page) -%}
+  {%- set parts = [] -%}
+  {%- for k, v in request.args.items() if k != 'page' -%}
+    {%- set _ = parts.append(k ~ '=' ~ (v | urlencode)) -%}
+  {%- endfor -%}
+  {%- set _ = parts.append('page=' ~ new_page) -%}
+  ?{{ parts | join('&') }}
+{%- endmacro -%}
+
+{% if page > 1 or has_next %}
+<section class="feed pagination-section">
+    <div class="feed-head" style="display: flex; justify-content: space-between; align-items: center;">
+        <div class="t-mono t-meta">Page {{ page }}</div>
+        <div class="pagination-controls t-mono">
+            {% if page > 1 %}
+            <a class="link" href="{{ _page_url(page - 1) }}">← Previous</a>
+            {% endif %}
+            {% if has_next %}
+            <a class="link" href="{{ _page_url(page + 1) }}">Next →</a>
+            {% endif %}
+        </div>
+    </div>
+</section>
+{% endif %}

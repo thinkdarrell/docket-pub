@@ -903,6 +903,13 @@ def search():
             offset=offset,
         )
 
+    # has_next via row-count heuristic (no separate COUNT query). After
+    # the AI backfill ramps result counts up, an explicit COUNT on every
+    # search hit would be wasteful — the heuristic costs nothing and
+    # only mis-paints "next" on the rare page that lands exactly on
+    # per_page boundary (user lands on an empty next page; cheap fix).
+    has_next = len(results) == per_page
+
     municipalities = query.list_municipalities()
 
     from docket.services.query import coverage_counts_for_items
@@ -923,6 +930,7 @@ def search():
         city=city,
         municipalities=municipalities,
         page=page,
+        has_next=has_next,
         coverage_counts=coverage_counts,
         municipality=municipality,
         kpi_stats=kpi_stats,
@@ -1006,6 +1014,8 @@ def topic_detail(topic):
         offset=offset,
     )
 
+    has_next = len(items) == per_page
+
     from docket.services.query import coverage_counts_for_items
     topic_item_ids = [it['id'] if isinstance(it, dict) else it.id for it in items]
     coverage_counts = coverage_counts_for_items(topic_item_ids)
@@ -1025,6 +1035,7 @@ def topic_detail(topic):
         city=city,
         municipality=municipality,
         page=page,
+        has_next=has_next,
         coverage_counts=coverage_counts,
         kpi_stats=kpi_stats,
     )
