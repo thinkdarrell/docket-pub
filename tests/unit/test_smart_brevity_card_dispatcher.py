@@ -67,13 +67,22 @@ def app():
 
 
 def _render(app, item):
-    # PR C: shell-based variants use url_for('public.meeting_detail', ...)
-    # which needs a request context + a stub route + a municipality.
-    if "public.meeting_detail" not in {r.endpoint for r in app.url_map.iter_rules()}:
+    # Shell-based variants now use url_for('public.item_detail', ...) after
+    # the item-as-anchor refactor (Phase 4). The meeting_detail stub stays
+    # registered so any caller that still includes meeting_detail anchors
+    # (e.g., engagement_strip fallback link) renders without BuildError.
+    existing = {r.endpoint for r in app.url_map.iter_rules()}
+    if "public.meeting_detail" not in existing:
         app.add_url_rule(
             "/c/<slug>/meetings/<int:meeting_id>",
             endpoint="public.meeting_detail",
             view_func=lambda slug, meeting_id: "",
+        )
+    if "public.item_detail" not in existing:
+        app.add_url_rule(
+            "/c/<slug>/items/<int:item_id>",
+            endpoint="public.item_detail",
+            view_func=lambda slug, item_id: "",
         )
     with app.test_request_context():
         return render_template(

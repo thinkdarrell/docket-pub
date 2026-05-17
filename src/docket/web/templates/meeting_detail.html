@@ -78,7 +78,7 @@
 
     <div style="display: flex; flex-direction: column; gap: 12px;">
     {% for vote in votes %}
-        <div class="vote-block {{ 'is-pass' if vote.result == 'passed' else 'is-fail' if vote.result == 'failed' else '' }} {{ 'is-consent-block' if vote.is_consent_block else 'is-substantive' }}">
+        <div id="vote-{{ vote.id }}" class="vote-block {{ 'is-pass' if vote.result == 'passed' else 'is-fail' if vote.result == 'failed' else '' }} {{ 'is-consent-block' if vote.is_consent_block else 'is-substantive' }}">
             <div class="vote-block-head">
                 <span class="vote-block-result">{{ vote.result }}</span>
                 <span style="display: flex; align-items: center; gap: 8px;">
@@ -105,8 +105,10 @@
                     <ul style="margin: 8px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px;">
                         {% for link in active_links %}
                         <li>
-                            <span class="t-mono t-meta">[{{ link.item_number or '?' }}]</span>
-                            <span style="font-size: 13px;">{{ link.title }}</span>
+                            <a class="vote-link" href="{{ url_for('public.item_detail', slug=municipality.slug, item_id=link.agenda_item_id) }}">
+                                <span class="t-mono t-meta">[{{ link.item_number or '?' }}]</span>
+                                <span style="font-size: 13px;">{{ link.title }}</span>
+                            </a>
                             {% if link.association_type == 'consent_named' %}
                             <span class="chip" style="font-size: 9px; height: 16px; padding: 0 5px;">named in vote</span>
                             {% else %}
@@ -122,8 +124,10 @@
                     <ul style="margin: 4px 0 0; padding-left: 18px;">
                         {% for link in vote.excluded_links %}
                         <li>
-                            <span class="t-mono t-meta">[{{ link.item_number or '?' }}]</span>
-                            <span style="font-size: 13px;">{{ link.title }}</span>
+                            <a class="vote-link" href="{{ url_for('public.item_detail', slug=municipality.slug, item_id=link.agenda_item_id) }}">
+                                <span class="t-mono t-meta">[{{ link.item_number or '?' }}]</span>
+                                <span style="font-size: 13px;">{{ link.title }}</span>
+                            </a>
                         </li>
                         {% endfor %}
                     </ul>
@@ -132,9 +136,11 @@
             {% elif vote.primary_link %}
                 <div style="margin-top: 4px; padding: 6px 10px; background: var(--paper-2); border-radius: 4px; border-left: 2px solid var(--accent);">
                     <span class="t-meta">Re: </span>
-                    <span style="font-size: 13px; font-weight: 500;">
-                        {% if vote.primary_link.item_number %}#{{ vote.primary_link.item_number }}. {% endif %}{{ vote.primary_link.title[:120] }}{% if vote.primary_link.title | length > 120 %}…{% endif %}
-                    </span>
+                    <a class="vote-link" href="{{ url_for('public.item_detail', slug=municipality.slug, item_id=vote.primary_link.agenda_item_id) }}">
+                        <span style="font-size: 13px; font-weight: 500;">
+                            {% if vote.primary_link.item_number %}#{{ vote.primary_link.item_number }}. {% endif %}{{ vote.primary_link.title[:120] }}{% if vote.primary_link.title | length > 120 %}…{% endif %}
+                        </span>
+                    </a>
                     {% if vote.primary_link.match_method %}
                     <span class="chip" style="font-size: 9px; height: 16px; padding: 0 5px; margin-left: 4px;">{{ vote.primary_link.match_method | replace('_', ' ') }}{% if vote.primary_link.match_confidence %} · {{ "%.0f"|format(vote.primary_link.match_confidence * 100) }}%{% endif %}</span>
                     {% endif %}
@@ -190,7 +196,7 @@
                    to enforce drift between this branch and the test's
                    `_REGULAR_LOOP_BODY` constant. Keep them in lockstep. #}
                 {# E6-LOOP-BODY-START regular #}
-                <div class="notable-row" style="cursor: default;">
+                <div id="item-{{ item.id }}" class="notable-row" style="cursor: default;">
                     <div class="notable-num t-mono">
                         {% if item.item_number %}{{ item.item_number }}{% else %}—{% endif %}
                     </div>
@@ -257,7 +263,7 @@
                    to enforce drift between this branch and the test's
                    `_CONSENT_LOOP_BODY` constant. Keep them in lockstep. #}
                 {# E6-LOOP-BODY-START consent #}
-                <div class="notable-row" style="cursor: default;">
+                <div id="item-{{ item.id }}" class="notable-row" style="cursor: default;">
                     <div class="notable-num t-mono">
                         {% if item.item_number %}{{ item.item_number }}{% else %}—{% endif %}
                     </div>
