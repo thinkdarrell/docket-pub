@@ -72,6 +72,18 @@ def create_app() -> Flask:
 
     app.jinja_env.globals["is_source_url_safe"] = source_security.is_url_safe
 
+    # ``today`` — re-evaluated per request so templates can flag meetings
+    # as upcoming via ``{% if meeting.meeting_date >= today %}``. Used by
+    # the meeting / item cards and the Vote Result block's no-vote branch
+    # to distinguish "meeting hasn't happened yet" from "couldn't match a
+    # vote." Context-processor (not jinja_env.globals) so each request
+    # sees the current date — globals are bound at app-init only.
+    from datetime import date as _date
+
+    @app.context_processor
+    def _inject_today():
+        return {"today": _date.today()}
+
     # Register blueprints
     from docket.web.admin import bp as admin_bp
     from docket.web.admin_badge_review import bp as admin_badge_review_bp

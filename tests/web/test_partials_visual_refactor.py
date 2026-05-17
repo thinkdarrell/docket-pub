@@ -252,6 +252,113 @@ def test_meeting_card_link_to_meeting_detail(render_partial):
     assert '/al/birmingham/meetings/42/' in html
 
 
+def test_meeting_card_shows_upcoming_chip_when_meeting_in_future(render_partial):
+    """Future-dated meeting in a 'recent meetings' feed must visually flag
+    as Upcoming so citizens don't read empty-vote items as data-missing."""
+    from datetime import date, timedelta
+    future_meeting = SimpleNamespace(
+        id=43,
+        meeting_date=date.today() + timedelta(days=3),
+        title='City Council · Regular Meeting',  # plain title, no word 'upcoming'
+        meeting_type='regular',
+        summary='Agenda published Friday before the Tuesday meeting.',
+        agenda_count=102,
+        dollars_total=0,
+    )
+    html = render_partial(
+        'partials/meeting_card.html',
+        meeting=future_meeting,
+        variant='grid',
+        municipality=SimpleNamespace(slug='birmingham'),
+    )
+    # Specific marker — not a free-text word that could come from the title.
+    assert 'meeting-card__upcoming' in html, \
+        "meeting card for a future meeting must carry a meeting-card__upcoming chip"
+
+
+def test_meeting_card_omits_upcoming_chip_for_past_meeting(render_partial):
+    """Regression guard — historical meetings must NOT get the Upcoming
+    chip even when the chip rendering code is in place."""
+    m = _sample_meeting()  # 2026-05-13 (past as of 2026-05-17)
+    html = render_partial(
+        'partials/meeting_card.html',
+        meeting=m,
+        variant='grid',
+        municipality=SimpleNamespace(slug='birmingham'),
+    )
+    # Be specific so we don't accidentally match the word 'upcoming' in a
+    # summary or unrelated copy.
+    assert 'meeting-card__upcoming' not in html
+    assert '>Upcoming<' not in html
+
+
+# ── Item card upcoming chip (_card_shell meta-line) ───────────────────────
+
+
+def _sample_item(meeting_date, **overrides):
+    """Minimal AgendaItem-shaped dict for shell rendering."""
+    base = {
+        'id': 200,
+        'meeting_id': 50,
+        'item_number': '7',
+        'title': 'Item with an upcoming meeting',
+        'headline': 'Sponsor proposes new ordinance',
+        'why_it_matters': 'Affects downtown zoning.',
+        'meeting_date': meeting_date,
+        'municipality_slug': 'birmingham',
+        'badges': [],
+        'extracted_facts': None,
+        'dollars_amount': None,
+        'processing_status': 'pending',
+        'data_quality': 'ok',
+        'ai_rewrite_version': 3,
+    }
+    base.update(overrides)
+    return base
+
+
+def test_card_shell_shows_upcoming_chip_for_future_meeting_item(render_partial):
+    """An item whose meeting is in the future, rendered in a cross-meeting
+    context (search / category landing / notable), must carry an Upcoming
+    chip in the meta-line."""
+    from datetime import date, timedelta
+    item = _sample_item(meeting_date=date.today() + timedelta(days=3))
+    html = render_partial(
+        'partials/_card_shell.html',
+        item=item,
+        municipality={'slug': 'birmingham', 'id': 1},
+        show_meeting_context=True,
+    )
+    assert 'card-upcoming-chip' in html
+
+
+def test_card_shell_omits_upcoming_chip_for_past_meeting_item(render_partial):
+    from datetime import date, timedelta
+    item = _sample_item(meeting_date=date.today() - timedelta(days=30))
+    html = render_partial(
+        'partials/_card_shell.html',
+        item=item,
+        municipality={'slug': 'birmingham', 'id': 1},
+        show_meeting_context=True,
+    )
+    assert 'card-upcoming-chip' not in html
+
+
+def test_card_shell_omits_upcoming_chip_when_meeting_context_hidden(render_partial):
+    """On meeting_detail (show_meeting_context=False), the meta-line date
+    is hidden — and the Upcoming chip rides the same gate so it doesn't
+    surface redundantly when the user is already on the meeting page."""
+    from datetime import date, timedelta
+    item = _sample_item(meeting_date=date.today() + timedelta(days=3))
+    html = render_partial(
+        'partials/_card_shell.html',
+        item=item,
+        municipality={'slug': 'birmingham', 'id': 1},
+        show_meeting_context=False,
+    )
+    assert 'card-upcoming-chip' not in html
+
+
 def test_meeting_card_handles_zero_dollars(render_partial):
     m = _sample_meeting()
     m.dollars_total = 0

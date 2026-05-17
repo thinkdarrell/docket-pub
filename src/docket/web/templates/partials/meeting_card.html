@@ -29,6 +29,13 @@
       <span class="meeting-card__dot" aria-hidden="true"></span>
       {{- meeting.meeting_date.strftime('%a') -}}
     </span>
+    {# Flag future-dated meetings so citizens scanning a feed know votes
+       and rich item data are absent because the meeting hasn't happened
+       yet — not because the data is missing. `today is defined` guards
+       standalone test apps that don't run the context processor. #}
+    {% if today is defined and meeting.meeting_date and meeting.meeting_date >= today %}
+    <span class="meeting-card__upcoming t-mono">Upcoming</span>
+    {% endif %}
   </div>
 
   <h3 class="meeting-card__title">{{ meeting.title }}</h3>
