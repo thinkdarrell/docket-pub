@@ -30,6 +30,16 @@
   <div class="meta-line">
     {% if show_meeting_context and item.meeting_date %}
       <span class="meta-date">{{ item.meeting_date.strftime('%B %-d, %Y') }}</span>
+      {# Cross-meeting contexts only — flag items whose meeting is upcoming
+         so a citizen scanning search / category landing / notable items
+         knows the vote hasn't been cast yet rather than reading the card
+         as "missing data." Same render path as the meeting card.
+         `today` is injected by the create_app() context processor;
+         `today is defined` keeps standalone test-app renderers safe. #}
+      {% if today is defined and item.meeting_date >= today %}
+      <span class="meta-sep">·</span>
+      <span class="card-upcoming-chip t-mono">Upcoming</span>
+      {% endif %}
     {% endif %}
     {% if item.meeting_date and item.item_number %}<span class="meta-sep">·</span>{% endif %}
     {% if item.item_number %}

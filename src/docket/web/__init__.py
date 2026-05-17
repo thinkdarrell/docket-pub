@@ -72,6 +72,30 @@ def create_app() -> Flask:
 
     app.jinja_env.globals["is_source_url_safe"] = source_security.is_url_safe
 
+    # ``today`` — re-evaluated per request so templates can flag meetings
+    # as upcoming via ``{% if meeting.meeting_date >= today %}``. Used by
+    # the meeting / item cards and the Vote Result block's no-vote branch
+    # to distinguish "meeting hasn't happened yet" from "couldn't match a
+    # vote." Context-processor (not jinja_env.globals) so each request
+    # sees the current date — globals are bound at app-init only.
+    #
+    # Anchored to America/Chicago because every docket.pub city
+    # (Birmingham, Mobile, Montgomery, Hoover, Homewood, Vestavia
+    # Hills) is in Central Time. A naive `date.today()` would read
+    # UTC on Railway, so an actively-running 7pm CT meeting (01:00
+    # UTC next day) would slip from "Upcoming" to "couldn't match a
+    # vote" exactly at 7pm CT — the worst possible moment.
+    # If we add cities outside Central, change to a per-request
+    # lookup keyed off the municipality's timezone.
+    from datetime import datetime as _datetime
+    from zoneinfo import ZoneInfo as _ZoneInfo
+
+    _LOCAL_TZ = _ZoneInfo("America/Chicago")
+
+    @app.context_processor
+    def _inject_today():
+        return {"today": _datetime.now(_LOCAL_TZ).date()}
+
     # Register blueprints
     from docket.web.admin import bp as admin_bp
     from docket.web.admin_badge_review import bp as admin_badge_review_bp

@@ -280,3 +280,59 @@ def test_no_vote_unknown_processing_status_renders_generic_fallback(
         vote_data=None,
     )
     assert "No vote was recorded" in html
+
+
+# ── Upcoming-meeting branch ───────────────────────────────────────────────
+
+
+def test_no_vote_upcoming_meeting_renders_upcoming_copy(render_partial):
+    """A future meeting (no vote yet because the council hasn't met)
+    must render explanatory upcoming copy, NOT 'we couldn't match'
+    which implies a vote happened but wasn't linked."""
+    from datetime import date, timedelta
+
+    future = date.today() + timedelta(days=3)
+    html = _render(
+        render_partial,
+        item=_FakeItem(processing_status="pending"),
+        meeting=_FakeMeeting(meeting_date=future),
+        vote_data=None,
+    )
+    assert "hasn't happened yet" in html
+    # The "couldn't match" copy must NOT render — that's misleading for
+    # an upcoming meeting.
+    assert "couldn't match" not in html
+
+
+def test_no_vote_past_meeting_unmatched_still_shows_couldnt_match(render_partial):
+    """A past meeting with no matched vote keeps the original copy
+    (regression guard — upcoming branch must not steal past meetings)."""
+    from datetime import date, timedelta
+
+    past = date.today() - timedelta(days=30)
+    html = _render(
+        render_partial,
+        item=_FakeItem(processing_status="pending"),
+        meeting=_FakeMeeting(
+            meeting_date=past,
+            minutes_url="https://example.test/minutes.pdf",
+        ),
+        vote_data=None,
+    )
+    assert "couldn't match" in html
+    assert "hasn't happened yet" not in html
+
+
+def test_no_vote_today_meeting_treated_as_upcoming(render_partial):
+    """Meeting today (might be later today, or vote-matching just hasn't
+    run yet) → upcoming copy is the honest framing. Citizens shouldn't
+    see 'couldn't match' for a meeting that may not have happened."""
+    from datetime import date
+
+    html = _render(
+        render_partial,
+        item=_FakeItem(processing_status="pending"),
+        meeting=_FakeMeeting(meeting_date=date.today()),
+        vote_data=None,
+    )
+    assert "hasn't happened yet" in html
