@@ -2,6 +2,16 @@
 
 from __future__ import annotations
 
+import re
+
+_TITLE_SUFFIX_MARKERS = (
+    " - cancelled",
+    " - rescheduled",
+    " - postponed",
+    " - deferred",
+)
+_NON_WORD_OR_SPACE = re.compile(r"[^\w\s]")
+
 
 def classify_meeting(title: str) -> str:
     """Classify meeting type from its title."""
@@ -28,3 +38,24 @@ def classify_meeting(title: str) -> str:
 def is_consent_item(description: str | None) -> bool:
     """Guess if an agenda item is part of the consent agenda."""
     return "consent" in (description or "").lower()
+
+
+def normalize_title(title: str) -> str:
+    """Normalize a meeting title for cross-row reconciliation.
+
+    Aggressive enough to match a freshly-archived row against its prior
+    upcoming-row counterpart despite minor edits: case differences, whitespace
+    changes, punctuation, and cancellation/rescheduling suffixes (which are
+    truncated along with anything that follows).
+
+    Order: lowercase → strip suffix-and-after → drop punctuation → collapse
+    whitespace. Idempotent on its own output.
+    """
+    t = title.lower()
+    for marker in _TITLE_SUFFIX_MARKERS:
+        idx = t.find(marker)
+        if idx != -1:
+            t = t[:idx]
+            break
+    t = _NON_WORD_OR_SPACE.sub("", t)
+    return " ".join(t.split())
