@@ -28,8 +28,13 @@ from docket.worker import health
 log = logging.getLogger(__name__)
 
 
-def _safe_run(task_name: str, fn: Callable[[], None]) -> None:
+def _safe_run(task_name: str, fn: Callable[[], object]) -> None:
     """Run a task with Healthchecks pings, catching exceptions.
+
+    `fn` may return anything (or None); the return value is ignored at the
+    scheduler boundary. Widening the signature to `Callable[[], object]`
+    lets tasks return useful data for tests/logs while still being
+    schedulable through this wrapper.
 
     Does not re-raise. APScheduler's built-in error logging is noisy and
     duplicative — we own error reporting through Healthchecks instead.

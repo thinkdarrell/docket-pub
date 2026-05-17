@@ -302,7 +302,7 @@ Sequence is captured in a new runbook `docs/runbooks/analytics.md`:
 7. **First-boot admin** at `https://stats.docket.pub` — set initial admin user/password. Register `docket.pub` as a tracked website. Copy the `data-website-id` UUID.
 8. **Configure excluded paths** in the Umami website settings (`/admin/*`, `*.rss`, etc.).
 9. **Plumb the script** into `base.html`. Add `track.js`. Deploy `docket-web`.
-10. **Smoke test**: load the homepage, click one rail item, perform one search. Verify rows in `website_event` (1 pageview row + 1 `rail_click` row + 1 `search_submit` row), confirm they surface in the relevant views.
+10. **Smoke test**: load the homepage, click one "View source" link (Granicus or minutes PDF) on an item-detail page, perform one search. Verify rows in `website_event` (pageview row + 1 `outbound_source_click` row + 1 `search_submit` row), confirm they surface in `v_pageviews_daily` / `v_event_counts_daily` / `v_event_props_daily`. (Note: `rail_click` from the original v1 scope was cut per the revision in `docs/superpowers/plans/2026-05-15-umami-analytics.md` — see that plan's Scope note.)
 11. **Worker env vars**: add `ANALYTICS_DATABASE_URL` and `HEALTHCHECK_PRUNE_ANALYTICS_UUID` to the `worker` service. Deploy `worker`.
 
 ### Credentials storage
