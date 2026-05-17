@@ -45,7 +45,44 @@
     }
   };
 
+  /* Classify an outbound URL into a source_type.
+   * Returns null when the URL is internal (same host) or unparseable.
+   * The five classifications match the spec's v1 outbound_source_click `source_type`.
+   */
+  function classifyOutbound(url) {
+    var u;
+    try {
+      u = new URL(url, window.location.href);
+    } catch (e) {
+      return null;
+    }
+    if (u.hostname === window.location.hostname) return null;
+    var host = u.hostname.toLowerCase();
+    var path = u.pathname.toLowerCase();
+
+    if (host.indexOf('granicus.com') !== -1) return 'granicus_video';
+    if (path.endsWith('.pdf')) {
+      if (path.indexOf('minute') !== -1) return 'minutes_pdf';
+      return 'agenda_pdf';  // PDFs on city sites default to agenda_pdf
+    }
+    // Known Alabama city/government hostnames map to city_site.
+    var cityHosts = [
+      'birminghamal.gov', 'cityofvestavia.com', 'cityofhomewood.com',
+      'mobile.org', 'cityofmobile.org', 'hooveralabama.gov',
+      'montgomeryal.gov',
+    ];
+    for (var i = 0; i < cityHosts.length; i++) {
+      if (host === cityHosts[i] || host.endsWith('.' + cityHosts[i])) return 'city_site';
+    }
+    return 'other';
+  }
+
   // Exposed for unit-style verification in the browser console:
   //   window.__docketTrackInternals.sanitizeProps({q: 'x'.repeat(50)}) // → {}
-  window.__docketTrackInternals = { sanitizeProps: sanitizeProps, QUERY_MAX_LEN: QUERY_MAX_LEN };
+  //   window.__docketTrackInternals.classifyOutbound('https://bhamal.granicus.com/…') // → 'granicus_video'
+  window.__docketTrackInternals = {
+    sanitizeProps: sanitizeProps,
+    QUERY_MAX_LEN: QUERY_MAX_LEN,
+    classifyOutbound: classifyOutbound,
+  };
 })();

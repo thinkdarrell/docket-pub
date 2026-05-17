@@ -16,11 +16,17 @@
 #}
 {% macro vote_source_link(v) -%}
   {%- if v.video_timestamp and v.video_url -%}
-    <a class="link t-meta" href="{{ v.video_url }}#t={{ v.video_timestamp|round|int }}" target="_blank" rel="noreferrer">
+    <a class="link t-meta"
+       href="{{ v.video_url }}#t={{ v.video_timestamp|round|int }}"
+       data-item-id="{{ item.id }}"
+       target="_blank" rel="noreferrer">
       Watch this vote ↗
     </a>
   {%- elif v.minutes_url -%}
-    <a class="link t-meta" href="{{ v.minutes_url }}" target="_blank" rel="noreferrer">
+    <a class="link t-meta"
+       href="{{ v.minutes_url }}"
+       data-item-id="{{ item.id }}"
+       target="_blank" rel="noreferrer">
       Read minutes ↗
     </a>
   {%- else -%}

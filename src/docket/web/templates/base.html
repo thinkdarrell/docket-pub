@@ -27,6 +27,23 @@
             data-do-not-track="true"
             data-exclude-search="true"></script>
     <script src="{{ url_for('static', filename='js/track.js') }}" defer></script>
+    {# outbound_source_click — fires when a visitor clicks a link to a primary municipal document. #}
+    <script defer>
+      document.addEventListener('click', function (e) {
+        var a = e.target.closest('a[href]');
+        if (!a) return;
+        if (!window.__docketTrackInternals) return;  // track.js not loaded
+        var src = window.__docketTrackInternals.classifyOutbound(a.href);
+        if (!src) return;
+        var props = { source_type: src };
+        try {
+          props.target_domain = new URL(a.href, window.location.href).hostname;
+        } catch (err) {}
+        if (a.dataset.itemId) props.item_id = a.dataset.itemId;
+        if (a.dataset.meetingId) props.meeting_id = a.dataset.meetingId;
+        docketTrack('outbound_source_click', props);
+      });
+    </script>
     {% block head %}{% endblock %}
 </head>
 <body>
