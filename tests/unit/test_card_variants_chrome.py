@@ -23,6 +23,11 @@ def app():
         endpoint="public.meeting_detail",
         view_func=lambda slug, meeting_id: "",
     )
+    flask_app.add_url_rule(
+        "/c/<slug>/items/<int:item_id>",
+        endpoint="public.item_detail",
+        view_func=lambda slug, item_id: "",
+    )
     return flask_app
 
 

@@ -66,8 +66,8 @@ def app():
     def upcoming_hearings_rss(city):  # pragma: no cover - never invoked
         return ""
 
-    @public_bp.route("/<city>/items/<int:item_id>")
-    def item_detail(city, item_id):  # pragma: no cover - never invoked
+    @public_bp.route("/<slug>/items/<int:item_id>")
+    def item_detail(slug, item_id):  # pragma: no cover - never invoked
         return ""
 
     flask_app.register_blueprint(public_bp)

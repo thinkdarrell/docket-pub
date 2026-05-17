@@ -68,7 +68,7 @@
        the JOIN. Same-city callers continue using the page-level municipality. #}
     {% set card_slug = (municipality.slug if (municipality is defined and municipality) else item.municipality_slug) %}
     <a class="card-link {% block card_headline_class %}{% endblock %}"
-       href="{{ url_for('public.meeting_detail', slug=card_slug, meeting_id=item.meeting_id) }}#item-{{ item.id }}">
+       href="{{ url_for('public.item_detail', slug=card_slug, item_id=item.id) }}">
       {% block card_headline_text %}{{ item.headline or item.title }}{% endblock %}
     </a>
   </h3>
