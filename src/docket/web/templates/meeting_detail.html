@@ -12,6 +12,9 @@
         <div>
             <div class="t-eyebrow detail-eyebrow">
                 <span class="chip meeting-type-pill">{{ meeting.meeting_type or 'meeting' }}</span>
+                {% if today is defined and meeting.meeting_date and meeting.meeting_date >= today %}
+                <span class="chip is-warn meeting-detail-upcoming"><span class="dot"></span>upcoming</span>
+                {% endif %}
                 <span class="t-meta">{{ municipality.name }}</span>
                 {% if meeting.meeting_date %}
                 <span class="t-meta">·</span>

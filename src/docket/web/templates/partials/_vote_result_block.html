@@ -81,12 +81,24 @@
     {% endif %}
 </section>
 {% else %}
-{# No vote linked to this item. Branch by processing_status; always
-   include a generic else fallback for NULL / unrecognized values
-   (legacy items pre-Wave 0, future enum additions). #}
+{# No vote linked to this item. Branches, priority order:
+     1. Meeting is upcoming (>= today)        → "hasn't happened yet"
+     2. processing_status == 'withdrawn'      → withdrawn copy
+     3. processing_status == 'procedural_*'   → procedural copy
+     4. processing_status in pending/completed → "couldn't match"
+     5. NULL / unrecognized                   → generic fallback
+   The upcoming check comes first because for a future meeting,
+   processing_status is typically 'pending' and the "couldn't match"
+   copy would be misleading (the vote hasn't been cast yet). #}
 <section class="item-vote-result">
     <div class="no-vote-block">
-        {% if item.processing_status == 'withdrawn' %}
+        {% if today is defined and meeting and meeting.meeting_date and meeting.meeting_date >= today %}
+        <p class="t-meta">
+            <strong>This meeting hasn't happened yet.</strong>
+            Vote results will appear here after the council meets
+            {% if meeting.meeting_date > today %}on {{ meeting.meeting_date.strftime('%B %-d, %Y') }}{% else %}later today{% endif %}.
+        </p>
+        {% elif item.processing_status == 'withdrawn' %}
         <p class="t-meta">No vote — this item was <strong>withdrawn</strong> before the council voted on it.</p>
         {% elif item.processing_status == 'procedural_skipped' %}
         <p class="t-meta">No vote — this is a procedural item (roll call, pledge of allegiance, etc.).</p>
