@@ -113,6 +113,11 @@ class GranicusAdapter:
 
     def fetch_agenda_items(self, meeting: RawMeeting) -> list[RawAgendaItem]:
         """Fetch agenda item index points from the player page."""
+        # Upcoming meetings carry an external_id of shape `event-{event_id}`
+        # and have no player page yet (no clip_id has been assigned). Return
+        # empty rather than raising ValueError on int("event-N").
+        if meeting.external_id.startswith("event-"):
+            return []
         clip_id = int(meeting.external_id)
         url = self._player_url(clip_id)
 

@@ -179,6 +179,14 @@ def _ingest_agenda_items(
     raw_meeting: RawMeeting,
 ) -> int:
     """Scrape and insert agenda items for a meeting if not already done."""
+    # Short-circuit upcoming meetings: no clip_id is assigned yet, so the
+    # adapter can't fetch items, and marking agenda_items_scraped=TRUE here
+    # would persist through the eventual event-N → clip_id reconciliation
+    # (the flag is keyed on the integer meeting_id PK) and permanently lock
+    # the meeting out of agenda extraction.
+    if raw_meeting.external_id.startswith("event-"):
+        return 0
+
     # Check if we already have agenda items for this meeting
     with db_cursor() as cur:
         cur.execute(
@@ -251,6 +259,11 @@ def _ingest_votes(
     raw_meeting: RawMeeting,
 ) -> int:
     """Extract and insert votes from minutes for a meeting if not already done."""
+    # Defense-in-depth: upcoming meetings have minutes_url=None and the caller
+    # already skips them, but a direct call should also be safe.
+    if raw_meeting.external_id.startswith("event-"):
+        return 0
+
     with db_cursor() as cur:
         cur.execute(
             """
