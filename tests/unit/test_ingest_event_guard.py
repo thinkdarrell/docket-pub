@@ -1,30 +1,25 @@
 """Unit tests for the event-* short-circuit guards.
 
-The Granicus adapter now returns RawMeeting rows with `external_id` of
-shape `event-{event_id}` for upcoming meetings (no clip_id assigned
-yet). Both the adapter's `fetch_agenda_items` and the ingest service's
-`_ingest_agenda_items` / `_ingest_votes` must handle these safely:
+Birmingham's upcoming meetings carry an external_id of shape
+`event-{event_id}` until the meeting is recorded. After PR introducing
+agenda PDF parsing:
 
-1. fetch_agenda_items must return [] without trying to `int()` the
-   external_id (which would raise ValueError).
+- fetch_agenda_items NOW returns real items for event-* (it downloads
+  and parses the AgendaViewer PDF) — covered in test_granicus_adapter.
+- _ingest_agenda_items NO LONGER short-circuits — it lets the adapter
+  return PDF-derived items and ingests them normally.
+- _ingest_votes STILL short-circuits — upcoming meetings have no
+  minutes URL so vote scraping isn't possible.
 
-2. _ingest_agenda_items must return 0 *without* writing
-   `processing_status.agenda_items_scraped=TRUE`. The flag is keyed on
-   the integer `meeting_id` PK, so it would persist through the eventual
-   external_id upgrade (event-N → clip_id) and lock the meeting out of
-   agenda extraction forever.
-
-3. _ingest_votes must short-circuit the same way for defense-in-depth,
-   even though in practice the caller's `minutes_url is None` check
-   already gates it (upcoming meetings never have minutes).
+This file now only covers the votes guard. The previous agenda-items
+guard tests were removed when the PDF-parsing path landed.
 """
 
 from datetime import date
 from unittest.mock import MagicMock, patch
 
-from docket.adapters.granicus import GranicusAdapter
 from docket.models.protocol import RawMeeting
-from docket.services.ingest import _ingest_agenda_items, _ingest_votes
+from docket.services.ingest import _ingest_votes
 
 
 def _upcoming_meeting() -> RawMeeting:
@@ -41,60 +36,9 @@ def _upcoming_meeting() -> RawMeeting:
     )
 
 
-class TestAdapterFetchAgendaItemsGuard:
-    """GranicusAdapter.fetch_agenda_items must not raise for event-* meetings."""
-
-    def test_returns_empty_list_for_event_meeting(self):
-        adapter = GranicusAdapter(
-            "birmingham", {"view_id": 2, "base_url": "https://bhamal.granicus.com"}
-        )
-        # Must not raise ValueError trying to int("event-2692")
-        items = adapter.fetch_agenda_items(_upcoming_meeting())
-        assert items == []
-
-    def test_does_not_make_http_request_for_event_meeting(self):
-        adapter = GranicusAdapter(
-            "birmingham", {"view_id": 2, "base_url": "https://bhamal.granicus.com"}
-        )
-        with patch("docket.adapters.granicus.requests.get") as mock_get:
-            adapter.fetch_agenda_items(_upcoming_meeting())
-            mock_get.assert_not_called()
-
-
-class TestIngestAgendaItemsGuard:
-    """_ingest_agenda_items must short-circuit before any DB or adapter call."""
-
-    @patch("docket.services.ingest.db_cursor")
-    @patch("docket.services.ingest.db")
-    def test_returns_zero_for_event_meeting(self, mock_db, mock_db_cursor):
-        adapter = MagicMock()
-        result = _ingest_agenda_items(
-            municipality_id=1, adapter=adapter, raw_meeting=_upcoming_meeting()
-        )
-        assert result == 0
-
-    @patch("docket.services.ingest.db_cursor")
-    @patch("docket.services.ingest.db")
-    def test_does_not_call_adapter_for_event_meeting(self, mock_db, mock_db_cursor):
-        adapter = MagicMock()
-        _ingest_agenda_items(1, adapter, _upcoming_meeting())
-        adapter.fetch_agenda_items.assert_not_called()
-
-    @patch("docket.services.ingest.db_cursor")
-    @patch("docket.services.ingest.db")
-    def test_does_not_touch_db_for_event_meeting(self, mock_db, mock_db_cursor):
-        # Most critical assertion: no processing_status write under any path,
-        # because the integer meeting_id PK would carry the flag through the
-        # eventual event-N → clip_id upgrade.
-        adapter = MagicMock()
-        _ingest_agenda_items(1, adapter, _upcoming_meeting())
-        mock_db.assert_not_called()
-        mock_db_cursor.assert_not_called()
-
-
 class TestIngestVotesGuard:
-    """_ingest_votes guard — defense in depth even though minutes_url=None
-    on upcoming meetings already prevents the caller from reaching this."""
+    """_ingest_votes must short-circuit for event-* meetings — they have no
+    minutes URL and no votes recorded yet."""
 
     @patch("docket.services.ingest.db_cursor")
     @patch("docket.services.ingest.db")

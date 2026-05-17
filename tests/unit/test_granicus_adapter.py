@@ -7,10 +7,13 @@ stays out of the unit suite).
 """
 
 from datetime import date
+from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 from bs4 import BeautifulSoup
 
 from docket.adapters.granicus import GranicusAdapter
+from docket.models.protocol import RawMeeting
 
 
 ADAPTER_CONFIG = {"view_id": 2, "base_url": "https://bhamal.granicus.com"}
@@ -194,3 +197,153 @@ class TestParsePublisherPage:
         # Cutoff after the archive row (5/12) but before the upcoming row (5/19)
         meetings = adapter._parse_publisher_page(html, since=date(2026, 5, 15))
         assert [m.external_id for m in meetings] == ["event-2692"]
+
+
+# --- fetch_agenda_items dispatch tests -------------------------------------
+
+FIXTURE_PDF = (
+    Path(__file__).parent.parent / "fixtures" / "granicus_bham_agenda_2026_05_19.pdf"
+)
+
+
+def _upcoming_meeting() -> RawMeeting:
+    """The 5/19 BHM upcoming meeting fixture."""
+    return RawMeeting(
+        external_id="event-2692",
+        municipality_slug="birmingham",
+        title="Regular City Council Meeting",
+        meeting_date=date(2026, 5, 19),
+        meeting_type="council",
+        agenda_url="https://bhamal.granicus.com/AgendaViewer.php?view_id=2&event_id=2692",
+        minutes_url=None,
+        video_url=None,
+        source_url="https://bhamal.granicus.com/AgendaViewer.php?view_id=2&event_id=2692",
+    )
+
+
+def _archive_meeting() -> RawMeeting:
+    return RawMeeting(
+        external_id="1980",
+        municipality_slug="birmingham",
+        title="Regular City Council Meeting",
+        meeting_date=date(2026, 5, 12),
+        meeting_type="council",
+        agenda_url="https://bhamal.granicus.com/AgendaViewer.php?view_id=2&clip_id=1980",
+        minutes_url=None,
+        video_url=None,
+        source_url="https://bhamal.granicus.com/player/clip/1980?view_id=2",
+    )
+
+
+def _mock_pdf_response(pdf_bytes: bytes) -> MagicMock:
+    """Build a mock requests.Response object carrying a PDF body."""
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.content = pdf_bytes
+    resp.raise_for_status = MagicMock(return_value=None)
+    return resp
+
+
+class TestFetchAgendaItemsEventPath:
+    """For event-* meetings, fetch_agenda_items must download the AgendaViewer
+    PDF and return items parsed from it (not the legacy MediaPlayer path)."""
+
+    def test_returns_real_items_from_pdf(self):
+        adapter = _adapter()
+        pdf_bytes = FIXTURE_PDF.read_bytes()
+        with patch(
+            "docket.adapters.granicus.requests.get",
+            return_value=_mock_pdf_response(pdf_bytes),
+        ):
+            items = adapter.fetch_agenda_items(_upcoming_meeting())
+
+        assert len(items) == 102
+        # First item: substantive, sponsor mentions Woods
+        assert items[0].item_number == "1"
+        assert items[0].is_consent is False
+        assert items[0].sponsor and "Woods" in items[0].sponsor
+        # Item 2: consent-with-public-hearing
+        assert items[1].item_number == "2"
+        assert items[1].is_consent is True
+
+    def test_items_have_no_video_timestamps(self):
+        """Pre-recording — there's no MediaPlayer index points yet."""
+        adapter = _adapter()
+        pdf_bytes = FIXTURE_PDF.read_bytes()
+        with patch(
+            "docket.adapters.granicus.requests.get",
+            return_value=_mock_pdf_response(pdf_bytes),
+        ):
+            items = adapter.fetch_agenda_items(_upcoming_meeting())
+        assert all(i.video_timestamp_seconds is None for i in items)
+
+    def test_items_carry_namespaced_external_ids(self):
+        """Item external_ids should be unique per (event_id, item_number)."""
+        adapter = _adapter()
+        pdf_bytes = FIXTURE_PDF.read_bytes()
+        with patch(
+            "docket.adapters.granicus.requests.get",
+            return_value=_mock_pdf_response(pdf_bytes),
+        ):
+            items = adapter.fetch_agenda_items(_upcoming_meeting())
+        ids = [i.external_id for i in items]
+        # Unique
+        assert len(set(ids)) == len(ids)
+        # All carry the event prefix + item number
+        assert all("event-2692" in eid for eid in ids)
+        assert items[0].external_id == "event-2692-1"
+        assert items[1].external_id == "event-2692-2"
+
+    def test_meeting_external_id_propagated(self):
+        adapter = _adapter()
+        pdf_bytes = FIXTURE_PDF.read_bytes()
+        with patch(
+            "docket.adapters.granicus.requests.get",
+            return_value=_mock_pdf_response(pdf_bytes),
+        ):
+            items = adapter.fetch_agenda_items(_upcoming_meeting())
+        assert all(i.meeting_external_id == "event-2692" for i in items)
+
+    def test_http_target_is_agenda_url(self):
+        """Adapter must request the AgendaViewer URL, not MediaPlayer."""
+        adapter = _adapter()
+        pdf_bytes = FIXTURE_PDF.read_bytes()
+        with patch(
+            "docket.adapters.granicus.requests.get",
+            return_value=_mock_pdf_response(pdf_bytes),
+        ) as mock_get:
+            adapter.fetch_agenda_items(_upcoming_meeting())
+        # The single GET should be against the agenda_url
+        url = mock_get.call_args.args[0]
+        assert "AgendaViewer.php" in url
+        assert "event_id=2692" in url
+        assert "MediaPlayer.php" not in url
+
+
+class TestFetchAgendaItemsClipPathUntouched:
+    """Existing MediaPlayer path for archived meetings must still work."""
+
+    def test_clip_meeting_uses_media_player(self):
+        adapter = _adapter()
+        # A minimal MediaPlayer-like response with one index point
+        html = (
+            "<html><body>"
+            "<div class=\"index-point\" time=\"123.5\" data-id=\"abc\">"
+            "Roll Call"
+            "</div>"
+            "</body></html>"
+        )
+        resp = MagicMock()
+        resp.text = html
+        resp.raise_for_status = MagicMock(return_value=None)
+        with patch(
+            "docket.adapters.granicus.requests.get", return_value=resp
+        ) as mock_get:
+            items = adapter.fetch_agenda_items(_archive_meeting())
+        # MediaPlayer URL was fetched, not AgendaViewer
+        url = mock_get.call_args.args[0]
+        assert "MediaPlayer.php" in url
+        assert "clip_id=1980" in url
+        # Item came through with its video timestamp
+        assert len(items) == 1
+        assert items[0].video_timestamp_seconds == 123.5
