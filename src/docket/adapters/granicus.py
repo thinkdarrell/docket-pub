@@ -19,6 +19,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from docket.adapters._helpers import classify_meeting, is_consent_item
+from docket.analysis.agenda_parser import parse_agenda
 from docket.analysis.minutes_parser import (
     download_minutes_pdf,
     extract_text_from_pdf,
@@ -112,12 +113,15 @@ class GranicusAdapter:
         return meetings
 
     def fetch_agenda_items(self, meeting: RawMeeting) -> list[RawAgendaItem]:
-        """Fetch agenda item index points from the player page."""
-        # Upcoming meetings carry an external_id of shape `event-{event_id}`
-        # and have no player page yet (no clip_id has been assigned). Return
-        # empty rather than raising ValueError on int("event-N").
+        """Fetch agenda items for a meeting.
+
+        For upcoming meetings (external_id of shape `event-N`) there's no
+        MediaPlayer page yet — fetch the agenda PDF and parse it instead.
+        For archived meetings, fetch the MediaPlayer index points (the
+        existing path, gives items with video timestamps).
+        """
         if meeting.external_id.startswith("event-"):
-            return []
+            return self._fetch_agenda_items_from_pdf(meeting)
         clip_id = int(meeting.external_id)
         url = self._player_url(clip_id)
 
@@ -147,6 +151,54 @@ class GranicusAdapter:
                         video_timestamp_seconds=float(timestamp),
                     )
                 )
+
+        time.sleep(self.delay)
+        return items
+
+    def _fetch_agenda_items_from_pdf(self, meeting: RawMeeting) -> list[RawAgendaItem]:
+        """Download the AgendaViewer PDF and parse items from it.
+
+        Used for pre-recording (event-*) meetings where there's no
+        MediaPlayer page yet. Items come back without video timestamps —
+        those backfill later via `_backfill_video_timestamps` after the
+        meeting is recorded and reconciliation upgrades the row to a
+        clip_id.
+        """
+        if not meeting.agenda_url:
+            return []
+
+        event_id = meeting.external_id.removeprefix("event-")
+        try:
+            resp = requests.get(meeting.agenda_url, timeout=60, allow_redirects=True)
+            resp.raise_for_status()
+        except requests.RequestException as e:
+            logger.error("Failed to fetch agenda PDF from %s: %s", meeting.agenda_url, e)
+            return []
+
+        if resp.content[:5] != b"%PDF-":
+            logger.warning(
+                "Expected PDF from %s, got %s — skipping", meeting.agenda_url, resp.content[:20]
+            )
+            return []
+
+        text = extract_text_from_pdf(resp.content)
+        parsed = parse_agenda(text)
+
+        items: list[RawAgendaItem] = []
+        for p in parsed:
+            items.append(
+                RawAgendaItem(
+                    external_id=f"event-{event_id}-{p.item_number}",
+                    meeting_external_id=meeting.external_id,
+                    item_number=p.item_number,
+                    title=p.title,
+                    description=p.body,
+                    section=None,
+                    is_consent=p.is_consent,
+                    sponsor=p.sponsor,
+                    video_timestamp_seconds=None,
+                )
+            )
 
         time.sleep(self.delay)
         return items

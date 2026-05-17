@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass
 from datetime import date
 
@@ -23,6 +24,13 @@ from docket.models.protocol import RawMeeting
 from docket.services.enrichment import enrich_agenda_item
 
 logger = logging.getLogger(__name__)
+
+# MediaPlayer index-point titles for BHM agendas are shaped like
+# "ITEM 1 - Resolution setting public hearing on...". When backfilling
+# video timestamps onto items that were originally inserted from the
+# pre-recording PDF, we extract the agenda item_number from this title
+# so we can match by item_number rather than position-in-list.
+_AGENDA_ITEM_NUMBER_RE = re.compile(r"\bITEM\s+(\d+)\b", re.IGNORECASE)
 
 
 @dataclass
@@ -257,20 +265,92 @@ def _try_upgrade_event_row(cur, municipality_id: int, m: RawMeeting) -> bool:
     return True
 
 
+def _backfill_video_timestamps(
+    adapter, meeting_id: int, raw_meeting: RawMeeting
+) -> int:
+    """Add video_timestamp_seconds to existing agenda items that lack it.
+
+    Runs when a meeting's items were inserted from the pre-recording
+    agenda PDF (no timestamps) and the meeting has since been recorded
+    and reconciled to a clip_id. Fetches MediaPlayer index points and
+    UPDATEs matching items by `item_number` parsed from the index-point
+    titles (since MediaPlayer's RawAgendaItem.item_number is
+    position-in-list, not the real agenda item number).
+
+    Preserves any AI summaries and existing item content — only the
+    `video_timestamp_seconds` column is touched. Idempotent: a second
+    call after all timestamps are filled is a cheap NULL-count check
+    that early-exits without HTTP.
+
+    Returns the number of items updated.
+    """
+    # Cheap precheck: are there any items needing a timestamp?
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT count(*) AS n FROM agenda_items "
+            "WHERE meeting_id = %s AND video_timestamp_seconds IS NULL",
+            (meeting_id,),
+        )
+        null_count = cur.fetchone()["n"]
+
+    if null_count == 0:
+        return 0
+
+    # Fetch MediaPlayer index points (have timestamps)
+    media_items = adapter.fetch_agenda_items(raw_meeting)
+    if not media_items:
+        return 0
+
+    # Build item_number → timestamp map by extracting "ITEM N" from titles
+    timestamps_by_num: dict[str, float] = {}
+    for item in media_items:
+        if item.video_timestamp_seconds is None:
+            continue
+        match = _AGENDA_ITEM_NUMBER_RE.search(item.title or "")
+        if not match:
+            continue
+        item_num = match.group(1)
+        timestamps_by_num.setdefault(item_num, item.video_timestamp_seconds)
+
+    if not timestamps_by_num:
+        return 0
+
+    updated = 0
+    with db() as conn:
+        with conn.cursor() as cur:
+            for item_num, ts in timestamps_by_num.items():
+                cur.execute(
+                    "UPDATE agenda_items SET video_timestamp_seconds = %s "
+                    "WHERE meeting_id = %s AND item_number = %s "
+                    "AND video_timestamp_seconds IS NULL",
+                    (ts, meeting_id, item_num),
+                )
+                updated += cur.rowcount
+
+    if updated > 0:
+        logger.info(
+            "backfilled video timestamps for %d/%d items on meeting %s",
+            updated, null_count, raw_meeting.external_id,
+        )
+    return updated
+
+
 def _ingest_agenda_items(
     municipality_id: int,
     adapter,
     raw_meeting: RawMeeting,
 ) -> int:
-    """Scrape and insert agenda items for a meeting if not already done."""
-    # Short-circuit upcoming meetings: no clip_id is assigned yet, so the
-    # adapter can't fetch items, and marking agenda_items_scraped=TRUE here
-    # would persist through the eventual event-N → clip_id reconciliation
-    # (the flag is keyed on the integer meeting_id PK) and permanently lock
-    # the meeting out of agenda extraction.
-    if raw_meeting.external_id.startswith("event-"):
-        return 0
+    """Scrape and insert agenda items for a meeting if not already done.
 
+    For pre-recording (event-*) meetings, the adapter parses the agenda
+    PDF — items get inserted normally but with no video timestamps.
+
+    For archive-shape (clip_id) meetings whose items already exist but
+    lack video timestamps (e.g., the items were inserted from a prior
+    PDF scrape and the meeting has since been recorded and reconciled),
+    fall through to `_backfill_video_timestamps` which fetches the
+    MediaPlayer index points and UPDATE timestamps in place.
+    """
     # Check if we already have agenda items for this meeting
     with db_cursor() as cur:
         cur.execute(
@@ -291,6 +371,11 @@ def _ingest_agenda_items(
     already_scraped = row.get("agenda_items_scraped") or False
 
     if already_scraped:
+        # Items exist; if any lack video timestamps AND this is an archived
+        # (clip_id) meeting, try to backfill timestamps from MediaPlayer.
+        # No-op once timestamps are filled or for upcoming meetings.
+        if not raw_meeting.external_id.startswith("event-"):
+            return _backfill_video_timestamps(adapter, meeting_id, raw_meeting)
         return 0
 
     # Scrape agenda items via adapter
