@@ -515,6 +515,17 @@
 .vote-block-result { text-transform: uppercase; letter-spacing: 0.1em; font-size: 11px; color: var(--ink); }
 .vote-block-source { font-size: 11px; }
 
+/* Vote-block agenda item links — wrap titles in <a> without inheriting
+   default browser link chrome. Preserve the existing typography; show
+   the underline only on hover/focus as the click affordance. */
+.vote-link {
+  color: inherit;
+  text-decoration: none;
+  display: inline;
+}
+.vote-link:hover,
+.vote-link:focus-visible { text-decoration: underline; text-underline-offset: 2px; }
+
 /* item_detail Vote Result block + collapsed history disclosure. */
 .item-vote-result { margin: 24px 0; }
 .vote-result-meta {
