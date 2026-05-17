@@ -3586,3 +3586,119 @@ def _kpi_stats_for_municipality(municipality: dict) -> list[dict]:
             ),
         },
     ]
+
+
+@dataclass
+class VoteEntry:
+    """One vote linked to a single agenda item, flattened for the item_detail
+    template. Multiple entries form a history when an item was voted on more
+    than once (consent + later substantive, reconsideration, etc.).
+
+    Source-link fields (meeting_id, video_timestamp, video_url, minutes_url)
+    are surfaced so the template can build the right deep link per vote.
+    Priority lives in the template: video timestamp > minutes PDF >
+    meeting_detail#vote-N fallback (constructed with url_for).
+    """
+    vote_id: int
+    meeting_id: int
+    result: str
+    yeas: int | None
+    nays: int | None
+    abstentions: int | None
+    meeting_date: object  # date | None — kept loose to avoid stdlib import churn
+    association_type: str
+    provisional: bool
+    is_manual: bool
+    source: str
+    video_timestamp: float | None
+    video_url: str | None
+    minutes_url: str | None
+
+    @property
+    def is_consent_block(self) -> bool:
+        return self.association_type.startswith("consent_")
+
+
+@dataclass
+class ItemVoteData:
+    """Resolution result for get_vote_for_item: one prevailing vote plus
+    any prior votes (history). History is in reverse-resolution order —
+    next-most-authoritative first."""
+    prevailing: VoteEntry
+    history: list[VoteEntry]
+
+
+def get_vote_for_item(item_id: int) -> ItemVoteData | None:
+    """Return the prevailing vote + history for a single agenda item.
+
+    Resolution rule (highest priority first):
+      1. is_manual=TRUE  (admin override always wins)
+      2. meeting_date DESC  (most recent)
+      3. association_type via CASE so 'explicit' (substantive) sorts
+         before consent variants
+      4. votes.id DESC  (final tiebreaker for same-date / same-type)
+
+    Filters is_active=TRUE — ghost links from pulled-from-consent items
+    are excluded.
+
+    Returns None when no active links exist for the item.
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+              v.id           AS vote_id,
+              v.meeting_id,
+              v.result,
+              v.yeas, v.nays, v.abstentions, v.source,
+              v.video_timestamp,
+              m.meeting_date,
+              m.video_url,
+              m.minutes_url,
+              vai.association_type,
+              vai.provisional,
+              vai.is_manual
+            FROM vote_agenda_items vai
+            JOIN votes v ON v.id = vai.vote_id
+            JOIN meetings m ON m.id = v.meeting_id
+            WHERE vai.agenda_item_id = %s
+              AND vai.is_active = TRUE
+            ORDER BY
+              vai.is_manual DESC,
+              m.meeting_date DESC NULLS LAST,
+              CASE vai.association_type
+                WHEN 'explicit' THEN 1
+                WHEN 'positional' THEN 2
+                WHEN 'consent_named' THEN 3
+                WHEN 'consent_implicit' THEN 4
+              END ASC,
+              v.id DESC
+            """,
+            (item_id,),
+        )
+        rows = cur.fetchall()
+
+    if not rows:
+        return None
+
+    entries = [
+        VoteEntry(
+            vote_id=r["vote_id"],
+            meeting_id=r["meeting_id"],
+            result=r["result"],
+            yeas=r["yeas"],
+            nays=r["nays"],
+            abstentions=r["abstentions"],
+            meeting_date=r["meeting_date"],
+            association_type=r["association_type"],
+            provisional=r["provisional"],
+            is_manual=r["is_manual"],
+            source=r["source"],
+            video_timestamp=r["video_timestamp"],
+            video_url=r["video_url"],
+            minutes_url=r["minutes_url"],
+        )
+        for r in rows
+    ]
+
+    return ItemVoteData(prevailing=entries[0], history=entries[1:])
