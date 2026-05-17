@@ -19,6 +19,14 @@
           title="docket.pub editorial coverage"
           href="{{ url_for('public.coverage_rss') }}">
     <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    {# Privacy-first analytics. Cookieless, no consent banner. #}
+    {# Spec: docs/superpowers/specs/2026-05-15-umami-analytics-design.md #}
+    <script defer
+            src="https://stats.docket.pub/script.js"
+            data-website-id="3c46bc38-0650-49a6-bbb2-09b7dd305043"
+            data-do-not-track="true"
+            data-exclude-search="true"></script>
+    <script src="{{ url_for('static', filename='js/track.js') }}" defer></script>
     {% block head %}{% endblock %}
 </head>
 <body>
