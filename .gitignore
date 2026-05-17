@@ -27,3 +27,8 @@ data/minutes_cache/
 
 # Superpowers session scratch (brainstorm mockups, server pid/log)
 .superpowers/
+
+# Claude Code — user-local settings and worktree scratch dirs
+# Team-level .claude/settings.json and .claude/agents/ remain trackable.
+.claude/settings.local.json
+.claude/worktrees/

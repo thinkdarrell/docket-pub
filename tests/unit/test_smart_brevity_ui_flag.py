@@ -129,7 +129,7 @@ _REGULAR_LOOP_BODY = """\
     {% if config.SMART_BREVITY_UI %}
         {% include 'partials/smart_brevity_card.html' %}
     {% else %}
-        <div class="notable-row" style="cursor: default;">
+        <div id="item-{{ item.id }}" class="notable-row" style="cursor: default;">
             <div class="notable-num t-mono">
                 {% if item.item_number %}{{ item.item_number }}{% else %}—{% endif %}
             </div>
@@ -184,7 +184,7 @@ _CONSENT_LOOP_BODY = """\
     {% if config.SMART_BREVITY_UI %}
         {% include 'partials/smart_brevity_card.html' %}
     {% else %}
-        <div class="notable-row" style="cursor: default;">
+        <div id="item-{{ item.id }}" class="notable-row" style="cursor: default;">
             <div class="notable-num t-mono">
                 {% if item.item_number %}{{ item.item_number }}{% else %}—{% endif %}
             </div>
@@ -239,11 +239,18 @@ def _render_loop(app, items, *, body=_REGULAR_LOOP_BODY, var="regular_items"):
     inside the shell, so the test app needs a stub route + the rendered
     context needs ``municipality``.
     """
-    if "public.meeting_detail" not in {r.endpoint for r in app.url_map.iter_rules()}:
+    existing = {r.endpoint for r in app.url_map.iter_rules()}
+    if "public.meeting_detail" not in existing:
         app.add_url_rule(
             "/c/<slug>/meetings/<int:meeting_id>",
             endpoint="public.meeting_detail",
             view_func=lambda slug, meeting_id: "",
+        )
+    if "public.item_detail" not in existing:
+        app.add_url_rule(
+            "/c/<slug>/items/<int:item_id>",
+            endpoint="public.item_detail",
+            view_func=lambda slug, item_id: "",
         )
     with app.test_request_context("/"):
         return render_template_string(

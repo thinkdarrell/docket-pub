@@ -65,7 +65,7 @@
 {# Context-aware: action_type hints at upcoming hearing but date is null (decision #70) #}
 {% elif item.action_type == 'public_hearing_set' and not ns.public_hearing_date %}
   {%- set _subject = "Missing hearing date for item " ~ (item.id | int) -%}
-  {%- set _item_url = url_for('public.item_detail', city=city.slug, item_id=(item.id | int), _external=True) -%}
+  {%- set _item_url = url_for('public.item_detail', slug=city.slug, item_id=(item.id | int), _external=True) -%}
   {%- set _body = "Item URL: " ~ _item_url ~ "\r\n\r\nThis item has action_type=public_hearing_set but no hearing date is shown." -%}
   <div class="engagement-strip engagement-strip--awaiting">
     Awaiting hearing date —

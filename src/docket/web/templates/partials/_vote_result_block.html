@@ -1,0 +1,101 @@
+{# Partial: item_detail Vote Result block.
+
+   Renders one of three shapes based on `vote_data`:
+   - Prevailing vote banner + optional history disclosure (vote_data populated)
+   - Branched no-vote copy (vote_data is None) keyed off
+     `item.processing_status` with a generic NULL fallback
+
+   Required context:
+     vote_data    — ItemVoteData | None (from query.get_vote_for_item)
+     item         — AgendaItem (for processing_status branching)
+     meeting      — Meeting (for minutes_url fallback link)
+     municipality — dict with .slug (for url_for in source link macro)
+
+   Source-link priority within the macro: video timestamp > minutes PDF >
+   meeting_detail#vote-N fallback.
+#}
+{% macro vote_source_link(v) -%}
+  {%- if v.video_timestamp and v.video_url -%}
+    <a class="link t-meta" href="{{ v.video_url }}#t={{ v.video_timestamp|round|int }}" target="_blank" rel="noreferrer">
+      Watch this vote ↗
+    </a>
+  {%- elif v.minutes_url -%}
+    <a class="link t-meta" href="{{ v.minutes_url }}" target="_blank" rel="noreferrer">
+      Read minutes ↗
+    </a>
+  {%- else -%}
+    <a class="link t-meta" href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=v.meeting_id, _anchor='vote-' ~ v.vote_id) }}">
+      Vote in meeting context →
+    </a>
+  {%- endif -%}
+{%- endmacro %}
+
+{% if vote_data %}
+{% set prevailing = vote_data.prevailing %}
+<section class="item-vote-result">
+    <div class="vote-block {{ 'is-pass' if prevailing.result == 'passed' else 'is-fail' if prevailing.result == 'failed' else '' }}">
+        <div class="vote-block-head">
+            <span class="vote-block-result">{{ prevailing.result }}</span>
+            <span class="t-mono" style="font-size: 18px; font-weight: 500;">
+                {{ prevailing.yeas }}–{{ prevailing.nays }}{% if prevailing.abstentions %}<span class="t-meta"> · {{ prevailing.abstentions }} abstain</span>{% endif %}
+            </span>
+        </div>
+        <div class="vote-result-meta">
+            {% if prevailing.is_consent_block %}
+                {% if prevailing.provisional %}
+                <span class="chip is-warn" title="Council has not yet adopted these minutes"><span class="dot"></span>provisional · consent</span>
+                {% else %}
+                <span class="chip is-good" title="Minutes adopted by council"><span class="dot"></span>adopted · consent</span>
+                {% endif %}
+            {% endif %}
+            {% if prevailing.is_manual %}
+            <span class="chip" title="Manually linked by editor"><span class="dot"></span>manually linked</span>
+            {% endif %}
+            <span class="t-meta">{{ vote_source_link(prevailing) }}</span>
+        </div>
+    </div>
+
+    {% if vote_data.history %}
+    <details class="vote-history">
+        <summary class="t-mono">View vote history ({{ vote_data.history | length }}) ▾</summary>
+        <ul class="vote-history-list">
+            {% for h in vote_data.history %}
+            <li class="vote-history-row {{ 'is-pass' if h.result == 'passed' else 'is-fail' if h.result == 'failed' else '' }}">
+                <span class="vote-history-result t-mono">{{ h.result }}</span>
+                <span class="t-mono">{{ h.yeas }}–{{ h.nays }}</span>
+                {% if h.meeting_date %}<span class="t-meta">{{ h.meeting_date.strftime('%b %-d, %Y') }}</span>{% endif %}
+                <span class="t-meta">·</span>
+                <span class="t-meta">{% if h.is_consent_block %}on consent{% else %}substantive{% endif %}{% if h.provisional %} · provisional{% endif %}</span>
+                <span class="vote-history-spacer"></span>
+                {{ vote_source_link(h) }}
+            </li>
+            {% endfor %}
+        </ul>
+    </details>
+    {% endif %}
+</section>
+{% else %}
+{# No vote linked to this item. Branch by processing_status; always
+   include a generic else fallback for NULL / unrecognized values
+   (legacy items pre-Wave 0, future enum additions). #}
+<section class="item-vote-result">
+    <div class="no-vote-block">
+        {% if item.processing_status == 'withdrawn' %}
+        <p class="t-meta">No vote — this item was <strong>withdrawn</strong> before the council voted on it.</p>
+        {% elif item.processing_status == 'procedural_skipped' %}
+        <p class="t-meta">No vote — this is a procedural item (roll call, pledge of allegiance, etc.).</p>
+        {% elif item.processing_status in ('pending', 'completed') %}
+        <p class="t-meta">
+            We couldn't match a specific vote to this item in the minutes.
+            {% if meeting and meeting.minutes_url %}
+            <a class="link" href="{{ meeting.minutes_url }}" target="_blank" rel="noreferrer">View full minutes ↗</a>
+            {% else %}
+            <a class="link" href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=item.meeting_id, _anchor='item-' ~ item.id) }}">View full meeting →</a>
+            {% endif %}
+        </p>
+        {% else %}
+        <p class="t-meta">No vote was recorded for this item.</p>
+        {% endif %}
+    </div>
+</section>
+{% endif %}

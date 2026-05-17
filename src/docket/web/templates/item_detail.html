@@ -3,7 +3,10 @@
 
 {% block content %}
 {# ── Back link ────────────────────────────────────── #}
-<a class="back-link t-mono" href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=item.meeting_id) }}">
+{# Anchor returns user to the source item below the sticky masthead
+   (scroll-margin-top applied via [id^="item-"] in layout.css). #}
+<a class="back-link t-mono"
+   href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=item.meeting_id, _anchor='item-' ~ item.id) }}">
     ← Back to meeting
 </a>
 
@@ -16,7 +19,8 @@
                 <span class="t-mono">Item #{{ item.item_number }}</span>
                 <span class="t-meta">·</span>
                 {% endif %}
-                <a class="link t-meta" href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=item.meeting_id) }}">
+                <a class="link t-meta"
+                   href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=item.meeting_id, _anchor='item-' ~ item.id) }}">
                     {{ meeting.title if meeting else 'Meeting' }}
                 </a>
             </div>
@@ -65,10 +69,8 @@
 </section>
 {% endif %}
 
-{# ── Vote result block — DEFERRED to P4-1 follow-up ───
-   Plan §3.2 calls for a vote-result block "if vote exists", but P4-2
-   didn't ship list_votes_for_item() and the consent-block 1:N case
-   warrants its own design pass. Tracked as a follow-up. #}
+{# ── Vote Result block ─────────────────────────────── #}
+{% include 'partials/_vote_result_block.html' %}
 
 {# ── Coverage block ────────────────────────────────── #}
 {% include "partials/coverage_block.html" %}

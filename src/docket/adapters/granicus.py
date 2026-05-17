@@ -19,6 +19,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from docket.adapters._helpers import classify_meeting, is_consent_item
+from docket.analysis.agenda_parser import parse_agenda
 from docket.analysis.minutes_parser import (
     download_minutes_pdf,
     extract_text_from_pdf,
@@ -49,6 +50,9 @@ class GranicusAdapter:
     def _agenda_url(self, clip_id: int) -> str:
         return f"{self.base_url}/AgendaViewer.php?view_id={self.view_id}&clip_id={clip_id}"
 
+    def _agenda_url_by_event_id(self, event_id: int) -> str:
+        return f"{self.base_url}/AgendaViewer.php?view_id={self.view_id}&event_id={event_id}"
+
     def _minutes_url(self, clip_id: int) -> str:
         return f"{self.base_url}/MinutesViewer.php?view_id={self.view_id}&clip_id={clip_id}"
 
@@ -65,31 +69,59 @@ class GranicusAdapter:
         logger.info("Fetching %s ...", self._publisher_url())
         resp = requests.get(self._publisher_url(), timeout=60)
         resp.raise_for_status()
+        return self._parse_publisher_page(resp.text, since=since)
 
-        soup = BeautifulSoup(resp.text, "html.parser")
+    def _parse_publisher_page(
+        self, html: str, since: date | None = None
+    ) -> list[RawMeeting]:
+        """Parse a Granicus ViewPublisher page into RawMeetings.
+
+        Reads both the `#upcoming` table (events not yet recorded — keyed
+        by event_id) and the `#archive` table (recorded meetings — keyed
+        by clip_id). Returns the union. Split from list_meetings so unit
+        tests can exercise parsing without HTTP.
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        row_pattern = re.compile(r"^(even|odd)$")
+        meetings: list[RawMeeting] = []
+
+        upcoming_table = soup.find("table", id="upcoming")
+        if upcoming_table:
+            for row in upcoming_table.find_all("tr", class_=row_pattern):
+                meeting = self._parse_upcoming_row(row)
+                if meeting is None:
+                    continue
+                if since and meeting.meeting_date < since:
+                    continue
+                meetings.append(meeting)
 
         archive_table = soup.find("table", id="archive")
         if not archive_table:
             tables = soup.find_all("table")
-            archive_table = tables[1] if len(tables) > 1 else tables[0]
+            archive_table = tables[1] if len(tables) > 1 else (tables[0] if tables else None)
 
-        rows = archive_table.find_all("tr", class_=re.compile(r"^(even|odd)$"))
-        logger.info("Found %d meeting rows", len(rows))
+        if archive_table:
+            for row in archive_table.find_all("tr", class_=row_pattern):
+                meeting = self._parse_archive_row(row)
+                if meeting is None:
+                    continue
+                if since and meeting.meeting_date < since:
+                    continue
+                meetings.append(meeting)
 
-        meetings = []
-        for row in rows:
-            meeting = self._parse_meeting_row(row)
-            if meeting is None:
-                continue
-            if since and meeting.meeting_date < since:
-                continue
-            meetings.append(meeting)
-
-        logger.info("Parsed %d meetings", len(meetings))
+        logger.info("Parsed %d meetings (both tables)", len(meetings))
         return meetings
 
     def fetch_agenda_items(self, meeting: RawMeeting) -> list[RawAgendaItem]:
-        """Fetch agenda item index points from the player page."""
+        """Fetch agenda items for a meeting.
+
+        For upcoming meetings (external_id of shape `event-N`) there's no
+        MediaPlayer page yet — fetch the agenda PDF and parse it instead.
+        For archived meetings, fetch the MediaPlayer index points (the
+        existing path, gives items with video timestamps).
+        """
+        if meeting.external_id.startswith("event-"):
+            return self._fetch_agenda_items_from_pdf(meeting)
         clip_id = int(meeting.external_id)
         url = self._player_url(clip_id)
 
@@ -119,6 +151,54 @@ class GranicusAdapter:
                         video_timestamp_seconds=float(timestamp),
                     )
                 )
+
+        time.sleep(self.delay)
+        return items
+
+    def _fetch_agenda_items_from_pdf(self, meeting: RawMeeting) -> list[RawAgendaItem]:
+        """Download the AgendaViewer PDF and parse items from it.
+
+        Used for pre-recording (event-*) meetings where there's no
+        MediaPlayer page yet. Items come back without video timestamps —
+        those backfill later via `_backfill_video_timestamps` after the
+        meeting is recorded and reconciliation upgrades the row to a
+        clip_id.
+        """
+        if not meeting.agenda_url:
+            return []
+
+        event_id = meeting.external_id.removeprefix("event-")
+        try:
+            resp = requests.get(meeting.agenda_url, timeout=60, allow_redirects=True)
+            resp.raise_for_status()
+        except requests.RequestException as e:
+            logger.error("Failed to fetch agenda PDF from %s: %s", meeting.agenda_url, e)
+            return []
+
+        if resp.content[:5] != b"%PDF-":
+            logger.warning(
+                "Expected PDF from %s, got %s — skipping", meeting.agenda_url, resp.content[:20]
+            )
+            return []
+
+        text = extract_text_from_pdf(resp.content)
+        parsed = parse_agenda(text)
+
+        items: list[RawAgendaItem] = []
+        for p in parsed:
+            items.append(
+                RawAgendaItem(
+                    external_id=f"event-{event_id}-{p.item_number}",
+                    meeting_external_id=meeting.external_id,
+                    item_number=p.item_number,
+                    title=p.title,
+                    description=p.body,
+                    section=None,
+                    is_consent=p.is_consent,
+                    sponsor=p.sponsor,
+                    video_timestamp_seconds=None,
+                )
+            )
 
         time.sleep(self.delay)
         return items
@@ -203,8 +283,8 @@ class GranicusAdapter:
 
     # --- Row parsing --------------------------------------------------------
 
-    def _parse_meeting_row(self, row) -> RawMeeting | None:
-        """Extract meeting data from a single HTML table row."""
+    def _parse_archive_row(self, row) -> RawMeeting | None:
+        """Extract meeting data from a single archived-table row (has clip_id)."""
         cells = row.find_all("td")
         if len(cells) < 4:
             return None
@@ -286,5 +366,71 @@ class GranicusAdapter:
             if match:
                 return int(match.group(1))
         return None
+
+    @staticmethod
+    def _extract_event_id(row) -> int | None:
+        """Find an event_id in any link in the row.
+
+        Upcoming-table rows reference meetings by event_id rather than
+        clip_id (the latter is assigned only when a recording exists).
+        Mirrors _extract_clip_id's two-pass href/onclick search.
+        """
+        for link in row.find_all("a", href=True):
+            match = re.search(r"event_id=(\d+)", link["href"])
+            if match:
+                return int(match.group(1))
+        for link in row.find_all("a", onclick=True):
+            match = re.search(r"event_id=(\d+)", link["onclick"])
+            if match:
+                return int(match.group(1))
+        return None
+
+    def _parse_upcoming_row(self, row) -> RawMeeting | None:
+        """Extract meeting data from a single upcoming-table row (has event_id).
+
+        Returns None if no event_id is present — e.g., placeholder rows where
+        the agenda hasn't been published yet.
+
+        Upcoming meetings carry an `event-{event_id}` external_id, which the
+        ingest reconciliation step will later upgrade to a plain clip_id
+        string once the meeting is recorded and migrates to the archive table.
+        """
+        event_id = self._extract_event_id(row)
+        if not event_id:
+            return None
+
+        title_cell = row.find("td", headers=re.compile(r"^EventName"))
+        title = title_cell.get_text(strip=True) if title_cell else ""
+
+        date_cell = row.find("td", headers=re.compile(r"^EventDate"))
+        meeting_date = None
+        if date_cell:
+            hidden_span = date_cell.find("span", style=re.compile(r"display:\s*none"))
+            if hidden_span:
+                try:
+                    ts = int(hidden_span.get_text(strip=True))
+                    meeting_date = datetime.fromtimestamp(ts, tz=timezone.utc).date()
+                except (ValueError, OSError):
+                    pass
+
+        if meeting_date is None:
+            logger.warning(
+                "Could not parse date for upcoming meeting '%s', using today", title
+            )
+            meeting_date = date.today()
+
+        agenda_url = self._agenda_url_by_event_id(event_id)
+
+        return RawMeeting(
+            external_id=f"event-{event_id}",
+            municipality_slug=self.municipality_slug,
+            title=title,
+            meeting_date=meeting_date,
+            meeting_type=classify_meeting(title),
+            agenda_url=agenda_url,
+            minutes_url=None,
+            video_url=None,
+            source_url=agenda_url,
+        )
 
 

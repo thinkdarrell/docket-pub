@@ -13,15 +13,24 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass
 from datetime import date
 
 from docket.adapters import get_adapter
+from docket.adapters._helpers import normalize_title
 from docket.db import db, db_cursor
 from docket.models.protocol import RawMeeting
 from docket.services.enrichment import enrich_agenda_item
 
 logger = logging.getLogger(__name__)
+
+# MediaPlayer index-point titles for BHM agendas are shaped like
+# "ITEM 1 - Resolution setting public hearing on...". When backfilling
+# video timestamps onto items that were originally inserted from the
+# pre-recording PDF, we extract the agenda item_number from this title
+# so we can match by item_number rather than position-in-list.
+_AGENDA_ITEM_NUMBER_RE = re.compile(r"\bITEM\s+(\d+)\b", re.IGNORECASE)
 
 
 @dataclass
@@ -125,7 +134,13 @@ def ingest_municipality(slug: str, since: date | None = None) -> IngestResult:
 
 
 def _upsert_meetings(municipality_id: int, raw_meetings: list[RawMeeting]) -> tuple[int, int]:
-    """Insert or update meetings. Returns (inserted, updated) counts."""
+    """Insert or update meetings. Returns (inserted, updated) counts.
+
+    For archive-shape meetings (external_id is a plain clip_id, not
+    `event-N`), attempts reconciliation against any prior upcoming-row
+    counterpart before falling back to INSERT — see
+    `_try_upgrade_event_row` for the match logic.
+    """
     inserted = 0
     updated = 0
 
@@ -154,23 +169,170 @@ def _upsert_meetings(municipality_id: int, raw_meetings: list[RawMeeting]) -> tu
                         ),
                     )
                     updated += 1
-                else:
-                    cur.execute(
-                        """
-                        INSERT INTO meetings (
-                            municipality_id, external_id, title, meeting_date,
-                            meeting_type, agenda_url, minutes_url, video_url, source_url
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        """,
-                        (
-                            municipality_id, m.external_id, m.title, m.meeting_date,
-                            m.meeting_type, m.agenda_url, m.minutes_url, m.video_url,
-                            m.source_url,
-                        ),
-                    )
-                    inserted += 1
+                    continue
+
+                # Archive-shape rows may correspond to a prior upcoming
+                # (event-*) row that we've already ingested. Try to upgrade
+                # that row in place before inserting a duplicate.
+                if not m.external_id.startswith("event-"):
+                    if _try_upgrade_event_row(cur, municipality_id, m):
+                        updated += 1
+                        continue
+
+                cur.execute(
+                    """
+                    INSERT INTO meetings (
+                        municipality_id, external_id, title, meeting_date,
+                        meeting_type, agenda_url, minutes_url, video_url, source_url
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        municipality_id, m.external_id, m.title, m.meeting_date,
+                        m.meeting_type, m.agenda_url, m.minutes_url, m.video_url,
+                        m.source_url,
+                    ),
+                )
+                inserted += 1
 
     return inserted, updated
+
+
+def _try_upgrade_event_row(cur, municipality_id: int, m: RawMeeting) -> bool:
+    """Look for an existing event-* row matching this archive-shape RawMeeting
+    and upgrade its external_id in place. Returns True if an upgrade happened.
+
+    Match strategy (dual-tier):
+        1. Exact match on `(muni, date, normalize_title(title))` — preferred.
+        2. Date-only fallback — only when exactly one event-* row exists for
+           that municipality on that date. If multiple, refuse to guess and
+           let the caller insert a new row (cosmetic duplicate is recoverable;
+           mis-mapping is not).
+    """
+    cur.execute(
+        """
+        SELECT id, external_id, title
+        FROM meetings
+        WHERE municipality_id = %s
+          AND meeting_date = %s
+          AND external_id LIKE 'event-%%'
+        """,
+        (municipality_id, m.meeting_date),
+    )
+    candidates = cur.fetchall()
+
+    if not candidates:
+        return False
+
+    target = normalize_title(m.title)
+    exact = [c for c in candidates if normalize_title(c[2]) == target]
+
+    if len(exact) == 1:
+        chosen = exact[0]
+    elif len(exact) == 0 and len(candidates) == 1:
+        chosen = candidates[0]
+        logger.info(
+            "reconciliation: date-only fallback upgrade — muni=%s date=%s "
+            "archive_title=%r event_title=%r",
+            municipality_id, m.meeting_date, m.title, chosen[2],
+        )
+    else:
+        logger.warning(
+            "reconciliation: ambiguous event-* upgrade — muni=%s date=%s "
+            "%d candidates, %d exact-title matches — inserting new row",
+            municipality_id, m.meeting_date, len(candidates), len(exact),
+        )
+        return False
+
+    cur.execute(
+        """
+        UPDATE meetings SET
+            external_id = %s, title = %s, meeting_type = %s,
+            agenda_url = %s, minutes_url = %s, video_url = %s,
+            source_url = %s
+        WHERE id = %s
+        """,
+        (
+            m.external_id, m.title, m.meeting_type,
+            m.agenda_url, m.minutes_url, m.video_url,
+            m.source_url, chosen[0],
+        ),
+    )
+    logger.info(
+        "reconciliation: upgraded meeting id=%s external_id=%s → %s "
+        "(muni=%s, date=%s)",
+        chosen[0], chosen[1], m.external_id, municipality_id, m.meeting_date,
+    )
+    return True
+
+
+def _backfill_video_timestamps(
+    adapter, meeting_id: int, raw_meeting: RawMeeting
+) -> int:
+    """Add video_timestamp_seconds to existing agenda items that lack it.
+
+    Runs when a meeting's items were inserted from the pre-recording
+    agenda PDF (no timestamps) and the meeting has since been recorded
+    and reconciled to a clip_id. Fetches MediaPlayer index points and
+    UPDATEs matching items by `item_number` parsed from the index-point
+    titles (since MediaPlayer's RawAgendaItem.item_number is
+    position-in-list, not the real agenda item number).
+
+    Preserves any AI summaries and existing item content — only the
+    `video_timestamp_seconds` column is touched. Idempotent: a second
+    call after all timestamps are filled is a cheap NULL-count check
+    that early-exits without HTTP.
+
+    Returns the number of items updated.
+    """
+    # Cheap precheck: are there any items needing a timestamp?
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT count(*) AS n FROM agenda_items "
+            "WHERE meeting_id = %s AND video_timestamp_seconds IS NULL",
+            (meeting_id,),
+        )
+        null_count = cur.fetchone()["n"]
+
+    if null_count == 0:
+        return 0
+
+    # Fetch MediaPlayer index points (have timestamps)
+    media_items = adapter.fetch_agenda_items(raw_meeting)
+    if not media_items:
+        return 0
+
+    # Build item_number → timestamp map by extracting "ITEM N" from titles
+    timestamps_by_num: dict[str, float] = {}
+    for item in media_items:
+        if item.video_timestamp_seconds is None:
+            continue
+        match = _AGENDA_ITEM_NUMBER_RE.search(item.title or "")
+        if not match:
+            continue
+        item_num = match.group(1)
+        timestamps_by_num.setdefault(item_num, item.video_timestamp_seconds)
+
+    if not timestamps_by_num:
+        return 0
+
+    updated = 0
+    with db() as conn:
+        with conn.cursor() as cur:
+            for item_num, ts in timestamps_by_num.items():
+                cur.execute(
+                    "UPDATE agenda_items SET video_timestamp_seconds = %s "
+                    "WHERE meeting_id = %s AND item_number = %s "
+                    "AND video_timestamp_seconds IS NULL",
+                    (ts, meeting_id, item_num),
+                )
+                updated += cur.rowcount
+
+    if updated > 0:
+        logger.info(
+            "backfilled video timestamps for %d/%d items on meeting %s",
+            updated, null_count, raw_meeting.external_id,
+        )
+    return updated
 
 
 def _ingest_agenda_items(
@@ -178,7 +340,17 @@ def _ingest_agenda_items(
     adapter,
     raw_meeting: RawMeeting,
 ) -> int:
-    """Scrape and insert agenda items for a meeting if not already done."""
+    """Scrape and insert agenda items for a meeting if not already done.
+
+    For pre-recording (event-*) meetings, the adapter parses the agenda
+    PDF — items get inserted normally but with no video timestamps.
+
+    For archive-shape (clip_id) meetings whose items already exist but
+    lack video timestamps (e.g., the items were inserted from a prior
+    PDF scrape and the meeting has since been recorded and reconciled),
+    fall through to `_backfill_video_timestamps` which fetches the
+    MediaPlayer index points and UPDATE timestamps in place.
+    """
     # Check if we already have agenda items for this meeting
     with db_cursor() as cur:
         cur.execute(
@@ -199,6 +371,11 @@ def _ingest_agenda_items(
     already_scraped = row.get("agenda_items_scraped") or False
 
     if already_scraped:
+        # Items exist; if any lack video timestamps AND this is an archived
+        # (clip_id) meeting, try to backfill timestamps from MediaPlayer.
+        # No-op once timestamps are filled or for upcoming meetings.
+        if not raw_meeting.external_id.startswith("event-"):
+            return _backfill_video_timestamps(adapter, meeting_id, raw_meeting)
         return 0
 
     # Scrape agenda items via adapter
@@ -251,6 +428,11 @@ def _ingest_votes(
     raw_meeting: RawMeeting,
 ) -> int:
     """Extract and insert votes from minutes for a meeting if not already done."""
+    # Defense-in-depth: upcoming meetings have minutes_url=None and the caller
+    # already skips them, but a direct call should also be safe.
+    if raw_meeting.external_id.startswith("event-"):
+        return 0
+
     with db_cursor() as cur:
         cur.execute(
             """

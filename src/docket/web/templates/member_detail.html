@@ -71,7 +71,7 @@
       <div class="member-history-list">
         {% for item in history.rows %}
         <a class="member-history-row"
-           href="{{ url_for('public.meeting_detail', slug=item.municipality_slug, meeting_id=item.meeting_id) }}#item-{{ item.id }}">
+           href="{{ url_for('public.item_detail', slug=item.municipality_slug, item_id=item.id) }}">
           <div class="member-history-date t-mono">{{ item.meeting_date.strftime('%Y-%m-%d') }}</div>
           <div class="member-history-body">
             <div class="member-history-title">

@@ -22,11 +22,18 @@ from docket.web.filters import register as register_filters
 def app():
     flask_app = Flask("test_card_shell", template_folder="src/docket/web/templates")
     register_filters(flask_app)
-    # Stub the meeting_detail route so url_for resolves in the shell.
+    # Stub the meeting_detail + item_detail routes so url_for resolves
+    # inside the shell. After the Phase 4 flip, card-link href points
+    # at item_detail; meeting_detail kept registered for legacy callers.
     flask_app.add_url_rule(
         "/c/<slug>/meetings/<int:meeting_id>",
         endpoint="public.meeting_detail",
         view_func=lambda slug, meeting_id: "",
+    )
+    flask_app.add_url_rule(
+        "/c/<slug>/items/<int:item_id>",
+        endpoint="public.item_detail",
+        view_func=lambda slug, item_id: "",
     )
     return flask_app
 
@@ -90,8 +97,11 @@ class TestCardShellStructure:
         link = headline_h3.find("a", class_="card-link")
         assert link, "Headline must contain <a class='card-link'>"
         assert link.get("href"), "card-link must have an href"
-        assert "#item-100" in link["href"], (
-            f"Expected #item-100 in href; got {link['href']!r}"
+        # Phase 4 of the item-as-anchor nav refactor: the item is the
+        # destination URL itself, so `#item-N` anchors are no longer
+        # appended to a meeting_detail URL. The href is /items/<id>.
+        assert "/items/100" in link["href"], (
+            f"Expected /items/100 in href; got {link['href']!r}"
         )
 
     def test_only_one_anchor_in_the_card(self, app):
