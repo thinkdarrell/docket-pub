@@ -61,17 +61,23 @@ FROM website_event
 WHERE event_type = 1 AND referrer_domain IS NOT NULL
 GROUP BY 1, 2;
 
+-- Geo lives on `session` in Umami v3 (was on `website_event` in v2). The JOIN
+-- below keeps `v_geo_daily` queryable by consumers without exposing the v2/v3
+-- shape difference. Adding `region` here too — state-level breakdown is useful
+-- civic-mission signal and Umami stores it alongside country/city.
 DROP VIEW IF EXISTS v_geo_daily CASCADE;
 CREATE VIEW v_geo_daily AS
 SELECT
-  date_trunc('day', created_at)::date AS day,
-  country,
-  city,
+  date_trunc('day', we.created_at)::date AS day,
+  s.country,
+  s.region,
+  s.city,
   COUNT(*) AS pageviews,
-  COUNT(DISTINCT session_id) AS sessions
-FROM website_event
-WHERE event_type = 1
-GROUP BY 1, 2, 3;
+  COUNT(DISTINCT we.session_id) AS sessions
+FROM website_event we
+JOIN session s ON s.session_id = we.session_id
+WHERE we.event_type = 1
+GROUP BY 1, 2, 3, 4;
 
 -- Grants for the read-only role. umami_reader gets NO access to raw tables.
 GRANT USAGE ON SCHEMA public TO umami_reader;
