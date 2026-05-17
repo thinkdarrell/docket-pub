@@ -12,8 +12,11 @@ modules do the work.
 from __future__ import annotations
 
 import logging
+import os
 import traceback
 from typing import Callable
+
+import psycopg2 as psycopg
 
 from docket.ai.worker import BudgetExceededError, run_once
 from docket.analysis.vote_matcher import match_all_unmatched
@@ -25,8 +28,13 @@ from docket.worker import health
 log = logging.getLogger(__name__)
 
 
-def _safe_run(task_name: str, fn: Callable[[], None]) -> None:
+def _safe_run(task_name: str, fn: Callable[[], object]) -> None:
     """Run a task with Healthchecks pings, catching exceptions.
+
+    `fn` may return anything (or None); the return value is ignored at the
+    scheduler boundary. Widening the signature to `Callable[[], object]`
+    lets tasks return useful data for tests/logs while still being
+    schedulable through this wrapper.
 
     Does not re-raise. APScheduler's built-in error logging is noisy and
     duplicative — we own error reporting through Healthchecks instead.
@@ -232,16 +240,78 @@ def task_refresh_backfill_ratio_mv() -> None:
     _safe_run("refresh_backfill_ratio_mv", _do_refresh_backfill_ratio_mv)
 
 
+PRUNE_ANALYTICS_RETENTION = "24 months"
+PRUNE_ANALYTICS_BATCH_SIZE = 10_000
+
+# Umami v3 dropped database-level FK constraints (verified absent in
+# tests/fixtures/umami_schema_v3.sql — no ON DELETE CASCADE, no FOREIGN KEY).
+# Deleting from website_event alone would orphan event_data + session rows
+# forever. We prune all three tables explicitly, ordered children → parent.
+# All three tables carry their own `created_at`; sessions in Umami's model
+# are per-day (hashed session_id rotates daily), so a session is fully
+# bounded by the same time window as its events.
+_PRUNE_TABLES = ("event_data", "session", "website_event")
+
+
+def _do_prune_analytics() -> dict[str, object]:
+    """Delete Umami events + event_data + session rows older than 24 months.
+
+    Connects to the umami database via $ANALYTICS_DATABASE_URL (a separate
+    DSN from the editorial $DATABASE_URL — different role, different db).
+    `docket.db.db()` is hardcoded to $DATABASE_URL, so we open a psycopg2
+    connection directly here instead of going through the project's
+    connection helper.
+
+    Deletes in batches of PRUNE_ANALYTICS_BATCH_SIZE to keep each transaction
+    short and bounded WAL growth — protects the shared Railway Postgres from
+    the high-volume scenarios that have crashed it before (see Wave 0 incident).
+
+    Idempotent; returns `{"deleted": <total>, "by_table": {table: count}}`.
+    """
+    dsn = os.environ["ANALYTICS_DATABASE_URL"]
+    totals: dict[str, int] = {t: 0 for t in _PRUNE_TABLES}
+    with psycopg.connect(dsn) as conn, conn.cursor() as cur:
+        for table in _PRUNE_TABLES:
+            while True:
+                # ctid-based batched delete: standard PostgreSQL idiom for
+                # bounded delete-by-condition without partitioning. Each
+                # statement is one transaction; commit between batches to
+                # release WAL.
+                cur.execute(
+                    f"DELETE FROM {table} "
+                    f"WHERE ctid IN ("
+                    f"  SELECT ctid FROM {table} "
+                    f"  WHERE created_at < NOW() - INTERVAL '{PRUNE_ANALYTICS_RETENTION}' "
+                    f"  LIMIT %s"
+                    f")",
+                    (PRUNE_ANALYTICS_BATCH_SIZE,),
+                )
+                deleted = cur.rowcount
+                conn.commit()
+                totals[table] += deleted
+                if deleted < PRUNE_ANALYTICS_BATCH_SIZE:
+                    break
+            log.info("prune_analytics table=%s deleted=%d", table, totals[table])
+    total = sum(totals.values())
+    log.info("prune_analytics total_deleted=%d by_table=%s", total, totals)
+    return {"deleted": total, "by_table": totals}
+
+
+def task_prune_analytics() -> None:
+    _safe_run("prune_analytics", _do_prune_analytics)
+
+
 # --- registry — used by scheduler.py and the --run-once flag -----------------
 
 TASKS: dict[str, Callable[[], None]] = {
-    "ingest_all":               task_ingest_all,
-    "ai_items":                 task_ai_items,
-    "ai_meetings":              task_ai_meetings,
-    "vote_matching":            task_vote_matching,
-    "repair_empty_agendas":     task_repair_empty_agendas,
-    "process_badges":           task_process_badges,
-    "calibration_report":       task_calibration_report,
-    "process_batches":          task_process_batches,
+    "repair_empty_agendas":      task_repair_empty_agendas,
+    "ingest_all":                task_ingest_all,
+    "ai_items":                  task_ai_items,
+    "ai_meetings":               task_ai_meetings,
+    "vote_matching":             task_vote_matching,
+    "process_badges":            task_process_badges,
+    "calibration_report":        task_calibration_report,
+    "process_batches":           task_process_batches,
     "refresh_backfill_ratio_mv": task_refresh_backfill_ratio_mv,
+    "prune_analytics":           task_prune_analytics,
 }

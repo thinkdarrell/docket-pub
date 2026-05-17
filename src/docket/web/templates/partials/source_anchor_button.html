@@ -88,16 +88,19 @@
        but is preserved as a documented placeholder for future bbox-aware
        rendering. #}
     <a href="{{ _url_clean }}#page={{ anchor.page | int }}" class="view-source"
+       data-item-id="{{ item.id }}"
        target="_blank" rel="noopener noreferrer">
       View Source: PDF page {{ anchor.page | int }} →
     </a>
   {% elif anchor.page %}
     <a href="{{ _url_clean }}#page={{ anchor.page | int }}" class="view-source"
+       data-item-id="{{ item.id }}"
        target="_blank" rel="noopener noreferrer">
       View Source: PDF page {{ anchor.page | int }} →
     </a>
   {% else %}
     <a href="{{ _url_clean }}" class="view-source"
+       data-item-id="{{ item.id }}"
        target="_blank" rel="noopener noreferrer">
       View Source: PDF →
     </a>
@@ -105,18 +108,21 @@
 
 {% elif anchor is mapping and anchor.type == 'html' and anchor.anchor and _is_safe %}
   <a href="{{ _url_clean }}{{ anchor.anchor }}" class="view-source"
+     data-item-id="{{ item.id }}"
      target="_blank" rel="noopener noreferrer">
     View Source: agenda item →
   </a>
 
 {% elif anchor is mapping and anchor.type == 'video' and anchor.timestamp_seconds and _is_safe %}
   <a href="{{ _url_clean }}{{ _video_sep }}t={{ anchor.timestamp_seconds | int }}" class="view-source"
+     data-item-id="{{ item.id }}"
      target="_blank" rel="noopener noreferrer">
     View Source: video at {{ anchor.timestamp_seconds | format_timestamp }} →
   </a>
 
 {% elif _is_safe %}
   <a href="{{ _url }}" class="view-source"
+     data-item-id="{{ item.id }}"
      target="_blank" rel="noopener noreferrer">
     View Source →
   </a>

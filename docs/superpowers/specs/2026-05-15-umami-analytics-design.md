@@ -38,7 +38,7 @@ The constraint that makes this non-trivial: docket.pub is a civic transparency p
 
 A third Railway service named `analytics`, running the official Umami Postgres image:
 
-- **Image:** `ghcr.io/umami-software/umami:postgres-latest`
+- **Image:** Umami v3 via the **Railway Umami template** (the template fetches `umamisoftware/umami:latest` from Docker Hub, currently v3.x). Originally specced as `umamisoftware/umami:postgresql-v2.20.2` (pinned v2), but the Empty Service flow for setting an explicit image tag proved fragile and the template ships current Umami. The v3 schema changes — country/region/city moved from `website_event` to `session` — are absorbed by `db/umami_views.sql` (the `v_geo_daily` view joins to session). v3 also adds a Valkey cache requirement (auto-deployed by the template). Trade-off: less explicit version pinning; Railway can roll back deploys if a Umami release regresses.
 - **Public ingress:** yes, on the custom domain `stats.docket.pub`
 - **Internal egress:** to the existing Railway Postgres instance
 - **Start command:** the image default (Umami's Node entry point)
@@ -294,7 +294,7 @@ For ~18 months we expect nothing to delete (Umami has only just started running)
 Sequence is captured in a new runbook `docs/runbooks/analytics.md`:
 
 1. **Provision DB and roles** via `psql` against the Railway public proxy: create `umami` database, `umami` and `umami_reader` roles with passwords, set `CONNECTION LIMIT 8` on `umami`.
-2. **Create Railway service** `analytics`: Empty Service → set image to `ghcr.io/umami-software/umami:postgres-latest`, copy env vars (`DATABASE_URL=postgres://umami:...@<host>:<port>/umami?connection_limit=5`, `APP_SECRET=<generated>`, `HASH_SALT=<generated>`).
+2. **Create Railway services from the Umami template**: provisions an `umami` app service + a `Valkey` cache. The template's "Postgres" service entry reuses the existing project Postgres (no second instance). Override the template's `DATABASE_URL` to point Umami at the pre-provisioned `umami` database (`postgresql://umami:<UMAMI_PW>@postgres.railway.internal:5432/umami?connection_limit=5`); the template defaults it to the editorial `railway` database, which would cause table collisions with docket's schema.
 3. **Boot the container.** Umami auto-creates its schema on first boot. Verify tables exist via `psql`.
 4. **Apply view layer**: `psql $UMAMI_DATABASE_URL -f db/umami_views.sql`.
 5. **Grant `umami_reader` SELECT** on the views (final block of the view file, applied once).
@@ -302,7 +302,7 @@ Sequence is captured in a new runbook `docs/runbooks/analytics.md`:
 7. **First-boot admin** at `https://stats.docket.pub` — set initial admin user/password. Register `docket.pub` as a tracked website. Copy the `data-website-id` UUID.
 8. **Configure excluded paths** in the Umami website settings (`/admin/*`, `*.rss`, etc.).
 9. **Plumb the script** into `base.html`. Add `track.js`. Deploy `docket-web`.
-10. **Smoke test**: load the homepage, click one rail item, perform one search. Verify rows in `website_event` (1 pageview row + 1 `rail_click` row + 1 `search_submit` row), confirm they surface in the relevant views.
+10. **Smoke test**: load the homepage, click one "View source" link (Granicus or minutes PDF) on an item-detail page, perform one search. Verify rows in `website_event` (pageview row + 1 `outbound_source_click` row + 1 `search_submit` row), confirm they surface in `v_pageviews_daily` / `v_event_counts_daily` / `v_event_props_daily`. (Note: `rail_click` from the original v1 scope was cut per the revision in `docs/superpowers/plans/2026-05-15-umami-analytics.md` — see that plan's Scope note.)
 11. **Worker env vars**: add `ANALYTICS_DATABASE_URL` and `HEALTHCHECK_PRUNE_ANALYTICS_UUID` to the `worker` service. Deploy `worker`.
 
 ### Credentials storage

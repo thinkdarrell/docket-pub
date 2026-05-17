@@ -31,6 +31,11 @@ TASK_UUID_ENV: dict[str, str] = {
     # entry is here so ping() in _safe_run() doesn't KeyError; ping()
     # short-circuits when the env var is unset.
     "refresh_backfill_ratio_mv": "HEALTHCHECK_REFRESH_BACKFILL_RATIO_UUID",
+    # No Healthchecks UUID configured yet for analytics pruning — failure
+    # mode is cosmetic (slightly longer data retention) and self-recovers.
+    # The map entry is here so ping() in _safe_run() doesn't KeyError;
+    # ping() short-circuits when the env var is unset.
+    "prune_analytics":           "HEALTHCHECK_PRUNE_ANALYTICS_UUID",
 }
 
 PingStatus = Literal["start", "success", "fail"]

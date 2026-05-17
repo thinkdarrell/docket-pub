@@ -4,9 +4,17 @@
 
 **Goal:** Self-hosted Umami analytics on Railway, sharing the existing Postgres in a separate `umami` database. Two v1 custom events (outbound_source_click, search_submit) plus pageviews / geo / referrers. Claude queries the data via stable read-only views.
 
-**Architecture:** New `analytics` Railway service runs `ghcr.io/umami-software/umami:postgres-latest`, connects to a fresh `umami` database on the existing Postgres instance. A `db/umami_views.sql` file defines the stable read-only views consumers query (never raw Umami tables). One JS helper `track.js` wraps `umami.track()` with try/catch and a 40-char PII drop rule. Two event handlers wired in templates. One new `prune_analytics` task on the existing `worker` scheduler enforces 24-month retention.
+**Architecture:** New `umami` Railway service deployed via the **Railway Umami template** (currently runs Umami v3.x from Docker Hub; tag pinning happens by template's image setting). The template also adds a `Valkey` cache service (Umami v3 uses it for sessions/caching). Both new services live alongside the existing project Postgres; Umami's tables go into a separate `umami` database on that shared Postgres (no second Postgres needed). A `db/umami_views.sql` file defines the stable read-only views consumers query (never raw Umami tables). One JS helper `track.js` wraps `umami.track()` with try/catch and a 40-char PII drop rule. Two event handlers wired in templates. One new `prune_analytics` task on the existing `worker` scheduler enforces 24-month retention.
 
 **Scope note (revised 2026-05-16):** The spec named three v1 events. The third — `rail_click` — was cut after the visual refactor (PRs #54/#55/#56/#57/#58/#59) dropped the sidecar "rail" UI entirely in favor of a page-bottom `page_sources` block. The widget that event was designed to validate no longer exists in the form the spec described. Outbound + search remain in v1 with the same intent; the rail-equivalent question will be revisited once baseline data from v1 informs what the new navigational widgets are worth tracking.
+
+**Scope note (revised 2026-05-17, after PR #64 item-centric refactor):** Two task-level adjustments landed from the in-flight item-centric navigation refactor:
+- **Task 7 (`outbound_source_click`)** must also instrument `partials/_vote_result_block.html`'s `vote_source_link` macro — it emits Granicus video + minutes PDF anchors on the new item_detail Vote Result banner. Classification is automatic via track.js (host-based), but the macro's anchors should carry `data-item-id="{{ item.id }}"` so events tag their item context.
+- **Task 8 (`search_submit`)** must gate the emit on `{% if page == 1 %}` — search.html now paginates, and the emit would otherwise fire on every paginated result page, double-counting the same search.
+
+These are documented inline in the task sections below.
+
+The new `/al/<slug>/items/<id>/` route now receives traffic that previously flowed through `/al/<slug>/meetings/<id>#item-N` (per `feat(web): flip outbound item links from meeting_detail#item-N to item_detail`). Both URL shapes are already normalized in `db/umami_views.sql` — no view change needed, but the path mix in `v_pageviews_daily` will shift toward `/items/[id]` over time.
 
 **Tech Stack:** Umami v2 (Node, official Docker image), PostgreSQL 18.3 on Railway, Flask/Jinja2 templates, vanilla JS (no framework), APScheduler (existing worker), pytest.
 
@@ -66,7 +74,7 @@ GRANT CONNECT ON DATABASE umami TO umami_reader;
 
 In the Railway dashboard for the docket.pub project:
 1. New → Empty Service → name it `analytics`.
-2. Settings → Source → Docker Image → `ghcr.io/umami-software/umami:postgres-latest`.
+2. Settings → Source → Docker Image → `umamisoftware/umami:postgresql-v2.20.2`.
 3. Settings → Environment → add:
    - `DATABASE_URL=postgres://umami:<UMAMI_PW>@<RAILWAY_PG_PUBLIC_HOST>:<PORT>/umami?connection_limit=5` (use the public host/port — internal hosts only resolve within Railway's VPC; the analytics service lives in the same project but uses the public URL pattern for consistency)
    - `APP_SECRET=$(openssl rand -base64 48)` (record in 1Password)
@@ -568,7 +576,7 @@ git commit -m "feat(worker): prune_analytics monthly retention task"
 **Before any subsequent tasks**, the operator follows `docs/runbooks/analytics.md` sections 1–7 to:
 
 1. Create the `umami` and `umami_reader` Postgres roles and the `umami` database.
-2. Create the `analytics` Railway service running `ghcr.io/umami-software/umami:postgres-latest`.
+2. Create the `analytics` Railway service running `umamisoftware/umami:postgresql-v2.20.2`.
 3. Configure `stats.docket.pub` custom domain + Let's Encrypt cert.
 4. Boot the Umami container, complete first-boot admin, register the website, capture the **website ID UUID**.
 5. Configure excluded URLs in Umami.
@@ -861,6 +869,7 @@ In the post-visual-refactor layout the dominant outbound surface is `partials/pa
 - Modify: `src/docket/web/static/js/track.js`
 - Modify: `src/docket/web/templates/base.html`
 - Modify: `src/docket/web/templates/partials/source_anchor_button.html`
+- Modify: `src/docket/web/templates/partials/_vote_result_block.html` (added in PR #64 item-centric refactor — `vote_source_link` macro emits Granicus + Minutes PDF anchors that classifyOutbound auto-detects, but they need `data-item-id` for context)
 
 - [ ] **Step 1: Add the classifier to `track.js`**
 
@@ -925,9 +934,9 @@ In `src/docket/web/templates/base.html`, append a third inline script after the 
   </script>
 ```
 
-- [ ] **Step 3: Ensure source-anchor templates carry `data-item-id` / `data-meeting-id`**
+- [ ] **Step 3a: Ensure source-anchor templates carry `data-item-id` / `data-meeting-id`**
 
-Open `src/docket/web/templates/partials/source_anchor_button.html`. For each `<a ... class="view-source"` anchor (lines 90, 95, 100, 107, 113, 119 per the current file), append `data-item-id="{{ item.id }}"` where `item` is in scope. If the partial is used in a meeting context (no `item`), pass `meeting_id` from the caller and emit `data-meeting-id="{{ meeting_id }}"` instead.
+Open `src/docket/web/templates/partials/source_anchor_button.html`. For each `<a ... class="view-source"` anchor, append `data-item-id="{{ item.id }}"` where `item` is in scope. If the partial is used in a meeting context (no `item`), pass `meeting_id` from the caller and emit `data-meeting-id="{{ meeting_id }}"` instead.
 
 Confirm by re-grepping after the edit:
 
@@ -936,6 +945,43 @@ grep -nE 'class="view-source"' ~/docket-pub/src/docket/web/templates/partials/so
 ```
 
 Every match should have either `data-item-id` or `data-meeting-id` on it.
+
+- [ ] **Step 3b: Instrument the `vote_source_link` macro in `_vote_result_block.html`**
+
+Open `src/docket/web/templates/partials/_vote_result_block.html`. The `vote_source_link` macro (defined near the top) emits three possible anchor shapes:
+
+```jinja
+{% macro vote_source_link(v) -%}
+  {%- if v.video_timestamp and v.video_url -%}
+    <a class="link t-meta" href="{{ v.video_url }}#t={{ v.video_timestamp|round|int }}" target="_blank" rel="noreferrer">
+      Watch this vote ↗
+    </a>
+  {%- elif v.minutes_url -%}
+    <a class="link t-meta" href="{{ v.minutes_url }}" target="_blank" rel="noreferrer">
+      Read minutes ↗
+    </a>
+  {%- else -%}
+    <a class="link t-meta" href="{{ url_for(...) }}">Vote in meeting context →</a>
+  {%- endif -%}
+{%- endmacro %}
+```
+
+The first two are outbound (Granicus video, minutes PDF). The third is internal. Our classifier auto-detects external hosts, so all three are handled correctly — but the outbound anchors lack `data-item-id` so events fire without item context.
+
+Add `data-item-id="{{ item.id }}"` to the first two anchors (the third doesn't need it; it's internal and won't fire). The macro's caller is `_vote_result_block.html`, which has `item` in its required context (per the partial's docstring at top).
+
+After the edit, the two outbound anchors should look like:
+
+```jinja
+<a class="link t-meta"
+   href="{{ v.video_url }}#t={{ v.video_timestamp|round|int }}"
+   data-item-id="{{ item.id }}"
+   target="_blank" rel="noreferrer">
+  Watch this vote ↗
+</a>
+```
+
+…and the equivalent for the minutes PDF anchor. The internal "Vote in meeting context →" anchor stays as-is.
 
 - [ ] **Step 4: Local smoke test**
 
@@ -960,7 +1006,7 @@ Sanity-check internal-link non-firing: click an in-app link (e.g., a meeting car
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/docket/web/static/js/track.js src/docket/web/templates/base.html src/docket/web/templates/partials/source_anchor_button.html
+git add src/docket/web/static/js/track.js src/docket/web/templates/base.html src/docket/web/templates/partials/source_anchor_button.html src/docket/web/templates/partials/_vote_result_block.html
 git commit -m "feat(analytics): outbound_source_click event with domain classifier"
 ```
 
@@ -976,22 +1022,27 @@ One-shot emit from the search-results page using server-rendered values.
 
 - [ ] **Step 1: Confirm route + template variable names**
 
-Per `src/docket/web/public.py:886-926` (verified against current main on 2026-05-16):
+Per `src/docket/web/public.py` (verified against post-PR-#64 main):
 - `query=q` — string, the user-typed search.
-- `results=results` — list of result rows.
+- `results=results` — list of result rows (paginated; per_page=20).
 - `city=city` — string slug (or `None`/empty when unscoped); NOT an object.
 - `municipality=municipality` — dict-like or `None`; carries `.slug` when present.
+- `page=page` — int, current page number (1-indexed). Added when search results were paginated in PR `aee72e5`.
+- `has_next=has_next` — bool.
 
-The template emit will use `query`, `results`, and `city` (the string slug).
+The template emit uses `query`, `results`, `city`, AND `page` (to gate firing).
 
 - [ ] **Step 2: Add the emit script to `search.html`**
 
-In `src/docket/web/templates/search.html`, append at the very bottom of the file, immediately before `{% endblock %}` on line 105:
+In `src/docket/web/templates/search.html`, append at the very bottom of the file, immediately before `{% endblock %}`:
 
 ```html
-{% if query %}
+{% if query and page == 1 %}
 <script>
-  // Fired on the server-rendered results page; values come from the request.
+  // Fired ONLY on the initial search results page (page 1), not on pagination clicks.
+  // Without the `page == 1` gate, every paginated next-page view would re-fire the
+  // same search_submit, double-counting searches that span multiple pages of results.
+  //
   // sanitizeProps in track.js drops `query` if it exceeds 40 chars (PII guardrail);
   // result_count is always recorded so zero-result-rate stats survive that drop.
   (function () {
@@ -1010,6 +1061,8 @@ In `src/docket/web/templates/search.html`, append at the very bottom of the file
 ```
 
 (`city` is a string slug; no `.slug` attribute access needed.)
+
+**Note on `result_count` with pagination:** `result_count` reports the size of the *current page* (≤ 20), not the total result count across all pages. The route uses a row-count heuristic (`has_next = len(results) == per_page`) rather than running a separate `COUNT(*)`, so the total is unknown to the template. For the zero-result-search signal (the main use case), this is fine: a page-1 search with 0 results is unambiguous. For "how many results did this search get?", aggregation queries should treat `result_count` as `min(actual, 20)`.
 
 - [ ] **Step 3: Local smoke test**
 
@@ -1310,7 +1363,7 @@ railway ssh --service worker
 cd /app && python -m docket.worker.scheduler --run-once prune_analytics
 ```
 
-Expected: log line `prune_analytics deleted=0` (no events older than 24 months yet). Healthchecks dashboard shows the start/success pings.
+Expected: per-table log lines like `prune_analytics table=event_data deleted=0`, `prune_analytics table=session deleted=0`, `prune_analytics table=website_event deleted=0`, followed by a summary `prune_analytics total_deleted=0 by_table={...}` (no events older than 24 months yet). Healthchecks dashboard shows the start/success pings if `HEALTHCHECK_PRUNE_ANALYTICS_UUID` is set on the worker service. (Per the PR #69 review fix, the task now prunes event_data + session + website_event, not just website_event — Umami v3 dropped FK constraints so deletes don't cascade.)
 
 - [ ] **Step 6: Final memory update**
 

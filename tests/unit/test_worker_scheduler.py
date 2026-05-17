@@ -14,7 +14,7 @@ def test_build_scheduler_registers_all_jobs():
     assert job_ids == {
         "ingest_all", "ai_items", "ai_meetings", "vote_matching",
         "repair_empty_agendas", "process_badges", "calibration_report",
-        "process_batches", "refresh_backfill_ratio_mv",
+        "process_batches", "refresh_backfill_ratio_mv", "prune_analytics",
     }
 
 
@@ -39,12 +39,21 @@ def test_build_scheduler_uses_supplied_timezone():
     ("vote_matching",        9),
     ("process_badges",       9),
     ("calibration_report",  11),
+    ("prune_analytics",      4),
 ])
 def test_build_scheduler_job_hours(job_id, expected_hour):
     sched = scheduler.build_scheduler(timezone="America/Chicago")
     job = sched.get_job(job_id)
     fields = {f.name: str(f) for f in job.trigger.fields}
     assert fields["hour"] == str(expected_hour)
+
+
+def test_build_scheduler_prune_analytics_runs_on_first_of_month():
+    sched = scheduler.build_scheduler(timezone="America/Chicago")
+    job = sched.get_job("prune_analytics")
+    fields = {f.name: str(f) for f in job.trigger.fields}
+    assert fields["day"] == "1"
+    assert fields["minute"] == "0"
 
 
 def test_build_scheduler_calibration_report_at_00_minutes():
