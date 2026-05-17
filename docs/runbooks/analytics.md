@@ -41,16 +41,39 @@ echo "APP_SECRET=$(openssl rand -base64 48)"
 echo "HASH_SALT=$(openssl rand -base64 24)"
 ```
 
+**Use the Railway Umami template** — it pre-configures the image, Valkey cache, and (effectively) the Postgres wiring. The Empty Service flow is a footgun: the Source → Image picker is fragile and the template handles the deploy correctly with one click.
+
 In the Railway dashboard for the docket.pub project:
-1. New → Empty Service → name it `analytics`.
-2. Settings → Source → Docker Image → `umamisoftware/umami:postgresql-v2.20.2`.
-   (Image notes: Umami's official Postgres-flavored builds live on Docker Hub under `umamisoftware/umami`. The `ghcr.io/umami-software/umami` repo only carries old v1 tags. The Postgres tag prefix is `postgresql-`, not `postgres-`. Pinning to v2.20.2 — the last v2 stable — instead of `postgresql-latest` keeps upgrades explicit; to bump, update this tag and re-run the schema-fixture capture in step 5.)
-3. Settings → Environment → add these three variables (paste the values you generated above):
-   - `DATABASE_URL=postgres://umami:<UMAMI_PW>@postgres.railway.internal:5432/umami?connection_limit=5` (use the internal hostname — the analytics service runs inside the Railway VPC so `postgres.railway.internal` resolves; reserve the public host for laptop-based connections only)
-   - `APP_SECRET=<paste value from terminal>` (record in 1Password)
-   - `HASH_SALT=<paste value from terminal>` (record in 1Password)
-4. Settings → Networking → Generate Domain (note the `*.up.railway.app` URL temporarily).
-5. Deploy. Tail logs until `> Ready` appears (~30 seconds).
+1. **+ New → Templates** → search **"Umami"** → pick the official one (verify `umamisoftware/umami` shows in the preview) → **Deploy**.
+2. The template provisions:
+   - `umami` service (the app, currently Umami v3.x)
+   - `Valkey` service (Redis-compatible cache used by v3 for sessions/caching — required)
+   - "Postgres" service entry — this is a *reference* to the existing project Postgres, NOT a new instance. Railway's template auto-detects the existing Postgres and reuses it. No second Postgres bill.
+3. Wait ~60s for `umami` and `Valkey` to go green.
+4. **Repoint Umami at our pre-provisioned `umami` database**: the template defaults Umami to `DATABASE_URL=postgresql://postgres:...@.../railway` (superuser + editorial DB — wrong). Override it via CLI:
+
+   ```bash
+   railway variables --service umami --set \
+     "DATABASE_URL=postgresql://umami:<UMAMI_PW>@postgres.railway.internal:5432/umami?connection_limit=5"
+   ```
+
+   Umami will redeploy. After ~30s, verify Umami's tables landed in the `umami` database (not in `railway`):
+
+   ```bash
+   /opt/homebrew/opt/postgresql@18/bin/psql \
+     "postgres://umami:<UMAMI_PW>@<RAILWAY_PG_PUBLIC_HOST>:<PORT>/umami?sslmode=require" \
+     -c "\dt"
+   ```
+
+   Expected output includes `website_event`, `event_data`, `session`, `website`, plus v3 tables like `board`, `session_replay`, `pixel`, `link`, `team`, etc.
+5. **Record the template's auto-generated `APP_SECRET` and `HASH_SALT` in 1Password** (the values you generated locally are unused — keep what the template set):
+
+   ```bash
+   railway variables --service umami --kv | grep -E '^(APP_SECRET|HASH_SALT)='
+   ```
+6. Settings → Networking → Generate Domain on the `umami` service (note the `*.up.railway.app` URL temporarily).
+
+(Historical note: an earlier version of this runbook used Empty Service + explicit `umamisoftware/umami:postgresql-v2.20.2` image. That worked architecturally but the Railway UI for setting the image during Empty Service creation is fragile. The template is cleaner. Trade-off: we lose explicit image-tag pinning, but Umami releases are well-tested and Railway can roll back if a deploy regresses.)
 
 ### 3. Custom domain (`stats.docket.pub`)
 
@@ -88,13 +111,15 @@ The fixture seeds the integration test; the view layer is the queryable surface.
 # or copy from $DATABASE_PUBLIC_URL if that env var is set.)
 /opt/homebrew/opt/postgresql@18/bin/pg_dump --schema-only --no-owner --no-privileges \
   "postgres://umami:<UMAMI_PW>@<RAILWAY_PG_PUBLIC_HOST>:<PORT>/umami" \
-  > tests/fixtures/umami_schema_v2.sql
+  > tests/fixtures/umami_schema_v3.sql
 
 # Apply our view layer
 /opt/homebrew/opt/postgresql@18/bin/psql \
   "postgres://umami:<UMAMI_PW>@<RAILWAY_PG_PUBLIC_HOST>:<PORT>/umami" \
   -f db/umami_views.sql
 ```
+
+**Note on v3 schema:** Umami v3 moved `country`/`region`/`city` columns from `website_event` to the `session` table. Our `v_geo_daily` view JOINs `website_event` to `session` to keep the public view-layer shape stable. If a future Umami release renames columns again, `db/umami_views.sql` is the single point of repair — consumers (Claude queries, cheat-sheet examples) don't move.
 
 ### 6. Worker env vars (for the retention task — task 4)
 
