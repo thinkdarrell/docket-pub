@@ -113,4 +113,25 @@
     </div>
 </section>
 {% endif %}
+{% if query and page == 1 %}
+<script>
+  // Fires ONLY on the initial search results page (page == 1). search.html paginates
+  // in PR #64 — without the page-1 gate, every paginated next-page view would re-fire
+  // the same search_submit and inflate the count.
+  //
+  // sanitizeProps in track.js drops `query` if it exceeds 40 chars (PII guardrail);
+  // result_count is always recorded so zero-result-rate stats survive that drop.
+  (function () {
+    if (typeof docketTrack !== 'function') return;
+    var props = {
+      query: {{ query | tojson }},
+      result_count: {{ (results | length) if results is defined else 0 }}
+    };
+    {% if city %}
+    props.city = {{ city | tojson }};
+    {% endif %}
+    docketTrack('search_submit', props);
+  })();
+</script>
+{% endif %}
 {% endblock %}
