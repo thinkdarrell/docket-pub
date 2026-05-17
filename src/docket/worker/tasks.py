@@ -240,26 +240,61 @@ def task_refresh_backfill_ratio_mv() -> None:
     _safe_run("refresh_backfill_ratio_mv", _do_refresh_backfill_ratio_mv)
 
 
-def _do_prune_analytics() -> dict[str, int]:
-    """Delete Umami events older than 24 months.
+PRUNE_ANALYTICS_RETENTION = "24 months"
+PRUNE_ANALYTICS_BATCH_SIZE = 10_000
+
+# Umami v3 dropped database-level FK constraints (verified absent in
+# tests/fixtures/umami_schema_v3.sql — no ON DELETE CASCADE, no FOREIGN KEY).
+# Deleting from website_event alone would orphan event_data + session rows
+# forever. We prune all three tables explicitly, ordered children → parent.
+# All three tables carry their own `created_at`; sessions in Umami's model
+# are per-day (hashed session_id rotates daily), so a session is fully
+# bounded by the same time window as its events.
+_PRUNE_TABLES = ("event_data", "session", "website_event")
+
+
+def _do_prune_analytics() -> dict[str, object]:
+    """Delete Umami events + event_data + session rows older than 24 months.
 
     Connects to the umami database via $ANALYTICS_DATABASE_URL (a separate
     DSN from the editorial $DATABASE_URL — different role, different db).
     `docket.db.db()` is hardcoded to $DATABASE_URL, so we open a psycopg2
     connection directly here instead of going through the project's
     connection helper.
-    Idempotent; returns the deleted row count.
+
+    Deletes in batches of PRUNE_ANALYTICS_BATCH_SIZE to keep each transaction
+    short and bounded WAL growth — protects the shared Railway Postgres from
+    the high-volume scenarios that have crashed it before (see Wave 0 incident).
+
+    Idempotent; returns `{"deleted": <total>, "by_table": {table: count}}`.
     """
     dsn = os.environ["ANALYTICS_DATABASE_URL"]
+    totals: dict[str, int] = {t: 0 for t in _PRUNE_TABLES}
     with psycopg.connect(dsn) as conn, conn.cursor() as cur:
-        cur.execute(
-            "DELETE FROM website_event "
-            "WHERE created_at < NOW() - INTERVAL '24 months'"
-        )
-        deleted = cur.rowcount
-        conn.commit()
-    log.info("prune_analytics deleted=%d", deleted)
-    return {"deleted": deleted}
+        for table in _PRUNE_TABLES:
+            while True:
+                # ctid-based batched delete: standard PostgreSQL idiom for
+                # bounded delete-by-condition without partitioning. Each
+                # statement is one transaction; commit between batches to
+                # release WAL.
+                cur.execute(
+                    f"DELETE FROM {table} "
+                    f"WHERE ctid IN ("
+                    f"  SELECT ctid FROM {table} "
+                    f"  WHERE created_at < NOW() - INTERVAL '{PRUNE_ANALYTICS_RETENTION}' "
+                    f"  LIMIT %s"
+                    f")",
+                    (PRUNE_ANALYTICS_BATCH_SIZE,),
+                )
+                deleted = cur.rowcount
+                conn.commit()
+                totals[table] += deleted
+                if deleted < PRUNE_ANALYTICS_BATCH_SIZE:
+                    break
+            log.info("prune_analytics table=%s deleted=%d", table, totals[table])
+    total = sum(totals.values())
+    log.info("prune_analytics total_deleted=%d by_table=%s", total, totals)
+    return {"deleted": total, "by_table": totals}
 
 
 def task_prune_analytics() -> None:

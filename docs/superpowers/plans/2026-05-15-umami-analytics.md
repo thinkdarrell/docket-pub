@@ -1363,7 +1363,7 @@ railway ssh --service worker
 cd /app && python -m docket.worker.scheduler --run-once prune_analytics
 ```
 
-Expected: log line `prune_analytics deleted=0` (no events older than 24 months yet). Healthchecks dashboard shows the start/success pings.
+Expected: per-table log lines like `prune_analytics table=event_data deleted=0`, `prune_analytics table=session deleted=0`, `prune_analytics table=website_event deleted=0`, followed by a summary `prune_analytics total_deleted=0 by_table={...}` (no events older than 24 months yet). Healthchecks dashboard shows the start/success pings if `HEALTHCHECK_PRUNE_ANALYTICS_UUID` is set on the worker service. (Per the PR #69 review fix, the task now prunes event_data + session + website_event, not just website_event — Umami v3 dropped FK constraints so deletes don't cascade.)
 
 - [ ] **Step 6: Final memory update**
 
