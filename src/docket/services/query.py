@@ -173,6 +173,12 @@ def list_agenda_items(meeting_id: int) -> list[AgendaItem]:
                         'next_steps',         ai.extracted_facts->'next_steps'
                     ))
                 END AS extracted_facts,
+                -- Lift meeting_date so the upcoming-meeting voice gate
+                -- (PR #71) fires on cards rendered via meeting_detail.html.
+                -- Cross-meeting contexts (search, category landing) already
+                -- carry meeting_date through their own queries; this brings
+                -- the same-meeting path to parity. See JOIN below.
+                m.meeting_date AS meeting_date,
                 -- Badge JOIN: aggregate matching templates into a
                 -- BadgeChip-shaped jsonb array. COALESCE to '[]' so
                 -- AgendaItem.from_row() always sees a list. The
@@ -188,6 +194,7 @@ def list_agenda_items(meeting_id: int) -> list[AgendaItem]:
                 -- partials/badge_chip.html for the rendering side.
                 COALESCE(b_agg.badges, '[]'::jsonb) AS badges
             FROM agenda_items ai
+            JOIN meetings m ON m.id = ai.meeting_id
             LEFT JOIN LATERAL (
                 SELECT jsonb_agg(jsonb_build_object(
                            'kind',        b.kind,
