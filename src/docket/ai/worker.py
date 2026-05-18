@@ -58,7 +58,12 @@ def claim_items_v3_sql() -> str:
         SELECT ai.id, ai.meeting_id, ai.title, ai.description,
                ai.sponsor, ai.dollars_amount, ai.topic, ai.is_consent,
                m.municipality_id AS city_id,
-               muni.name         AS city_name
+               muni.name         AS city_name,
+               -- Lift meeting_date so select_item_voice can pick the
+               -- forward-voice prompt for upcoming meetings (PR #75).
+               -- Without this, every item arrives with meeting_date=None
+               -- and silently gets completed-voice text.
+               m.meeting_date    AS meeting_date
           FROM agenda_items ai
           JOIN meetings m ON m.id = ai.meeting_id
           JOIN municipalities muni ON muni.id = m.municipality_id
@@ -516,7 +521,7 @@ def _process_items_v3(conn, limit: int, summary: RunSummary) -> None:
 
     columns = ["id", "meeting_id", "title", "description",
                "sponsor", "dollars_amount", "topic", "is_consent",
-               "city_id", "city_name"]
+               "city_id", "city_name", "meeting_date"]
 
     for row in rows:
         row_dict = dict(zip(columns, row))
