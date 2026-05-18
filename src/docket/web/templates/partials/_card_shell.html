@@ -77,14 +77,18 @@
        `municipality`; fall back to the item's own `municipality_slug` lifted by
        the JOIN. Same-city callers continue using the page-level municipality. #}
     {% set card_slug = (municipality.slug if (municipality is defined and municipality) else item.municipality_slug) %}
+    {# Upcoming meetings: the AI text was written in completed-action voice off
+       the agenda PDF before the meeting happened. Fall back to the raw title
+       until Layer 2 (forked forward-voice prompt) lands. Mirrors the chip gate. #}
+    {% set _shell_is_upcoming = today is defined and item.meeting_date is not none and item.meeting_date >= today %}
     <a class="card-link {% block card_headline_class %}{% endblock %}"
        href="{{ url_for('public.item_detail', slug=card_slug, item_id=item.id) }}">
-      {% block card_headline_text %}{{ item.headline or item.title }}{% endblock %}
+      {% block card_headline_text %}{% if _shell_is_upcoming %}{{ item.title }}{% else %}{{ item.headline or item.title }}{% endif %}{% endblock %}
     </a>
   </h3>
 
   {% block card_why_block %}
-    {% if item.why_it_matters %}
+    {% if item.why_it_matters and not _shell_is_upcoming %}
       <p class="why">{{ item.why_it_matters }}</p>
     {% endif %}
   {% endblock %}
