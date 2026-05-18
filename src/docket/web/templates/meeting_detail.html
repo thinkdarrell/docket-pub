@@ -39,7 +39,22 @@
 </section>
 
 {# ── Executive Summary ────────────────────────────── #}
-{% if meeting.executive_summary %}
+{# Upcoming meetings: existing Sonnet exec summary was written in
+   completed-action voice off the agenda PDF — replace with a notice
+   until Layer 2 (forked forward-voice prompt) lands. #}
+{% set _meeting_is_upcoming = today is defined and meeting.meeting_date and meeting.meeting_date >= today %}
+{% if _meeting_is_upcoming %}
+<section class="exec-summary exec-summary--upcoming">
+  <h2 class="exec-summary-heading">Agenda published</h2>
+  <p class="exec-summary-body">
+    This agenda was published by the city. The meeting hasn't happened yet, so no
+    summary of what was decided is available.
+    {% if meeting.agenda_url %}
+    <a class="link" href="{{ meeting.agenda_url }}" target="_blank" rel="noreferrer">View the agenda ↗</a>
+    {% endif %}
+  </p>
+</section>
+{% elif meeting.executive_summary %}
 <section class="exec-summary">
   <h2 class="exec-summary-heading">Executive Summary</h2>
   <p class="exec-summary-body">{{ meeting.executive_summary }}</p>
@@ -249,7 +264,11 @@
             <div class="t-eyebrow">Consent calendar</div>
             <h2 class="feed-title t-display" style="font-size: 28px;">Consent Agenda ({{ consent_items | length }})</h2>
             <p class="t-meta" style="margin-top: 8px; max-width: 600px;">
+                {% if _meeting_is_upcoming %}
+                Items expected to pass as a group without individual discussion unless pulled by a council member.
+                {% else %}
                 Items passed as a group without individual discussion unless pulled by a council member.
+                {% endif %}
             </p>
         </div>
     </div>
