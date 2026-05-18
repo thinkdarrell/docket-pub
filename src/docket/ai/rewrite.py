@@ -30,7 +30,12 @@ from docket.ai.rewrite_schema import ItemRewrite
 log = logging.getLogger(__name__)
 
 ITEM_REWRITE_PROMPT_VERSION = 4
-ITEM_REWRITE_PROMPT_UPCOMING_VERSION = 1  # forward-voice prompt for upcoming meetings
+# Forward-voice prompt for upcoming meetings. Starts at 100 to leave the 3-99
+# range to the completed-voice family — `smart_brevity_card.html`'s dispatcher
+# routes on `ai_rewrite_version >= 3`, so the upcoming family must also be >= 3
+# for the same card variant to render. Two parallel version sequences (4, 5, 6
+# … for completed; 100, 101, 102 … for upcoming) keep both above the threshold.
+ITEM_REWRITE_PROMPT_UPCOMING_VERSION = 100
 
 _LOCAL_TZ = _ZoneInfo("America/Chicago")
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 ITEM_PROMPT_VERSION = 2  # v2: skip summary/rationales on procedural items
 MEETING_PROMPT_VERSION = 2  # v2: split distinctive vs routine items, lead with distinctive
-MEETING_PROMPT_UPCOMING_VERSION = 1  # forward-voice prompt for meetings before they happen
+MEETING_PROMPT_UPCOMING_VERSION = 100  # forward-voice prompt; parallel 100-series, see rewrite.py
 
 
 ITEM_SYSTEM = """You are summarizing a single agenda item from a municipal
