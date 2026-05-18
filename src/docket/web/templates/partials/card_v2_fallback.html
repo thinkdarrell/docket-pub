@@ -9,7 +9,7 @@
 {% block card_data_variant %}v2_fallback{% endblock %}
 {% block card_class_modifier %}is-v2-fallback{% endblock %}
 {% block card_headline_text %}
-  {%- if today is defined and item.meeting_date is not none and item.meeting_date >= today -%}
+  {%- if today is defined and item.meeting_date is not none and item.meeting_date >= today and (item.ai_rewrite_voice or '') != 'upcoming' -%}
     {{ item.title }}
   {%- else -%}
     {{- (item.summary[:80] + '…') if (item.summary and item.summary|length > 80) else (item.summary or item.title) -}}

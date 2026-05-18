@@ -50,6 +50,7 @@ class AgendaItem:
     processing_status: str | None = None
     ai_extraction_version: int | None = None  # Stage 1 (extraction)
     ai_rewrite_version: int | None = None     # Stage 2 (Smart Brevity rewrite)
+    ai_rewrite_voice: str | None = None       # 'upcoming' | 'completed' | NULL (legacy)
     ai_confidence: str | None = None  # TEXT enum: 'high' | 'medium' | 'low'
     headline: str | None = None
     why_it_matters: str | None = None
@@ -142,6 +143,7 @@ class AgendaItem:
             processing_status=row.get("processing_status"),
             ai_extraction_version=row.get("ai_extraction_version"),
             ai_rewrite_version=row.get("ai_rewrite_version"),
+            ai_rewrite_voice=row.get("ai_rewrite_voice"),
             ai_confidence=row.get("ai_confidence"),
             headline=row.get("headline"),
             why_it_matters=row.get("why_it_matters"),

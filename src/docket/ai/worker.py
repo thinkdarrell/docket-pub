@@ -162,7 +162,8 @@ def mark_item_failed(conn, item_id: int, reason: str) -> None:
         """, (Json(metadata), ITEM_PROMPT_VERSION, item_id))
 
 
-def write_meeting_result(conn, meeting_id: int, result: MeetingAIResult, *, model: str) -> None:
+def write_meeting_result(conn, meeting_id: int, result: MeetingAIResult, *, model: str,
+                         voice: str = "completed") -> None:
     metadata = {
         "phase": result.phase,
         "is_substantive": result.is_substantive,
@@ -173,12 +174,13 @@ def write_meeting_result(conn, meeting_id: int, result: MeetingAIResult, *, mode
     with conn.cursor() as cur:
         cur.execute("""
             UPDATE meetings
-               SET executive_summary = %s,
-                   ai_metadata       = %s,
-                   ai_prompt_version = %s,
-                   ai_generated_at   = NOW()
+               SET executive_summary       = %s,
+                   executive_summary_voice = %s,
+                   ai_metadata             = %s,
+                   ai_prompt_version       = %s,
+                   ai_generated_at         = NOW()
              WHERE id = %s
-        """, (result.executive_summary, Json(metadata), MEETING_PROMPT_VERSION, meeting_id))
+        """, (result.executive_summary, voice, Json(metadata), MEETING_PROMPT_VERSION, meeting_id))
 
 
 def mark_meeting_failed(conn, meeting_id: int, reason: str) -> None:
@@ -441,8 +443,9 @@ def _process_meetings(conn, client: AIClient, limit: int, summary: RunSummary) -
             rows=item_rows,
         )
         try:
-            result, usage = client.summarize_meeting(ctx)
-            write_meeting_result(conn, meeting_id, result, model=client.meeting_model)
+            result, usage, voice = client.summarize_meeting(ctx)
+            write_meeting_result(conn, meeting_id, result, model=client.meeting_model,
+                                 voice=voice)
             summary.usage = usage_add(summary.usage, usage)
             summary.cost_usd += calculate_cost_usd(client.meeting_model, usage)
             summary.rows_processed += 1

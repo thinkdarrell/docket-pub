@@ -19,6 +19,7 @@ class Meeting:
     video_url: str | None
     source_url: str | None
     executive_summary: str | None = None
+    executive_summary_voice: str | None = None  # 'upcoming' | 'completed' | NULL
     ai_metadata: dict | None = None
     ai_prompt_version: int | None = None
     ai_generated_at: datetime | None = None
@@ -37,6 +38,7 @@ class Meeting:
             video_url=row.get("video_url"),
             source_url=row.get("source_url"),
             executive_summary=row.get("executive_summary"),
+            executive_summary_voice=row.get("executive_summary_voice"),
             ai_metadata=row.get("ai_metadata"),
             ai_prompt_version=row.get("ai_prompt_version"),
             ai_generated_at=row.get("ai_generated_at"),

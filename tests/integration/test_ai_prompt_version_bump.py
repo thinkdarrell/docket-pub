@@ -66,7 +66,7 @@ def test_item_version_bump_recascades(seeded_minor, monkeypatch):
         return MeetingAIResult(
             is_substantive=True, substantive_item_count=1,
             executive_summary=out, phase="provisional", confidence="high",
-        ), Usage(500, 0, 0, 100)
+        ), Usage(500, 0, 0, 100), "completed"
 
     monkeypatch.setattr(AIClient, "summarize_item", fake_item_before)
     monkeypatch.setattr(AIClient, "summarize_meeting", fake_meeting_before)
@@ -104,7 +104,7 @@ def test_item_version_bump_recascades(seeded_minor, monkeypatch):
         return MeetingAIResult(
             is_substantive=True, substantive_item_count=1,
             executive_summary=out, phase="provisional", confidence="high",
-        ), Usage(500, 0, 0, 100)
+        ), Usage(500, 0, 0, 100), "completed"
 
     monkeypatch.setattr(AIClient, "summarize_item", fake_item_after)
     monkeypatch.setattr(AIClient, "summarize_meeting", fake_meeting_after)

@@ -13,8 +13,10 @@ section 3.1–3.2, decisions #42, #87, #91, #94.
 
 from __future__ import annotations
 
+import datetime as _dt
 import json
 import logging
+from zoneinfo import ZoneInfo as _ZoneInfo
 
 import anthropic
 from pydantic import ValidationError
@@ -28,6 +30,9 @@ from docket.ai.rewrite_schema import ItemRewrite
 log = logging.getLogger(__name__)
 
 ITEM_REWRITE_PROMPT_VERSION = 4
+ITEM_REWRITE_PROMPT_UPCOMING_VERSION = 1  # forward-voice prompt for upcoming meetings
+
+_LOCAL_TZ = _ZoneInfo("America/Chicago")
 
 # Decision #94(a): max_retries=0 so 429s bubble up to AdaptiveWorkerPool
 # instead of being silently retried by the SDK.
@@ -196,6 +201,130 @@ are populated; "medium" if title is clear but details are sparse;
 """
 
 
+SYSTEM_PROMPT_UPCOMING = """You are rewriting a single agenda item for citizens
+reading docket.pub. The meeting has NOT happened yet — the agenda has been
+published but no votes have been cast and no decisions have been made.
+
+You receive:
+  (a) the raw item title + description, and
+  (b) structured facts extracted in Stage 1: funding source, counterparty,
+      procurement method, location (ward/district, neighborhood, address,
+      parcel_id), action type, next steps (committee, hearing date/time,
+      comment-period end, implementation date).
+
+VOICE — HARD RULE: write in forward-looking voice. The council WILL
+consider these items; nothing has happened yet.
+
+You MUST NOT use these verbs in any past-tense sense that implies a
+decision was made: approved, passed, enacted, adopted, awarded, decided,
+ratified, settled. "Authorize" in past tense ("authorized", "is authorized")
+is also banned — use "would authorize" / "to authorize" instead. If your
+draft contains any of these forms, rewrite it in conditional voice.
+
+FIRST decide: is this a substantive item or a procedural item?
+
+PROCEDURAL items are routine meeting mechanics whose title already
+conveys everything: roll call, pledge of allegiance, invocation,
+motion to adjourn, approval of prior minutes, opening of public comment,
+"minutes not ready" notices, recognition of visitors, awards/presentations.
+For these:
+  - Set is_substantive = false
+  - Set headline = null, why_it_matters = null
+  - Set both numeric values to null
+  - Set rationales = "" (empty)
+  - Set suggested_badge_slugs = []
+  - Set confidence based on how clearly procedural the item is
+
+IMPORTANT — DO NOT MARK PROCEDURAL: routine consent-agenda vendor
+payments / invoices / claims for purchases, even if small dollar.
+These items HAVE a counterparty and a funding source — they are
+substantive spending decisions on rubber-stamp consent. Mark them
+is_substantive=true with low significance (typically 1–3). Same for
+budget amendments, appropriations, claims, "vouchers/bills/payroll
+for payment" line items.
+
+SUBSTANTIVE items are decisions, debates, contracts, ordinances,
+appointments, zoning cases, settlements, abatements, liquor licenses,
+annexations, and routine spending. For these:
+
+(1) Write a HEADLINE (≤80 chars) in forward-looking voice.
+    Must be ≥10 characters with substantive content.
+
+    Good upcoming headlines:
+      "Council to consider $4.2M HVAC contract with Acme Industries"
+      "Proposed settlement: $250K payout for 2024 use-of-force claim"
+      "Sole-source: Flock license extension up for 5-year, $1.8M vote"
+      "BPRA to vote on 14 blighted properties for demolition"
+      "Land Bank acquisition: 6 tax-delinquent parcels in District 4"
+      "Body-cam release rules would tighten to 30 days"
+      "Annexation request: Hidden Lake parcel weighs joining city"
+
+    Bad upcoming headlines:
+      "Council awards $4.2M contract"  ← past-tense, decision implied
+      "City pays $250K settlement"     ← past-tense, decision implied
+      "$1.8M contract approved"        ← past-tense
+      "Important decision today"       ← vague
+
+(2) Write WHY IT MATTERS (≤280 chars) in forward-looking voice.
+    Identify the DIRECT CONSEQUENCE for residents IF the council
+    approves the item. Use phrasings like "would", "if approved",
+    "the proposed change".
+
+    Good (forward, resident-first):
+      "Would raise water rates for Wards 4 and 7 starting in August.
+       Affects ~3,400 households if approved."
+      "If approved, would tighten body-cam release rules — police
+       would have to release video within 30 days of force incidents."
+      "Land Bank would take over an abandoned house at 123 Main and
+       clear tax debt to make it sale-ready."
+    Bad (past-tense): "Higher water rates for homes in Wards 4 and 7."
+    Bad (city-first): "Authorizes the Mayor to enter into an agreement…"
+
+(3) Score significance_score 0-10 (0 = trivial, 10 = major impact).
+    Write the rationale BEFORE the numeric value. Use forward voice
+    in the rationale: "would affect" rather than "affects".
+
+(4) Score consent_placement_score 0-10 (0 = should never be on consent;
+    10 = perfect consent candidate / routine).
+
+(5) Suggest BADGE SLUGS from the per-city policy badge list provided
+    in the user message. Empty list is acceptable.
+
+BANNED WORDS — HARD: same legalese list as the standard prompt
+(Whereas, Heretofore, Hereinafter, Hereby, Pursuant to, Be it resolved,
+Aforesaid, etc.).
+
+BANNED WORDS — SOFT: same replacements as standard, but bias toward
+forward forms (Resolution → "proposal" / "upcoming vote", Ordinance →
+"proposed law" / "proposed rule").
+
+Confidence: "high" if the item's text is unambiguous AND Stage 1 facts
+are populated; "medium" if title is clear but details are sparse;
+"low" if you had to guess at intent.
+"""
+
+
+def select_item_voice(item) -> tuple[str, str, int]:
+    """Select the Stage 2 prompt variant + voice + version for this item.
+
+    Returns ``(system_prompt, voice, prompt_version)`` where ``voice`` is
+    the literal string ``'upcoming'`` or ``'completed'`` (matches the
+    ``agenda_items.ai_rewrite_voice`` enum-like values).
+
+    Picks the upcoming-voice variant when ``item.meeting_date >= today``
+    (Chicago-anchored to match the Jinja context processor in
+    ``docket.web``). Falls back to completed voice when meeting_date is
+    NULL or in the past.
+
+    Spec: docs/superpowers/specs/2026-05-18-upcoming-meeting-forward-voice-design.md
+    """
+    today = _dt.datetime.now(_LOCAL_TZ).date()
+    md = getattr(item, "meeting_date", None)
+    if md is not None and md >= today:
+        return SYSTEM_PROMPT_UPCOMING, "upcoming", ITEM_REWRITE_PROMPT_UPCOMING_VERSION
+    return SYSTEM_PROMPT, "completed", ITEM_REWRITE_PROMPT_VERSION
+
+
 def _extract_tool_input(response, tool_name: str) -> dict:
     """Extract the input dict from the matching tool_use block in the response.
 
@@ -257,13 +386,14 @@ def _retry_with_assertion_feedback(
     user_msg = build_user_message(
         item, facts, enabled_policy_badges, extra_instruction=feedback,
     )
+    system_prompt, _voice, _prompt_version = select_item_voice(item)
     response = anthropic_client.messages.create(
         model=model,
         max_tokens=1024,
         tools=[STAGE2_TOOL],
         tool_choice={"type": "tool", "name": STAGE2_TOOL["name"]},
         system=[
-            {"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}},
+            {"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}},
         ],
         messages=[{"role": "user", "content": user_msg}],
     )
@@ -331,8 +461,13 @@ def rewrite_item(
     user_msg = build_user_message(item, facts, enabled_policy_badges,
                                   extra_instruction=extra_instruction)
 
+    # Select prompt variant + version based on whether the item's meeting
+    # has happened yet (Chicago-anchored). Cache keys include the version
+    # so upcoming-voice and completed-voice results don't collide.
+    system_prompt, _voice, prompt_version = select_item_voice(item)
+
     # Try cache first (canonical input is the full user_msg)
-    pre_cache = cache_key(model, ITEM_REWRITE_PROMPT_VERSION, user_msg)
+    pre_cache = cache_key(model, prompt_version, user_msg)
     cached = cache_get(pre_cache)
     if cached is not None:
         log.debug("stage 2 cache hit for item %s", getattr(item, 'id', '?'))
@@ -346,7 +481,7 @@ def rewrite_item(
         tools=[STAGE2_TOOL],
         tool_choice={"type": "tool", "name": STAGE2_TOOL["name"]},
         system=[
-            {"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}},
+            {"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}},
         ],
         messages=[{"role": "user", "content": user_msg}],
     )
@@ -402,9 +537,9 @@ def rewrite_item(
     # Cache against the served model id (decision #42).
     # Guarded: a transient DB error here would otherwise drop an
     # already-billed Anthropic result on the floor.
-    real_key = cache_key(served_model, ITEM_REWRITE_PROMPT_VERSION, user_msg)
+    real_key = cache_key(served_model, prompt_version, user_msg)
     try:
-        cache_put(real_key, model=served_model, prompt_version=ITEM_REWRITE_PROMPT_VERSION,
+        cache_put(real_key, model=served_model, prompt_version=prompt_version,
                   payload={'response': payload, 'model': served_model})
     except Exception:
         log.warning("stage 2 cache_put failed for item %s; result still returned",

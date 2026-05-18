@@ -68,7 +68,7 @@ def _stub_meeting(item_summaries):
         executive_summary="meeting ok",
         phase="provisional",
         confidence="high",
-    ), Usage(500, 0, 0, 100)
+    ), Usage(500, 0, 0, 100), "completed"
 
 
 def test_end_to_end(seeded_e2e, monkeypatch):

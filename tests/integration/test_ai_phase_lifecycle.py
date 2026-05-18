@@ -67,7 +67,7 @@ def test_provisional_then_adopted(seeded_meeting, monkeypatch):
         return MeetingAIResult(
             is_substantive=True, substantive_item_count=1,
             executive_summary=out, phase=ctx.phase, confidence="high",
-        ), Usage(500, 0, 0, 100)
+        ), Usage(500, 0, 0, 100), "completed"
 
     monkeypatch.setattr(AIClient, "summarize_item", fake_item)
     monkeypatch.setattr(AIClient, "summarize_meeting", fake_meeting)
