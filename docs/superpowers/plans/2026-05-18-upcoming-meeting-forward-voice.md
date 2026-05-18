@@ -22,13 +22,16 @@
 - Create: `tests/unit/web/test_upcoming_meeting_voice_layer1.py`
 
 ### Phase 2 — Forward-voice prompt fork
+- Modify: `src/docket/web/filters.py` (register `is_upcoming` filter — Task 6, follow-up from PR #71 review)
+- Modify: existing PR #71 + PR #68 template gate sites to use `item|is_upcoming` (Task 6)
+- Create: `tests/unit/web/test_is_upcoming_filter.py` (Task 6)
 - Create: `src/docket/migrations/031_ai_rewrite_voice.py`
 - Modify: `src/docket/migrations/runner.py` (register 031)
 - Modify: `src/docket/ai/prompts.py` (add `MEETING_SYSTEM_UPCOMING` + version constant)
 - Modify: `src/docket/ai/rewrite.py` (add `SYSTEM_PROMPT_UPCOMING` + version + `_select_item_prompt` helper)
 - Modify: `src/docket/ai/client.py` (read voice in `summarize_meeting`, pass right system prompt)
 - Modify: `src/docket/ai/worker.py` (persist `executive_summary_voice` column on meeting write paths)
-- Modify: `src/docket/ai/pipeline.py` (persist `ai_rewrite_voice` on item write path) — verify file name in Task 7
+- Modify: `src/docket/ai/pipeline.py` (persist `ai_rewrite_voice` on item write path) — verify file name in Task 9
 - Modify: `src/docket/worker/tasks.py` (new `_do_recast_post_meeting_ai`, add to `TASKS` dict)
 - Modify: `src/docket/worker/scheduler.py` (register new cron at 04:45 CT)
 - Create: `tests/unit/ai/test_voice_selection.py`
@@ -565,7 +568,161 @@ Layer 1 ships to prod. Verify on `https://docket.pub/al/birmingham/meetings/2232
 
 ## Phase 2: Forward-voice prompt fork (ships next few days)
 
-### Task 6: Migration 031 — voice columns
+### Task 6: Centralize the upcoming gate as an `is_upcoming` Jinja filter
+
+Surfaced by PR #71 review. The condition `today is defined and item.meeting_date and item.meeting_date >= today` is repeated across 5+ template sites (`_card_shell.html`, `card_v2_fallback.html`, `meeting_detail.html` exec-summary + consent blurb, `item_detail.html` hero + body, plus the existing PR #68 chip gates in `_vote_result_block.html`, `meeting_card.html`, etc.). Refactor into a single `is_upcoming` Jinja filter so future per-city timezone work and Layer 2 changes only touch one place.
+
+**Files:**
+- Modify: `src/docket/web/filters.py` (register `is_upcoming`)
+- Modify: each Layer 1 + PR #68 template that uses the gate (find via `grep`)
+- Create: `tests/unit/web/test_is_upcoming_filter.py`
+
+- [ ] **Step 1: Write the failing filter test**
+
+Create `tests/unit/web/test_is_upcoming_filter.py`:
+
+```python
+"""Tests for the is_upcoming Jinja filter — centralizes the meeting-date
+comparison used across upcoming-meeting templates.
+
+Surfaced by PR #71 review.
+Spec: docs/superpowers/specs/2026-05-18-upcoming-meeting-forward-voice-design.md
+"""
+from __future__ import annotations
+
+import datetime as _dt
+from types import SimpleNamespace
+
+import pytest
+
+from docket.web.filters import is_upcoming
+
+
+def test_filter_future_date_returns_true():
+    item = SimpleNamespace(meeting_date=_dt.date.today() + _dt.timedelta(days=2))
+    assert is_upcoming(item) is True
+
+
+def test_filter_today_returns_true():
+    item = SimpleNamespace(meeting_date=_dt.date.today())
+    assert is_upcoming(item) is True
+
+
+def test_filter_past_date_returns_false():
+    item = SimpleNamespace(meeting_date=_dt.date.today() - _dt.timedelta(days=7))
+    assert is_upcoming(item) is False
+
+
+def test_filter_none_meeting_date_returns_false():
+    item = SimpleNamespace(meeting_date=None)
+    assert is_upcoming(item) is False
+
+
+def test_filter_dict_input():
+    """Works on dict-shaped items (some templates pass dicts)."""
+    assert is_upcoming({"meeting_date": _dt.date.today() + _dt.timedelta(days=2)}) is True
+    assert is_upcoming({"meeting_date": _dt.date.today() - _dt.timedelta(days=2)}) is False
+    assert is_upcoming({}) is False
+
+
+def test_filter_missing_attribute_returns_false():
+    """Defensive: an object with no meeting_date attribute degrades to False
+    rather than raising."""
+    obj = SimpleNamespace()
+    assert is_upcoming(obj) is False
+```
+
+- [ ] **Step 2: Run the test to confirm it fails**
+
+Run: `venv/bin/pytest tests/unit/web/test_is_upcoming_filter.py -v`
+
+Expected: ImportError or AttributeError — `is_upcoming` not yet defined in `docket.web.filters`.
+
+- [ ] **Step 3: Implement the filter**
+
+Add to `src/docket/web/filters.py`:
+
+```python
+import datetime as _dt
+from zoneinfo import ZoneInfo as _ZoneInfo
+
+_LOCAL_TZ = _ZoneInfo("America/Chicago")
+
+
+def is_upcoming(obj) -> bool:
+    """Return True if the object's meeting_date is today or in the future.
+
+    Anchored to America/Chicago to match the `today` context processor.
+    Accepts objects with a `meeting_date` attribute OR dict-shaped items
+    with a `meeting_date` key. Returns False on missing/None values so
+    templates can use `{% if item|is_upcoming %}` without guards.
+    """
+    today = _dt.datetime.now(_LOCAL_TZ).date()
+    if isinstance(obj, dict):
+        d = obj.get("meeting_date")
+    else:
+        d = getattr(obj, "meeting_date", None)
+    return d is not None and d >= today
+```
+
+Then register in the `register()` function (find the existing pattern — likely `app.jinja_env.filters["..."] = ...`):
+
+```python
+def register(app):
+    ...existing filters...
+    app.jinja_env.filters["is_upcoming"] = is_upcoming
+```
+
+- [ ] **Step 4: Verify the filter tests pass**
+
+Run: `venv/bin/pytest tests/unit/web/test_is_upcoming_filter.py -v`
+
+Expected: 6 PASS.
+
+- [ ] **Step 5: Find every gate site and refactor to use the filter**
+
+Run: `grep -rn "today is defined and.*meeting_date.*>=\|today is defined and.*meeting_date.*>= *today" src/docket/web/templates/ | sort -u`
+
+For each match, replace the long condition with `item|is_upcoming` or `meeting|is_upcoming`. Examples:
+
+Before:
+```jinja
+{% if today is defined and item.meeting_date is not none and item.meeting_date >= today %}
+```
+
+After:
+```jinja
+{% if item|is_upcoming %}
+```
+
+Sites to update (verify via grep — list may have grown):
+- `partials/_card_shell.html` (headline gate + why gate + chip gate from PR #68)
+- `partials/card_v2_fallback.html` (headline gate)
+- `partials/_vote_result_block.html` (no-vote upcoming branch from PR #68)
+- `partials/meeting_card.html` (chip gate from PR #68)
+- `meeting_detail.html` (hero chip + exec summary `_meeting_is_upcoming` set + consent blurb)
+- `item_detail.html` (hero `<h1>` + `_item_is_upcoming` set)
+
+For `meeting_detail.html` and `item_detail.html`, the `{% set _meeting_is_upcoming = ... %}` lines can be replaced by inline `meeting|is_upcoming` at each use, or kept as a set with `{% set _meeting_is_upcoming = meeting|is_upcoming %}` if multiple uses warrant the local.
+
+- [ ] **Step 6: Run the full template test suite**
+
+Run: `venv/bin/pytest tests/web/ tests/unit/test_card_shell.py tests/unit/test_card_variants_chrome.py tests/unit/test_smart_brevity_card_dispatcher.py tests/unit/test_smart_brevity_ui_flag.py tests/web/test_partials_visual_refactor.py -v`
+
+Expected: green — including the existing PR #71 Layer 1 tests (which use `app_no_today` for the `today is defined` safety case; since the filter resolves today internally, that safety branch is no longer needed, but the test should still pass because the filter degrades gracefully).
+
+If the `today is defined` safety test (`test_card_shell_today_undefined_safe`) fails, update the test to reflect the new behavior: the filter doesn't need `today` to be defined, so the test now asserts the same "headline visible" baseline but via the filter path.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add src/docket/web/filters.py src/docket/web/templates/ tests/unit/web/test_is_upcoming_filter.py
+git commit -m "feat(web): centralize upcoming gate as is_upcoming Jinja filter"
+```
+
+---
+
+### Task 7: Migration 031 — voice columns
 
 **Files:**
 - Create: `src/docket/migrations/031_ai_rewrite_voice.py`
@@ -645,7 +802,7 @@ git commit -m "feat(db): add ai_rewrite_voice + executive_summary_voice columns 
 
 ---
 
-### Task 7: Add upcoming prompts and version constants
+### Task 8: Add upcoming prompts and version constants
 
 **Files:**
 - Modify: `src/docket/ai/prompts.py`
@@ -763,7 +920,7 @@ git commit -m "feat(ai): add forward-voice upcoming prompts (item + meeting)"
 
 ---
 
-### Task 8: Inspect call sites and add the voice-selection helper
+### Task 9: Inspect call sites and add the voice-selection helper
 
 **Files:**
 - Modify: `src/docket/ai/rewrite.py`
@@ -941,7 +1098,7 @@ git commit -m "feat(ai): select forward-voice prompt for upcoming meetings"
 
 ---
 
-### Task 9: Persist `ai_rewrite_voice` + `executive_summary_voice` on write
+### Task 10: Persist `ai_rewrite_voice` + `executive_summary_voice` on write
 
 **Files:**
 - Modify: `src/docket/ai/worker.py` (legacy pipeline) — only if confirmed live
@@ -1018,7 +1175,7 @@ git commit -m "feat(ai): persist ai_rewrite_voice + executive_summary_voice on w
 
 ---
 
-### Task 10: Re-cascade cron task
+### Task 11: Re-cascade cron task
 
 **Files:**
 - Modify: `src/docket/worker/tasks.py`
@@ -1226,7 +1383,7 @@ git commit -m "feat(worker): add recast_post_meeting_ai daily cron (04:45 CT)"
 
 ---
 
-### Task 11: Live smoke test against Anthropic
+### Task 12: Live smoke test against Anthropic
 
 **Files:**
 - Create: `tests/live/test_upcoming_prompt_voice_smoke.py`
@@ -1299,7 +1456,7 @@ git commit -m "test(ai-live): smoke test forbidden-verbs guard on upcoming promp
 
 ---
 
-### Task 12: Deploy Layer 2
+### Task 13: Deploy Layer 2
 
 - [ ] **Step 1: Open the Layer 2 PR**
 
@@ -1403,7 +1560,7 @@ git commit -m "docs(claude.md): record upcoming-meeting forward-voice Layer 2 li
 
 ## Self-review notes
 
-- **Spec coverage** — all six spec sections covered: Layer 1 template patch (Tasks 1-5), prompt fork (Tasks 7-8), voice column + migration (Tasks 6, 9), re-cascade trigger (Task 10), live smoke (Task 11), deploy ordering (Task 12). The in-process cache audit ("no action needed") and search_vector trigger verification ("automatic") need no implementation tasks.
-- **Placeholder check** — Task 9 step 3 and Task 11 step 2 each contain `...  # TODO` to mirror an existing fixture/call shape. That's intentional: the existing fixture conventions live in the codebase and the executor needs to read them; locking in a wrong shape from this plan would be worse than the explicit handoff.
-- **Type consistency** — `select_item_voice` and `select_meeting_voice` both return `(prompt, version, voice)`. `voice` is always the literal string `'upcoming'` or `'completed'`, matching the DB enum-like values inserted in Task 9 and read in Task 10's SQL.
+- **Spec coverage** — all six spec sections covered: Layer 1 template patch (Tasks 1-5), `is_upcoming` filter refactor from PR #71 review (Task 6), prompt fork (Tasks 8-9), voice column + migration (Tasks 7, 10), re-cascade trigger (Task 11), live smoke (Task 12), deploy ordering (Task 13). The in-process cache audit ("no action needed") and search_vector trigger verification ("automatic") need no implementation tasks.
+- **Placeholder check** — Task 10 step 3 and Task 12 step 2 each contain `...  # TODO` to mirror an existing fixture/call shape. That's intentional: the existing fixture conventions live in the codebase and the executor needs to read them; locking in a wrong shape from this plan would be worse than the explicit handoff.
+- **Type consistency** — `select_item_voice` and `select_meeting_voice` both return `(prompt, version, voice)`. `voice` is always the literal string `'upcoming'` or `'completed'`, matching the DB enum-like values inserted in Task 10 and read in Task 11's SQL.
 - **Cancelled-meeting evidence** — the re-cascade SQL filter is `clip_id IS NOT NULL OR minutes_url IS NOT NULL`, matching the spec's priority 1+2 evidence. The vote_agenda_items tertiary signal is intentionally not in the SQL gate (per spec: it's a tiebreaker, not a sufficient signal).
