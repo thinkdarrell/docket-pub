@@ -184,6 +184,46 @@ def test_card_shell_past_meeting_unchanged(app):
     assert "Residents can now access expanded recycling." in html
 
 
+def test_card_shell_upcoming_with_forward_voice_shows_headline(app):
+    """Layer 2 promise: when ai_rewrite_voice='upcoming', the headline + why
+    are appropriate for an upcoming meeting and should render even though the
+    meeting is upcoming."""
+    future = _dt.date.today() + _dt.timedelta(days=2)
+    item = _stub_item(
+        meeting_date=future,
+        ai_rewrite_voice="upcoming",
+        headline="Council to consider $1.2M Acme contract",
+        why_it_matters="If approved, would expand recycling to three wards.",
+    )
+    with app.test_request_context():
+        html = render_template(
+            "partials/_card_shell.html",
+            item=item,
+            municipality={"slug": "birmingham", "id": 1},
+            show_meeting_context=False,
+            coverage_counts={},
+        )
+    assert "Council to consider $1.2M Acme contract" in html
+    assert "If approved, would expand recycling" in html
+
+
+def test_card_shell_upcoming_with_completed_voice_hides_headline(app):
+    """Legacy items with completed-voice text on an upcoming meeting still get
+    suppressed — the gate is per-item, not per-meeting."""
+    future = _dt.date.today() + _dt.timedelta(days=2)
+    item = _stub_item(meeting_date=future, ai_rewrite_voice="completed")
+    with app.test_request_context():
+        html = render_template(
+            "partials/_card_shell.html",
+            item=item,
+            municipality={"slug": "birmingham", "id": 1},
+            show_meeting_context=False,
+            coverage_counts={},
+        )
+    assert "Authorize $1.2M contract with Acme Co." in html
+    assert "Council approved $1.2M Acme contract" not in html
+
+
 def test_card_shell_today_undefined_safe(app_no_today):
     """Test-app safety: when `today` is not injected, render baseline (no error).
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 ITEM_PROMPT_VERSION = 2  # v2: skip summary/rationales on procedural items
 MEETING_PROMPT_VERSION = 2  # v2: split distinctive vs routine items, lead with distinctive
+MEETING_PROMPT_UPCOMING_VERSION = 1  # forward-voice prompt for meetings before they happen
 
 
 ITEM_SYSTEM = """You are summarizing a single agenda item from a municipal
@@ -92,3 +93,47 @@ DISTINCTIVE items ({distinctive_count}):
 
 ROUTINE items ({routine_count}, grouped by topic):
 {routine_block}"""
+
+
+MEETING_SYSTEM_UPCOMING = """You are writing a 2-4 sentence executive summary of
+an UPCOMING municipal meeting for citizens reading docket.pub.
+
+The meeting has NOT happened yet. The agenda is published; no votes have
+been cast and no decisions have been made.
+
+You MUST write in forward-looking voice. Use phrasings like:
+  - "The council will consider…"
+  - "If approved, the resolution would…"
+  - "The proposed contract would…"
+  - "Scheduled for consideration…"
+  - "The agenda includes…"
+
+You MUST NOT use these verbs in any past-tense sense that would imply a
+decision has been made: approved, passed, enacted, adopted, awarded,
+authorized, decided, ratified, settled. If your draft contains any of
+these in past-tense form, rewrite it.
+
+The input separates the meeting's substantive items into TWO groups:
+
+- DISTINCTIVE items: those scored higher significance. These are what
+  makes this specific meeting newsworthy — proposed major contracts,
+  ordinances, policy decisions, settlements, large appropriations,
+  citywide rezones. LEAD with these. Mention specific dollar amounts,
+  names, and what would happen IF approved.
+
+- ROUTINE items: the recurring business that happens at most meetings —
+  proposed building demolitions of unsafe structures, abatement of
+  inoperable vehicles or weeds, routine procurement amendments. The
+  input gives you these as counts grouped by category. DO NOT lead with
+  these even if they are numerically the largest set. They get at MOST
+  one closing sentence framed as background, like "The council will
+  also consider X proposed demolition orders, Y vehicle abatements, and
+  Z routine procurement matters." If there are no routine items, omit
+  that sentence entirely.
+
+Do not invent facts not present in the items.
+
+Confidence: "high" if distinctive items are clear and specific;
+"medium" if items are vague or sparse; "low" if synthesis required
+guessing or the agenda was almost entirely routine.
+"""

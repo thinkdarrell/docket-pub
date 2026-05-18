@@ -81,8 +81,9 @@ def test_summarize_meeting_success(mock_anthropic_cls):
     })
 
     client = AIClient(api_key="test-key")
-    result, usage = client.summarize_meeting(_meeting_ctx())
+    result, usage, voice = client.summarize_meeting(_meeting_ctx())
     assert result.executive_summary == "Council considered two items."
+    assert voice in ("upcoming", "completed")
 
 
 import httpx

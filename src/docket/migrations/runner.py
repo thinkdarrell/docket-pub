@@ -41,6 +41,7 @@ MIGRATIONS = [
     "docket.migrations.028_coverage_links_unique_nulls",
     "docket.migrations.029_municipalities_metadata",
     "docket.migrations.030_sponsor_trgm_and_hoover",
+    "docket.migrations.031_ai_rewrite_voice",
 ]
 
 

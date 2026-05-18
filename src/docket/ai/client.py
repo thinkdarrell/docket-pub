@@ -3,9 +3,11 @@
 
 from __future__ import annotations
 
+import datetime as _dt
 import logging
 import time
 from typing import Any
+from zoneinfo import ZoneInfo as _ZoneInfo
 
 from anthropic import Anthropic, APIError, APIStatusError, APITimeoutError, RateLimitError
 from pydantic import ValidationError
@@ -21,11 +23,33 @@ from docket.ai.pricing import Usage
 from docket.ai.prompts import (
     ITEM_SYSTEM,
     MEETING_SYSTEM,
+    MEETING_SYSTEM_UPCOMING,
 )
 from docket.ai.results import ItemAIResult, MeetingAIResult
 
 
 log = logging.getLogger(__name__)
+
+_LOCAL_TZ = _ZoneInfo("America/Chicago")
+
+
+def select_meeting_voice(meeting_date: _dt.date | None) -> tuple[str, str]:
+    """Pick the meeting executive-summary prompt + voice for a meeting.
+
+    Returns ``(system_prompt, voice)`` where ``voice`` is the literal
+    string ``'upcoming'`` or ``'completed'`` (matches the
+    ``meetings.executive_summary_voice`` enum-like values).
+
+    Today and future meetings get the forward-voice prompt (Chicago-
+    anchored to match the Jinja context processor). Past or NULL dates
+    fall back to the completed-voice prompt.
+
+    Spec: docs/superpowers/specs/2026-05-18-upcoming-meeting-forward-voice-design.md
+    """
+    today = _dt.datetime.now(_LOCAL_TZ).date()
+    if meeting_date is not None and meeting_date >= today:
+        return MEETING_SYSTEM_UPCOMING, "upcoming"
+    return MEETING_SYSTEM, "completed"
 
 
 # Tool schemas for structured output. Anthropic's tool_use returns the
@@ -100,10 +124,17 @@ class AIClient:
             raise AIPermanentRowError(f"Pydantic validation failed for item: {e}") from e
         return result, self._extract_usage(message)
 
-    def summarize_meeting(self, ctx: MeetingContext) -> tuple[MeetingAIResult, Usage]:
+    def summarize_meeting(self, ctx: MeetingContext) -> tuple[MeetingAIResult, Usage, str]:
+        """Run the meeting executive-summary call.
+
+        Returns ``(result, usage, voice)`` — ``voice`` is the literal
+        ``'upcoming'`` or ``'completed'`` so the worker can persist
+        ``meetings.executive_summary_voice`` alongside the summary.
+        """
+        system_prompt, voice = select_meeting_voice(ctx.meeting_date)
         message = self._call_with_retries(
             model=self.meeting_model,
-            system=MEETING_SYSTEM,
+            system=system_prompt,
             user=ctx.render_user_prompt(),
             tool=MEETING_TOOL,
         )
@@ -112,7 +143,7 @@ class AIClient:
             result = MeetingAIResult.model_validate(payload)
         except ValidationError as e:
             raise AIPermanentRowError(f"Pydantic validation failed for meeting: {e}") from e
-        return result, self._extract_usage(message)
+        return result, self._extract_usage(message), voice
 
     def _call_with_retries(self, *, model: str, system: str, user: str, tool: dict[str, Any]):
         last_exc = None

@@ -39,11 +39,13 @@
 </section>
 
 {# ── Executive Summary ────────────────────────────── #}
-{# Upcoming meetings: existing Sonnet exec summary was written in
-   completed-action voice off the agenda PDF — replace with a notice
-   until Layer 2 (forked forward-voice prompt) lands. #}
+{# Upcoming meetings: if we have a forward-voice exec summary (Layer 2,
+   executive_summary_voice='upcoming'), render it. Otherwise the existing
+   summary was written in completed-action voice and would be misleading —
+   replace with the "Agenda published" notice. #}
 {% set _meeting_is_upcoming = today is defined and meeting.meeting_date and meeting.meeting_date >= today %}
-{% if _meeting_is_upcoming %}
+{% set _exec_voice_ok = (meeting.executive_summary_voice or '') == 'upcoming' %}
+{% if _meeting_is_upcoming and not _exec_voice_ok %}
 <section class="exec-summary exec-summary--upcoming">
   <h2 class="exec-summary-heading">Agenda published</h2>
   <p class="exec-summary-body">

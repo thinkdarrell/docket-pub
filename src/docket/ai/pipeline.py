@@ -61,7 +61,7 @@ from docket.ai.extraction import (
 from docket.ai.extraction_schema import StructuredFacts
 from docket.ai.floors import apply_score_floors
 from docket.ai.reconcile import reconcile_stages
-from docket.ai.rewrite import ITEM_REWRITE_PROMPT_VERSION, rewrite_item
+from docket.ai.rewrite import ITEM_REWRITE_PROMPT_VERSION, rewrite_item, select_item_voice
 from docket.ai.rewrite_schema import ItemRewrite
 from docket.ai.wave0 import evaluate_data_quality, is_procedural, is_withdrawn_or_deferred
 from docket.ai.badges_process import compute_on_write_process_badges
@@ -392,6 +392,9 @@ def finalize_from_rewrite(
         )
 
         # Phase C UPDATE with optional concurrency guard (decision #13).
+        # Voice selection mirrors rewrite_item's prompt pick so what we
+        # write back to the row matches the prompt that actually ran.
+        _sys_unused, voice, written_version = select_item_voice(item)
         cur.execute(
             """
             UPDATE agenda_items
@@ -401,6 +404,7 @@ def finalize_from_rewrite(
                    consent_placement_score = %s,
                    ai_confidence           = %s,
                    ai_rewrite_version      = %s,
+                   ai_rewrite_voice        = %s,
                    score_overrides         = %s::jsonb,
                    processing_status       = %s::processing_status_enum
              WHERE id = %s
@@ -412,7 +416,8 @@ def finalize_from_rewrite(
                 overrides.final_significance,
                 overrides.final_consent,
                 rewrite.confidence,
-                ITEM_REWRITE_PROMPT_VERSION,
+                written_version,
+                voice,
                 overrides_jsonb,
                 final_status,
                 item.id,
