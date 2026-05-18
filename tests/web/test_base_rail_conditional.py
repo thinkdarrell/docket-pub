@@ -98,16 +98,14 @@ def _make_municipality(**overrides):
 def _sample_kpi_stats():
     return [
         {
-            "label": "Meetings (lifetime)",
+            "label": "Meetings tracked",
             "value": "1,003",
-            "sub": "Since 2017",
-            "sql_display": "SELECT count(*) FROM meetings WHERE municipality_id = 1",
+            "sub": None,
         },
         {
             "label": "Agenda items YTD",
             "value": "14,212",
             "sub": None,
-            "sql_display": "SELECT count(*) FROM agenda_items ai JOIN meetings m ...",
         },
     ]
 
@@ -147,7 +145,7 @@ def test_page_sources_renders_kpi_stack_when_provided(render_partial):
         kpi_stats=_sample_kpi_stats(),
     )
     assert "page-sources-kpis" in html, "KPI section not rendered when kpi_stats provided"
-    assert "Meetings (lifetime)" in html
+    assert "Meetings tracked" in html
     assert "Agenda items YTD" in html
 
 

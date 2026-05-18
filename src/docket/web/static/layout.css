@@ -888,29 +888,6 @@
   color: var(--ink);
 }
 /* .kpi-explainer-sub inherits font-size + color from .t-meta. No own rules. */
-.kpi-explainer-sql { margin-top: var(--space-2); }
-.kpi-explainer-sql summary {
-  cursor: pointer;
-  font-size: var(--type-eyebrow);
-  color: var(--accent);
-  list-style: none;
-}
-.kpi-explainer-sql summary::-webkit-details-marker { display: none; }
-.kpi-explainer-sql summary::marker { display: none; }
-.kpi-explainer-sql summary::after { content: " →"; }
-.kpi-explainer-sql[open] summary::after { content: " ↓"; }
-.kpi-explainer-sql-pre {
-  margin: var(--space-2) 0 0;
-  padding: var(--space-2);
-  background: var(--paper-2);
-  border: 1px solid var(--rule);
-  border-radius: var(--radius);
-  font-size: var(--type-eyebrow);
-  color: var(--ink-2);
-  overflow-x: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
 
 /* ── P2a meeting_card ─────────────────────────────────── */
 /* Base — shared by both variants */

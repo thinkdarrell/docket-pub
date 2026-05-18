@@ -3279,9 +3279,7 @@ def list_published_coverage(
 # ---------------------------------------------------------------------------
 # City overview KPI helpers — used by city_overview() to build kpi_stats for
 # source_rail.html. All queries are scoped to a single municipality_id with
-# parameterised SQL. sql_display strings (rendered in the page as read-only
-# text) are constructed in public.py via f-string interpolation of the
-# integer id — never executed as SQL.
+# parameterised SQL.
 # ---------------------------------------------------------------------------
 
 
@@ -3294,17 +3292,6 @@ def count_meetings_lifetime(municipality_id: int) -> int:
         )
         row = cur.fetchone()
         return int(row["n"] or 0)
-
-
-def min_meeting_year(municipality_id: int) -> int | None:
-    """Earliest meeting year for the 'Since YYYY' sub-label."""
-    with db_cursor() as cur:
-        cur.execute(
-            "SELECT EXTRACT(YEAR FROM MIN(meeting_date))::int AS y FROM meetings WHERE municipality_id = %s",
-            (municipality_id,),
-        )
-        row = cur.fetchone()
-        return int(row["y"]) if row and row["y"] is not None else None
 
 
 def count_agenda_items_ytd(municipality_id: int) -> int:
@@ -3546,40 +3533,24 @@ def _kpi_stats_for_municipality(municipality: dict) -> list[dict]:
     """Builds the 4-card KPI explainer stack for page_sources.html.
 
     Reuses the P2b helpers (count_meetings_lifetime, count_agenda_items_ytd,
-    count_votes_ytd, dollars_pending_vs_settled, min_meeting_year)."""
+    count_votes_ytd, dollars_pending_vs_settled)."""
     mid = municipality["id"]
-    min_year = min_meeting_year(mid)
     dollars = dollars_pending_vs_settled(mid)
     return [
         {
-            "label": "Meetings (lifetime)",
+            "label": "Meetings tracked",
             "value": f"{count_meetings_lifetime(mid):,}",
-            "sub": f"Since {min_year}" if min_year else None,
-            "sql_display": (
-                f"SELECT count(*) FROM meetings WHERE municipality_id = {mid}"
-            ),
+            "sub": None,
         },
         {
             "label": "Agenda items YTD",
             "value": f"{count_agenda_items_ytd(mid):,}",
             "sub": None,
-            "sql_display": (
-                f"SELECT count(*) FROM agenda_items ai\n"
-                f"JOIN meetings m ON m.id = ai.meeting_id\n"
-                f"WHERE m.municipality_id = {mid}\n"
-                f"AND m.meeting_date >= date_trunc('year', now())"
-            ),
         },
         {
             "label": "Votes YTD",
             "value": f"{count_votes_ytd(mid):,}",
             "sub": None,
-            "sql_display": (
-                f"SELECT count(*) FROM votes v\n"
-                f"JOIN meetings m ON m.id = v.meeting_id\n"
-                f"WHERE m.municipality_id = {mid}\n"
-                f"AND m.meeting_date >= date_trunc('year', now())"
-            ),
         },
         {
             "label": "Dollars (pending / settled)",
@@ -3588,13 +3559,6 @@ def _kpi_stats_for_municipality(municipality: dict) -> list[dict]:
                 f"${(dollars['settled']/1_000_000):.1f}M"
             ),
             "sub": None,
-            "sql_display": (
-                f"SELECT sum(dollars_amount) FILTER (WHERE minutes_adopted_at IS NULL),\n"
-                f"       sum(dollars_amount) FILTER (WHERE minutes_adopted_at IS NOT NULL)\n"
-                f"FROM agenda_items ai\n"
-                f"JOIN meetings m ON m.id = ai.meeting_id\n"
-                f"WHERE m.municipality_id = {mid}"
-            ),
         },
     ]
 

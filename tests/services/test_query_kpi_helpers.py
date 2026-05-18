@@ -98,14 +98,12 @@ def test_kpi_stats_for_municipality_returns_four_dicts():
     for stat in stats:
         assert "label" in stat
         assert "value" in stat
-        assert "sql_display" in stat
 
 
-def test_kpi_stats_first_card_is_meetings_lifetime():
+def test_kpi_stats_first_card_is_meetings_tracked():
     municipality = query.get_municipality("birmingham")
     stats = query._kpi_stats_for_municipality(municipality)
-    assert "Meetings" in stats[0]["label"]
-    assert "lifetime" in stats[0]["label"].lower()
+    assert stats[0]["label"] == "Meetings tracked"
 
 
 def test_list_recent_meetings_for_city_returns_city_only():

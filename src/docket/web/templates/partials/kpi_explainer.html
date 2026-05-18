@@ -1,11 +1,8 @@
-{# KPI explainer card with collapsible SQL display.
-   Lives inside the new source_rail (Task 7), one per KPI.
+{# KPI explainer card. Lives inside the new source_rail (Task 7), one per KPI.
    Args:
-     label       (str, required)
-     value       (str, required) — pre-formatted
-     sub         (str | None)    — e.g., "Since 2017"
-     sql_display (str, required) — hardcoded query for transparency.
-                                   Not executed at render time.
+     label (str, required)
+     value (str, required) — pre-formatted
+     sub   (str | None)
 #}
 <article class="kpi-explainer stat-card-base">
   <div class="kpi-explainer-label t-mono">{{ label }}</div>
@@ -13,8 +10,4 @@
   {% if sub %}
     <div class="kpi-explainer-sub t-meta">{{ sub }}</div>
   {% endif %}
-  <details class="kpi-explainer-sql">
-    <summary class="t-mono">show SQL</summary>
-    <pre class="kpi-explainer-sql-pre"><code>{{ sql_display }}</code></pre>
-  </details>
 </article>
