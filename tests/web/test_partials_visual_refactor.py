@@ -163,30 +163,14 @@ def test_topic_row_tolerates_missing_color_key(render_partial):
 def test_kpi_explainer_renders_value_and_label(render_partial):
     html = render_partial(
         'partials/kpi_explainer.html',
-        label='Meetings lifetime',
+        label='Meetings tracked',
         value='1,003',
-        sub='Since 2017',
-        sql_display='SELECT count(*) FROM meetings WHERE municipality_id = $1',
+        sub=None,
     )
     assert 'kpi-explainer' in html
-    assert 'Meetings lifetime' in html
+    assert 'Meetings tracked' in html
     assert '1,003' in html
-    assert 'Since 2017' in html
-    assert 'SELECT count(*)' in html
-    assert 'municipality_id' in html
 
-def test_kpi_explainer_sql_in_details(render_partial):
-    """SQL display lives inside <details> so it's collapsible
-    without JS. Summary is the chevron/CTA."""
-    html = render_partial(
-        'partials/kpi_explainer.html',
-        label='Votes YTD',
-        value='123',
-        sub=None,
-        sql_display='SELECT count(*) FROM votes',
-    )
-    assert '<details' in html
-    assert '<summary' in html
 
 def test_kpi_explainer_omits_sub_when_none(render_partial):
     html = render_partial(
@@ -194,7 +178,6 @@ def test_kpi_explainer_omits_sub_when_none(render_partial):
         label='Votes',
         value='12',
         sub=None,
-        sql_display='SELECT 1',
     )
     assert 'kpi-explainer-sub' not in html
 
@@ -434,7 +417,6 @@ def test_kpi_explainer_renders_t_display_and_t_tnum_on_value(render_partial):
         label='Meetings',
         value='42',
         sub=None,
-        sql_display='SELECT count(*) FROM meetings',
     )
     assert 't-tnum' in html, "t-tnum class missing from kpi-explainer value"
     assert 't-display' in html, "t-display class missing from kpi-explainer value"

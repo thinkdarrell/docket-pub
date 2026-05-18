@@ -8,8 +8,8 @@
    Args (all from page render context, no explicit passing needed):
      municipality   (dict, optional) — the active city; provenance hidden if absent
      meeting_count  (int, optional)  — for "indexed" line; defaults to 0
-     kpi_stats      (list, optional) — list of {label, value, sub, sql_display}
-                                       dicts; KPI section hidden when absent
+     kpi_stats      (list, optional) — list of {label, value, sub} dicts;
+                                       KPI section hidden when absent
 
    The provenance section repurposes ``rail_default.html``'s data (platform,
    adapter, source documents links) in a horizontal layout. The KPI section
@@ -72,8 +72,7 @@
         {% for stat in kpi_stats %}
           {% with label=stat.get('label'),
                   value=stat.get('value'),
-                  sub=stat.get('sub'),
-                  sql_display=stat.get('sql_display') %}
+                  sub=stat.get('sub') %}
             {% include 'partials/kpi_explainer.html' %}
           {% endwith %}
         {% endfor %}
