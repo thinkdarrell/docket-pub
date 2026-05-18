@@ -9,7 +9,11 @@
 {% block card_data_variant %}v2_fallback{% endblock %}
 {% block card_class_modifier %}is-v2-fallback{% endblock %}
 {% block card_headline_text %}
-  {{- (item.summary[:80] + '…') if (item.summary and item.summary|length > 80) else (item.summary or item.title) -}}
+  {%- if today is defined and item.meeting_date is not none and item.meeting_date >= today -%}
+    {{ item.title }}
+  {%- else -%}
+    {{- (item.summary[:80] + '…') if (item.summary and item.summary|length > 80) else (item.summary or item.title) -}}
+  {%- endif -%}
 {% endblock %}
 {% block card_why_block %}{# v2 summaries don't have a separate why-it-matters #}{% endblock %}
 {# Inherits default card_facts_block — no-op when extracted_facts is null. #}
