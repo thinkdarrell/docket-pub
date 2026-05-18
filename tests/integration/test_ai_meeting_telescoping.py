@@ -70,7 +70,7 @@ def test_meeting_prompt_includes_item_summaries(seeded, monkeypatch):
         return MeetingAIResult(
             is_substantive=True, substantive_item_count=2,
             executive_summary="ok", phase="provisional", confidence="high",
-        ), Usage(500, 0, 0, 100)
+        ), Usage(500, 0, 0, 100), "completed"
 
     monkeypatch.setattr(AIClient, "summarize_item", fake_summarize_item)
     monkeypatch.setattr(AIClient, "summarize_meeting", fake_summarize_meeting)
