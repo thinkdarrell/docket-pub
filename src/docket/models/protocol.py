@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, time
 from typing import Protocol
 
 
@@ -20,6 +20,7 @@ class RawMeeting:
     minutes_url: str | None
     video_url: str | None
     source_url: str
+    start_time: time | None = None
 
 
 @dataclass(frozen=True)

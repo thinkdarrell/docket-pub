@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, time
 
 
 @dataclass(frozen=True)
@@ -23,6 +23,7 @@ class Meeting:
     ai_metadata: dict | None = None
     ai_prompt_version: int | None = None
     ai_generated_at: datetime | None = None
+    start_time: time | None = None
 
     @classmethod
     def from_row(cls, row: dict) -> Meeting:
@@ -42,4 +43,5 @@ class Meeting:
             ai_metadata=row.get("ai_metadata"),
             ai_prompt_version=row.get("ai_prompt_version"),
             ai_generated_at=row.get("ai_generated_at"),
+            start_time=row.get("start_time"),
         )
