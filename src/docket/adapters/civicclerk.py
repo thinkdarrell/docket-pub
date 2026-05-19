@@ -19,6 +19,7 @@ import logging
 import re
 import time
 from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 import requests
 
@@ -133,10 +134,26 @@ class CivicClerkAdapter:
         if event_id is None:
             return None
 
-        event_date_str = event.get("eventDate", "")[:10]
-        try:
-            meeting_date = datetime.strptime(event_date_str, "%Y-%m-%d").date()
-        except ValueError:
+        event_date_str = event.get("eventDate", "")
+        meeting_date = None
+        start_time = None
+        if event_date_str:
+            # Accepts both 'YYYY-MM-DD' and ISO 8601 datetime ('YYYY-MM-DDTHH:MM:SS(.fff)?(Z|±HH:MM)?').
+            # CivicClerk's eventDate is naive local time in practice; the Z/offset branch is defensive
+            # — if the API ever returns a tz-aware datetime we normalize to America/Chicago before
+            # extracting the clock time so start_time is always CT wall-clock.
+            try:
+                if "T" in event_date_str:
+                    dt = datetime.fromisoformat(event_date_str.replace("Z", "+00:00"))
+                    if dt.tzinfo is not None:
+                        dt = dt.astimezone(ZoneInfo("America/Chicago"))
+                    meeting_date = dt.date()
+                    start_time = dt.time().replace(microsecond=0)
+                else:
+                    meeting_date = datetime.strptime(event_date_str[:10], "%Y-%m-%d").date()
+            except ValueError:
+                pass
+        if meeting_date is None:
             meeting_date = date.today()
 
         title = event.get("eventName") or event.get("name") or ""
@@ -153,6 +170,7 @@ class CivicClerkAdapter:
             minutes_url=self._minutes_portal_url(event_id) if has_minutes else None,
             video_url=None,
             source_url=self._portal_url(event_id),
+            start_time=start_time,
         )
 
     def _flatten_items(
