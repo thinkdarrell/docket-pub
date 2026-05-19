@@ -31,9 +31,9 @@
     </span>
     {# Flag future-dated meetings so citizens scanning a feed know votes
        and rich item data are absent because the meeting hasn't happened
-       yet — not because the data is missing. `today is defined` guards
-       standalone test apps that don't run the context processor. #}
-    {% if today is defined and meeting.meeting_date and meeting.meeting_date >= today %}
+       yet — not because the data is missing. Gate uses is_upcoming(),
+       registered as a Jinja global. #}
+    {% if is_upcoming(meeting) %}
     <span class="meeting-card__upcoming t-mono">Upcoming</span>
     {% endif %}
   </div>

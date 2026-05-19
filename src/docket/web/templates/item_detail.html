@@ -24,7 +24,7 @@
                     {{ meeting.title if meeting else 'Meeting' }}
                 </a>
             </div>
-            <h1 class="hero-title t-display">{% if today is defined and item.meeting_date and item.meeting_date >= today and (item.ai_rewrite_voice or '') != 'upcoming' %}{{ item.title }}{% else %}{{ item.headline or item.title }}{% endif %}</h1>
+            <h1 class="hero-title t-display">{% if is_upcoming(item) and (item.ai_rewrite_voice or '') != 'upcoming' %}{{ item.title }}{% else %}{{ item.headline or item.title }}{% endif %}</h1>
             {% set has_byline = item.sponsor or meeting.meeting_date or item.section %}
             {% if has_byline %}
             <div class="item-byline t-mono">
@@ -61,10 +61,7 @@
 {# Upcoming items: if the AI text was written in forward voice (Layer 2,
    ai_rewrite_voice='upcoming'), it's appropriate — render it. Otherwise
    hide the narrative; keep the facts strip (tense-neutral). #}
-{% set _item_is_upcoming = today is defined
-                           and item.meeting_date
-                           and item.meeting_date >= today
-                           and (item.ai_rewrite_voice or '') != 'upcoming' %}
+{% set _item_is_upcoming = is_upcoming(item) and (item.ai_rewrite_voice or '') != 'upcoming' %}
 {% if (item.why_it_matters or item.summary or item.extracted_facts) and not _item_is_upcoming %}
 <section class="item-body">
     {% if item.why_it_matters %}
