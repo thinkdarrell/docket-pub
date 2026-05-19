@@ -13,6 +13,14 @@ from docket.db import db_cursor
 from docket.models.agenda import AgendaItem
 from docket.models.meeting import Meeting
 from docket.models.vote import AgendaItemLink, MemberVote, Vote
+from docket.services.meeting_time import UPCOMING_PREDICATE_SQL as _RAW_UPCOMING_PREDICATE
+
+# Prefixed for use inside queries that alias the meetings table as `mt`.
+_UPCOMING_PREDICATE_MT = (
+    _RAW_UPCOMING_PREDICATE
+    .replace("meeting_date", "mt.meeting_date")
+    .replace("start_time", "mt.start_time")
+)
 
 
 @dataclass(frozen=True)
@@ -850,39 +858,35 @@ def list_recent_meetings(days: int = 7, limit: int = 20) -> list[dict]:
 
     Includes municipality name for display context.
     """
+    sql = f"""
+        SELECT mt.*, m.name AS municipality_name, m.slug AS municipality_slug
+        FROM meetings mt
+        JOIN municipalities m ON mt.municipality_id = m.id
+        WHERE m.active = TRUE
+          AND NOT ({_UPCOMING_PREDICATE_MT})
+          AND mt.meeting_date >= (NOW() AT TIME ZONE 'America/Chicago')::date - %s
+        ORDER BY mt.meeting_date DESC
+        LIMIT %s
+    """
     with db_cursor() as cur:
-        cur.execute(
-            """
-            SELECT mt.*, m.name AS municipality_name, m.slug AS municipality_slug
-            FROM meetings mt
-            JOIN municipalities m ON mt.municipality_id = m.id
-            WHERE m.active = TRUE
-              AND mt.meeting_date >= CURRENT_DATE - %s
-              AND mt.meeting_date <= CURRENT_DATE
-            ORDER BY mt.meeting_date DESC
-            LIMIT %s
-            """,
-            (days, limit),
-        )
+        cur.execute(sql, (days, limit))
         return [dict(row) for row in cur.fetchall()]
 
 
 def list_upcoming_meetings(days: int = 14, limit: int = 20) -> list[dict]:
     """Return upcoming meetings across all cities, soonest first."""
+    sql = f"""
+        SELECT mt.*, m.name AS municipality_name, m.slug AS municipality_slug
+        FROM meetings mt
+        JOIN municipalities m ON mt.municipality_id = m.id
+        WHERE m.active = TRUE
+          AND {_UPCOMING_PREDICATE_MT}
+          AND mt.meeting_date <= (NOW() AT TIME ZONE 'America/Chicago')::date + %s
+        ORDER BY mt.meeting_date ASC
+        LIMIT %s
+    """
     with db_cursor() as cur:
-        cur.execute(
-            """
-            SELECT mt.*, m.name AS municipality_name, m.slug AS municipality_slug
-            FROM meetings mt
-            JOIN municipalities m ON mt.municipality_id = m.id
-            WHERE m.active = TRUE
-              AND mt.meeting_date > CURRENT_DATE
-              AND mt.meeting_date <= CURRENT_DATE + %s
-            ORDER BY mt.meeting_date ASC
-            LIMIT %s
-            """,
-            (days, limit),
-        )
+        cur.execute(sql, (days, limit))
         return [dict(row) for row in cur.fetchall()]
 
 
@@ -893,41 +897,37 @@ def list_recent_meetings_for_city(slug: str, days: int = 7, limit: int = 4) -> l
     Replaces the post-fetch slug filter pattern in city_overview, which
     silently returned [] when other cities had more recent activity than
     the target."""
+    sql = f"""
+        SELECT mt.*, m.name AS municipality_name, m.slug AS municipality_slug
+        FROM meetings mt
+        JOIN municipalities m ON mt.municipality_id = m.id
+        WHERE m.slug = %s
+          AND m.active = TRUE
+          AND NOT ({_UPCOMING_PREDICATE_MT})
+          AND mt.meeting_date >= (NOW() AT TIME ZONE 'America/Chicago')::date - %s
+        ORDER BY mt.meeting_date DESC
+        LIMIT %s
+    """
     with db_cursor() as cur:
-        cur.execute(
-            """
-            SELECT mt.*, m.name AS municipality_name, m.slug AS municipality_slug
-            FROM meetings mt
-            JOIN municipalities m ON mt.municipality_id = m.id
-            WHERE m.slug = %s
-              AND m.active = TRUE
-              AND mt.meeting_date >= CURRENT_DATE - %s
-              AND mt.meeting_date <= CURRENT_DATE
-            ORDER BY mt.meeting_date DESC
-            LIMIT %s
-            """,
-            (slug, days, limit),
-        )
+        cur.execute(sql, (slug, days, limit))
         return [dict(r) for r in cur.fetchall()]
 
 
 def list_upcoming_meetings_for_city(slug: str, days: int = 14, limit: int = 4) -> list[dict]:
     """Upcoming meetings for ONE city — SQL-side filter (see above)."""
+    sql = f"""
+        SELECT mt.*, m.name AS municipality_name, m.slug AS municipality_slug
+        FROM meetings mt
+        JOIN municipalities m ON mt.municipality_id = m.id
+        WHERE m.slug = %s
+          AND m.active = TRUE
+          AND {_UPCOMING_PREDICATE_MT}
+          AND mt.meeting_date <= (NOW() AT TIME ZONE 'America/Chicago')::date + %s
+        ORDER BY mt.meeting_date ASC
+        LIMIT %s
+    """
     with db_cursor() as cur:
-        cur.execute(
-            """
-            SELECT mt.*, m.name AS municipality_name, m.slug AS municipality_slug
-            FROM meetings mt
-            JOIN municipalities m ON mt.municipality_id = m.id
-            WHERE m.slug = %s
-              AND m.active = TRUE
-              AND mt.meeting_date > CURRENT_DATE
-              AND mt.meeting_date <= CURRENT_DATE + %s
-            ORDER BY mt.meeting_date ASC
-            LIMIT %s
-            """,
-            (slug, days, limit),
-        )
+        cur.execute(sql, (slug, days, limit))
         return [dict(r) for r in cur.fetchall()]
 
 
