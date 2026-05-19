@@ -96,6 +96,33 @@ def create_app() -> Flask:
     def _inject_today():
         return {"today": _datetime.now(_LOCAL_TZ).date()}
 
+    # ``is_upcoming(meeting)`` — Jinja global (not a context processor) so it
+    # is bound once at app-init and available in every template.  A global is
+    # the right primitive here: the function is stateless and pure (it reads
+    # the clock internally when ``now`` is omitted), so there's no need for a
+    # per-request injection.
+    #
+    # The wrapper handles BOTH shapes that templates encounter:
+    #   • Meeting / RawMeeting dataclasses  → attribute access
+    #   • psycopg dict rows                 → key access (what list_upcoming_meetings returns)
+    # Passing ``None`` (empty rail state) returns False without raising.
+    from docket.services.meeting_time import is_upcoming as _is_upcoming_impl
+
+    def _is_upcoming_template(meeting) -> bool:
+        """Jinja wrapper that accepts either a Meeting/RawMeeting object or a
+        dict row (psycopg returns row mappings, models return dataclasses)."""
+        if meeting is None:
+            return False
+        if hasattr(meeting, "meeting_date"):
+            md = meeting.meeting_date
+            st = getattr(meeting, "start_time", None)
+        else:
+            md = meeting.get("meeting_date")
+            st = meeting.get("start_time")
+        return _is_upcoming_impl(md, st)
+
+    app.jinja_env.globals["is_upcoming"] = _is_upcoming_template
+
     # Register blueprints
     from docket.web.admin import bp as admin_bp
     from docket.web.admin_badge_review import bp as admin_badge_review_bp
