@@ -14,6 +14,7 @@ import logging
 import re
 import time
 from datetime import date, datetime, timezone
+from zoneinfo import ZoneInfo
 
 import requests
 from bs4 import BeautifulSoup
@@ -296,12 +297,17 @@ class GranicusAdapter:
         # Date
         date_cell = row.find("td", headers="Date")
         meeting_date = None
+        start_time = None
         if date_cell:
             hidden_span = date_cell.find("span", style=re.compile(r"display:\s*none"))
             if hidden_span:
                 try:
                     ts = int(hidden_span.get_text(strip=True))
-                    meeting_date = datetime.fromtimestamp(ts, tz=timezone.utc).date()
+                    dt_ct = datetime.fromtimestamp(ts, tz=timezone.utc).astimezone(
+                        ZoneInfo("America/Chicago")
+                    )
+                    meeting_date = dt_ct.date()
+                    start_time = dt_ct.time().replace(microsecond=0)
                 except (ValueError, OSError):
                     pass
             if not meeting_date:
@@ -352,6 +358,7 @@ class GranicusAdapter:
             minutes_url=minutes_url,
             video_url=video_url,
             source_url=self._source_url(clip_id),
+            start_time=start_time,
         )
 
     @staticmethod
@@ -404,12 +411,17 @@ class GranicusAdapter:
 
         date_cell = row.find("td", headers=re.compile(r"^EventDate"))
         meeting_date = None
+        start_time = None
         if date_cell:
             hidden_span = date_cell.find("span", style=re.compile(r"display:\s*none"))
             if hidden_span:
                 try:
                     ts = int(hidden_span.get_text(strip=True))
-                    meeting_date = datetime.fromtimestamp(ts, tz=timezone.utc).date()
+                    dt_ct = datetime.fromtimestamp(ts, tz=timezone.utc).astimezone(
+                        ZoneInfo("America/Chicago")
+                    )
+                    meeting_date = dt_ct.date()
+                    start_time = dt_ct.time().replace(microsecond=0)
                 except (ValueError, OSError):
                     pass
 
@@ -431,6 +443,7 @@ class GranicusAdapter:
             minutes_url=None,
             video_url=None,
             source_url=agenda_url,
+            start_time=start_time,
         )
 
 

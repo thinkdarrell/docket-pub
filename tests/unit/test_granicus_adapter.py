@@ -347,3 +347,70 @@ class TestFetchAgendaItemsClipPathUntouched:
         # Item came through with its video timestamp
         assert len(items) == 1
         assert items[0].video_timestamp_seconds == 123.5
+
+
+# --- start_time extraction tests -------------------------------------------
+
+
+def test_parse_upcoming_row_extracts_start_time():
+    """The hidden span carries a Unix timestamp — keep the time component, not
+    just the date. 1747780200 = 2025-05-20 22:30 UTC = 17:30 America/Chicago (CDT)."""
+    from datetime import time
+
+    from bs4 import BeautifulSoup
+
+    html = '''
+    <tr class="row-name1">
+      <td headers="EventName">Council Meeting</td>
+      <td headers="EventDate Regular-City-Council-Meeting">
+        <span style="display: none">1747780200</span>
+        2025-05-20
+      </td>
+      <td><a href="//example.com/AgendaViewer.php?view_id=2&amp;event_id=12345">Agenda</a></td>
+    </tr>
+    '''
+    soup = BeautifulSoup(html, "html.parser")
+    row = soup.find("tr")
+
+    adapter = _adapter()
+
+    raw = adapter._parse_upcoming_row(row)
+    assert raw is not None
+    assert raw.start_time == time(17, 30)
+
+
+def test_parse_archive_row_extracts_start_time():
+    """Archive parser also reads a hidden Unix timestamp; same conversion
+    direction as the upcoming parser. Pins the conversion direction for the
+    production path used by every historical Birmingham meeting.
+
+    1773268200 = 2026-03-11 22:30 UTC = 17:30 America/Chicago (CST, before spring forward)."""
+    from datetime import time
+
+    from bs4 import BeautifulSoup
+
+    html = '''
+    <tr class="even">
+      <td class="listItem" headers="Name" scope="row">Special City Council Meeting</td>
+      <td class="listItem" headers="Date">
+        <span style="display:none;">1773268200</span>
+        03/11/2026
+      </td>
+      <td class="listItem" headers="Duration">01h 15m</td>
+      <td class="listItem" headers="Agenda">
+        <a href="//bhamal.granicus.com/AgendaViewer.php?view_id=2&amp;clip_id=1970">Agenda</a>
+      </td>
+      <td class="listItem" headers="Minutes"></td>
+      <td class="listItem" headers="VideoLink">
+        <a href="javascript:void(0);" onclick="window.open('//bhamal.granicus.com/MediaPlayer.php?view_id=2&amp;clip_id=1970')">Video</a>
+      </td>
+    </tr>
+    '''
+    soup = BeautifulSoup(html, "html.parser")
+    row = soup.find("tr")
+
+    adapter = _adapter()
+
+    raw = adapter._parse_archive_row(row)
+    assert raw is not None
+    assert raw.start_time == time(17, 30)

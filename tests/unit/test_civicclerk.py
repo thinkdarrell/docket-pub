@@ -174,3 +174,70 @@ class TestFlattenItems:
         items = [{"id": 80, "agendaObjectItemName": "Item", "agendaObjectItemNumber": "1"}]
         result = self._flatten(items)
         assert result[0].meeting_external_id == "meeting-1"
+
+
+# --- _event_to_meeting start_time extraction -----------------------------------
+
+
+class TestEventToMeetingStartTime:
+    """Tests for start_time extraction from CivicClerk eventDate strings."""
+
+    def setup_method(self):
+        self.adapter = CivicClerkAdapter("al-mobile", {"tenant": "mobileal", "category_id": None})
+
+    def test_event_to_meeting_extracts_start_time(self):
+        from datetime import time
+
+        event = {
+            "eventId": 42,
+            "eventName": "Council Regular",
+            "eventDate": "2026-05-20T17:30:00",
+            "hasAgenda": True,
+            "hasMinutes": False,
+        }
+        raw = self.adapter._event_to_meeting(event)
+        assert raw is not None
+        assert raw.start_time == time(17, 30)
+
+    def test_event_to_meeting_handles_missing_time(self):
+        event = {
+            "eventId": 42,
+            "eventName": "Council Regular",
+            "eventDate": "2026-05-20",
+            "hasAgenda": True,
+            "hasMinutes": False,
+        }
+        raw = self.adapter._event_to_meeting(event)
+        assert raw is not None
+        assert raw.start_time is None
+
+    def test_event_to_meeting_normalizes_z_suffix_to_central(self):
+        """Defensive: if CivicClerk ever returns a UTC-aware datetime, we convert
+        to America/Chicago before extracting start_time."""
+        from datetime import time
+
+        event = {
+            "eventId": 42,
+            "eventName": "Council Regular",
+            "eventDate": "2026-05-20T22:30:00Z",  # 22:30 UTC = 17:30 CDT
+            "hasAgenda": True,
+            "hasMinutes": False,
+        }
+        raw = self.adapter._event_to_meeting(event)
+        assert raw is not None
+        assert raw.start_time == time(17, 30)
+
+    def test_event_to_meeting_falls_back_to_today_when_event_date_missing(self):
+        event = {
+            "eventId": 42,
+            "eventName": "Council Regular",
+            "hasAgenda": False,
+            "hasMinutes": False,
+        }
+        raw = self.adapter._event_to_meeting(event)
+        assert raw is not None
+        assert raw.start_time is None
+        # meeting_date defaults to date.today() — don't assert the specific value,
+        # just that it's a real date.
+        from datetime import date as _date
+        assert isinstance(raw.meeting_date, _date)

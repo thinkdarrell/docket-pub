@@ -11,7 +11,7 @@ the resolution rule itself is covered by
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, time
 
 
 @dataclass
@@ -55,6 +55,7 @@ class _FakeMeeting:
     id: int = 100
     meeting_date: object = field(default_factory=lambda: date(2026, 5, 1))
     minutes_url: str | None = None
+    start_time: time | None = None
 
 
 _MUNI = {"slug": "birmingham", "name": "Birmingham"}
@@ -324,15 +325,18 @@ def test_no_vote_past_meeting_unmatched_still_shows_couldnt_match(render_partial
 
 
 def test_no_vote_today_meeting_treated_as_upcoming(render_partial):
-    """Meeting today (might be later today, or vote-matching just hasn't
-    run yet) → upcoming copy is the honest framing. Citizens shouldn't
-    see 'couldn't match' for a meeting that may not have happened."""
-    from datetime import date
+    """Meeting today with a late start time → upcoming copy is the honest framing.
 
+    Uses start_time=23:00 so the transition moment (23:00 + 3h = 02:00 the
+    next day CT) is always in the future at test-run time, making
+    ``is_upcoming()`` deterministically True regardless of when CI runs.
+    Citizens shouldn't see 'couldn't match' for a meeting that may not have
+    happened yet.
+    """
     html = _render(
         render_partial,
         item=_FakeItem(processing_status="pending"),
-        meeting=_FakeMeeting(meeting_date=date.today()),
+        meeting=_FakeMeeting(meeting_date=date.today(), start_time=time(23, 0)),
         vote_data=None,
     )
     assert "hasn't happened yet" in html

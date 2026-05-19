@@ -12,7 +12,7 @@
         <div>
             <div class="t-eyebrow detail-eyebrow">
                 <span class="chip meeting-type-pill">{{ meeting.meeting_type or 'meeting' }}</span>
-                {% if today is defined and meeting.meeting_date and meeting.meeting_date >= today %}
+                {% if is_upcoming(meeting) %}
                 <span class="chip is-warn meeting-detail-upcoming"><span class="dot"></span>upcoming</span>
                 {% endif %}
                 <span class="t-meta">{{ municipality.name }}</span>
@@ -43,7 +43,7 @@
    executive_summary_voice='upcoming'), render it. Otherwise the existing
    summary was written in completed-action voice and would be misleading —
    replace with the "Agenda published" notice. #}
-{% set _meeting_is_upcoming = today is defined and meeting.meeting_date and meeting.meeting_date >= today %}
+{% set _meeting_is_upcoming = is_upcoming(meeting) %}
 {% set _exec_voice_ok = (meeting.executive_summary_voice or '') == 'upcoming' %}
 {% if _meeting_is_upcoming and not _exec_voice_ok %}
 <section class="exec-summary exec-summary--upcoming">

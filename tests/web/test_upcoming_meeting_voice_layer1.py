@@ -30,10 +30,32 @@ def app():
 
 @pytest.fixture(scope="module")
 def app_no_today():
-    """Bare Flask app without the today context processor, for the
-    `today is defined` test-app safety guard."""
+    """Bare Flask app without the today context processor.
+
+    Registers ``is_upcoming`` as a Jinja global (it is always available in
+    production via ``create_app()``), but deliberately omits the ``today``
+    context processor.  Templates no longer guard on ``today is defined``
+    since the transition now goes through ``is_upcoming()``, but this fixture
+    confirms that a standalone app that skips the context processor still
+    renders without error.
+    """
+    from docket.services.meeting_time import is_upcoming as _is_upcoming_impl
+
     bare = Flask("test_no_today", template_folder="src/docket/web/templates")
     register_filters(bare)
+
+    def _is_upcoming_template(meeting) -> bool:
+        if meeting is None:
+            return False
+        if hasattr(meeting, "meeting_date"):
+            md = meeting.meeting_date
+            st = getattr(meeting, "start_time", None)
+        else:
+            md = meeting.get("meeting_date")
+            st = meeting.get("start_time")
+        return _is_upcoming_impl(md, st)
+
+    bare.jinja_env.globals["is_upcoming"] = _is_upcoming_template
     bare.add_url_rule(
         "/c/<slug>/meetings/<int:meeting_id>",
         endpoint="public.meeting_detail",
@@ -125,7 +147,7 @@ EXEC_SUMMARY_SNIPPET = """
 
 CONSENT_BLURB_SNIPPET = """
 <p class="t-meta">
-    {% if today is defined and meeting.meeting_date and meeting.meeting_date >= today %}
+    {% if is_upcoming(meeting) %}
     Items expected to pass as a group without individual discussion unless pulled by a council member.
     {% else %}
     Items passed as a group without individual discussion unless pulled by a council member.
@@ -225,11 +247,14 @@ def test_card_shell_upcoming_with_completed_voice_hides_headline(app):
 
 
 def test_card_shell_today_undefined_safe(app_no_today):
-    """Test-app safety: when `today` is not injected, render baseline (no error).
+    """Test-app safety: standalone app without today context processor renders
+    without error.
 
-    Mirrors the same defensive pattern PR #68 used for the Upcoming chip:
-    `{% if today is defined and ... %}` so standalone test apps don't blow
-    up with UndefinedError.
+    Previously guarded with ``today is defined``; now ``is_upcoming()`` is a
+    Jinja global that the bare app also registers (see fixture above).
+    For a future-dated item, ``is_upcoming()`` correctly returns True, so
+    the title (not headline) renders — that's the right behavior and confirms
+    no UndefinedError.
     """
     future = _dt.date.today() + _dt.timedelta(days=2)
     item = _stub_item(meeting_date=future)
@@ -241,8 +266,9 @@ def test_card_shell_today_undefined_safe(app_no_today):
             show_meeting_context=False,
             coverage_counts={},
         )
-    # No UndefinedError; baseline (past-meeting) rendering — headline shows.
-    assert "Council approved $1.2M Acme contract" in html
+    # No UndefinedError; upcoming rendering — title shows, not headline.
+    assert "Authorize $1.2M contract with Acme Co." in html
+    assert "Council approved $1.2M Acme contract" not in html
 
 
 # --- meeting_detail.html exec-summary gate -----------------------------------

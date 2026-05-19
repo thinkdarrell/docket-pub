@@ -159,13 +159,15 @@ def _upsert_meetings(municipality_id: int, raw_meetings: list[RawMeeting]) -> tu
                         UPDATE meetings SET
                             title = %s, meeting_date = %s, meeting_type = %s,
                             agenda_url = %s, minutes_url = %s, video_url = %s,
-                            source_url = %s
+                            source_url = %s,
+                            start_time = COALESCE(%s, start_time)
                         WHERE municipality_id = %s AND external_id = %s
                         """,
                         (
                             m.title, m.meeting_date, m.meeting_type,
                             m.agenda_url, m.minutes_url, m.video_url,
-                            m.source_url, municipality_id, m.external_id,
+                            m.source_url, m.start_time,
+                            municipality_id, m.external_id,
                         ),
                     )
                     updated += 1
@@ -183,13 +185,14 @@ def _upsert_meetings(municipality_id: int, raw_meetings: list[RawMeeting]) -> tu
                     """
                     INSERT INTO meetings (
                         municipality_id, external_id, title, meeting_date,
-                        meeting_type, agenda_url, minutes_url, video_url, source_url
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        meeting_type, agenda_url, minutes_url, video_url,
+                        source_url, start_time
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         municipality_id, m.external_id, m.title, m.meeting_date,
                         m.meeting_type, m.agenda_url, m.minutes_url, m.video_url,
-                        m.source_url,
+                        m.source_url, m.start_time,
                     ),
                 )
                 inserted += 1
@@ -248,13 +251,14 @@ def _try_upgrade_event_row(cur, municipality_id: int, m: RawMeeting) -> bool:
         UPDATE meetings SET
             external_id = %s, title = %s, meeting_type = %s,
             agenda_url = %s, minutes_url = %s, video_url = %s,
-            source_url = %s
+            source_url = %s,
+            start_time = COALESCE(%s, start_time)
         WHERE id = %s
         """,
         (
             m.external_id, m.title, m.meeting_type,
             m.agenda_url, m.minutes_url, m.video_url,
-            m.source_url, chosen[0],
+            m.source_url, m.start_time, chosen[0],
         ),
     )
     logger.info(
