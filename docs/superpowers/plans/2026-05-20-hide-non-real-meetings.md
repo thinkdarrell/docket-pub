@@ -143,12 +143,13 @@ ingest.py:159), and ``is_hidden`` isn't one of them.
 Partial index on (municipality_id, meeting_date DESC) WHERE is_hidden=FALSE
 covers the hot city-landing query pattern without paying for hidden rows.
 
-``mv_badge_volume_monthly`` is rebuilt with a JOIN to ``meetings`` and a
-``m.is_hidden = FALSE`` predicate so category-landing volume timelines
-exclude hidden meetings. WITH NO DATA matches migration 022's shape;
-the next ``refresh_backfill_ratio_mv`` cron (04:30 CT daily) repopulates.
-Deploy step applies the refresh manually so prod doesn't show empty
-category pages between deploy and 04:30 CT.
+``mv_badge_volume_monthly`` is rebuilt to add the ``m.is_hidden = FALSE``
+predicate to its existing JOIN to ``meetings`` (which already supplied
+``municipality_id`` and ``meeting_date``). Category-landing volume
+timelines now exclude hidden meetings. WITH NO DATA matches migration
+022's shape; the next ``refresh_backfill_ratio_mv`` cron (04:30 CT daily)
+repopulates. Deploy step applies the refresh manually so prod doesn't
+show empty category pages between deploy and 04:30 CT.
 
 Spec: docs/superpowers/specs/2026-05-20-hide-non-real-meetings-design.md
 """
@@ -433,7 +434,9 @@ The patched call-sites in this task:
 | Function | Line (approx) | Predicate to add |
 |---|---|---|
 | `list_meetings` | 63 | `where = "m.slug = %s AND mt.is_hidden = FALSE"` (line 72) — also `COUNT(*)` query gets the same |
-| `dashboard_stats` count | 437 | `cur.execute("SELECT COUNT(*) AS count FROM meetings WHERE is_hidden = FALSE")` |
+| `dashboard_stats` — meetings count | 437 | `cur.execute("SELECT COUNT(*) AS count FROM meetings WHERE is_hidden = FALSE")` |
+| `dashboard_stats` — agenda_items count | 440 | Must JOIN to `meetings` and filter — see Step 5 |
+| `dashboard_stats` — votes count | 443 | Same — see Step 5 |
 | `list_recent_meetings_for_city` | 893 | add `AND mt.is_hidden = FALSE` inside the WHERE clause |
 | `list_upcoming_meetings_for_city` | 916 | same |
 
@@ -529,17 +532,62 @@ def test_list_meetings_count_excludes_hidden(hidden_meeting_seed):
     assert len(visible) == 1
 
 
-def test_dashboard_stats_count_excludes_hidden(hidden_meeting_seed):
-    # dashboard_stats returns dict; the meeting count key is the relevant one.
-    stats = query.dashboard_stats()
-    # Stat semantics: hidden meetings are not part of the public total.
-    # Compare against a raw COUNT WHERE is_hidden=FALSE.
-    with db() as conn, conn.cursor() as cur:
-        cur.execute("SELECT COUNT(*) FROM meetings WHERE is_hidden = FALSE")
-        expected = cur.fetchone()[0]
-    # The dict shape uses key 'meetings' for this count (verify with print if unsure):
-    actual = stats.get("meetings") or stats.get("meeting_count")
-    assert actual == expected
+def test_dashboard_stats_excludes_hidden_meetings_and_their_items_and_votes(hidden_meeting_seed):
+    """dashboard_stats returns dict with keys 'municipalities', 'meetings',
+    'agenda_items', 'votes' (verified by reading query.py:446-451). All three
+    of meetings/agenda_items/votes must exclude rows belonging to hidden
+    meetings, not just the meetings count itself."""
+    # Seed an item AND a vote on the hidden meeting; if the dashboard counts
+    # leak them, this test will catch it. Helper inlined here so Task 4 test
+    # has no dependency on helpers defined later in the file (Task 6).
+    hidden_item_id = None
+    hidden_vote_id = None
+    try:
+        with db() as conn, conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO agenda_items
+                     (meeting_id, title, item_number, processing_status)
+                   VALUES (%s, 'TEST_HIDE_stats_item', '1', 'pending')
+                   RETURNING id""",
+                (hidden_meeting_seed["hidden_id"],),
+            )
+            hidden_item_id = cur.fetchone()[0]
+            cur.execute(
+                """INSERT INTO votes
+                     (meeting_id, result, yeas, nays, abstentions, source, confidence)
+                   VALUES (%s, 'passed', 7, 0, 0, 'test', 'high')
+                   RETURNING id""",
+                (hidden_meeting_seed["hidden_id"],),
+            )
+            hidden_vote_id = cur.fetchone()[0]
+            conn.commit()
+
+        stats = query.dashboard_stats()
+        with db() as conn, conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM meetings WHERE is_hidden = FALSE")
+            expected_meetings = cur.fetchone()[0]
+            cur.execute(
+                "SELECT COUNT(*) FROM agenda_items ai "
+                "JOIN meetings m ON ai.meeting_id = m.id "
+                "WHERE m.is_hidden = FALSE"
+            )
+            expected_items = cur.fetchone()[0]
+            cur.execute(
+                "SELECT COUNT(*) FROM votes v "
+                "JOIN meetings m ON v.meeting_id = m.id "
+                "WHERE m.is_hidden = FALSE"
+            )
+            expected_votes = cur.fetchone()[0]
+        assert stats["meetings"] == expected_meetings
+        assert stats["agenda_items"] == expected_items
+        assert stats["votes"] == expected_votes
+    finally:
+        with db() as conn, conn.cursor() as cur:
+            if hidden_vote_id is not None:
+                cur.execute("DELETE FROM votes WHERE id = %s", (hidden_vote_id,))
+            if hidden_item_id is not None:
+                cur.execute("DELETE FROM agenda_items WHERE id = %s", (hidden_item_id,))
+            conn.commit()
 
 
 def test_list_recent_meetings_for_city_excludes_hidden(hidden_meeting_seed):
@@ -581,15 +629,43 @@ In `src/docket/services/query.py:63-99`, change two SQL strings:
 
 (was `where = "m.slug = %s"`). Both `COUNT(*)` and the paginated SELECT use the same `where` variable so the single edit covers both.
 
-- [ ] **Step 4: Patch `dashboard_stats`**
+- [ ] **Step 4: Patch `dashboard_stats` — all three meetings-derived counts**
 
-In `src/docket/services/query.py:437`:
+In `src/docket/services/query.py:431-451`, change three queries inside the function:
 
 ```python
+def dashboard_stats() -> dict:
+    """Return summary stats for the admin dashboard."""
+    with db_cursor() as cur:
+        cur.execute("SELECT COUNT(*) AS count FROM municipalities WHERE active = TRUE")
+        muni_count = cur.fetchone()["count"]
+
         cur.execute("SELECT COUNT(*) AS count FROM meetings WHERE is_hidden = FALSE")
+        meeting_count = cur.fetchone()["count"]
+
+        cur.execute(
+            "SELECT COUNT(*) AS count FROM agenda_items ai "
+            "JOIN meetings m ON ai.meeting_id = m.id "
+            "WHERE m.is_hidden = FALSE"
+        )
+        item_count = cur.fetchone()["count"]
+
+        cur.execute(
+            "SELECT COUNT(*) AS count FROM votes v "
+            "JOIN meetings m ON v.meeting_id = m.id "
+            "WHERE m.is_hidden = FALSE"
+        )
+        vote_count = cur.fetchone()["count"]
+
+        return {
+            "municipalities": muni_count,
+            "meetings": meeting_count,
+            "agenda_items": item_count,
+            "votes": vote_count,
+        }
 ```
 
-(was `"SELECT COUNT(*) AS count FROM meetings"`).
+The agenda_items and votes counts now JOIN through `meetings` so items/votes belonging to hidden meetings don't inflate the public totals on the index page and city overview.
 
 - [ ] **Step 5: Patch `list_recent_meetings_for_city` and `list_upcoming_meetings_for_city`**
 
@@ -1052,6 +1128,7 @@ Functions known to need the predicate (compiled from the spec inventory):
 - `list_member_voting_history` (640)
 - `list_sponsored_items_for_member` (723)
 - `get_member_vote_summary` (783)
+- `topic_counts` (1102) — drives the public browse-by-topic UI; reads `m.slug = %s` already, add `AND mt.is_hidden = FALSE` to the WHERE clause built from `where`
 - `category_kpis` (1618)
 - `category_tally` (1703)
 - Any `list_upcoming_hearings` (grep to find — line number varies)
@@ -1658,10 +1735,11 @@ git -c commit.gpgsign=false commit -m "admin: POST /admin/meetings/<id>/hide and
 
 ---
 
-## Task 12: meeting_detail template — admin banner + Hide button
+## Task 12: meeting_detail + item_detail templates — admin banner + Hide button
 
 **Files:**
 - Modify: `src/docket/web/templates/meeting_detail.html`
+- Modify: `src/docket/web/templates/item_detail.html`
 - Modify: `tests/integration/test_admin_hide_meeting.py`
 
 - [ ] **Step 1: Write the failing tests**
@@ -1695,6 +1773,26 @@ def test_meeting_detail_anon_does_not_see_hide_button(client, bag):
     body = rv.get_data(as_text=True)
     assert "/hide" not in body
     assert "is hidden from the public site" not in body
+
+
+def test_item_detail_admin_sees_banner_when_parent_hidden(admin_client, bag):
+    """Admin viewing an item whose parent meeting is hidden sees a banner
+    explaining why the page is invisible to citizens. No Hide/Unhide button
+    on the item page — the action lives on the meeting page."""
+    mid = bag.add_meeting(is_hidden=True)
+    iid = bag.add_item(mid)
+    rv = admin_client.get(f"/al/{bag.city_slug}/items/{iid}/")
+    body = rv.get_data(as_text=True)
+    assert rv.status_code == 200
+    assert "parent meeting for this item is hidden" in body.lower()
+
+
+def test_item_detail_admin_no_banner_when_parent_visible(admin_client, bag):
+    mid = bag.add_meeting(is_hidden=False)
+    iid = bag.add_item(mid)
+    rv = admin_client.get(f"/al/{bag.city_slug}/items/{iid}/")
+    body = rv.get_data(as_text=True)
+    assert "parent meeting" not in body.lower() or "is hidden" not in body.lower()
 ```
 
 - [ ] **Step 2: Confirm failure**
@@ -1738,6 +1836,31 @@ cd ~/docket-pub && grep -n "meeting.title\|hero\|<h1" src/docket/web/templates/m
 
 Insert the snippet immediately before the meeting-hero `<h1>` (or its `<header>` container).
 
+- [ ] **Step 3b: Add the admin banner to `item_detail.html`**
+
+The item-detail page passes both `item` and `meeting` to the template (verified at `web/public.py:307` — the render_template call). Locate the existing top-of-page block:
+
+```
+cd ~/docket-pub && grep -n "meeting.title\|<h1\|extracted_facts\|item.title" src/docket/web/templates/item_detail.html | head -10
+```
+
+Insert this snippet near the top of the main content block (above the item title `<h1>`):
+
+```jinja
+{% if session.get('admin_user') and meeting.is_hidden %}
+  <div class="admin-banner admin-banner--hidden" style="background: #fff8c4; border: 1px solid #c0a000; padding: 0.75rem 1rem; margin-bottom: 1rem;">
+    <strong>The parent meeting for this item is hidden from the public site.</strong>
+    <span style="margin-left: 0.5rem;">
+      <a href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=meeting.id) }}">
+        Go to meeting to unhide.
+      </a>
+    </span>
+  </div>
+{% endif %}
+```
+
+No Hide/Unhide button on the item page — the action lives on the meeting page. This banner is purely a "you're seeing this because you're an admin" signal.
+
 - [ ] **Step 4: Re-run tests**
 
 ```
@@ -1749,8 +1872,8 @@ Expected: all pass.
 - [ ] **Step 5: Commit**
 
 ```
-git add src/docket/web/templates/meeting_detail.html tests/integration/test_admin_hide_meeting.py
-git -c commit.gpgsign=false commit -m "templates: admin Hide/Unhide button + banner on meeting_detail"
+git add src/docket/web/templates/meeting_detail.html src/docket/web/templates/item_detail.html tests/integration/test_admin_hide_meeting.py
+git -c commit.gpgsign=false commit -m "templates: admin banner + Hide/Unhide on meeting_detail + parent-hidden banner on item_detail"
 ```
 
 ---
