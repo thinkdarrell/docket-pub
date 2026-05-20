@@ -52,9 +52,9 @@ CREATE INDEX idx_meetings_public_visible
     WHERE is_hidden = FALSE;
 ```
 
-The partial index covers the hot path (public meeting lists, ordered by date within a city) without paying for hidden rows.
+The partial index covers the hot path (public meeting lists, ordered by date within a city) without paying for hidden rows. Note: this index accelerates list/feed queries that explicitly use `WHERE m.is_hidden = FALSE`. PostgreSQL FTS continues to use its existing `search_vector` GIN index unchanged; search queries gain the filter via JOIN/WHERE but won't benefit from the partial index — that's by design and acceptable given typical FTS hit counts.
 
-`hidden_at` and `hidden_by` provide an audit trail and feed the admin index (§5). They are cleared on unhide.
+`hidden_at` and `hidden_by` provide an audit trail and feed the admin index (§5). They are cleared on unhide in v1 — simple data model, no resurrection-history tracking. If a meeting keeps getting re-hidden over time and we want to know about it, switching to a separate `meeting_visibility_events` log table is the right v2 move (see §10).
 
 Migration is reversible: `--down` drops the index and the three columns.
 
@@ -70,6 +70,8 @@ Every public read-path that returns meetings (or items joined to meetings) must 
 | Dashboard count | `services/query.py:437` | Total meeting count on landing KPIs |
 | City-landing "recent meetings" | `services/query.py:~860–960` block | Hero / feed strips |
 | Item lookups joined to meeting | `services/query.py` (multiple) | Item detail + lists must hide items whose parent meeting is hidden |
+| **Item detail route** | `web/public.py:278` (`/al/<slug>/items/<int:item_id>/`) | **Must JOIN to `meetings` and return 404 for anon when parent is hidden.** Without this, a hidden meeting's items remain reachable by direct URL — the same admin-bypass rule from §3 applies (admin sees them, anon gets 404). |
+| `get_agenda_item()` + related-by-topic / related-by-sponsor / item-badges-overflow | `services/query.py`, `web/public.py:753` | All item lookups must filter parent `is_hidden=FALSE` (or admin-bypass) |
 | Search (FTS) | `services/query.py` | Meeting and item search results |
 | Member detail "items voted on" | `services/query.py` | Member rail |
 | Coverage entries linking to meeting | `services/query.py` | Editorial coverage surfaces |
@@ -77,6 +79,8 @@ Every public read-path that returns meetings (or items joined to meetings) must 
 | RSS | `web/public.py` RSS routes | Feed output |
 
 **MV note:** `mv_badge_volume_monthly` is a precomputed materialized view. The cleanest approach is to add the `is_hidden=FALSE` filter to the MV's defining query (migration 033 includes a `CREATE OR REPLACE MATERIALIZED VIEW` step) and refresh it as part of the deploy. This avoids per-read filtering against the MV.
+
+**MV refresh cadence after a hide/unhide action:** v1 does **not** trigger `REFRESH MATERIALIZED VIEW` from the hide/unhide routes. Category landing volume counts remain at the most recent refresh tick until the existing `refresh_backfill_ratio_mv` cron (04:30 CT daily) picks up the change. Given the expected frequency (a few hidden meetings per quarter), this lag is acceptable. If frequency increases, we can either (a) add `REFRESH MATERIALIZED VIEW CONCURRENTLY mv_badge_volume_monthly` to the route handlers, or (b) flip to read-time filtering against the MV's underlying tables. Documented as a deferred decision, not a v1 requirement.
 
 **What does NOT get patched:**
 - Admin routes (`web/admin.py`) — admins must see everything, including hidden rows.
@@ -121,7 +125,9 @@ def unhide_meeting(meeting_id):
     ...
 ```
 
-Username-to-id resolution is a single `SELECT id FROM admin_users WHERE username = %s` against the session value. Both routes are POST-only (no GET). The existing admin routes (e.g., `add_member`, coverage) do not use Flask-WTF CSRF tokens; v1 follows the same convention (re-evaluate codebase-wide if/when CSRF is added).
+Username-to-id resolution is a single `SELECT id FROM admin_users WHERE username = %s` against the session value. As a small optimization included in v1, `web/auth.py:51` will also populate `session['admin_user_id']` alongside `session['admin_user']` at login time, so future audit-writing routes can skip the resolution lookup. Existing routes that read only `session['admin_user']` keep working unchanged.
+
+Both routes are POST-only (no GET). The existing admin routes (e.g., `add_member`, coverage) do not use Flask-WTF CSRF tokens; v1 follows the same convention. **Tech-debt note:** CSRF protection should be added codebase-wide as a follow-up (separate task) — every state-changing admin POST in this codebase shares the same gap today, and fixing it in isolation for two new routes would create an inconsistent surface. Tracked in §10.
 
 ### 5. Admin index of hidden meetings
 
@@ -168,6 +174,9 @@ No change to `_upsert_meetings` is required.
 | Unhide POST clears flag + audit | web | `POST /admin/meetings/<id>/unhide` clears all three |
 | Re-ingest preserves is_hidden | integration | Set flag → run ingest → flag still set |
 | Admin index lists hidden meetings | web | `/admin/meetings/hidden` shows the row, ordered by hidden_at DESC |
+| **Item detail 404 anonymous (hidden parent)** | web | `GET /al/<city>/items/<item_id>/` returns 404 for anon when the item's parent meeting `is_hidden=TRUE` |
+| **Item detail 200 admin (hidden parent)** | web | Same URL returns 200 for logged-in admin |
+| Related-items / topic / sponsor queries exclude hidden parents | service | An item in a hidden meeting is not listed by `list_related_items_by_topic` / `list_related_items_by_sponsor` |
 
 ### 8. Backfill / apply
 
@@ -193,6 +202,17 @@ Run via `railway ssh --service docket-web` (or any psql against `DATABASE_PUBLIC
 
 ---
 
+## 10. Deferred / future work
+
+Tracked here so v1 stays focused but the gaps aren't lost:
+
+- **Heuristic auto-flagger** (mentioned in "Out of scope"): worker task that proposes `is_hidden=TRUE` for archived clip-id meetings matching the test-clip signature (0 items + 0 index-points + shared agenda PDF + short duration), surfaced via an admin review queue. Becomes worth building if hide actions become more frequent than ~once/month.
+- **CSRF protection across all admin POST routes.** Every state-changing admin action in `web/admin.py` currently lacks CSRF tokens. Fix codebase-wide (e.g., Flask-WTF or a session-bound origin check) rather than per-route. Independent of this feature.
+- **Visibility-event history.** If a meeting toggles `is_hidden` repeatedly (e.g., operator publishes a test clip, gets hidden, re-publishes), the in-row `hidden_at` / `hidden_by` only remembers the latest event. A separate `meeting_visibility_events(meeting_id, action, actor_id, at)` log table gives full history. Build when there's a real need for it.
+- **MV refresh-on-hide.** If category landing counts visibly lagging hide actions becomes a UX issue, wire `REFRESH MATERIALIZED VIEW CONCURRENTLY mv_badge_volume_monthly` into the hide/unhide route handlers (or read-time filter against the underlying tables instead).
+
+---
+
 ## Estimated cost
 
-~1–1.5 hours including the migration, full filter sweep across `services/query.py`, the admin button + routes + index page, tests, and deploy. Deploys via `railway up --service docket-web --detach` (and a follow-up MV refresh if the category-landing volume MV gets a filter added).
+~1.5–2 hours including the migration, full filter sweep across `services/query.py` and `web/public.py` (item-detail, related-items, search, RSS), the admin button + hide/unhide routes + admin index page, the `session['admin_user_id']` login change, tests, and deploy. Deploys via `railway up --service docket-web --detach`. After deploy: refresh `mv_badge_volume_monthly` once and apply the backfill SQL in §8.
