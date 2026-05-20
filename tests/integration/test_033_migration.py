@@ -4,10 +4,15 @@ Asserts the migration produces the expected schema after up, and reverts cleanly
 on down. Mirrors the pattern of tests/integration/test_029_migration.py.
 """
 
+import importlib
+
 import pytest
 
 from docket.config import DATABASE_URL
 from docket.db import db
+
+
+_m033 = importlib.import_module("docket.migrations.033_meetings_is_hidden")
 
 
 pytestmark = pytest.mark.skipif(
@@ -52,9 +57,14 @@ def test_033_up_creates_columns_and_index():
 
 
 def test_033_up_refreshes_mv_with_filter():
-    """mv_badge_volume_monthly now JOINs against meetings and filters is_hidden."""
-    assert _mv_definition_includes("is_hidden"), (
-        "mv_badge_volume_monthly definition should reference m.is_hidden"
+    """mv_badge_volume_monthly's WHERE clause filters meetings.is_hidden."""
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT pg_get_viewdef('mv_badge_volume_monthly'::regclass, true)"
+        )
+        defn = cur.fetchone()[0]
+    assert "m.is_hidden = false" in defn.lower(), (
+        "mv_badge_volume_monthly must filter on meetings.is_hidden in its WHERE clause"
     )
 
 
@@ -66,3 +76,18 @@ def test_033_default_is_false():
         )
         n_null = cur.fetchone()[0]
     assert n_null == 0, "is_hidden NOT NULL DEFAULT FALSE should backfill existing rows"
+
+
+def test_033_sql_down_drops_columns_index_and_rebuilds_mv_without_filter():
+    """SQL_DOWN must drop the three columns, the partial index, and rebuild
+    the MV without the is_hidden predicate."""
+    down = _m033.SQL_DOWN
+    assert "DROP MATERIALIZED VIEW IF EXISTS mv_badge_volume_monthly" in down
+    assert "DROP INDEX IF EXISTS idx_meetings_public_visible" in down
+    assert "DROP COLUMN IF EXISTS is_hidden" in down
+    assert "DROP COLUMN IF EXISTS hidden_at" in down
+    assert "DROP COLUMN IF EXISTS hidden_by" in down
+    # And the rebuilt MV in SQL_DOWN does NOT carry the is_hidden filter:
+    lowered = down.lower()
+    if "create materialized view" in lowered:
+        assert "m.is_hidden" not in lowered.split("create materialized view")[1]
