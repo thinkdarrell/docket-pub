@@ -159,3 +159,25 @@ def test_list_recent_meetings_for_city_excludes_hidden(hidden_meeting_seed):
     ids = {r["id"] for r in rows}
     assert hidden_meeting_seed["visible_id"] in ids
     assert hidden_meeting_seed["hidden_id"] not in ids
+
+
+def test_list_upcoming_meetings_for_city_excludes_hidden(hidden_meeting_seed):
+    # Push both seeded rows into the upcoming window (future-dated, no recording yet).
+    # _UPCOMING_PREDICATE_MT keys off video presence / status; the fixture inserts
+    # nothing in video_url so future-dated rows fall into "upcoming".
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            "UPDATE meetings SET meeting_date = CURRENT_DATE + 3 WHERE id = %s",
+            (hidden_meeting_seed["visible_id"],),
+        )
+        cur.execute(
+            "UPDATE meetings SET meeting_date = CURRENT_DATE + 3 WHERE id = %s",
+            (hidden_meeting_seed["hidden_id"],),
+        )
+        conn.commit()
+    rows = query.list_upcoming_meetings_for_city(
+        hidden_meeting_seed["slug"], days=14, limit=20
+    )
+    ids = {r["id"] for r in rows}
+    assert hidden_meeting_seed["visible_id"] in ids
+    assert hidden_meeting_seed["hidden_id"] not in ids
