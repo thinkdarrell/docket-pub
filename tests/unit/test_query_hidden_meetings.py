@@ -332,3 +332,60 @@ def test_list_related_items_by_sponsor_excludes_hidden_parent(hidden_meeting_see
     ids = {r["id"] for r in related}
     assert visible_match_id in ids
     assert hidden_item_id not in ids
+
+
+# ---------------------------------------------------------------------------
+# Task 7 — list_items_by_badge + member queries + vote queries
+# ---------------------------------------------------------------------------
+
+
+def test_list_items_by_badge_excludes_hidden_parent(hidden_meeting_seed):
+    # Seed two items in two meetings, attach the same badge to both, mark one
+    # meeting hidden. Only the visible-parent item should surface.
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT slug FROM priority_badge_templates "
+            "WHERE kind = 'process' ORDER BY slug LIMIT 1"
+        )
+        row = cur.fetchone()
+        if not row:
+            pytest.skip("No process badge templates seeded; skipping.")
+        badge_slug = row[0]
+
+    visible_item_id = _seed_item(
+        hidden_meeting_seed["visible_id"], title="TEST_HIDE_badge_visible"
+    )
+    hidden_item_id = _seed_item(
+        hidden_meeting_seed["hidden_id"], title="TEST_HIDE_badge_hidden"
+    )
+
+    # Attach the badge as 'applied' to both items, confidence > 0.6.
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT kind FROM priority_badge_templates WHERE slug = %s",
+            (badge_slug,),
+        )
+        kind = cur.fetchone()[0]
+        for iid in (visible_item_id, hidden_item_id):
+            cur.execute(
+                """INSERT INTO agenda_item_badges
+                     (agenda_item_id, city_id, badge_slug, kind,
+                      confidence, source, status)
+                   VALUES (%s, %s, %s, %s, 0.9, 'manual', 'applied')""",
+                (iid, hidden_meeting_seed["muni_id"], badge_slug, kind),
+            )
+        # Mark items completed so the processing_status='completed' filter passes.
+        cur.execute(
+            "UPDATE agenda_items SET processing_status='completed' WHERE id IN (%s, %s)",
+            (visible_item_id, hidden_item_id),
+        )
+        conn.commit()
+
+    items = query.list_items_by_badge(
+        city_id=hidden_meeting_seed["muni_id"],
+        badge_slug=badge_slug,
+        include_low_significance=True,  # bypass significance gate for the test
+    )
+    ids = {it.id for it in items}
+    assert visible_item_id in ids
+    assert hidden_item_id not in ids

@@ -473,6 +473,7 @@ def list_recent_votes(municipality_slug: str, limit: int = 10) -> list[dict]:
             JOIN meetings m ON v.meeting_id = m.id
             JOIN municipalities mu ON m.municipality_id = mu.id
             WHERE mu.slug = %s
+              AND m.is_hidden = FALSE
             ORDER BY m.meeting_date DESC, v.id DESC
             LIMIT %s
             """,
@@ -495,6 +496,7 @@ def list_contested_votes(municipality_slug: str, limit: int = 6) -> list[dict]:
             JOIN meetings m ON v.meeting_id = m.id
             JOIN municipalities mu ON m.municipality_id = mu.id
             WHERE mu.slug = %s AND v.nays > 0
+              AND m.is_hidden = FALSE
             ORDER BY m.meeting_date DESC, v.id DESC
             LIMIT %s
             """,
@@ -613,12 +615,19 @@ def count_sponsored_items_for_member(member_name: str) -> int:
 
     Backed by the trigram index added in migration 030. Substring matching
     can collide on common surnames — acceptable for an at-a-glance count.
+
+    Filters out items whose parent meeting is hidden so the count matches
+    what :func:`list_sponsored_items_for_member` actually surfaces.
     """
     if not member_name:
         return 0
     with db_cursor() as cur:
         cur.execute(
-            "SELECT COUNT(*) AS n FROM agenda_items WHERE sponsor ILIKE %s",
+            """SELECT COUNT(*) AS n
+                 FROM agenda_items ai
+                 JOIN meetings m ON m.id = ai.meeting_id
+                WHERE ai.sponsor ILIKE %s
+                  AND m.is_hidden = FALSE""",
             (f"%{member_name}%",),
         )
         return int(cur.fetchone()["n"])
@@ -696,6 +705,7 @@ def list_member_voting_history(
             JOIN votes v    ON mv.vote_id = v.id
             JOIN meetings m ON v.meeting_id = m.id
             WHERE mv.council_member_id = %s
+              AND m.is_hidden = FALSE
               {where_cursor}
               {where_filter}
             ORDER BY m.meeting_date DESC, v.id DESC
@@ -773,6 +783,7 @@ def list_sponsored_items_for_member(
             JOIN meetings mt        ON ai.meeting_id = mt.id
             JOIN municipalities m   ON mt.municipality_id = m.id
             WHERE m.active = TRUE
+              AND mt.is_hidden = FALSE
               AND ai.sponsor ILIKE %s
               AND ai.processing_status::text <> 'withdrawn'
               {where_extra}
@@ -806,7 +817,10 @@ def get_member_vote_summary(member_id: int) -> dict:
                         ELSE mv.position END AS pos,
                    COUNT(*) as cnt
             FROM member_votes mv
+            JOIN votes v    ON mv.vote_id = v.id
+            JOIN meetings m ON v.meeting_id = m.id
             WHERE mv.council_member_id = %s
+              AND m.is_hidden = FALSE
             GROUP BY pos
             """,
             (member_id,),
@@ -825,6 +839,7 @@ def get_member_vote_summary(member_id: int) -> dict:
             JOIN votes v ON mv.vote_id = v.id
             JOIN meetings m ON v.meeting_id = m.id
             WHERE mv.council_member_id = %s
+              AND m.is_hidden = FALSE
             ORDER BY m.meeting_date DESC, v.id DESC
             LIMIT 20
             """,
@@ -1129,7 +1144,7 @@ def topic_counts(municipality_slug: str | None = None) -> list[dict]:
             FROM agenda_items ai
             JOIN meetings mt ON ai.meeting_id = mt.id
             JOIN municipalities m ON mt.municipality_id = m.id
-            WHERE m.active = TRUE AND {where}
+            WHERE m.active = TRUE AND mt.is_hidden = FALSE AND {where}
             GROUP BY ai.topic
             ORDER BY count DESC
             """,
@@ -1523,6 +1538,7 @@ def list_items_by_badge(
           AND aib.confidence >= %s
           AND aib.status = 'applied'
           AND ai.processing_status = 'completed'
+          AND m.is_hidden = FALSE
         """
     ]
     params: list = [city_id, badge_slug, min_confidence]
@@ -1684,6 +1700,7 @@ def category_kpis(
           AND aib.confidence >= 0.6
           AND aib.status = 'applied'
           AND ai.processing_status = 'completed'
+          AND m.is_hidden = FALSE
           AND m.meeting_date BETWEEN %s AND %s
         """
     ]
@@ -1760,6 +1777,7 @@ def category_tally(
         "aib.confidence >= 0.6",
         "aib.status = 'applied'",
         "ai.processing_status = 'completed'",
+        "m.is_hidden = FALSE",
     ]
     params: list = [city_id, badge_slug]
 
@@ -2306,6 +2324,7 @@ def badge_volume_year(
           AND aib.confidence >= 0.6
           AND aib.status = 'applied'
           AND ai.processing_status = 'completed'
+          AND m.is_hidden = FALSE
           AND m.meeting_date BETWEEN %s AND %s
         """
     ]
@@ -2364,6 +2383,7 @@ def badge_volume_recent(
           AND aib.confidence >= 0.6
           AND aib.status = 'applied'
           AND ai.processing_status = 'completed'
+          AND m.is_hidden = FALSE
           AND m.meeting_date >= CURRENT_DATE - %s * INTERVAL '1 day'
         """
     ]
@@ -2577,7 +2597,7 @@ def list_high_dollar_items(
             FROM agenda_items ai
             JOIN meetings mt ON ai.meeting_id = mt.id
             JOIN municipalities m ON mt.municipality_id = m.id
-            WHERE m.active = TRUE AND {where}
+            WHERE m.active = TRUE AND mt.is_hidden = FALSE AND {where}
             ORDER BY
                 ai.dollars_amount
                 / GREATEST(1, EXTRACT(EPOCH FROM (NOW() - mt.meeting_date)) / 86400 / 90)
@@ -2633,8 +2653,12 @@ def list_data_debt_items(
     ]
     params: list = []
     if city_id is not None:
+        # Citizen-facing path (per-city data-debt page + RSS): hide items
+        # whose parent meeting is hidden. Admin queue passes city_id=None
+        # and intentionally sees every row regardless of hidden status.
         where_clauses.insert(0, "m.id = %s")
         params.append(city_id)
+        where_clauses.append("mt.is_hidden = FALSE")
     params.extend([limit, offset])
     where_sql = " AND ".join(where_clauses)
 
@@ -2720,6 +2744,7 @@ def list_failed_permanent_items_all_cities(
             FROM agenda_items ai
             JOIN meetings mt ON ai.meeting_id = mt.id
             JOIN municipalities m ON mt.municipality_id = m.id
+            -- Admin path: hidden meetings remain visible here.
             WHERE ai.processing_status = 'failed_permanent'
             ORDER BY
                 CASE ai.data_debt_priority::text
@@ -2787,6 +2812,7 @@ def list_cross_stage_conflicts(
             FROM agenda_items ai
             JOIN meetings mt ON mt.id = ai.meeting_id
             JOIN municipalities m ON m.id = mt.municipality_id
+            -- Admin path: hidden meetings remain visible here.
             WHERE ai.processing_status = 'cross_stage_conflict'
             ORDER BY
                 CASE ai.data_debt_priority::text
@@ -2914,6 +2940,7 @@ def list_badge_audit_log(
               m.name                   AS municipality_name
             FROM agenda_item_badges_audit aiba
             LEFT JOIN agenda_items ai ON ai.id = aiba.agenda_item_id
+            -- Admin path: hidden meetings remain visible here.
             LEFT JOIN meetings mt ON mt.id = ai.meeting_id
             LEFT JOIN municipalities m ON m.id = mt.municipality_id
             {where_sql}
@@ -3017,6 +3044,7 @@ def list_upcoming_hearings(city_id: int, *, days_ahead: int = 60, limit: int = 5
             JOIN municipalities muni ON muni.id = m_row.municipality_id
             JOIN agenda_items ai     ON ai.meeting_id = m_row.id
             WHERE muni.id = %s
+              AND m_row.is_hidden = FALSE
               AND m_row.meeting_date >= CURRENT_DATE
               AND m_row.meeting_date <= CURRENT_DATE + %s * INTERVAL '1 day'
               AND ai.title ILIKE '%%hearing%%'
@@ -3038,6 +3066,7 @@ def list_upcoming_hearings(city_id: int, *, days_ahead: int = 60, limit: int = 5
             FROM meetings m_row
             JOIN municipalities muni ON muni.id = m_row.municipality_id
             WHERE muni.id = %s
+              AND m_row.is_hidden = FALSE
               AND m_row.meeting_date >= CURRENT_DATE
               AND m_row.meeting_date <= CURRENT_DATE + %s * INTERVAL '1 day'
               AND m_row.title ILIKE '%%hearing%%'
@@ -3122,6 +3151,12 @@ def coverage_for_subject(
 
     Notes are returned first (newest published_at first), then citations
     (newest article_published_at first). Matches the template's render order.
+
+    Hidden-meeting note: this query intentionally does not JOIN to ``meetings``.
+    For ``subject_type='agenda_item'`` the upstream caller (item_detail) has
+    already gated by hidden status via ``get_agenda_item`` (which returns None
+    for items whose parent meeting is hidden), so the public template never
+    invokes this helper for a hidden item.
     """
     if subject_type == 'badge':
         if subject_slug is None:
@@ -3161,6 +3196,10 @@ def coverage_counts_for_items(item_ids: list[int]) -> dict[int, tuple[int, int]]
 
     Short-circuits to ``{}`` when ``item_ids`` is empty, since
     ``WHERE subject_id IN ()`` raises a syntax error in psycopg.
+
+    Hidden-meeting note: callers always pass ``item_ids`` they obtained from
+    an already-filtered list (e.g., :func:`list_high_dollar_items`,
+    :func:`search_agenda_items`), so hidden items can't reach this helper.
     """
     if not item_ids:
         return {}
@@ -3319,6 +3358,7 @@ def count_agenda_items_ytd(municipality_id: int) -> int:
             FROM agenda_items ai
             JOIN meetings m ON m.id = ai.meeting_id
             WHERE m.municipality_id = %s
+              AND m.is_hidden = FALSE
               AND m.meeting_date >= date_trunc('year', now())::date
             """,
             (municipality_id,),
@@ -3336,6 +3376,7 @@ def count_votes_ytd(municipality_id: int) -> int:
             FROM votes v
             JOIN meetings m ON m.id = v.meeting_id
             WHERE m.municipality_id = %s
+              AND m.is_hidden = FALSE
               AND m.meeting_date >= date_trunc('year', now())::date
             """,
             (municipality_id,),
@@ -3357,6 +3398,7 @@ def dollars_pending_vs_settled(municipality_id: int) -> dict:
             FROM agenda_items ai
             JOIN meetings m ON m.id = ai.meeting_id
             WHERE m.municipality_id = %s
+              AND m.is_hidden = FALSE
             """,
             (municipality_id,),
         )
@@ -3394,6 +3436,7 @@ def sum_dollars_ytd(municipality_id: int):
             FROM agenda_items ai
             JOIN meetings m ON m.id = ai.meeting_id
             WHERE m.municipality_id = %s
+              AND m.is_hidden = FALSE
               AND m.meeting_date >= date_trunc('year', now())::date
             """,
             (municipality_id,),
@@ -3414,6 +3457,7 @@ def count_contested_votes_ytd(municipality_id: int) -> int:
             SELECT count(*) AS n FROM votes v
             JOIN meetings m ON m.id = v.meeting_id
             WHERE m.municipality_id = %s
+              AND m.is_hidden = FALSE
               AND m.meeting_date >= date_trunc('year', now())::date
               AND v.nays > 0
             """,
@@ -3633,6 +3677,11 @@ def get_vote_for_item(item_id: int) -> ItemVoteData | None:
     are excluded.
 
     Returns None when no active links exist for the item.
+
+    Hidden-meeting note: the item_detail route gates by
+    :func:`get_agenda_item`, which returns None for items whose parent
+    meeting is hidden. As long as this helper is only invoked from that
+    upstream-gated path, hidden items can't reach it.
     """
     with db_cursor() as cur:
         cur.execute(
