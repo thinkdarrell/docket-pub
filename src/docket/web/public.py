@@ -19,6 +19,7 @@ from flask import (
     redirect,
     render_template,
     request,
+    session,
     url_for,
 )
 
@@ -236,6 +237,11 @@ def meeting_detail(slug, meeting_id):
 
     meeting = query.get_meeting(meeting_id)
     if not meeting or meeting.municipality_id != municipality["id"]:
+        abort(404)
+
+    # Hidden meetings are 404 for anonymous viewers; admins get the full page
+    # with the hide/unhide banner from the template.
+    if meeting.is_hidden and not session.get("admin_user"):
         abort(404)
 
     agenda_items = query.list_agenda_items(meeting_id)
