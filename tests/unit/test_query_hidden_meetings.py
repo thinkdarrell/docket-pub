@@ -221,3 +221,114 @@ def test_search_meetings_excludes_hidden(hidden_meeting_seed):
     ids = {r["id"] for r in results}
     assert hidden_meeting_seed["visible_id"] in ids
     assert hidden_meeting_seed["hidden_id"] not in ids
+
+
+# ---------------------------------------------------------------------------
+# Task 6 — item-level queries
+# ---------------------------------------------------------------------------
+
+
+def _seed_item(meeting_id: int, *, title: str = "TEST_HIDE_item", topic: str = "housing",
+               sponsor: str = "TEST_HIDE_sponsor") -> int:
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            """INSERT INTO agenda_items
+                 (meeting_id, title, topic, sponsor, item_number, processing_status)
+               VALUES (%s, %s, %s, %s, '1', 'pending') RETURNING id""",
+            (meeting_id, title, topic, sponsor),
+        )
+        iid = cur.fetchone()[0]
+        conn.commit()
+    return iid
+
+
+def test_get_agenda_item_returns_none_when_parent_hidden(hidden_meeting_seed):
+    # Item belongs to the hidden meeting — public read path must return None.
+    iid = _seed_item(hidden_meeting_seed["hidden_id"])
+    assert query.get_agenda_item(iid) is None
+
+
+def test_get_agenda_item_returns_visible(hidden_meeting_seed):
+    iid = _seed_item(hidden_meeting_seed["visible_id"])
+    item = query.get_agenda_item(iid)
+    assert item is not None and item.id == iid
+
+
+def test_search_agenda_items_excludes_hidden_parent(hidden_meeting_seed):
+    visible_item_id = _seed_item(
+        hidden_meeting_seed["visible_id"], title="TEST_HIDE_search visible"
+    )
+    hidden_item_id = _seed_item(
+        hidden_meeting_seed["hidden_id"], title="TEST_HIDE_search hidden"
+    )
+    results = query.search_agenda_items(
+        "TEST_HIDE_search", municipality_slug=hidden_meeting_seed["slug"]
+    )
+    ids = {r.id for r in results}
+    assert visible_item_id in ids
+    assert hidden_item_id not in ids
+
+
+def test_list_agenda_items_by_topic_excludes_hidden_parent(hidden_meeting_seed):
+    visible_item_id = _seed_item(
+        hidden_meeting_seed["visible_id"], topic="TEST_HIDE_topic"
+    )
+    hidden_item_id = _seed_item(
+        hidden_meeting_seed["hidden_id"], topic="TEST_HIDE_topic"
+    )
+    results = query.list_agenda_items_by_topic(
+        "TEST_HIDE_topic", municipality_slug=hidden_meeting_seed["slug"]
+    )
+    ids = {r["id"] for r in results}
+    assert visible_item_id in ids
+    assert hidden_item_id not in ids
+
+
+def test_list_related_items_by_topic_excludes_hidden_parent(hidden_meeting_seed):
+    # Seed: visible meeting has the seed item; another visible meeting has a
+    # match; the hidden meeting has a would-be match that must NOT surface.
+    with db() as conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            """INSERT INTO meetings (municipality_id, title, meeting_date, meeting_type, is_hidden)
+               VALUES (%s, %s, '2099-04-03', 'council', FALSE) RETURNING id""",
+            (hidden_meeting_seed["muni_id"], "TEST_HIDE_other_visible"),
+        )
+        other_visible_id = cur.fetchone()["id"]
+        conn.commit()
+
+    seed_item_id = _seed_item(
+        hidden_meeting_seed["visible_id"], topic="TEST_HIDE_rel"
+    )
+    other_visible_item_id = _seed_item(other_visible_id, topic="TEST_HIDE_rel")
+    hidden_item_id = _seed_item(
+        hidden_meeting_seed["hidden_id"], topic="TEST_HIDE_rel"
+    )
+
+    related = query.list_related_items_by_topic(seed_item_id, limit=10)
+    ids = {r["id"] for r in related}
+    assert other_visible_item_id in ids
+    assert hidden_item_id not in ids
+
+
+def test_list_related_items_by_sponsor_excludes_hidden_parent(hidden_meeting_seed):
+    seed_item_id = _seed_item(
+        hidden_meeting_seed["visible_id"], sponsor="TEST_HIDE_sponsor_X"
+    )
+    hidden_item_id = _seed_item(
+        hidden_meeting_seed["hidden_id"], sponsor="TEST_HIDE_sponsor_X"
+    )
+    # Add a second visible match so the function returns at least one result.
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            """INSERT INTO meetings (municipality_id, title, meeting_date, meeting_type, is_hidden)
+               VALUES (%s, %s, '2099-04-04', 'council', FALSE) RETURNING id""",
+            (hidden_meeting_seed["muni_id"], "TEST_HIDE_sponsor_match"),
+        )
+        match_meeting_id = cur.fetchone()[0]
+        conn.commit()
+    visible_match_id = _seed_item(match_meeting_id, sponsor="TEST_HIDE_sponsor_X")
+
+    related = query.list_related_items_by_sponsor(seed_item_id, limit=10)
+    ids = {r["id"] for r in related}
+    assert visible_match_id in ids
+    assert hidden_item_id not in ids

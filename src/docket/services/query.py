@@ -313,6 +313,7 @@ def get_agenda_item(item_id: int) -> AgendaItem | None:
                 END AS extracted_facts,
                 COALESCE(b_agg.badges, '[]'::jsonb) AS badges
             FROM agenda_items ai
+            JOIN meetings mt ON mt.id = ai.meeting_id
             LEFT JOIN LATERAL (
                 SELECT jsonb_agg(jsonb_build_object(
                            'kind',        b.kind,
@@ -328,6 +329,7 @@ def get_agenda_item(item_id: int) -> AgendaItem | None:
                   AND b.status = 'applied'
             ) b_agg ON true
             WHERE ai.id = %s
+              AND mt.is_hidden = FALSE
             """,
             (item_id,),
         )
@@ -997,7 +999,7 @@ def search_agenda_items(
     with category-landing cards.
     """
     with db_cursor() as cur:
-        where = "m.active = TRUE AND ai.search_vector @@ websearch_to_tsquery('english', %s)"
+        where = "m.active = TRUE AND mt.is_hidden = FALSE AND ai.search_vector @@ websearch_to_tsquery('english', %s)"
         params: list = [query]
 
         if municipality_slug:
@@ -1102,7 +1104,7 @@ def list_agenda_items_by_topic(
             FROM agenda_items ai
             JOIN meetings mt ON ai.meeting_id = mt.id
             JOIN municipalities m ON mt.municipality_id = m.id
-            WHERE m.active = TRUE AND {where}
+            WHERE m.active = TRUE AND mt.is_hidden = FALSE AND {where}
             ORDER BY mt.meeting_date DESC
             LIMIT %s OFFSET %s
             """,
@@ -1186,6 +1188,7 @@ def list_related_items_by_topic(
             JOIN meetings mt        ON ai.meeting_id = mt.id
             JOIN municipalities m   ON mt.municipality_id = m.id
             WHERE m.active = TRUE
+              AND mt.is_hidden = FALSE
               AND ai.topic = %s
               AND ai.id <> %s
               AND ai.meeting_id <> %s
@@ -1247,6 +1250,7 @@ def list_related_items_by_sponsor(
             JOIN meetings mt        ON ai.meeting_id = mt.id
             JOIN municipalities m   ON mt.municipality_id = m.id
             WHERE m.active = TRUE
+              AND mt.is_hidden = FALSE
               AND ai.sponsor ILIKE %s
               AND ai.id <> %s
               AND ai.meeting_id <> %s
