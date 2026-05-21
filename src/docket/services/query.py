@@ -3352,7 +3352,8 @@ def count_meetings_lifetime(municipality_id: int) -> int:
     """Total meetings ingested for this city (no date filter)."""
     with db_cursor() as cur:
         cur.execute(
-            "SELECT count(*) AS n FROM meetings WHERE municipality_id = %s",
+            "SELECT count(*) AS n FROM meetings WHERE municipality_id = %s "
+            "AND is_hidden = FALSE",
             (municipality_id,),
         )
         row = cur.fetchone()
@@ -3426,6 +3427,7 @@ def count_meetings_ytd(municipality_id: int) -> int:
             """
             SELECT count(*) AS n FROM meetings
             WHERE municipality_id = %s
+              AND is_hidden = FALSE
               AND meeting_date >= date_trunc('year', now())::date
             """,
             (municipality_id,),
@@ -3485,6 +3487,7 @@ def most_recent_ingest_at(municipality_id: int):
             """
             SELECT MAX(created_at) AS most_recent FROM meetings
             WHERE municipality_id = %s
+              AND is_hidden = FALSE
             """,
             (municipality_id,),
         )
@@ -3532,6 +3535,7 @@ def source_health_for_city(municipality: dict) -> dict:
             """
             SELECT source_url FROM meetings
             WHERE municipality_id = %s AND source_url IS NOT NULL
+              AND is_hidden = FALSE
             ORDER BY meeting_date DESC LIMIT 1
             """,
             (mid,),
@@ -3544,6 +3548,7 @@ def source_health_for_city(municipality: dict) -> dict:
             SELECT MAX(m.meeting_date) AS last_parsed
             FROM meetings m
             WHERE m.municipality_id = %s
+              AND m.is_hidden = FALSE
               AND EXISTS (
                 SELECT 1 FROM agenda_items a WHERE a.meeting_id = m.id
               )
@@ -3553,7 +3558,8 @@ def source_health_for_city(municipality: dict) -> dict:
         last_parsed = cur.fetchone()["last_parsed"]
 
         cur.execute(
-            "SELECT COUNT(*) AS n FROM meetings WHERE municipality_id = %s",
+            "SELECT COUNT(*) AS n FROM meetings WHERE municipality_id = %s "
+            "AND is_hidden = FALSE",
             (mid,),
         )
         meeting_count = cur.fetchone()["n"]

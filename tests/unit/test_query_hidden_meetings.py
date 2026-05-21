@@ -437,3 +437,56 @@ def test_get_member_stats_excludes_hidden_meetings(hidden_meeting_seed):
             cur.execute("DELETE FROM member_votes WHERE vote_id = %s", (vote_id,))
             cur.execute("DELETE FROM votes WHERE id = %s", (vote_id,))
             conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# KPI + freshness leak coverage (city_overview / source-health)
+# ---------------------------------------------------------------------------
+
+
+def test_count_meetings_ytd_excludes_hidden(hidden_meeting_seed):
+    """Citizen-facing YTD count must not include hidden meetings."""
+    # Move both seeded meetings to CURRENT_DATE - 30 so they fall inside the YTD window.
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            "UPDATE meetings SET meeting_date = CURRENT_DATE - 30 WHERE id IN (%s, %s)",
+            (hidden_meeting_seed["visible_id"], hidden_meeting_seed["hidden_id"]),
+        )
+        conn.commit()
+    count = query.count_meetings_ytd(hidden_meeting_seed["muni_id"])
+    # Reference: count of visible-only meetings for the same city, same window.
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT count(*) FROM meetings
+               WHERE municipality_id = %s
+                 AND meeting_date >= date_trunc('year', CURRENT_DATE)
+                 AND is_hidden = FALSE""",
+            (hidden_meeting_seed["muni_id"],),
+        )
+        expected = cur.fetchone()[0]
+    assert count == expected
+
+
+def test_most_recent_ingest_at_excludes_hidden(hidden_meeting_seed):
+    """The freshness chip must not be driven by a hidden test clip's ingest time."""
+    # Hidden meeting created NOW (more recent than the visible meeting).
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            "UPDATE meetings SET created_at = NOW() WHERE id = %s",
+            (hidden_meeting_seed["hidden_id"],),
+        )
+        cur.execute(
+            "UPDATE meetings SET created_at = NOW() - INTERVAL '1 day' WHERE id = %s",
+            (hidden_meeting_seed["visible_id"],),
+        )
+        conn.commit()
+    ts = query.most_recent_ingest_at(hidden_meeting_seed["muni_id"])
+    # Reference: most recent created_at among visible-only meetings.
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT MAX(created_at) FROM meetings WHERE municipality_id = %s "
+            "AND is_hidden = FALSE",
+            (hidden_meeting_seed["muni_id"],),
+        )
+        expected = cur.fetchone()[0]
+    assert ts == expected
