@@ -1503,8 +1503,7 @@ def hide_meeting(meeting_id: int):
     referer = request.headers.get("Referer")
     if referer:
         return redirect(referer)
-    # Forward reference: admin.list_hidden_meetings is added in a later task.
-    # Fall back to admin.list_members until then so url_for doesn't BuildError.
+    # Defensive: keep the fallback in case list_hidden_meetings is ever renamed.
     try:
         return redirect(url_for("admin.list_hidden_meetings"))
     except BuildError:
@@ -1533,9 +1532,35 @@ def unhide_meeting(meeting_id: int):
     referer = request.headers.get("Referer")
     if referer:
         return redirect(referer)
-    # Forward reference: admin.list_hidden_meetings is added in a later task.
-    # Fall back to admin.list_members until then so url_for doesn't BuildError.
+    # Defensive: keep the fallback in case list_hidden_meetings is ever renamed.
     try:
         return redirect(url_for("admin.list_hidden_meetings"))
     except BuildError:
         return redirect(url_for("admin.list_members"))
+
+
+@bp.route("/meetings/hidden")
+def list_hidden_meetings():
+    """Admin index of every currently-hidden meeting.
+
+    Joins to admin_users for the "hidden by" column (NULL when an older
+    backfill hid the row without an actor) and to municipalities for city.
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+                m.id, m.title, m.meeting_date,
+                m.hidden_at,
+                mu.name AS city_name,
+                mu.slug AS city_slug,
+                au.username AS hidden_by_username
+              FROM meetings m
+              JOIN municipalities mu ON mu.id = m.municipality_id
+              LEFT JOIN admin_users au ON au.id = m.hidden_by
+             WHERE m.is_hidden = TRUE
+             ORDER BY m.hidden_at DESC NULLS LAST, m.id DESC
+            """
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+    return render_template("admin/hidden_meetings.html", rows=rows)

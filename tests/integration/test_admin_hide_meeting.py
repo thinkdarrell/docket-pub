@@ -324,3 +324,30 @@ def test_item_detail_admin_no_banner_when_parent_visible(admin_client, bag):
     rv = admin_client.get(f"/al/{bag.city_slug}/items/{iid}/")
     body = rv.get_data(as_text=True)
     assert "parent meeting" not in body.lower() or "is hidden" not in body.lower()
+
+
+# ---------------------------------------------------------------------------
+# Task 13 — /admin/meetings/hidden index
+# ---------------------------------------------------------------------------
+
+
+def test_admin_hidden_index_lists_hidden_meetings(admin_client, bag):
+    mid = bag.add_meeting(is_hidden=True, title="TEST_HIDE_index_row")
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            "UPDATE meetings SET hidden_at = NOW(), hidden_by = %s WHERE id = %s",
+            (bag.admin_id, mid),
+        )
+        conn.commit()
+    rv = admin_client.get("/admin/meetings/hidden")
+    body = rv.get_data(as_text=True)
+    assert rv.status_code == 200
+    assert "TEST_HIDE_index_row" in body
+    # Has an Unhide form pointing at this row
+    assert f'action="/admin/meetings/{mid}/unhide"' in body
+
+
+def test_admin_hidden_index_requires_login(client):
+    rv = client.get("/admin/meetings/hidden", follow_redirects=False)
+    assert rv.status_code in (301, 302, 303, 308)
+    assert "/admin/login" in rv.headers.get("Location", "")
