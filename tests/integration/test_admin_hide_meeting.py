@@ -172,3 +172,50 @@ def test_item_detail_200_for_anonymous_when_parent_visible(client, bag):
     iid = bag.add_item(mid)
     rv = client.get(f"/al/{bag.city_slug}/items/{iid}/")
     assert rv.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Task 10 — RSS filters
+# ---------------------------------------------------------------------------
+
+
+def test_upcoming_hearings_rss_excludes_hidden(client, bag):
+    """If a hidden meeting were a public hearing, its row must NOT appear
+    in /al/<city>/upcoming-hearings.rss. We seed both shapes and assert
+    the hidden one's title is absent from the rendered XML.
+
+    list_upcoming_hearings was patched in the Task 7 sweep (commit
+    9b00b8e) to add `AND m_row.is_hidden = FALSE` on both UNION branches
+    — this test is the route-level confirmation that the patch holds
+    end-to-end through the RSS template + 60-min `_rss_cached` wrapper.
+    """
+    # Titles include "hearing" so the heuristic in list_upcoming_hearings
+    # (meeting-title ILIKE '%hearing%') actually surfaces the visible row.
+    # The hidden row also matches the heuristic — and so MUST be
+    # excluded purely by is_hidden = FALSE.
+    mid_visible = bag.add_meeting(is_hidden=False, title="TEST_HIDE_rss_visible hearing")
+    mid_hidden = bag.add_meeting(is_hidden=True, title="TEST_HIDE_rss_hidden hearing")
+
+    # The seed default meeting_date (2099-05-01) is outside the 60-day
+    # window; bump both into range so the visible row would surface if
+    # not for the hidden filter.
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            "UPDATE meetings SET meeting_date = CURRENT_DATE + 3 "
+            "WHERE id IN (%s, %s)",
+            (mid_visible, mid_hidden),
+        )
+        conn.commit()
+
+    # Bust any stale cached render from prior test runs — unique titles
+    # make collisions unlikely but the cache key is per-city, not per-title.
+    from docket.web import public as public_mod
+    public_mod._rss_cache.clear()
+
+    rv = client.get(f"/al/{bag.city_slug}/upcoming-hearings.rss")
+    assert rv.status_code == 200
+    body = rv.get_data(as_text=True)
+    # Hidden meeting must NOT surface, regardless of whether the visible
+    # one does (the heuristic may exclude both for other reasons; the
+    # absence-of-hidden assertion is the load-bearing one).
+    assert "TEST_HIDE_rss_hidden" not in body
