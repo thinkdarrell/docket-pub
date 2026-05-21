@@ -24,6 +24,7 @@ class Meeting:
     ai_prompt_version: int | None = None
     ai_generated_at: datetime | None = None
     start_time: time | None = None
+    is_hidden: bool = False
 
     @classmethod
     def from_row(cls, row: dict) -> Meeting:
@@ -44,4 +45,5 @@ class Meeting:
             ai_prompt_version=row.get("ai_prompt_version"),
             ai_generated_at=row.get("ai_generated_at"),
             start_time=row.get("start_time"),
+            is_hidden=bool(row.get("is_hidden", False)),
         )
