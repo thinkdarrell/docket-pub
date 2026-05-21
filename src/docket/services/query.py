@@ -34,14 +34,22 @@ class PaginatedMeetings:
 
 
 def list_municipalities() -> list[dict]:
-    """Return all active municipalities with meeting counts."""
+    """Return all active municipalities with meeting counts.
+
+    The ``is_hidden = FALSE`` predicate is intentionally on the LEFT JOIN's
+    ON clause (not WHERE) so cities whose only meetings are hidden still
+    surface in the list with ``meeting_count = 0`` rather than being
+    suppressed entirely.
+    """
     with db_cursor() as cur:
         cur.execute("""
             SELECT m.id, m.slug, m.name, m.state, m.county, m.council_type,
                    COUNT(mt.id) AS meeting_count,
                    MAX(mt.meeting_date) AS last_meeting_date
             FROM municipalities m
-            LEFT JOIN meetings mt ON m.id = mt.municipality_id
+            LEFT JOIN meetings mt
+              ON m.id = mt.municipality_id
+             AND mt.is_hidden = FALSE
             WHERE m.active = TRUE
             GROUP BY m.id
             ORDER BY m.name
@@ -595,7 +603,9 @@ def get_member_stats(member_id: int) -> dict:
               ) AS aligned
             FROM member_votes mv
             JOIN votes v ON v.id = mv.vote_id
+            JOIN meetings m ON m.id = v.meeting_id
             WHERE mv.council_member_id = %s
+              AND m.is_hidden = FALSE
             """,
             (member_id,),
         )

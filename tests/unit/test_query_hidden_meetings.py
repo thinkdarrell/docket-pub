@@ -389,3 +389,51 @@ def test_list_items_by_badge_excludes_hidden_parent(hidden_meeting_seed):
     ids = {it.id for it in items}
     assert visible_item_id in ids
     assert hidden_item_id not in ids
+
+
+def test_get_member_stats_excludes_hidden_meetings(hidden_meeting_seed):
+    """A member's vote on a hidden meeting must not inflate their public stats."""
+    # Pick any existing council member in birmingham
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT id FROM council_members WHERE municipality_id = %s "
+            "AND active = TRUE LIMIT 1",
+            (hidden_meeting_seed["muni_id"],),
+        )
+        row = cur.fetchone()
+        if not row:
+            pytest.skip("No active BHM council members seeded; skipping.")
+        member_id = row[0]
+
+        # Baseline stats — before adding a hidden-meeting vote.
+        baseline = query.get_member_stats(member_id)
+
+        # Seed a vote on the HIDDEN meeting and a member_vote tying this member to it.
+        cur.execute(
+            """INSERT INTO votes
+                 (meeting_id, result, yeas, nays, abstentions, source, confidence)
+               VALUES (%s, 'passed', 1, 0, 0, 'test', 'high') RETURNING id""",
+            (hidden_meeting_seed["hidden_id"],),
+        )
+        vote_id = cur.fetchone()[0]
+        cur.execute(
+            """INSERT INTO member_votes (council_member_id, vote_id, position, member_name)
+               VALUES (%s, %s, 'yea', 'TEST_HIDE_member')""",
+            (member_id, vote_id),
+        )
+        conn.commit()
+
+    try:
+        stats = query.get_member_stats(member_id)
+        # The hidden-meeting vote must NOT contribute. Total/yea/nay etc. must equal baseline.
+        for key, value in stats.items():
+            if isinstance(value, int):
+                assert value == baseline.get(key, 0), (
+                    f"Stat key {key!r} grew from {baseline.get(key)} to {value} after "
+                    "seeding a vote on a hidden meeting — leak."
+                )
+    finally:
+        with db() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM member_votes WHERE vote_id = %s", (vote_id,))
+            cur.execute("DELETE FROM votes WHERE id = %s", (vote_id,))
+            conn.commit()
