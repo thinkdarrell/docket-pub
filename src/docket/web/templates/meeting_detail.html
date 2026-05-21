@@ -7,6 +7,26 @@
     ← Back to {{ municipality.name }}
 </a>
 
+{# ── Admin Hide/Unhide banner (Task 12) ─────────────────────── #}
+{% if session.get('admin_user') %}
+  {% if meeting.is_hidden %}
+    <div class="admin-banner admin-banner--hidden" style="background: #fff8c4; border: 1px solid #c0a000; padding: 0.75rem 1rem; margin-bottom: 1rem;">
+      <strong>This meeting is hidden from the public site.</strong>
+      <form method="post" action="{{ url_for('admin.unhide_meeting', meeting_id=meeting.id) }}" style="display: inline; margin-left: 0.5rem;">
+        <button type="submit">Unhide</button>
+      </form>
+    </div>
+  {% else %}
+    <div class="admin-banner admin-banner--visible" style="margin-bottom: 1rem;">
+      <form method="post" action="{{ url_for('admin.hide_meeting', meeting_id=meeting.id) }}"
+            onsubmit="return confirm('Hide this meeting from the public site?');"
+            style="display: inline;">
+        <button type="submit" style="font-size: 0.85rem;">Hide this meeting</button>
+      </form>
+    </div>
+  {% endif %}
+{% endif %}
+
 <section class="hero hero--detail">
     <div class="hero-top">
         <div>

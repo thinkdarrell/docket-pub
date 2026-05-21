@@ -17,6 +17,7 @@ from flask import (
     session,
     url_for,
 )
+from werkzeug.routing.exceptions import BuildError
 
 from docket.db import db, db_cursor
 from docket.services import query
@@ -1469,3 +1470,97 @@ def profile_update_display_name():
         cur.execute("UPDATE admin_users SET display_name = %s WHERE id = %s",
                     (new_name, uid))
     return redirect(url_for('admin.profile'))
+
+
+# --- Meeting visibility (hide / unhide) -------------------------------------
+
+
+@bp.post("/meetings/<int:meeting_id>/hide")
+def hide_meeting(meeting_id: int):
+    """Mark a meeting as hidden — suppress it from all citizen surfaces.
+
+    Sets is_hidden=TRUE plus the hidden_at/hidden_by audit columns. The
+    blueprint-level before_request handler enforces login.
+    """
+    with db() as conn, conn.cursor() as cur:
+        cur.execute("SELECT id FROM meetings WHERE id = %s", (meeting_id,))
+        if cur.fetchone() is None:
+            abort(404)
+        cur.execute(
+            """
+            UPDATE meetings
+               SET is_hidden = TRUE,
+                   hidden_at = NOW(),
+                   hidden_by = %s
+             WHERE id = %s
+            """,
+            (session.get("admin_user_id"), meeting_id),
+        )
+        conn.commit()
+    flash(f"Meeting {meeting_id} hidden.")
+    # Redirect back where the action was triggered if a referer is present;
+    # fall back to the hidden-meetings admin index.
+    referer = request.headers.get("Referer")
+    if referer:
+        return redirect(referer)
+    # Defensive: keep the fallback in case list_hidden_meetings is ever renamed.
+    try:
+        return redirect(url_for("admin.list_hidden_meetings"))
+    except BuildError:
+        return redirect(url_for("admin.list_members"))
+
+
+@bp.post("/meetings/<int:meeting_id>/unhide")
+def unhide_meeting(meeting_id: int):
+    """Clear the hidden flag and audit columns."""
+    with db() as conn, conn.cursor() as cur:
+        cur.execute("SELECT id FROM meetings WHERE id = %s", (meeting_id,))
+        if cur.fetchone() is None:
+            abort(404)
+        cur.execute(
+            """
+            UPDATE meetings
+               SET is_hidden = FALSE,
+                   hidden_at = NULL,
+                   hidden_by = NULL
+             WHERE id = %s
+            """,
+            (meeting_id,),
+        )
+        conn.commit()
+    flash(f"Meeting {meeting_id} unhidden.")
+    referer = request.headers.get("Referer")
+    if referer:
+        return redirect(referer)
+    # Defensive: keep the fallback in case list_hidden_meetings is ever renamed.
+    try:
+        return redirect(url_for("admin.list_hidden_meetings"))
+    except BuildError:
+        return redirect(url_for("admin.list_members"))
+
+
+@bp.route("/meetings/hidden")
+def list_hidden_meetings():
+    """Admin index of every currently-hidden meeting.
+
+    Joins to admin_users for the "hidden by" column (NULL when an older
+    backfill hid the row without an actor) and to municipalities for city.
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+                m.id, m.title, m.meeting_date,
+                m.hidden_at,
+                mu.name AS city_name,
+                mu.slug AS city_slug,
+                au.username AS hidden_by_username
+              FROM meetings m
+              JOIN municipalities mu ON mu.id = m.municipality_id
+              LEFT JOIN admin_users au ON au.id = m.hidden_by
+             WHERE m.is_hidden = TRUE
+             ORDER BY m.hidden_at DESC NULLS LAST, m.id DESC
+            """
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+    return render_template("admin/hidden_meetings.html", rows=rows)

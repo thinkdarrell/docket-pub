@@ -19,6 +19,7 @@ from flask import (
     redirect,
     render_template,
     request,
+    session,
     url_for,
 )
 
@@ -238,6 +239,11 @@ def meeting_detail(slug, meeting_id):
     if not meeting or meeting.municipality_id != municipality["id"]:
         abort(404)
 
+    # Hidden meetings are 404 for anonymous viewers; admins get the full page
+    # with the hide/unhide banner from the template.
+    if meeting.is_hidden and not session.get("admin_user"):
+        abort(404)
+
     agenda_items = query.list_agenda_items(meeting_id)
     votes = query.list_votes(meeting_id)
     consent_items = [i for i in agenda_items if i.is_consent]
@@ -282,13 +288,20 @@ def item_detail(slug, item_id):
     if not municipality:
         abort(404)
 
-    item = query.get_agenda_item(item_id)
+    is_admin = bool(session.get("admin_user"))
+    item = (
+        query.get_agenda_item_for_admin(item_id)
+        if is_admin
+        else query.get_agenda_item(item_id)
+    )
     if not item:
         abort(404)
 
     # Verify the item belongs to this city via its meeting
     meeting = query.get_meeting(item.meeting_id)
     if not meeting or meeting.municipality_id != municipality["id"]:
+        abort(404)
+    if meeting.is_hidden and not is_admin:
         abort(404)
 
     from docket.services.query import coverage_for_subject

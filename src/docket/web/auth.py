@@ -49,6 +49,7 @@ def login():
         if user and check_password_hash(user["password_hash"], password):
             session.clear()
             session["admin_user"] = user["username"]
+            session["admin_user_id"] = user["id"]
             next_url = request.args.get("next", url_for("admin.list_members"))
             # Prevent open redirect — only allow relative paths
             if not next_url.startswith("/") or next_url.startswith("//"):

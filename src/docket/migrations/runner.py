@@ -43,6 +43,7 @@ MIGRATIONS = [
     "docket.migrations.030_sponsor_trgm_and_hoover",
     "docket.migrations.031_ai_rewrite_voice",
     "docket.migrations.032_meetings_start_time",
+    "docket.migrations.033_meetings_is_hidden",
 ]
 
 

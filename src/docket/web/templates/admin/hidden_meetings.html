@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Hidden Meetings — Admin — docket.pub{% endblock %}
+
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center;">
+    <h1>Hidden Meetings</h1>
+    <form method="post" action="{{ url_for('auth.logout') }}" style="margin: 0;">
+        <button type="submit" style="font-size: 0.85rem;">Sign Out ({{ session.get('admin_user', '') }})</button>
+    </form>
+</div>
+<p>
+    <a href="{{ url_for('admin.list_members') }}">← Back to Admin</a>
+</p>
+
+{% if rows %}
+<table>
+    <thead>
+        <tr>
+            <th>City</th>
+            <th>Date</th>
+            <th>Title</th>
+            <th>Hidden at</th>
+            <th>Hidden by</th>
+            <th>Action</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for r in rows %}
+        <tr>
+            <td>{{ r.city_name }}</td>
+            <td>{{ r.meeting_date }}</td>
+            <td>
+                <a href="{{ url_for('public.meeting_detail', slug=r.city_slug, meeting_id=r.id) }}">
+                    {{ r.title }}
+                </a>
+            </td>
+            <td>{{ r.hidden_at.strftime('%Y-%m-%d %H:%M UTC') if r.hidden_at else '—' }}</td>
+            <td>{{ r.hidden_by_username or '—' }}</td>
+            <td>
+                <form method="post"
+                      action="{{ url_for('admin.unhide_meeting', meeting_id=r.id) }}"
+                      style="display: inline;">
+                    <button type="submit">Unhide</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>No hidden meetings.</p>
+{% endif %}
+{% endblock %}
