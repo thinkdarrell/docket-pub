@@ -69,7 +69,7 @@ def list_meetings(
 ) -> PaginatedMeetings:
     """Return meetings for a municipality, newest first, with total count."""
     with db_cursor() as cur:
-        where = "m.slug = %s"
+        where = "m.slug = %s AND mt.is_hidden = FALSE"
         params: list = [municipality_slug]
 
         if meeting_type:
@@ -434,13 +434,21 @@ def dashboard_stats() -> dict:
         cur.execute("SELECT COUNT(*) AS count FROM municipalities WHERE active = TRUE")
         muni_count = cur.fetchone()["count"]
 
-        cur.execute("SELECT COUNT(*) AS count FROM meetings")
+        cur.execute("SELECT COUNT(*) AS count FROM meetings WHERE is_hidden = FALSE")
         meeting_count = cur.fetchone()["count"]
 
-        cur.execute("SELECT COUNT(*) AS count FROM agenda_items")
+        cur.execute(
+            "SELECT COUNT(*) AS count FROM agenda_items ai "
+            "JOIN meetings m ON ai.meeting_id = m.id "
+            "WHERE m.is_hidden = FALSE"
+        )
         item_count = cur.fetchone()["count"]
 
-        cur.execute("SELECT COUNT(*) AS count FROM votes")
+        cur.execute(
+            "SELECT COUNT(*) AS count FROM votes v "
+            "JOIN meetings m ON v.meeting_id = m.id "
+            "WHERE m.is_hidden = FALSE"
+        )
         vote_count = cur.fetchone()["count"]
 
         return {
@@ -903,6 +911,7 @@ def list_recent_meetings_for_city(slug: str, days: int = 7, limit: int = 4) -> l
         JOIN municipalities m ON mt.municipality_id = m.id
         WHERE m.slug = %s
           AND m.active = TRUE
+          AND mt.is_hidden = FALSE
           AND NOT ({_UPCOMING_PREDICATE_MT})
           AND mt.meeting_date >= (NOW() AT TIME ZONE 'America/Chicago')::date - %s
         ORDER BY mt.meeting_date DESC
@@ -921,6 +930,7 @@ def list_upcoming_meetings_for_city(slug: str, days: int = 14, limit: int = 4) -
         JOIN municipalities m ON mt.municipality_id = m.id
         WHERE m.slug = %s
           AND m.active = TRUE
+          AND mt.is_hidden = FALSE
           AND {_UPCOMING_PREDICATE_MT}
           AND mt.meeting_date <= (NOW() AT TIME ZONE 'America/Chicago')::date + %s
         ORDER BY mt.meeting_date ASC
