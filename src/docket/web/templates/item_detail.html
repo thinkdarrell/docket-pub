@@ -10,6 +10,18 @@
     ← Back to meeting
 </a>
 
+{# ── Admin parent-hidden banner (Task 12) ────────────────── #}
+{% if session.get('admin_user') and meeting.is_hidden %}
+  <div class="admin-banner admin-banner--hidden" style="background: #fff8c4; border: 1px solid #c0a000; padding: 0.75rem 1rem; margin-bottom: 1rem;">
+    <strong>The parent meeting for this item is hidden from the public site.</strong>
+    <span style="margin-left: 0.5rem;">
+      <a href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=meeting.id) }}">
+        Go to meeting to unhide.
+      </a>
+    </span>
+  </div>
+{% endif %}
+
 {# ── Header (P4-1) ─────────────────────────────────── #}
 <section class="hero hero--detail item-detail-hero">
     <div class="item-detail-hero-top">

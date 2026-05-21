@@ -276,3 +276,51 @@ def test_hide_meeting_requires_login(client, bag):
 def test_hide_meeting_404_unknown(admin_client, bag):
     rv = admin_client.post("/admin/meetings/99999999/hide", follow_redirects=False)
     assert rv.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Task 12 — meeting_detail banner + Hide button
+# ---------------------------------------------------------------------------
+
+
+def test_meeting_detail_admin_sees_hide_button_when_visible(admin_client, bag):
+    mid = bag.add_meeting(is_hidden=False)
+    rv = admin_client.get(f"/al/{bag.city_slug}/meetings/{mid}/")
+    body = rv.get_data(as_text=True)
+    assert f'action="/admin/meetings/{mid}/hide"' in body
+
+
+def test_meeting_detail_admin_sees_unhide_banner_when_hidden(admin_client, bag):
+    mid = bag.add_meeting(is_hidden=True)
+    rv = admin_client.get(f"/al/{bag.city_slug}/meetings/{mid}/")
+    body = rv.get_data(as_text=True)
+    assert "This meeting is hidden from the public site" in body
+    assert f'action="/admin/meetings/{mid}/unhide"' in body
+
+
+def test_meeting_detail_anon_does_not_see_hide_button(client, bag):
+    mid = bag.add_meeting(is_hidden=False)
+    rv = client.get(f"/al/{bag.city_slug}/meetings/{mid}/")
+    body = rv.get_data(as_text=True)
+    assert "/hide" not in body
+    assert "is hidden from the public site" not in body
+
+
+def test_item_detail_admin_sees_banner_when_parent_hidden(admin_client, bag):
+    """Admin viewing an item whose parent meeting is hidden sees a banner
+    explaining why the page is invisible to citizens. No Hide/Unhide button
+    on the item page — the action lives on the meeting page."""
+    mid = bag.add_meeting(is_hidden=True)
+    iid = bag.add_item(mid)
+    rv = admin_client.get(f"/al/{bag.city_slug}/items/{iid}/")
+    body = rv.get_data(as_text=True)
+    assert rv.status_code == 200
+    assert "parent meeting for this item is hidden" in body.lower()
+
+
+def test_item_detail_admin_no_banner_when_parent_visible(admin_client, bag):
+    mid = bag.add_meeting(is_hidden=False)
+    iid = bag.add_item(mid)
+    rv = admin_client.get(f"/al/{bag.city_slug}/items/{iid}/")
+    body = rv.get_data(as_text=True)
+    assert "parent meeting" not in body.lower() or "is hidden" not in body.lower()
