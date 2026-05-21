@@ -288,13 +288,20 @@ def item_detail(slug, item_id):
     if not municipality:
         abort(404)
 
-    item = query.get_agenda_item(item_id)
+    is_admin = bool(session.get("admin_user"))
+    item = (
+        query.get_agenda_item_for_admin(item_id)
+        if is_admin
+        else query.get_agenda_item(item_id)
+    )
     if not item:
         abort(404)
 
     # Verify the item belongs to this city via its meeting
     meeting = query.get_meeting(item.meeting_id)
     if not meeting or meeting.municipality_id != municipality["id"]:
+        abort(404)
+    if meeting.is_hidden and not is_admin:
         abort(404)
 
     from docket.services.query import coverage_for_subject

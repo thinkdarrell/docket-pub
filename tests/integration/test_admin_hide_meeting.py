@@ -146,3 +146,29 @@ def test_meeting_detail_200_for_anonymous_when_visible(client, bag):
     mid = bag.add_meeting(is_hidden=False)
     rv = client.get(f"/al/{bag.city_slug}/meetings/{mid}/")
     assert rv.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Task 9 — item_detail admin bypass
+# ---------------------------------------------------------------------------
+
+
+def test_item_detail_404_for_anonymous_when_parent_hidden(client, bag):
+    mid = bag.add_meeting(is_hidden=True)
+    iid = bag.add_item(mid)
+    rv = client.get(f"/al/{bag.city_slug}/items/{iid}/")
+    assert rv.status_code == 404
+
+
+def test_item_detail_200_for_admin_when_parent_hidden(admin_client, bag):
+    mid = bag.add_meeting(is_hidden=True)
+    iid = bag.add_item(mid)
+    rv = admin_client.get(f"/al/{bag.city_slug}/items/{iid}/")
+    assert rv.status_code == 200
+
+
+def test_item_detail_200_for_anonymous_when_parent_visible(client, bag):
+    mid = bag.add_meeting(is_hidden=False)
+    iid = bag.add_item(mid)
+    rv = client.get(f"/al/{bag.city_slug}/items/{iid}/")
+    assert rv.status_code == 200
