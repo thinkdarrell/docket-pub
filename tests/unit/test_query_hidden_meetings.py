@@ -181,3 +181,43 @@ def test_list_upcoming_meetings_for_city_excludes_hidden(hidden_meeting_seed):
     ids = {r["id"] for r in rows}
     assert hidden_meeting_seed["visible_id"] in ids
     assert hidden_meeting_seed["hidden_id"] not in ids
+
+
+# ---------------------------------------------------------------------------
+# Task 5 — cross-city recent/upcoming + search_meetings
+# ---------------------------------------------------------------------------
+
+
+def test_list_recent_meetings_cross_city_excludes_hidden(hidden_meeting_seed):
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            "UPDATE meetings SET meeting_date = CURRENT_DATE - 1 WHERE id IN (%s, %s)",
+            (hidden_meeting_seed["visible_id"], hidden_meeting_seed["hidden_id"]),
+        )
+        conn.commit()
+    rows = query.list_recent_meetings(days=7, limit=50)
+    ids = {r["id"] for r in rows}
+    assert hidden_meeting_seed["visible_id"] in ids
+    assert hidden_meeting_seed["hidden_id"] not in ids
+
+
+def test_list_upcoming_meetings_cross_city_excludes_hidden(hidden_meeting_seed):
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            "UPDATE meetings SET meeting_date = CURRENT_DATE + 3 WHERE id IN (%s, %s)",
+            (hidden_meeting_seed["visible_id"], hidden_meeting_seed["hidden_id"]),
+        )
+        conn.commit()
+    rows = query.list_upcoming_meetings(days=14, limit=50)
+    ids = {r["id"] for r in rows}
+    assert hidden_meeting_seed["visible_id"] in ids
+    assert hidden_meeting_seed["hidden_id"] not in ids
+
+
+def test_search_meetings_excludes_hidden(hidden_meeting_seed):
+    # Seed sets titles to TEST_HIDE_visible / TEST_HIDE_hidden — search for the
+    # shared substring. Hidden one must not appear in results.
+    results = query.search_meetings("TEST_HIDE", municipality_slug=hidden_meeting_seed["slug"])
+    ids = {r["id"] for r in results}
+    assert hidden_meeting_seed["visible_id"] in ids
+    assert hidden_meeting_seed["hidden_id"] not in ids

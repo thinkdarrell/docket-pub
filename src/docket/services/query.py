@@ -871,6 +871,7 @@ def list_recent_meetings(days: int = 7, limit: int = 20) -> list[dict]:
         FROM meetings mt
         JOIN municipalities m ON mt.municipality_id = m.id
         WHERE m.active = TRUE
+          AND mt.is_hidden = FALSE
           AND NOT ({_UPCOMING_PREDICATE_MT})
           AND mt.meeting_date >= (NOW() AT TIME ZONE 'America/Chicago')::date - %s
         ORDER BY mt.meeting_date DESC
@@ -888,6 +889,7 @@ def list_upcoming_meetings(days: int = 14, limit: int = 20) -> list[dict]:
         FROM meetings mt
         JOIN municipalities m ON mt.municipality_id = m.id
         WHERE m.active = TRUE
+          AND mt.is_hidden = FALSE
           AND {_UPCOMING_PREDICATE_MT}
           AND mt.meeting_date <= (NOW() AT TIME ZONE 'America/Chicago')::date + %s
         ORDER BY mt.meeting_date ASC
@@ -955,7 +957,7 @@ def search_meetings(
     Scoped to a single city by default. Pass municipality_slug=None for cross-city.
     """
     with db_cursor() as cur:
-        where = "m.active = TRUE AND mt.search_vector @@ websearch_to_tsquery('english', %s)"
+        where = "m.active = TRUE AND mt.is_hidden = FALSE AND mt.search_vector @@ websearch_to_tsquery('english', %s)"
         params: list = [query]
 
         if municipality_slug:
