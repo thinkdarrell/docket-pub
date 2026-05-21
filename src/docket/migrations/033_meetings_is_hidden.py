@@ -13,9 +13,11 @@ covers the hot city-landing query pattern without paying for hidden rows.
 predicate to its existing JOIN to ``meetings`` (which already supplied
 ``municipality_id`` and ``meeting_date``). Category-landing volume
 timelines now exclude hidden meetings. WITH NO DATA matches migration
-022's shape; the next ``refresh_backfill_ratio_mv`` cron (04:30 CT daily)
-repopulates. Deploy step applies the refresh manually so prod doesn't
-show empty category pages between deploy and 04:30 CT.
+022's shape — no cron currently refreshes this MV (``refresh_backfill_ratio_mv``
+targets ``mv_city_backfill_ratio``, a different view), so the deploy step
+must explicitly run ``REFRESH MATERIALIZED VIEW mv_badge_volume_monthly``
+(without ``CONCURRENTLY`` on the first run — PG refuses concurrent refresh
+on an unpopulated MV) or category landings stay empty.
 
 Spec: docs/superpowers/specs/2026-05-20-hide-non-real-meetings-design.md
 """

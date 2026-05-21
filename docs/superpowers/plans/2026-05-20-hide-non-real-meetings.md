@@ -2249,10 +2249,10 @@ Expected log line: `Applying migration 33: docket.migrations.033_meetings_is_hid
 
 - [ ] **Step 3: Refresh the materialized view**
 
-The MV was rebuilt `WITH NO DATA` by the migration. Repopulate so category landings work immediately rather than waiting for the next 04:30 CT cron:
+The MV was rebuilt `WITH NO DATA` by the migration and is not refreshed by any cron — category landings will be empty until this step runs. First refresh must omit `CONCURRENTLY` (PostgreSQL refuses concurrent refresh on an unpopulated MV); later operator-run refreshes can use `CONCURRENTLY`:
 
 ```
-railway ssh --service docket-web "cd /app && python -c \"from docket.db import db; conn=db().__enter__(); cur=conn.cursor(); cur.execute('REFRESH MATERIALIZED VIEW CONCURRENTLY mv_badge_volume_monthly'); conn.commit(); print('OK')\""
+railway ssh --service docket-web "cd /app && python -c \"from docket.db import db; conn=db().__enter__(); cur=conn.cursor(); cur.execute('REFRESH MATERIALIZED VIEW mv_badge_volume_monthly'); conn.commit(); print('OK')\""
 ```
 
 Expected: `OK` (a few seconds).
