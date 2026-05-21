@@ -219,3 +219,60 @@ def test_upcoming_hearings_rss_excludes_hidden(client, bag):
     # one does (the heuristic may exclude both for other reasons; the
     # absence-of-hidden assertion is the load-bearing one).
     assert "TEST_HIDE_rss_hidden" not in body
+
+
+# ---------------------------------------------------------------------------
+# Task 11 — hide/unhide POST routes
+# ---------------------------------------------------------------------------
+
+
+def test_hide_meeting_post_sets_flag_and_audit(admin_client, bag):
+    mid = bag.add_meeting(is_hidden=False)
+    rv = admin_client.post(f"/admin/meetings/{mid}/hide", follow_redirects=False)
+    assert rv.status_code in (302, 303)
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT is_hidden, hidden_at, hidden_by FROM meetings WHERE id = %s",
+            (mid,),
+        )
+        row = cur.fetchone()
+    is_hidden, hidden_at, hidden_by = row
+    assert is_hidden is True
+    assert hidden_at is not None
+    assert hidden_by == bag.admin_id
+
+
+def test_unhide_meeting_post_clears_flag_and_audit(admin_client, bag):
+    mid = bag.add_meeting(is_hidden=True)
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            "UPDATE meetings SET hidden_at = NOW(), hidden_by = %s WHERE id = %s",
+            (bag.ensure_admin(), mid),
+        )
+        conn.commit()
+    rv = admin_client.post(f"/admin/meetings/{mid}/unhide", follow_redirects=False)
+    assert rv.status_code in (302, 303)
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT is_hidden, hidden_at, hidden_by FROM meetings WHERE id = %s",
+            (mid,),
+        )
+        row = cur.fetchone()
+    is_hidden, hidden_at, hidden_by = row
+    assert is_hidden is False
+    assert hidden_at is None
+    assert hidden_by is None
+
+
+def test_hide_meeting_requires_login(client, bag):
+    mid = bag.add_meeting(is_hidden=False)
+    rv = client.post(f"/admin/meetings/{mid}/hide", follow_redirects=False)
+    # Blueprint before_request redirects to /admin/login when not authed.
+    assert rv.status_code in (301, 302, 303, 308)
+    location = rv.headers.get("Location", "")
+    assert "/admin/login" in location
+
+
+def test_hide_meeting_404_unknown(admin_client, bag):
+    rv = admin_client.post("/admin/meetings/99999999/hide", follow_redirects=False)
+    assert rv.status_code == 404

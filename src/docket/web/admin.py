@@ -17,6 +17,7 @@ from flask import (
     session,
     url_for,
 )
+from werkzeug.routing.exceptions import BuildError
 
 from docket.db import db, db_cursor
 from docket.services import query
@@ -1469,3 +1470,72 @@ def profile_update_display_name():
         cur.execute("UPDATE admin_users SET display_name = %s WHERE id = %s",
                     (new_name, uid))
     return redirect(url_for('admin.profile'))
+
+
+# --- Meeting visibility (hide / unhide) -------------------------------------
+
+
+@bp.post("/meetings/<int:meeting_id>/hide")
+def hide_meeting(meeting_id: int):
+    """Mark a meeting as hidden — suppress it from all citizen surfaces.
+
+    Sets is_hidden=TRUE plus the hidden_at/hidden_by audit columns. The
+    blueprint-level before_request handler enforces login.
+    """
+    with db() as conn, conn.cursor() as cur:
+        cur.execute("SELECT id FROM meetings WHERE id = %s", (meeting_id,))
+        if cur.fetchone() is None:
+            abort(404)
+        cur.execute(
+            """
+            UPDATE meetings
+               SET is_hidden = TRUE,
+                   hidden_at = NOW(),
+                   hidden_by = %s
+             WHERE id = %s
+            """,
+            (session.get("admin_user_id"), meeting_id),
+        )
+        conn.commit()
+    flash(f"Meeting {meeting_id} hidden.")
+    # Redirect back where the action was triggered if a referer is present;
+    # fall back to the hidden-meetings admin index.
+    referer = request.headers.get("Referer")
+    if referer:
+        return redirect(referer)
+    # Forward reference: admin.list_hidden_meetings is added in a later task.
+    # Fall back to admin.list_members until then so url_for doesn't BuildError.
+    try:
+        return redirect(url_for("admin.list_hidden_meetings"))
+    except BuildError:
+        return redirect(url_for("admin.list_members"))
+
+
+@bp.post("/meetings/<int:meeting_id>/unhide")
+def unhide_meeting(meeting_id: int):
+    """Clear the hidden flag and audit columns."""
+    with db() as conn, conn.cursor() as cur:
+        cur.execute("SELECT id FROM meetings WHERE id = %s", (meeting_id,))
+        if cur.fetchone() is None:
+            abort(404)
+        cur.execute(
+            """
+            UPDATE meetings
+               SET is_hidden = FALSE,
+                   hidden_at = NULL,
+                   hidden_by = NULL
+             WHERE id = %s
+            """,
+            (meeting_id,),
+        )
+        conn.commit()
+    flash(f"Meeting {meeting_id} unhidden.")
+    referer = request.headers.get("Referer")
+    if referer:
+        return redirect(referer)
+    # Forward reference: admin.list_hidden_meetings is added in a later task.
+    # Fall back to admin.list_members until then so url_for doesn't BuildError.
+    try:
+        return redirect(url_for("admin.list_hidden_meetings"))
+    except BuildError:
+        return redirect(url_for("admin.list_members"))
