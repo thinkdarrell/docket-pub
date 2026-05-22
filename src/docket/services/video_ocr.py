@@ -97,3 +97,81 @@ def persist_detected_votes(
                     [vote_id, member_id, ocr_name, position],
                 )
     return inserted
+
+
+# Spec §4: claim pattern. Inner CTE locks rows passing the FULL filter
+# set with FOR UPDATE SKIP LOCKED, so concurrent workers don't deadlock
+# or claim the same meeting and we don't accidentally lock rows that the
+# outer WHERE would reject. The outer UPDATE bumps attempts before any
+# scan runs so a process crash mid-scan still consumes one attempt.
+_CLAIM_SQL = """
+    WITH candidate AS (
+        SELECT ps.meeting_id
+          FROM processing_status ps
+          JOIN meetings m        ON m.id  = ps.meeting_id
+          JOIN municipalities mu ON mu.id = m.municipality_id
+         WHERE mu.slug = 'birmingham'
+           AND m.external_id ~ '^[0-9]+$'
+           AND m.is_hidden = FALSE
+           AND m.meeting_date >= now() - interval '60 days'
+           AND ps.video_ocr_scanned = FALSE
+           AND ps.video_ocr_attempts < 3
+           AND (
+                ps.video_ocr_last_attempted_at IS NULL
+                OR ps.video_ocr_last_attempted_at < now() - interval '24 hours'
+           )
+         ORDER BY ps.video_ocr_last_attempted_at NULLS FIRST, m.meeting_date DESC
+         LIMIT 1
+         FOR UPDATE OF ps SKIP LOCKED
+    )
+    UPDATE processing_status ps
+       SET video_ocr_attempts         = ps.video_ocr_attempts + 1,
+           video_ocr_last_attempted_at = now()
+      FROM candidate
+      JOIN meetings m ON m.id = candidate.meeting_id
+     WHERE ps.meeting_id = candidate.meeting_id
+     RETURNING m.id, m.external_id, m.meeting_date
+"""
+
+
+def _claim_next_ocr_meeting() -> dict | None:
+    """Atomically claim the next BHM meeting needing OCR.
+
+    Returns a dict with keys (id, external_id, meeting_date), or None if no
+    meeting is currently eligible. The claim commits immediately; the
+    long OCR scan that follows runs without any DB connection held.
+    """
+    with db_cursor() as cur:
+        cur.execute(_CLAIM_SQL)
+        row = cur.fetchone()
+    if row is None:
+        return None
+    return {
+        "id": row["id"],
+        "external_id": row["external_id"],
+        "meeting_date": row["meeting_date"],
+    }
+
+
+def _mark_ocr_complete(meeting_id: int) -> None:
+    """Set video_ocr_scanned=TRUE and clear last error."""
+    with db_cursor() as cur:
+        cur.execute(
+            """UPDATE processing_status
+                  SET video_ocr_scanned = TRUE,
+                      video_ocr_last_error = NULL
+                WHERE meeting_id = %s""",
+            [meeting_id],
+        )
+
+
+def _mark_ocr_failed(meeting_id: int, error: str) -> None:
+    """Record error text on processing_status; leave video_ocr_scanned=FALSE
+    so the 24h backoff applies and the meeting is eligible again on retry."""
+    with db_cursor() as cur:
+        cur.execute(
+            """UPDATE processing_status
+                  SET video_ocr_last_error = %s
+                WHERE meeting_id = %s""",
+            [error[:2000], meeting_id],
+        )
