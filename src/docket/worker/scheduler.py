@@ -47,6 +47,13 @@ def build_scheduler(timezone: str = "America/Chicago") -> BlockingScheduler:
         max_instances=1,
     )
     sched.add_job(
+        TASKS["video_ocr"],
+        CronTrigger(hour=6, minute=30, timezone=timezone),
+        id="video_ocr",
+        coalesce=True,
+        max_instances=1,
+    )
+    sched.add_job(
         TASKS["ai_items"],
         CronTrigger(hour=7, minute=0, timezone=timezone),
         id="ai_items",
@@ -141,7 +148,9 @@ def main() -> None:
 
     tz = os.environ.get("WORKER_TIMEZONE", "America/Chicago")
     sched = build_scheduler(timezone=tz)
-    log.info("docket.pub worker starting timezone=%s jobs=%d", tz, len(sched.get_jobs()))
+    log.info(
+        "docket.pub worker starting timezone=%s jobs=%d", tz, len(sched.get_jobs())
+    )
     for job in sched.get_jobs():
         next_run = getattr(job, "next_run_time", None)
         log.info("  job=%s next_run=%s", job.id, next_run)

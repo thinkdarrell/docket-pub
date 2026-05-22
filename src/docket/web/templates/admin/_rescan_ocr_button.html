@@ -1,0 +1,12 @@
+{# Admin-only force-rescan button. Included by meeting_detail.html
+   when session.get('admin_user') is truthy. Spec §7. #}
+<form method="post" action="{{ url_for('admin.rescan_meeting_ocr', meeting_id=meeting.id) }}"
+      class="admin-action-form"
+      onsubmit="return confirm('Delete all video-OCR votes for this meeting and re-scan? Minutes-PDF votes will be untouched.');">
+  <button type="submit" class="btn btn-warn btn-sm">Re-scan OCR</button>
+  {% if processing_status and processing_status.video_ocr_last_error %}
+    <span class="admin-ocr-error" title="{{ processing_status.video_ocr_last_error }}">
+      Last error: {{ processing_status.video_ocr_last_error[:200] }}{% if processing_status.video_ocr_last_error|length > 200 %}…{% endif %}
+    </span>
+  {% endif %}
+</form>

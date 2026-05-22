@@ -133,7 +133,7 @@ def test_repair_invokes_repair_empty_agendas():
 
 def test_tasks_registry_has_all_jobs():
     expected = {
-        "ingest_all", "ai_items", "ai_meetings", "vote_matching",
+        "ingest_all", "video_ocr", "ai_items", "ai_meetings", "vote_matching",
         "repair_empty_agendas", "process_badges", "calibration_report",
         "process_batches", "refresh_backfill_ratio_mv", "prune_analytics",
     }

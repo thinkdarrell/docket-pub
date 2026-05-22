@@ -12,7 +12,7 @@ def test_build_scheduler_registers_all_jobs():
     sched = scheduler.build_scheduler(timezone="America/Chicago")
     job_ids = {job.id for job in sched.get_jobs()}
     assert job_ids == {
-        "ingest_all", "ai_items", "ai_meetings", "vote_matching",
+        "ingest_all", "video_ocr", "ai_items", "ai_meetings", "vote_matching",
         "repair_empty_agendas", "process_badges", "calibration_report",
         "process_batches", "refresh_backfill_ratio_mv", "prune_analytics",
     }

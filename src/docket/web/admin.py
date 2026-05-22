@@ -215,8 +215,10 @@ def data_debt():
         limit=_QUEUE_PAGE_SIZE + 1,
         offset=offset,
     )
-    items = items_plus_one[: _QUEUE_PAGE_SIZE]
-    next_offset = (offset + _QUEUE_PAGE_SIZE) if len(items_plus_one) > _QUEUE_PAGE_SIZE else None
+    items = items_plus_one[:_QUEUE_PAGE_SIZE]
+    next_offset = (
+        (offset + _QUEUE_PAGE_SIZE) if len(items_plus_one) > _QUEUE_PAGE_SIZE else None
+    )
 
     return render_template(
         "admin/data_debt.html",
@@ -241,8 +243,10 @@ def errors():
         limit=_QUEUE_PAGE_SIZE + 1,
         offset=offset,
     )
-    items = items_plus_one[: _QUEUE_PAGE_SIZE]
-    next_offset = (offset + _QUEUE_PAGE_SIZE) if len(items_plus_one) > _QUEUE_PAGE_SIZE else None
+    items = items_plus_one[:_QUEUE_PAGE_SIZE]
+    next_offset = (
+        (offset + _QUEUE_PAGE_SIZE) if len(items_plus_one) > _QUEUE_PAGE_SIZE else None
+    )
 
     return render_template(
         "admin/errors.html",
@@ -315,7 +319,9 @@ def errors_retry(item_id: int):
 
     current_app.logger.info(
         "admin retry: item_id=%s actor=%s from_status=%s",
-        item_id, actor, from_status,
+        item_id,
+        actor,
+        from_status,
     )
     flash(f"Item #{item_id} retry queued.")
     return redirect(url_for("admin.errors"))
@@ -380,7 +386,10 @@ def errors_escalate(item_id: int):
                    'escalate', %s, 'admin', %s, %s::jsonb)
                 """,
                 (
-                    item_id, from_status, from_status, actor,
+                    item_id,
+                    from_status,
+                    from_status,
+                    actor,
                     "Admin escalated from errors queue (manual review needed)",
                     json.dumps({"admin_escalated": True}),
                 ),
@@ -388,7 +397,9 @@ def errors_escalate(item_id: int):
 
     current_app.logger.info(
         "admin escalate: item_id=%s actor=%s status=%s",
-        item_id, actor, from_status,
+        item_id,
+        actor,
+        from_status,
     )
     flash(f"Item #{item_id} escalated to manual review.")
     return redirect(url_for("admin.errors"))
@@ -628,9 +639,7 @@ def badges_audit():
     )
     rows = rows_plus_one[:_AUDIT_PAGE_SIZE]
     next_offset = (
-        offset + _AUDIT_PAGE_SIZE
-        if len(rows_plus_one) > _AUDIT_PAGE_SIZE
-        else None
+        offset + _AUDIT_PAGE_SIZE if len(rows_plus_one) > _AUDIT_PAGE_SIZE else None
     )
 
     return render_template(
@@ -682,7 +691,8 @@ def badges_manage_item(item_id: int):
     current = query.list_badges_on_item(item_id)
     attached_slugs = {b["slug"] for b in current}
     addable = [
-        b for b in query.list_enabled_badges(item["municipality_id"])
+        b
+        for b in query.list_enabled_badges(item["municipality_id"])
         if b["slug"] not in attached_slugs
     ]
 
@@ -756,7 +766,10 @@ def badge_add(item_id: int, slug: str):
                 RETURNING id
                 """,
                 (
-                    item_id, city_id, slug, kind,
+                    item_id,
+                    city_id,
+                    slug,
+                    kind,
                     json.dumps({"manual": True, "added_by": actor}),
                 ),
             )
@@ -774,7 +787,10 @@ def badge_add(item_id: int, slug: str):
 
     current_app.logger.info(
         "admin badge add: item_id=%s slug=%s actor=%s inserted=%s",
-        item_id, slug, actor, inserted is not None,
+        item_id,
+        slug,
+        actor,
+        inserted is not None,
     )
     return _render_manage_panel(item_id)
 
@@ -803,7 +819,8 @@ def _render_manage_panel(item_id: int):
     current = query.list_badges_on_item(item_id)
     attached_slugs = {b["slug"] for b in current}
     addable = [
-        b for b in query.list_enabled_badges(item["municipality_id"])
+        b
+        for b in query.list_enabled_badges(item["municipality_id"])
         if b["slug"] not in attached_slugs
     ]
 
@@ -884,7 +901,9 @@ def badge_remove(item_id: int, slug: str):
 
     current_app.logger.info(
         "admin badge remove: item_id=%s slug=%s actor=%s",
-        item_id, slug, actor,
+        item_id,
+        slug,
+        actor,
     )
     return _render_manage_panel(item_id)
 
@@ -948,8 +967,7 @@ def conflict_form_accept_s1(item_id: int):
     otherwise 404 to avoid leaking the form for a completed item."""
     with db_cursor() as cur:
         cur.execute(
-            "SELECT id, title, processing_status::text "
-            "FROM agenda_items WHERE id = %s",
+            "SELECT id, title, processing_status::text FROM agenda_items WHERE id = %s",
             (item_id,),
         )
         row = cur.fetchone()
@@ -997,8 +1015,7 @@ def conflict_accept_stage_1(item_id: int):
 def conflict_form_re_prompt(item_id: int):
     with db_cursor() as cur:
         cur.execute(
-            "SELECT id, processing_status::text "
-            "FROM agenda_items WHERE id = %s",
+            "SELECT id, processing_status::text FROM agenda_items WHERE id = %s",
             (item_id,),
         )
         row = cur.fetchone()
@@ -1017,7 +1034,9 @@ def conflict_re_prompt_stage_2(item_id: int):
 
     try:
         result = conflict_svc.re_prompt_stage_2(
-            item_id, override_instruction=override, actor=actor,
+            item_id,
+            override_instruction=override,
+            actor=actor,
         )
     except conflict_svc.ConflictValidationError as e:
         return (str(e), 400)
@@ -1093,7 +1112,9 @@ def conflict_accept_stage_2(item_id: int):
 
     try:
         result = conflict_svc.accept_stage_2(
-            item_id, actor=actor, reason=reason,
+            item_id,
+            actor=actor,
+            reason=reason,
         )
     except conflict_svc.ConflictValidationError as e:
         return (str(e), 400)
@@ -1105,11 +1126,14 @@ def conflict_accept_stage_2(item_id: int):
 
 # --- Editorial coverage -----------------------------------------------------
 
+
 @bp.route("/coverage", methods=["GET"])
 def coverage_list():
     """List coverage entries with filter tabs."""
-    status_filter = request.args.get('status')  # 'draft' / 'proposed' / 'published' / 'rejected' / None=all
-    kind_filter = request.args.get('kind')      # 'note' / 'citation' / None=both
+    status_filter = request.args.get(
+        "status"
+    )  # 'draft' / 'proposed' / 'published' / 'rejected' / None=all
+    kind_filter = request.args.get("kind")  # 'note' / 'citation' / None=both
 
     where = []
     params = []
@@ -1140,10 +1164,10 @@ def coverage_list():
         cur.execute(
             """SELECT status, COUNT(*) AS n FROM coverage_entries GROUP BY status"""
         )
-        counts = {r['status']: r['n'] for r in cur.fetchall()}
+        counts = {r["status"]: r["n"] for r in cur.fetchall()}
 
         # Fetch attached subjects for each row in one bulk query
-        row_ids = [r['id'] for r in rows]
+        row_ids = [r["id"] for r in rows]
         subjects_by_coverage_id = {}
         if row_ids:
             cur.execute(
@@ -1163,8 +1187,8 @@ def coverage_list():
                 (row_ids,),
             )
             for r in cur.fetchall():
-                subjects_by_coverage_id.setdefault(r['coverage_id'], []).append(
-                    {'subject_type': r['subject_type'], 'label': r['label'] or ''}
+                subjects_by_coverage_id.setdefault(r["coverage_id"], []).append(
+                    {"subject_type": r["subject_type"], "label": r["label"] or ""}
                 )
 
     return render_template(
@@ -1180,63 +1204,70 @@ def coverage_list():
 
 @bp.route("/coverage/new", methods=["GET"])
 def coverage_new():
-    kind = request.args.get('kind', 'note')
-    if kind not in ('note', 'citation'):
+    kind = request.args.get("kind", "note")
+    if kind not in ("note", "citation"):
         abort(400)
     with db_cursor() as cur:
-        cur.execute("SELECT id, slug, name FROM outlets WHERE is_active = TRUE ORDER BY name")
+        cur.execute(
+            "SELECT id, slug, name FROM outlets WHERE is_active = TRUE ORDER BY name"
+        )
         outlets = cur.fetchall()
-    template = 'admin/coverage/new_note.html' if kind == 'note' else 'admin/coverage/new_citation.html'
+    template = (
+        "admin/coverage/new_note.html"
+        if kind == "note"
+        else "admin/coverage/new_citation.html"
+    )
     return render_template(template, outlets=outlets)
 
 
 @bp.route("/coverage", methods=["POST"])
 def coverage_create():
     from docket.services.coverage_writer import create_note, create_citation
-    kind = request.form.get('kind')
+
+    kind = request.form.get("kind")
     subjects = _parse_subjects_from_form(request.form)
     if not subjects:
         flash("Attach to at least one subject.")
-        return redirect(url_for('admin.coverage_new', kind=kind or 'note'))
-    author_id = session['admin_user']
-    status = 'published' if request.form.get('publish_now') == 'on' else 'draft'
-    if kind == 'note':
-        body = (request.form.get('body') or '').strip()
+        return redirect(url_for("admin.coverage_new", kind=kind or "note"))
+    author_id = session["admin_user"]
+    status = "published" if request.form.get("publish_now") == "on" else "draft"
+    if kind == "note":
+        body = (request.form.get("body") or "").strip()
         if not body:
             flash("Note body is required.")
-            return redirect(url_for('admin.coverage_new', kind='note'))
+            return redirect(url_for("admin.coverage_new", kind="note"))
         create_note(
             author_id=author_id,
             body=body,
-            partner_credit=(request.form.get('partner_credit') or '').strip() or None,
+            partner_credit=(request.form.get("partner_credit") or "").strip() or None,
             subjects=subjects,
             status=status,
         )
-    elif kind == 'citation':
+    elif kind == "citation":
         try:
-            outlet_id = int(request.form['outlet_id'])
+            outlet_id = int(request.form["outlet_id"])
         except (KeyError, ValueError):
             abort(400)
-        external_url = (request.form.get('external_url') or '').strip()
-        headline = (request.form.get('headline') or '').strip()
+        external_url = (request.form.get("external_url") or "").strip()
+        headline = (request.form.get("headline") or "").strip()
         if not (external_url and headline):
             flash("Citation URL and headline are required.")
-            return redirect(url_for('admin.coverage_new', kind='citation'))
-        article_pub = request.form.get('article_published_at') or None
+            return redirect(url_for("admin.coverage_new", kind="citation"))
+        article_pub = request.form.get("article_published_at") or None
         create_citation(
             author_id=author_id,
             outlet_id=outlet_id,
             external_url=external_url,
             headline=headline,
-            reporter_byline=(request.form.get('reporter_byline') or '').strip() or None,
-            excerpt=(request.form.get('excerpt') or '').strip() or None,
+            reporter_byline=(request.form.get("reporter_byline") or "").strip() or None,
+            excerpt=(request.form.get("excerpt") or "").strip() or None,
             article_published_at=article_pub,
             subjects=subjects,
             status=status,
         )
     else:
         abort(400)
-    return redirect(url_for('admin.coverage_list'))
+    return redirect(url_for("admin.coverage_list"))
 
 
 @bp.route("/coverage/<int:coverage_id>/edit", methods=["GET"])
@@ -1258,121 +1289,148 @@ def coverage_edit(coverage_id: int):
             "SELECT id, slug, name FROM outlets "
             "WHERE is_active = TRUE OR id = %s "
             "ORDER BY name",
-            (entry['outlet_id'],),
+            (entry["outlet_id"],),
         )
         outlets = cur.fetchall()
-    return render_template("admin/coverage/edit.html", entry=entry, subjects=subjects, outlets=outlets)
+    return render_template(
+        "admin/coverage/edit.html", entry=entry, subjects=subjects, outlets=outlets
+    )
 
 
 @bp.route("/coverage/<int:coverage_id>", methods=["POST"])
 def coverage_update(coverage_id: int):
     from docket.services.coverage_writer import update_coverage
+
     fields = {}
-    for k in ('body', 'partner_credit', 'external_url', 'headline',
-              'reporter_byline', 'excerpt', 'byline'):
+    for k in (
+        "body",
+        "partner_credit",
+        "external_url",
+        "headline",
+        "reporter_byline",
+        "excerpt",
+        "byline",
+    ):
         if k in request.form:
-            v = (request.form[k] or '').strip()
+            v = (request.form[k] or "").strip()
             fields[k] = v or None
-    if 'outlet_id' in request.form and request.form['outlet_id']:
-        fields['outlet_id'] = int(request.form['outlet_id'])
-    if 'article_published_at' in request.form:
-        fields['article_published_at'] = request.form['article_published_at'] or None
-    subjects = _parse_subjects_from_form(request.form) if 'subject[]' in request.form else None
+    if "outlet_id" in request.form and request.form["outlet_id"]:
+        fields["outlet_id"] = int(request.form["outlet_id"])
+    if "article_published_at" in request.form:
+        fields["article_published_at"] = request.form["article_published_at"] or None
+    subjects = (
+        _parse_subjects_from_form(request.form) if "subject[]" in request.form else None
+    )
     update_coverage(coverage_id, subjects=subjects, **fields)
-    return redirect(url_for('admin.coverage_list'))
+    return redirect(url_for("admin.coverage_list"))
 
 
 @bp.route("/coverage/<int:coverage_id>/delete", methods=["POST"])
 def coverage_delete(coverage_id: int):
     from docket.services.coverage_writer import delete_coverage
+
     delete_coverage(coverage_id)
-    return redirect(url_for('admin.coverage_list'))
+    return redirect(url_for("admin.coverage_list"))
 
 
 @bp.route("/coverage/<int:coverage_id>/publish", methods=["POST"])
 def coverage_publish(coverage_id: int):
     from docket.services.coverage_writer import set_status
-    set_status(coverage_id, 'published')
-    return redirect(request.referrer or url_for('admin.coverage_list'))
+
+    set_status(coverage_id, "published")
+    return redirect(request.referrer or url_for("admin.coverage_list"))
 
 
 @bp.route("/coverage/<int:coverage_id>/unpublish", methods=["POST"])
 def coverage_unpublish(coverage_id: int):
     from docket.services.coverage_writer import set_status
-    set_status(coverage_id, 'draft')
-    return redirect(request.referrer or url_for('admin.coverage_list'))
+
+    set_status(coverage_id, "draft")
+    return redirect(request.referrer or url_for("admin.coverage_list"))
 
 
 @bp.route("/coverage/<int:coverage_id>/reject", methods=["POST"])
 def coverage_reject(coverage_id: int):
     from docket.services.coverage_writer import set_status
-    set_status(coverage_id, 'rejected')
-    return redirect(request.referrer or url_for('admin.coverage_list'))
+
+    set_status(coverage_id, "rejected")
+    return redirect(request.referrer or url_for("admin.coverage_list"))
 
 
 @bp.route("/coverage/<int:coverage_id>/restore", methods=["POST"])
 def coverage_restore(coverage_id: int):
     from docket.services.coverage_writer import set_status
-    set_status(coverage_id, 'draft')
-    return redirect(request.referrer or url_for('admin.coverage_list'))
+
+    set_status(coverage_id, "draft")
+    return redirect(request.referrer or url_for("admin.coverage_list"))
 
 
 @bp.route("/coverage/<int:coverage_id>/feature", methods=["POST"])
 def coverage_feature(coverage_id: int):
     from docket.services.coverage_writer import set_featured_until
-    set_featured_until(coverage_id, datetime.now(ZoneInfo("America/Chicago")) + timedelta(days=14))
-    return redirect(request.referrer or url_for('admin.coverage_list'))
+
+    set_featured_until(
+        coverage_id, datetime.now(ZoneInfo("America/Chicago")) + timedelta(days=14)
+    )
+    return redirect(request.referrer or url_for("admin.coverage_list"))
 
 
 @bp.route("/coverage/<int:coverage_id>/unfeature", methods=["POST"])
 def coverage_unfeature(coverage_id: int):
     from docket.services.coverage_writer import set_featured_until
+
     set_featured_until(coverage_id, None)
-    return redirect(request.referrer or url_for('admin.coverage_list'))
+    return redirect(request.referrer or url_for("admin.coverage_list"))
 
 
 @bp.route("/coverage/search", methods=["GET"])
 def coverage_search():
-    subject_type = request.args.get('subject_type', 'agenda_item')
-    q = (request.args.get('q') or '').strip()
+    subject_type = request.args.get("subject_type", "agenda_item")
+    q = (request.args.get("q") or "").strip()
     results = []
     if not q:
-        return render_template("admin/coverage/_search_results.html",
-                               results=[], subject_type=subject_type)
+        return render_template(
+            "admin/coverage/_search_results.html", results=[], subject_type=subject_type
+        )
     needle = f"%{_escape_like(q)}%"
     with db_cursor() as cur:
-        if subject_type == 'agenda_item':
+        if subject_type == "agenda_item":
             cur.execute(
                 "SELECT id, title FROM agenda_items "
                 "WHERE title ILIKE %s ESCAPE '\\' ORDER BY id DESC LIMIT 15",
                 (needle,),
             )
-            results = [{'id': r['id'], 'label': r['title']} for r in cur.fetchall()]
-        elif subject_type == 'meeting':
+            results = [{"id": r["id"], "label": r["title"]} for r in cur.fetchall()]
+        elif subject_type == "meeting":
             cur.execute(
                 "SELECT id, title, meeting_date FROM meetings "
                 "WHERE title ILIKE %s ESCAPE '\\' "
                 "ORDER BY meeting_date DESC LIMIT 15",
                 (needle,),
             )
-            results = [{'id': r['id'], 'label': f"{r['title']} ({r['meeting_date']:%Y-%m-%d})"}
-                       for r in cur.fetchall()]
-        elif subject_type == 'council_member':
+            results = [
+                {"id": r["id"], "label": f"{r['title']} ({r['meeting_date']:%Y-%m-%d})"}
+                for r in cur.fetchall()
+            ]
+        elif subject_type == "council_member":
             cur.execute(
                 "SELECT id, name FROM council_members "
                 "WHERE name ILIKE %s ESCAPE '\\' LIMIT 15",
                 (needle,),
             )
-            results = [{'id': r['id'], 'label': r['name']} for r in cur.fetchall()]
-        elif subject_type == 'badge':
+            results = [{"id": r["id"], "label": r["name"]} for r in cur.fetchall()]
+        elif subject_type == "badge":
             cur.execute(
                 "SELECT slug, name FROM priority_badge_templates "
                 "WHERE name ILIKE %s ESCAPE '\\' OR slug ILIKE %s ESCAPE '\\' LIMIT 15",
                 (needle, needle),
             )
-            results = [{'id': r['slug'], 'label': r['name']} for r in cur.fetchall()]
-    return render_template("admin/coverage/_search_results.html",
-                           results=results, subject_type=subject_type)
+            results = [{"id": r["slug"], "label": r["name"]} for r in cur.fetchall()]
+    return render_template(
+        "admin/coverage/_search_results.html",
+        results=results,
+        subject_type=subject_type,
+    )
 
 
 def _parse_subjects_from_form(form) -> list:
@@ -1381,13 +1439,13 @@ def _parse_subjects_from_form(form) -> list:
     Each form value is `<subject_type>:<id_or_slug>`.
     """
     out = []
-    for raw in form.getlist('subject[]'):
-        if not raw or ':' not in raw:
+    for raw in form.getlist("subject[]"):
+        if not raw or ":" not in raw:
             continue
-        st, val = raw.split(':', 1)
-        if st == 'badge':
+        st, val = raw.split(":", 1)
+        if st == "badge":
             out.append((st, None, val))
-        elif st in ('agenda_item', 'meeting', 'council_member'):
+        elif st in ("agenda_item", "meeting", "council_member"):
             try:
                 out.append((st, int(val), None))
             except ValueError:
@@ -1402,15 +1460,18 @@ def _escape_like(s: str) -> str:
     table dump), and ``_`` would match any single char. Escape both, and
     escape backslashes first so we don't double-escape our own escapes.
     """
-    return s.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 # --- Outlets ---------------------------------------------------------------
 
+
 @bp.route("/outlets", methods=["GET"])
 def outlets_list():
     with db_cursor() as cur:
-        cur.execute("SELECT id, slug, name, homepage, is_active FROM outlets ORDER BY name")
+        cur.execute(
+            "SELECT id, slug, name, homepage, is_active FROM outlets ORDER BY name"
+        )
         outlets = cur.fetchall()
     return render_template("admin/outlets/list.html", outlets=outlets)
 
@@ -1418,58 +1479,66 @@ def outlets_list():
 @bp.route("/outlets", methods=["POST"])
 def outlets_create():
     from docket.services.outlets_writer import create_outlet
+
     create_outlet(
-        slug=request.form['slug'].strip(),
-        name=request.form['name'].strip(),
-        homepage=(request.form.get('homepage') or '').strip() or None,
+        slug=request.form["slug"].strip(),
+        name=request.form["name"].strip(),
+        homepage=(request.form.get("homepage") or "").strip() or None,
     )
-    return redirect(url_for('admin.outlets_list'))
+    return redirect(url_for("admin.outlets_list"))
 
 
 @bp.route("/outlets/<int:outlet_id>", methods=["POST"])
 def outlets_update(outlet_id: int):
     from docket.services.outlets_writer import update_outlet
+
     update_outlet(
         outlet_id,
-        name=(request.form.get('name') or '').strip() or None,
-        homepage=(request.form.get('homepage') or '').strip() or None,
+        name=(request.form.get("name") or "").strip() or None,
+        homepage=(request.form.get("homepage") or "").strip() or None,
     )
-    return redirect(url_for('admin.outlets_list'))
+    return redirect(url_for("admin.outlets_list"))
 
 
 @bp.route("/outlets/<int:outlet_id>/deactivate", methods=["POST"])
 def outlets_deactivate(outlet_id: int):
     from docket.services.outlets_writer import deactivate_outlet
+
     deactivate_outlet(outlet_id)
-    return redirect(url_for('admin.outlets_list'))
+    return redirect(url_for("admin.outlets_list"))
 
 
 @bp.route("/outlets/<int:outlet_id>/activate", methods=["POST"])
 def outlets_activate(outlet_id: int):
     from docket.services.outlets_writer import activate_outlet
+
     activate_outlet(outlet_id)
-    return redirect(url_for('admin.outlets_list'))
+    return redirect(url_for("admin.outlets_list"))
 
 
 # --- Admin profile ----------------------------------------------------------
 
+
 @bp.route("/profile", methods=["GET"])
 def profile():
-    uid = session['admin_user']
+    uid = session["admin_user"]
     with db_cursor() as cur:
-        cur.execute("SELECT username, display_name FROM admin_users WHERE id = %s", (uid,))
+        cur.execute(
+            "SELECT username, display_name FROM admin_users WHERE id = %s", (uid,)
+        )
         user = cur.fetchone()
     return render_template("admin/profile.html", user=user)
 
 
 @bp.route("/profile/display-name", methods=["POST"])
 def profile_update_display_name():
-    uid = session['admin_user']
-    new_name = (request.form.get('display_name') or '').strip() or None
+    uid = session["admin_user"]
+    new_name = (request.form.get("display_name") or "").strip() or None
     with db_cursor() as cur:
-        cur.execute("UPDATE admin_users SET display_name = %s WHERE id = %s",
-                    (new_name, uid))
-    return redirect(url_for('admin.profile'))
+        cur.execute(
+            "UPDATE admin_users SET display_name = %s WHERE id = %s", (new_name, uid)
+        )
+    return redirect(url_for("admin.profile"))
 
 
 # --- Meeting visibility (hide / unhide) -------------------------------------
@@ -1537,6 +1606,69 @@ def unhide_meeting(meeting_id: int):
         return redirect(url_for("admin.list_hidden_meetings"))
     except BuildError:
         return redirect(url_for("admin.list_members"))
+
+
+@bp.post("/meetings/<int:meeting_id>/rescan-ocr")
+def rescan_meeting_ocr(meeting_id: int):
+    """Force-rescan: delete prior video_ocr votes for this meeting and
+    reset the processing_status flags so the next worker tick re-OCRs.
+
+    Auth: gated by the blueprint-level ``@bp.before_request require_login``
+    in this module (line 28). No per-route decorator needed — no other
+    admin route in this file uses one.
+
+    Spec §7: necessary because the persistence ON CONFLICT is timestamp-stable;
+    an OCR-algorithm bugfix that produces different terminal frames would
+    otherwise stack new rows next to the bad ones.
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            """SELECT mu.slug
+                 FROM meetings m
+                 JOIN municipalities mu ON mu.id = m.municipality_id
+                WHERE m.id = %s""",
+            [meeting_id],
+        )
+        row = cur.fetchone()
+        if row is None:
+            abort(404)
+        muni_slug = row["slug"]
+
+        cur.execute(
+            "SELECT COUNT(*) AS n FROM votes WHERE meeting_id = %s AND source = 'video_ocr'",
+            [meeting_id],
+        )
+        deleted_count = cur.fetchone()["n"]
+
+        cur.execute(
+            """DELETE FROM member_votes
+                WHERE vote_id IN (
+                    SELECT id FROM votes
+                     WHERE meeting_id = %s AND source = 'video_ocr'
+                )""",
+            [meeting_id],
+        )
+        cur.execute(
+            "DELETE FROM votes WHERE meeting_id = %s AND source = 'video_ocr'",
+            [meeting_id],
+        )
+        cur.execute(
+            """UPDATE processing_status
+                  SET video_ocr_scanned = FALSE,
+                      video_ocr_attempts = 0,
+                      video_ocr_last_attempted_at = NULL,
+                      video_ocr_last_error = NULL
+                WHERE meeting_id = %s""",
+            [meeting_id],
+        )
+
+    flash(
+        f"Cleared {deleted_count} video-OCR vote(s); meeting will be rescanned at the next cron tick.",
+        "success",
+    )
+    return redirect(
+        url_for("public.meeting_detail", slug=muni_slug, meeting_id=meeting_id)
+    )
 
 
 @bp.route("/meetings/hidden")

@@ -44,6 +44,7 @@ MIGRATIONS = [
     "docket.migrations.031_ai_rewrite_voice",
     "docket.migrations.032_meetings_start_time",
     "docket.migrations.033_meetings_is_hidden",
+    "docket.migrations.034_video_ocr_processing_status",
 ]
 
 
