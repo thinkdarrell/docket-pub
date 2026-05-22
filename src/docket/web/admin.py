@@ -1539,6 +1539,67 @@ def unhide_meeting(meeting_id: int):
         return redirect(url_for("admin.list_members"))
 
 
+@bp.post("/meetings/<int:meeting_id>/rescan-ocr")
+def rescan_meeting_ocr(meeting_id: int):
+    """Force-rescan: delete prior video_ocr votes for this meeting and
+    reset the processing_status flags so the next worker tick re-OCRs.
+
+    Auth: gated by the blueprint-level ``@bp.before_request require_login``
+    in this module (line 28). No per-route decorator needed — no other
+    admin route in this file uses one.
+
+    Spec §7: necessary because the persistence ON CONFLICT is timestamp-stable;
+    an OCR-algorithm bugfix that produces different terminal frames would
+    otherwise stack new rows next to the bad ones.
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            """SELECT mu.slug
+                 FROM meetings m
+                 JOIN municipalities mu ON mu.id = m.municipality_id
+                WHERE m.id = %s""",
+            [meeting_id],
+        )
+        row = cur.fetchone()
+        if row is None:
+            abort(404)
+        muni_slug = row["slug"]
+
+        cur.execute(
+            "SELECT COUNT(*) AS n FROM votes WHERE meeting_id = %s AND source = 'video_ocr'",
+            [meeting_id],
+        )
+        deleted_count = cur.fetchone()["n"]
+
+        cur.execute(
+            """DELETE FROM member_votes
+                WHERE vote_id IN (
+                    SELECT id FROM votes
+                     WHERE meeting_id = %s AND source = 'video_ocr'
+                )""",
+            [meeting_id],
+        )
+        cur.execute(
+            "DELETE FROM votes WHERE meeting_id = %s AND source = 'video_ocr'",
+            [meeting_id],
+        )
+        cur.execute(
+            """UPDATE processing_status
+                  SET video_ocr_scanned = FALSE,
+                      video_ocr_attempts = 0,
+                      video_ocr_last_attempted_at = NULL,
+                      video_ocr_last_error = NULL
+                WHERE meeting_id = %s""",
+            [meeting_id],
+        )
+
+    flash(
+        f"Cleared {deleted_count} video-OCR vote(s); meeting will be rescanned at the next cron tick.",
+        "success",
+    )
+    return redirect(url_for("public.meeting_detail", slug=muni_slug, meeting_id=meeting_id))
+
+
 @bp.route("/meetings/hidden")
 def list_hidden_meetings():
     """Admin index of every currently-hidden meeting.
