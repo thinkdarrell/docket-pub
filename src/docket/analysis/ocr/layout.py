@@ -26,35 +26,10 @@ import numpy as np
 import pytesseract
 from PIL import Image
 
-# TODO(Task 11): Promote CouncilLayout + LayoutRow to docket.analysis.ocr.rosters and
-# import them from there; this inline definition is temporary so Task 7 can
-# land before Task 11 introduces the runtime roster builder.
-@dataclass(frozen=True)
-class LayoutRow:
-    """One row of the vote screen — up to two member names side by side.
-
-    Row order is preserved only as a convenience for building the
-    canonical name list; it is not tied to pixel positions.
-    """
-
-    left: str
-    right: str | None = None
-
-
-@dataclass(frozen=True)
-class CouncilLayout:
-    city: str
-    rows: tuple[LayoutRow, ...]
-    max_members: int
-
-    @property
-    def member_names(self) -> list[str]:
-        names: list[str] = []
-        for row in self.rows:
-            names.append(row.left)
-            if row.right is not None:
-                names.append(row.right)
-        return names
+# CouncilLayout + LayoutRow live in docket.analysis.ocr.rosters.
+# Re-imported here so the existing matcher imports
+# (from docket.analysis.ocr.layout import CouncilLayout) keep working.
+from docket.analysis.ocr.rosters import CouncilLayout, LayoutRow  # noqa: F401
 
 
 # --- Tuning constants ------------------------------------------------------
