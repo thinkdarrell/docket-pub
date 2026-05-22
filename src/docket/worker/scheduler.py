@@ -148,7 +148,9 @@ def main() -> None:
 
     tz = os.environ.get("WORKER_TIMEZONE", "America/Chicago")
     sched = build_scheduler(timezone=tz)
-    log.info("docket.pub worker starting timezone=%s jobs=%d", tz, len(sched.get_jobs()))
+    log.info(
+        "docket.pub worker starting timezone=%s jobs=%d", tz, len(sched.get_jobs())
+    )
     for job in sched.get_jobs():
         next_run = getattr(job, "next_run_time", None)
         log.info("  job=%s next_run=%s", job.id, next_run)

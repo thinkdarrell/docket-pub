@@ -82,7 +82,9 @@ def _ocr_header_text(frame: np.ndarray) -> str:
             interpolation=cv2.INTER_CUBIC,
         )
 
-    return pytesseract.image_to_string(Image.fromarray(inverted), config="--psm 7").strip()
+    return pytesseract.image_to_string(
+        Image.fromarray(inverted), config="--psm 7"
+    ).strip()
 
 
 def _classify(text: str) -> HeaderState:

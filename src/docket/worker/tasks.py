@@ -52,6 +52,7 @@ def _safe_run(task_name: str, fn: Callable[[], object]) -> None:
 
 # --- internal task implementations -------------------------------------------
 
+
 def _do_ingest_all() -> None:
     """Loop over every active municipality and run the ingest pipeline.
 
@@ -140,6 +141,7 @@ def _do_process_badges() -> None:
 
 # --- public, _safe_run-wrapped entry points ----------------------------------
 
+
 def task_ingest_all() -> None:
     _safe_run("ingest_all", _do_ingest_all)
 
@@ -182,10 +184,10 @@ def _do_calibration_report() -> None:
     log.info(
         "calibration_report: divergence=%d underscoring=%d overscoring=%d "
         "drift_alerts=%d cache_cleanup=%d",
-        counts['divergence_count'],
-        counts['underscoring_categories'],
-        counts['overscoring_categories'],
-        counts['drift_alerts'],
+        counts["divergence_count"],
+        counts["underscoring_categories"],
+        counts["overscoring_categories"],
+        counts["drift_alerts"],
         n_cache_deleted,
     )
 
@@ -206,11 +208,14 @@ def _do_process_batches() -> None:
     to run as often as desired.
     """
     from docket.ai.batch_ingest import poll_and_ingest
+
     summary = poll_and_ingest()
     log.info(
         "process_batches polled=%d ingested=%d items_succeeded=%d items_errored=%d",
-        summary.batches_polled, summary.batches_ingested,
-        summary.items_succeeded, summary.items_errored,
+        summary.batches_polled,
+        summary.batches_ingested,
+        summary.items_succeeded,
+        summary.items_errored,
     )
 
 
@@ -231,9 +236,7 @@ def _do_refresh_backfill_ratio_mv() -> None:
     """
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                "REFRESH MATERIALIZED VIEW CONCURRENTLY mv_city_backfill_ratio"
-            )
+            cur.execute("REFRESH MATERIALIZED VIEW CONCURRENTLY mv_city_backfill_ratio")
         conn.commit()
 
 
@@ -317,7 +320,8 @@ def _do_video_ocr() -> None:
         result = _ocr_one_meeting(meeting)
         log.info(
             "video_ocr meeting=%s votes=%s%s",
-            result["meeting_id"], result.get("votes", 0),
+            result["meeting_id"],
+            result.get("votes", 0),
             (" error=" + result["error"]) if "error" in result else "",
         )
         processed += 1
@@ -331,15 +335,15 @@ def task_video_ocr() -> None:
 # --- registry — used by scheduler.py and the --run-once flag -----------------
 
 TASKS: dict[str, Callable[[], None]] = {
-    "repair_empty_agendas":      task_repair_empty_agendas,
-    "ingest_all":                task_ingest_all,
-    "video_ocr":                 task_video_ocr,
-    "ai_items":                  task_ai_items,
-    "ai_meetings":               task_ai_meetings,
-    "vote_matching":             task_vote_matching,
-    "process_badges":            task_process_badges,
-    "calibration_report":        task_calibration_report,
-    "process_batches":           task_process_batches,
+    "repair_empty_agendas": task_repair_empty_agendas,
+    "ingest_all": task_ingest_all,
+    "video_ocr": task_video_ocr,
+    "ai_items": task_ai_items,
+    "ai_meetings": task_ai_meetings,
+    "vote_matching": task_vote_matching,
+    "process_badges": task_process_badges,
+    "calibration_report": task_calibration_report,
+    "process_batches": task_process_batches,
     "refresh_backfill_ratio_mv": task_refresh_backfill_ratio_mv,
-    "prune_analytics":           task_prune_analytics,
+    "prune_analytics": task_prune_analytics,
 }

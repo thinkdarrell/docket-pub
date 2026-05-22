@@ -21,6 +21,7 @@ from docket.db import db_cursor
 
 # --- Layout dataclasses (moved here from layout.py — single source of truth) ---
 
+
 @dataclass(frozen=True)
 class LayoutRow:
     """One row of council members on the vote display (left column + optional right).

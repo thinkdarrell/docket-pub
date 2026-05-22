@@ -70,7 +70,14 @@ def extract_frames_to_dir(
     cmd += ["-i", video_url]
     if duration is not None:
         cmd += ["-t", str(duration)]
-    cmd += ["-vf", f"fps={fps_expression}", str(out_dir / pattern), "-y", "-loglevel", "error"]
+    cmd += [
+        "-vf",
+        f"fps={fps_expression}",
+        str(out_dir / pattern),
+        "-y",
+        "-loglevel",
+        "error",
+    ]
 
     subprocess.run(cmd, check=True, timeout=timeout)
     return sorted(out_dir.glob(pattern.replace("%06d", "*").replace("%04d", "*")))
@@ -168,7 +175,10 @@ def download_video_to_tempfile(video_url: str, timeout: int = 600) -> Iterator[P
     os.close(fd)
     local = Path(tmppath)
     try:
-        with urllib.request.urlopen(video_url, timeout=timeout) as resp, open(local, "wb") as out:
+        with (
+            urllib.request.urlopen(video_url, timeout=timeout) as resp,
+            open(local, "wb") as out,
+        ):
             shutil.copyfileobj(resp, out)
         yield local
     finally:

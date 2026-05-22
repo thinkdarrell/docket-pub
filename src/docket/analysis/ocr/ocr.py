@@ -66,7 +66,9 @@ def extract_vote_text(frame: np.ndarray) -> str:
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
     _, white_text = cv2.threshold(gray, 180, 255, cv2.THRESH_BINARY)
-    full_color_mask = (hsv[:, :, 1] > TEXT_SAT_THRESHOLD) & (hsv[:, :, 2] > TEXT_VALUE_THRESHOLD)
+    full_color_mask = (hsv[:, :, 1] > TEXT_SAT_THRESHOLD) & (
+        hsv[:, :, 2] > TEXT_VALUE_THRESHOLD
+    )
     white_text[full_color_mask] = 0
     inverted = cv2.bitwise_not(white_text)
     return pytesseract.image_to_string(Image.fromarray(inverted), config="--psm 6")

@@ -264,7 +264,9 @@ def _build_name_from_words(words: list[dict], column: str) -> _NameBox | None:
 # --- Spatial association ---------------------------------------------------
 
 
-def _nearest_dot_on_row(name: _NameBox, dots: list[_Dot], band_height: int) -> _Dot | None:
+def _nearest_dot_on_row(
+    name: _NameBox, dots: list[_Dot], band_height: int
+) -> _Dot | None:
     y_tol = max(10, int(band_height * ROW_Y_TOLERANCE_FRACTION))
 
     candidates = [d for d in dots if abs(d.y - name.y) <= y_tol and d.x > name.right]

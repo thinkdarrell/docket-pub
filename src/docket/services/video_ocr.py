@@ -69,7 +69,9 @@ def persist_detected_votes(
                     meeting_id,
                     vote.timestamp,
                     vote.vote_result,
-                    vote.yeas, vote.nays, vote.abstentions,
+                    vote.yeas,
+                    vote.nays,
+                    vote.abstentions,
                     vote.header_result,
                     vote.needs_review,
                     vote.review_reason,
@@ -91,7 +93,9 @@ def persist_detected_votes(
                 if member_id is None:
                     log.warning(
                         "video_ocr: unmatched member name '%s' on meeting %s vote %s — inserting with NULL council_member_id",
-                        ocr_name, meeting_id, vote_id,
+                        ocr_name,
+                        meeting_id,
+                        vote_id,
                     )
                 cur.execute(
                     """

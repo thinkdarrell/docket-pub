@@ -142,7 +142,9 @@ def analyze_sequence(
         # vote is unusable as-is. Prefer inference when it can find a
         # coherent frame elsewhere in the sequence; otherwise keep the
         # OCR'd vote so cross_verify's extraction_failed flag stands.
-        counts_empty = vote.yeas is None and vote.nays is None and vote.abstentions is None
+        counts_empty = (
+            vote.yeas is None and vote.nays is None and vote.abstentions is None
+        )
         if counts_empty and inferred is not None:
             ts, frame, inferred_result = inferred
             return _build_inferred_vote(ts, frame, inferred_result, layout=layout)
@@ -203,7 +205,11 @@ def _find_inferred_terminal_frame(
         m_yes = sum(1 for p in members.values() if p == "yes")
         m_no = sum(1 for p in members.values() if p == "no")
         m_abs = sum(1 for p in members.values() if p == "abstain")
-        if (m_yes, m_no, m_abs) != (counts["yeas"], counts["nays"], counts["abstentions"]):
+        if (m_yes, m_no, m_abs) != (
+            counts["yeas"],
+            counts["nays"],
+            counts["abstentions"],
+        ):
             continue
         y, n, a = counts["yeas"], counts["nays"], counts["abstentions"]
         if y > n:
@@ -306,7 +312,12 @@ def _cross_verify(
         return True, "extraction_failed"
 
     # Check 1: summed member positions match the OCR'd count boxes.
-    if y is not None and n is not None and a is not None and (m_yes, m_no, m_abs) != (y, n, a):
+    if (
+        y is not None
+        and n is not None
+        and a is not None
+        and (m_yes, m_no, m_abs) != (y, n, a)
+    ):
         return True, "counts_mismatch"
 
     # Check 2: header outcome agrees with the count totals.
@@ -334,10 +345,7 @@ def _log_vote(vote: DetectedVote) -> None:
         vote.yeas,
         vote.nays,
         vote.abstentions,
-        " [NEEDS REVIEW: " + (vote.review_reason or "?") + "]" if vote.needs_review else "",
+        " [NEEDS REVIEW: " + (vote.review_reason or "?") + "]"
+        if vote.needs_review
+        else "",
     )
-
-
-# Re-export the dataclasses for convenience; callers can also import them
-# directly from docket.analysis.ocr._models.
-from docket.analysis.ocr._models import DetectedVote, MemberVote  # noqa: F401, E402
