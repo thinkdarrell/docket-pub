@@ -23,6 +23,7 @@ from docket.analysis.vote_matcher import match_all_unmatched
 from docket.db import db, db_cursor
 from docket.services.ingest import ingest_municipality
 from docket.services.maintenance import repair_empty_agendas
+from docket.services.video_ocr import _claim_next_ocr_meeting, _ocr_one_meeting
 from docket.worker import health
 
 log = logging.getLogger(__name__)
@@ -301,11 +302,38 @@ def task_prune_analytics() -> None:
     _safe_run("prune_analytics", _do_prune_analytics)
 
 
+def _do_video_ocr() -> None:
+    """Spec §5: process up to 5 BHM meetings needing OCR per cron tick.
+
+    Each iteration: atomic claim → roster build → OCR scan → persist →
+    mark complete. _claim_next_ocr_meeting returns None when no meeting
+    is eligible; we exit early in that case.
+    """
+    processed = 0
+    for _ in range(5):
+        meeting = _claim_next_ocr_meeting()
+        if meeting is None:
+            break
+        result = _ocr_one_meeting(meeting)
+        log.info(
+            "video_ocr meeting=%s votes=%s%s",
+            result["meeting_id"], result.get("votes", 0),
+            (" error=" + result["error"]) if "error" in result else "",
+        )
+        processed += 1
+    log.info("video_ocr processed=%d", processed)
+
+
+def task_video_ocr() -> None:
+    _safe_run("video_ocr", _do_video_ocr)
+
+
 # --- registry — used by scheduler.py and the --run-once flag -----------------
 
 TASKS: dict[str, Callable[[], None]] = {
     "repair_empty_agendas":      task_repair_empty_agendas,
     "ingest_all":                task_ingest_all,
+    "video_ocr":                 task_video_ocr,
     "ai_items":                  task_ai_items,
     "ai_meetings":               task_ai_meetings,
     "vote_matching":             task_vote_matching,

@@ -47,6 +47,13 @@ def build_scheduler(timezone: str = "America/Chicago") -> BlockingScheduler:
         max_instances=1,
     )
     sched.add_job(
+        TASKS["video_ocr"],
+        CronTrigger(hour=6, minute=30, timezone=timezone),
+        id="video_ocr",
+        coalesce=True,
+        max_instances=1,
+    )
+    sched.add_job(
         TASKS["ai_items"],
         CronTrigger(hour=7, minute=0, timezone=timezone),
         id="ai_items",

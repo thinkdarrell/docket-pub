@@ -36,6 +36,9 @@ TASK_UUID_ENV: dict[str, str] = {
     # The map entry is here so ping() in _safe_run() doesn't KeyError;
     # ping() short-circuits when the env var is unset.
     "prune_analytics":           "HEALTHCHECK_PRUNE_ANALYTICS_UUID",
+    # UUID set in Railway dashboard during deploy (Task 18).
+    # ping() short-circuits when the env var is unset (local dev, pre-deploy).
+    "video_ocr":                 "HEALTHCHECK_VIDEO_OCR_UUID",
 }
 
 PingStatus = Literal["start", "success", "fail"]
