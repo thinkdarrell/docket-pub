@@ -65,3 +65,11 @@ def test_rollback_removes_columns_and_indexes(fresh_ps_columns):
         """)
         cols = [r['column_name'] for r in cur.fetchall()]
     assert cols == []
+
+    with db_cursor() as cur:
+        cur.execute("""
+            SELECT indexname FROM pg_indexes
+             WHERE indexname IN ('idx_processing_status_ocr_pending', 'idx_votes_ocr_unique')
+        """)
+        idx = [r['indexname'] for r in cur.fetchall()]
+    assert idx == []
