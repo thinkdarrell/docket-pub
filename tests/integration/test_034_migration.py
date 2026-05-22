@@ -13,12 +13,16 @@ pytestmark = pytest.mark.skipif(
 
 @pytest.fixture
 def fresh_ps_columns():
-    """Roll the migration back before each test, apply fresh."""
+    """Roll the migration back before each test, apply fresh.
+
+    Teardown re-applies 034 so the rest of the test suite (persistence,
+    claim, rescan) always sees the columns and indexes in place.
+    """
     with db() as conn:
         runner.rollback_migration(conn, 34)
     yield
     with db() as conn:
-        runner.rollback_migration(conn, 34)
+        runner.apply_migrations(conn)
 
 
 def test_apply_adds_columns(fresh_ps_columns):
