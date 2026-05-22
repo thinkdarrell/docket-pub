@@ -14,7 +14,11 @@ import logging
 from typing import Iterable
 
 from docket.analysis.ocr._models import DetectedVote
+from docket.analysis.ocr.pipeline import scan_meeting_for_votes
+from docket.analysis.ocr.rosters import build_roster_for_meeting
 from docket.db import db_cursor
+
+GRANICUS_DOWNLOAD_URL = "https://bhamal.granicus.com/DownloadFile.php?view_id=2"
 
 log = logging.getLogger(__name__)
 
@@ -175,3 +179,40 @@ def _mark_ocr_failed(meeting_id: int, error: str) -> None:
                 WHERE meeting_id = %s""",
             [error[:2000], meeting_id],
         )
+
+
+def _ocr_one_meeting(meeting: dict) -> dict:
+    """Build roster → scan video → persist → mark complete.
+
+    The try/except wraps the entire scan+persist sequence (not just persist) —
+    scan-time failures (ffmpeg crashes, stream truncation, OOM in OpenCV,
+    Tesseract issues) MUST NOT propagate out and kill the outer for-loop in
+    `_do_video_ocr`. On exception we record the error to
+    `processing_status.video_ocr_last_error` and return a dict so the caller
+    can log it.
+
+    Args:
+        meeting: dict returned by `_claim_next_ocr_meeting()` —
+                 {"id": int, "external_id": str, "meeting_date": date | None}
+
+    Returns:
+        dict with keys (meeting_id, votes) on success, or
+        (meeting_id, votes=0, error: str) on failure.
+    """
+    meeting_id = meeting["id"]
+    roster = build_roster_for_meeting(meeting_id)
+    video_url = f"{GRANICUS_DOWNLOAD_URL}&clip_id={meeting['external_id']}"
+
+    try:
+        detected = scan_meeting_for_votes(
+            video_url,
+            layout=roster.layout,
+            scan_interval=2,
+        )
+        persist_detected_votes(meeting_id, detected, member_map=roster.member_map)
+        _mark_ocr_complete(meeting_id)
+        return {"meeting_id": meeting_id, "votes": len(detected)}
+    except Exception as e:
+        _mark_ocr_failed(meeting_id, str(e))
+        log.exception("OCR failed for meeting %s", meeting_id)
+        return {"meeting_id": meeting_id, "votes": 0, "error": str(e)}
