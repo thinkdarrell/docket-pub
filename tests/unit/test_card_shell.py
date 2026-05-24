@@ -35,6 +35,10 @@ def app():
         endpoint="public.item_detail",
         view_func=lambda slug, item_id: "",
     )
+    # `_card_shell.html` calls `is_upcoming(item)` (PR #68); production
+    # wires this in `create_app()`. These shell-structure tests cover
+    # completed items only, so a constant False matches every input.
+    flask_app.jinja_env.globals["is_upcoming"] = lambda _: False
     return flask_app
 
 

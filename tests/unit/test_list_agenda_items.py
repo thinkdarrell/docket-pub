@@ -60,6 +60,10 @@ def app():
             frozenset({"example.com", "birminghamal.gov"}),
         )
     )
+    # `_card_shell.html` calls `is_upcoming(item)` (PR #68); production
+    # wires this in `create_app()`. These dispatcher tests cover
+    # completed items only, so a constant False matches every input.
+    flask_app.jinja_env.globals["is_upcoming"] = lambda _: False
     return flask_app
 
 

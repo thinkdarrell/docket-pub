@@ -17,6 +17,11 @@ def fresh_db():
             cur.execute("DELETE FROM vote_agenda_items")
             cur.execute("DELETE FROM member_votes")
             cur.execute("DELETE FROM votes")
+            # processing_status_audit FK is NO ACTION (won't cascade),
+            # agenda_item_badges_audit is SET NULL — clear both before
+            # agenda_items so DELETE doesn't violate (mig 013).
+            cur.execute("DELETE FROM processing_status_audit")
+            cur.execute("DELETE FROM agenda_item_badges_audit")
             cur.execute("DELETE FROM agenda_items")
             cur.execute("DELETE FROM meetings WHERE municipality_id IN (SELECT id FROM municipalities WHERE slug LIKE 'test_%')")
         conn.commit()

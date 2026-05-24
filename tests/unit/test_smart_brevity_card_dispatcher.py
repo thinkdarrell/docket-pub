@@ -63,6 +63,12 @@ def app():
         )
     )
 
+    # `_card_shell.html` calls `is_upcoming(item)` to gate the "upcoming
+    # meeting" affordances; production wires this from `docket.services.
+    # meeting_time` in `create_app()`. Dispatcher tests cover completed
+    # items only, so a constant False is correct for every input.
+    flask_app.jinja_env.globals["is_upcoming"] = lambda _: False
+
     return flask_app
 
 
