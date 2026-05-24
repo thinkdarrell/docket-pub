@@ -20,7 +20,7 @@ The full pipeline is live: scraping, enrichment, vote extraction (from both offi
 
 **`processing_status='withdrawn'` (refactor #2 follow-up).** Items the council removes from the agenda (WITHDRAWN/DEFERRED/POSTPONED titles) get their own status bucket via migration 023, distinct from `procedural_skipped` (Roll Call / Pledge / etc.). `is_withdrawn_or_deferred()` in `wave0.py` routes them at classify time.
 
-**Cron worker (live in production as of 2026-05-04).** Railway `worker` service runs APScheduler with five scheduled tasks in `America/Chicago`: `repair_empty_agendas` (Mon 05:00) clears stuck `agenda_items_scraped` flags so the next ingest re-fetches; `ingest_all` (06:00 daily) loops the `municipalities` table with per-city failure isolation; `ai_items` (07:00) and `ai_meetings` (08:00) drive the AI pipeline within the daily budget cap; `vote_matching` (09:00) closes the loop on legislative action. Each task pings Healthchecks.io start/success/fail with the traceback as the alert body — silent data rot is impossible. Manual triggers via `railway ssh --service worker` then `python -m docket.worker.scheduler --run-once <task>`. Spec at `docs/superpowers/specs/2026-05-04-cron-worker-design.md`; runbook at `docs/runbooks/cron-worker.md`.
+**Cron worker (live in production since 2026-05-04).** Railway `worker` service runs APScheduler with eleven scheduled tasks in `America/Chicago` — five from the original 2026-05-04 ship, six added through Phase 2/3: `prune_analytics` (day 1, 04:00, monthly), `refresh_backfill_ratio_mv` (04:30 daily), `repair_empty_agendas` (Mon 05:00), `ingest_all` (06:00), `video_ocr` (06:30), `ai_items` (07:00), `ai_meetings` (08:00), `vote_matching` (09:00), `process_badges` (09:30), `calibration_report` (11:00), and `process_batches` (every :00 and :30, polling Anthropic Batches API). Each task pings Healthchecks.io start/success/fail with the traceback as the alert body — two tasks are silent-by-design (`prune_analytics`, `calibration_report` — local-impact failure modes only). Manual triggers via `railway ssh --service worker` then `python -m docket.worker.scheduler --run-once <task>`. Spec at `docs/superpowers/specs/2026-05-04-cron-worker-design.md`; runbook at `docs/runbooks/cron-worker.md`.
 
 **Prompt v2 design choices (validated in pilot):**
 - Procedural items (Roll Call, Pledge, Invocation, "minutes not ready", etc.) get `is_substantive=false` with empty summary + empty rationales — title is self-explanatory and a paraphrase would be noise. Template renders nothing extra for these items.
@@ -49,7 +49,7 @@ The full pipeline is live: scraping, enrichment, vote extraction (from both offi
 3. **Additional Adapters** — CivicClerk (API), GenericCMS (HTML scraping), CivicPlus (stub)
 4. **Data Enrichment** — Dollar extraction, sponsor extraction, topic classification (11 topics), scoring stubs
 5. **Search + Query** — PostgreSQL FTS, cross-city timeline, topic browse, high-dollar items
-6. **Flask App** — 15 routes (11 public + 4 admin), editorial design, HTMX source rail
+6. **Flask App** — 70+ routes (23 public + 48 admin), editorial design, HTMX source rail
 7. **Council Rosters** — 26 members seeded across 4 cities, admin UI for management
 8. **Admin Auth** — Session-based login on all `/admin/*` routes
 9. **Railway Deployment** — Live at `docket-web-production-6110.up.railway.app`
@@ -61,7 +61,7 @@ The full pipeline is live: scraping, enrichment, vote extraction (from both offi
 15. **Vote-to-Item Matching N:M Redesign** — `vote_agenda_items` join table (migration 009), substantive + consent-block classifier and matchers, strict re-parse, dual-trigger adoption lifecycle
 16. **Editorial Design Pass** — meetings list, topics index, topic detail, search, council pages all migrated to the editorial card design
 17. **AI Summaries + Scoring** — `src/docket/ai/` package (migration 012, branch `feat/ai-summaries-scoring`). Item summaries via Haiku 4.5, meeting executive summaries via Sonnet 4.6, two-phase lifecycle, async batch worker + CLI, admin dashboard at `/admin/ai`, Pydantic-validated structured output, prompt caching. **Live on Railway prod** as of 2026-05-02. ITEM_PROMPT_VERSION=2 (procedural-skip), MEETING_PROMPT_VERSION=2 (distinctive-vs-routine).
-18. **Cron Worker (T27)** — `src/docket/worker/` APScheduler service running 5 daily/weekly tasks (ingest_all, ai_items, ai_meetings, vote_matching, repair_empty_agendas) with Healthchecks.io heartbeats per task. **Live on Railway `worker` service as of 2026-05-04.** Runbook at `docs/runbooks/cron-worker.md`.
+18. **Cron Worker (T27)** — `src/docket/worker/` APScheduler service running 11 daily/weekly/monthly tasks (ingest_all, video_ocr, ai_items, ai_meetings, vote_matching, repair_empty_agendas, process_badges, calibration_report, process_batches, refresh_backfill_ratio_mv, prune_analytics) with Healthchecks.io heartbeats per task (9 monitored, 2 silent-by-design). **Live on Railway `worker` service since 2026-05-04.** Runbook at `docs/runbooks/cron-worker.md`.
 19. **Impact-First Refactor — Phase 1** — Migration 013 (10 new tables, 16 indexes, `mv_badge_volume_monthly` materialized view, 11 priority badge templates, BHM mayoral terms, agenda_items v3 columns) + Wave 0 non-LLM classifier in `src/docket/ai/wave0.py`. Sets `data_quality`, `data_debt_priority`, `processing_status` on every item via Stage 0a (data-quality gate with title fallback for Granicus shape) and Stage 0b (Alabama-context procedural regex). **Live on Railway as of 2026-05-07.** Final Wave 0 distribution on 57,553 items: 65% pending, 28% data_quality_skipped, 7% procedural_skipped. Tag: `refactor-impact-first-phase-1-shipped`.
 20. **Impact-First Refactor — Phase 2 (live in production)** — v3 pipeline (Stage 1 extraction + Stage 2 Smart Brevity rewrite + Stage 2.5 score floors + reconcile + atomic-commit-with-badges), 7 process badges + 4 BHM policy badges, Smart Brevity Card UI (6 variants), category landing pages with SVG volume timeline + cross-filter HTMX dropdown, public data-debt page + RSS feeds, admin calibration dashboard, admin OCR queue + errors queue, atomic per-item `process_item()` orchestrator. Both feature flags ON in production: `IMPACT_FIRST_ENABLED=true` (worker) and `SMART_BREVITY_UI=true` (web).
 21. **Impact-First Refactor — Phase 3 (in progress)** — Anthropic Batches API backfill working through ~37K eligible items. ~652 v3-completed as of 2026-05-12.
@@ -70,7 +70,7 @@ The full pipeline is live: scraping, enrichment, vote extraction (from both offi
 
 ### What's Next
 
-**Active: Impact-First Refactor Phase 3 (backfill execution)** — The v3 pipeline is live in prod and the Anthropic Batches API backfill is working through the eligible queue (~$100 estimated total over 7–14 days). Plan: `docs/superpowers/plans/2026-05-06-impact-first-refactor-phase-3.md`. Pre-flip prerequisite **D1** (6th cron task to `REFRESH MATERIALIZED VIEW CONCURRENTLY mv_badge_volume_monthly`) is still pending.
+**Active: Impact-First Refactor Phase 3 (backfill execution)** — The v3 pipeline is live in prod and the Anthropic Batches API backfill is working through the eligible queue (~$100 estimated total over 7–14 days). Plan: `docs/superpowers/plans/2026-05-06-impact-first-refactor-phase-3.md`.
 
 **Then Phase 4 (cleanup)** — Migration 014 drops the legacy `agenda_items.summary` column once all completed items are at v3. Plan: `docs/superpowers/plans/2026-05-06-impact-first-refactor-phase-4.md`.
 
@@ -488,17 +488,25 @@ Full design at `docs/superpowers/specs/2026-05-01-summaries-and-scoring-design.m
 
 ## Flask Routes
 
-### Public (8 routes)
+Counts are approximate — exact registration lives in `src/docket/web/public.py` and `src/docket/web/admin.py`. The list below highlights the citizen-facing surface; admin is enumerated below the public set.
+
+### Public (~23 routes — primary surfaces)
 
 ```
 GET  /                                  Homepage (cities, this week, upcoming)
 GET  /al/<slug>/                        City overview (meetings, topics, stats)
 GET  /al/<slug>/meetings/               Paginated meeting list with type filter
 GET  /al/<slug>/meetings/<id>/          Meeting detail (agenda items, dollars, votes)
+GET  /al/<slug>/meetings/<id>/items/<item_id>/   Item-centric detail (PR #64 item-centric nav)
 GET  /al/<slug>/council/                Council member cards
+GET  /al/<slug>/council/<id>/           Council member detail (sponsored items, votes)
 GET  /search                            FTS search (city-scoped by default)
 GET  /topics/                           Browse by topic index
 GET  /topics/<topic>/                   Items for a specific topic
+GET  /coverage/                         Editorial coverage feed (v1)
+GET  /coverage/<id>/                    Coverage entry detail
+GET  /rss/...                           Per-meeting / per-topic RSS feeds
+# plus category-landing pages, HTMX rail partials, and source-link redirects
 ```
 
 ### Admin (session-based auth required)
@@ -592,18 +600,23 @@ docket-pub/
       cli.py                     # Operator CLI: --status / --dry-run / --items / --meetings / --force
     worker/
       scheduler.py               # APScheduler BlockingScheduler entry point + --run-once <task> flag
-      tasks.py                   # 5 task wrappers (ingest_all, ai_items, ai_meetings, vote_matching, repair_empty_agendas) — _safe_run handles Healthchecks ping + exception swallow
+      tasks.py                   # 11 task wrappers (ingest_all, video_ocr, ai_items, ai_meetings, vote_matching, repair_empty_agendas, process_badges, calibration_report, process_batches, refresh_backfill_ratio_mv, prune_analytics) — _safe_run handles Healthchecks ping + exception swallow
       health.py                  # Healthchecks.io ping helper (no-ops when UUID env var unset)
     services/
       maintenance.py             # repair_empty_agendas() — clears stuck agenda_items_scraped flags weekly
+      video_ocr.py               # Claim pattern + persistence for the video OCR cron (PR #84, 2026-05-22)
     web/
       __init__.py                # create_app() factory
-      public.py                  # 8 public routes (city, meetings, search, topics, council)
-      admin.py                   # 4 admin routes (council member CRUD)
-      templates/                 # Jinja2 templates (unstyled — UI team designs)
-      static/                    # CSS/JS assets (empty — UI team fills)
-    analysis/                    # Vote OCR pipeline (NOT YET PORTED)
-    rosters/                     # Reserved for future auto-scrapers
+      public.py                  # ~23 citizen-facing routes (city, meetings, items, votes, search, topics, council, coverage, RSS, item_detail anchors)
+      admin.py                   # ~48 admin routes (member CRUD, AI dashboard, badge review, errors queue, calibration, OCR rescan, conflict resolution, coverage CRUD, hide/unhide meetings, badges audit)
+      templates/                 # Jinja2 templates (editorial design — Source Serif + IBM Plex + HTMX)
+      static/                    # CSS tokens + layout + componentry
+    analysis/                    # Vote analysis pipelines
+      minutes_parser.py          # Birmingham minutes PDF → attendance + votes
+      vote_matcher.py            # N:M matcher (substantive + consent block + strict re-parse)
+      agenda_parser.py           # Granicus upcoming-meeting agenda PDF parser (PR #65)
+      ocr/                       # Video OCR subpackage (folded from al-municipal-meetings, PR #84)
+    rosters/                     # Reserved for future auto-scrapers (council pages → council_members table)
   tests/
     unit/                        # 200+ unit tests
       test_dollars.py            # dollar extraction + tiers
@@ -674,7 +687,7 @@ cp .env.example .env
 python -m docket.migrations.runner
 
 # 6. Verify
-pytest                    # 76 tests, all green
+pytest                    # 1700+ tests (unit + integration); live AI smoke tests gated on ANTHROPIC_API_KEY
 ruff check src/           # lint clean
 ```
 

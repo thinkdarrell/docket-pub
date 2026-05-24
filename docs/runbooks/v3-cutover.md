@@ -1,5 +1,15 @@
 # v3 Pipeline Cutover Runbook (FINAL-1 through FINAL-3)
 
+> **Status: HISTORICAL — flag flipped in production on 2026-05-12.**
+> Both `IMPACT_FIRST_ENABLED=true` (worker) and `SMART_BREVITY_UI=true`
+> (docket-web) are the live state. This runbook is preserved as the
+> audit record of the pre-flip checklist and as the rollback procedure
+> if v3 ever needs to be disabled. The pre-flip checklist and FINAL-1/
+> FINAL-2 sections below are no longer actionable — see the Rollback
+> Procedure for the operationally-relevant portion. Several outstanding
+> follow-ups referenced here (#54 usage threading, #57 self-deadlock)
+> have since shipped; see `~/docket-pub/CLAUDE.md` for current state.
+
 The Impact-First Refactor Phase 2 ships the v3 AI pipeline (Stage 1 extraction → Stage 2 Smart Brevity rewrite → Stage 2.5 floors → reconcile → atomic commit with badges) behind the `IMPACT_FIRST_ENABLED` env-var flag. The flag defaults to **false** — deploying the code does NOT change production behavior. Flipping the flag at **FINAL-3** is the cutover.
 
 This runbook covers the pre-flag-flip audit (FINAL-1 → FINAL-2 confidence window → FINAL-3 flag flip) and what to do if production goes sideways post-flip.
