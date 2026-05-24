@@ -6,22 +6,20 @@ build-backend = "setuptools.build_meta"
 name = "docket"
 version = "0.1.0"
 requires-python = ">=3.10"
-dependencies = [
-    "flask>=3.0",
-    "gunicorn>=22.0",
-    "requests>=2.31",
-    "beautifulsoup4>=4.12",
-    "civic-scraper>=1.0",
-    "pdfplumber>=0.10",
-    "psycopg2-binary>=2.9",
-    "python-dotenv>=1.0",
-]
+# Runtime dependencies are sourced from requirements.txt (the Dockerfile's
+# canonical install list). Editing requirements.txt is the single point of
+# update; `pip install -e .` and `pip install -r requirements.txt` resolve
+# the same set.
+dynamic = ["dependencies"]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0",
     "ruff>=0.4",
 ]
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements.txt"]}
 
 [tool.setuptools.packages.find]
 where = ["src"]
