@@ -9,11 +9,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tesseract-ocr \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.lock .
+RUN pip install --no-cache-dir -r requirements.lock
 
 COPY . .
-RUN pip install --no-cache-dir -e .
+RUN pip install --no-cache-dir -e . --no-deps
 
 EXPOSE ${PORT:-5000}
 

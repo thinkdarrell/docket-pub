@@ -1,3 +1,13 @@
+# Source-of-truth for runtime deps. Keep version ranges loose here
+# (`>=X.Y`) and let `uv pip compile` pin transitives into requirements.lock.
+#
+# When you edit this file, regenerate the lock:
+#   uv pip compile requirements.txt --python-version 3.10 -o requirements.lock
+#
+# Commit both files together. The Dockerfile and `pip install -e .` both
+# read requirements.lock, so an out-of-date lock won't be picked up by
+# prod or by `pip install -e ".[dev]"`.
+
 flask>=3.0
 gunicorn>=22.0
 requests>=2.31

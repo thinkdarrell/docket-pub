@@ -661,8 +661,9 @@ docket-pub/
 ## Local Setup
 
 ### Prerequisites
-- Python 3.10+
+- Python 3.10 (prod target; `brew install python@3.10`)
 - PostgreSQL 16 (via Docker or Homebrew)
+- `uv` (only needed if you'll bump dependencies; `brew install uv`)
 
 ### Quick Start
 
@@ -674,10 +675,10 @@ cd docket-pub
 # 2. Start PostgreSQL
 docker-compose up -d   # or use local Homebrew PostgreSQL
 
-# 3. Python environment
-python -m venv venv
+# 3. Python environment (use Python 3.10 to match prod)
+python3.10 -m venv venv
 source venv/bin/activate
-pip install -e ".[dev]"
+pip install -e ".[dev]"   # reads requirements.lock — deterministic transitives
 
 # 4. Configure
 cp .env.example .env
