@@ -17,13 +17,11 @@ COPY . .
 # can run `railway ssh --service <svc> "cat /app/COMMIT_SHA"`. The
 # Railway CLI excludes .git from `railway up` uploads, so we can't
 # read the SHA inside the build — scripts/deploy.sh writes it to a
-# COMMIT_SHA file before invoking `railway up`. Falls back to "unknown"
-# when deployed via plain `railway up` (no wrapper).
-RUN if [ -f COMMIT_SHA ]; then \
-        mv COMMIT_SHA /app/COMMIT_SHA; \
-    else \
-        echo "unknown" > /app/COMMIT_SHA; \
-    fi
+# COMMIT_SHA file at the repo root before invoking `railway up`.
+# After `COPY . .` with WORKDIR /app, the file is already at the
+# right path; we only need to write "unknown" when the wrapper wasn't
+# used (plain `railway up`).
+RUN test -f /app/COMMIT_SHA || echo "unknown" > /app/COMMIT_SHA
 RUN pip install --no-cache-dir -e . --no-deps
 
 EXPOSE ${PORT:-5000}
