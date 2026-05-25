@@ -33,8 +33,10 @@ data/minutes_cache/
 .claude/settings.local.json
 .claude/worktrees/
 
-# Deploy-time scratch — `scripts/deploy.sh` writes the current HEAD SHA
-# into this file so the Dockerfile can COPY it into /app/COMMIT_SHA.
-# Railway CLI excludes .git from uploads, so this is the only path
-# for getting the build's commit hash into the image.
-COMMIT_SHA
+# NOTE: `scripts/deploy.sh` writes a `COMMIT_SHA` scratch file at the
+# repo root and cleans it up after `railway up`. It is intentionally
+# NOT gitignored — Railway CLI honors .gitignore for uploads, and a
+# gitignored COMMIT_SHA would be excluded from the build context (which
+# is what made the first wrapper deploy stamp "unknown"). If the wrapper
+# crashes mid-deploy and leaves a stale COMMIT_SHA, it will show up in
+# `git status` so you can `rm` it before the next commit.
