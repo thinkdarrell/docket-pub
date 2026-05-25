@@ -152,6 +152,18 @@ you bump a dep, edit `requirements.txt` AND regenerate the lock — never
 commit one without the other. The lockfile is targeted at Python 3.10
 (matching the Dockerfile + Railway).
 
+**Deployed commit SHA:**
+The Dockerfile stamps the build's git SHA into `/app/COMMIT_SHA` (and
+strips `.git` from the runtime image). To confirm which commit a Railway
+service is running:
+```bash
+railway ssh --service docket-web "cat /app/COMMIT_SHA"
+railway ssh --service worker     "cat /app/COMMIT_SHA"
+```
+Falls back to the string `"unknown"` if the build context lacks `.git`.
+Replaces the file-hash forensics that the 2026-05-22 parity audit had
+to use to identify the deployed commit.
+
 ## Architecture
 
 ### Adapter-per-platform pattern
