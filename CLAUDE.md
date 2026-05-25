@@ -153,16 +153,19 @@ commit one without the other. The lockfile is targeted at Python 3.10
 (matching the Dockerfile + Railway).
 
 **Deployed commit SHA:**
-The Dockerfile stamps the build's git SHA into `/app/COMMIT_SHA` (and
-strips `.git` from the runtime image). To confirm which commit a Railway
-service is running:
+Use `scripts/deploy.sh --service <docket-web|worker>` instead of bare
+`railway up`. The wrapper writes the current HEAD SHA to `./COMMIT_SHA`
+(gitignored) before invoking `railway up --detach`, and the Dockerfile
+moves it into `/app/COMMIT_SHA` during the build. Future audits:
 ```bash
 railway ssh --service docket-web "cat /app/COMMIT_SHA"
 railway ssh --service worker     "cat /app/COMMIT_SHA"
 ```
-Falls back to the string `"unknown"` if the build context lacks `.git`.
-Replaces the file-hash forensics that the 2026-05-22 parity audit had
-to use to identify the deployed commit.
+A plain `railway up` (no wrapper) still works but produces the literal
+string `"unknown"` in `/app/COMMIT_SHA` — the Railway CLI strips `.git`
+from uploads, so the build can't compute the SHA on its own. Replaces
+the file-hash forensics that the 2026-05-22 parity audit had to use to
+identify the deployed commit.
 
 ## Architecture
 

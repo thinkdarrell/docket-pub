@@ -32,3 +32,9 @@ data/minutes_cache/
 # Team-level .claude/settings.json and .claude/agents/ remain trackable.
 .claude/settings.local.json
 .claude/worktrees/
+
+# Deploy-time scratch — `scripts/deploy.sh` writes the current HEAD SHA
+# into this file so the Dockerfile can COPY it into /app/COMMIT_SHA.
+# Railway CLI excludes .git from uploads, so this is the only path
+# for getting the build's commit hash into the image.
+COMMIT_SHA

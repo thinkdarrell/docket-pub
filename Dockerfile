@@ -7,26 +7,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq-dev \
     ffmpeg \
     tesseract-ocr \
-    git \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.lock .
 RUN pip install --no-cache-dir -r requirements.lock
 
 COPY . .
-# Stamp the deployed commit SHA so future code-parity audits can run
-# `railway ssh --service docket-web "cat /app/COMMIT_SHA"` instead of
-# doing file-hash forensics against git history. Falls back to
-# "unknown" if .git isn't in the build context (defensive — `railway
-# up` includes it by default). Strip .git after so the runtime image
-# stays lean.
-RUN if [ -d .git ]; then \
-        git config --global --add safe.directory /app && \
-        git rev-parse HEAD > /app/COMMIT_SHA; \
+# Stamp the deployed commit SHA into /app/COMMIT_SHA so future audits
+# can run `railway ssh --service <svc> "cat /app/COMMIT_SHA"`. The
+# Railway CLI excludes .git from `railway up` uploads, so we can't
+# read the SHA inside the build — scripts/deploy.sh writes it to a
+# COMMIT_SHA file before invoking `railway up`. Falls back to "unknown"
+# when deployed via plain `railway up` (no wrapper).
+RUN if [ -f COMMIT_SHA ]; then \
+        mv COMMIT_SHA /app/COMMIT_SHA; \
     else \
         echo "unknown" > /app/COMMIT_SHA; \
-    fi && \
-    rm -rf .git
+    fi
 RUN pip install --no-cache-dir -e . --no-deps
 
 EXPOSE ${PORT:-5000}
