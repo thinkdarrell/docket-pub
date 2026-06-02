@@ -22,3 +22,6 @@ apscheduler>=3.10
 numpy>=1.26,<2
 opencv-python-headless==4.10.0.84
 pytesseract==0.3.13
+markdown>=3.6
+python-frontmatter>=1.1
+pymdown-extensions>=10.7
