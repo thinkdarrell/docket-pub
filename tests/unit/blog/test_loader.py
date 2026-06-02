@@ -63,3 +63,27 @@ def test_load_posts_duplicate_slug_raises(fixtures_dir):
             content_root=fixtures_dir / "posts_dup",
             known_city_slugs={"birmingham"},
         )
+
+
+from datetime import date as _date
+
+
+def test_future_date_overrides_published_status(fixtures_dir):
+    posts = load_posts_from_disk(
+        content_root=fixtures_dir / "posts",
+        known_city_slugs={"birmingham", "homewood"},
+    )
+    future = next(p for p in posts if p.slug == "future")
+    # Per spec §3 "Status precedence (strict)": future date wins regardless of status.
+    assert future.status == "scheduled"
+    assert future.is_published_as_of(_date(2026, 6, 2)) is False
+
+
+def test_explicit_draft_in_normal_dir(fixtures_dir):
+    posts = load_posts_from_disk(
+        content_root=fixtures_dir / "posts",
+        known_city_slugs={"birmingham", "homewood"},
+    )
+    draft = next(p for p in posts if p.slug == "explicit-draft")
+    assert draft.status == "draft"
+    assert draft.is_published_as_of(_date(2026, 6, 2)) is False

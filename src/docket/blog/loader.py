@@ -90,6 +90,17 @@ def parse_post_file(path: Path, *, content_root: Path) -> Post:
     )
 
 
+def _apply_status_precedence(post: Post) -> Post:
+    """Spec §3 'Status precedence (strict)': future date overrides any status."""
+    from dataclasses import replace
+    from datetime import date as _date
+
+    today = _date.today()
+    if post.date > today and post.status != "draft":
+        return replace(post, status="scheduled")
+    return post
+
+
 def load_posts_from_disk(
     *,
     content_root: Path,
@@ -130,6 +141,7 @@ def load_posts_from_disk(
             )
 
         post = parse_post_file(md_path, content_root=content_root)
+        post = _apply_status_precedence(post)
         key = (post.city, post.slug)
         if key in seen:
             raise LoaderError(
