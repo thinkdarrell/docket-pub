@@ -2,7 +2,9 @@
 
 **Date:** 2026-06-02
 **Status:** Draft, pending review
-**Goal:** Add a per-municipality blog to docket.pub at `/<city>/blog` (and a site-wide hub at `/blog`) using markdown files in the repo. No new infrastructure, no database tables, no external CMS dependency. Charts/infographics handled via embeds rather than custom-built components.
+**Goal:** Add a per-municipality blog to docket.pub at `/al/al/<city>/blog` (and a site-wide hub at `/blog`) using markdown files in the repo. No new infrastructure, no database tables, no external CMS dependency. Charts/infographics handled via embeds rather than custom-built components.
+
+**URL convention note:** docket.pub city URLs use a state prefix (`/al/birmingham/`, `/al/homewood/`) because the platform is built to expand beyond Alabama. Blog routes inherit this convention. The cross-city hub at `/blog` is intentionally state-agnostic.
 
 ---
 
@@ -98,7 +100,7 @@ extra_css: [custom.css]             # optional; loaded from asset folder
 | `title`, `date`, or `summary` missing | Hard error; app refuses to boot |
 | `city` not in known city list (and not `_shared`) | Hard error |
 | `date` in the future | Marked `scheduled`; hidden from listings until date passes |
-| `status: draft` or file under `_drafts/` | Hidden everywhere in prod; visible at `/<city>/blog/<slug>?preview=<token>` if `BLOG_PREVIEW_TOKEN` matches |
+| `status: draft` or file under `_drafts/` | Hidden everywhere in prod; visible at `/al/<city>/blog/<slug>?preview=<token>` if `BLOG_PREVIEW_TOKEN` matches |
 | Unknown frontmatter keys | Logged warning, not fatal (forward-compat) |
 | Duplicate slug within same city | Hard error |
 | `related_items` / `related_meetings` reference non-existent IDs | Logged warning; rail omits the dead link |
@@ -138,11 +140,11 @@ All routes live in a new `blog` blueprint, mounted at `/`.
 | `/blog` | Cross-city hub; most recent published posts across all cities + `_shared` | `blog/hub.html` |
 | `/blog/feed.xml` | Atom feed for the hub | (XML template) |
 | `/blog/tag/<tag>` | Posts with that tag, across cities | `blog/hub.html` (filtered) |
-| `/<city>/blog` | Posts for that city + any `_shared` posts tagged for it | `blog/city.html` |
-| `/<city>/blog/feed.xml` | Atom feed for that city | (XML template) |
-| `/<city>/blog/<slug>` | Post detail | `blog/post.html` |
+| `/al/<city>/blog` | Posts for that city + any `_shared` posts tagged for it | `blog/city.html` |
+| `/al/<city>/blog/feed.xml` | Atom feed for that city | (XML template) |
+| `/al/<city>/blog/<slug>` | Post detail | `blog/post.html` |
 
-**Existing-route coordination**: docket.pub already has city routes (e.g. `/<city>` for council/items). The blog blueprint registers `/<city>/blog/...` with a route order that ensures it doesn't shadow existing handlers. If any city slug ever collides with a static blog prefix, the loader's startup validation catches it.
+**Existing-route coordination**: docket.pub already has city routes (e.g. `/<city>` for council/items). The blog blueprint registers `/al/<city>/blog/...` with a route order that ensures it doesn't shadow existing handlers. If any city slug ever collides with a static blog prefix, the loader's startup validation catches it.
 
 **Listing pagination**: 20 posts per page; `?page=N` query param. v1 ships without pagination if total post count is < 20; we add it when needed.
 
