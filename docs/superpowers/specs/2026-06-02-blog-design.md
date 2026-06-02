@@ -140,9 +140,16 @@ All routes live in a new `blog` blueprint, mounted at `/`.
 | `/blog` | Cross-city hub; most recent published posts across all cities + `_shared` | `blog/hub.html` |
 | `/blog/feed.xml` | Atom feed for the hub | (XML template) |
 | `/blog/tag/<tag>` | Posts with that tag, across cities | `blog/hub.html` (filtered) |
-| `/al/<city>/blog` | Posts for that city + any `_shared` posts tagged for it | `blog/city.html` |
+| `/blog/<slug>` | Detail page for a `_shared` (cross-city) post | `blog/post.html` |
+| `/al/<city>/blog` | Posts for that city + any `_shared` posts | `blog/city.html` |
 | `/al/<city>/blog/feed.xml` | Atom feed for that city | (XML template) |
-| `/al/<city>/blog/<slug>` | Post detail | `blog/post.html` |
+| `/al/<city>/blog/<slug>` | Detail page for a city-specific post | `blog/post.html` |
+
+**Reserved top-level prefixes:** `assets`, `tag`, `feed.xml`, and `internal` (future) are reserved under `/blog/`. The `/blog/<slug>` route for `_shared` posts MUST be declared *after* the reserved-prefix routes so Flask's URL matcher picks the static prefixes first. A `_shared` post named `tag` (or `assets`, `feed`, `internal`) is rejected by the loader as a reserved slug to make this rule defensive against author typos.
+
+**Canonical URL helper:** Templates resolve a post's canonical URL via a single Jinja global `post_url(post)` that returns `/blog/<slug>` for `_shared` posts and `/al/<city>/blog/<slug>` otherwise. Card partials, the `og:url` tag, the canonical link, and Atom `<link>` entries all use this helper — never hand-build the path. This keeps the `_shared` vs city-namespaced split in one place.
+
+**Absolute URLs use the live host:** Open Graph `og:image`, `og:url`, the canonical `<link>`, and Atom feed self/entry links must use the request's host (via `request.url_root` or `url_for(..., _external=True)`), not a hardcoded `https://docket.pub`. This keeps dev (`http://localhost:5000`) and any staging environment producing the right URLs without ad-hoc overrides.
 
 **Existing-route coordination**: docket.pub already has city routes (e.g. `/<city>` for council/items). The blog blueprint registers `/al/<city>/blog/...` with a route order that ensures it doesn't shadow existing handlers. If any city slug ever collides with a static blog prefix, the loader's startup validation catches it.
 
@@ -179,7 +186,7 @@ If an ID is missing from the resolution map (deleted item, typo), the shortcode 
 - `attr_list` — `{.class #id}` syntax on any block/inline for per-post styling
 - `def_list` — definition lists
 - `admonition` — `!!! note`, `!!! warning`, `!!! quote`, `!!! key-takeaway` (custom)
-- `toc` — auto-generated table of contents; rendered if `toc: true` frontmatter set
+- `toc` — auto-generated table of contents; authors insert the `[TOC]` marker in the markdown body where they want the TOC to render (native python-markdown behavior). No frontmatter flag.
 - `pymdownx.superfences` with custom fences for `mermaid` and `dataviz` (see below)
 - `pymdownx.smartsymbols` — typographic niceties
 - Custom inline shortcode: `[[item:3421]]` / `[[meeting:2232]]` expands to a link with the canonical title pulled from the DB at render time
@@ -206,7 +213,7 @@ The loader rewrites these (at load time) to absolute paths under the blog asset 
 
 Served by a custom blueprint route — `@bp.route('/blog/assets/<city>/<slug>/<path:filename>')` calling `send_from_directory(CONTENT_ROOT / "blog" / city / slug, filename)`. This bypasses Flask's default static handler (which is bound to `src/docket/web/static/`) so post assets stay co-located with their markdown in `content/blog/...` — no build step, no copying, no symlinks.
 
-For Open Graph `og:image` (which requires an absolute URL), the rewriter prepends `https://docket.pub` to the asset path.
+Open Graph `og:image` (which requires an absolute URL) is built at request time in the template by joining `request.url_root` with the already-rewritten relative path. The loader does not embed the host into post data — keeping `cover_image_url` host-relative means dev/staging/prod each render the right URL without env-specific overrides.
 
 Rewriting only applies to URLs that don't have a scheme (`http://`, `https://`, `data:`) and don't start with `/`. Absolute external URLs pass through untouched.
 
@@ -294,14 +301,14 @@ Lookup is in-memory (Posts are pre-indexed by referenced ID at load time); zero 
 Manual, on-demand:
 
 ```bash
-python -m docket.blog.crosspost <city>/<slug>
+python -m scripts.blog_to_substack content/blog/<city>/<file>.md
 ```
 
 This:
 1. Loads the markdown body (frontmatter stripped).
 2. Rewrites relative asset paths to absolute `https://docket.pub/...` URLs.
 3. Resolves `[[item:N]]` shortcodes to plain markdown links.
-4. Copies the result to the clipboard (macOS `pbcopy`) and prints to stdout.
+4. Writes the result to `_exports/<city>-<slug>-substack.md` (a gitignored scratch directory) AND copies it to the clipboard (macOS `pbcopy`). The file gives you something durable if the clipboard is overwritten or the post is long enough to be awkward to scroll-and-paste.
 5. Reminds you to set `cross_posted_to.substack` in frontmatter after publishing.
 
 Chart iframes paste through to Substack because Substack supports the same allowlisted hosts (Datawrapper, Flourish, YouTube).
@@ -372,7 +379,8 @@ No new CSS framework, no new build step.
 - **Image hosting.** Static assets ship in the repo at `content/blog/<city>/<slug>/`. Served by a custom blueprint route `/blog/assets/<city>/<slug>/<filename>` using `send_from_directory` — see §5 "Asset URL rewriting". Large posts with lots of images may want a CDN later; out of scope for v1.
 - **Backups.** Posts are git-tracked, so backups come for free.
 - **Performance budget.** Each post page should add < 50ms render time over the existing `base.html` shell at p50. (Achievable because HTML is precomputed; the request path is template inheritance + dict lookup.)
-- **Redeploy-to-publish friction.** Every change — including a one-character typo fix — requires git push → Railway build → container restart, because posts are loaded into memory at process start. This is the v1 trade for zero DB overhead and a static site's reliability. If the latency becomes annoying in practice, v2 can add a `/admin/blog/reload` webhook route that re-walks `content/blog/` and rebuilds the in-memory cache without a container restart. Not in scope for v1.
+- **Redeploy-to-publish friction.** Every change — including a one-character typo fix — requires git push → Railway build → container restart, because posts are loaded into memory at process start. This is the v1 trade for zero DB overhead and a static site's reliability. v1.1 may add a hot-reload path; deferred from v1 for one specific reason: **gunicorn runs multiple workers, each with its own `BLOG_STATE`**. A naïve `/admin/blog/reload` webhook would only refresh one worker's cache and leave the other 1–3 workers serving stale content. The real fix is either (a) a shared-volume mtime poll that every worker checks on cache lookup, or (b) a pub/sub broadcast (Redis or a tiny in-DB signal table). Neither is hard, but both deserve thinking time we'd rather spend on the first dozen posts. Document the path now; build it when redeploy latency actually annoys someone.
+- **Draft review workflow.** A `?preview=<token>` link on production only works after the draft is committed and pushed — which means `main` accumulates `_drafts/` files (and `status: draft` posts in regular dirs). That's fine: those files are silently skipped by the loader. The recommended sequence is: (1) draft locally and review via `flask run`; (2) for stakeholder review, push the branch and ask reviewer to run it locally OR temporarily merge to main with `status: draft` and share the preview link; (3) publish by changing `status` (or removing the field) and committing again. Production preview tokens are best reserved for "almost-published" content that needs a final off-list eyes-on.
 
 ---
 
