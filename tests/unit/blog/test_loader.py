@@ -32,8 +32,8 @@ def test_parse_valid_post(fixtures_dir: Path):
 def test_parse_missing_summary_raises(fixtures_dir: Path):
     with pytest.raises(LoaderError, match="summary"):
         parse_post_file(
-            fixtures_dir / "posts" / "_drafts" / "2026-06-02-missing-summary.md",
-            content_root=fixtures_dir / "posts",
+            fixtures_dir / "posts_missing_summary" / "birmingham" / "2026-06-02-missing-summary.md",
+            content_root=fixtures_dir / "posts_missing_summary",
         )
 
 
@@ -52,7 +52,7 @@ def test_load_posts_skips_drafts_dir(fixtures_dir):
 def test_load_posts_unknown_city_raises(fixtures_dir):
     with pytest.raises(LoaderError, match="unknown city"):
         load_posts_from_disk(
-            content_root=fixtures_dir / "posts",
+            content_root=fixtures_dir / "posts_unknown_city",
             known_city_slugs={"birmingham"},  # homewood missing
         )
 
