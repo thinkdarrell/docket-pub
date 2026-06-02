@@ -106,3 +106,43 @@ def sanitize_iframes(html: str) -> str:
         return f"<iframe {' '.join(attrs)}></iframe>"
 
     return IFRAME_RE.sub(_replace, html)
+
+
+# ---------------------------------------------------------------------------
+# Asset URL rewriter
+# ---------------------------------------------------------------------------
+
+IMG_SRC_RE = re.compile(r'(<img\b[^>]*\bsrc=")([^"]+)(")', re.IGNORECASE)
+A_HREF_RE = re.compile(r'(<a\b[^>]*\bhref=")([^"]+)(")', re.IGNORECASE)
+
+SCHEME_RE = re.compile(r"^[a-z][a-z0-9+.\-]*:", re.IGNORECASE)
+
+
+def _is_external(url: str) -> bool:
+    return bool(SCHEME_RE.match(url)) or url.startswith("/") or url.startswith("#")
+
+
+def rewrite_asset_urls(html: str, *, city: str, slug: str) -> str:
+    """Rewrite relative img/href URLs to `/blog/assets/<city>/<slug>/<path>`.
+    Absolute (scheme://...), root-relative (/...), and fragment (#...) URLs pass through.
+    """
+    base = f"/blog/assets/{city}/{slug}/"
+
+    def _rewrite(match: re.Match) -> str:
+        prefix, url, suffix = match.group(1), match.group(2), match.group(3)
+        if _is_external(url):
+            return f"{prefix}{url}{suffix}"
+        return f"{prefix}{base}{url}{suffix}"
+
+    html = IMG_SRC_RE.sub(_rewrite, html)
+    html = A_HREF_RE.sub(_rewrite, html)
+    return html
+
+
+def rewrite_cover_image(value: str | None, *, city: str, slug: str) -> str | None:
+    """Same rule as `rewrite_asset_urls`, for the frontmatter `cover_image` scalar."""
+    if not value:
+        return None
+    if _is_external(value):
+        return value
+    return f"/blog/assets/{city}/{slug}/{value}"
