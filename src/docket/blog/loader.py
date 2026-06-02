@@ -88,3 +88,54 @@ def parse_post_file(path: Path, *, content_root: Path) -> Post:
         word_count=0,  # computed by render stage
         source_path=source_path,
     )
+
+
+def load_posts_from_disk(
+    *,
+    content_root: Path,
+    known_city_slugs: set[str],
+) -> list[Post]:
+    """Walk `content_root` for .md files, parse each, validate, return Posts.
+
+    Skips:
+      - any file under a path component starting with "_drafts"
+      - hidden files (leading dot)
+      - non-.md files
+
+    Raises LoaderError on:
+      - unknown city directory (not in known_city_slugs and not "_shared")
+      - duplicate (city, slug) pair
+      - any per-file LoaderError surfaced by parse_post_file
+    """
+    if not content_root.exists():
+        return []
+
+    posts: list[Post] = []
+    seen: set[tuple[str, str]] = set()  # (city, slug)
+    allowed_cities = known_city_slugs | {"_shared"}
+
+    for md_path in sorted(content_root.rglob("*.md")):
+        rel_parts = md_path.relative_to(content_root).parts
+        if any(part.startswith("_drafts") for part in rel_parts[:-1]):
+            continue
+        if md_path.name.startswith("."):
+            continue
+
+        top = rel_parts[0]
+        if top not in allowed_cities:
+            raise LoaderError(
+                f"{md_path.relative_to(content_root).as_posix()}: "
+                f"unknown city directory {top!r} "
+                f"(allowed: {sorted(allowed_cities)})"
+            )
+
+        post = parse_post_file(md_path, content_root=content_root)
+        key = (post.city, post.slug)
+        if key in seen:
+            raise LoaderError(
+                f"{post.source_path}: duplicate slug {post.slug!r} for city {post.city!r}"
+            )
+        seen.add(key)
+        posts.append(post)
+
+    return posts
