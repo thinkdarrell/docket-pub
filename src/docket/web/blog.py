@@ -7,6 +7,8 @@ from pathlib import Path
 
 from flask import Blueprint, Response, abort, current_app, make_response, render_template, request, send_from_directory
 
+from docket.services import query as _query
+
 bp = Blueprint("blog", __name__)
 
 
@@ -45,7 +47,10 @@ def city(city: str):
         p for p in _published_posts(state, today)
         if p.city == city or p.city == "_shared"
     ][:20]
-    return render_template("blog/city.html", city=city, posts=posts, today=today)
+    municipality = _query.get_municipality(city)
+    return render_template(
+        "blog/city.html", city=city, municipality=municipality, posts=posts, today=today
+    )
 
 
 @bp.route("/al/<city>/blog/<slug>")
@@ -56,6 +61,8 @@ def post(city: str, slug: str):
     if p is None:
         abort(404)
 
+    municipality = _query.get_municipality(city)
+
     if not p.is_published_as_of(today):
         # Drafts/scheduled may be unlocked by an explicit preview token. The
         # token must be configured (non-empty) and match exactly.
@@ -63,11 +70,13 @@ def post(city: str, slug: str):
         supplied = request.args.get("preview") or ""
         if not configured or supplied != configured:
             abort(404)
-        resp = make_response(render_template("blog/post.html", post=p))
+        resp = make_response(
+            render_template("blog/post.html", post=p, municipality=municipality)
+        )
         resp.headers["X-Robots-Tag"] = "noindex"
         return resp
 
-    return render_template("blog/post.html", post=p)
+    return render_template("blog/post.html", post=p, municipality=municipality)
 
 
 @bp.route("/blog/tag/<tag>")
