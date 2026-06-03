@@ -1,0 +1,22 @@
+{# expects: post (Post dataclass) #}
+<article class="blog-card">
+  {% if post.cover_image_url %}
+    <a class="blog-card__cover" href="{{ post_url(post) }}">
+      <img src="{{ post.cover_image_url }}" alt="" loading="lazy">
+    </a>
+  {% endif %}
+  <div class="blog-card__body">
+    <h2 class="blog-card__title">
+      <a href="{{ post_url(post) }}">{{ post.title }}</a>
+    </h2>
+    <p class="blog-card__summary">{{ post.summary }}</p>
+    <p class="blog-card__meta">
+      <time datetime="{{ post.date.isoformat() }}">{{ post.date.strftime("%B %-d, %Y") }}</time>
+      &middot;
+      {{ post.reading_time_minutes }} min read
+      {% if post.city != "_shared" %}
+        &middot; <a href="/al/{{ post.city }}/blog">{{ post.city|title }}</a>
+      {% endif %}
+    </p>
+  </div>
+</article>

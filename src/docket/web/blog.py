@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 
-from flask import Blueprint, abort, current_app, send_from_directory
+from flask import Blueprint, abort, current_app, render_template, send_from_directory
 
 bp = Blueprint("blog", __name__)
 
@@ -22,3 +23,15 @@ def asset(city: str, slug: str, filename: str):
     except ValueError:
         abort(404)
     return send_from_directory(asset_dir, filename)
+
+
+def _published_posts(state, today: date):
+    return [p for p in state.posts if p.is_published_as_of(today)]
+
+
+@bp.route("/blog")
+def hub():
+    state = current_app.config["BLOG_STATE"]
+    today = date.today()
+    posts = _published_posts(state, today)[:20]
+    return render_template("blog/hub.html", posts=posts, today=today)

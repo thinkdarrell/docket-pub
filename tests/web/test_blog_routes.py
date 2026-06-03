@@ -49,12 +49,54 @@ def _make_state(tmp_path: Path) -> BlogState:
 @pytest.fixture
 def app(tmp_path: Path):
     import os
+    from flask import Blueprint, Response
     template_dir = os.path.join(os.path.dirname(__file__), "..", "..", "src", "docket", "web", "templates")
     app = Flask(__name__, template_folder=template_dir)
     app.config["BLOG_CONTENT_ROOT"] = str(tmp_path)
     app.config["BLOG_STATE"] = _make_state(tmp_path)
     app.config["BLOG_PREVIEW_TOKEN"] = ""
+    # Stub out the `public` blueprint so base.html partials' url_for calls resolve.
+    public_stub = Blueprint("public", __name__)
+
+    @public_stub.route("/rss/coverage.xml")
+    def coverage_rss():
+        return Response("", content_type="application/rss+xml")
+
+    @public_stub.route("/")
+    def index():
+        return Response("")
+
+    @public_stub.route("/search")
+    def search():
+        return Response("")
+
+    @public_stub.route("/topics")
+    def topics_index():
+        return Response("")
+
+    @public_stub.route("/about")
+    def about():
+        return Response("")
+
+    @public_stub.route("/about/methodology")
+    def about_methodology():
+        return Response("")
+
+    @public_stub.route("/about/corrections")
+    def about_corrections():
+        return Response("")
+
+    @public_stub.route("/councilors")
+    def councilors_index():
+        return Response("")
+
+    app.register_blueprint(public_stub)
     app.register_blueprint(blog_bp)
+    def _post_url(post):
+        if post.city == "_shared":
+            return f"/blog/{post.slug}"
+        return f"/al/{post.city}/blog/{post.slug}"
+    app.jinja_env.globals["post_url"] = _post_url
     return app
 
 
@@ -75,3 +117,49 @@ def test_asset_route_blocks_traversal(app):
     client = app.test_client()
     r = client.get("/blog/assets/birmingham/budget/..%2F..%2Fetc%2Fhosts")
     assert r.status_code in (400, 404)
+
+
+def test_hub_lists_published_posts(app):
+    client = app.test_client()
+    r = client.get("/blog")
+    assert r.status_code == 200
+    assert b"Budget" in r.data
+    assert b"Budget post." in r.data  # summary in card
+
+
+def test_hub_hides_drafts_and_scheduled(app):
+    from datetime import date as _date
+    from docket.blog.types import Post
+
+    state = app.config["BLOG_STATE"]
+    draft = Post(
+        title="Hidden draft",
+        slug="hidden",
+        date=_date(2026, 5, 1),
+        city="birmingham",
+        summary="Don't show me.",
+        body_markdown="",
+        body_html="<p>x</p>",
+        authors=[],
+        tags=[],
+        cover_image_url=None,
+        cross_posted_to={},
+        related_item_ids=[],
+        related_meeting_ids=[],
+        status="draft",
+        extra_css=[],
+        updated=None,
+        reading_time_minutes=1,
+        word_count=1,
+        source_path="x",
+    )
+    app.config["BLOG_STATE"] = BlogState(
+        posts=state.posts + [draft],
+        posts_by_id={**state.posts_by_id, ("birmingham", "hidden"): draft},
+        posts_by_item_id=state.posts_by_item_id,
+        posts_by_meeting_id=state.posts_by_meeting_id,
+        authors=state.authors,
+    )
+    client = app.test_client()
+    r = client.get("/blog")
+    assert b"Don't show me." not in r.data
