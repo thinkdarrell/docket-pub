@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400">
+  <rect width="800" height="400" fill="#f6f4ef"/>
+  <text x="400" y="220" text-anchor="middle" font-family="serif" font-size="64" fill="#222">docket.pub</text>
+</svg>

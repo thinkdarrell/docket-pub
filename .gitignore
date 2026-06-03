@@ -33,6 +33,9 @@ data/minutes_cache/
 .claude/settings.local.json
 .claude/worktrees/
 
+# Substack cross-post exports (see scripts/blog_to_substack.py)
+_exports/
+
 # NOTE: `scripts/deploy.sh` writes a `COMMIT_SHA` scratch file at the
 # repo root and cleans it up after `railway up`. It is intentionally
 # NOT gitignored — Railway CLI honors .gitignore for uploads, and a
