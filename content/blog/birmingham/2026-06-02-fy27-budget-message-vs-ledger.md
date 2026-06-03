@@ -3,7 +3,7 @@ title: "Birmingham FY27 Budget: Ledger?! I Hardly Know Her!"
 date: 2026-06-02
 city: birmingham
 summary: "Mayor Woodfin's FY27 Budget Message talks a big game about durable investments and a $15M worker raise. The ledger lines tell a different story."
-authors: [darrell]
+authors: [staff]
 tags: [budget, explainer, city-finance, woodfin]
 ---
 
