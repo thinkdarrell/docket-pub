@@ -46,3 +46,13 @@ def city(city: str):
         if p.city == city or p.city == "_shared"
     ][:20]
     return render_template("blog/city.html", city=city, posts=posts, today=today)
+
+
+@bp.route("/al/<city>/blog/<slug>")
+def post(city: str, slug: str):
+    state = current_app.config["BLOG_STATE"]
+    today = date.today()
+    p = state.posts_by_id.get((city, slug))
+    if p is None or not p.is_published_as_of(today):
+        abort(404)
+    return render_template("blog/post.html", post=p)

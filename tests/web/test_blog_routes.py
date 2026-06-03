@@ -231,3 +231,53 @@ def test_city_route_filters_to_city_and_shared(app):
     assert b"Budget" in r.data
     assert b"Shared summary." in r.data
     assert b"HW summary." not in r.data
+
+
+def test_post_detail_renders(app):
+    client = app.test_client()
+    r = client.get("/al/birmingham/blog/budget")
+    assert r.status_code == 200
+    assert b"Budget" in r.data
+    assert b"Body" in r.data
+
+
+def test_post_detail_404_for_unknown(app):
+    client = app.test_client()
+    assert client.get("/al/birmingham/blog/nope").status_code == 404
+
+
+def test_post_detail_draft_hidden_without_token(app):
+    from datetime import date as _date
+    from docket.blog.types import Post
+
+    state = app.config["BLOG_STATE"]
+    draft = Post(
+        title="Draft",
+        slug="draft",
+        date=_date(2026, 5, 1),
+        city="birmingham",
+        summary="x",
+        body_markdown="",
+        body_html="<p>secret</p>",
+        authors=[],
+        tags=[],
+        cover_image_url=None,
+        cross_posted_to={},
+        related_item_ids=[],
+        related_meeting_ids=[],
+        status="draft",
+        extra_css=[],
+        updated=None,
+        reading_time_minutes=1,
+        word_count=1,
+        source_path="x",
+    )
+    app.config["BLOG_STATE"] = BlogState(
+        posts=state.posts + [draft],
+        posts_by_id={**state.posts_by_id, ("birmingham", "draft"): draft},
+        posts_by_item_id=state.posts_by_item_id,
+        posts_by_meeting_id=state.posts_by_meeting_id,
+        authors=state.authors,
+    )
+    client = app.test_client()
+    assert client.get("/al/birmingham/blog/draft").status_code == 404
