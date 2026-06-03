@@ -95,6 +95,21 @@
 {# ── Coverage block ────────────────────────────────── #}
 {% include "partials/coverage_block.html" %}
 
+{# ── Editorial coverage rail ──────────────────────── #}
+{% if coverage_posts %}
+<aside class="editorial-coverage">
+  <h2>Editorial coverage</h2>
+  <ul>
+    {% for post in coverage_posts %}
+    <li>
+      <a href="{{ post_url(post) }}">{{ post.title }}</a>
+      <span class="editorial-coverage__meta">{{ post.date.strftime("%b %-d, %Y") }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+</aside>
+{% endif %}
+
 {# ── Related items — capture seed before loops shadow `item` ── #}
 {% set seed_topic = item.topic %}
 {% set seed_sponsor = item.sponsor %}

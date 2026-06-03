@@ -276,6 +276,15 @@ def meeting_detail(slug, meeting_id):
 
     kpi_stats = query._kpi_stats_for_municipality(municipality)
 
+    blog_state = current_app.config.get("BLOG_STATE")
+    coverage_posts = []
+    if blog_state is not None:
+        today = date.today()
+        coverage_posts = [
+            p for p in blog_state.posts_by_meeting_id.get(meeting_id, [])
+            if p.is_published_as_of(today)
+        ]
+
     return render_template(
         "meeting_detail.html",
         municipality=municipality,
@@ -289,6 +298,7 @@ def meeting_detail(slug, meeting_id):
         total_dollars_formatted=total_dollars_formatted,
         coverage_counts=coverage_counts,
         kpi_stats=kpi_stats,
+        coverage_posts=coverage_posts,
     )
 
 
@@ -325,6 +335,15 @@ def item_detail(slug, item_id):
 
     kpi_stats = query._kpi_stats_for_municipality(municipality)
 
+    blog_state = current_app.config.get("BLOG_STATE")
+    coverage_posts = []
+    if blog_state is not None:
+        today = date.today()
+        coverage_posts = [
+            p for p in blog_state.posts_by_item_id.get(item_id, [])
+            if p.is_published_as_of(today)
+        ]
+
     return render_template(
         "item_detail.html",
         municipality=municipality,
@@ -335,6 +354,7 @@ def item_detail(slug, item_id):
         related_by_sponsor=related_by_sponsor,
         vote_data=vote_data,
         kpi_stats=kpi_stats,
+        coverage_posts=coverage_posts,
     )
 
 

@@ -57,3 +57,21 @@ def test_city_page_shows_blog_rail(state_with_birmingham_post):
     integration-fixture task is scheduled.
     """
     pass
+
+
+@pytest.mark.skipif(
+    True,
+    reason="needs app_with_db fixture, see Task 24",
+)
+def test_meeting_detail_shows_coverage(state_with_birmingham_post):
+    """A post with related_meetings=[2232] surfaces on /meeting/2232."""
+    pass
+
+
+@pytest.mark.skipif(
+    True,
+    reason="needs app_with_db fixture, see Task 24",
+)
+def test_meeting_detail_no_rail_without_posts():
+    """Without any posts referencing this meeting, the rail is hidden."""
+    pass
