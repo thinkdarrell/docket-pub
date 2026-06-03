@@ -53,8 +53,20 @@ def post(city: str, slug: str):
     state = current_app.config["BLOG_STATE"]
     today = date.today()
     p = state.posts_by_id.get((city, slug))
-    if p is None or not p.is_published_as_of(today):
+    if p is None:
         abort(404)
+
+    if not p.is_published_as_of(today):
+        # Drafts/scheduled may be unlocked by an explicit preview token. The
+        # token must be configured (non-empty) and match exactly.
+        configured = current_app.config.get("BLOG_PREVIEW_TOKEN") or ""
+        supplied = request.args.get("preview") or ""
+        if not configured or supplied != configured:
+            abort(404)
+        resp = make_response(render_template("blog/post.html", post=p))
+        resp.headers["X-Robots-Tag"] = "noindex"
+        return resp
+
     return render_template("blog/post.html", post=p)
 
 

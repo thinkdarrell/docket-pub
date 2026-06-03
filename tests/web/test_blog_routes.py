@@ -335,3 +335,75 @@ def test_reserved_prefix_does_not_match_shared_post(app):
     client = app.test_client()
     r = client.get("/blog/assets/birmingham/budget/cover.jpg")
     assert r.status_code == 200  # asset route still wins over shared post route
+
+
+def test_preview_token_reveals_draft(app):
+    from datetime import date as _date
+    from docket.blog.types import Post
+
+    state = app.config["BLOG_STATE"]
+    draft = Post(
+        title="Preview-only",
+        slug="preview-only",
+        date=_date(2026, 5, 1),
+        city="birmingham",
+        summary="x",
+        body_markdown="",
+        body_html="<p>preview body</p>",
+        authors=[],
+        tags=[],
+        cover_image_url=None,
+        cross_posted_to={},
+        related_item_ids=[],
+        related_meeting_ids=[],
+        status="draft",
+        extra_css=[],
+        updated=None,
+        reading_time_minutes=1,
+        word_count=1,
+        source_path="x",
+    )
+    app.config["BLOG_STATE"] = BlogState(
+        posts=state.posts + [draft],
+        posts_by_id={**state.posts_by_id, ("birmingham", "preview-only"): draft},
+        posts_by_item_id=state.posts_by_item_id,
+        posts_by_meeting_id=state.posts_by_meeting_id,
+        authors=state.authors,
+    )
+    app.config["BLOG_PREVIEW_TOKEN"] = "secret123"
+
+    client = app.test_client()
+    # Without token: 404
+    assert client.get("/al/birmingham/blog/preview-only").status_code == 404
+    # Wrong token: 404
+    assert client.get("/al/birmingham/blog/preview-only?preview=wrong").status_code == 404
+    # Correct token: 200 + noindex
+    r = client.get("/al/birmingham/blog/preview-only?preview=secret123")
+    assert r.status_code == 200
+    assert b"preview body" in r.data
+    assert r.headers.get("X-Robots-Tag") == "noindex"
+
+
+def test_preview_token_unset_blocks_all_previews(app):
+    from datetime import date as _date
+    from docket.blog.types import Post
+
+    state = app.config["BLOG_STATE"]
+    draft = Post(
+        title="d", slug="d", date=_date(2026, 5, 1), city="birmingham", summary="x",
+        body_markdown="", body_html="<p>x</p>", authors=[], tags=[],
+        cover_image_url=None, cross_posted_to={}, related_item_ids=[],
+        related_meeting_ids=[], status="draft", extra_css=[], updated=None,
+        reading_time_minutes=1, word_count=1, source_path="x",
+    )
+    app.config["BLOG_STATE"] = BlogState(
+        posts=state.posts + [draft],
+        posts_by_id={**state.posts_by_id, ("birmingham", "d"): draft},
+        posts_by_item_id=state.posts_by_item_id,
+        posts_by_meeting_id=state.posts_by_meeting_id,
+        authors=state.authors,
+    )
+    app.config["BLOG_PREVIEW_TOKEN"] = ""  # unset
+    client = app.test_client()
+    # Even with any "?preview=" value, no token configured → always 404.
+    assert client.get("/al/birmingham/blog/d?preview=anything").status_code == 404
