@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import logging
 import re
+from dataclasses import replace
 from datetime import date
 from pathlib import Path
 
 import frontmatter
 
 from docket.blog.types import Post
+
+logger = logging.getLogger(__name__)
 
 SLUG_RE = re.compile(r"^(?P<date>\d{4}-\d{2}-\d{2})-(?P<slug>[a-z0-9][a-z0-9-]*)$")
 
@@ -87,12 +91,12 @@ def parse_post_file(path: Path, *, content_root: Path) -> Post:
         reading_time_minutes=0,  # computed by render stage
         word_count=0,  # computed by render stage
         source_path=source_path,
+        _author_keys=list(meta.get("authors") or []),
     )
 
 
 def _apply_status_precedence(post: Post) -> Post:
     """Spec §3 'Status precedence (strict)': future date overrides any status."""
-    from dataclasses import replace
     from datetime import date as _date
 
     today = _date.today()
@@ -151,3 +155,99 @@ def load_posts_from_disk(
         posts.append(post)
 
     return posts
+
+
+def load_blog_state(
+    *,
+    content_root: Path,
+    authors_yaml: Path,
+    known_city_slugs: set[str],
+) -> "BlogState":
+    """Top-level loader: walks content/blog/, parses, resolves authors + shortcodes,
+    renders to HTML, builds reverse indexes. Called once at process start."""
+    from docket.blog.authors import AuthorsRegistry, load_authors_registry
+    from docket.blog.render import (
+        compute_reading_time,
+        count_words,
+        render_post_html,
+        rewrite_cover_image,
+    )
+    from docket.blog.shortcodes import (
+        collect_shortcode_refs,
+        resolve_shortcode_titles,
+    )
+    from docket.blog.types import BlogState
+
+    authors_reg: AuthorsRegistry = load_authors_registry(authors_yaml)
+    raw_posts = load_posts_from_disk(
+        content_root=content_root, known_city_slugs=known_city_slugs
+    )
+
+    # Collect all shortcode refs across all posts and resolve in batches.
+    all_item_ids: set[int] = set()
+    all_meeting_ids: set[int] = set()
+    for p in raw_posts:
+        items, meetings = collect_shortcode_refs(p.body_markdown)
+        all_item_ids |= items
+        all_meeting_ids |= meetings
+
+    item_titles, meeting_titles = resolve_shortcode_titles(
+        item_ids=all_item_ids, meeting_ids=all_meeting_ids
+    )
+
+    # Warn once per missing ID.
+    for nid in sorted(all_item_ids - set(item_titles)):
+        logger.warning("blog: shortcode [[item:%s]] references unknown agenda_item", nid)
+    for nid in sorted(all_meeting_ids - set(meeting_titles)):
+        logger.warning("blog: shortcode [[meeting:%s]] references unknown meeting", nid)
+
+    rendered: list[Post] = []
+    for p in raw_posts:
+        authors = authors_reg.resolve_keys(p._author_keys)
+
+        items_in_post, meetings_in_post = collect_shortcode_refs(p.body_markdown)
+        post_item_titles = {i: item_titles[i] for i in items_in_post if i in item_titles}
+        post_meeting_titles = {
+            i: meeting_titles[i] for i in meetings_in_post if i in meeting_titles
+        }
+
+        body_html = render_post_html(
+            p.body_markdown,
+            city=p.city,
+            slug=p.slug,
+            item_titles=post_item_titles,
+            meeting_titles=post_meeting_titles,
+        )
+        cover_url = rewrite_cover_image(p.cover_image_url, city=p.city, slug=p.slug)
+        wc = count_words(body_html)
+        rt = compute_reading_time(wc)
+
+        rendered.append(
+            replace(
+                p,
+                body_html=body_html,
+                authors=authors,
+                cover_image_url=cover_url,
+                word_count=wc,
+                reading_time_minutes=rt,
+            )
+        )
+
+    rendered.sort(key=lambda p: (p.date, p.slug), reverse=True)
+    posts_by_id = {(p.city, p.slug): p for p in rendered}
+
+    posts_by_item_id: dict[int, list[Post]] = {}
+    posts_by_meeting_id: dict[int, list[Post]] = {}
+    for p in rendered:
+        for iid in p.related_item_ids:
+            posts_by_item_id.setdefault(iid, []).append(p)
+        for mid in p.related_meeting_ids:
+            posts_by_meeting_id.setdefault(mid, []).append(p)
+
+    return BlogState(
+        posts=rendered,
+        posts_by_id=posts_by_id,
+        posts_by_item_id=posts_by_item_id,
+        posts_by_meeting_id=posts_by_meeting_id,
+        authors=authors_reg.by_key,
+    )

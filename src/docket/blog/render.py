@@ -7,6 +7,8 @@ from urllib.parse import urlparse
 
 import markdown
 
+from docket.blog.shortcodes import ITEM_RE, MEETING_RE
+
 
 def _mermaid_fence_format(source, language, css_class, options, md, **kwargs):
     return f'<div class="{css_class}">{source}</div>'
@@ -146,3 +148,76 @@ def rewrite_cover_image(value: str | None, *, city: str, slug: str) -> str | Non
     if _is_external(value):
         return value
     return f"/blog/assets/{city}/{slug}/{value}"
+
+
+# ---------------------------------------------------------------------------
+# Reading time
+# ---------------------------------------------------------------------------
+
+TAG_RE = re.compile(r"<[^>]+>")
+WORDS_PER_MINUTE = 200
+
+
+def count_words(html: str) -> int:
+    text = TAG_RE.sub(" ", html)
+    return len([w for w in text.split() if w])
+
+
+def compute_reading_time(word_count: int) -> int:
+    return max(1, round(word_count / WORDS_PER_MINUTE))
+
+
+# ---------------------------------------------------------------------------
+# Full render pipeline
+# ---------------------------------------------------------------------------
+
+
+def _expand_shortcodes_in_markdown(
+    md: str,
+    *,
+    item_titles: dict[int, str],
+    meeting_titles: dict[int, str],
+) -> str:
+    """Expand `[[item:N]]` / `[[meeting:N]]` into markdown anchors before rendering.
+
+    Resolution failures render as `[item:N]` plain text + WARNING already logged
+    at load time by the caller. We don't re-log per render.
+    """
+
+    def _item(m: re.Match) -> str:
+        nid = int(m.group(1))
+        title = item_titles.get(nid)
+        if title is None:
+            return f"[item:{nid}]"
+        return f'<a href="/item/{nid}" class="docket-link" data-kind="item">{title}</a>'
+
+    def _meeting(m: re.Match) -> str:
+        nid = int(m.group(1))
+        title = meeting_titles.get(nid)
+        if title is None:
+            return f"[meeting:{nid}]"
+        return (
+            f'<a href="/meeting/{nid}" class="docket-link" data-kind="meeting">{title}</a>'
+        )
+
+    md = ITEM_RE.sub(_item, md)
+    md = MEETING_RE.sub(_meeting, md)
+    return md
+
+
+def render_post_html(
+    body_markdown: str,
+    *,
+    city: str,
+    slug: str,
+    item_titles: dict[int, str],
+    meeting_titles: dict[int, str],
+) -> str:
+    """Full pipeline: shortcodes → markdown → iframe sanitize → asset URL rewrite."""
+    expanded = _expand_shortcodes_in_markdown(
+        body_markdown, item_titles=item_titles, meeting_titles=meeting_titles
+    )
+    html = render_markdown(expanded)
+    html = sanitize_iframes(html)
+    html = rewrite_asset_urls(html, city=city, slug=slug)
+    return html

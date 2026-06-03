@@ -45,3 +45,27 @@ def test_mermaid_fence_emits_div():
     html = render_markdown(md)
     assert 'class="mermaid"' in html
     assert "graph TD" in html
+
+
+def test_render_full_pipeline_expands_shortcodes():
+    from docket.blog.render import render_post_html
+
+    md = "See [[item:42]] for details."
+    item_titles = {42: "Resolution to fund X"}
+    html = render_post_html(
+        md, city="birmingham", slug="budget",
+        item_titles=item_titles, meeting_titles={},
+    )
+    assert "Resolution to fund X" in html
+    assert 'href="/item/42"' in html
+
+
+def test_render_full_pipeline_missing_shortcode_renders_plain():
+    from docket.blog.render import render_post_html
+
+    md = "Missing: [[item:9999]]."
+    html = render_post_html(
+        md, city="birmingham", slug="x",
+        item_titles={}, meeting_titles={},
+    )
+    assert "[item:9999]" in html

@@ -39,6 +39,9 @@ class Post:
     reading_time_minutes: int
     word_count: int
     source_path: str  # relative to content/blog/, e.g. "birmingham/2026-06-02-hello.md"
+    # Internal: raw author keys from frontmatter, used by the loader to resolve
+    # against AuthorsRegistry. Never read from request handlers.
+    _author_keys: list[str] = field(default_factory=list)
 
     def is_published_as_of(self, today: date) -> bool:
         """True if this post should be visible to the public on the given day."""
