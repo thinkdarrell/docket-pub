@@ -18,5 +18,12 @@
         &middot; <a href="/al/{{ post.city }}/blog">{{ post.city|title }}</a>
       {% endif %}
     </p>
+    {% if post.tags %}
+    <ul class="blog-card__tags">
+      {% for t in post.tags %}
+      <li><a class="chip chip--tag" href="{{ url_for('blog.tag', tag=t) }}">{{ t }}</a></li>
+      {% endfor %}
+    </ul>
+    {% endif %}
   </div>
 </article>

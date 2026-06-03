@@ -1,7 +1,17 @@
 {% extends "base.html" %}
 {% block title %}{{ meeting.title }} — {{ municipality.name }} — docket.pub{% endblock %}
+{% block crumb %}meetings/{{ meeting.id }}{% endblock %}
 
 {% block content %}
+{% set _crumb_label = meeting.title if meeting.title else (meeting.meeting_date.strftime('%b %-d, %Y') if meeting.meeting_date else 'Meeting') %}
+{% set crumbs = [
+  {'label': 'Home',            'url': url_for('public.index')},
+  {'label': municipality.name, 'url': url_for('public.city_overview', slug=municipality.slug)},
+  {'label': 'Meetings',        'url': url_for('public.city_meetings', slug=municipality.slug)},
+  {'label': _crumb_label,      'url': None},
+] %}
+{% include 'partials/breadcrumbs.html' %}
+
 {# ── Header (P4-1) ─────────────────────────────────── #}
 <a class="back-link t-mono" href="{{ url_for('public.city_overview', slug=municipality.slug) }}">
     ← Back to {{ municipality.name }}

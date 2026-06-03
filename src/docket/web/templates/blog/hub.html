@@ -2,10 +2,25 @@
 
 {% block title %}Blog — docket.pub{% endblock %}
 
+{% block head %}
+<link rel="alternate" type="application/atom+xml"
+      title="docket.pub blog"
+      href="{{ url_for('blog.hub_feed') }}">
+<link rel="stylesheet" href="/static/blog/blog.css">
+{% endblock %}
+
 {% block content %}
 <header class="hero hero--detail">
-  <h1>Blog</h1>
-  <p class="hero__dek">Coverage, explainers, and notes from docket.pub.</p>
+  {% if tag is defined and tag %}
+    <h1>Tagged &ldquo;{{ tag }}&rdquo;</h1>
+    <p class="hero__dek">
+      Posts tagged <strong>{{ tag }}</strong> &middot;
+      <a href="{{ url_for('blog.hub') }}">All posts</a>
+    </p>
+  {% else %}
+    <h1>Blog</h1>
+    <p class="hero__dek">Coverage, explainers, and notes from docket.pub.</p>
+  {% endif %}
 </header>
 
 <section class="feed">

@@ -91,6 +91,10 @@
                     <div><div class="rail-link-label">All topics</div><div class="t-meta">cross-city browse</div></div>
                     <span class="t-mono">↗</span>
                 </a>
+                <a class="rail-link" href="{{ url_for('blog.city', city=municipality.slug) if has_city else url_for('blog.hub') }}">
+                    <div><div class="rail-link-label">Blog</div><div class="t-meta">coverage &amp; explainers</div></div>
+                    <span class="t-mono">↗</span>
+                </a>
             </div>
         </div>
     </div>
