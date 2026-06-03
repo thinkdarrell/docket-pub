@@ -25,9 +25,11 @@
             <a class="topnav-link{% if request.endpoint == 'public.city_overview' %} is-active{% endif %}" href="{{ url_for('public.city_overview', slug=municipality.slug) }}">Overview</a>
             <a class="topnav-link{% if request.endpoint == 'public.city_meetings' %} is-active{% endif %}" href="{{ url_for('public.city_meetings', slug=municipality.slug) }}">Meetings</a>
             <a class="topnav-link{% if request.endpoint == 'public.city_council' %} is-active{% endif %}" href="{{ url_for('public.city_council', slug=municipality.slug) }}">Members</a>
+            <a class="topnav-link{% if request.endpoint and request.endpoint.startswith('blog.') %} is-active{% endif %}" href="{{ url_for('blog.city', city=municipality.slug) }}">Blog</a>
             {% else %}
             <a class="topnav-link{% if request.endpoint == 'public.index' %} is-active{% endif %}" href="{{ url_for('public.index') }}">Cities</a>
             <a class="topnav-link{% if request.endpoint == 'public.topics_index' %} is-active{% endif %}" href="{{ url_for('public.topics_index') }}">Topics</a>
+            <a class="topnav-link{% if request.endpoint and request.endpoint.startswith('blog.') %} is-active{% endif %}" href="{{ url_for('blog.hub') }}">Blog</a>
             {% endif %}
             <a class="topnav-link{% if request.endpoint == 'public.search' %} is-active{% endif %}" href="{{ url_for('public.search') }}">Search</a>
         </nav>

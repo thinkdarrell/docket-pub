@@ -118,6 +118,20 @@
 .blog-card__title { font-size: 1.5rem; margin-bottom: 0.25rem; }
 .blog-card__summary { color: var(--ink-muted, #4a4a4a); margin-bottom: 0.5rem; }
 .blog-card__meta { font-size: 0.85rem; color: var(--ink-muted, #4a4a4a); }
+.blog-card__tags,
+.prose__tags {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.chip--tag {
+  font-size: 0.78rem;
+  text-decoration: none;
+}
+.chip--tag:hover { text-decoration: underline; }
 @media (max-width: 600px) {
   .blog-card { grid-template-columns: 1fr; }
 }

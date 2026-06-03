@@ -2,6 +2,13 @@
 
 {% block title %}{{ city|title }} blog — docket.pub{% endblock %}
 
+{% block head %}
+<link rel="alternate" type="application/atom+xml"
+      title="docket.pub {{ city|title }} blog"
+      href="{{ url_for('blog.city_feed', city=city) }}">
+<link rel="stylesheet" href="/static/blog/blog.css">
+{% endblock %}
+
 {% block content %}
 <header class="hero hero--detail">
   <h1>{{ city|title }} blog</h1>

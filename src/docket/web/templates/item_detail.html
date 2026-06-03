@@ -1,7 +1,19 @@
 {% extends "base.html" %}
 {% block title %}{{ item.headline or item.title }} — {{ municipality.name }} — docket.pub{% endblock %}
+{% block crumb %}meetings/{{ item.meeting_id }}/items/{{ item.id }}{% endblock %}
 
 {% block content %}
+{% set _meeting_label = (meeting.title if meeting and meeting.title else (meeting.meeting_date.strftime('%b %-d, %Y') if meeting and meeting.meeting_date else 'Meeting')) %}
+{% set _item_label = item.headline or item.title or ('Item #' ~ (item.item_number or item.id)) %}
+{% set crumbs = [
+  {'label': 'Home',            'url': url_for('public.index')},
+  {'label': municipality.name, 'url': url_for('public.city_overview', slug=municipality.slug)},
+  {'label': 'Meetings',        'url': url_for('public.city_meetings', slug=municipality.slug)},
+  {'label': _meeting_label,    'url': url_for('public.meeting_detail', slug=municipality.slug, meeting_id=item.meeting_id)},
+  {'label': _item_label,       'url': None},
+] %}
+{% include 'partials/breadcrumbs.html' %}
+
 {# ── Back link ────────────────────────────────────── #}
 {# Anchor returns user to the source item below the sticky masthead
    (scroll-margin-top applied via [id^="item-"] in layout.css). #}

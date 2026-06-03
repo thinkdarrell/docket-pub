@@ -43,6 +43,13 @@
       Also on <a href="{{ post.cross_posted_to.substack }}" rel="noopener">Substack &rarr;</a>
     </p>
     {% endif %}
+    {% if post.tags %}
+    <ul class="prose__tags">
+      {% for t in post.tags %}
+      <li><a class="chip chip--tag" href="{{ url_for('blog.tag', tag=t) }}">{{ t }}</a></li>
+      {% endfor %}
+    </ul>
+    {% endif %}
   </header>
 
   <div class="prose__body">
