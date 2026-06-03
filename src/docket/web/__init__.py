@@ -7,6 +7,7 @@ from datetime import timezone as _tz
 from pathlib import Path
 
 from flask import Flask, render_template
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from docket.blog.loader import load_blog_state
 from docket.blog.types import Post
@@ -28,6 +29,14 @@ def create_app() -> Flask:
         template_folder="templates",
         static_folder="static",
     )
+
+    # Railway terminates TLS at its edge proxy and forwards plain HTTP to the
+    # container with X-Forwarded-Proto: https. ProxyFix promotes that header
+    # into the WSGI environ so request.scheme / request.url_root render as
+    # https://. Without this the Atom feed self/entry <id> + <link> tags
+    # serialise as http://docket.pub/... (readers chase the redirect but the
+    # canonical URLs are wrong).
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
     app.config["SECRET_KEY"] = SECRET_KEY
     app.config["ADMIN_EMAIL"] = ADMIN_EMAIL

@@ -241,6 +241,21 @@ def test_post_detail_renders(app):
     assert b"Body" in r.data
 
 
+def test_post_detail_emits_twitter_card_meta(app):
+    """F4: Twitter card meta tags alongside the existing OG tags so links
+    shared on X (and other readers that respect the twitter:card vocabulary)
+    render with a large preview image, not just a bare URL."""
+    client = app.test_client()
+    r = client.get("/al/birmingham/blog/budget")
+    assert r.status_code == 200
+    body = r.data
+    assert b'name="twitter:card"' in body
+    assert b'content="summary_large_image"' in body
+    assert b'name="twitter:title"' in body
+    assert b'name="twitter:description"' in body
+    assert b'name="twitter:image"' in body
+
+
 def test_post_detail_404_for_unknown(app):
     client = app.test_client()
     assert client.get("/al/birmingham/blog/nope").status_code == 404
