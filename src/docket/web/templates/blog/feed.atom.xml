@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+{% set _base = request.url_root.rstrip('/') %}
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>{{ feed_title }}</title>
+  <link href="{{ _base }}{{ feed_url }}" rel="self"/>
+  <link href="{{ _base }}{{ feed_html_url }}"/>
+  <id>{{ _base }}{{ feed_url }}</id>
+  <updated>{{ updated_at }}</updated>
+  {% for post in posts %}
+  <entry>
+    <title>{{ post.title }}</title>
+    <link href="{{ _base }}{{ post_url(post) }}"/>
+    <id>{{ _base }}{{ post_url(post) }}</id>
+    <updated>{{ (post.updated or post.date).isoformat() }}T00:00:00Z</updated>
+    <published>{{ post.date.isoformat() }}T00:00:00Z</published>
+    <summary>{{ post.summary }}</summary>
+    {% for a in post.authors %}<author><name>{{ a.display_name }}</name></author>{% endfor %}
+  </entry>
+  {% endfor %}
+</feed>

@@ -417,3 +417,20 @@ def test_tag_route_filters(app):
     r2 = client.get("/blog/tag/nonexistent")
     assert r2.status_code == 200
     assert b"No posts" in r2.data
+
+
+def test_hub_feed(app):
+    client = app.test_client()
+    r = client.get("/blog/feed.xml")
+    assert r.status_code == 200
+    assert r.headers["Content-Type"].startswith("application/atom+xml")
+    assert b"<feed" in r.data
+    assert b"Budget" in r.data
+
+
+def test_city_feed(app):
+    client = app.test_client()
+    r = client.get("/al/birmingham/blog/feed.xml")
+    assert r.status_code == 200
+    assert b"<feed" in r.data
+    assert b"Budget" in r.data
