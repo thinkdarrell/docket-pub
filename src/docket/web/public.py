@@ -170,6 +170,16 @@ def _city_overview_render(slug, municipality, now_ts):
     }
     freshness = query._freshness_state(query.most_recent_ingest_at(mid))
 
+    blog_state = current_app.config.get("BLOG_STATE")
+    blog_posts_for_city = []
+    if blog_state is not None:
+        today = date.today()
+        blog_posts_for_city = [
+            p for p in blog_state.posts
+            if (p.city == slug or p.city == "_shared")
+            and p.is_published_as_of(today)
+        ][:3]
+
     rendered = render_template(
         "city.html",
         municipality=municipality,
@@ -189,6 +199,7 @@ def _city_overview_render(slug, municipality, now_ts):
         coverage_counts=coverage_counts,
         city_stats=city_stats,
         freshness=freshness,
+        blog_posts_for_city=blog_posts_for_city,
     )
     _overview_cache[slug] = (now_ts, rendered)
     return rendered

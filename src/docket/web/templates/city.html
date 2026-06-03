@@ -382,4 +382,22 @@
     </div>
 </section>
 {% endif %}
+
+{# ── From the blog ───────────────────────────────── #}
+{% if blog_posts_for_city %}
+<section class="rail rail--blog">
+  <header class="rail__header">
+    <h2>From the blog</h2>
+    <a href="/al/{{ municipality.slug }}/blog">All posts &rarr;</a>
+  </header>
+  <ul class="rail__list">
+    {% for post in blog_posts_for_city %}
+    <li>
+      <a href="{{ post_url(post) }}">{{ post.title }}</a>
+      <span class="rail__meta">{{ post.date.strftime("%b %-d") }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
 {% endblock %}
