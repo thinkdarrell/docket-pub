@@ -37,4 +37,4 @@ def test_build_substack_markdown_rewrites_assets(sample_post):
     )
     assert "title:" not in out  # frontmatter stripped
     assert "https://docket.pub/blog/assets/birmingham/budget/cover.jpg" in out
-    assert "[Resolution to fund X](https://docket.pub/item/42)" in out
+    assert "[Resolution to fund X](https://docket.pub/al/<unknown>/items/42/)" in out

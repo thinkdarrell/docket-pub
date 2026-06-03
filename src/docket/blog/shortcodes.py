@@ -4,11 +4,19 @@ from __future__ import annotations
 
 import contextlib
 import re
+from typing import NamedTuple
 
 from docket.db import db_cursor
 
 ITEM_RE = re.compile(r"\[\[item:(\d+)\]\]")
 MEETING_RE = re.compile(r"\[\[meeting:(\d+)\]\]")
+
+
+class ResolvedItem(NamedTuple):
+    """A resolved shortcode reference — title plus the city slug needed to build a URL."""
+
+    title: str
+    city_slug: str
 
 
 def collect_shortcode_refs(markdown: str) -> tuple[set[int], set[int]]:
@@ -27,28 +35,45 @@ def _open_cursor():
 
 def resolve_shortcode_titles(
     *, item_ids: set[int], meeting_ids: set[int]
-) -> tuple[dict[int, str], dict[int, str]]:
-    """Batch-fetch titles for the collected IDs. Empty sets → empty dicts, no query."""
-    item_titles: dict[int, str] = {}
-    meeting_titles: dict[int, str] = {}
+) -> tuple[dict[int, ResolvedItem], dict[int, ResolvedItem]]:
+    """Batch-fetch titles + city slugs for the collected IDs.
+    Empty sets → empty dicts, no query.
+    """
+    item_map: dict[int, ResolvedItem] = {}
+    meeting_map: dict[int, ResolvedItem] = {}
 
     if not item_ids and not meeting_ids:
-        return item_titles, meeting_titles
+        return item_map, meeting_map
 
     with _open_cursor() as cur:
         if item_ids:
             cur.execute(
-                "SELECT id, title FROM agenda_items WHERE id = ANY(%s)",
+                """
+                SELECT ai.id, ai.title, mu.slug AS city_slug
+                FROM agenda_items ai
+                JOIN meetings m ON ai.meeting_id = m.id
+                JOIN municipalities mu ON m.municipality_id = mu.id
+                WHERE ai.id = ANY(%s)
+                """,
                 (list(item_ids),),
             )
             for row in cur.fetchall():
-                item_titles[row["id"]] = row["title"]
+                item_map[row["id"]] = ResolvedItem(
+                    title=row["title"], city_slug=row["city_slug"]
+                )
         if meeting_ids:
             cur.execute(
-                "SELECT id, title FROM meetings WHERE id = ANY(%s)",
+                """
+                SELECT m.id, m.title, mu.slug AS city_slug
+                FROM meetings m
+                JOIN municipalities mu ON m.municipality_id = mu.id
+                WHERE m.id = ANY(%s)
+                """,
                 (list(meeting_ids),),
             )
             for row in cur.fetchall():
-                meeting_titles[row["id"]] = row["title"]
+                meeting_map[row["id"]] = ResolvedItem(
+                    title=row["title"], city_slug=row["city_slug"]
+                )
 
-    return item_titles, meeting_titles
+    return item_map, meeting_map

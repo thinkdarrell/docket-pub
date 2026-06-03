@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 
 import markdown
 
-from docket.blog.shortcodes import ITEM_RE, MEETING_RE
+from docket.blog.shortcodes import ITEM_RE, MEETING_RE, ResolvedItem
 
 
 def _mermaid_fence_format(source, language, css_class, options, md, **kwargs):
@@ -175,8 +175,8 @@ def compute_reading_time(word_count: int) -> int:
 def _expand_shortcodes_in_markdown(
     md: str,
     *,
-    item_titles: dict[int, str],
-    meeting_titles: dict[int, str],
+    item_titles: dict[int, ResolvedItem],
+    meeting_titles: dict[int, ResolvedItem],
 ) -> str:
     """Expand `[[item:N]]` / `[[meeting:N]]` into markdown anchors before rendering.
 
@@ -186,18 +186,20 @@ def _expand_shortcodes_in_markdown(
 
     def _item(m: re.Match) -> str:
         nid = int(m.group(1))
-        title = item_titles.get(nid)
-        if title is None:
+        resolved = item_titles.get(nid)
+        if resolved is None:
             return f"[item:{nid}]"
-        return f'<a href="/item/{nid}" class="docket-link" data-kind="item">{title}</a>'
+        url = f"/al/{resolved.city_slug}/items/{nid}/"
+        return f'<a href="{url}" class="docket-link" data-kind="item">{resolved.title}</a>'
 
     def _meeting(m: re.Match) -> str:
         nid = int(m.group(1))
-        title = meeting_titles.get(nid)
-        if title is None:
+        resolved = meeting_titles.get(nid)
+        if resolved is None:
             return f"[meeting:{nid}]"
+        url = f"/al/{resolved.city_slug}/meetings/{nid}/"
         return (
-            f'<a href="/meeting/{nid}" class="docket-link" data-kind="meeting">{title}</a>'
+            f'<a href="{url}" class="docket-link" data-kind="meeting">{resolved.title}</a>'
         )
 
     md = ITEM_RE.sub(_item, md)
@@ -210,8 +212,8 @@ def render_post_html(
     *,
     city: str,
     slug: str,
-    item_titles: dict[int, str],
-    meeting_titles: dict[int, str],
+    item_titles: dict[int, ResolvedItem],
+    meeting_titles: dict[int, ResolvedItem],
 ) -> str:
     """Full pipeline: shortcodes → markdown → iframe sanitize → asset URL rewrite."""
     expanded = _expand_shortcodes_in_markdown(

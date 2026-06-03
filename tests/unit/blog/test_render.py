@@ -49,15 +49,16 @@ def test_mermaid_fence_emits_div():
 
 def test_render_full_pipeline_expands_shortcodes():
     from docket.blog.render import render_post_html
+    from docket.blog.shortcodes import ResolvedItem
 
     md = "See [[item:42]] for details."
-    item_titles = {42: "Resolution to fund X"}
+    item_titles = {42: ResolvedItem(title="Resolution to fund X", city_slug="birmingham")}
     html = render_post_html(
         md, city="birmingham", slug="budget",
         item_titles=item_titles, meeting_titles={},
     )
     assert "Resolution to fund X" in html
-    assert 'href="/item/42"' in html
+    assert 'href="/al/birmingham/items/42/"' in html
 
 
 def test_render_full_pipeline_missing_shortcode_renders_plain():

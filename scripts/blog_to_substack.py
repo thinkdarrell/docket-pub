@@ -43,12 +43,16 @@ def build_substack_markdown(
     def _item(m):
         nid = int(m.group(1))
         title = item_titles.get(nid, f"item {nid}")
-        return f"[{title}](https://docket.pub/item/{nid})"
+        # TODO: city slug is not available in this CLI; replace <unknown> with the real
+        # city slug before publishing (e.g. https://docket.pub/al/birmingham/items/42/).
+        return f"[{title}](https://docket.pub/al/<unknown>/items/{nid}/)"
 
     def _meeting(m):
         nid = int(m.group(1))
         title = meeting_titles.get(nid, f"meeting {nid}")
-        return f"[{title}](https://docket.pub/meeting/{nid})"
+        # TODO: city slug is not available in this CLI; replace <unknown> with the real
+        # city slug before publishing (e.g. https://docket.pub/al/birmingham/meetings/2232/).
+        return f"[{title}](https://docket.pub/al/<unknown>/meetings/{nid}/)"
 
     md = ITEM_RE.sub(_item, md)
     md = MEETING_RE.sub(_meeting, md)
