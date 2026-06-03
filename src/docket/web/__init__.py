@@ -4,10 +4,21 @@ from __future__ import annotations
 
 import os
 from datetime import timezone as _tz
+from pathlib import Path
 
 from flask import Flask, render_template
 
-from docket.config import ADMIN_EMAIL, FLASK_ENV, SECRET_KEY
+from docket.blog.loader import load_blog_state
+from docket.blog.types import Post
+from docket.config import (
+    ADMIN_EMAIL,
+    BLOG_AUTHORS_YAML,
+    BLOG_CONTENT_ROOT,
+    BLOG_PREVIEW_TOKEN,
+    FLASK_ENV,
+    SECRET_KEY,
+)
+from docket.services import query as _query
 
 
 def create_app() -> Flask:
@@ -127,7 +138,34 @@ def create_app() -> Flask:
     from docket.web.admin import bp as admin_bp
     from docket.web.admin_badge_review import bp as admin_badge_review_bp
     from docket.web.auth import bp as auth_bp
+    from docket.web.blog import bp as blog_bp
     from docket.web.public import bp as public_bp
+
+    app.config["BLOG_CONTENT_ROOT"] = BLOG_CONTENT_ROOT
+    app.config["BLOG_PREVIEW_TOKEN"] = BLOG_PREVIEW_TOKEN
+    try:
+        known_city_slugs = {m["slug"] for m in _query.list_municipalities()}
+    except Exception:
+        # If the DB is unavailable at app-factory time (unusual: only happens
+        # in tooling contexts), boot with an empty city set. The loader will
+        # still raise on unknown city dirs the first time it runs.
+        known_city_slugs = set()
+    app.config["BLOG_STATE"] = load_blog_state(
+        content_root=Path(BLOG_CONTENT_ROOT),
+        authors_yaml=Path(BLOG_AUTHORS_YAML),
+        known_city_slugs=known_city_slugs,
+    )
+
+    # Single source of truth for a post's canonical URL — used by templates,
+    # OG tags, canonical link, Atom feed. Avoids hand-coding /al/<city>/blog
+    # vs /blog/<slug> at every callsite. See spec §4 "Canonical URL helper".
+    def _post_url(post: "Post") -> str:
+        if post.city == "_shared":
+            return f"/blog/{post.slug}"
+        return f"/al/{post.city}/blog/{post.slug}"
+
+    app.jinja_env.globals["post_url"] = _post_url
+    app.register_blueprint(blog_bp)
 
     app.register_blueprint(public_bp)
     app.register_blueprint(auth_bp)

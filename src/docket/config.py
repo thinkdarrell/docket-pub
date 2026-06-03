@@ -32,6 +32,11 @@ AI_DAILY_BUDGET_USD: float = float(os.environ.get("AI_DAILY_BUDGET_USD", "10"))
 AI_MAX_BATCH_SIZE: int = int(os.environ.get("AI_MAX_BATCH_SIZE", "200"))
 AI_ITEM_DEBOUNCE_MINUTES: int = int(os.environ.get("AI_ITEM_DEBOUNCE_MINUTES", "5"))
 
+# Blog (see docs/superpowers/specs/2026-06-02-blog-design.md)
+BLOG_CONTENT_ROOT = os.environ.get("BLOG_CONTENT_ROOT", "content/blog")
+BLOG_AUTHORS_YAML = os.environ.get("BLOG_AUTHORS_YAML", "config/blog_authors.yaml")
+BLOG_PREVIEW_TOKEN = os.environ.get("BLOG_PREVIEW_TOKEN", "")
+
 # Decision #45 + plan §FINAL-3: the IMPACT_FIRST_ENABLED flag gates the
 # v3 worker path. When False (default), the worker runs the legacy v2
 # pipeline (Haiku item summaries + Sonnet meeting executives). When

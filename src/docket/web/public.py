@@ -170,6 +170,16 @@ def _city_overview_render(slug, municipality, now_ts):
     }
     freshness = query._freshness_state(query.most_recent_ingest_at(mid))
 
+    blog_state = current_app.config.get("BLOG_STATE")
+    blog_posts_for_city = []
+    if blog_state is not None:
+        today = date.today()
+        blog_posts_for_city = [
+            p for p in blog_state.posts
+            if (p.city == slug or p.city == "_shared")
+            and p.is_published_as_of(today)
+        ][:3]
+
     rendered = render_template(
         "city.html",
         municipality=municipality,
@@ -189,6 +199,7 @@ def _city_overview_render(slug, municipality, now_ts):
         coverage_counts=coverage_counts,
         city_stats=city_stats,
         freshness=freshness,
+        blog_posts_for_city=blog_posts_for_city,
     )
     _overview_cache[slug] = (now_ts, rendered)
     return rendered
@@ -265,6 +276,15 @@ def meeting_detail(slug, meeting_id):
 
     kpi_stats = query._kpi_stats_for_municipality(municipality)
 
+    blog_state = current_app.config.get("BLOG_STATE")
+    coverage_posts = []
+    if blog_state is not None:
+        today = date.today()
+        coverage_posts = [
+            p for p in blog_state.posts_by_meeting_id.get(meeting_id, [])
+            if p.is_published_as_of(today)
+        ]
+
     return render_template(
         "meeting_detail.html",
         municipality=municipality,
@@ -278,6 +298,7 @@ def meeting_detail(slug, meeting_id):
         total_dollars_formatted=total_dollars_formatted,
         coverage_counts=coverage_counts,
         kpi_stats=kpi_stats,
+        coverage_posts=coverage_posts,
     )
 
 
@@ -314,6 +335,15 @@ def item_detail(slug, item_id):
 
     kpi_stats = query._kpi_stats_for_municipality(municipality)
 
+    blog_state = current_app.config.get("BLOG_STATE")
+    coverage_posts = []
+    if blog_state is not None:
+        today = date.today()
+        coverage_posts = [
+            p for p in blog_state.posts_by_item_id.get(item_id, [])
+            if p.is_published_as_of(today)
+        ]
+
     return render_template(
         "item_detail.html",
         municipality=municipality,
@@ -324,6 +354,7 @@ def item_detail(slug, item_id):
         related_by_sponsor=related_by_sponsor,
         vote_data=vote_data,
         kpi_stats=kpi_stats,
+        coverage_posts=coverage_posts,
     )
 
 

@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+
+{% block title %}Blog — docket.pub{% endblock %}
+
+{% block content %}
+<header class="hero hero--detail">
+  <h1>Blog</h1>
+  <p class="hero__dek">Coverage, explainers, and notes from docket.pub.</p>
+</header>
+
+<section class="feed">
+  {% for post in posts %}
+    {% include "blog/partials/_blog_post_card.html" %}
+  {% else %}
+    <p class="empty">No posts yet.</p>
+  {% endfor %}
+</section>
+{% endblock %}

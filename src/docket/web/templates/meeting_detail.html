@@ -94,6 +94,21 @@
 </section>
 {% endif %}
 
+{# ── Editorial coverage rail ──────────────────────── #}
+{% if coverage_posts %}
+<aside class="editorial-coverage">
+  <h2>Editorial coverage</h2>
+  <ul>
+    {% for post in coverage_posts %}
+    <li>
+      <a href="{{ post_url(post) }}">{{ post.title }}</a>
+      <span class="editorial-coverage__meta">{{ post.date.strftime("%b %-d, %Y") }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+</aside>
+{% endif %}
+
 {# ── Votes ────────────────────────────────────────── #}
 {% if votes %}
 <section class="feed" style="padding-bottom: 32px;">
