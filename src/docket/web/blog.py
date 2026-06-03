@@ -70,6 +70,14 @@ def post(city: str, slug: str):
     return render_template("blog/post.html", post=p)
 
 
+@bp.route("/blog/tag/<tag>")
+def tag(tag: str):
+    state = current_app.config["BLOG_STATE"]
+    today = date.today()
+    posts = [p for p in _published_posts(state, today) if tag in p.tags][:20]
+    return render_template("blog/hub.html", posts=posts, today=today, tag=tag)
+
+
 @bp.route("/blog/<slug>")
 def shared_post(slug: str):
     state = current_app.config["BLOG_STATE"]

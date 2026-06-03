@@ -407,3 +407,13 @@ def test_preview_token_unset_blocks_all_previews(app):
     client = app.test_client()
     # Even with any "?preview=" value, no token configured → always 404.
     assert client.get("/al/birmingham/blog/d?preview=anything").status_code == 404
+
+
+def test_tag_route_filters(app):
+    client = app.test_client()
+    r = client.get("/blog/tag/budget")
+    assert r.status_code == 200
+    assert b"Budget" in r.data
+    r2 = client.get("/blog/tag/nonexistent")
+    assert r2.status_code == 200
+    assert b"No posts" in r2.data
