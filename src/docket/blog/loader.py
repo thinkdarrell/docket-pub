@@ -16,6 +16,8 @@ logger = logging.getLogger(__name__)
 
 SLUG_RE = re.compile(r"^(?P<date>\d{4}-\d{2}-\d{2})-(?P<slug>[a-z0-9][a-z0-9-]*)$")
 
+RESERVED_SHARED_SLUGS = {"tag", "assets", "feed", "feed.xml", "internal"}
+
 
 class LoaderError(Exception):
     """Raised when a blog post file is malformed or violates a loader rule."""
@@ -146,6 +148,11 @@ def load_posts_from_disk(
 
         post = parse_post_file(md_path, content_root=content_root)
         post = _apply_status_precedence(post)
+        if post.city == "_shared" and post.slug in RESERVED_SHARED_SLUGS:
+            raise LoaderError(
+                f"{post.source_path}: reserved slug {post.slug!r} for _shared posts "
+                f"(would collide with /blog/{post.slug} route)"
+            )
         key = (post.city, post.slug)
         if key in seen:
             raise LoaderError(

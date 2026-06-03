@@ -87,3 +87,24 @@ def test_explicit_draft_in_normal_dir(fixtures_dir):
     draft = next(p for p in posts if p.slug == "explicit-draft")
     assert draft.status == "draft"
     assert draft.is_published_as_of(_date(2026, 6, 2)) is False
+
+
+def test_shared_reserved_slug_rejected(tmp_path):
+    """A _shared post with a slug that collides with a reserved /blog/ prefix
+    is a hard error (loader-level, not request-time)."""
+    p = tmp_path / "_shared" / "2026-05-01-tag.md"
+    p.parent.mkdir(parents=True)
+    p.write_text(
+        "---\n"
+        "title: Tag\n"
+        "date: 2026-05-01\n"
+        "city: _shared\n"
+        "summary: x\n"
+        "---\n"
+        "Body."
+    )
+    with pytest.raises(LoaderError, match="reserved slug"):
+        load_posts_from_disk(
+            content_root=tmp_path,
+            known_city_slugs=set(),
+        )

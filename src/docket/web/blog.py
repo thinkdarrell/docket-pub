@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
-from flask import Blueprint, abort, current_app, render_template, send_from_directory
+from flask import Blueprint, abort, current_app, make_response, render_template, request, send_from_directory
 
 bp = Blueprint("blog", __name__)
 
@@ -55,4 +55,22 @@ def post(city: str, slug: str):
     p = state.posts_by_id.get((city, slug))
     if p is None or not p.is_published_as_of(today):
         abort(404)
+    return render_template("blog/post.html", post=p)
+
+
+@bp.route("/blog/<slug>")
+def shared_post(slug: str):
+    state = current_app.config["BLOG_STATE"]
+    today = date.today()
+    p = state.posts_by_id.get(("_shared", slug))
+    if p is None:
+        abort(404)
+    if not p.is_published_as_of(today):
+        configured = current_app.config.get("BLOG_PREVIEW_TOKEN") or ""
+        supplied = request.args.get("preview") or ""
+        if not configured or supplied != configured:
+            abort(404)
+        resp = make_response(render_template("blog/post.html", post=p))
+        resp.headers["X-Robots-Tag"] = "noindex"
+        return resp
     return render_template("blog/post.html", post=p)

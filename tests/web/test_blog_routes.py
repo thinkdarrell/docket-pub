@@ -281,3 +281,57 @@ def test_post_detail_draft_hidden_without_token(app):
     )
     client = app.test_client()
     assert client.get("/al/birmingham/blog/draft").status_code == 404
+
+
+def test_shared_post_route(app):
+    from datetime import date as _date
+    from docket.blog.types import Post
+
+    state = app.config["BLOG_STATE"]
+    shared = Post(
+        title="Methodology update",
+        slug="methodology",
+        date=_date(2026, 4, 1),
+        city="_shared",
+        summary="x",
+        body_markdown="",
+        body_html="<p>shared body</p>",
+        authors=[],
+        tags=[],
+        cover_image_url=None,
+        cross_posted_to={},
+        related_item_ids=[],
+        related_meeting_ids=[],
+        status="published",
+        extra_css=[],
+        updated=None,
+        reading_time_minutes=1,
+        word_count=1,
+        source_path="x",
+    )
+    app.config["BLOG_STATE"] = BlogState(
+        posts=state.posts + [shared],
+        posts_by_id={**state.posts_by_id, ("_shared", "methodology"): shared},
+        posts_by_item_id=state.posts_by_item_id,
+        posts_by_meeting_id=state.posts_by_meeting_id,
+        authors=state.authors,
+    )
+    client = app.test_client()
+    r = client.get("/blog/methodology")
+    assert r.status_code == 200
+    assert b"shared body" in r.data
+
+
+def test_shared_post_route_404_for_unknown(app):
+    client = app.test_client()
+    assert client.get("/blog/nope").status_code == 404
+
+
+def test_reserved_prefix_does_not_match_shared_post(app):
+    """`/blog/tag/<tag>`, `/blog/assets/...`, `/blog/feed.xml` must keep working
+    even though `/blog/<slug>` exists for shared posts."""
+    # NOTE: `/blog/tag/<tag>` doesn't exist yet (Task 17 adds it). For this task,
+    # only verify that `/blog/assets/...` still works.
+    client = app.test_client()
+    r = client.get("/blog/assets/birmingham/budget/cover.jpg")
+    assert r.status_code == 200  # asset route still wins over shared post route
