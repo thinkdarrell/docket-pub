@@ -18,6 +18,27 @@ SLUG_RE = re.compile(r"^(?P<date>\d{4}-\d{2}-\d{2})-(?P<slug>[a-z0-9][a-z0-9-]*)
 
 RESERVED_SHARED_SLUGS = {"tag", "assets", "feed", "feed.xml", "internal"}
 
+# F1 (spec §3 row 5): warn on unknown frontmatter keys. Mirrors the schema
+# documented in spec §3 "Frontmatter schema". New keys go here AND in the
+# Post dataclass — keeping the set in sync is a small price for catching
+# typos like `tag:` (singular) and `coverimage:` (no underscore).
+KNOWN_FRONTMATTER_KEYS = frozenset({
+    "title",
+    "slug",
+    "date",
+    "updated",
+    "city",
+    "authors",
+    "summary",
+    "tags",
+    "cover_image",
+    "cross_posted_to",
+    "related_items",
+    "related_meetings",
+    "status",
+    "extra_css",
+})
+
 
 class LoaderError(Exception):
     """Raised when a blog post file is malformed or violates a loader rule."""
@@ -35,6 +56,15 @@ def parse_post_file(path: Path, *, content_root: Path) -> Post:
 
     rel = path.relative_to(content_root)
     source_path = rel.as_posix()
+
+    # F1: forward-compat warning for typos / unrecognised keys. Doesn't crash.
+    unknown_keys = sorted(set(meta.keys()) - KNOWN_FRONTMATTER_KEYS)
+    for k in unknown_keys:
+        logger.warning(
+            "blog: %s: unknown frontmatter key %r (not in spec §3 schema)",
+            source_path,
+            k,
+        )
 
     title = meta.get("title")
     if not title:
@@ -190,23 +220,42 @@ def load_blog_state(
         content_root=content_root, known_city_slugs=known_city_slugs
     )
 
-    # Collect all shortcode refs across all posts and resolve in batches.
-    all_item_ids: set[int] = set()
-    all_meeting_ids: set[int] = set()
+    # Collect IDs from BOTH body shortcodes AND frontmatter related_* lists.
+    # Resolving them in a single batch saves a round-trip; we then split the
+    # warning surface so a dead ID points at its real source (F2 spec §6 row 3).
+    shortcode_item_ids: set[int] = set()
+    shortcode_meeting_ids: set[int] = set()
+    related_item_ids: set[int] = set()
+    related_meeting_ids: set[int] = set()
     for p in raw_posts:
         items, meetings = collect_shortcode_refs(p.body_markdown)
-        all_item_ids |= items
-        all_meeting_ids |= meetings
+        shortcode_item_ids |= items
+        shortcode_meeting_ids |= meetings
+        related_item_ids |= set(p.related_item_ids)
+        related_meeting_ids |= set(p.related_meeting_ids)
 
     item_titles, meeting_titles = resolve_shortcode_titles(
-        item_ids=all_item_ids, meeting_ids=all_meeting_ids
+        item_ids=shortcode_item_ids | related_item_ids,
+        meeting_ids=shortcode_meeting_ids | related_meeting_ids,
     )
+    resolved_items = set(item_titles)
+    resolved_meetings = set(meeting_titles)
 
-    # Warn once per missing ID.
-    for nid in sorted(all_item_ids - set(item_titles)):
+    # Warn once per missing ID. Shortcodes and related_* point at different
+    # frontmatter mistakes — keep the messages distinct so authors know where
+    # to fix the typo.
+    for nid in sorted(shortcode_item_ids - resolved_items):
         logger.warning("blog: shortcode [[item:%s]] references unknown agenda_item", nid)
-    for nid in sorted(all_meeting_ids - set(meeting_titles)):
+    for nid in sorted(shortcode_meeting_ids - resolved_meetings):
         logger.warning("blog: shortcode [[meeting:%s]] references unknown meeting", nid)
+    for nid in sorted(related_item_ids - resolved_items):
+        logger.warning(
+            "blog: related_items entry %s references unknown agenda_item", nid
+        )
+    for nid in sorted(related_meeting_ids - resolved_meetings):
+        logger.warning(
+            "blog: related_meetings entry %s references unknown meeting", nid
+        )
 
     rendered: list[Post] = []
     for p in raw_posts:

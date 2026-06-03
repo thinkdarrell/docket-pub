@@ -7,6 +7,7 @@ from datetime import timezone as _tz
 from pathlib import Path
 
 from flask import Flask, render_template
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from docket.blog.loader import load_blog_state
 from docket.blog.types import Post
@@ -28,6 +29,14 @@ def create_app() -> Flask:
         template_folder="templates",
         static_folder="static",
     )
+
+    # Railway terminates TLS at its edge proxy and forwards plain HTTP to the
+    # container with X-Forwarded-Proto: https. ProxyFix promotes that header
+    # into the WSGI environ so request.scheme / request.url_root render as
+    # https://. Without this the Atom feed self/entry <id> + <link> tags
+    # serialise as http://docket.pub/... (readers chase the redirect but the
+    # canonical URLs are wrong).
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
     app.config["SECRET_KEY"] = SECRET_KEY
     app.config["ADMIN_EMAIL"] = ADMIN_EMAIL
@@ -145,16 +154,21 @@ def create_app() -> Flask:
     app.config["BLOG_PREVIEW_TOKEN"] = BLOG_PREVIEW_TOKEN
     try:
         known_city_slugs = {m["slug"] for m in _query.list_municipalities()}
+        app.config["BLOG_STATE"] = load_blog_state(
+            content_root=Path(BLOG_CONTENT_ROOT),
+            authors_yaml=Path(BLOG_AUTHORS_YAML),
+            known_city_slugs=known_city_slugs,
+        )
     except Exception:
         # If the DB is unavailable at app-factory time (unusual: only happens
-        # in tooling contexts), boot with an empty city set. The loader will
-        # still raise on unknown city dirs the first time it runs.
-        known_city_slugs = set()
-    app.config["BLOG_STATE"] = load_blog_state(
-        content_root=Path(BLOG_CONTENT_ROOT),
-        authors_yaml=Path(BLOG_AUTHORS_YAML),
-        known_city_slugs=known_city_slugs,
-    )
+        # in tooling contexts), boot with an empty city set and an empty
+        # BlogState. The loader/shortcode resolution will hit the DB again
+        # during the next process start.
+        from docket.blog.types import BlogState
+        app.config["BLOG_STATE"] = BlogState(
+            posts=[], posts_by_id={}, posts_by_item_id={},
+            posts_by_meeting_id={}, authors={},
+        )
 
     # Single source of truth for a post's canonical URL — used by templates,
     # OG tags, canonical link, Atom feed. Avoids hand-coding /al/<city>/blog
