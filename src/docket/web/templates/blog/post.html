@@ -9,14 +9,14 @@
 <meta property="og:type" content="article">
 <meta property="og:url" content="{{ _base }}{{ post_url(post) }}">
 {% if post.cover_image_url %}
-<meta property="og:image" content="{{ _base }}{{ post.cover_image_url }}">
+<meta property="og:image" content="{% if post.cover_image_url.startswith('http') %}{{ post.cover_image_url }}{% else %}{{ _base }}{{ post.cover_image_url }}{% endif %}">
 {% endif %}
 <meta property="article:published_time" content="{{ post.date.isoformat() }}">
 {% for a in post.authors %}<meta property="article:author" content="{{ a.display_name }}">{% endfor %}
 <meta name="twitter:card" content="{% if post.cover_image_url %}summary_large_image{% else %}summary{% endif %}">
 <meta name="twitter:title" content="{{ post.title }}">
 <meta name="twitter:description" content="{{ post.summary }}">
-{% if post.cover_image_url %}<meta name="twitter:image" content="{{ _base }}{{ post.cover_image_url }}">{% endif %}
+{% if post.cover_image_url %}<meta name="twitter:image" content="{% if post.cover_image_url.startswith('http') %}{{ post.cover_image_url }}{% else %}{{ _base }}{{ post.cover_image_url }}{% endif %}">{% endif %}
 <link rel="canonical" href="{{ _base }}{{ post_url(post) }}">
 {% for css in post.extra_css %}
 <link rel="stylesheet" href="/blog/assets/{{ post.city }}/{{ post.slug }}/{{ css }}">
