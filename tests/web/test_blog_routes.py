@@ -163,3 +163,71 @@ def test_hub_hides_drafts_and_scheduled(app):
     client = app.test_client()
     r = client.get("/blog")
     assert b"Don't show me." not in r.data
+
+
+def test_city_route_filters_to_city_and_shared(app):
+    from datetime import date as _date
+    from docket.blog.types import Post
+
+    state = app.config["BLOG_STATE"]
+    shared = Post(
+        title="Shared",
+        slug="shared",
+        date=_date(2026, 4, 1),
+        city="_shared",
+        summary="Shared summary.",
+        body_markdown="",
+        body_html="<p>x</p>",
+        authors=[],
+        tags=[],
+        cover_image_url=None,
+        cross_posted_to={},
+        related_item_ids=[],
+        related_meeting_ids=[],
+        status="published",
+        extra_css=[],
+        updated=None,
+        reading_time_minutes=1,
+        word_count=1,
+        source_path="x",
+    )
+    homewood_only = Post(
+        title="Homewood thing",
+        slug="hw",
+        date=_date(2026, 4, 15),
+        city="homewood",
+        summary="HW summary.",
+        body_markdown="",
+        body_html="<p>y</p>",
+        authors=[],
+        tags=[],
+        cover_image_url=None,
+        cross_posted_to={},
+        related_item_ids=[],
+        related_meeting_ids=[],
+        status="published",
+        extra_css=[],
+        updated=None,
+        reading_time_minutes=1,
+        word_count=1,
+        source_path="y",
+    )
+    new_state = BlogState(
+        posts=state.posts + [shared, homewood_only],
+        posts_by_id={
+            **state.posts_by_id,
+            ("_shared", "shared"): shared,
+            ("homewood", "hw"): homewood_only,
+        },
+        posts_by_item_id=state.posts_by_item_id,
+        posts_by_meeting_id=state.posts_by_meeting_id,
+        authors=state.authors,
+    )
+    app.config["BLOG_STATE"] = new_state
+
+    client = app.test_client()
+    r = client.get("/al/birmingham/blog")
+    assert r.status_code == 200
+    assert b"Budget" in r.data
+    assert b"Shared summary." in r.data
+    assert b"HW summary." not in r.data

@@ -35,3 +35,14 @@ def hub():
     today = date.today()
     posts = _published_posts(state, today)[:20]
     return render_template("blog/hub.html", posts=posts, today=today)
+
+
+@bp.route("/al/<city>/blog")
+def city(city: str):
+    state = current_app.config["BLOG_STATE"]
+    today = date.today()
+    posts = [
+        p for p in _published_posts(state, today)
+        if p.city == city or p.city == "_shared"
+    ][:20]
+    return render_template("blog/city.html", city=city, posts=posts, today=today)
