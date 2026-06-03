@@ -9,7 +9,7 @@ from pathlib import Path
 from flask import Flask, render_template
 
 from docket.blog.loader import load_blog_state
-from docket.blog.types import BlogState, Post
+from docket.blog.types import Post
 from docket.config import (
     ADMIN_EMAIL,
     BLOG_AUTHORS_YAML,
