@@ -28,7 +28,7 @@ The city technically meets its legal mandate for a balanced budget, but it relie
 | 478999 Miscellaneous Revenue Budget Control | $0 | $14,806,292 | $11,865,288 |
 | **Combined** | **$0** | **$29.8M** | **$27.87M** |
 
-Strip away those two lines and Birmingham's true recurring revenue is roughly $586.8 million with $614.7 million in budgeted spending — leaving a 4.5% structural deficit of $27.87 million. The mayor's letter frames other multi-million dollar surplus drawdowns as bold strategic wins, but it completely ignores this $16 million operational lifeline.
+Strip away those two lines and Birmingham's true recurring revenue is roughly $586.8 million with $614.7 million in budgeted spending — leaving a 4.7% structural deficit of $27.87 million. The mayor's letter frames other multi-million dollar surplus drawdowns as bold strategic wins, but it completely ignores this $16 million operational lifeline.
 
 ## The best ability? DURABILITY.
 
