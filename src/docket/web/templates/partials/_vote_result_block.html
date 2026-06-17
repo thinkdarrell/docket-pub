@@ -7,17 +7,20 @@
 
    Required context:
      vote_data    — ItemVoteData | None (from query.get_vote_for_item)
-     item         — AgendaItem (for processing_status branching)
+     item         — AgendaItem (for processing_status branching + meta_id)
      meeting      — Meeting (for minutes_url fallback link)
      municipality — dict with .slug (for url_for in source link macro)
 
-   Source-link priority within the macro: video timestamp > minutes PDF >
-   meeting_detail#vote-N fallback.
+   Source-link priority within the macro: video deep-link (Granicus
+   chapter via meta_id) > minutes PDF > meeting_detail#vote-N fallback.
+   Granicus's MediaPlayer page ignores HTML5 #t= fragments — chapter
+   jumps use the player's native &meta_id= query param, which docket.pub
+   already stores as agenda_items.external_id.
 #}
-{% macro vote_source_link(v) -%}
+{% macro vote_source_link(v, meta_id=None) -%}
   {%- if v.video_timestamp and v.video_url -%}
     <a class="link t-meta"
-       href="{{ v.video_url }}#t={{ v.video_timestamp|round|int }}"
+       href="{{ chapter_url(v.video_url, meta_id) }}"
        data-item-id="{{ item.id }}"
        target="_blank" rel="noreferrer">
       Watch this vote ↗
@@ -57,7 +60,7 @@
             {% if prevailing.is_manual %}
             <span class="chip" title="Manually linked by editor"><span class="dot"></span>manually linked</span>
             {% endif %}
-            <span class="t-meta">{{ vote_source_link(prevailing) }}</span>
+            <span class="t-meta">{{ vote_source_link(prevailing, meta_id=item.external_id) }}</span>
         </div>
     </div>
 
@@ -73,7 +76,7 @@
                 <span class="t-meta">·</span>
                 <span class="t-meta">{% if h.is_consent_block %}on consent{% else %}substantive{% endif %}{% if h.provisional %} · provisional{% endif %}</span>
                 <span class="vote-history-spacer"></span>
-                {{ vote_source_link(h) }}
+                {{ vote_source_link(h, meta_id=item.external_id) }}
             </li>
             {% endfor %}
         </ul>

@@ -89,8 +89,10 @@ def create_app() -> Flask:
     # endpoint ``POST /admin/source-security/refresh`` invalidates the
     # cache for instant onboarding.
     from docket.web import source_security
+    from docket.web import video_urls
 
     app.jinja_env.globals["is_source_url_safe"] = source_security.is_url_safe
+    app.jinja_env.globals["chapter_url"] = video_urls.chapter_url
 
     # ``today`` — re-evaluated per request so templates can flag meetings
     # as upcoming via ``{% if meeting.meeting_date >= today %}``. Used by

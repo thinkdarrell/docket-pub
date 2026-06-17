@@ -48,6 +48,7 @@ class _FakeItem:
     id: int = 42
     meeting_id: int = 100
     processing_status: str | None = "completed"
+    external_id: str | None = "371120"
 
 
 @dataclass
@@ -136,18 +137,22 @@ def test_manual_shield_shows_manually_linked_chip(render_partial):
 
 
 def test_source_link_prefers_video_timestamp(render_partial):
+    # Granicus chapter-jump: meta_id (from item.external_id) appended as
+    # query param. The HTML5 #t= fragment is ignored by Granicus's
+    # player wrapper and intentionally not emitted anymore.
     html = _render(
         render_partial,
         vote_data=_FakeData(
             prevailing=_FakeVote(
                 video_timestamp=123.4,
-                video_url="https://example.test/video.mp4",
+                video_url="https://bhamal.granicus.com/MediaPlayer.php?view_id=2&clip_id=1986",
                 minutes_url="https://example.test/minutes.pdf",
             )
         ),
     )
     assert "Watch this vote" in html
-    assert "https://example.test/video.mp4#t=123" in html
+    assert "meta_id=371120" in html
+    assert "#t=" not in html
     # Minutes link must NOT be the primary action when video is present.
     assert "Read minutes" not in html
 
