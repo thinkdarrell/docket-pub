@@ -34,7 +34,7 @@ class IncompleteVideoScanError(RuntimeError):
 
 
 class VideoProbeError(RuntimeError):
-    """Raised when ffprobe cannot read the video (the error carries ffprobe's stderr)."""
+    """Raised when ffprobe/ffmpeg cannot read the video (the error carries the tool's stderr)."""
 
 
 # Granicus serves archive video through CloudFront, which answers 403 to
@@ -78,7 +78,10 @@ def probe_duration(video_url: str, timeout: int = 60) -> float:
         raise VideoProbeError(
             f"ffprobe could not read {video_url}: {proc.stderr.strip() or 'no output'}"
         )
-    return float(out)
+    try:
+        return float(out)
+    except ValueError:
+        raise VideoProbeError(f"ffprobe reported no usable duration for {video_url}: {out!r}") from None
 
 
 def extract_frames_to_dir(
@@ -111,7 +114,12 @@ def extract_frames_to_dir(
         "error",
     ]
 
-    subprocess.run(cmd, check=True, timeout=timeout)
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    if proc.returncode != 0:
+        # Keep ffmpeg's own message: it is what ends up in video_ocr_last_error.
+        raise VideoProbeError(
+            f"ffmpeg could not read {video_url}: {proc.stderr.strip() or f'exit {proc.returncode}'}"
+        )
     return sorted(out_dir.glob(pattern.replace("%06d", "*").replace("%04d", "*")))
 
 

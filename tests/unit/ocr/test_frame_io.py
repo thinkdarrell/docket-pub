@@ -78,3 +78,17 @@ class TestDownloadVideo:
                 assert isinstance(local, Path)
         request = urlopen.call_args.args[0]
         assert "Mozilla/5.0" in request.get_header("User-agent", "")
+
+
+class TestFailureMessages:
+    def test_failed_frame_extraction_reports_ffmpeg_error(self, tmp_path):
+        """The recorded error must carry ffmpeg's own message, not just the exit code."""
+        failure = _completed("", "https://...: Server returned 403 Forbidden (access denied)\n", 1)
+        with patch.object(frame_io.subprocess, "run", return_value=failure):
+            with pytest.raises(VideoProbeError, match="403 Forbidden"):
+                extract_frames_to_dir(URL, tmp_path, fps_expression="1/2")
+
+    def test_probe_with_no_duration_reports_it(self):
+        with patch.object(frame_io.subprocess, "run", return_value=_completed("N/A\n")):
+            with pytest.raises(VideoProbeError, match="N/A"):
+                probe_duration(URL)
