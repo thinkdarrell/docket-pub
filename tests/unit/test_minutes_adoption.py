@@ -338,3 +338,29 @@ def test_sweep_adoptions_range_flips_only_meetings_with_minutes(batch_adoption_s
     assert adopted["2098-02-17"] == date(2098, 3, 10)
     assert adopted["2098-02-16"] is None
     assert adopted["2098-03-10"] is None
+
+
+def test_sweep_adoptions_prefers_the_row_with_minutes_when_a_date_has_duplicates(
+    batch_adoption_scenario, monkeypatch
+):
+    """Granicus sometimes lists a second, empty clip for the same date (real case:
+    2024-01-09, ids 143 and 144). The one with a minutes document is the meeting
+    whose minutes were adopted."""
+    monkeypatch.setattr("docket.analysis.vote_matcher.strict_reparse_meeting", lambda mid: {})
+    s = batch_adoption_scenario
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO meetings (municipality_id, title, meeting_date, meeting_type)
+                   VALUES (%s, 'TEST_BATCH_ADOPTION', '2098-02-17', 'council') RETURNING id""",
+                (s["municipality_id"],),
+            )
+            empty_dup_id = cur.fetchone()[0]
+        conn.commit()
+    s["ids"]["2098-02-17-dup"] = empty_dup_id  # fixture teardown deletes it
+    s["add_adoption_item"]("APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: February 17, 2098")
+
+    flipped = sweep_adoptions(s["municipality_id"])
+
+    assert s["ids"]["2098-02-17"] in flipped
+    assert empty_dup_id not in flipped

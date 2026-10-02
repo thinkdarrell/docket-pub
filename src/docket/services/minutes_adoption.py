@@ -172,7 +172,8 @@ def sweep_adoptions(municipality_id: int) -> list[int]:
     A single named date:
       - 0 candidate target meetings: log debug, leave for next sweep
       - 1 candidate: set minutes_adopted_at if currently NULL, return id
-      - 2+ candidates: warn-log structured event, skip
+      - 2+ candidates: use the only one with a minutes document, else
+        warn-log structured event and skip
     A date range ("February 3 – 24, 2026") names a window rather than meetings,
     so it flips every not-yet-adopted meeting in the window that has a minutes
     document; rows without one (placeholders, cancellations) are left alone.
@@ -233,11 +234,17 @@ def sweep_adoptions(municipality_id: int) -> list[int]:
 
                     target_date = span.start
                     cur.execute(
-                        """SELECT id FROM meetings
+                        """SELECT id, minutes_url IS NOT NULL AS has_minutes FROM meetings
                            WHERE municipality_id = %s AND meeting_date = %s""",
                         (municipality_id, target_date),
                     )
                     rows = cur.fetchall()
+                    if len(rows) > 1:
+                        # Duplicate clips for one date: the row with a minutes
+                        # document is the meeting whose minutes were adopted.
+                        with_minutes = [r for r in rows if r["has_minutes"]]
+                        if len(with_minutes) == 1:
+                            rows = with_minutes
                     if len(rows) == 0:
                         logger.debug(
                             "adoption_target_missing municipality_id=%s agenda_item_id=%s target_date=%s",
