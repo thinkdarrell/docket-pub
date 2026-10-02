@@ -52,6 +52,25 @@ _TITLE_CUTOFF_RE = re.compile(
     re.IGNORECASE,
 )
 
+# The un-numbered preamble line by which the council adopts earlier minutes:
+#   APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: February 3 – 24, 2026
+# "OF" is optional because the clerk has dropped it at least once.
+_MINUTES_APPROVAL_RE = re.compile(
+    r"^[ \t]*(APPROVAL\s+(?:OF\s+)?(?:THE\s+)?MINUTES\b[^\n]*)$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+# A wrapped continuation of the approval line holds nothing but more dates:
+# day numbers, separators, "and", and month names.
+_DATE_CONTINUATION_RE = re.compile(
+    r"^(?:\d|[\s,&.\-–—]|\band\b"
+    r"|\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?"
+    r"|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b)+$",
+    re.IGNORECASE,
+)
+
+_YEAR_RE = re.compile(r"\b(?:19|20)\d{2}\b")
+
 
 @dataclass
 class ParsedAgendaItem:
@@ -102,6 +121,33 @@ def parse_agenda(text: str) -> list[ParsedAgendaItem]:
         )
 
     return items
+
+
+def parse_minutes_approval(text: str) -> str | None:
+    """Return the "APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: ..." preamble line.
+
+    Only the preamble (before the first item marker) is searched, so approval
+    wording inside an item body is never mistaken for it. None if absent —
+    most weeks the agenda carries only "MINUTES NOT READY".
+    """
+    if not text:
+        return None
+
+    first_item = _ITEM_MARKER_RE.search(text)
+    preamble = text[: first_item.start()] if first_item else text
+
+    match = _MINUTES_APPROVAL_RE.search(preamble)
+    if not match:
+        return None
+
+    line = match.group(1)
+    if not _YEAR_RE.search(line):
+        # Long date lists wrap; pull in the next line only if it is purely dates.
+        next_line = preamble[match.end():].lstrip("\n").split("\n", 1)[0]
+        if next_line.strip() and _DATE_CONTINUATION_RE.match(next_line.strip()):
+            line = f"{line} {next_line}"
+
+    return re.sub(r"\s+", " ", line).strip()
 
 
 def _clean_body(raw: str) -> str:

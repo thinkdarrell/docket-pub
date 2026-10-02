@@ -13,7 +13,11 @@ from pathlib import Path
 
 import pytest
 
-from docket.analysis.agenda_parser import ParsedAgendaItem, parse_agenda
+from docket.analysis.agenda_parser import (
+    ParsedAgendaItem,
+    parse_agenda,
+    parse_minutes_approval,
+)
 from docket.analysis.minutes_parser import extract_text_from_pdf
 
 
@@ -157,3 +161,68 @@ class TestEdgeCases:
     def test_no_items_in_input_returns_empty_list(self):
         text = "AGENDA\nROLL CALL\nADJOURNMENT"
         assert parse_agenda(text) == []
+
+
+class TestParseMinutesApproval:
+    """The un-numbered "APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: ..." preamble
+    line is how the council adopts earlier minutes. It has no ITEM marker, so
+    parse_agenda never sees it."""
+
+    def test_extracts_approval_line_from_real_agenda(self, fixture_text):
+        assert parse_minutes_approval(fixture_text) == (
+            "APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: February 3 – 24, 2026"
+        )
+
+    def test_returns_none_when_only_minutes_not_ready(self):
+        text = (
+            "ROLL CALL\n"
+            "MINUTES NOT READY: March 3, 2026 – May 19, 2026\n"
+            "COMMUNICATIONS FROM THE MAYOR\n"
+            "ITEM 1.\nA Resolution doing a thing.\n"
+        )
+        assert parse_minutes_approval(text) is None
+
+    def test_matches_clerk_typo_without_of(self):
+        text = (
+            "ROLL CALL\n"
+            "APPROVAL MINUTES FROM PREVIOUS MEETINGS: May 5, 12, 19 and 26, 2026\n"
+            "MINUTES NOT READY: June 2, 2026 – July 14, 2026\n"
+            "ITEM 1.\nA Resolution doing a thing.\n"
+        )
+        assert parse_minutes_approval(text) == (
+            "APPROVAL MINUTES FROM PREVIOUS MEETINGS: May 5, 12, 19 and 26, 2026"
+        )
+
+    def test_joins_date_list_wrapped_onto_next_line(self):
+        text = (
+            "ROLL CALL\n"
+            "APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: June 2, 9, 16,\n"
+            "23 & 30, 2026\n"
+            "MINUTES NOT READY: July 7, 2026 – August 25, 2026\n"
+            "ITEM 1.\nA Resolution doing a thing.\n"
+        )
+        assert parse_minutes_approval(text) == (
+            "APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: June 2, 9, 16, 23 & 30, 2026"
+        )
+
+    def test_does_not_absorb_the_minutes_not_ready_line(self):
+        """A yearless approval line must not borrow the year from the next header."""
+        text = (
+            "APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: June 2, 9 & 16\n"
+            "MINUTES NOT READY: July 7, 2026 – August 25, 2026\n"
+            "ITEM 1.\nA Resolution doing a thing.\n"
+        )
+        assert parse_minutes_approval(text) == (
+            "APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: June 2, 9 & 16"
+        )
+
+    def test_ignores_approval_wording_inside_item_bodies(self):
+        text = (
+            "ROLL CALL\n"
+            "ITEM 1.\nA Resolution authorizing the\n"
+            "Approval of Minutes from January 6, 2026 as corrected.\n"
+        )
+        assert parse_minutes_approval(text) is None
+
+    def test_empty_input_returns_none(self):
+        assert parse_minutes_approval("") is None
