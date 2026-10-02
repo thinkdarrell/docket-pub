@@ -20,6 +20,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from docket.analysis.minutes_approval import MONTH_PATTERN, is_adoption_title
+
 
 # Item marker. Capture group 1 = item number; matches three variants:
 #   ITEM N.           (substantive)
@@ -51,6 +53,16 @@ _TITLE_CUTOFF_RE = re.compile(
     r"\s*\((?:Submitted|Recommended)\s+by\b",
     re.IGNORECASE,
 )
+
+# A wrapped continuation of the minutes-approval line holds nothing but more
+# dates: day numbers, separators, "and", and month names.
+_DATE_CONTINUATION_RE = re.compile(
+    rf"^(?:\d|[\s,&.\-–—]|\band\b|\b(?:{MONTH_PATTERN})\b)+$",
+    re.IGNORECASE,
+)
+
+
+_YEAR_AT_END_RE = re.compile(r"\b(?:19|20)\d{2}\.?$")
 
 
 @dataclass
@@ -102,6 +114,40 @@ def parse_agenda(text: str) -> list[ParsedAgendaItem]:
         )
 
     return items
+
+
+def parse_minutes_approval(text: str) -> str | None:
+    """Return the un-numbered preamble line by which the council adopts earlier
+    minutes, e.g. "APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: February 3 – 24, 2026".
+
+    Only the preamble (before the first item marker) is searched, so approval
+    wording inside an item body is never mistaken for it. A long date list
+    that wraps is rejoined. None if absent — most weeks the agenda carries
+    only "MINUTES NOT READY".
+    """
+    if not text:
+        return None
+
+    first_item = _ITEM_MARKER_RE.search(text)
+    preamble = text[: first_item.start()] if first_item else text
+
+    lines = preamble.split("\n")
+    for i, line in enumerate(lines):
+        if not is_adoption_title(line):
+            continue
+        approval = line.strip()
+        for following in lines[i + 1:]:
+            # A line that already ends in a year is finished; only a list left
+            # hanging (no year yet, or a trailing separator) continues below.
+            if _YEAR_AT_END_RE.search(approval):
+                break
+            if not following.strip():
+                continue
+            if not _DATE_CONTINUATION_RE.match(following.strip()):
+                break
+            approval = f"{approval} {following.strip()}"
+        return re.sub(r"\s+", " ", approval)
+    return None
 
 
 def _clean_body(raw: str) -> str:

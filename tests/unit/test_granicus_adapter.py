@@ -257,7 +257,8 @@ class TestFetchAgendaItemsEventPath:
         ):
             items = adapter.fetch_agenda_items(_upcoming_meeting())
 
-        assert len(items) == 102
+        # 102 numbered items + the un-numbered minutes-approval line
+        assert len(items) == 103
         # First item: substantive, sponsor mentions Woods
         assert items[0].item_number == "1"
         assert items[0].is_consent is False
@@ -265,6 +266,43 @@ class TestFetchAgendaItemsEventPath:
         # Item 2: consent-with-public-hearing
         assert items[1].item_number == "2"
         assert items[1].is_consent is True
+
+    def test_emits_minutes_approval_line_as_unnumbered_item(self):
+        """The adoption sweep keys off this agenda item; without it docket.pub
+        never learns the council adopted earlier minutes."""
+        adapter = _adapter()
+        pdf_bytes = FIXTURE_PDF.read_bytes()
+        with patch(
+            "docket.adapters.granicus.requests.get",
+            return_value=_mock_pdf_response(pdf_bytes),
+        ):
+            items = adapter.fetch_agenda_items(_upcoming_meeting())
+
+        approvals = [i for i in items if i.external_id == "event-2692-minutes-approval"]
+        assert len(approvals) == 1
+        approval = approvals[0]
+        assert approval.title == "APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: February 3 – 24, 2026"
+        assert approval.item_number is None
+        assert approval.is_consent is False
+        assert approval.meeting_external_id == "event-2692"
+
+    def test_approval_line_alone_does_not_count_as_a_scraped_agenda(self):
+        """If the PDF yields no ITEM markers, return nothing so the meeting is
+        retried by repair_empty_agendas instead of looking scraped with one item."""
+        adapter = _adapter()
+        with patch(
+            "docket.adapters.granicus.requests.get",
+            return_value=_mock_pdf_response(b"%PDF-1.7 stub"),
+        ), patch(
+            "docket.adapters.granicus.extract_text_from_pdf",
+            return_value=(
+                "ROLL CALL\n"
+                "APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: February 3 – 24, 2026\n"
+            ),
+        ):
+            items = adapter.fetch_agenda_items(_upcoming_meeting())
+
+        assert items == []
 
     def test_items_have_no_video_timestamps(self):
         """Pre-recording — there's no MediaPlayer index points yet."""

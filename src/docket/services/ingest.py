@@ -288,11 +288,14 @@ def _backfill_video_timestamps(
 
     Returns the number of items updated.
     """
-    # Cheap precheck: are there any items needing a timestamp?
+    # Cheap precheck: are there any items needing a timestamp? Un-numbered
+    # items (the minutes-approval line) can never be matched below, so they
+    # don't count.
     with db_cursor() as cur:
         cur.execute(
             "SELECT count(*) AS n FROM agenda_items "
-            "WHERE meeting_id = %s AND video_timestamp_seconds IS NULL",
+            "WHERE meeting_id = %s AND video_timestamp_seconds IS NULL "
+            "AND item_number IS NOT NULL",
             (meeting_id,),
         )
         null_count = cur.fetchone()["n"]

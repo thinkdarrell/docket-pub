@@ -20,7 +20,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from docket.adapters._helpers import classify_meeting, is_consent_item
-from docket.analysis.agenda_parser import parse_agenda
+from docket.analysis.agenda_parser import parse_agenda, parse_minutes_approval
 from docket.analysis.minutes_parser import (
     download_minutes_pdf,
     extract_text_from_pdf,
@@ -197,6 +197,27 @@ class GranicusAdapter:
                     section=None,
                     is_consent=p.is_consent,
                     sponsor=p.sponsor,
+                    video_timestamp_seconds=None,
+                )
+            )
+
+        # The minutes-approval line has no ITEM marker but the adoption sweep
+        # (services/minutes_adoption.py) keys off it, so carry it as an
+        # un-numbered item. NULL item_number sorts it after the numbered items.
+        # Never on its own: a PDF with no item markers must still read as an
+        # empty scrape so repair_empty_agendas retries it.
+        approval = parse_minutes_approval(text) if items else None
+        if approval:
+            items.append(
+                RawAgendaItem(
+                    external_id=f"event-{event_id}-minutes-approval",
+                    meeting_external_id=meeting.external_id,
+                    item_number=None,
+                    title=approval,
+                    description=None,
+                    section=None,
+                    is_consent=False,
+                    sponsor=None,
                     video_timestamp_seconds=None,
                 )
             )
