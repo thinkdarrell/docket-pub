@@ -574,6 +574,9 @@ def _fetch_vote_for_classify(cur, vote_id: int) -> dict:
 def strict_reparse_meeting(meeting_id: int, *, minutes_text: str | None = None) -> dict:
     """Promote provisional consent links to official; deactivate pulled-from-consent links.
 
+    A consent link is deactivated only when its item is absent from the minutes'
+    enumerated list AND has its own explicit vote in the meeting.
+
     minutes_text: pass-through for tests. In production, callers fetch the PDF and pass the text.
     Respects is_manual=TRUE on every UPDATE.
     """
@@ -634,7 +637,10 @@ def strict_reparse_meeting(meeting_id: int, *, minutes_text: str | None = None) 
             )
             promoted = cur.rowcount
 
-            # Deactivate: linked items NOT in enumerated set (pulled from consent)
+            # Deactivate: linked items NOT in the enumerated set that were also voted
+            # on separately (pulled from consent). The resolver misses many items that
+            # did pass in the block — agenda titles rarely share words with the
+            # resolution text — so an unmatched item alone is not evidence of a pull.
             cur.execute(
                 """UPDATE vote_agenda_items
                    SET is_active = FALSE, updated_at = NOW()
@@ -644,10 +650,36 @@ def strict_reparse_meeting(meeting_id: int, *, minutes_text: str | None = None) 
                      AND vote_agenda_items.is_manual = FALSE
                      AND vote_agenda_items.is_active = TRUE
                      AND vote_agenda_items.association_type IN ('consent_named', 'consent_implicit')
-                     AND NOT (vote_agenda_items.agenda_item_id = ANY(%s))""",
+                     AND NOT (vote_agenda_items.agenda_item_id = ANY(%s))
+                     AND EXISTS (
+                       SELECT 1 FROM vote_agenda_items sep
+                       JOIN votes sv ON sv.id = sep.vote_id
+                       WHERE sep.agenda_item_id = vote_agenda_items.agenda_item_id
+                         AND sep.vote_id <> vote_agenda_items.vote_id
+                         AND sv.meeting_id = v.meeting_id
+                         AND sep.association_type = 'explicit'
+                         AND sep.is_active = TRUE
+                     )""",
                 (meeting_id, list(target_item_ids)),
             )
             deactivated = cur.rowcount
+
+            # Remaining unmatched consent links: the minutes are adopted, so they are
+            # no longer provisional, but they keep their original method/confidence.
+            cur.execute(
+                """UPDATE vote_agenda_items
+                   SET provisional = FALSE, updated_at = NOW()
+                   FROM votes v
+                   WHERE v.id = vote_agenda_items.vote_id
+                     AND v.meeting_id = %s
+                     AND vote_agenda_items.is_manual = FALSE
+                     AND vote_agenda_items.is_active = TRUE
+                     AND vote_agenda_items.provisional = TRUE
+                     AND vote_agenda_items.association_type IN ('consent_named', 'consent_implicit')
+                     AND NOT (vote_agenda_items.agenda_item_id = ANY(%s))""",
+                (meeting_id, list(target_item_ids)),
+            )
+            promoted += cur.rowcount
 
             # Insert any enumerated items that weren't previously linked
             for item_id in target_item_ids:

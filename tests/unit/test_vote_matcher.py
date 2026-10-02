@@ -521,11 +521,40 @@ def test_strict_reparse_promotes_provisional_to_official(consent_block_meeting):
     assert all(r["is_active"] for r in rows)
 
 
+def _add_separate_vote_for(meeting_id: int, agenda_item_id: int) -> int:
+    """Give an item its own substantive vote + explicit link — what the minutes
+    produce when an item is pulled off the consent agenda and voted on alone."""
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO votes (meeting_id, source, result, yeas, nays, abstentions,
+                                       confidence, needs_review, raw_text)
+                   VALUES (%s, 'minutes_text', 'passed', 4, 1, 0, 'high', FALSE,
+                           'The following resolution was introduced by Councilmember Williams')
+                   RETURNING id""",
+                (meeting_id,),
+            )
+            vote_id = cur.fetchone()[0]
+            cur.execute(
+                """INSERT INTO vote_agenda_items
+                    (vote_id, agenda_item_id, association_type, match_method,
+                     match_confidence, provisional)
+                   VALUES (%s, %s, 'explicit', 'manual_test', 1.0, FALSE)""",
+                (vote_id, agenda_item_id),
+            )
+        conn.commit()
+    return vote_id
+
+
 def test_strict_reparse_deactivates_pulled_from_consent(consent_block_meeting):
-    """An item linked provisionally but NOT in the enumerated list becomes is_active=False."""
+    """An item missing from the enumerated list AND voted on separately was pulled
+    from consent: its consent-block link becomes is_active=False."""
     from docket.analysis.vote_matcher import match_votes_for_meeting, strict_reparse_meeting
 
     match_votes_for_meeting(consent_block_meeting["meeting_id"])
+    _add_separate_vote_for(
+        consent_block_meeting["meeting_id"], consent_block_meeting["agenda_item_ids"][2]
+    )
 
     # Enumerated list mentions only HCL and OLB. East Side Lounge is "pulled".
     enumerated_text = """
@@ -545,6 +574,44 @@ def test_strict_reparse_deactivates_pulled_from_consent(consent_block_meeting):
         )
         row = cur.fetchone()
     assert row["is_active"] is False
+
+
+def test_strict_reparse_keeps_unresolved_item_without_separate_vote(consent_block_meeting):
+    """Failing to match an item to the minutes' resolution list is not evidence it was
+    pulled. With no separate vote on it, the consent link stays visible and — the
+    minutes now being adopted — stops being provisional. (On the real 2/17/2026
+    meeting the resolver matched 9 of 17 consent items; the other 8 had passed in
+    the consent block and were being hidden.)"""
+    from docket.analysis.vote_matcher import match_votes_for_meeting, strict_reparse_meeting
+
+    match_votes_for_meeting(consent_block_meeting["meeting_id"])
+
+    # Enumerated list mentions only HCL and OLB; East Side Lounge goes unmatched.
+    enumerated_text = """
+    RESOLUTION 1854-25 A Resolution authorizing HCL Contracting paving services 9th Avenue
+    RESOLUTION 1855-25 A Resolution authorizing OLB Enterprises liquor license
+    The resolutions and ordinances introduced as consent agenda matters were read by the
+    City Clerk... Ayes: Alexander, Smitherman, Williams / Nays: None
+    """
+    result = strict_reparse_meeting(
+        consent_block_meeting["meeting_id"], minutes_text=enumerated_text
+    )
+
+    east_side_id = consent_block_meeting["agenda_item_ids"][2]
+    from docket.db import db_cursor
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT is_active, provisional, match_method, match_confidence "
+            "FROM vote_agenda_items WHERE vote_id = %s AND agenda_item_id = %s",
+            (consent_block_meeting["vote_id"], east_side_id),
+        )
+        row = cur.fetchone()
+    assert row["is_active"] is True
+    assert row["provisional"] is False
+    # Not upgraded to the enumerated-match confidence it didn't earn.
+    assert row["match_method"] != "consent_enumerated"
+    assert row["match_confidence"] == pytest.approx(0.8)
+    assert result["deactivated"] == 0
 
 
 def test_strict_reparse_respects_is_manual(consent_block_meeting):
