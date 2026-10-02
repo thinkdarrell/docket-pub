@@ -198,6 +198,10 @@ def test_is_adoption_title_rejects_minutes_not_ready():
 _ADOPTED_ON = date(2026, 9, 1)
 
 
+def _NO_REPARSE(meeting_id):
+    return {"promoted": 0, "deactivated": 0}
+
+
 def _d(month: int, day: int, year: int = 2026) -> DateSpan:
     return DateSpan(date(year, month, day), date(year, month, day))
 
@@ -245,6 +249,29 @@ def _d(month: int, day: int, year: int = 2026) -> DateSpan:
      [_d(12, 16, 2025), _d(12, 23, 2025), _d(12, 30, 2025), _d(1, 6)]),
     ("APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: December 16 – January 27, 2026",
      [DateSpan(date(2025, 12, 16), date(2026, 1, 27))]),
+    # A list that is not in calendar order is not a New Year wrap: the earlier
+    # months only move back a year when they would otherwise fall after the
+    # adopting meeting.
+    ("APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: August 5 – 26 and July 31, 2025",
+     [DateSpan(date(2025, 8, 5), date(2025, 8, 26)), _d(7, 31, 2025)]),
+    ("APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: April 1 and March 4, 11, 18 & 25, 2025",
+     [_d(4, 1, 2025), _d(3, 4, 2025), _d(3, 11, 2025), _d(3, 18, 2025), _d(3, 25, 2025)]),
+    # Ordinal day suffixes
+    ("APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: February 3rd and 10th, 2026",
+     [_d(2, 3), _d(2, 10)]),
+    ("APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: February 3 – 24th, 2026",
+     [DateSpan(date(2026, 2, 3), date(2026, 2, 24))]),
+    # Dash look-alikes PDFs produce: non-breaking hyphen, hyphen, minus sign
+    ("APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: February 3 \u2011 24, 2026",
+     [DateSpan(date(2026, 2, 3), date(2026, 2, 24))]),
+    ("APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: February 3 \u2010 24, 2026",
+     [DateSpan(date(2026, 2, 3), date(2026, 2, 24))]),
+    ("APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: February 3 \u2212 24, 2026",
+     [DateSpan(date(2026, 2, 3), date(2026, 2, 24))]),
+    # The not-ready list is never part of what was approved
+    ("APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: February 3 – 24, 2026 "
+     "MINUTES NOT READY: March 3 – April 21, 2026",
+     [DateSpan(date(2026, 2, 3), date(2026, 2, 24))]),
     # Two years in one list
     ("APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: Dec. 2, 9, 16, 23 & 30, 2025, "
      "January 6, 13, 20 & 27, 2026",
@@ -259,6 +286,24 @@ def test_extract_adoption_targets_rejects_list_with_invalid_day():
     with pytest.raises(AdoptionParseError, match="invalid date"):
         extract_adoption_targets(
             "APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: June 2, 9 & 31, 2026",
+            adoption_meeting_date=_ADOPTED_ON,
+        )
+
+
+def test_extract_adoption_targets_rejects_unrecognized_word_inside_a_date_list():
+    """A misspelled month must not silently inherit the previous month
+    ("Febuary 3" read as January 3) — reject the whole title instead."""
+    with pytest.raises(AdoptionParseError, match="unrecognized"):
+        extract_adoption_targets(
+            "APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: January 27, Febuary 3 and 10, 2026",
+            adoption_meeting_date=_ADOPTED_ON,
+        )
+
+
+def test_extract_adoption_targets_rejects_the_adopting_meetings_own_date():
+    with pytest.raises(AdoptionParseError, match="not before"):
+        extract_adoption_targets(
+            "APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: September 1, 2026",
             adoption_meeting_date=_ADOPTED_ON,
         )
 
@@ -339,7 +384,7 @@ def _adopted_dates(ids: dict[str, int]) -> dict[str, date | None]:
 
 
 def test_sweep_adoptions_flips_every_date_in_a_list(batch_adoption_scenario, monkeypatch):
-    monkeypatch.setattr("docket.analysis.vote_matcher.strict_reparse_meeting", lambda mid: {})
+    monkeypatch.setattr("docket.analysis.vote_matcher.strict_reparse_meeting", _NO_REPARSE)
     s = batch_adoption_scenario
     s["add_adoption_item"]("APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: February 3, 17 & 24, 2098")
 
@@ -356,7 +401,7 @@ def test_sweep_adoptions_flips_every_date_in_a_list(batch_adoption_scenario, mon
 def test_sweep_adoptions_range_flips_only_meetings_with_minutes(batch_adoption_scenario, monkeypatch):
     """A range names a window, not specific meetings. Rows in the window that have no
     minutes document (placeholder / cancelled rows) can't have had minutes adopted."""
-    monkeypatch.setattr("docket.analysis.vote_matcher.strict_reparse_meeting", lambda mid: {})
+    monkeypatch.setattr("docket.analysis.vote_matcher.strict_reparse_meeting", _NO_REPARSE)
     s = batch_adoption_scenario
     s["add_adoption_item"]("APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: February 3 – 24, 2098")
 
@@ -376,7 +421,7 @@ def test_sweep_adoptions_prefers_the_row_with_minutes_when_a_date_has_duplicates
     """Granicus sometimes lists a second, empty clip for the same date (real case:
     2024-01-09, ids 143 and 144). The one with a minutes document is the meeting
     whose minutes were adopted."""
-    monkeypatch.setattr("docket.analysis.vote_matcher.strict_reparse_meeting", lambda mid: {})
+    monkeypatch.setattr("docket.analysis.vote_matcher.strict_reparse_meeting", _NO_REPARSE)
     s = batch_adoption_scenario
     with db() as conn:
         with conn.cursor() as cur:
@@ -398,7 +443,7 @@ def test_sweep_adoptions_prefers_the_row_with_minutes_when_a_date_has_duplicates
 
 def test_sweep_adoptions_range_skips_hidden_meetings(batch_adoption_scenario, monkeypatch):
     """Rows an admin hid as not-real meetings are not swept up by a date range."""
-    monkeypatch.setattr("docket.analysis.vote_matcher.strict_reparse_meeting", lambda mid: {})
+    monkeypatch.setattr("docket.analysis.vote_matcher.strict_reparse_meeting", _NO_REPARSE)
     s = batch_adoption_scenario
     with db() as conn:
         with conn.cursor() as cur:
@@ -417,7 +462,7 @@ def test_sweep_adoptions_rerun_does_not_warn_about_its_own_adoptions(
 ):
     """The sweep re-reads every approval item daily. Finding the adoption it
     recorded yesterday is normal; only a conflicting adoption date is worth a warning."""
-    monkeypatch.setattr("docket.analysis.vote_matcher.strict_reparse_meeting", lambda mid: {})
+    monkeypatch.setattr("docket.analysis.vote_matcher.strict_reparse_meeting", _NO_REPARSE)
     s = batch_adoption_scenario
     s["add_adoption_item"]("APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: February 3, 17 & 24, 2098")
     sweep_adoptions(s["municipality_id"])
@@ -432,3 +477,91 @@ def test_sweep_adoptions_rerun_does_not_warn_about_its_own_adoptions(
         and any(f"target_meeting_id={i} " in r.getMessage() for i in fixture_ids)
     ]
     assert ours == []
+
+
+def _insert_meeting(municipality_id, meeting_date, *, minutes=False, hidden=False) -> int:
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO meetings (municipality_id, title, meeting_date, meeting_type,
+                                         minutes_url, is_hidden)
+                   VALUES (%s, 'TEST_BATCH_ADOPTION', %s, 'council', %s, %s) RETURNING id""",
+                (municipality_id, meeting_date,
+                 "https://example.test/minutes/extra" if minutes else None, hidden),
+            )
+            new_id = cur.fetchone()[0]
+        conn.commit()
+    return new_id
+
+
+def test_sweep_adoptions_list_date_skips_hidden_meeting(batch_adoption_scenario, monkeypatch):
+    monkeypatch.setattr("docket.analysis.vote_matcher.strict_reparse_meeting", _NO_REPARSE)
+    s = batch_adoption_scenario
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE meetings SET is_hidden = TRUE WHERE id = %s", (s["ids"]["2098-02-17"],))
+        conn.commit()
+    s["add_adoption_item"]("APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: February 3 and 17, 2098")
+
+    flipped = sweep_adoptions(s["municipality_id"])
+
+    assert s["ids"]["2098-02-03"] in flipped
+    assert s["ids"]["2098-02-17"] not in flipped
+
+
+def test_sweep_adoptions_list_date_adopts_every_row_with_minutes(batch_adoption_scenario, monkeypatch):
+    """Real case: 2020-04-07 was held as Part I and Part II, each with its own
+    minutes. A title naming the date adopts both, as a range would."""
+    monkeypatch.setattr("docket.analysis.vote_matcher.strict_reparse_meeting", _NO_REPARSE)
+    s = batch_adoption_scenario
+    part_two = _insert_meeting(s["municipality_id"], "2098-02-17", minutes=True)
+    s["ids"]["2098-02-17-part-two"] = part_two
+    s["add_adoption_item"]("APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: February 17, 2098")
+
+    flipped = sweep_adoptions(s["municipality_id"])
+
+    assert {s["ids"]["2098-02-17"], part_two} <= set(flipped)
+
+
+def test_sweep_adoptions_earliest_adopting_meeting_wins(batch_adoption_scenario, monkeypatch):
+    """If two agendas name the same date, the recorded adoption date must not
+    depend on row order."""
+    monkeypatch.setattr("docket.analysis.vote_matcher.strict_reparse_meeting", _NO_REPARSE)
+    s = batch_adoption_scenario
+    later = _insert_meeting(s["municipality_id"], "2098-03-17")
+    s["ids"]["2098-03-17"] = later
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO votes (meeting_id, source, result, yeas, nays, abstentions,
+                                       confidence, needs_review)
+                   VALUES (%s, 'minutes_text', 'passed', 5, 0, 0, 'high', FALSE)""",
+                (later,),
+            )
+            cur.execute(
+                "INSERT INTO agenda_items (meeting_id, title, is_consent) VALUES (%s, %s, FALSE)",
+                (later, "APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: February 3, 2098"),
+            )
+        conn.commit()
+    s["add_adoption_item"]("APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: February 3, 2098")
+
+    sweep_adoptions(s["municipality_id"])
+
+    assert _adopted_dates(s["ids"])["2098-02-03"] == date(2098, 3, 10)
+
+
+def test_sweep_adoptions_matches_votes_before_promoting(batch_adoption_scenario, monkeypatch):
+    """A flipped meeting whose votes were ingested in the same run has no links
+    yet. Re-parsing first would link the consent vote to the confirmed items only
+    and the default fill would never happen, so the sweep goes through the
+    matcher, which links and then promotes."""
+    calls = []
+    monkeypatch.setattr(
+        "docket.analysis.vote_matcher.match_votes_for_meeting", lambda mid: calls.append(mid) or {}
+    )
+    s = batch_adoption_scenario
+    s["add_adoption_item"]("APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: February 17, 2098")
+
+    sweep_adoptions(s["municipality_id"])
+
+    assert s["ids"]["2098-02-17"] in calls

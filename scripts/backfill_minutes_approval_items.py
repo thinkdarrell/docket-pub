@@ -51,4 +51,4 @@ if __name__ == "__main__":
         flipped = sweep_adoptions(municipality_id)
         print(f"\nAdoption sweep flipped {len(flipped)} meeting(s): {sorted(flipped)}")
         finished = reparse_adopted_with_provisional_links(municipality_id)
-        print(f"Re-parsed {len(finished)} adopted meeting(s) that still had provisional links")
+        print(f"Finished promotion on {len(finished)} adopted meeting(s) that still had provisional links")

@@ -240,6 +240,20 @@ class TestParseMinutesApproval:
             "APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: June 2, 9, 16, 23 & 30, 2026"
         )
 
+    def test_complete_line_does_not_absorb_a_later_date_line(self):
+        """Once the approval line ends in a year it is finished; a date further
+        down the preamble (a header, a not-ready range) is not part of it."""
+        text = (
+            "APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: February 3 – 24, 2026\n"
+            "\n"
+            "\n"
+            "May 19, 2026\n"
+            "ITEM 1.\nA Resolution doing a thing.\n"
+        )
+        assert parse_minutes_approval(text) == (
+            "APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: February 3 – 24, 2026"
+        )
+
     def test_does_not_absorb_the_minutes_not_ready_line(self):
         """A yearless approval line must not borrow the year from the next header."""
         text = (

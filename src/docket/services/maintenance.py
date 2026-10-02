@@ -132,14 +132,16 @@ def reparse_adopted_with_provisional_links(
 
     minutes_adoption.sweep_adoptions commits its flips before re-parsing, so
     an interrupted sweep leaves adopted meetings with provisional links and
-    nothing retries them. Re-parses each such meeting; one failure doesn't
-    stop the rest. Idempotent.
+    nothing retries them. Runs vote matching (which links, then promotes) on
+    each such meeting; one failure doesn't stop the rest. Idempotent.
 
     Returns:
-        ids of the meetings re-parsed without error.
+        ids of the meetings that no longer have provisional links.
     """
+    from docket.analysis.vote_matcher import has_provisional_links
+
     if reparse is None:
-        from docket.analysis.vote_matcher import strict_reparse_meeting as reparse
+        from docket.analysis.vote_matcher import match_votes_for_meeting as reparse
 
     with db() as conn, conn.cursor() as cur:
         cur.execute(
@@ -166,6 +168,11 @@ def reparse_adopted_with_provisional_links(
             result = reparse(meeting_id)
         except Exception as e:
             log.warning("reparse_pending failed for meeting %s: %s", meeting_id, e)
+            continue
+        # A re-parse that couldn't fetch the minutes PDF returns normally
+        # having changed nothing; only count meetings that actually finished.
+        if has_provisional_links(meeting_id):
+            log.warning("reparse_pending meeting=%s still provisional result=%s", meeting_id, result)
             continue
         log.info("reparse_pending meeting=%s result=%s", meeting_id, result)
         done.append(meeting_id)

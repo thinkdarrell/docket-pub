@@ -2,7 +2,7 @@
 
 Approach: stateless sweep over each city's agenda items. Idempotent —
 re-running doesn't change resolved adoptions but picks up newly-ingested
-target meetings. Triggers strict re-parse on each flip.
+target meetings. Runs vote matching (which promotes links) on each flip.
 
 This module exposes the pattern-detection layer (is_adoption_title,
 extract_adoption_target). The sweep service wraps it.
@@ -50,24 +50,35 @@ _MONTHS = {
 _DATE_TOKEN_RE = re.compile(
     rf"\b(?P<month>{MONTH_PATTERN})\b\.?(?=\s*\d)"
     r"|\b(?P<year>(?:19|20)\d{2})\b"
-    r"|\b(?P<day>\d{1,2})\b"
-    r"|(?P<range>[-–—]|\b(?:through|thru|to)\b)",
+    r"|\b(?P<day>\d{1,2})(?:st|nd|rd|th)?\b"
+    # hyphen, en/em dash, and the look-alikes PDF extraction produces
+    r"|(?P<range>[-–—\u2010\u2011\u2212]|\b(?:through|thru|to)\b)",
     re.IGNORECASE,
 )
+
+# Everything after this marker lists minutes that were NOT approved.
+_NOT_READY_RE = re.compile(r"\bminutes\s+not\s+(?:yet\s+)?ready\b", re.IGNORECASE)
+
+# What may sit between date parts inside one list: separators and "and".
+_LIST_FILLER_RE = re.compile(r"[\s,;&.]|\band\b", re.IGNORECASE)
 
 _LOOKBACK_MONTHS = 24
 
 
-def _parse_date_spans(title: str) -> list[DateSpan]:
+def _parse_date_spans(title: str, adoption_meeting_date: date) -> list[DateSpan]:
     """Tokenize the date expression in a title into spans, in order of appearance.
 
-    Days inherit the next year that follows them ("June 2, 9 & 30, 2026"); when
-    the months run backwards before that year ("December 30 and January 6,
-    2026") the earlier ones belong to the year before. A range separator only
+    Days inherit the next year that follows them ("June 2, 9 & 30, 2026"). An
+    inherited date that would land after the adopting meeting belongs to the
+    year before ("December 30 and January 6, 2026"). A range separator only
     counts when nothing but whitespace separates it from the date parts on
     both sides, so the hyphen in "Pre-Council" is not one. Never guesses a
-    missing month or year.
+    missing month or year, and rejects a list with a word it doesn't know
+    (a misspelled month would otherwise inherit the month before it).
     """
+    title = _NOT_READY_RE.split(title, maxsplit=1)[0]
+    cutoff = (adoption_meeting_date.year, adoption_meeting_date.month, adoption_meeting_date.day)
+
     entries: list[list[int | None]] = []  # [month, day, year]
     range_pairs: list[tuple[int, int]] = []
     month: int | None = None
@@ -76,8 +87,11 @@ def _parse_date_spans(title: str) -> list[DateSpan]:
     prev_end = 0
 
     for m in _DATE_TOKEN_RE.finditer(title):
-        adjacent = not title[prev_end:m.start()].strip()
+        gap = title[prev_end:m.start()]
+        adjacent = not gap.strip()
         prev_end = m.end()
+        if entries and entries[-1][2] is None and _LIST_FILLER_RE.sub("", gap):
+            raise AdoptionParseError(f"unrecognized text {gap.strip()!r} in date list: {title!r}")
         if m.group("month"):
             month = _MONTHS[m.group("month")[:3].lower()]
             if not adjacent:
@@ -85,14 +99,12 @@ def _parse_date_spans(title: str) -> list[DateSpan]:
             last_was_date_part = False
         elif m.group("year"):
             year = int(m.group("year"))
-            later_month: int | None = None
+            named = True  # the date the year is written on keeps it as-is
             for e in reversed(entries):
                 if e[2] is not None:
                     break
-                if later_month is not None and e[0] > later_month:
-                    year -= 1
-                e[2] = year
-                later_month = e[0]
+                e[2] = year if named or (year, e[0], e[1]) <= cutoff else year - 1
+                named = False
             # Numbers after the year aren't days until another month appears.
             month = None
             range_from = None
@@ -136,14 +148,15 @@ def _parse_date_spans(title: str) -> list[DateSpan]:
 def extract_adoption_targets(title: str, *, adoption_meeting_date: date) -> list[DateSpan]:
     """Parse every adoption target named in an agenda title.
 
-    Validates each span: real dates, not in the future, within the 24-month
-    lookback window. Raises AdoptionParseError on any failure (all-or-nothing).
+    Validates each span: real dates, before the adopting meeting, within the
+    24-month lookback window. Raises AdoptionParseError on any failure (all-or-nothing).
     """
-    spans = _parse_date_spans(title)
+    spans = _parse_date_spans(title, adoption_meeting_date)
     for span in spans:
-        if span.end > adoption_meeting_date:
+        if span.end >= adoption_meeting_date:
             raise AdoptionParseError(
-                f"date {span.end} is in the future relative to adoption meeting {adoption_meeting_date}"
+                f"date {span.end} is not before adoption meeting {adoption_meeting_date} "
+                "(same day or in the future)"
             )
         months_back = (
             (adoption_meeting_date.year - span.start.year) * 12
@@ -164,8 +177,9 @@ def sweep_adoptions(municipality_id: int) -> list[int]:
     A single named date:
       - 0 candidate target meetings: log debug, leave for next sweep
       - 1 candidate: set minutes_adopted_at if currently NULL, return id
-      - 2+ candidates: use the only one with a minutes document, else
+      - 2+ candidates: every one with a minutes document; if none has one,
         warn-log structured event and skip
+    Hidden meetings are never targets.
     A date range ("February 3 – 24, 2026") names a window rather than meetings,
     so it flips every not-yet-adopted, non-hidden meeting in the window that has
     a minutes document; rows without one (placeholders, cancellations) are left
@@ -189,7 +203,8 @@ def sweep_adoptions(municipality_id: int) -> list[int]:
                      AND EXISTS (
                        SELECT 1 FROM votes v
                        WHERE v.meeting_id = m.id AND v.result = 'passed'
-                     )""",
+                     )
+                   ORDER BY m.meeting_date, ai.id""",
                 (municipality_id,),
             )
             candidates = cur.fetchall()
@@ -203,7 +218,8 @@ def sweep_adoptions(municipality_id: int) -> list[int]:
                         adoption_meeting_date=c["adoption_meeting_date"],
                     )
                 except AdoptionParseError as e:
-                    logger.debug(
+                    # An approval we can't read leaves meetings provisional — say so.
+                    logger.warning(
                         "adoption_parse_skip municipality_id=%s agenda_item_id=%s reason=%s",
                         municipality_id, c["agenda_item_id"], e,
                     )
@@ -228,17 +244,13 @@ def sweep_adoptions(municipality_id: int) -> list[int]:
 
                     target_date = span.start
                     cur.execute(
-                        """SELECT id, minutes_url IS NOT NULL AS has_minutes FROM meetings
-                           WHERE municipality_id = %s AND meeting_date = %s""",
+                        """SELECT id, minutes_url IS NOT NULL AS has_minutes, minutes_adopted_at
+                           FROM meetings
+                           WHERE municipality_id = %s AND meeting_date = %s
+                             AND is_hidden = FALSE""",
                         (municipality_id, target_date),
                     )
                     rows = cur.fetchall()
-                    if len(rows) > 1:
-                        # Duplicate clips for one date: the row with a minutes
-                        # document is the meeting whose minutes were adopted.
-                        with_minutes = [r for r in rows if r["has_minutes"]]
-                        if len(with_minutes) == 1:
-                            rows = with_minutes
                     if len(rows) == 0:
                         logger.debug(
                             "adoption_target_missing municipality_id=%s agenda_item_id=%s target_date=%s",
@@ -246,47 +258,54 @@ def sweep_adoptions(municipality_id: int) -> list[int]:
                         )
                         continue
                     if len(rows) > 1:
-                        logger.warning(
-                            "adoption_multi_match municipality_id=%s agenda_item_id=%s "
-                            "parsed_date=%s candidate_meeting_ids=%s",
-                            municipality_id, c["agenda_item_id"], target_date,
-                            [r["id"] for r in rows],
-                        )
-                        continue
-
-                    target_id = rows[0]["id"]
-                    cur.execute(
-                        "SELECT minutes_adopted_at FROM meetings WHERE id = %s",
-                        (target_id,),
-                    )
-                    recorded = cur.fetchone()["minutes_adopted_at"]
-                    if recorded is not None:
-                        # Re-reading our own adoption is the normal idempotent
-                        # case; a different date means two agendas disagree.
-                        if recorded.date() != c["adoption_meeting_date"]:
+                        # Several rows on one date: the title names the date, so
+                        # every row with a minutes document was adopted (a meeting
+                        # held in two parts); empty duplicate clips were not.
+                        with_minutes = [r for r in rows if r["has_minutes"]]
+                        if not with_minutes:
                             logger.warning(
-                                "adoption_already_recorded target_meeting_id=%s "
-                                "adoption_meeting_id=%s recorded=%s",
-                                target_id, c["meeting_id"], recorded.date(),
+                                "adoption_multi_match municipality_id=%s agenda_item_id=%s "
+                                "parsed_date=%s candidate_meeting_ids=%s",
+                                municipality_id, c["agenda_item_id"], target_date,
+                                [r["id"] for r in rows],
                             )
-                        continue
+                            continue
+                        rows = with_minutes
 
-                    cur.execute(
-                        "UPDATE meetings SET minutes_adopted_at = %s WHERE id = %s",
-                        (c["adoption_meeting_date"], target_id),
-                    )
-                    flipped.append(target_id)
+                    for target in rows:
+                        recorded = target["minutes_adopted_at"]
+                        if recorded is not None:
+                            # Re-reading our own adoption is the normal idempotent
+                            # case; a different date means two agendas disagree
+                            # (the first one recorded stands).
+                            if recorded.date() != c["adoption_meeting_date"]:
+                                logger.info(
+                                    "adoption_already_recorded target_meeting_id=%s "
+                                    "adoption_meeting_id=%s recorded=%s",
+                                    target["id"], c["meeting_id"], recorded.date(),
+                                )
+                            continue
+                        cur.execute(
+                            "UPDATE meetings SET minutes_adopted_at = %s "
+                            "WHERE id = %s AND minutes_adopted_at IS NULL",
+                            (c["adoption_meeting_date"], target["id"]),
+                        )
+                        if cur.rowcount:
+                            flipped.append(target["id"])
         conn.commit()
 
-    # Trigger strict re-parse on each newly-flipped meeting (outside the txn).
-    # Each meeting may have provisional consent links to promote; failures are
-    # logged but do not break the overall sweep.
+    # Promote each newly-flipped meeting's links (outside the txn). This goes
+    # through the matcher rather than straight to strict re-parse: a meeting whose
+    # votes arrived in this same ingest run has no links yet, and re-parsing first
+    # would link its consent vote to the confirmed items only. Failures are logged
+    # but do not break the sweep; maintenance.reparse_adopted_with_provisional_links
+    # picks up whatever is left.
     if flipped:
-        from docket.analysis.vote_matcher import strict_reparse_meeting
+        from docket.analysis.vote_matcher import match_votes_for_meeting
         for mid in flipped:
             try:
-                strict_reparse_meeting(mid)
+                match_votes_for_meeting(mid)
             except Exception as e:
-                logger.warning("strict_reparse failed for meeting %s after sweep: %s", mid, e)
+                logger.warning("promotion failed for meeting %s after sweep: %s", mid, e)
 
     return flipped

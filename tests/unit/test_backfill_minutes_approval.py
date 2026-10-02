@@ -199,6 +199,19 @@ def adopted_meetings():
         conn.commit()
 
 
+def _promote(meeting_id: int) -> dict:
+    """Stand-in for the matcher: drops the provisional flag like a real re-parse."""
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """UPDATE vote_agenda_items SET provisional = FALSE
+                    WHERE vote_id IN (SELECT id FROM votes WHERE meeting_id = %s)""",
+                (meeting_id,),
+            )
+        conn.commit()
+    return {"promoted": 1, "deactivated": 0}
+
+
 def test_reparse_pending_targets_only_adopted_meetings_with_provisional_links(adopted_meetings):
     """Lets an interrupted adoption sweep be finished: the sweep commits its flips
     before re-parsing, so a crash leaves adopted meetings with provisional links."""
@@ -206,12 +219,24 @@ def test_reparse_pending_targets_only_adopted_meetings_with_provisional_links(ad
     calls = []
 
     done = reparse_adopted_with_provisional_links(
-        s["municipality_id"], reparse=lambda mid: calls.append(mid) or {"promoted": 1, "deactivated": 0}
+        s["municipality_id"], reparse=lambda mid: calls.append(mid) or _promote(mid)
     )
 
     ours = [m for m in calls if m in s["ids"].values()]
     assert ours == [s["ids"]["pending"]]
     assert s["ids"]["pending"] in done
+
+
+def test_reparse_pending_does_not_report_a_meeting_that_is_still_provisional(adopted_meetings):
+    """A re-parse that changes nothing (the minutes PDF failed to download) returns
+    normally; the meeting must not be counted as finished."""
+    s = adopted_meetings
+
+    done = reparse_adopted_with_provisional_links(
+        s["municipality_id"], reparse=lambda mid: {"promoted": 0, "deactivated": 0}
+    )
+
+    assert s["ids"]["pending"] not in done
 
 
 def test_reparse_pending_continues_past_a_failing_meeting(adopted_meetings):

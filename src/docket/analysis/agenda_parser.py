@@ -62,6 +62,9 @@ _DATE_CONTINUATION_RE = re.compile(
 )
 
 
+_YEAR_AT_END_RE = re.compile(r"\b(?:19|20)\d{2}\.?$")
+
+
 @dataclass
 class ParsedAgendaItem:
     """A single agenda item extracted from the agenda PDF."""
@@ -132,14 +135,18 @@ def parse_minutes_approval(text: str) -> str | None:
     for i, line in enumerate(lines):
         if not is_adoption_title(line):
             continue
-        parts = [line]
+        approval = line.strip()
         for following in lines[i + 1:]:
+            # A line that already ends in a year is finished; only a list left
+            # hanging (no year yet, or a trailing separator) continues below.
+            if _YEAR_AT_END_RE.search(approval):
+                break
             if not following.strip():
                 continue
             if not _DATE_CONTINUATION_RE.match(following.strip()):
                 break
-            parts.append(following)
-        return re.sub(r"\s+", " ", " ".join(parts)).strip()
+            approval = f"{approval} {following.strip()}"
+        return re.sub(r"\s+", " ", approval)
     return None
 
 

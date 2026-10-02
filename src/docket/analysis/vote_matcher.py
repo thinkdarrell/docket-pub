@@ -722,7 +722,7 @@ def strict_reparse_meeting(meeting_id: int, *, minutes_text: str | None = None) 
     return {"promoted": promoted, "deactivated": deactivated}
 
 
-def _has_provisional_links(meeting_id: int) -> bool:
+def has_provisional_links(meeting_id: int) -> bool:
     """True if the meeting has any active, non-manual link still marked provisional."""
     with db_cursor() as cur:
         cur.execute(
@@ -757,7 +757,7 @@ def match_votes_for_meeting(meeting_id: int) -> dict:
         conn.commit()
 
     reparse_result = {"promoted": 0, "deactivated": 0}
-    if row and row[0] is not None and _has_provisional_links(meeting_id):
+    if row and row[0] is not None and has_provisional_links(meeting_id):
         # Adoption already recorded — promote provisional links immediately.
         # Skipped when nothing is provisional: the cron revisits every meeting
         # with an unlinked vote daily, and a re-parse re-downloads the minutes PDF.
