@@ -1,5 +1,9 @@
-"""Restore minutes-approval agenda lines on already-scraped meetings, then
-run the adoption sweep so the meetings they name flip to adopted.
+"""Restore minutes-approval agenda lines on already-scraped meetings, run the
+adoption sweep so the meetings they name flip to adopted, then finish
+promoting vote links on any adopted meeting still marked provisional.
+
+Safe to re-run: each step skips what is already done, so an interrupted run
+is resumed by running it again.
 
 Run inside the Railway container (in-VPC), dry run first:
     python scripts/backfill_minutes_approval_items.py --dry-run
@@ -11,7 +15,10 @@ import logging
 from datetime import date
 
 from docket.db import db
-from docket.services.maintenance import backfill_minutes_approval_items
+from docket.services.maintenance import (
+    backfill_minutes_approval_items,
+    reparse_adopted_with_provisional_links,
+)
 from docket.services.minutes_adoption import sweep_adoptions
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -43,3 +50,5 @@ if __name__ == "__main__":
     if not args.dry_run:
         flipped = sweep_adoptions(municipality_id)
         print(f"\nAdoption sweep flipped {len(flipped)} meeting(s): {sorted(flipped)}")
+        finished = reparse_adopted_with_provisional_links(municipality_id)
+        print(f"Re-parsed {len(finished)} adopted meeting(s) that still had provisional links")

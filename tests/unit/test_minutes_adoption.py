@@ -9,7 +9,6 @@ from docket.db import db, db_cursor
 from docket.services.minutes_adoption import (
     AdoptionParseError,
     DateSpan,
-    extract_adoption_target,
     extract_adoption_targets,
     is_adoption_title,
     sweep_adoptions,
@@ -29,35 +28,35 @@ def test_is_adoption_title_rejects_unrelated():
     assert not is_adoption_title("Approval of Contract with Acme Corp")
 
 
-def test_extract_adoption_target_returns_date():
-    target = extract_adoption_target(
+def test_extract_adoption_targets_returns_single_date():
+    targets = extract_adoption_targets(
         "Approval of Minutes from December 5, 2024",
         adoption_meeting_date=date(2026, 1, 7),
     )
-    assert target == date(2024, 12, 5)
+    assert targets == [DateSpan(date(2024, 12, 5), date(2024, 12, 5))]
 
 
-def test_extract_adoption_target_rejects_invalid_date():
+def test_extract_adoption_targets_rejects_invalid_date():
     """Feb 31 is not a real date."""
     with pytest.raises(AdoptionParseError, match="invalid date"):
-        extract_adoption_target(
+        extract_adoption_targets(
             "Approval of Minutes from February 31, 2024",
             adoption_meeting_date=date(2026, 1, 7),
         )
 
 
-def test_extract_adoption_target_rejects_future_date():
+def test_extract_adoption_targets_rejects_future_date():
     with pytest.raises(AdoptionParseError, match="future"):
-        extract_adoption_target(
+        extract_adoption_targets(
             "Approval of Minutes from January 1, 2030",
             adoption_meeting_date=date(2026, 1, 7),
         )
 
 
-def test_extract_adoption_target_rejects_too_old():
+def test_extract_adoption_targets_rejects_too_old():
     """24-month window."""
     with pytest.raises(AdoptionParseError, match="window"):
-        extract_adoption_target(
+        extract_adoption_targets(
             "Approval of Minutes from January 1, 2020",
             adoption_meeting_date=date(2026, 1, 7),
         )
@@ -179,6 +178,19 @@ def test_is_adoption_title_matches_batch_formats(title):
     assert is_adoption_title(title)
 
 
+def test_is_adoption_title_matches_previous_minutes_wording():
+    """Real 2025-07-08 agenda wording."""
+    assert is_adoption_title("APPROVAL OF PREVIOUS MINUTES: March 4, 11, 18 and 25, 2025")
+
+
+def test_is_adoption_title_rejects_adoption_wording_inside_a_resolution():
+    """Only a title that opens with the approval is a minutes adoption."""
+    assert not is_adoption_title(
+        "A Resolution authorizing the adoption of the 15 minutes parking limit "
+        "effective March 3, 2026"
+    )
+
+
 def test_is_adoption_title_rejects_minutes_not_ready():
     assert not is_adoption_title("MINUTES NOT READY:  February 3, 2026 – April  28, 2026")
 
@@ -220,6 +232,24 @@ def _d(month: int, day: int, year: int = 2026) -> DateSpan:
     # Two months in one list
     ("APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: July 28 and August 4, 2026",
      [_d(7, 28), _d(8, 4)]),
+    # A hyphen or "to" elsewhere in the title is not a range separator: it only
+    # counts when it sits directly between two date parts.
+    ("Approval of Minutes from the February 3, 2026 Pre-Council Meeting and "
+     "February 24, 2026 Regular Meeting",
+     [_d(2, 3), _d(2, 24)]),
+    ("Approval of Minutes from January 6, 2026, as amended to include remarks; "
+     "and February 3, 2026",
+     [_d(1, 6), _d(2, 3)]),
+    # A batch spanning New Year with one trailing year
+    ("APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: December 16, 23, 30 and January 6, 2026",
+     [_d(12, 16, 2025), _d(12, 23, 2025), _d(12, 30, 2025), _d(1, 6)]),
+    ("APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: December 16 – January 27, 2026",
+     [DateSpan(date(2025, 12, 16), date(2026, 1, 27))]),
+    # Two years in one list
+    ("APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: Dec. 2, 9, 16, 23 & 30, 2025, "
+     "January 6, 13, 20 & 27, 2026",
+     [_d(12, 2, 2025), _d(12, 9, 2025), _d(12, 16, 2025), _d(12, 23, 2025),
+      _d(12, 30, 2025), _d(1, 6), _d(1, 13), _d(1, 20), _d(1, 27)]),
 ])
 def test_extract_adoption_targets_parses_batch_formats(title, expected):
     assert extract_adoption_targets(title, adoption_meeting_date=_ADOPTED_ON) == expected
@@ -364,3 +394,41 @@ def test_sweep_adoptions_prefers_the_row_with_minutes_when_a_date_has_duplicates
 
     assert s["ids"]["2098-02-17"] in flipped
     assert empty_dup_id not in flipped
+
+
+def test_sweep_adoptions_range_skips_hidden_meetings(batch_adoption_scenario, monkeypatch):
+    """Rows an admin hid as not-real meetings are not swept up by a date range."""
+    monkeypatch.setattr("docket.analysis.vote_matcher.strict_reparse_meeting", lambda mid: {})
+    s = batch_adoption_scenario
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE meetings SET is_hidden = TRUE WHERE id = %s", (s["ids"]["2098-02-17"],))
+        conn.commit()
+    s["add_adoption_item"]("APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: February 3 – 24, 2098")
+
+    flipped = sweep_adoptions(s["municipality_id"])
+
+    assert s["ids"]["2098-02-03"] in flipped
+    assert s["ids"]["2098-02-17"] not in flipped
+
+
+def test_sweep_adoptions_rerun_does_not_warn_about_its_own_adoptions(
+    batch_adoption_scenario, monkeypatch, caplog
+):
+    """The sweep re-reads every approval item daily. Finding the adoption it
+    recorded yesterday is normal; only a conflicting adoption date is worth a warning."""
+    monkeypatch.setattr("docket.analysis.vote_matcher.strict_reparse_meeting", lambda mid: {})
+    s = batch_adoption_scenario
+    s["add_adoption_item"]("APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: February 3, 17 & 24, 2098")
+    sweep_adoptions(s["municipality_id"])
+
+    fixture_ids = {str(i) for i in s["ids"].values()}
+    with caplog.at_level("WARNING", logger="docket.services.minutes_adoption"):
+        sweep_adoptions(s["municipality_id"])
+
+    ours = [
+        r for r in caplog.records
+        if "adoption_already_recorded" in r.getMessage()
+        and any(f"target_meeting_id={i} " in r.getMessage() for i in fixture_ids)
+    ]
+    assert ours == []

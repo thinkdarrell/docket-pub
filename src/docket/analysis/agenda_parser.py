@@ -20,6 +20,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from docket.analysis.minutes_approval import MONTH_PATTERN, is_adoption_title
+
 
 # Item marker. Capture group 1 = item number; matches three variants:
 #   ITEM N.           (substantive)
@@ -52,24 +54,12 @@ _TITLE_CUTOFF_RE = re.compile(
     re.IGNORECASE,
 )
 
-# The un-numbered preamble line by which the council adopts earlier minutes:
-#   APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: February 3 – 24, 2026
-# "OF" is optional because the clerk has dropped it at least once.
-_MINUTES_APPROVAL_RE = re.compile(
-    r"^[ \t]*(APPROVAL\s+(?:OF\s+)?(?:THE\s+)?MINUTES\b[^\n]*)$",
-    re.IGNORECASE | re.MULTILINE,
-)
-
-# A wrapped continuation of the approval line holds nothing but more dates:
-# day numbers, separators, "and", and month names.
+# A wrapped continuation of the minutes-approval line holds nothing but more
+# dates: day numbers, separators, "and", and month names.
 _DATE_CONTINUATION_RE = re.compile(
-    r"^(?:\d|[\s,&.\-–—]|\band\b"
-    r"|\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?"
-    r"|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b)+$",
+    rf"^(?:\d|[\s,&.\-–—]|\band\b|\b(?:{MONTH_PATTERN})\b)+$",
     re.IGNORECASE,
 )
-
-_YEAR_RE = re.compile(r"\b(?:19|20)\d{2}\b")
 
 
 @dataclass
@@ -124,11 +114,13 @@ def parse_agenda(text: str) -> list[ParsedAgendaItem]:
 
 
 def parse_minutes_approval(text: str) -> str | None:
-    """Return the "APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: ..." preamble line.
+    """Return the un-numbered preamble line by which the council adopts earlier
+    minutes, e.g. "APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: February 3 – 24, 2026".
 
     Only the preamble (before the first item marker) is searched, so approval
-    wording inside an item body is never mistaken for it. None if absent —
-    most weeks the agenda carries only "MINUTES NOT READY".
+    wording inside an item body is never mistaken for it. A long date list
+    that wraps is rejoined. None if absent — most weeks the agenda carries
+    only "MINUTES NOT READY".
     """
     if not text:
         return None
@@ -136,18 +128,19 @@ def parse_minutes_approval(text: str) -> str | None:
     first_item = _ITEM_MARKER_RE.search(text)
     preamble = text[: first_item.start()] if first_item else text
 
-    match = _MINUTES_APPROVAL_RE.search(preamble)
-    if not match:
-        return None
-
-    line = match.group(1)
-    if not _YEAR_RE.search(line):
-        # Long date lists wrap; pull in the next line only if it is purely dates.
-        next_line = preamble[match.end():].lstrip("\n").split("\n", 1)[0]
-        if next_line.strip() and _DATE_CONTINUATION_RE.match(next_line.strip()):
-            line = f"{line} {next_line}"
-
-    return re.sub(r"\s+", " ", line).strip()
+    lines = preamble.split("\n")
+    for i, line in enumerate(lines):
+        if not is_adoption_title(line):
+            continue
+        parts = [line]
+        for following in lines[i + 1:]:
+            if not following.strip():
+                continue
+            if not _DATE_CONTINUATION_RE.match(following.strip()):
+                break
+            parts.append(following)
+        return re.sub(r"\s+", " ", " ".join(parts)).strip()
+    return None
 
 
 def _clean_body(raw: str) -> str:

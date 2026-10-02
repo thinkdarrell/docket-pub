@@ -204,7 +204,9 @@ class GranicusAdapter:
         # The minutes-approval line has no ITEM marker but the adoption sweep
         # (services/minutes_adoption.py) keys off it, so carry it as an
         # un-numbered item. NULL item_number sorts it after the numbered items.
-        approval = parse_minutes_approval(text)
+        # Never on its own: a PDF with no item markers must still read as an
+        # empty scrape so repair_empty_agendas retries it.
+        approval = parse_minutes_approval(text) if items else None
         if approval:
             items.append(
                 RawAgendaItem(

@@ -11,7 +11,10 @@ import psycopg2.extras
 import pytest
 
 from docket.db import db, db_cursor
-from docket.services.maintenance import backfill_minutes_approval_items
+from docket.services.maintenance import (
+    backfill_minutes_approval_items,
+    reparse_adopted_with_provisional_links,
+)
 
 AGENDA_WITH_APPROVAL = (
     "ROLL CALL\n"
@@ -123,3 +126,98 @@ def test_skips_meetings_before_since(scraped_meetings):
     )
     assert added == []
     assert "https://example.test/agenda/with" not in s["fetched"]
+
+
+def test_skips_meeting_that_already_has_an_approval_item_in_another_wording(scraped_meetings):
+    """Anything the sweep would read as an approval counts as already present."""
+    s = scraped_meetings
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO agenda_items (meeting_id, external_id, item_number, title, is_consent)
+                   VALUES (%s, 'x-4', '4', 'APPROVAL OF PREVIOUS MINUTES: February 3, 2097', FALSE)""",
+                (s["ids"]["with"],),
+            )
+        conn.commit()
+
+    assert _run(s) == []
+    assert "https://example.test/agenda/with" not in s["fetched"]
+
+
+@pytest.fixture
+def adopted_meetings():
+    """Three meetings with one consent-vote link each: adopted + still provisional,
+    adopted + already promoted, and not adopted + provisional."""
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM meetings WHERE title = 'TEST_REPARSE_PENDING'")
+        conn.commit()
+
+    ids = {}
+    with db() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT id FROM municipalities ORDER BY id LIMIT 1")
+            muni_id = cur.fetchone()["id"]
+            for key, d, adopted, provisional in [
+                ("pending", "2096-03-03", True, True),
+                ("done", "2096-03-10", True, False),
+                ("not_adopted", "2096-03-17", False, True),
+            ]:
+                cur.execute(
+                    """INSERT INTO meetings (municipality_id, title, meeting_date, meeting_type,
+                                             minutes_adopted_at)
+                       VALUES (%s, 'TEST_REPARSE_PENDING', %s, 'council', %s) RETURNING id""",
+                    (muni_id, d, "2096-06-01" if adopted else None),
+                )
+                ids[key] = cur.fetchone()["id"]
+                cur.execute(
+                    "INSERT INTO agenda_items (meeting_id, title, item_number, is_consent) "
+                    "VALUES (%s, 'A Resolution doing a thing.', '1', TRUE) RETURNING id",
+                    (ids[key],),
+                )
+                item_id = cur.fetchone()["id"]
+                cur.execute(
+                    """INSERT INTO votes (meeting_id, source, result, yeas, nays, abstentions,
+                                           confidence, needs_review)
+                       VALUES (%s, 'minutes_text', 'passed', 9, 0, 0, 'high', FALSE) RETURNING id""",
+                    (ids[key],),
+                )
+                cur.execute(
+                    """INSERT INTO vote_agenda_items
+                        (vote_id, agenda_item_id, association_type, match_method,
+                         match_confidence, provisional)
+                       VALUES (%s, %s, 'consent_implicit', 'consent_block_default', 0.8, %s)""",
+                    (cur.fetchone()["id"], item_id, provisional),
+                )
+        conn.commit()
+
+    yield {"municipality_id": muni_id, "ids": ids}
+
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM meetings WHERE id = ANY(%s)", (list(ids.values()),))
+        conn.commit()
+
+
+def test_reparse_pending_targets_only_adopted_meetings_with_provisional_links(adopted_meetings):
+    """Lets an interrupted adoption sweep be finished: the sweep commits its flips
+    before re-parsing, so a crash leaves adopted meetings with provisional links."""
+    s = adopted_meetings
+    calls = []
+
+    done = reparse_adopted_with_provisional_links(
+        s["municipality_id"], reparse=lambda mid: calls.append(mid) or {"promoted": 1, "deactivated": 0}
+    )
+
+    ours = [m for m in calls if m in s["ids"].values()]
+    assert ours == [s["ids"]["pending"]]
+    assert s["ids"]["pending"] in done
+
+
+def test_reparse_pending_continues_past_a_failing_meeting(adopted_meetings):
+    s = adopted_meetings
+
+    def boom(mid):
+        raise RuntimeError("PDF exploded")
+
+    assert reparse_adopted_with_provisional_links(s["municipality_id"], reparse=boom) == []

@@ -182,6 +182,31 @@ class TestBackfillUpdatesTimestamps:
         adapter.fetch_agenda_items.assert_not_called()
 
 
+    def test_unnumbered_item_does_not_force_a_refetch(self, seeded):
+        """The minutes-approval line has no item number, so it can never be
+        matched to a MediaPlayer index point. It must not keep the precheck
+        from short-circuiting, or every ingest run re-fetches the page."""
+        adapter = MagicMock()
+        adapter.fetch_agenda_items.return_value = [
+            _media_item(item_num=1, timestamp=10.0, position=1),
+            _media_item(item_num=2, timestamp=50.0, position=2),
+            _media_item(item_num=3, timestamp=120.0, position=3),
+        ]
+        assert _backfill_video_timestamps(adapter, seeded["meeting_id"], _meeting()) == 3
+        with db() as conn, conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO agenda_items (meeting_id, external_id, item_number, title, is_consent)
+                   VALUES (%s, '1981-minutes-approval', NULL,
+                           'APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: February 3 – 24, 2026', FALSE)""",
+                (seeded["meeting_id"],),
+            )
+            conn.commit()
+        adapter.fetch_agenda_items.reset_mock()
+
+        assert _backfill_video_timestamps(adapter, seeded["meeting_id"], _meeting()) == 0
+        adapter.fetch_agenda_items.assert_not_called()
+
+
 class TestBackfillEdgeCases:
     def test_no_media_items_returns_zero(self, seeded):
         """If the MediaPlayer fetch returns no items (e.g., page didn't load

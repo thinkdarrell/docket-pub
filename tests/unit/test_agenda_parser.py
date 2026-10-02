@@ -205,6 +205,41 @@ class TestParseMinutesApproval:
             "APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: June 2, 9, 16, 23 & 30, 2026"
         )
 
+    def test_matches_previous_minutes_wording(self):
+        """Real 2025-07-08 agenda wording."""
+        text = (
+            "ROLL CALL\n"
+            "APPROVAL OF PREVIOUS MINUTES: March 4, 11, 18 and 25, 2025\n"
+            "ITEM 1.\nA Resolution doing a thing.\n"
+        )
+        assert parse_minutes_approval(text) == (
+            "APPROVAL OF PREVIOUS MINUTES: March 4, 11, 18 and 25, 2025"
+        )
+
+    def test_joins_continuation_when_first_line_already_has_a_year(self):
+        text = (
+            "APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: Dec. 2, 9, 16, 23 & 30, 2025, January 6, 13,\n"
+            "20 & 27, 2026\n"
+            "MINUTES NOT READY: February 3, 2026 – April 28, 2026\n"
+            "ITEM 1.\nA Resolution doing a thing.\n"
+        )
+        assert parse_minutes_approval(text) == (
+            "APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: Dec. 2, 9, 16, 23 & 30, 2025, "
+            "January 6, 13, 20 & 27, 2026"
+        )
+
+    def test_joins_continuation_across_a_whitespace_only_line(self):
+        text = (
+            "APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: June 2, 9, 16,\n"
+            " \n"
+            "23 & 30, 2026\n"
+            "MINUTES NOT READY: July 7, 2026 – August 25, 2026\n"
+            "ITEM 1.\nA Resolution doing a thing.\n"
+        )
+        assert parse_minutes_approval(text) == (
+            "APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: June 2, 9, 16, 23 & 30, 2026"
+        )
+
     def test_does_not_absorb_the_minutes_not_ready_line(self):
         """A yearless approval line must not borrow the year from the next header."""
         text = (

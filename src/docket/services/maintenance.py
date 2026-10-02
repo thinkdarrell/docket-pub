@@ -73,26 +73,28 @@ def backfill_minutes_approval_items(
         that would be inserted).
     """
     from docket.analysis.agenda_parser import parse_minutes_approval
+    from docket.analysis.minutes_approval import is_adoption_title
 
     with db() as conn, conn.cursor() as cur:
         cur.execute(
             """
-            SELECT m.id, m.external_id, m.agenda_url
+            SELECT m.id, m.external_id, m.agenda_url,
+                   ARRAY(SELECT ai.title FROM agenda_items ai
+                          WHERE ai.meeting_id = m.id AND ai.title ILIKE '%%minutes%%') AS minutes_titles
               FROM meetings m
              WHERE m.municipality_id = %s
                AND m.meeting_date >= %s
                AND m.agenda_url IS NOT NULL
                AND EXISTS (SELECT 1 FROM agenda_items ai WHERE ai.meeting_id = m.id)
-               AND NOT EXISTS (
-                   SELECT 1 FROM agenda_items ai
-                    WHERE ai.meeting_id = m.id
-                      AND ai.title ~* '^\\s*approval\\s+(of\\s+)?(the\\s+)?minutes'
-               )
              ORDER BY m.meeting_date
             """,
             (municipality_id, since),
         )
-        meetings = cur.fetchall()
+        meetings = [
+            (meeting_id, external_id, agenda_url)
+            for meeting_id, external_id, agenda_url, minutes_titles in cur.fetchall()
+            if not any(is_adoption_title(t) for t in minutes_titles)
+        ]
 
     added: list[tuple[int, str]] = []
     for meeting_id, external_id, agenda_url in meetings:
@@ -118,3 +120,53 @@ def backfill_minutes_approval_items(
         len(meetings), len(added), dry_run,
     )
     return added
+
+
+def reparse_adopted_with_provisional_links(
+    municipality_id: int,
+    *,
+    limit: int | None = None,
+    reparse: Callable[[int], dict] | None = None,
+) -> list[int]:
+    """Finish promoting links on meetings whose minutes are adopted.
+
+    minutes_adoption.sweep_adoptions commits its flips before re-parsing, so
+    an interrupted sweep leaves adopted meetings with provisional links and
+    nothing retries them. Re-parses each such meeting; one failure doesn't
+    stop the rest. Idempotent.
+
+    Returns:
+        ids of the meetings re-parsed without error.
+    """
+    if reparse is None:
+        from docket.analysis.vote_matcher import strict_reparse_meeting as reparse
+
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT DISTINCT m.id
+              FROM meetings m
+              JOIN votes v ON v.meeting_id = m.id
+              JOIN vote_agenda_items vai ON vai.vote_id = v.id
+             WHERE m.municipality_id = %s
+               AND m.minutes_adopted_at IS NOT NULL
+               AND vai.provisional = TRUE
+               AND vai.is_active = TRUE
+               AND vai.is_manual = FALSE
+             ORDER BY m.id
+             LIMIT %s
+            """,
+            (municipality_id, limit),
+        )
+        meeting_ids = [r[0] for r in cur.fetchall()]
+
+    done: list[int] = []
+    for meeting_id in meeting_ids:
+        try:
+            result = reparse(meeting_id)
+        except Exception as e:
+            log.warning("reparse_pending failed for meeting %s: %s", meeting_id, e)
+            continue
+        log.info("reparse_pending meeting=%s result=%s", meeting_id, result)
+        done.append(meeting_id)
+    return done

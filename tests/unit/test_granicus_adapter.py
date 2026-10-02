@@ -286,6 +286,24 @@ class TestFetchAgendaItemsEventPath:
         assert approval.is_consent is False
         assert approval.meeting_external_id == "event-2692"
 
+    def test_approval_line_alone_does_not_count_as_a_scraped_agenda(self):
+        """If the PDF yields no ITEM markers, return nothing so the meeting is
+        retried by repair_empty_agendas instead of looking scraped with one item."""
+        adapter = _adapter()
+        with patch(
+            "docket.adapters.granicus.requests.get",
+            return_value=_mock_pdf_response(b"%PDF-1.7 stub"),
+        ), patch(
+            "docket.adapters.granicus.extract_text_from_pdf",
+            return_value=(
+                "ROLL CALL\n"
+                "APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: February 3 – 24, 2026\n"
+            ),
+        ):
+            items = adapter.fetch_agenda_items(_upcoming_meeting())
+
+        assert items == []
+
     def test_items_have_no_video_timestamps(self):
         """Pre-recording — there's no MediaPlayer index points yet."""
         adapter = _adapter()

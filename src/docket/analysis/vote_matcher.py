@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import math
 import re
+import time
 from bisect import bisect_right
 
 import psycopg2.extras
@@ -575,7 +576,7 @@ def strict_reparse_meeting(meeting_id: int, *, minutes_text: str | None = None) 
     """Promote provisional consent links to official; deactivate pulled-from-consent links.
 
     A consent link is deactivated only when its item is absent from the minutes'
-    enumerated list AND has its own explicit vote in the meeting.
+    enumerated list AND the minutes record its own explicit vote in the meeting.
 
     minutes_text: pass-through for tests. In production, callers fetch the PDF and pass the text.
     Respects is_manual=TRUE on every UPDATE.
@@ -591,33 +592,28 @@ def strict_reparse_meeting(meeting_id: int, *, minutes_text: str | None = None) 
             logger.warning("strict_reparse: no minutes_url for meeting %s", meeting_id)
             return {"promoted": 0, "deactivated": 0}
         pdf = download_minutes_pdf(row["minutes_url"])
+        time.sleep(1.0)  # polite delay — adoption sweeps re-parse many meetings in a row
         if not pdf:
             return {"promoted": 0, "deactivated": 0}
         minutes_text = extract_text_from_pdf(pdf)
 
     enumerated = _parse_enumerated_consent_list(minutes_text)
-    if not enumerated:
-        logger.warning("strict_reparse: no enumerated list found for meeting %s", meeting_id)
-        return {"promoted": 0, "deactivated": 0}
 
     promoted = 0
     deactivated = 0
     with db() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            # May be empty (no enumerated list, or nothing in it resolved — resolution
+            # numbers absent from agenda titles, too little keyword overlap). That is
+            # safe: with nothing resolved, no link gets the enumerated-match upgrade,
+            # and deactivation below still requires a separate recorded vote.
             target_item_ids = _resolve_enumerated_to_agenda_items(cur, meeting_id, enumerated)
-
-            # Critical safety check: if the enumerated list resolved to NO agenda items
-            # (e.g., resolution numbers don't appear in any agenda title and the
-            # description-keyword fallback couldn't find ≥3-word overlaps), short-circuit.
-            # Otherwise the deactivate UPDATE's NOT (... = ANY(empty_array)) would evaluate
-            # TRUE for every active consent link, silently deactivating all of them.
             if not target_item_ids:
-                logger.warning(
-                    "strict_reparse: parsed %d enumerated entries but none resolved to "
-                    "agenda_items for meeting %s — aborting reconciliation to avoid mass deactivation",
+                logger.info(
+                    "strict_reparse: %d enumerated entries, none resolved to agenda items "
+                    "for meeting %s — promoting links without enumerated confirmation",
                     len(enumerated), meeting_id,
                 )
-                return {"promoted": 0, "deactivated": 0}
 
             # Promote: items in enumerated set that are linked -> flip provisional
             cur.execute(
@@ -637,10 +633,12 @@ def strict_reparse_meeting(meeting_id: int, *, minutes_text: str | None = None) 
             )
             promoted = cur.rowcount
 
-            # Deactivate: linked items NOT in the enumerated set that were also voted
-            # on separately (pulled from consent). The resolver misses many items that
-            # did pass in the block — agenda titles rarely share words with the
-            # resolution text — so an unmatched item alone is not evidence of a pull.
+            # Deactivate: linked items NOT in the enumerated set that the minutes also
+            # record a separate vote on (pulled from consent). The resolver misses many
+            # items that did pass in the block — agenda titles rarely share words with
+            # the resolution text — so an unmatched item alone is not evidence of a
+            # pull. Video-OCR links don't count: OCR ties the consent roll call itself
+            # to whichever consent item precedes it on screen.
             cur.execute(
                 """UPDATE vote_agenda_items
                    SET is_active = FALSE, updated_at = NOW()
@@ -657,6 +655,7 @@ def strict_reparse_meeting(meeting_id: int, *, minutes_text: str | None = None) 
                        WHERE sep.agenda_item_id = vote_agenda_items.agenda_item_id
                          AND sep.vote_id <> vote_agenda_items.vote_id
                          AND sv.meeting_id = v.meeting_id
+                         AND sv.source = 'minutes_text'
                          AND sep.association_type = 'explicit'
                          AND sep.is_active = TRUE
                      )""",
@@ -723,6 +722,21 @@ def strict_reparse_meeting(meeting_id: int, *, minutes_text: str | None = None) 
     return {"promoted": promoted, "deactivated": deactivated}
 
 
+def _has_provisional_links(meeting_id: int) -> bool:
+    """True if the meeting has any active, non-manual link still marked provisional."""
+    with db_cursor() as cur:
+        cur.execute(
+            """SELECT EXISTS (
+                 SELECT 1 FROM vote_agenda_items vai
+                 JOIN votes v ON v.id = vai.vote_id
+                 WHERE v.meeting_id = %s AND vai.provisional = TRUE
+                   AND vai.is_active = TRUE AND vai.is_manual = FALSE
+               ) AS pending""",
+            (meeting_id,),
+        )
+        return cur.fetchone()["pending"]
+
+
 def match_votes_for_meeting(meeting_id: int) -> dict:
     """Run all matching strategies for a meeting."""
     ts_matched = match_votes_by_timestamp(meeting_id)
@@ -743,8 +757,10 @@ def match_votes_for_meeting(meeting_id: int) -> dict:
         conn.commit()
 
     reparse_result = {"promoted": 0, "deactivated": 0}
-    if row and row[0] is not None:
-        # Adoption already recorded — promote provisional links immediately
+    if row and row[0] is not None and _has_provisional_links(meeting_id):
+        # Adoption already recorded — promote provisional links immediately.
+        # Skipped when nothing is provisional: the cron revisits every meeting
+        # with an unlinked vote daily, and a re-parse re-downloads the minutes PDF.
         try:
             reparse_result = strict_reparse_meeting(meeting_id)
         except Exception as e:

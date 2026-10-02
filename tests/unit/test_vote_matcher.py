@@ -521,7 +521,7 @@ def test_strict_reparse_promotes_provisional_to_official(consent_block_meeting):
     assert all(r["is_active"] for r in rows)
 
 
-def _add_separate_vote_for(meeting_id: int, agenda_item_id: int) -> int:
+def _add_separate_vote_for(meeting_id: int, agenda_item_id: int, source: str = "minutes_text") -> int:
     """Give an item its own substantive vote + explicit link — what the minutes
     produce when an item is pulled off the consent agenda and voted on alone."""
     with db() as conn:
@@ -529,10 +529,10 @@ def _add_separate_vote_for(meeting_id: int, agenda_item_id: int) -> int:
             cur.execute(
                 """INSERT INTO votes (meeting_id, source, result, yeas, nays, abstentions,
                                        confidence, needs_review, raw_text)
-                   VALUES (%s, 'minutes_text', 'passed', 4, 1, 0, 'high', FALSE,
+                   VALUES (%s, %s, 'passed', 4, 1, 0, 'high', FALSE,
                            'The following resolution was introduced by Councilmember Williams')
                    RETURNING id""",
-                (meeting_id,),
+                (meeting_id, source),
             )
             vote_id = cur.fetchone()[0]
             cur.execute(
@@ -614,6 +614,32 @@ def test_strict_reparse_keeps_unresolved_item_without_separate_vote(consent_bloc
     assert result["deactivated"] == 0
 
 
+def test_strict_reparse_ignores_video_ocr_vote_as_pull_evidence(consent_block_meeting):
+    """Video OCR links a captured roll call to the nearest agenda item, so the
+    consent roll call itself often lands on a consent item as an 'explicit' link.
+    Only a separate vote recorded in the minutes shows an item was pulled."""
+    from docket.analysis.vote_matcher import match_votes_for_meeting, strict_reparse_meeting
+
+    match_votes_for_meeting(consent_block_meeting["meeting_id"])
+    east_side_id = consent_block_meeting["agenda_item_ids"][2]
+    _add_separate_vote_for(consent_block_meeting["meeting_id"], east_side_id, source="video_ocr")
+
+    enumerated_text = """
+    RESOLUTION 1854-25 A Resolution authorizing HCL Contracting paving services 9th Avenue
+    RESOLUTION 1855-25 A Resolution authorizing OLB Enterprises liquor license
+    """
+    strict_reparse_meeting(consent_block_meeting["meeting_id"], minutes_text=enumerated_text)
+
+    from docket.db import db_cursor
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT is_active FROM vote_agenda_items WHERE vote_id = %s AND agenda_item_id = %s",
+            (consent_block_meeting["vote_id"], east_side_id),
+        )
+        row = cur.fetchone()
+    assert row["is_active"] is True
+
+
 def test_strict_reparse_respects_is_manual(consent_block_meeting):
     """is_manual=True links must NOT be deactivated even if pulled from consent."""
     from docket.analysis.vote_matcher import match_votes_for_meeting, strict_reparse_meeting
@@ -645,25 +671,15 @@ def test_strict_reparse_respects_is_manual(consent_block_meeting):
     assert row["is_active"] is True  # protected by manual shield
 
 
-def test_strict_reparse_short_circuits_on_empty_target_set(consent_block_meeting):
+def test_strict_reparse_with_no_resolved_items_promotes_without_deactivating(consent_block_meeting):
     """If the enumerated text has resolutions but none resolve to is_consent agenda items
     (resolution numbers absent from titles, descriptions too short for keyword fallback),
-    the deactivate UPDATE's NOT (... = ANY(empty_array)) would erase every active link.
-    The function must short-circuit instead and leave links intact."""
+    nothing may be deactivated — an unmatched item is not evidence of a pull. The minutes
+    are adopted all the same, so the links stop being provisional but keep their original
+    method and confidence."""
     from docket.analysis.vote_matcher import match_votes_for_meeting, strict_reparse_meeting
 
     match_votes_for_meeting(consent_block_meeting["meeting_id"])
-
-    # Snapshot pre-state: 3 active provisional consent links
-    from docket.db import db_cursor
-    with db_cursor() as cur:
-        cur.execute(
-            "SELECT COUNT(*) AS c FROM vote_agenda_items "
-            "WHERE vote_id = %s AND is_active = TRUE",
-            (consent_block_meeting["vote_id"],),
-        )
-        before_active = cur.fetchone()["c"]
-    assert before_active == 3
 
     # Enumerated parses 1 resolution, but the number doesn't appear in any agenda title
     # and "X" is too short for the keyword fallback's ≥3-word threshold.
@@ -672,16 +688,61 @@ def test_strict_reparse_short_circuits_on_empty_target_set(consent_block_meeting
     result = strict_reparse_meeting(
         consent_block_meeting["meeting_id"], minutes_text=enumerated_text
     )
-    assert result == {"promoted": 0, "deactivated": 0}
+    assert result == {"promoted": 3, "deactivated": 0}
 
+    from docket.db import db_cursor
     with db_cursor() as cur:
         cur.execute(
-            "SELECT COUNT(*) AS c FROM vote_agenda_items "
-            "WHERE vote_id = %s AND is_active = TRUE",
+            "SELECT is_active, provisional, match_method FROM vote_agenda_items WHERE vote_id = %s",
             (consent_block_meeting["vote_id"],),
         )
-        after_active = cur.fetchone()["c"]
-    assert after_active == 3, "Empty target set must NOT mass-deactivate active links"
+        rows = cur.fetchall()
+    assert len(rows) == 3
+    assert all(r["is_active"] for r in rows), "Empty target set must NOT mass-deactivate active links"
+    assert all(not r["provisional"] for r in rows)
+    assert all(r["match_method"] != "consent_enumerated" for r in rows)
+
+
+def _mark_adopted(meeting_id: int) -> None:
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE meetings SET minutes_adopted_at = NOW() WHERE id = %s", (meeting_id,))
+        conn.commit()
+
+
+def test_match_votes_reparses_adopted_meeting_with_provisional_links(consent_block_meeting, monkeypatch):
+    """Dual-trigger contract: matching an already-adopted meeting promotes its links."""
+    from docket.analysis import vote_matcher as vm
+
+    mid = consent_block_meeting["meeting_id"]
+    vm.match_votes_for_meeting(mid)  # creates provisional consent links
+    _mark_adopted(mid)
+    calls = []
+    monkeypatch.setattr(vm, "strict_reparse_meeting", lambda m: calls.append(m) or {"promoted": 0, "deactivated": 0})
+
+    vm.match_votes_for_meeting(mid)
+
+    assert calls == [mid]
+
+
+def test_match_votes_skips_reparse_when_adopted_meeting_has_nothing_provisional(
+    consent_block_meeting, monkeypatch
+):
+    """The matching cron revisits every meeting that has any unlinked vote, daily.
+    Once an adopted meeting's links are promoted there is nothing left for a
+    re-parse to do, so it must not re-download and re-parse the minutes PDF."""
+    from docket.analysis import vote_matcher as vm
+
+    mid = consent_block_meeting["meeting_id"]
+    vm.match_votes_for_meeting(mid)
+    _mark_adopted(mid)
+    vm.strict_reparse_meeting(mid, minutes_text="RESOLUTION 9999-99 X")  # promotes all three
+    calls = []
+    monkeypatch.setattr(vm, "strict_reparse_meeting", lambda m: calls.append(m) or {"promoted": 0, "deactivated": 0})
+
+    vm.match_votes_for_meeting(mid)
+
+    assert calls == []
 
 
 def test_strict_reparse_inserts_missing_enumerated_link(consent_block_meeting):
