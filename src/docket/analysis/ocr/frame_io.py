@@ -33,12 +33,39 @@ class IncompleteVideoScanError(RuntimeError):
     """Raised when a full-video scan covers far less than the probed duration."""
 
 
+class VideoProbeError(RuntimeError):
+    """Raised when ffprobe cannot read the video (the error carries ffprobe's stderr)."""
+
+
+# Granicus serves archive video through CloudFront, which answers 403 to
+# non-browser user agents (ffmpeg's "Lavf/…", "Python-urllib/…"). Observed
+# 2026-10-02: every OCR scan since mid-June failed at the duration probe.
+BROWSER_USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"
+)
+
+
+def _is_http(video_url: str) -> bool:
+    return video_url.lower().startswith(("http://", "https://"))
+
+
+def _ua_args(video_url: str) -> list[str]:
+    """ffmpeg/ffprobe input options that identify as a browser for HTTP sources."""
+    return ["-user_agent", BROWSER_USER_AGENT] if _is_http(video_url) else []
+
+
 def probe_duration(video_url: str, timeout: int = 60) -> float:
-    """Return the duration of a video (URL or local path) in seconds."""
+    """Return the duration of a video (URL or local path) in seconds.
+
+    Raises VideoProbeError, with ffprobe's own message, when the source
+    can't be read (HTTP 403/404, truncated file, ...).
+    """
     cmd = [
         "ffprobe",
         "-v",
         "error",
+        *_ua_args(video_url),
         "-show_entries",
         "format=duration",
         "-of",
@@ -46,7 +73,12 @@ def probe_duration(video_url: str, timeout: int = 60) -> float:
         video_url,
     ]
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-    return float(proc.stdout.strip())
+    out = proc.stdout.strip()
+    if proc.returncode != 0 or not out:
+        raise VideoProbeError(
+            f"ffprobe could not read {video_url}: {proc.stderr.strip() or 'no output'}"
+        )
+    return float(out)
 
 
 def extract_frames_to_dir(
@@ -64,7 +96,7 @@ def extract_frames_to_dir(
     ``fps_expression`` is whatever you'd pass to ffmpeg's ``-vf fps=...`` —
     e.g. ``"2"`` for 2 fps or ``"1/5"`` for one frame every 5 seconds.
     """
-    cmd: list[str] = ["ffmpeg"]
+    cmd: list[str] = ["ffmpeg", *_ua_args(video_url)]
     if start is not None:
         cmd += ["-ss", str(start)]
     cmd += ["-i", video_url]
@@ -175,8 +207,9 @@ def download_video_to_tempfile(video_url: str, timeout: int = 600) -> Iterator[P
     os.close(fd)
     local = Path(tmppath)
     try:
+        request = urllib.request.Request(video_url, headers={"User-Agent": BROWSER_USER_AGENT})
         with (
-            urllib.request.urlopen(video_url, timeout=timeout) as resp,
+            urllib.request.urlopen(request, timeout=timeout) as resp,
             open(local, "wb") as out,
         ):
             shutil.copyfileobj(resp, out)
