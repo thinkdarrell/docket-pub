@@ -253,6 +253,11 @@ def test_run_once_meetings_adopted_empty_meeting_leaves_queue(monkeypatch):
                 RETURNING id
             """, (muni,))
             m = cur.fetchone()[0]
+            cur.execute("""
+                INSERT INTO agenda_items (meeting_id, title, is_consent, processing_status)
+                VALUES (%s, 'Adjournment', FALSE, 'procedural_skipped') RETURNING id
+            """, (m,))
+            item = cur.fetchone()[0]
         conn.commit()
     captured = []
     monkeypatch.setattr("docket.ai.worker._make_client", lambda: _meeting_client(captured))
@@ -269,6 +274,41 @@ def test_run_once_meetings_adopted_empty_meeting_leaves_queue(monkeypatch):
     finally:
         with db() as conn:
             with conn.cursor() as cur:
+                cur.execute("DELETE FROM agenda_items WHERE id = %s", (item,))
                 cur.execute("DELETE FROM meetings WHERE id = %s", (m,))
                 cur.execute("DELETE FROM ai_runs WHERE notes LIKE 'test_run_v3%%'")
             conn.commit()
+
+
+@pytest.mark.parametrize("why, expected", [
+    (None, "Bare headline only"),
+    ("", "Bare headline only"),
+    ("And a reason.", "Bare headline only — And a reason."),
+])
+def test_meeting_item_rows_sql_headline_variants(why, expected):
+    """A v3 item with no why_it_matters yields the bare headline; a v3 item that
+    was judged non-substantive (headline NULL) is excluded."""
+    from docket.ai.worker import MEETING_ITEM_ROWS_SQL
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO municipalities (slug, name, state, adapter_class, active)
+                VALUES ('test_run_v3', 'Test', 'AL', 'granicus', TRUE)
+                ON CONFLICT (slug) DO UPDATE SET active = TRUE RETURNING id
+            """)
+            muni = cur.fetchone()[0]
+            cur.execute("""
+                INSERT INTO meetings (municipality_id, meeting_type, meeting_date, source_url, title)
+                VALUES (%s, 'council', DATE '2099-06-03', 'x', 'test rows sql') RETURNING id
+            """, (muni,))
+            m = cur.fetchone()[0]
+            cur.execute("""
+                INSERT INTO agenda_items (meeting_id, title, is_consent, processing_status,
+                                          headline, why_it_matters, significance_score)
+                VALUES (%s, 'x', FALSE, 'completed', 'Bare headline only', %s, 5.0),
+                       (%s, 'Non-substantive', FALSE, 'completed', NULL, NULL, NULL)
+            """, (m, why, m))
+            cur.execute(MEETING_ITEM_ROWS_SQL, (m,))
+            rows = cur.fetchall()
+        conn.rollback()
+    assert [r[0] for r in rows] == [expected]

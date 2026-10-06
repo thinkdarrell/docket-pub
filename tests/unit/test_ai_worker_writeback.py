@@ -231,7 +231,7 @@ def test_mark_meeting_failed_keeps_summary_null(seed_meeting):
     """Permanent failure: prompt_version bumped (so not re-claimed forever),
     executive_summary stays NULL, confidence=low, error preserved."""
     with db() as conn:
-        mark_meeting_failed(conn, seed_meeting, "tool_use validation rejected")
+        mark_meeting_failed(conn, seed_meeting, "tool_use validation rejected", phase="provisional")
         conn.commit()
         with conn.cursor() as cur:
             cur.execute("""
@@ -244,3 +244,16 @@ def test_mark_meeting_failed_keeps_summary_null(seed_meeting):
     assert "error" in row[1]
     assert row[1]["model"] is None
     assert row[2] == MEETING_PROMPT_VERSION
+
+
+def test_mark_meeting_failed_records_adopted_phase(seed_meeting):
+    """A permanently failed adopted meeting must leave the adopted pass too,
+    or every daily tick pays for the same failing Sonnet call."""
+    with db() as conn:
+        mark_meeting_failed(conn, seed_meeting, "boom", phase="adopted")
+        conn.commit()
+        with conn.cursor() as cur:
+            cur.execute("SELECT ai_metadata FROM meetings WHERE id = %s", (seed_meeting,))
+            metadata = cur.fetchone()[0]
+    assert metadata["phase"] == "adopted"
+    assert metadata["error"] == "boom"

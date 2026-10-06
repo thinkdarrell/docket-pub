@@ -125,19 +125,22 @@ def meetings_pending_v3_where() -> str:
     Args: (current_meeting_version,). Expects the meetings table aliased ``m``."""
     return f"""
         m.is_hidden = FALSE
+        -- Agenda ingested and no item still moving through the v3 pipeline.
+        -- Both passes write a terminal marker (ai_prompt_version, or
+        -- phase='adopted'), so a row with no items yet (future placeholder,
+        -- agenda not scraped, weekly repair_empty_agendas still to run) or
+        -- with items mid-pipeline must wait rather than be summarized from
+        -- nothing and never revisited.
+        AND EXISTS (SELECT 1 FROM agenda_items ai WHERE ai.meeting_id = m.id)
+        AND NOT EXISTS (
+          SELECT 1 FROM agenda_items ai
+          WHERE ai.meeting_id = m.id
+            AND ai.processing_status IN {_V3_INFLIGHT_STATUSES}
+        )
         AND (
-            -- (a) provisional pass: agenda ingested, no item still moving
-            -- through the v3 pipeline. A row with no items yet (future
-            -- placeholder, agenda not scraped) waits: marking it empty
-            -- would pin ai_prompt_version and strand it once the agenda lands.
+            -- (a) provisional pass
             ((m.ai_prompt_version IS NULL OR m.ai_prompt_version < %s)
-             AND m.minutes_adopted_at IS NULL
-             AND EXISTS (SELECT 1 FROM agenda_items ai WHERE ai.meeting_id = m.id)
-             AND NOT EXISTS (
-               SELECT 1 FROM agenda_items ai
-               WHERE ai.meeting_id = m.id
-                 AND ai.processing_status IN {_V3_INFLIGHT_STATUSES}
-             ))
+             AND m.minutes_adopted_at IS NULL)
             OR
             -- (b) adopted pass
             (m.minutes_adopted_at IS NOT NULL
@@ -174,7 +177,7 @@ def claim_meetings_v3_sql() -> str:
 # MeetingContext.from_meeting_items sees the same shape as a v2 summary.
 MEETING_ITEM_ROWS_SQL = """
     SELECT CASE WHEN headline IS NOT NULL
-                THEN headline || COALESCE(' — ' || why_it_matters, '')
+                THEN headline || COALESCE(' — ' || NULLIF(why_it_matters, ''), '')
                 ELSE summary END AS summary,
            significance_score, topic, title
       FROM agenda_items
@@ -261,11 +264,16 @@ def write_meeting_result(conn, meeting_id: int, result: MeetingAIResult, *, mode
         """, (result.executive_summary, voice, Json(metadata), MEETING_PROMPT_VERSION, meeting_id))
 
 
-def mark_meeting_failed(conn, meeting_id: int, reason: str) -> None:
+def mark_meeting_failed(conn, meeting_id: int, reason: str, *, phase: str) -> None:
     """Permanently mark a meeting as completed_failed: executive_summary stays NULL,
-    ai_prompt_version bumped so the row is not re-claimed indefinitely."""
+    ai_prompt_version bumped so the row is not re-claimed indefinitely.
+
+    ``phase`` is the meeting's real phase: an adopted meeting recorded with
+    anything else stays in the adopted pass and pays for the same failing
+    Sonnet call every day.
+    """
     metadata = {
-        "phase": None,
+        "phase": phase,
         "is_substantive": None,
         "confidence": "low",
         "error": reason,
@@ -540,7 +548,7 @@ def _process_meetings(conn, client: AIClient, limit: int, summary: RunSummary) -
         except AIPermanentRowError as e:
             log.error("Permanent failure on meeting %s: %s", meeting_id, e)
             conn.rollback()
-            mark_meeting_failed(conn, meeting_id, reason=str(e)[:200])
+            mark_meeting_failed(conn, meeting_id, reason=str(e)[:200], phase=phase)
             summary.rows_failed += 1
             conn.commit()
         except AIFatalError:

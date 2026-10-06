@@ -199,13 +199,13 @@ def _process_meetings_batch(conn, client: AIClient, since: date,
                 for r in cur.fetchall()
             ]
 
+        phase = "adopted" if minutes_adopted_at else "provisional"
         if not item_rows:
-            mark_meeting_empty(conn, meeting_id)
+            mark_meeting_empty(conn, meeting_id, phase=phase)
             conn.commit()
             summary.rows_processed += 1
             continue
 
-        phase = "adopted" if minutes_adopted_at else "provisional"
         ctx = MeetingContext.from_meeting_items(
             meeting_id=meeting_id,
             meeting_type=meeting_type,
@@ -214,8 +214,9 @@ def _process_meetings_batch(conn, client: AIClient, since: date,
             rows=item_rows,
         )
         try:
-            result, usage = client.summarize_meeting(ctx)
-            write_meeting_result(conn, meeting_id, result, model=client.meeting_model)
+            result, usage, voice = client.summarize_meeting(ctx)
+            write_meeting_result(conn, meeting_id, result, model=client.meeting_model,
+                                 voice=voice)
             summary.usage = usage_add(summary.usage, usage)
             summary.cost_usd += calculate_cost_usd(client.meeting_model, usage)
             summary.rows_processed += 1
@@ -231,7 +232,7 @@ def _process_meetings_batch(conn, client: AIClient, since: date,
         except AIPermanentRowError as e:
             log.error("Permanent failure on meeting %s: %s", meeting_id, e)
             conn.rollback()
-            mark_meeting_failed(conn, meeting_id, reason=str(e)[:200])
+            mark_meeting_failed(conn, meeting_id, reason=str(e)[:200], phase=phase)
             summary.rows_failed += 1
             conn.commit()
         except AIFatalError:

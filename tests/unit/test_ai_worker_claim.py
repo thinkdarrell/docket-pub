@@ -186,9 +186,30 @@ def test_claim_meetings_v3_adopted_pass_reclaims_provisional(fresh_db):
         ai_prompt_version=MEETING_PROMPT_VERSION,
         ai_metadata=json.dumps({"phase": "provisional"}),
     )
+    _seed_item(fresh_db, meeting_id=m_id, processing_status="completed")
     fresh_db.commit()
 
     assert m_id in _claim_v3(fresh_db)
+
+
+def test_claim_meetings_v3_adopted_pass_waits_for_agenda(fresh_db):
+    """phase='adopted' is terminal, so an adopted meeting must not be marked empty
+    before repair_empty_agendas / ingest has had a chance to add its items."""
+    m_id = _seed_meeting(fresh_db, slug="test_v3_adopted_noagenda",
+                         minutes_adopted_at=datetime.now(timezone.utc))
+    fresh_db.commit()
+
+    assert m_id not in _claim_v3(fresh_db)
+
+
+def test_claim_meetings_v3_adopted_pass_blocked_by_inflight_item(fresh_db):
+    m_id = _seed_meeting(fresh_db, slug="test_v3_adopted_inflight",
+                         minutes_adopted_at=datetime.now(timezone.utc))
+    _seed_item(fresh_db, meeting_id=m_id, processing_status="completed")
+    _seed_item(fresh_db, meeting_id=m_id, processing_status="extracted")   # blocker
+    fresh_db.commit()
+
+    assert m_id not in _claim_v3(fresh_db)
 
 
 def test_claim_meetings_v3_newest_meeting_first(fresh_db):
