@@ -22,9 +22,16 @@ from docket.ai.worker import (
     _today_spend,
     claim_items_sql,
     claim_meetings_sql,
+    claim_meetings_v3_sql,
+    meetings_pending_v3_where,
     run_once,
 )
-from docket.config import AI_DAILY_BUDGET_USD, AI_ITEM_DEBOUNCE_MINUTES, AI_MAX_BATCH_SIZE
+from docket.config import (
+    AI_DAILY_BUDGET_USD,
+    AI_ITEM_DEBOUNCE_MINUTES,
+    AI_MAX_BATCH_SIZE,
+    IMPACT_FIRST_ENABLED,
+)
 from docket.db import db
 
 
@@ -41,20 +48,24 @@ def cmd_status() -> None:
             """, (ITEM_PROMPT_VERSION, AI_ITEM_DEBOUNCE_MINUTES))
             items_pending = cur.fetchone()[0]
 
-            cur.execute("""
-                SELECT COUNT(*) FROM meetings m
-                 WHERE (
-                   ((m.ai_prompt_version IS NULL OR m.ai_prompt_version < %s)
-                    AND m.minutes_adopted_at IS NULL
-                    AND NOT EXISTS (
-                      SELECT 1 FROM agenda_items ai
-                       WHERE ai.meeting_id = m.id
-                         AND (ai.ai_prompt_version IS NULL OR ai.ai_prompt_version < %s)
-                    ))
-                   OR (m.minutes_adopted_at IS NOT NULL
-                       AND COALESCE(m.ai_metadata->>'phase', '') != 'adopted')
-                 )
-            """, (MEETING_PROMPT_VERSION, ITEM_PROMPT_VERSION))
+            if IMPACT_FIRST_ENABLED:
+                cur.execute(f"SELECT COUNT(*) FROM meetings m WHERE {meetings_pending_v3_where()}",
+                            (MEETING_PROMPT_VERSION,))
+            else:
+                cur.execute("""
+                    SELECT COUNT(*) FROM meetings m
+                     WHERE (
+                       ((m.ai_prompt_version IS NULL OR m.ai_prompt_version < %s)
+                        AND m.minutes_adopted_at IS NULL
+                        AND NOT EXISTS (
+                          SELECT 1 FROM agenda_items ai
+                           WHERE ai.meeting_id = m.id
+                             AND (ai.ai_prompt_version IS NULL OR ai.ai_prompt_version < %s)
+                        ))
+                       OR (m.minutes_adopted_at IS NOT NULL
+                           AND COALESCE(m.ai_metadata->>'phase', '') != 'adopted')
+                     )
+                """, (MEETING_PROMPT_VERSION, ITEM_PROMPT_VERSION))
             meetings_pending = cur.fetchone()[0]
 
             cur.execute("""
@@ -92,8 +103,11 @@ def cmd_dry_run(stage: str, limit: int) -> None:
                     title = r[2] or ""
                     print(f"  item #{r[0]} (meeting={r[1]}) — {title[:80]}")
             else:
-                cur.execute(claim_meetings_sql(),
-                            (MEETING_PROMPT_VERSION, ITEM_PROMPT_VERSION, limit))
+                if IMPACT_FIRST_ENABLED:
+                    cur.execute(claim_meetings_v3_sql(), (MEETING_PROMPT_VERSION, limit))
+                else:
+                    cur.execute(claim_meetings_sql(),
+                                (MEETING_PROMPT_VERSION, ITEM_PROMPT_VERSION, limit))
                 rows = cur.fetchall()
                 print(f"Would process {len(rows)} meeting(s):")
                 for r in rows:

@@ -29,13 +29,15 @@ def fresh_db():
 
 
 def _seed_item(conn, *, meeting_id, title="t", created_minutes_ago=10,
-                ai_prompt_version=None):
+                ai_prompt_version=None, processing_status="pending"):
     with conn.cursor() as cur:
         cur.execute("""
-            INSERT INTO agenda_items (meeting_id, title, is_consent, ai_prompt_version, created_at)
-            VALUES (%s, %s, FALSE, %s, NOW() - (%s || ' minutes')::interval)
+            INSERT INTO agenda_items (meeting_id, title, is_consent, ai_prompt_version, created_at,
+                                      processing_status)
+            VALUES (%s, %s, FALSE, %s, NOW() - (%s || ' minutes')::interval,
+                    %s::processing_status_enum)
             RETURNING id
-        """, (meeting_id, title, ai_prompt_version, created_minutes_ago))
+        """, (meeting_id, title, ai_prompt_version, created_minutes_ago, processing_status))
         return cur.fetchone()[0]
 
 
@@ -130,3 +132,94 @@ def test_claim_meetings_adopted_phase_overrides(fresh_db):
         cur.execute(claim_meetings_sql(), (MEETING_PROMPT_VERSION, ITEM_PROMPT_VERSION, 100000))
         ids = [row[0] for row in cur.fetchall()]
     assert m_id in ids
+
+
+# --- v3 (impact-first) meeting claim ------------------------------------
+#
+# Under IMPACT_FIRST_ENABLED the item stage never writes
+# agenda_items.ai_prompt_version, so the v2 readiness check
+# ("every item at ITEM_PROMPT_VERSION") blocks every meeting forever.
+# v3 readiness is "no item still moving through the pipeline".
+
+from docket.ai.worker import claim_meetings_v3_sql
+
+
+def _claim_v3(conn, limit=100000):
+    with conn.cursor() as cur:
+        cur.execute(claim_meetings_v3_sql(), (MEETING_PROMPT_VERSION, limit))
+        return [row[0] for row in cur.fetchall()]
+
+
+def test_claim_meetings_v3_ready_when_items_settled(fresh_db):
+    """Items finished by the v3 pipeline (ai_prompt_version still NULL) don't block the meeting."""
+    m_id = _seed_meeting(fresh_db, slug="test_v3_ready")
+    _seed_item(fresh_db, meeting_id=m_id, processing_status="completed")
+    _seed_item(fresh_db, meeting_id=m_id, processing_status="procedural_skipped")
+    fresh_db.commit()
+
+    assert m_id in _claim_v3(fresh_db)
+
+
+@pytest.mark.parametrize("status", ["pending", "extracted", "rewritten", "badged"])
+def test_claim_meetings_v3_blocked_by_inflight_item(fresh_db, status):
+    m_id = _seed_meeting(fresh_db, slug="test_v3_blocked")
+    _seed_item(fresh_db, meeting_id=m_id, processing_status="completed")
+    _seed_item(fresh_db, meeting_id=m_id, processing_status=status)   # blocker
+    fresh_db.commit()
+
+    assert m_id not in _claim_v3(fresh_db)
+
+
+def test_claim_meetings_v3_skips_current_version(fresh_db):
+    m_id = _seed_meeting(fresh_db, slug="test_v3_current", ai_prompt_version=MEETING_PROMPT_VERSION)
+    _seed_item(fresh_db, meeting_id=m_id, processing_status="completed")
+    fresh_db.commit()
+
+    assert m_id not in _claim_v3(fresh_db)
+
+
+def test_claim_meetings_v3_adopted_pass_reclaims_provisional(fresh_db):
+    import json
+    m_id = _seed_meeting(
+        fresh_db, slug="test_v3_adopted",
+        minutes_adopted_at=datetime.now(timezone.utc),
+        ai_prompt_version=MEETING_PROMPT_VERSION,
+        ai_metadata=json.dumps({"phase": "provisional"}),
+    )
+    fresh_db.commit()
+
+    assert m_id in _claim_v3(fresh_db)
+
+
+def test_claim_meetings_v3_newest_meeting_first(fresh_db):
+    """Recent meetings must land within one cron tick (see feedback: ai_queue_newest_first)."""
+    older = _seed_meeting(fresh_db, slug="test_v3_older")
+    newer = _seed_meeting(fresh_db, slug="test_v3_newer")
+    _seed_item(fresh_db, meeting_id=older, processing_status="completed")
+    _seed_item(fresh_db, meeting_id=newer, processing_status="completed")
+    with fresh_db.cursor() as cur:
+        cur.execute("UPDATE meetings SET meeting_date = DATE '2099-01-01' WHERE id = %s", (newer,))
+        cur.execute("UPDATE meetings SET meeting_date = DATE '2098-01-01' WHERE id = %s", (older,))
+    fresh_db.commit()
+
+    ids = _claim_v3(fresh_db, limit=2)
+    assert ids == [newer, older]
+
+
+def test_claim_meetings_v3_provisional_waits_for_agenda(fresh_db):
+    """A meeting row with no agenda items yet (future placeholder) is not claimed:
+    marking it empty would pin ai_prompt_version and strand it once the agenda arrives."""
+    m_id = _seed_meeting(fresh_db, slug="test_v3_noagenda")
+    fresh_db.commit()
+
+    assert m_id not in _claim_v3(fresh_db)
+
+
+def test_claim_meetings_v3_skips_hidden_meetings(fresh_db):
+    m_id = _seed_meeting(fresh_db, slug="test_v3_hidden")
+    _seed_item(fresh_db, meeting_id=m_id, processing_status="completed")
+    with fresh_db.cursor() as cur:
+        cur.execute("UPDATE meetings SET is_hidden = TRUE WHERE id = %s", (m_id,))
+    fresh_db.commit()
+
+    assert m_id not in _claim_v3(fresh_db)

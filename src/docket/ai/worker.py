@@ -113,6 +113,79 @@ def claim_meetings_sql() -> str:
     """
 
 
+# Statuses an item passes through while the v3 pipeline is still working
+# on it. Everything else (completed, the *_skipped routes, withdrawn,
+# failed_permanent, cross_stage_conflict) is settled as far as the
+# meeting stage is concerned: waiting on it would block the meeting forever.
+_V3_INFLIGHT_STATUSES = "('pending', 'extracted', 'rewritten', 'badged')"
+
+
+def meetings_pending_v3_where() -> str:
+    """WHERE body shared by claim_meetings_v3_sql and the CLI status count.
+    Args: (current_meeting_version,). Expects the meetings table aliased ``m``."""
+    return f"""
+        m.is_hidden = FALSE
+        AND (
+            -- (a) provisional pass: agenda ingested, no item still moving
+            -- through the v3 pipeline. A row with no items yet (future
+            -- placeholder, agenda not scraped) waits: marking it empty
+            -- would pin ai_prompt_version and strand it once the agenda lands.
+            ((m.ai_prompt_version IS NULL OR m.ai_prompt_version < %s)
+             AND m.minutes_adopted_at IS NULL
+             AND EXISTS (SELECT 1 FROM agenda_items ai WHERE ai.meeting_id = m.id)
+             AND NOT EXISTS (
+               SELECT 1 FROM agenda_items ai
+               WHERE ai.meeting_id = m.id
+                 AND ai.processing_status IN {_V3_INFLIGHT_STATUSES}
+             ))
+            OR
+            -- (b) adopted pass
+            (m.minutes_adopted_at IS NOT NULL
+             AND COALESCE(m.ai_metadata->>'phase', '') != 'adopted')
+          )
+    """
+
+
+def claim_meetings_v3_sql() -> str:
+    """Returns the SELECT SQL for IMPACT_FIRST_ENABLED. Args: (current_meeting_version, limit).
+
+    Same two passes as claim_meetings_sql, but item readiness comes from
+    ``processing_status``: the v3 item pipeline never writes
+    ``agenda_items.ai_prompt_version``, so the v2 readiness check blocks
+    every meeting ingested after the 2026-05-14 cutover.
+
+    Newest meetings first so a freshly adopted or ingested meeting gets
+    its summary within one cron tick instead of queueing behind the
+    historical backfill.
+    """
+    return f"""
+        SELECT m.id, m.meeting_type, m.meeting_date, m.minutes_adopted_at, m.ai_metadata
+        FROM meetings m
+        WHERE {meetings_pending_v3_where()}
+        ORDER BY m.meeting_date DESC NULLS LAST, m.id
+        FOR UPDATE OF m SKIP LOCKED
+        LIMIT %s
+    """
+
+
+# Substantive items for the meeting prompt, whichever pipeline wrote them.
+# v3 (impact-first) leaves ``summary`` NULL and writes headline +
+# why_it_matters instead; the two are joined into one line so
+# MeetingContext.from_meeting_items sees the same shape as a v2 summary.
+MEETING_ITEM_ROWS_SQL = """
+    SELECT CASE WHEN headline IS NOT NULL
+                THEN headline || COALESCE(' — ' || why_it_matters, '')
+                ELSE summary END AS summary,
+           significance_score, topic, title
+      FROM agenda_items
+     WHERE meeting_id = %s
+       AND (headline IS NOT NULL
+            OR (summary IS NOT NULL
+                AND COALESCE(ai_metadata->>'is_substantive', '') = 'true'))
+     ORDER BY significance_score DESC NULLS LAST, id
+"""
+
+
 import json
 from psycopg2.extras import Json
 
@@ -208,10 +281,16 @@ def mark_meeting_failed(conn, meeting_id: int, reason: str) -> None:
         """, (Json(metadata), MEETING_PROMPT_VERSION, meeting_id))
 
 
-def mark_meeting_empty(conn, meeting_id: int) -> None:
-    """Skip Sonnet call: meeting has zero substantive items."""
+def mark_meeting_empty(conn, meeting_id: int, *, phase: str) -> None:
+    """Skip Sonnet call: meeting has zero substantive items.
+
+    ``phase`` must reflect the meeting's adoption status. Writing
+    'provisional' for an adopted meeting leaves it inside the adopted
+    pass, so the cron re-claims the same rows every day (2026-10 jam).
+    An executive summary written by an earlier pass is left in place.
+    """
     metadata = {
-        "phase": "provisional",
+        "phase": phase,
         "is_substantive": False,
         "substantive_item_count": 0,
         "confidence": "high",
@@ -220,8 +299,7 @@ def mark_meeting_empty(conn, meeting_id: int) -> None:
     with conn.cursor() as cur:
         cur.execute("""
             UPDATE meetings
-               SET executive_summary = NULL,
-                   ai_metadata       = %s,
+               SET ai_metadata       = %s,
                    ai_prompt_version = %s,
                    ai_generated_at   = NOW()
              WHERE id = %s
@@ -413,33 +491,29 @@ def _process_items(conn, client: AIClient, limit: int, summary: RunSummary) -> N
 
 def _process_meetings(conn, client: AIClient, limit: int, summary: RunSummary) -> None:
     with conn.cursor() as cur:
-        cur.execute(claim_meetings_sql(),
-                    (MEETING_PROMPT_VERSION, ITEM_PROMPT_VERSION, limit))
+        if IMPACT_FIRST_ENABLED:
+            cur.execute(claim_meetings_v3_sql(), (MEETING_PROMPT_VERSION, limit))
+        else:
+            cur.execute(claim_meetings_sql(),
+                        (MEETING_PROMPT_VERSION, ITEM_PROMPT_VERSION, limit))
         rows = cur.fetchall()
 
     for row in rows:
         meeting_id, meeting_type, meeting_date, minutes_adopted_at, ai_metadata = row
+        phase = "adopted" if minutes_adopted_at else "provisional"
         with conn.cursor() as cur:
-            cur.execute("""
-                SELECT summary, significance_score, topic, title
-                  FROM agenda_items
-                 WHERE meeting_id = %s
-                   AND COALESCE(ai_metadata->>'is_substantive', '') = 'true'
-                   AND summary IS NOT NULL
-                 ORDER BY significance_score DESC NULLS LAST, id
-            """, (meeting_id,))
+            cur.execute(MEETING_ITEM_ROWS_SQL, (meeting_id,))
             item_rows = [
                 {"summary": r[0], "significance_score": r[1], "topic": r[2], "title": r[3]}
                 for r in cur.fetchall()
             ]
 
         if not item_rows:
-            mark_meeting_empty(conn, meeting_id)
+            mark_meeting_empty(conn, meeting_id, phase=phase)
             conn.commit()
             summary.rows_processed += 1
             continue
 
-        phase = "adopted" if minutes_adopted_at else "provisional"
         ctx = MeetingContext.from_meeting_items(
             meeting_id=meeting_id,
             meeting_type=meeting_type,
