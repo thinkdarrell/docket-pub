@@ -5,6 +5,11 @@ but uses a date-filtered claim that joins agenda_items → meetings on meeting_d
 Items are processed newest-first so the most recent (and most user-visible)
 content surfaces first.
 
+v2 (legacy) path only. The meetings mode reads the v2 ``summary`` column
+and uses a claim with no item-readiness checks; under IMPACT_FIRST_ENABLED
+use the cron / ``python -m docket.ai.cli --meetings`` instead, or adopted
+meetings get pinned at phase='adopted' from stale v2 text.
+
 Usage:
     python scripts/backfill_ai_since.py --items --since 2024-11-04
     python scripts/backfill_ai_since.py --meetings --since 2024-11-04
