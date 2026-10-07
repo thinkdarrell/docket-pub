@@ -5,6 +5,11 @@ but uses a date-filtered claim that joins agenda_items → meetings on meeting_d
 Items are processed newest-first so the most recent (and most user-visible)
 content surfaces first.
 
+v2 (legacy) path only. The meetings mode reads the v2 ``summary`` column
+and uses a claim with no item-readiness checks; under IMPACT_FIRST_ENABLED
+use the cron / ``python -m docket.ai.cli --meetings`` instead, or adopted
+meetings get pinned at phase='adopted' from stale v2 text.
+
 Usage:
     python scripts/backfill_ai_since.py --items --since 2024-11-04
     python scripts/backfill_ai_since.py --meetings --since 2024-11-04
@@ -199,13 +204,13 @@ def _process_meetings_batch(conn, client: AIClient, since: date,
                 for r in cur.fetchall()
             ]
 
+        phase = "adopted" if minutes_adopted_at else "provisional"
         if not item_rows:
-            mark_meeting_empty(conn, meeting_id)
+            mark_meeting_empty(conn, meeting_id, phase=phase)
             conn.commit()
             summary.rows_processed += 1
             continue
 
-        phase = "adopted" if minutes_adopted_at else "provisional"
         ctx = MeetingContext.from_meeting_items(
             meeting_id=meeting_id,
             meeting_type=meeting_type,
@@ -214,8 +219,9 @@ def _process_meetings_batch(conn, client: AIClient, since: date,
             rows=item_rows,
         )
         try:
-            result, usage = client.summarize_meeting(ctx)
-            write_meeting_result(conn, meeting_id, result, model=client.meeting_model)
+            result, usage, voice = client.summarize_meeting(ctx)
+            write_meeting_result(conn, meeting_id, result, model=client.meeting_model,
+                                 voice=voice)
             summary.usage = usage_add(summary.usage, usage)
             summary.cost_usd += calculate_cost_usd(client.meeting_model, usage)
             summary.rows_processed += 1
@@ -231,7 +237,7 @@ def _process_meetings_batch(conn, client: AIClient, since: date,
         except AIPermanentRowError as e:
             log.error("Permanent failure on meeting %s: %s", meeting_id, e)
             conn.rollback()
-            mark_meeting_failed(conn, meeting_id, reason=str(e)[:200])
+            mark_meeting_failed(conn, meeting_id, reason=str(e)[:200], phase=phase)
             summary.rows_failed += 1
             conn.commit()
         except AIFatalError:

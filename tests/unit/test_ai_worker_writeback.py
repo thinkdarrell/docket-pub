@@ -181,7 +181,7 @@ def test_write_meeting_result_adopted_overwrites(seed_meeting):
 
 def test_mark_meeting_empty(seed_meeting):
     with db() as conn:
-        mark_meeting_empty(conn, seed_meeting)
+        mark_meeting_empty(conn, seed_meeting, phase="provisional")
         conn.commit()
         with conn.cursor() as cur:
             cur.execute("""
@@ -190,17 +190,48 @@ def test_mark_meeting_empty(seed_meeting):
             """, (seed_meeting,))
             row = cur.fetchone()
     assert row[0] is None
+    assert row[1]["phase"] == "provisional"
     assert row[1]["is_substantive"] is False
     assert row[1]["substantive_item_count"] == 0
     assert row[1]["model"] is None
     assert row[2] == MEETING_PROMPT_VERSION
 
 
+def test_mark_meeting_empty_records_adopted_phase(seed_meeting):
+    """An adopted meeting with nothing to summarize must leave the adopted pass,
+    otherwise claim_meetings_sql re-claims it every day (2026-10 cron jam)."""
+    with db() as conn:
+        mark_meeting_empty(conn, seed_meeting, phase="adopted")
+        conn.commit()
+        with conn.cursor() as cur:
+            cur.execute("SELECT ai_metadata FROM meetings WHERE id = %s", (seed_meeting,))
+            metadata = cur.fetchone()[0]
+    assert metadata["phase"] == "adopted"
+
+
+def test_mark_meeting_empty_keeps_existing_summary(seed_meeting):
+    """A summary written earlier survives a later pass that finds no items."""
+    prior = MeetingAIResult(is_substantive=True, substantive_item_count=2,
+                            executive_summary="written earlier", phase="provisional",
+                            confidence="high")
+    with db() as conn:
+        write_meeting_result(conn, seed_meeting, prior, model="claude-sonnet-4-6")
+        conn.commit()
+        mark_meeting_empty(conn, seed_meeting, phase="adopted")
+        conn.commit()
+        with conn.cursor() as cur:
+            cur.execute("SELECT executive_summary, ai_metadata FROM meetings WHERE id = %s",
+                        (seed_meeting,))
+            row = cur.fetchone()
+    assert row[0] == "written earlier"
+    assert row[1]["phase"] == "adopted"
+
+
 def test_mark_meeting_failed_keeps_summary_null(seed_meeting):
     """Permanent failure: prompt_version bumped (so not re-claimed forever),
     executive_summary stays NULL, confidence=low, error preserved."""
     with db() as conn:
-        mark_meeting_failed(conn, seed_meeting, "tool_use validation rejected")
+        mark_meeting_failed(conn, seed_meeting, "tool_use validation rejected", phase="provisional")
         conn.commit()
         with conn.cursor() as cur:
             cur.execute("""
@@ -213,3 +244,16 @@ def test_mark_meeting_failed_keeps_summary_null(seed_meeting):
     assert "error" in row[1]
     assert row[1]["model"] is None
     assert row[2] == MEETING_PROMPT_VERSION
+
+
+def test_mark_meeting_failed_records_adopted_phase(seed_meeting):
+    """A permanently failed adopted meeting must leave the adopted pass too,
+    or every daily tick pays for the same failing Sonnet call."""
+    with db() as conn:
+        mark_meeting_failed(conn, seed_meeting, "boom", phase="adopted")
+        conn.commit()
+        with conn.cursor() as cur:
+            cur.execute("SELECT ai_metadata FROM meetings WHERE id = %s", (seed_meeting,))
+            metadata = cur.fetchone()[0]
+    assert metadata["phase"] == "adopted"
+    assert metadata["error"] == "boom"
