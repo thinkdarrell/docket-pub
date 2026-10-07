@@ -2,7 +2,7 @@
 
 **Status:** Design — awaiting user review
 **Filed:** 2026-10-05
-**Surface:** New `transcriber/` desktop producer package; new worker task `transcript_pipeline`; migration 035 (six tables); new AI stages under `docket/ai/transcripts/` with a 200-series prompt family; public transcript page, search result type, admin discrepancy queue and speaker correction; public "Minutes vs. Video" block
+**Surface:** New `transcriber/` desktop producer package; new worker task `transcript_pipeline`; migration 035 (seven tables); new AI stages under `docket/ai/transcripts/` with a 200-series prompt family; public transcript page, search result type, admin discrepancy queue and speaker correction; public "Minutes vs. Video" block
 **Severity:** High — first speech-to-text pipeline for the site; first automated check of the official record against what was actually said
 
 ---
@@ -81,7 +81,7 @@ The small model misheard "ALEA" as "aliyah" and "Vasa" as "Vassa." The roster-se
 
 ## Section 1: Data model
 
-One migration (035). Minutes text is not stored today, only vote snippets, so the comparison captures it.
+One migration (035), seven tables. Minutes text is not stored today, only vote snippets, so the comparison captures it.
 
 ### Tables
 
@@ -89,7 +89,9 @@ One migration (035). Minutes text is not stored today, only vote snippets, so th
 
 Status values, in order: `claimed`, `audio_fetched`, `transcribed` (JSON on disk, not yet uploaded), `uploaded`, `speakers_resolved`, `events_extracted`, `compared`. Side states: `failed`, `needs_review`, `low_speech`. There is no dead state: minutes capture runs inside event extraction, and a meeting with no minutes stops at `events_extracted` with `compare_skipped_reason = 'no_minutes'`.
 
-**`transcript_segments`**, the transcript itself. `transcript_id` FK with `ON DELETE CASCADE`, `seq`, `start_s`, `end_s`, `text`, `cluster_label` (anonymous diarization label), `speaker_id` nullable FK to `transcript_speakers`, `agenda_item_id` nullable FK, `assignment_method` (`index_point`, `event`, `manual`), `avg_logprob`, `no_speech_prob`, `words` JSONB (word-level timestamps, never searched), `is_silence` boolean for gaps longer than a minute (the recess detector). Generated `search_vector tsvector` over `text` with a GIN index; trigram GIN index on `text`; index on `(transcript_id, seq)`; index on `agenda_item_id`.
+**`transcript_segments`**, the transcript itself. `transcript_id` FK with `ON DELETE CASCADE`, `seq`, `start_s`, `end_s`, `text`, `cluster_label` (anonymous diarization label), `speaker_id` nullable FK to `transcript_speakers`, `agenda_item_id` nullable FK, `assignment_method` (`index_point`, `event`, `manual`), `avg_logprob`, `no_speech_prob`, `is_silence` boolean for gaps longer than a minute (the recess detector). Generated `search_vector tsvector` over `text` with a GIN index; trigram GIN index on `text`; index on `(transcript_id, seq)`; index on `agenda_item_id`.
+
+Word-level timestamps are deliberately not stored in Postgres. Nothing in phase 1 reads them (there is no embedded player), and at roughly 20,000 words per meeting they would be the largest column in the database. They stay in the producer's JSON archive on the desktop and can be loaded later if an embedded player ships.
 
 The resolved speaker name is deliberately not in the search vector. Speaker search is a join filter (`speaker:` token and facet), which returns segments spoken by a person rather than segments mentioning them, and keeps a correction from rewriting thousands of GIN entries.
 
@@ -98,6 +100,8 @@ The resolved speaker name is deliberately not in the search vector. Speaker sear
 **`minutes_texts`**, one row per meeting: `meeting_id` FK, `source_url`, `pdf_sha256`, `text`, `page_offsets` JSONB (character offset where each page starts), `extracted_at`. Filled from the existing minutes PDF download path on first need. A changed `pdf_sha256` on re-ingest re-extracts and re-runs comparison; URL change is the secondary trigger.
 
 **`meeting_events`**, the event timeline from both sides. `meeting_id` FK, `source` (`transcript`, `minutes`), `seq`, `event_type` (fixed set, Section 4), `scope` (`item`, `consent_block`, `meeting`), `agenda_item_refs` integer array (agenda item ids), `actor_member_id` nullable FK, `actor_text`, `summary`, `detail` JSONB (typed per event type), `start_s` nullable (transcript), `page` and `char_offset` nullable (minutes), `prompt_version`, `segment_id` nullable FK for transcript events.
+
+**`producer_heartbeats`**, one row per desktop host: `host` primary key, `last_seen_at`, `last_status`, `last_meeting_id`, `producer_version`. The producer upserts it at startup, after every meeting, and on clean exit. The worker's daily tick compares it against the newest meeting with video and no transcript (Section 3, alerting).
 
 **`minutes_discrepancies`**, the product. `meeting_id` FK, `category` (`vote_outcome`, `omission`, `addition`, `wording`, `sequence`, `speaker`), `severity` (`material`, `minor`), `title`, `description`, `admin_title` and `admin_description` nullable (edits never overwrite the model text), `transcript_event_id` and `minutes_event_id` both nullable with a CHECK that at least one is set, `transcript_excerpt`, `transcript_start_s`, `minutes_excerpt`, `minutes_page`, `citation_match` (`exact`, `fuzzy`, `missing`), `confidence`, `origin` (`aligner`, `model_initiated`), `review_state` (`proposed`, `approved`, `rejected`, `dismissed_by_model`, `stale`), `reject_reason`, `reviewed_at`, `reviewed_by`, `review_note`, `prompt_version`, `agenda_item_id` nullable FK (denormalized for the item page).
 
@@ -109,8 +113,8 @@ Rows with `citation_match = 'missing'` cannot be approved until a reviewer attac
 - Re-transcribing a meeting bumps `transcripts.version` and replaces segments by cascade. Speakers and discrepancies key to `meeting_id`, not segment ids, so manual work survives.
 - **Diarization re-run remap.** Before the cascade, snapshot every `is_manual` speaker's time intervals from the old segments. After the new segments load, assign each manual speaker to the new cluster that dominates those intervals by overlap. Below 60 percent overlap, keep the row, unlink the cluster, set `needs_review`. Record `remapped_from_version`. Never silently drop a manual assignment.
 - **Index point drift.** Granicus index points are the clerk clicking a button, sometimes late (the pilot shows Item 15 opening at 50:07 and Item 12 at 50:21). They set the initial `agenda_item_id` with `assignment_method = 'index_point'`. Confident `item_opened` events from extraction re-assign segments with `assignment_method = 'event'`.
-- **Storage.** Roughly one million segments for the full archive, under 400 MB with indexes. The current council era is about a tenth of that.
-- **Dedicated role.** A `transcriber` Postgres role with INSERT, UPDATE, and DELETE on `transcripts`, `transcript_segments`, `transcript_speakers` and SELECT on `meetings`, `municipalities`, `council_members`, `agenda_items`. The desktop never holds the app's credentials.
+- **Storage.** Roughly one million segments for the full archive. Without word-level timestamps, segment text is about 120 MB, the tsvector and trigram indexes together about three times that, so on the order of 500 to 700 MB total with indexes against today's 307 MB database. The current council era is about a tenth of that. The scale check in Section 6 measures the real figure before the backfill runs.
+- **Dedicated role.** A `transcriber` Postgres role with INSERT, UPDATE, and DELETE on `transcripts`, `transcript_segments`, `transcript_speakers`, `producer_heartbeats` and SELECT on `meetings`, `municipalities`, `council_members`, `agenda_items`. The desktop never holds the app's credentials. It connects through Railway's public TCP proxy, which is the same endpoint the laptop already uses for operations, with `sslmode=require` and a long random password. Railway offers no private mesh to a residential desktop, so the mitigation is the narrow role and TLS, not network isolation.
 
 ---
 
@@ -122,11 +126,13 @@ A standalone package at `transcriber/` in the docket-pub repo with its own Docke
 
 - Docker Desktop with the WSL2 backend, container started with GPU access. Image: NVIDIA CUDA 12.8 runtime base, Python 3.11, faster-whisper (CTranslate2), WhisperX for word alignment, pyannote 3.1 for diarization. A named volume caches models (about 5 GB, downloaded once). The archive folder is a host bind mount visible in Explorer.
 - `.wslconfig` written by the setup runbook: 16 GB memory ceiling and `autoMemoryReclaim=gradual`, so Windows keeps half the machine during a weekend run.
-- One `.env`: transcriber database URL, Hugging Face token, work directory, backfill cutoff date.
+- One `.env`: transcriber database URL (`sslmode=require`), Hugging Face token, work directory, backfill cutoff date. The work directory and the archive folder are both on the host bind mount, so audio is written to and deleted from NTFS directly. Nothing large ever lands inside the WSL2 virtual disk, which grows but never shrinks on its own.
+- The runbook also sets the Windows power plan to never sleep while plugged in and to allow wake timers, since a sleeping desktop is the most likely cause of a quiet week.
 - Start and stop by hand with one `docker compose run` command, or from a Task Scheduler entry at login. Flags: `--since`, `--limit`, `--max-hours` (stop cleanly), `--dry-run` (write JSON, touch nothing). Ctrl-C finishes the current meeting and exits.
 
 ### Per-meeting flow
 
+0. **Heartbeat.** Upsert `producer_heartbeats` for this host at startup, after every meeting, and on exit.
 1. **Claim.** One query selects the newest Birmingham meeting with a video URL, a date on or after the cutoff, and either no `transcripts` row or a row in `claimed`/`audio_fetched` older than six hours (zombie release lives in the claim query, no restart needed). Insert or update the row as `claimed` with host and time. A row already in `transcribed` is claimed straight to the upload step, so no GPU time is repeated for a database hiccup.
 2. **Fetch audio.** Resolve the Granicus player page to the HLS stream URL using the resolver the OCR pipeline already has, pulled into a shared helper. ffmpeg with the browser user agent (PR #96) extracts 16 kHz mono PCM, audio only. Serial, with a polite delay, three attempts, then `failed` with the error. Record `audio_sha256`.
 3. **Transcribe.** faster-whisper large-v3, batched, word timestamps on, built-in Silero VAD filter on (the actual cure for silence hallucination). Initial prompt built from that meeting's roster names first, then a short fixed local vocabulary (ALEA, CJI, APC, BJCC, Woodlawn, and so on), under a hard 224-token budget with a unit test; the builder refuses to build a prompt that would truncate. Record `speech_ratio`; below a threshold the meeting is marked `low_speech` instead of uploaded. Silence gaps over a minute become `is_silence` segments.
@@ -154,9 +160,13 @@ Three LLM stages plus deterministic steps, run in order by one new cron task, ea
 
 | Stage | Input | Model | Output | Status after |
 |---|---|---|---|---|
-| Speaker resolution | Roster for that date, roll-call segments, first utterances per cluster | Sonnet 5.5 | `transcript_speakers` rows with name, role, confidence, method | `speakers_resolved` |
+| Speaker resolution | Roster for that date; roll-call call-and-response pairs; segments where the chair addresses someone by name and the next cluster to speak; a sample of utterances per cluster spread across the meeting | Sonnet 5.5 | `transcript_speakers` rows with name, role, confidence, method | `speakers_resolved` |
 | Event extraction | (a) transcript with speakers, agenda list, index points; (b) minutes text captured first if missing | Sonnet 5.5, one call per side | `meeting_events` for both sources | `events_extracted` |
 | Comparison | Aligner candidates, both timelines, excerpts (judge); full texts (hunter) | Opus 5.5, two calls | `minutes_discrepancies` as `proposed` | `compared` |
+
+### Speaker resolution signals
+
+Diarization fragments monologues under cross-talk and sometimes merges two voices, so the resolution stage never relies on a cluster's first utterances alone. Signals in priority order: roll-call pairs (clerk reads a name, the next cluster answers "here" or "present"), the chair addressing a member by name followed by that cluster speaking, self-identification, then a sample of utterances spread across the whole meeting. Two clusters resolved to the same member is normal and is how a fragmented speaker is merged. A cluster that mixes two speakers gets low confidence and displays as "Speaker N"; splitting it at segment level is phase 2.
 
 ### Rules that hold across stages
 
@@ -164,10 +174,11 @@ Three LLM stages plus deterministic steps, run in order by one new cron task, ea
 - **Hallucination guard.** Every discrepancy must quote an excerpt from each side it cites. After the model returns, the worker normalizes both sides (collapse whitespace, unify quotes, join hyphenated line breaks, lowercase) and substring-matches; a second pass does a fuzzy window match at a high threshold for PDF artifacts. `citation_match` records which pass matched. A discrepancy that loses an excerpt is kept with `citation_match = 'missing'` and downgraded confidence, visible in the queue, not approvable until a reviewer attaches a citation.
 - **Vote outcomes are deterministic.** Transcript `vote` events carry the tally as spoken. Code compares them against existing `votes` rows (minutes and OCR) and emits `vote_outcome` discrepancies directly.
 - **Failure states.** Per stage: attempts, last error, 24-hour backoff, three-attempt cap, then `failed`. Schema validation failures, token-ceiling breaches, and tripped candidate caps go to `needs_review` immediately with a reason. Both are visible in the admin AI panel and never block the queue.
-- **Token ceiling.** Sonnet 5.5 and Opus 5.5 have 1M-token windows, so a long meeting plus a thick minutes packet fits. The worker still counts tokens before each call and refuses above a configurable ceiling well below the window, marking `needs_review`. No chunking is built unless that fires.
+- **Token ceiling.** Sonnet 5.5 and Opus 5.5 have 1M-token windows. Council speech runs about 9,000 words an hour, so a twelve-hour budget hearing is roughly 110,000 words or 150,000 tokens, and a 300-page minutes packet about 150,000 more. The configurable ceiling defaults to 500,000 tokens, which no realistic meeting reaches; it guards against runaway cost from a bad input, not against long meetings. The worker counts tokens before each call and marks a breach `needs_review`. No chunking is built unless that fires.
 - **Shared materiality fragment.** One prompt fragment defines what counts as material (a commitment, a dollar figure, a legal position or statute cite, a stated reason for a decision, a procedural ruling). It is included verbatim in the transcript extraction prompt and the comparison prompt. Extraction captures at a lower threshold; comparison filters.
 - **Request builders return parameter dicts.** Same shape the Batches API takes. Synchronous in phase 1; a batch submit-and-poll path behind an environment toggle reuses `ai_batches` if the larger backfill is approved (its `stage` CHECK constraint would be extended then).
 - **Re-runs are per stage.** Bumping a stage's prompt version resets that stage and later ones only.
+- **Concurrency.** The worker processes meetings serially, one stage call in flight at a time, with a per-tick cap (default 5 meetings). One 100K-token request a minute sits well inside the account's tokens-per-minute limit, and the client's existing retry path honors `retry-after` if a 429 does arrive. Backfill speed is governed by raising the per-tick cap, not by parallelism.
 
 ### Cost, synchronous
 
@@ -183,7 +194,7 @@ New `transcript_pipeline` task in `worker/scheduler.py` at 10:00 America/Chicago
 
 ### Alerting
 
-A single env-gated `ALERT_WEBHOOK_URL`. The worker posts a small JSON payload on a transcript entering `failed` or `needs_review`, and on a tripped candidate cap. Slack and Discord both accept the shape. This is the first active alert in the codebase; the precedent is video OCR being silently broken since June.
+A single env-gated `ALERT_WEBHOOK_URL`. The worker posts a small JSON payload on a transcript entering `failed` or `needs_review`, on a tripped candidate cap, and once a day when the desktop looks stalled: a Birmingham meeting with video older than seven days has no transcript and no `producer_heartbeats` row is newer than seven days. The desktop is not required for the site to function, but a quiet stall should not go unnoticed for a month. Slack and Discord both accept the shape. This is the first active alert in the codebase; the precedent is video OCR being silently broken since June.
 
 ---
 
@@ -220,7 +231,7 @@ Code pairs the two timelines before any model judges:
 3. **Within a group, pair by type and order.** Transcript event with no counterpart: omission candidate. Minutes event with no counterpart: addition candidate. Pair with differing details: mismatch candidate (`wording`, `vote_outcome`, `speaker`).
 4. **Across the meeting, longest common subsequence** over paired events. Pairs out of order are `sequence` candidates. The pilot's executive session before versus after the vote falls out here.
 5. **Actors** are compared as `council_member_id`s. Transcript actors come from speaker resolution (who was speaking), minutes actors from roster matching of typed names with a fuzzy fallback for typos. No phonetic matching on actor text.
-6. **Vote tallies** are compared against `votes` rows directly.
+6. **Vote tallies** are compared against `votes` rows directly. The baseline is the minutes-derived rows (`source = 'minutes_text'`), which exist for every year back to 2008. Video OCR rows exist only for 2026 and act as corroboration where present; their absence is not a discrepancy and not a failure.
 
 ### Model judgment, two calls
 
@@ -238,7 +249,13 @@ A meeting producing more candidates than a configurable cap (default 40) is held
 
 ### Re-comparison
 
-A changed `minutes_texts.pdf_sha256` re-extracts the minutes side and re-runs comparison. Previously approved discrepancies are kept and set to `stale` for a second look; they stop rendering publicly until re-approved.
+A changed `minutes_texts.pdf_sha256` re-extracts the minutes side and re-runs comparison. The transcript side does not change, so transcript event ids are stable across the re-run and reconciliation is deterministic:
+
+- Every existing `approved` or `proposed` row is set to `stale` first.
+- Each new candidate is matched to a stale row by category plus `transcript_event_id`. Additions, which have no transcript event, match by category, agenda item, and normalized minutes excerpt similarity above a threshold.
+- A matched stale row is updated in place with the new minutes excerpt and page, set back to `proposed` with `previous_review_state` recorded, and badged "re-review" in the queue. No duplicate row is created.
+- An unmatched stale row stays `stale`. That means the corrected minutes no longer show the discrepancy, which is itself worth a look, so stale rows remain visible in the admin queue under their own filter.
+- Stale rows never render publicly.
 
 ---
 
@@ -262,7 +279,7 @@ Routes under the existing admin review area, modeled on `/admin/review/conflicts
 
 ### Admin speaker correction
 
-Per meeting: each cluster with resolved name, role, confidence, method, three sample excerpts, and a dropdown to reassign to a roster member or a free-text name. Saving sets `is_manual`.
+Per meeting: each cluster with resolved name, role, confidence, method, three sample excerpts, and a dropdown to reassign to a roster member or a free-text name. Saving sets `is_manual`. Assigning two clusters to the same person merges a fragmented speaker. Splitting a mixed cluster at segment level is phase 2.
 
 ### Public "Minutes vs. Video" block
 
@@ -324,6 +341,10 @@ Rejected during brainstorming, with reasons, so they are not re-raised:
 - Markdown fence stripping: structured outputs make it unnecessary; stop-reason checks added instead.
 - Role-based admin access: one admin, one login hook.
 - Inbound webhook idempotency: the webhook is outbound only.
+- Weekly `wsl --compact` runbook: unnecessary once audio lives on the host bind mount instead of the WSL2 disk.
+- Chunking for marathon meetings: a twelve-hour meeting is about 150K tokens against a 500K ceiling and a 1M window.
+- Video OCR backfill as a hard blocker: the vote baseline is minutes-derived rows, present for every year; OCR is corroboration only.
+- Treating the public Postgres port as a new exposure: Railway's TCP proxy is already the operations path; the mitigation is the narrow role and TLS.
 
 ## Side notes surfaced, not in scope
 
