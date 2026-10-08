@@ -317,6 +317,11 @@ Single repo: `thinkdarrell/docket-pub`. `main` is the source of truth and what R
 - **Schema length caps:** rationales 1500 chars, item summaries 400 chars, executive summaries 1500 chars. Original 600/800 caps were rejecting Haiku/Sonnet's longer-but-correct outputs.
 - **Cost expectation:** ~$0.0026/item (Haiku, with cache), ~$0.0085/meeting (Sonnet). 57K item backfill ≈ $140, ~14 days at default $10/day cap.
 - **Local CLI runs against prod DB:** use `DATABASE_URL=$(railway variables --service docket-web --kv | grep DATABASE_PUBLIC_URL | cut -d= -f2-) ANTHROPIC_API_KEY=$(railway variables --service docket-web --kv | grep '^ANTHROPIC_API_KEY=' | cut -d= -f2-) venv/bin/python -m docket.ai.cli ...`. The internal `postgres.railway.internal` hostname only resolves inside Railway's VPC.
+- **Transcriber role (desktop producer):** created once with
+  `scripts/sql/create_transcriber_role.sql`. It can write only
+  `transcripts`, `transcript_segments`, `transcript_speakers`, and
+  `producer_heartbeats`. Rotate by `ALTER ROLE transcriber PASSWORD '...'`
+  and updating `transcriber/.env` on the Legion.
 - **Two scoring dimensions:** significance (0-10) + consent placement (0-10)
 - **Dollar tiers:** green <$50K, yellow $50-250K, orange $250K-1M, red >$1M
 - **Source overlap:** video OCR + official minutes coexist, flag discrepancies only
