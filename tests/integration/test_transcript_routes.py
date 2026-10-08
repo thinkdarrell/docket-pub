@@ -109,3 +109,45 @@ def test_history_restore_gets_full_page_and_vary(client, meeting_with_transcript
     assert "HX-Request" in r.headers.get("Vary", "")
     assert "HX-Request" in client.get(url).headers.get("Vary", "")
     assert "HX-Request" in client.get(url, headers={"HX-Request": "true"}).headers.get("Vary", "")
+
+
+def test_item_page_shows_excerpt_with_read_more(client, meeting_with_transcript):
+    fx = meeting_with_transcript; _publish(fx["transcript_id"])
+    html = client.get(f"/al/birmingham/items/{fx['item_id']}/").get_data(as_text=True)
+    assert "From the video" in html
+    assert "Item fifteen. I would like a summary." in html
+    assert f"/al/birmingham/meetings/{fx['meeting_id']}/transcript/#t-0" in html
+
+
+def test_item_page_without_segments_has_no_excerpt_block(client, meeting_with_transcript):
+    fx = meeting_with_transcript; _publish(fx["transcript_id"])
+    with db_cursor() as cur:
+        cur.execute("""INSERT INTO agenda_items (meeting_id, item_number, title)
+                       VALUES (%s, '16', 'Nothing said') RETURNING id""", [fx["meeting_id"]])
+        other = cur.fetchone()["id"]
+    html = client.get(f"/al/birmingham/items/{other}/").get_data(as_text=True)
+    assert "From the video" not in html
+
+
+def test_item_page_no_excerpt_when_transcript_not_public(client, meeting_with_transcript):
+    fx = meeting_with_transcript
+    html = client.get(f"/al/birmingham/items/{fx['item_id']}/").get_data(as_text=True)
+    assert "From the video" not in html
+
+
+def test_item_excerpt_speaker_numbers_match_full_page(client, meeting_with_transcript):
+    # S0 (O'Quinn) is cluster 1 and S1 is cluster 2 in the fixture; a later item
+    # whose only voice is a new cluster S2 must read "Speaker 3", not "Speaker 1".
+    fx = meeting_with_transcript; _publish(fx["transcript_id"])
+    with db_cursor() as cur:
+        cur.execute("""INSERT INTO agenda_items (meeting_id, item_number, title)
+                       VALUES (%s, '17', 'Later item') RETURNING id""", [fx["meeting_id"]])
+        later = cur.fetchone()["id"]
+        cur.execute("""INSERT INTO transcript_segments
+                         (transcript_id, seq, start_s, end_s, text, cluster_label, agenda_item_id)
+                       VALUES (%s, 3, 4000.0, 4004.0, 'Point of order.', 'S2', %s)""",
+                    [fx["transcript_id"], later])
+    item_html = client.get(f"/al/birmingham/items/{later}/").get_data(as_text=True)
+    page_html = client.get(f"/al/birmingham/meetings/{fx['meeting_id']}/transcript/").get_data(as_text=True)
+    assert "Speaker 3" in item_html and "Speaker 1" not in item_html
+    assert "Speaker 3" in page_html

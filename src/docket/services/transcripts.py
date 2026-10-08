@@ -144,3 +144,42 @@ def item_anchor_map(turns: list[Turn]) -> dict[int, str]:
         if t.agenda_item_id is not None and t.agenda_item_id not in out:
             out[t.agenda_item_id] = t.anchor
     return out
+
+
+def excerpt_for_item(item_id: int, max_turns: int = 4) -> dict | None:
+    """First few transcript turns tagged with this agenda item, or None."""
+    with db_cursor() as cur:
+        cur.execute(
+            """SELECT t.id AS transcript_id, t.meeting_id
+                 FROM agenda_items ai
+                 JOIN transcripts t ON t.meeting_id = ai.meeting_id
+                WHERE ai.id = %s AND t.status = ANY(%s)""",
+            [item_id, list(PUBLIC_STATUSES)],
+        )
+        head = cur.fetchone()
+        if head is None:
+            return None
+        cur.execute(
+            """SELECT s.seq, s.start_s, s.end_s, s.text, s.cluster_label, s.is_silence,
+                      s.agenda_item_id,
+                      COALESCE(cm.name, sp.display_name) AS speaker_name,
+                      sp.confidence AS speaker_confidence,
+                      sp.council_member_id AS speaker_member_id
+                 FROM transcript_segments s
+                 LEFT JOIN transcript_speakers sp ON sp.id = s.speaker_id
+                 LEFT JOIN council_members cm ON cm.id = sp.council_member_id
+                WHERE s.transcript_id = %s AND s.agenda_item_id = %s AND s.is_silence = FALSE
+                ORDER BY s.seq""",
+            [head["transcript_id"], item_id],
+        )
+        segs = [dict(r) for r in cur.fetchall()]
+    if not segs:
+        return None
+    turns = group_turns(segs, ordinals=speaker_ordinals(head["transcript_id"]))
+    return {
+        "meeting_id": head["meeting_id"],
+        "transcript_id": head["transcript_id"],
+        "turns": turns[:max_turns],
+        "anchor": turns[0].anchor,
+        "truncated": len(turns) > max_turns,
+    }

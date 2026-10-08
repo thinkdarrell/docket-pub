@@ -381,6 +381,9 @@ def item_detail(slug, item_id):
             if p.is_published_as_of(today)
         ]
 
+    from docket.services import transcripts as tsvc
+    transcript_excerpt = tsvc.excerpt_for_item(item_id)
+
     return render_template(
         "item_detail.html",
         municipality=municipality,
@@ -392,6 +395,7 @@ def item_detail(slug, item_id):
         vote_data=vote_data,
         kpi_stats=kpi_stats,
         coverage_posts=coverage_posts,
+        transcript_excerpt=transcript_excerpt,
     )
 
 
