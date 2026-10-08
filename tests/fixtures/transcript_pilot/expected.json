@@ -1,0 +1,29 @@
+{
+  "meeting_id": 15,
+  "granicus_clip_id": 1950,
+  "meeting_date": "2026-02-17",
+  "agenda_item_number": "15",
+  "index_points_s": {"item_open": 3309, "motion": 3393, "vote": 3847},
+  "clip_offset_note": "The pilot clip starts at roughly 3290 s of the full video; clip timestamps are relative to the clip.",
+  "discrepancies": [
+    {
+      "category": "sequence",
+      "severity": "material",
+      "summary": "Executive session occurs before the vote on video; minutes record it after the ordinance was adopted.",
+      "transcript_must_contain": "we will go into executive session",
+      "minutes_must_contain": "said ordinance adopted"
+    },
+    {
+      "category": "wording",
+      "severity": "material",
+      "summary": "City attorney cites 36-25A-7(a)(4) security plans on video; minutes cite the pending-litigation ground.",
+      "transcript_must_contain": "36-25A-7(a)(4)",
+      "minutes_must_contain": "pending litigation"
+    }
+  ],
+  "statement_events_expected": [
+    "agreement is not in the packet",
+    "license plate reader cameras give access to the Alabama criminal justice information system"
+  ],
+  "known_asr_errors": {"aliyah": "ALEA", "Vassa": "Vasa"}
+}

@@ -476,7 +476,7 @@ Expected: FAIL with `FileNotFoundError` for the SQL script.
 ```sql
 -- scripts/sql/create_transcriber_role.sql
 -- Run once per database as the app owner:
---   psql "$PGURL" -v password="'$(openssl rand -base64 32)'" -f scripts/sql/create_transcriber_role.sql
+--   psql "$PGURL" -v password="$(openssl rand -hex 32)" -f scripts/sql/create_transcriber_role.sql
 -- Then put the URL in transcriber/.env as
 --   TRANSCRIBER_DATABASE_URL=postgresql://transcriber:<password>@<host>:<port>/railway?sslmode=require
 -- The role writes only the producer's tables and reads the reference
@@ -1330,6 +1330,23 @@ def test_transcribed_row_claims_straight_to_upload(conn, bham_meeting):
     assert c2.transcript_id == c.transcript_id and c2.status == "transcribed"
 
 
+def test_transcribed_row_is_not_claimable_by_another_host_until_stale(conn, bham_meeting):
+    c = tdb.claim_next(conn, since=date(2026, 1, 1), host="legion")
+    tdb.mark_status(conn, c.transcript_id, "transcribed", raw_output_path="/archive/x.json")
+    conn.commit()
+    assert tdb.claim_next(conn, since=date(2026, 1, 1), host="legion-2") is None      # fresh, other host: no
+    c_same = tdb.claim_next(conn, since=date(2026, 1, 1), host="legion")
+    conn.commit()
+    assert c_same is not None and c_same.status == "transcribed"          # same host resumes
+    with conn.cursor() as cur:
+        cur.execute("UPDATE transcripts SET claimed_at = now() - interval '7 hours' WHERE id=%s",
+                    [c.transcript_id])
+    conn.commit()
+    c_other = tdb.claim_next(conn, since=date(2026, 1, 1), host="legion-2")
+    conn.commit()
+    assert c_other is not None and c_other.transcript_id == c.transcript_id   # stale: anyone
+
+
 def test_mark_failed_increments_attempts_and_keeps_error(conn, bham_meeting):
     c = tdb.claim_next(conn, since=date(2026, 1, 1), host="legion")
     tdb.mark_status(conn, c.transcript_id, "failed", error="ffmpeg could not read: 403 Forbidden")
@@ -1440,7 +1457,9 @@ _CANDIDATE_SQL = """
        AND m.meeting_date >= %(since)s
        AND (
             t.id IS NULL
-         OR t.status = 'transcribed'
+         OR (t.status = 'transcribed'
+             AND (t.producer_host = %(host)s
+                  OR t.claimed_at < now() - make_interval(hours => %(stale)s)))
          OR (t.status IN ('claimed', 'audio_fetched')
              AND t.claimed_at < now() - make_interval(hours => %(stale)s))
        )
@@ -1452,7 +1471,7 @@ _CANDIDATE_SQL = """
 def claim_next(conn, *, since: date, host: str, stale_after_hours: int = 6) -> Claim | None:
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("SELECT pg_advisory_xact_lock(hashtext('transcriber_claim'))")
-        cur.execute(_CANDIDATE_SQL, {"since": since, "stale": stale_after_hours})
+        cur.execute(_CANDIDATE_SQL, {"since": since, "stale": stale_after_hours, "host": host})
         row = cur.fetchone()
         if row is None:
             return None
@@ -1588,7 +1607,7 @@ def upload(conn, out: TranscriptOutput) -> int:
 - [ ] **Step 4: Run to verify pass**
 
 Run: `cd transcriber && DATABASE_URL=postgresql://localhost/docket pytest tests/test_db.py -v`
-Expected: 8 PASS. (Review Focus item 2 is `test_upload_round_trips_awkward_text_and_is_idempotent`.)
+Expected: 9 PASS. (Review Focus item 2 is `test_upload_round_trips_awkward_text_and_is_idempotent`.)
 
 - [ ] **Step 5: Commit**
 
@@ -3695,7 +3714,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ## Operator steps after the code tasks
 
 1. Deploy: `scripts/deploy.sh --service docket-web` then `--service worker`; migrations run at container start.
-2. Create the role on Railway: `psql "$PGURL" -v password="'$(openssl rand -base64 32)'" -f scripts/sql/create_transcriber_role.sql` and put the URL in `transcriber/.env` on the Legion.
+2. Create the role on Railway: `psql "$PGURL" -v password="$(openssl rand -hex 32)" -f scripts/sql/create_transcriber_role.sql` and put the URL in `transcriber/.env` on the Legion.
 3. Legion bring-up (Task 9 Step 8). Then `docker compose run --rm transcriber --since 2025-10-28 --limit 3` and confirm three meetings reach `uploaded` and their transcript pages render on docket.pub.
 4. Run `python scripts/transcript_scale_check.py` once against a local database and record the numbers (Task 14 Step 5).
 5. Full current-council batch: `--limit 100 --max-hours 6`. About 69 meetings have video in that window as of 2026-10-06.

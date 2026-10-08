@@ -240,6 +240,11 @@
 </section>
 {% endif %}
 
+{# ── Transcript (loaded on demand via HTMX; full page at /transcript/) ── #}
+{% if has_transcript %}
+<section class="feed" id="transcript-tab" style="padding-bottom: 32px;"></section>
+{% endif %}
+
 {# ── Regular agenda items ─────────────────────────── #}
 {% if regular_items %}
 <section class="notable">
@@ -388,6 +393,15 @@
         <a class="rail-link" href="{{ meeting.video_url }}" target="_blank" rel="noreferrer" style="flex: 1; min-width: 180px;">
             <div><div class="rail-link-label">Watch video</div><div class="t-meta">Granicus player</div></div>
             <span class="t-mono">↗</span>
+        </a>
+        {% endif %}
+        {% if has_transcript %}
+        <a class="rail-link" href="/al/{{ municipality.slug }}/meetings/{{ meeting.id }}/transcript/"
+           hx-get="/al/{{ municipality.slug }}/meetings/{{ meeting.id }}/transcript/"
+           hx-target="#transcript-tab" hx-swap="innerHTML" hx-push-url="true"
+           style="flex: 1; min-width: 180px;">
+            <div><div class="rail-link-label">Transcript</div><div class="t-meta">machine-generated</div></div>
+            <span class="t-mono">→</span>
         </a>
         {% endif %}
         {% if meeting.source_url %}

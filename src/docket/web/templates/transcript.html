@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Transcript — {{ meeting.title }} — docket.pub{% endblock %}
+{% block content %}
+<section class="hero hero--detail">
+  <div class="t-eyebrow">Transcript · {{ meeting.meeting_date | format_date }}</div>
+  <h1 class="hero-title t-display">{{ meeting.title }}</h1>
+  <p class="t-meta">
+    <a class="link" href="/al/{{ municipality.slug }}/meetings/{{ meeting.id }}/">← Back to the meeting</a>
+    · {{ transcript.word_count | default(0) }} words
+    {% if transcript.audio_duration_s %}· {{ transcript.audio_duration_s | format_timestamp }} of audio{% endif %}
+  </p>
+</section>
+<section class="feed">
+  {% include "partials/transcript_body.html" %}
+</section>
+{% endblock %}

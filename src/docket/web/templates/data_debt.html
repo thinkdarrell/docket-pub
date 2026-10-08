@@ -115,4 +115,22 @@
 {% endif %}
 
 {% endif %}{# end if items #}
+
+{% if transcript_debt %}
+<section class="feed">
+  <div class="feed-head"><div>
+    <div class="t-eyebrow">Video transcripts</div>
+    <h2 class="feed-title t-display" style="font-size: 24px;">Meetings with video but no usable transcript</h2>
+  </div></div>
+  <ul style="list-style:none; padding:0;">
+  {% for row in transcript_debt %}
+    <li style="padding: 8px 0; border-bottom: 1px solid var(--color-rule, #e5e5e5);">
+      <a class="link" href="/al/{{ municipality.slug }}/meetings/{{ row.meeting_id }}/">{{ row.meeting_title }}</a>
+      <span class="t-meta">· {{ row.meeting_date | format_date }} · {{ row.friendly_label }}</span>
+      {% if row.last_error %}<div class="t-mono t-meta">{{ row.last_error | truncate(140) }}</div>{% endif %}
+    </li>
+  {% endfor %}
+  </ul>
+</section>
+{% endif %}
 {% endblock %}

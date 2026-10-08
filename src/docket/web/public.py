@@ -16,6 +16,7 @@ from flask import (
     Response,
     abort,
     current_app,
+    make_response,
     redirect,
     render_template,
     request,
@@ -285,8 +286,12 @@ def meeting_detail(slug, meeting_id):
             if p.is_published_as_of(today)
         ]
 
+    from docket.services import transcripts as tsvc
+    has_transcript = tsvc.get_public_transcript(meeting_id) is not None
+
     return render_template(
         "meeting_detail.html",
+        has_transcript=has_transcript,
         municipality=municipality,
         meeting=meeting,
         agenda_items=agenda_items,
@@ -300,6 +305,38 @@ def meeting_detail(slug, meeting_id):
         kpi_stats=kpi_stats,
         coverage_posts=coverage_posts,
     )
+
+
+@bp.route("/al/<slug>/meetings/<int:meeting_id>/transcript/")
+def meeting_transcript(slug, meeting_id):
+    """Server-rendered machine transcript. HTMX requests get the body partial only."""
+    from docket.services import transcripts as tsvc
+
+    municipality = query.get_municipality(slug)
+    if not municipality:
+        abort(404)
+    meeting = query.get_meeting(meeting_id)
+    if not meeting or meeting.municipality_id != municipality["id"]:
+        abort(404)
+    if meeting.is_hidden and not session.get("admin_user"):
+        abort(404)
+    transcript = tsvc.get_public_transcript(meeting_id)
+    if transcript is None:
+        abort(404)
+
+    turns = tsvc.group_turns(tsvc.list_segments(transcript.id))
+    anchors = tsvc.item_anchor_map(turns)
+    agenda_items = query.list_agenda_items(meeting_id)
+    items_by_id = {it.id: it for it in agenda_items}
+    ctx = dict(municipality=municipality, meeting=meeting, transcript=transcript,
+               turns=turns, item_anchors=anchors, items_by_id=items_by_id)
+    # htmx history restore re-fetches with HX-Request too but needs the full page.
+    is_partial = bool(request.headers.get("HX-Request")) and not request.headers.get(
+        "HX-History-Restore-Request")
+    template = "partials/transcript_body.html" if is_partial else "transcript.html"
+    resp = make_response(render_template(template, full_page=not is_partial, **ctx))
+    resp.headers["Vary"] = "HX-Request"
+    return resp
 
 
 @bp.route("/al/<slug>/items/<int:item_id>/")
@@ -344,6 +381,9 @@ def item_detail(slug, item_id):
             if p.is_published_as_of(today)
         ]
 
+    from docket.services import transcripts as tsvc
+    transcript_excerpt = tsvc.excerpt_for_item(item_id)
+
     return render_template(
         "item_detail.html",
         municipality=municipality,
@@ -355,6 +395,7 @@ def item_detail(slug, item_id):
         vote_data=vote_data,
         kpi_stats=kpi_stats,
         coverage_posts=coverage_posts,
+        transcript_excerpt=transcript_excerpt,
     )
 
 
@@ -708,9 +749,13 @@ def data_debt(city):
     high_items = [i for i in items if i.get("data_debt_priority") == "high"]
     normal_items = [i for i in items if i.get("data_debt_priority") != "high"]
 
+    from docket.services import transcripts as tsvc
+    transcript_debt = tsvc.list_transcript_debt(municipality["id"])
+
     return render_template(
         "data_debt.html",
         municipality=municipality,
+        transcript_debt=transcript_debt,
         items=items,
         high_items=high_items,
         normal_items=normal_items,
@@ -947,6 +992,15 @@ def search():
             offset=offset,
         )
 
+    from docket.services import transcripts as tsvc
+    transcript_hits: list[dict] = []
+    if q:
+        clean_q, speaker = tsvc.parse_speaker_token(q)
+        if clean_q or speaker:
+            transcript_hits = tsvc.search_transcripts(
+                clean_q, municipality_slug=city, speaker=speaker, limit=10, offset=offset // 2,
+            )
+
     # has_next via row-count heuristic (no separate COUNT query). After
     # the AI backfill ramps result counts up, an explicit COUNT on every
     # search hit would be wasteful — the heuristic costs nothing and
@@ -971,6 +1025,7 @@ def search():
         "search.html",
         query=q,
         results=results,
+        transcript_hits=transcript_hits,
         city=city,
         municipalities=municipalities,
         page=page,

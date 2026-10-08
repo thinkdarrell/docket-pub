@@ -1,0 +1,8 @@
+<li class="search-transcript-hit">
+  <a class="link" href="{{ hit.anchor_url }}">
+    <span class="t-mono t-meta">{{ hit.start_s | format_timestamp }}</span>
+    {% if hit.speaker_name %}<strong>{{ hit.speaker_name }}:</strong>{% endif %}
+    {{ hit.headline }}
+  </a>
+  <div class="t-meta">{{ hit.meeting_title }} · {{ hit.meeting_date | format_date }} · machine transcript</div>
+</li>

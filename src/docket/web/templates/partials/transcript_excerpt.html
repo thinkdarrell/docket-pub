@@ -1,0 +1,17 @@
+{% if transcript_excerpt %}
+<section class="item-body transcript-excerpt">
+  <div class="t-eyebrow">From the video</div>
+  {% for turn in transcript_excerpt.turns %}
+  <p class="transcript-excerpt-turn">
+    <span class="t-mono t-meta">{{ turn.start_s | format_timestamp }}</span>
+    <strong>{{ turn.speaker_label }}:</strong> {{ turn.text }}
+  </p>
+  {% endfor %}
+  <p class="t-meta">
+    <a class="link" href="/al/{{ municipality.slug }}/meetings/{{ transcript_excerpt.meeting_id }}/transcript/#{{ transcript_excerpt.anchor }}">
+      {% if transcript_excerpt.truncated %}Read the full discussion →{% else %}Open in the transcript →{% endif %}
+    </a>
+    · machine-generated transcript
+  </p>
+</section>
+{% endif %}

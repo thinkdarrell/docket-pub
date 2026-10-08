@@ -1,0 +1,57 @@
+{# Transcript body — shared by the full page and the HTMX tab load.
+   Each turn has a stable anchor (t-<seq of first segment>) and the first
+   turn of each agenda item also carries id="item-N" so agenda links and
+   transcript links cross-reference. #}
+<div class="transcript" id="transcript-body">
+  <div class="callout callout-info is-tight transcript-label">
+    <div class="callout-title t-mono">Machine-generated transcript</div>
+    <div class="callout-body">
+      Produced by speech recognition ({{ transcript.asr_model }}){% if transcript.diarization_model %} with automatic speaker separation{% endif %}.
+      Names are assigned by software and may be wrong; low-confidence speakers are shown as "Speaker N".
+      Verify against the <a class="link" href="{{ meeting.video_url }}" target="_blank" rel="noreferrer">original video</a>.
+      <a class="link" href="/about/how-we-read-minutes/">How we read meetings</a>.
+    </div>
+  </div>
+
+  {% set anchor_to_item = {} %}
+  {% for item_id, anchor in item_anchors.items() %}{% set _ = anchor_to_item.update({anchor: item_id}) %}{% endfor %}
+
+  <ol class="transcript-turns">
+  {% for turn in turns %}
+    {% if turn.is_silence %}
+    <li id="{{ turn.anchor }}" class="transcript-turn transcript-turn--silence">
+      <span class="t-mono t-meta">{{ turn.start_s | format_timestamp }} – {{ turn.end_s | format_timestamp }}</span>
+      <span class="t-meta">No speech detected (recess or dead air)</span>
+    </li>
+    {% else %}
+    {% set item_id = anchor_to_item.get(turn.anchor) %}
+    {% if item_id %}
+    <li id="{{ 'item-' if full_page else 'tr-item-' }}{{ item_id }}" class="transcript-item-marker">
+      <span class="t-eyebrow">Item {{ items_by_id[item_id].item_number if item_id in items_by_id else '' }}</span>
+      {% if item_id in items_by_id %}<a class="link" href="/al/{{ municipality.slug }}/items/{{ item_id }}/">{{ items_by_id[item_id].title }}</a>{% endif %}
+    </li>
+    {% endif %}
+    <li id="{{ turn.anchor }}" class="transcript-turn">
+      <div class="transcript-turn-head">
+        <a class="transcript-time t-mono" href="#{{ turn.anchor }}">{{ turn.start_s | format_timestamp }}</a>
+        <span class="transcript-speaker{% if turn.speaker_member_id %} is-resolved{% endif %}">
+          {% if turn.speaker_member_id %}<a class="link" href="/al/{{ municipality.slug }}/council/{{ turn.speaker_member_id }}/">{{ turn.speaker_label }}</a>{% else %}{{ turn.speaker_label }}{% endif %}
+        </span>
+        {% if item_id and items_by_id.get(item_id) and items_by_id[item_id].external_id %}
+        <a class="t-meta link" href="{{ chapter_url(meeting.video_url, items_by_id[item_id].external_id) }}" target="_blank" rel="noreferrer">video chapter ↗</a>
+        {% endif %}
+      </div>
+      <p class="transcript-text">{% for text in turn.texts %}{% set seq = turn.seqs[loop.index0] %}<span{% if not loop.first %} id="t-{{ seq }}"{% endif %}>{{ text }}</span>{% if not loop.last %} {% endif %}{% endfor %}</p>
+    </li>
+    {% endif %}
+  {% endfor %}
+  </ol>
+</div>
+<style>
+  .transcript-turn:target, .transcript-turn:has(:target) { background: var(--color-highlight, #fff6d5); }
+  .transcript-turns { list-style: none; padding: 0; margin: 0; }
+  .transcript-turn { padding: 10px 0; border-bottom: 1px solid var(--color-rule, #e5e5e5); }
+  .transcript-turn-head { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+  .transcript-item-marker { padding: 18px 0 6px; }
+  .transcript-turn--silence { color: var(--color-muted, #777); font-style: italic; }
+</style>
