@@ -136,10 +136,11 @@ class FasterWhisperEngine:
         except RuntimeError as e:
             if not self._is_oom(e):
                 raise
-            self.oom_fallbacks += 1
-            log.warning("CUDA OOM in ASR; unloading diarizer and retrying once")
-            self._unload_diarizer()
-            return self._transcribe(wav, initial_prompt)
+        # handler has exited; the failing traceback (and its CUDA tensors) is released
+        self.oom_fallbacks += 1
+        log.warning("CUDA OOM in ASR; unloading diarizer and retrying once")
+        self._unload_diarizer()
+        return self._transcribe(wav, initial_prompt)
 
     def _transcribe(self, wav: Path, initial_prompt: str) -> list[RawSegment]:
         segments, _info = self._batched.transcribe(
@@ -166,15 +167,18 @@ class FasterWhisperEngine:
         except RuntimeError as e:
             if not self._is_oom(e):
                 raise
-            self.oom_fallbacks += 1
-            log.warning("CUDA OOM in diarization; unloading ASR and retrying once")
-            import gc, torch
-            self._batched = None
-            self._whisper = None
-            gc.collect(); torch.cuda.empty_cache()
+        # handler has exited; the failing traceback (and its CUDA tensors) is released
+        self.oom_fallbacks += 1
+        log.warning("CUDA OOM in diarization; unloading ASR and retrying once")
+        import gc, torch
+        self._batched = None
+        self._whisper = None
+        gc.collect(); torch.cuda.empty_cache()
+        try:
             result = self._diarize(wav)
+        finally:
             self._reload_asr()
-            return result
+        return result
 
     def _diarize(self, wav: Path):
         # pyannote.audio 3.1.x: SpeakerDiarization.apply(file, ..., return_embeddings=False)
