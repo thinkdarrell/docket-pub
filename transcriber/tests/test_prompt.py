@@ -13,6 +13,12 @@ def test_roster_names_come_first_then_vocabulary():
     assert p.index("O'Quinn") < p.index("ALEA")
 
 
+def test_empty_roster_omits_councilors_clause():
+    p = build_initial_prompt([])
+    assert p.startswith("Birmingham City Council. Terms:")
+    assert "Councilors" not in p
+
+
 def test_within_budget():
     assert len(build_initial_prompt(ROSTER)) <= 600
 

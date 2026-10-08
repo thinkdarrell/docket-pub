@@ -18,7 +18,8 @@ LOCAL_VOCABULARY: tuple[str, ...] = (
     "Pro Tem", "ordinance", "resolution", "consent agenda", "executive session",
 )
 
-_LEAD = "Birmingham City Council. Councilors: "
+_LEAD = "Birmingham City Council."
+_ROSTER_LEAD = " Councilors: "
 _VOCAB_LEAD = " Terms: "
 
 
@@ -31,7 +32,7 @@ def build_initial_prompt(
     vocabulary: tuple[str, ...] | list[str] = LOCAL_VOCABULARY,
     max_chars: int = 600,
 ) -> str:
-    head = _LEAD + ", ".join(roster_names) + "."
+    head = _LEAD + (_ROSTER_LEAD + ", ".join(roster_names) + "." if roster_names else "")
     if len(head) > max_chars:
         raise PromptBudgetError(
             f"roster alone is {len(head)} chars; budget is {max_chars}"

@@ -132,3 +132,18 @@ def test_upload_exception_marks_failed_and_continues(monkeypatch, cfg):
     failed = [x for x in fdb.status if x[1] == "failed"]
     assert len(failed) == 1 and "boom" in failed[0][2]
     assert fdb.uploaded == [102]
+
+
+def test_run_loop_passes_retry_failed_to_claim(monkeypatch, cfg):
+    seen = {}
+    class _Conn:
+        def commit(self): pass
+    class _NoStop:
+        requested = False
+    def fake_claim(conn, **kw):
+        seen.update(kw); return None
+    monkeypatch.setattr(cli.tdb, "claim_next", fake_claim)
+    monkeypatch.setattr(cli.tdb, "heartbeat", lambda *a, **k: None)
+    cfg.retry_failed = True
+    cli.run_loop(_Conn(), None, cfg, stop_flag=_NoStop())
+    assert seen["retry_failed"] is True

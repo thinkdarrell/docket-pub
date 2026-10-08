@@ -41,6 +41,7 @@ class Turn:
     speaker_member_id: int | None
     cluster_label: str | None
     texts: list[str] = field(default_factory=list)
+    seqs: list[int] = field(default_factory=list)
     agenda_item_id: int | None = None
     is_silence: bool = False
 
@@ -123,7 +124,7 @@ def group_turns(segments: list[dict], confidence_floor: float = SPEAKER_CONFIDEN
     for seg in segments:
         if seg.get("is_silence"):
             turns.append(Turn(f"t-{seg['seq']}", seg["start_s"], seg["end_s"], "", None, None,
-                              [], seg.get("agenda_item_id"), True))
+                              [], [], seg.get("agenda_item_id"), True))
             continue
         label, member_id = _label(seg, ordinals, confidence_floor)
         last = turns[-1] if turns else None
@@ -133,10 +134,11 @@ def group_turns(segments: list[dict], confidence_floor: float = SPEAKER_CONFIDEN
             # A change of agenda item starts a new turn so item_anchor_map can
             # point at the exact turn where the item begins.
             last.texts.append(seg["text"])
+            last.seqs.append(seg["seq"])
             last.end_s = seg["end_s"]
             continue
         turns.append(Turn(f"t-{seg['seq']}", seg["start_s"], seg["end_s"], label, member_id,
-                          seg.get("cluster_label"), [seg["text"]], seg.get("agenda_item_id")))
+                          seg.get("cluster_label"), [seg["text"]], [seg["seq"]], seg.get("agenda_item_id")))
     return turns
 
 

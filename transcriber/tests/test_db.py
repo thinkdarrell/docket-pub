@@ -166,3 +166,14 @@ def test_heartbeat_upserts(conn):
 def test_roster_for_meeting_returns_names(conn, bham_meeting):
     names = tdb.roster_for_meeting(conn, bham_meeting)
     assert isinstance(names, list) and all(isinstance(n, str) for n in names)
+
+
+def test_failed_row_is_claimable_only_with_retry_failed(conn, bham_meeting):
+    c = tdb.claim_next(conn, since=SINCE, host="legion")
+    tdb.mark_status(conn, c.transcript_id, "failed", error="granicus outage")
+    conn.commit()
+    assert tdb.claim_next(conn, since=SINCE, host="legion") is None
+    conn.commit()
+    c2 = tdb.claim_next(conn, since=SINCE, host="legion-2", retry_failed=True)
+    conn.commit()
+    assert c2 is not None and c2.transcript_id == c.transcript_id and c2.status == "claimed"

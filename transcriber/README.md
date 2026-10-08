@@ -35,7 +35,9 @@ happens on the Railway worker.
 The run stops after 5 consecutive failures (`--max-consecutive-failures`, env `TRANSCRIBER_MAX_CONSECUTIVE_FAILURES`).
 Ctrl-C finishes the current meeting and exits. Re-running is always safe: a
 meeting left in `transcribed` uploads without touching the GPU; a claim older
-than six hours is reclaimed.
+than six hours is reclaimed. Failed meetings are not reclaimed automatically.
+
+`--retry-failed` (env `TRANSCRIBER_RETRY_FAILED`) re-queues meetings marked failed (for example after a Granicus outage); `low_speech` meetings are terminal by design and are not retried.
 
 Task Scheduler (optional): a basic task "At log on" running
 `docker compose -f C:\path\to\transcriber\docker-compose.yml run --rm transcriber --max-hours 4`.

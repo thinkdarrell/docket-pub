@@ -50,6 +50,7 @@ _CANDIDATE_SQL = """
          OR (t.status = 'transcribed'
              AND (t.producer_host = %(host)s
                   OR t.claimed_at < now() - make_interval(hours => %(stale)s)))
+         OR (t.status = 'failed' AND %(retry_failed)s)
          OR (t.status IN ('claimed', 'audio_fetched')
              AND t.claimed_at < now() - make_interval(hours => %(stale)s))
        )
@@ -58,10 +59,12 @@ _CANDIDATE_SQL = """
 """
 
 
-def claim_next(conn, *, since: date, host: str, stale_after_hours: int = 6) -> Claim | None:
+def claim_next(conn, *, since: date, host: str, stale_after_hours: int = 6,
+               retry_failed: bool = False) -> Claim | None:
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("SELECT pg_advisory_xact_lock(hashtext('transcriber_claim'))")
-        cur.execute(_CANDIDATE_SQL, {"since": since, "stale": stale_after_hours, "host": host})
+        cur.execute(_CANDIDATE_SQL, {"since": since, "stale": stale_after_hours, "host": host,
+                                    "retry_failed": retry_failed})
         row = cur.fetchone()
         if row is None:
             return None

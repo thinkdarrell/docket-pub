@@ -43,6 +43,7 @@ class Config:
     dry_run_file: str | None
     version: str
     max_consecutive_failures: int = 5
+    retry_failed: bool = False
 
 
 class _Stop:
@@ -150,7 +151,7 @@ def run_loop(conn, engine: Engine, cfg: Config, *, clock=time.monotonic, stop_fl
         if cfg.max_hours is not None and (clock() - started) > cfg.max_hours * 3600:
             log.info("max-hours reached; stopping")
             break
-        claim = tdb.claim_next(conn, since=cfg.since, host=cfg.host)
+        claim = tdb.claim_next(conn, since=cfg.since, host=cfg.host, retry_failed=cfg.retry_failed)
         conn.commit()
         if claim is None:
             log.info("nothing to claim")
@@ -195,6 +196,9 @@ def main(argv=None) -> int:
     ap.add_argument("--dry-run", metavar="FILE_OR_URL", default=None)
     ap.add_argument("--max-consecutive-failures", type=int,
                     default=int(os.environ.get("TRANSCRIBER_MAX_CONSECUTIVE_FAILURES", "5")))
+    ap.add_argument("--retry-failed", action="store_true",
+                    default=os.environ.get("TRANSCRIBER_RETRY_FAILED", "").lower() in ("1", "true", "yes"),
+                    help="re-queue meetings marked failed")
     ap.add_argument("--model", default=os.environ.get("TRANSCRIBER_MODEL", "large-v3"))
     ap.add_argument("--device", default=os.environ.get("TRANSCRIBER_DEVICE", "cuda"))
     ap.add_argument("--compute-type", default=os.environ.get("TRANSCRIBER_COMPUTE", "float16"))
@@ -208,8 +212,16 @@ def main(argv=None) -> int:
         archive_dir=Path(os.environ.get("TRANSCRIBER_ARCHIVE_DIR", "/archive/transcripts")),
         dry_run_file=args.dry_run, version=__version__,
         max_consecutive_failures=args.max_consecutive_failures,
+        retry_failed=args.retry_failed,
     )
     cfg.work_dir.mkdir(parents=True, exist_ok=True)
+
+    url = os.environ.get("TRANSCRIBER_DATABASE_URL")
+    if not args.dry_run:
+        if not url:
+            ap.error("TRANSCRIBER_DATABASE_URL is not set")
+        if "sslmode=require" not in url:
+            ap.error("TRANSCRIBER_DATABASE_URL must include sslmode=require")
 
     from .engine import FasterWhisperEngine
     engine = FasterWhisperEngine(model_size=args.model, device=args.device,
@@ -220,11 +232,6 @@ def main(argv=None) -> int:
         print(dry_run(engine, args.dry_run, cfg))
         return 0
 
-    url = os.environ.get("TRANSCRIBER_DATABASE_URL")
-    if not url:
-        ap.error("TRANSCRIBER_DATABASE_URL is not set")
-    if "sslmode=require" not in url:
-        ap.error("TRANSCRIBER_DATABASE_URL must include sslmode=require")
     conn = tdb.connect(url)
     try:
         counts = run_loop(conn, engine, cfg)

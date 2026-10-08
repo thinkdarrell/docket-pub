@@ -41,14 +41,14 @@
         <a class="t-meta link" href="{{ chapter_url(meeting.video_url, items_by_id[item_id].external_id) }}" target="_blank" rel="noreferrer">video chapter ↗</a>
         {% endif %}
       </div>
-      <p class="transcript-text">{{ turn.text }}</p>
+      <p class="transcript-text">{% for text in turn.texts %}{% set seq = turn.seqs[loop.index0] %}<span{% if not loop.first %} id="t-{{ seq }}"{% endif %}>{{ text }}</span>{% if not loop.last %} {% endif %}{% endfor %}</p>
     </li>
     {% endif %}
   {% endfor %}
   </ol>
 </div>
 <style>
-  .transcript-turn:target { background: var(--color-highlight, #fff6d5); }
+  .transcript-turn:target, .transcript-turn:has(:target) { background: var(--color-highlight, #fff6d5); }
   .transcript-turns { list-style: none; padding: 0; margin: 0; }
   .transcript-turn { padding: 10px 0; border-bottom: 1px solid var(--color-rule, #e5e5e5); }
   .transcript-turn-head { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }

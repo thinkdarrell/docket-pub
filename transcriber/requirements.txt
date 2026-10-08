@@ -1,5 +1,5 @@
-faster-whisper>=1.1
-pyannote.audio>=3.1
+faster-whisper>=1.1,<2
+pyannote.audio>=3.1,<4
 torch>=2.6
 torchaudio>=2.6
 psycopg2-binary>=2.9

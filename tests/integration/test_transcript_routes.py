@@ -68,7 +68,8 @@ def test_full_page_renders_label_turns_and_anchors(client, meeting_with_transcri
     html = r.get_data(as_text=True)
     assert r.status_code == 200
     assert "Machine-generated transcript" in html and "large-v3" in html
-    assert 'id="t-0"' in html and 'id="t-2"' in html and 'id="t-1"' not in html
+    assert 'id="t-0"' in html and 'id="t-2"' in html
+    assert html.count('id="t-0"') == 1
     assert "Darrell O'Quinn" in htmllib.unescape(html) and "Speaker 2" in html
     assert f'id="item-{fx["item_id"]}"' in html
     assert "55:09" in html                      # 3309 s formatted by format_timestamp
@@ -180,3 +181,28 @@ def test_data_debt_low_speech_only_counts_on_long_recordings(client, meeting_wit
         cur.execute("UPDATE transcripts SET audio_duration_s=5400 WHERE id=%s", [fx["transcript_id"]])
     html = client.get("/al/birmingham/data-debt").get_data(as_text=True)
     assert "No usable audio" in html and "TR test" in html   # 90 minutes of video, no speech: debt
+
+
+def test_merged_segment_has_its_own_anchor(client, meeting_with_transcript):
+    fx = meeting_with_transcript; _publish(fx["transcript_id"])
+    html = client.get(f"/al/birmingham/meetings/{fx['meeting_id']}/transcript/").get_data(as_text=True)
+    assert '<span id="t-1">I would like a summary.</span>' in html
+    assert html.count('id="t-1"') == 1
+
+
+def test_transcript_404_for_wrong_municipality_and_hidden_meeting(client, meeting_with_transcript):
+    fx = meeting_with_transcript; _publish(fx["transcript_id"])
+    mid = fx["meeting_id"]
+    with db_cursor() as cur:
+        cur.execute("SELECT slug FROM municipalities WHERE active = TRUE AND slug <> 'birmingham' LIMIT 1")
+        other = cur.fetchone()
+    assert client.get(f"/al/birmingham/meetings/{mid}/transcript/").status_code == 200
+    if other:
+        assert client.get(f"/al/{other['slug']}/meetings/{mid}/transcript/").status_code == 404
+    with db_cursor() as cur:
+        cur.execute("UPDATE meetings SET is_hidden = TRUE WHERE id = %s", [mid])
+    try:
+        assert client.get(f"/al/birmingham/meetings/{mid}/transcript/").status_code == 404
+    finally:
+        with db_cursor() as cur:
+            cur.execute("UPDATE meetings SET is_hidden = FALSE WHERE id = %s", [mid])

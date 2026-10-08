@@ -35,9 +35,10 @@ def searchable():
         sid = cur.fetchone()["id"]
         cur.execute("""INSERT INTO transcript_segments (transcript_id, seq, start_s, end_s, text, cluster_label, speaker_id)
                        VALUES (%s, 0, 10, 14, 'the agreement is not in the packet', 'S0', %s),
-                              (%s, 1, 14, 20, 'license plate reader cameras give access', 'S1', NULL),
-                              (%s, 2, 20, 90, '', NULL, NULL)""", [tid, sid, tid, tid])
-        cur.execute("UPDATE transcript_segments SET is_silence = TRUE WHERE transcript_id=%s AND seq=2", [tid])
+                              (%s, 1, 14, 17, 'the packet contract was amended', 'S0', %s),
+                              (%s, 2, 17, 20, 'license plate reader cameras give access', 'S1', NULL),
+                              (%s, 3, 20, 90, '', NULL, NULL)""", [tid, sid, tid, sid, tid, tid])
+        cur.execute("UPDATE transcript_segments SET is_silence = TRUE WHERE transcript_id=%s AND seq=3", [tid])
     yield {"meeting_id": mid}
     with db_cursor() as cur:
         cur.execute("DELETE FROM meetings WHERE id = %s", [mid])
@@ -47,12 +48,12 @@ def test_text_search_returns_headline_and_anchor(searchable):
     rows = tsvc.search_transcripts("license plate", municipality_slug="birmingham", speaker=None)
     hit = next(r for r in rows if r["meeting_id"] == searchable["meeting_id"])
     assert "<mark>license</mark>" in hit["headline"]
-    assert hit["anchor_url"].endswith(f"/meetings/{searchable['meeting_id']}/transcript/#t-1")
+    assert hit["anchor_url"].endswith(f"/meetings/{searchable['meeting_id']}/transcript/#t-2")
 
 
 def test_speaker_filter_with_text(searchable):
     rows = tsvc.search_transcripts("packet", municipality_slug="birmingham", speaker="oquinn")
-    assert [r["seq"] for r in rows if r["meeting_id"] == searchable["meeting_id"]] == [0]
+    assert [r["seq"] for r in rows if r["meeting_id"] == searchable["meeting_id"]] == [0, 1]
 
 
 def test_speaker_only_query_has_no_sql_error_and_returns_turns(searchable):
@@ -65,20 +66,30 @@ def test_headline_escapes_html_in_transcript_text(searchable):
         cur.execute("SELECT id FROM transcripts WHERE meeting_id=%s", [searchable["meeting_id"]])
         tid = cur.fetchone()["id"]
         cur.execute("""INSERT INTO transcript_segments (transcript_id, seq, start_s, end_s, text, cluster_label)
-                       VALUES (%s, 3, 95, 99, 'fee is <b>less</b> than 5 & <script>x</script> per license', 'S1')""",
+                       VALUES (%s, 4, 95, 99, 'fee is <b>less</b> than 5 & <script>x</script> per license', 'S1')""",
                     [tid])
     # ts_headline path
     rows = tsvc.search_transcripts("license", municipality_slug="birmingham", speaker=None)
-    hit = next(r for r in rows if r["meeting_id"] == searchable["meeting_id"] and r["seq"] == 3)
+    hit = next(r for r in rows if r["meeting_id"] == searchable["meeting_id"] and r["seq"] == 4)
     assert "<script>" not in hit["headline"] and "&lt;script&gt;" in hit["headline"]
     assert "&amp;" in hit["headline"] and "<mark>license</mark>" in hit["headline"]
     # left(text, 240) fallback path
     rows = tsvc.search_transcripts("", municipality_slug="birmingham", speaker=None)
-    hit = next(r for r in rows if r["meeting_id"] == searchable["meeting_id"] and r["seq"] == 3)
+    hit = next(r for r in rows if r["meeting_id"] == searchable["meeting_id"] and r["seq"] == 4)
     assert "<script>" not in hit["headline"] and "&lt;b&gt;less&lt;/b&gt;" in hit["headline"]
 
 
 def test_search_page_renders_transcript_section(client, searchable):
     html = client.get("/search?q=license+plate&city=birmingham").get_data(as_text=True)
     assert "From transcripts" in html
-    assert f"/meetings/{searchable['meeting_id']}/transcript/#t-1" in html
+    assert f"/meetings/{searchable['meeting_id']}/transcript/#t-2" in html
+
+
+def test_mid_turn_hit_anchor_exists_on_page(client, searchable):
+    mid = searchable["meeting_id"]
+    rows = tsvc.search_transcripts("amended", municipality_slug="birmingham", speaker=None)
+    hit = next(r for r in rows if r["meeting_id"] == mid)
+    assert hit["anchor_url"].endswith("#t-1")
+    fragment = hit["anchor_url"].split("#", 1)[1]
+    page = client.get(f"/al/birmingham/meetings/{mid}/transcript/").get_data(as_text=True)
+    assert f'id="{fragment}"' in page
