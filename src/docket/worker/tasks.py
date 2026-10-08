@@ -85,6 +85,63 @@ def _do_ai_meetings() -> None:
         log.info("ai_meetings skipped: %s", e)
 
 
+def _do_recast_post_meeting_ai() -> dict[str, int]:
+    """Re-queue forward-voice AI text for meetings that have happened.
+
+    Items are rewritten in "the council will consider" voice while a
+    meeting is upcoming. Once the meeting date is in the past (Chicago
+    calendar day) and the meeting left evidence it convened (video or
+    minutes), the items go back to ``pending`` so ``ai_items`` rewrites
+    them in completed voice, and the meeting's summary version/phase are
+    dropped so ``ai_meetings`` rebuilds the summary from the new item
+    text once they settle. A summary that is itself still in upcoming
+    voice is cleared outright; a completed-voice one stays on the page
+    until the replacement lands. Past meetings with no evidence are
+    assumed cancelled and left alone.
+
+    Spec: docs/superpowers/specs/2026-05-18-upcoming-meeting-forward-voice-design.md
+    """
+    with db_cursor() as cur:
+        cur.execute("""
+            UPDATE agenda_items
+               SET processing_status  = 'pending'::processing_status_enum,
+                   ai_rewrite_version = NULL,
+                   ai_rewrite_voice   = NULL
+             WHERE id IN (
+                 SELECT ai.id
+                   FROM agenda_items ai
+                   JOIN meetings m ON m.id = ai.meeting_id
+                  WHERE ai.ai_rewrite_voice = 'upcoming'
+                    -- Phase C records the voice on cross_stage_conflict
+                    -- rows too; those stay in the admin review queue.
+                    AND ai.processing_status = 'completed'::processing_status_enum
+                    AND m.is_hidden = FALSE
+                    AND m.meeting_date < (NOW() AT TIME ZONE 'America/Chicago')::date
+                    AND (m.video_url IS NOT NULL OR m.minutes_url IS NOT NULL)
+             )
+            RETURNING meeting_id
+        """)
+        meeting_ids = sorted({row["meeting_id"] for row in cur.fetchall()})
+        items_reset = cur.rowcount
+
+        cur.execute("""
+            UPDATE meetings
+               SET ai_prompt_version       = NULL,
+                   ai_metadata             = COALESCE(ai_metadata, '{}'::jsonb) - 'phase' - 'confidence',
+                   executive_summary       = CASE WHEN executive_summary_voice = 'upcoming'
+                                                  THEN NULL ELSE executive_summary END,
+                   executive_summary_voice = CASE WHEN executive_summary_voice = 'upcoming'
+                                                  THEN NULL ELSE executive_summary_voice END
+             WHERE (id = ANY(%s) OR executive_summary_voice = 'upcoming')
+               AND is_hidden = FALSE
+               AND meeting_date < (NOW() AT TIME ZONE 'America/Chicago')::date
+               AND (video_url IS NOT NULL OR minutes_url IS NOT NULL)
+        """, (meeting_ids,))
+        meetings_reset = cur.rowcount
+    log.info("recast_post_meeting_ai items=%d meetings=%d", items_reset, meetings_reset)
+    return {"items": items_reset, "meetings": meetings_reset}
+
+
 def _do_vote_matching() -> None:
     result = match_all_unmatched()
     log.info(
@@ -340,6 +397,7 @@ TASKS: dict[str, Callable[[], None]] = {
     "video_ocr": task_video_ocr,
     "ai_items": task_ai_items,
     "ai_meetings": task_ai_meetings,
+    "recast_post_meeting_ai": lambda: _safe_run("recast_post_meeting_ai", _do_recast_post_meeting_ai),
     "vote_matching": task_vote_matching,
     "process_badges": task_process_badges,
     "calibration_report": task_calibration_report,

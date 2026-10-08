@@ -13,6 +13,7 @@ documented in `~/docket-pub/CLAUDE.md`).
 |---|---|---|---|
 | `repair_empty_agendas` | Mon 05:00 | `HEALTHCHECK_REPAIR_UUID` | Clears stuck `agenda_items_scraped` flags |
 | `refresh_backfill_ratio_mv` | Daily 04:30 | `HEALTHCHECK_REFRESH_BACKFILL_RATIO_UUID` | Refreshes `mv_city_backfill_ratio` (concurrent) |
+| `recast_post_meeting_ai` | Daily 04:45 | `HEALTHCHECK_RECAST_POST_MEETING_UUID` (optional) | Re-queues forward-voice items + summary once a meeting is past and has video/minutes |
 | `prune_analytics` | Day 1, 04:00 (monthly) | `HEALTHCHECK_PRUNE_ANALYTICS_UUID` *(silent-by-design)* | Drops Umami events older than 24 months |
 | `ingest_all` | Daily 06:00 | `HEALTHCHECK_INGEST_UUID` | Loops all municipalities; per-city failure isolation |
 | `video_ocr` | Daily 06:30 | `HEALTHCHECK_VIDEO_OCR_UUID` | Claim pattern; 3-attempt cap; 60-day window |
@@ -86,6 +87,7 @@ railway ssh --service worker
 # now inside the container
 python -m docket.worker.scheduler --run-once repair_empty_agendas
 python -m docket.worker.scheduler --run-once refresh_backfill_ratio_mv
+python -m docket.worker.scheduler --run-once recast_post_meeting_ai
 python -m docket.worker.scheduler --run-once ingest_all
 python -m docket.worker.scheduler --run-once video_ocr
 python -m docket.worker.scheduler --run-once ai_items

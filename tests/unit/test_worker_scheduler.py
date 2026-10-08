@@ -15,6 +15,7 @@ def test_build_scheduler_registers_all_jobs():
         "ingest_all", "video_ocr", "ai_items", "ai_meetings", "vote_matching",
         "repair_empty_agendas", "process_badges", "calibration_report",
         "process_batches", "refresh_backfill_ratio_mv", "prune_analytics",
+        "recast_post_meeting_ai",
     }
 
 
@@ -40,6 +41,7 @@ def test_build_scheduler_uses_supplied_timezone():
     ("process_badges",       9),
     ("calibration_report",  11),
     ("prune_analytics",      4),
+    ("recast_post_meeting_ai", 4),
 ])
 def test_build_scheduler_job_hours(job_id, expected_hour):
     sched = scheduler.build_scheduler(timezone="America/Chicago")
