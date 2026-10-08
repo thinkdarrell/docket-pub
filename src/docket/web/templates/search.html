@@ -54,6 +54,18 @@
 
 {# ── Results ─────────────────────────────────────── #}
 {% if query %}
+    {% if transcript_hits %}
+    <section class="feed">
+        <div class="feed-head"><div>
+            <div class="t-eyebrow">From transcripts</div>
+            <h2 class="feed-title t-display" style="font-size: 24px;">What was said</h2>
+            <div class="t-meta">Tip: add <code>speaker:name</code> to filter by who said it.</div>
+        </div></div>
+        <ul class="search-transcript-hits" style="list-style:none; padding:0;">
+        {% for hit in transcript_hits %}{% include 'partials/search_transcript_hit.html' %}{% endfor %}
+        </ul>
+    </section>
+    {% endif %}
     {% if results %}
     <section class="feed">
         <header class="feed-head">
@@ -73,7 +85,7 @@
         {% endwith %}
     </section>
     {% include 'partials/pagination_controls.html' %}
-    {% else %}
+    {% elif not transcript_hits %}
     <section class="feed">
         <div class="feed-head">
             <div>

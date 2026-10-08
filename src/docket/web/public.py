@@ -988,6 +988,15 @@ def search():
             offset=offset,
         )
 
+    from docket.services import transcripts as tsvc
+    transcript_hits: list[dict] = []
+    if q:
+        clean_q, speaker = tsvc.parse_speaker_token(q)
+        if clean_q or speaker:
+            transcript_hits = tsvc.search_transcripts(
+                clean_q, municipality_slug=city, speaker=speaker, limit=10, offset=offset // 2,
+            )
+
     # has_next via row-count heuristic (no separate COUNT query). After
     # the AI backfill ramps result counts up, an explicit COUNT on every
     # search hit would be wasteful — the heuristic costs nothing and
@@ -1012,6 +1021,7 @@ def search():
         "search.html",
         query=q,
         results=results,
+        transcript_hits=transcript_hits,
         city=city,
         municipalities=municipalities,
         page=page,

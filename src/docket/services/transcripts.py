@@ -8,6 +8,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+import re as _re
+
+from markupsafe import Markup, escape
 
 from docket.db import db_cursor
 
@@ -183,3 +186,90 @@ def excerpt_for_item(item_id: int, max_turns: int = 4) -> dict | None:
         "anchor": turns[0].anchor,
         "truncated": len(turns) > max_turns,
     }
+
+
+_SPEAKER_RE = _re.compile(r'\bspeaker:(?:"([^"]+)"|(\S+))', _re.IGNORECASE)
+
+
+def parse_speaker_token(q: str) -> tuple[str, str | None]:
+    m = _SPEAKER_RE.search(q)
+    if not m:
+        return q.strip(), None
+    speaker = m.group(1) or m.group(2)
+    rest = (q[:m.start()] + q[m.end():]).strip()
+    return _re.sub(r"\s{2,}", " ", rest), speaker
+
+
+_SPEAKER_NAME = "COALESCE(cm.name, sp.display_name)"
+_PRE_ESCAPED_TEXT = "replace(replace(replace(s.text, '&', '&amp;'), '<', '&lt;'), '>', '&gt;')"
+
+
+def search_transcripts(q: str, *, municipality_slug: str | None, speaker: str | None,
+                       limit: int = 10, offset: int = 0) -> list[dict]:
+    where = ["mu.active = TRUE", "m.is_hidden = FALSE", "t.status = ANY(%s)", "s.is_silence = FALSE"]
+    params: list = [list(PUBLIC_STATUSES)]
+    if municipality_slug:
+        where.append("mu.slug = %s"); params.append(municipality_slug)
+    if speaker:
+        # Fuzzy trigram match (typos) OR punctuation-insensitive substring
+        # ("oquinn" must find "Darrell O'Quinn"). %% is psycopg2's literal %.
+        where.append(
+            f"({_SPEAKER_NAME} %% %s"
+            f" OR regexp_replace(lower({_SPEAKER_NAME}), '[^a-z0-9]', '', 'g')"
+            f" LIKE '%%' || regexp_replace(lower(%s), '[^a-z0-9]', '', 'g') || '%%')"
+        )
+        params.extend([speaker, speaker])
+    if q:
+        where.append("s.search_vector @@ websearch_to_tsquery('english', %s)"); params.append(q)
+        select_rank = "ts_rank(s.search_vector, websearch_to_tsquery('english', %s)) AS rank,"
+        # Postgres' headline parser silently drops <tags> and keeps entities,
+        # so feed it entity-escaped text; _safe_headline then must not re-escape.
+        pre_escaped = True
+        headline = (f"ts_headline('english', {_PRE_ESCAPED_TEXT}, websearch_to_tsquery('english', %s), "
+                    "'MaxWords=40, MinWords=20, StartSel=[[HL]], StopSel=[[/HL]]') AS headline")
+        head_params = [q, q]
+        order = "ORDER BY rank DESC, m.meeting_date DESC, s.seq"
+    else:
+        select_rank = "0::float AS rank,"
+        pre_escaped = False
+        headline = "left(s.text, 240) AS headline"
+        head_params = []
+        order = "ORDER BY m.meeting_date DESC, s.seq"
+    with db_cursor() as cur:
+        cur.execute(
+            f"""SELECT m.id AS meeting_id, mu.slug AS municipality_slug, m.title AS meeting_title,
+                       m.meeting_date, s.seq, s.start_s,
+                       {_SPEAKER_NAME} AS speaker_name,
+                       {select_rank}
+                       {headline}
+                  FROM transcript_segments s
+                  JOIN transcripts t ON t.id = s.transcript_id
+                  JOIN meetings m ON m.id = t.meeting_id
+                  JOIN municipalities mu ON mu.id = m.municipality_id
+                  LEFT JOIN transcript_speakers sp ON sp.id = s.speaker_id
+                  LEFT JOIN council_members cm ON cm.id = sp.council_member_id
+                 WHERE {' AND '.join(where)}
+                 {order}
+                 LIMIT %s OFFSET %s""",
+            [*head_params, *params, limit, offset],
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+    for r in rows:
+        r["headline"] = _safe_headline(r["headline"] or "", pre_escaped=pre_escaped)
+        r["anchor_url"] = f"/al/{r['municipality_slug']}/meetings/{r['meeting_id']}/transcript/#t-{r['seq']}"
+    return rows
+
+
+_HL_OPEN, _HL_CLOSE = "[[HL]]", "[[/HL]]"
+
+
+def _safe_headline(raw: str, *, pre_escaped: bool = False) -> Markup:
+    """Escape transcript text, then turn the ts_headline markers into <mark>.
+
+    ts_headline does not HTML-escape the document, and the no-text-query path
+    is a plain left(text, 240). Both go through here, so a transcript with
+    '<' or '&' can never inject markup. Returns Markup: the template needs
+    no `| safe`.
+    """
+    escaped = raw if pre_escaped else str(escape(raw))
+    return Markup(escaped.replace(_HL_OPEN, "<mark>").replace(_HL_CLOSE, "</mark>"))
