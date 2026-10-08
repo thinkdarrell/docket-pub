@@ -26,6 +26,9 @@ TASK_UUID_ENV: dict[str, str] = {
     "process_badges": "HEALTHCHECK_PROCESS_BADGES_UUID",
     "calibration_report": "HEALTHCHECK_CALIBRATION_UUID",
     "process_batches": "HEALTHCHECK_PROCESS_BATCHES_UUID",
+    # Optional; ping() short-circuits when unset. Failure mode is items
+    # staying in forward voice one more day.
+    "recast_post_meeting_ai": "HEALTHCHECK_RECAST_POST_MEETING_UUID",
     # No Healthchecks UUID configured for the MV refresh — failure
     # mode is local (one-day stale ratio) and self-recovers. The map
     # entry is here so ping() in _safe_run() doesn't KeyError; ping()

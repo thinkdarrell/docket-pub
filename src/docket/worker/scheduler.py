@@ -118,6 +118,17 @@ def build_scheduler(timezone: str = "America/Chicago") -> BlockingScheduler:
         coalesce=True,
         max_instances=1,
     )
+    # Re-queue forward-voice AI text the morning after a meeting happens
+    # (evidence-gated on video_url / minutes_url). Runs before ai_items
+    # (07:00) so the reset items are rewritten the same morning.
+    # Spec: docs/superpowers/specs/2026-05-18-upcoming-meeting-forward-voice-design.md
+    sched.add_job(
+        TASKS["recast_post_meeting_ai"],
+        CronTrigger(hour=4, minute=45, timezone=timezone),
+        id="recast_post_meeting_ai",
+        coalesce=True,
+        max_instances=1,
+    )
     return sched
 
 
