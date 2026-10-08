@@ -1,0 +1,11 @@
+services:
+  transcriber:
+    build: .
+    env_file: .env
+    gpus: all
+    volumes:
+      - models:/models                       # named volume: model cache, downloaded once
+      - ${ARCHIVE_HOST_DIR:-C:/docket-archive}:/archive   # host bind mount: work + JSON archive
+    shm_size: "2gb"
+volumes:
+  models:
