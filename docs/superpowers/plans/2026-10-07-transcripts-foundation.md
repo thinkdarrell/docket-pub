@@ -24,7 +24,8 @@
 - Zombie claims are released after 6 hours, inside the claim query.
 - The resolved speaker name is never part of `transcript_segments.search_vector`.
 - Public transcript pages carry the label "Machine-generated transcript" naming the ASR model and linking to `/about/how-we-read-minutes/`.
-- Clusters with `confidence < 0.6` or no resolved name display as "Speaker N" where N is the cluster ordinal.
+- Clusters with `confidence < 0.6` or no resolved name display as "Speaker N" where N is the cluster's ordinal by first appearance over the whole meeting. The same cluster gets the same N on the transcript page, the item excerpt, and anywhere else.
+- Transcript text is never marked `| safe` in a template. Search headlines are escaped in Python and the highlight markers swapped for `<mark>` afterwards.
 - Commits in this repo use `git -c user.email=hello@docket.pub` (house rule) and end with `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`.
 - Run tests with `pytest` from the repo root; integration tests need a local `DATABASE_URL` with migrations applied. Producer tests run with `pytest transcriber/tests`.
 
@@ -45,7 +46,7 @@ Inputs the spec implies but no obvious task test covers, most likely to bite fir
 - `src/docket/migrations/runner.py` — register 035 (Task 1)
 - `scripts/sql/create_transcriber_role.sql` — role and grants, run once by an operator (Task 2)
 - `tests/fixtures/transcript_pilot/` — pilot transcript, minutes text, `expected.json`, README (Task 3)
-- `src/docket/services/transcripts.py` — read-side helpers: `get_transcript`, `list_segments`, `group_turns`, `excerpt_for_item`, `search_transcripts`, `parse_speaker_token`, `list_transcript_debt` (Tasks 10–13)
+- `src/docket/services/transcripts.py` — read-side helpers: `get_public_transcript`, `list_segments`, `speaker_ordinals`, `group_turns`, `excerpt_for_item`, `search_transcripts`, `parse_speaker_token`, `list_transcript_debt` (Tasks 10–13)
 - `src/docket/web/public.py` — new route `meeting_transcript`; `item_detail` and `search` and `data_debt` gain context (Tasks 10–13)
 - `src/docket/web/templates/transcript.html`, `partials/transcript_body.html`, `partials/transcript_excerpt.html`, `partials/search_transcript_hit.html` (Tasks 10–12)
 - `src/docket/web/templates/meeting_detail.html`, `item_detail.html`, `search.html`, `data_debt.html` — small additions (Tasks 10–13)
@@ -761,13 +762,14 @@ Expected: FAIL with `ModuleNotFoundError: transcriber`.
 
 ```
 faster-whisper>=1.1
-whisperx>=3.3
 pyannote.audio>=3.1
 torch>=2.6
 torchaudio>=2.6
 psycopg2-binary>=2.9
 python-dotenv>=1.0
 ```
+
+WhisperX is deliberately absent. The WhisperX fallback engine is a follow-up task, and `whisperx` pins its own torch, ctranslate2, and faster-whisper versions, which would fight the CUDA 12.8 torch index in the Dockerfile and roughly double the image. Add it in the task that writes the fallback engine, not before.
 
 `transcriber/requirements-dev.txt`:
 
@@ -1854,6 +1856,10 @@ class FasterWhisperEngine:
             return result
 
     def _diarize(self, wav: Path):
+        # pyannote.audio 3.1.x: SpeakerDiarization.apply(file, ..., return_embeddings=False)
+        # returns (Annotation, ndarray[n_speakers, dim]) when True, and Pipeline.__call__
+        # forwards **kwargs to apply(). Verified against tags 3.1.0 and 3.1.1. The
+        # embeddings row order matches diar.labels().
         diar, embeddings = self._pipeline(str(wav), return_embeddings=True)
         turns = [DiarTurn(float(seg.start), float(seg.end), label)
                  for seg, _, label in diar.itertracks(yield_label=True)]
@@ -2428,7 +2434,8 @@ Follow README steps 1–7 on the desktop. Record the `bringup.sh` output (device
   - `get_public_transcript(meeting_id: int) -> Transcript | None` — only statuses in `PUBLIC_STATUSES = ('uploaded', 'speakers_resolved', 'events_extracted', 'compared')`.
   - `list_segments(transcript_id: int) -> list[dict]` with keys `seq, start_s, end_s, text, cluster_label, is_silence, agenda_item_id, speaker_name, speaker_confidence, speaker_member_id`.
   - `Turn` dataclass: `anchor: str ("t-<first seq>"), start_s, end_s, speaker_label, speaker_member_id, cluster_label, texts: list[str], agenda_item_id, is_silence`.
-  - `group_turns(segments: list[dict], confidence_floor: float = 0.6) -> list[Turn]` — pure; consecutive segments with the same `cluster_label` merge; a silence row is its own turn; `speaker_label` is the resolved name when `speaker_confidence >= floor` else `"Speaker N"` where N is the 1-based ordinal of first appearance of that cluster.
+  - `speaker_ordinals(transcript_id: int) -> dict[str, int]` — `cluster_label → N`, 1-based, by first appearance over every non-silence segment of the meeting. One GROUP BY query.
+  - `group_turns(segments: list[dict], confidence_floor: float = 0.6, ordinals: dict[str, int] | None = None) -> list[Turn]` — pure; consecutive segments with the same `cluster_label` merge; a silence row is its own turn; `speaker_label` is the resolved name when `speaker_confidence >= floor` else `"Speaker N"`. N comes from `ordinals` when given (the excerpt passes `speaker_ordinals(...)`), otherwise from first appearance within `segments` (the full page, where both agree). Clusters missing from a supplied map are appended after it.
   - `item_anchor_map(turns, agenda_items) -> dict[int, str]` — first turn anchor per `agenda_item_id`, so the page can emit `id="item-N"` at the right turn.
 - Route: `GET /al/<slug>/meetings/<int:meeting_id>/transcript/` → 404 unless `get_public_transcript` returns a row. Returns `partials/transcript_body.html` alone when the request carries the `HX-Request` header, otherwise the full `transcript.html`.
 
@@ -2474,6 +2481,16 @@ def test_item_anchor_map_takes_first_turn_per_item():
             _seg(2, 4, 6, "c", "S1", item=9)]
     turns = group_turns(segs)
     assert item_anchor_map(turns) == {7: "t-0", 9: "t-2"}
+
+
+def test_seeded_ordinals_keep_whole_meeting_numbering():
+    # An excerpt sees only a slice; with the meeting-wide map S2 stays "Speaker 3".
+    slice_ = [_seg(40, 100, 102, "x", "S2"), _seg(41, 102, 104, "y", "S0")]
+    turns = group_turns(slice_, ordinals={"S0": 1, "S1": 2, "S2": 3})
+    assert [t.speaker_label for t in turns] == ["Speaker 3", "Speaker 1"]
+    # A cluster the map does not know is appended, never renumbered over an existing one.
+    turns = group_turns([_seg(50, 110, 112, "z", "S9")], ordinals={"S0": 1})
+    assert turns[0].speaker_label == "Speaker 2"
 ```
 
 - [ ] **Step 2: Run to verify failure**
@@ -2562,11 +2579,30 @@ def list_segments(transcript_id: int) -> list[dict]:
         return [dict(r) for r in cur.fetchall()]
 
 
+def speaker_ordinals(transcript_id: int) -> dict[str, int]:
+    """cluster_label -> 1-based ordinal by first appearance over the whole meeting.
+
+    The transcript page and the item excerpt both number unresolved speakers
+    from this map, so "Speaker 3" means the same voice on every surface.
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            """SELECT cluster_label, MIN(seq) AS first_seq
+                 FROM transcript_segments
+                WHERE transcript_id = %s AND is_silence = FALSE AND cluster_label IS NOT NULL
+                GROUP BY cluster_label
+                ORDER BY first_seq""",
+            [transcript_id],
+        )
+        return {r["cluster_label"]: i + 1 for i, r in enumerate(cur.fetchall())}
+
+
 def _label(seg: dict, ordinals: dict[str, int], floor: float) -> tuple[str, int | None]:
     """Resolved name when confident (or manual), else "Speaker N".
 
     N is the cluster's ordinal by first appearance among ALL clusters, resolved
     or not, so the number is stable when a correction later resolves a cluster.
+    A cluster not yet in `ordinals` is appended with the next number.
     """
     cl = seg.get("cluster_label")
     if cl is not None and cl not in ordinals:
@@ -2579,9 +2615,10 @@ def _label(seg: dict, ordinals: dict[str, int], floor: float) -> tuple[str, int 
     return f"Speaker {ordinals[cl]}", None
 
 
-def group_turns(segments: list[dict], confidence_floor: float = SPEAKER_CONFIDENCE_FLOOR) -> list[Turn]:
+def group_turns(segments: list[dict], confidence_floor: float = SPEAKER_CONFIDENCE_FLOOR,
+                ordinals: dict[str, int] | None = None) -> list[Turn]:
     turns: list[Turn] = []
-    ordinals: dict[str, int] = {}
+    ordinals = dict(ordinals) if ordinals else {}
     for seg in segments:
         if seg.get("is_silence"):
             turns.append(Turn(f"t-{seg['seq']}", seg["start_s"], seg["end_s"], "", None, None,
@@ -2620,7 +2657,7 @@ def test_manual_name_without_confidence_is_shown():
 - [ ] **Step 4: Run unit tests to verify pass**
 
 Run: `pytest tests/unit/test_transcript_turns.py -v`
-Expected: 5 PASS.
+Expected: 6 PASS.
 
 - [ ] **Step 5: Write the failing route tests**
 
@@ -2923,12 +2960,30 @@ def test_item_page_no_excerpt_when_transcript_not_public(client, meeting_with_tr
     fx = meeting_with_transcript
     html = client.get(f"/al/birmingham/items/{fx['item_id']}/").get_data(as_text=True)
     assert "From the video" not in html
+
+
+def test_item_excerpt_speaker_numbers_match_full_page(client, meeting_with_transcript):
+    # S0 (O'Quinn) is cluster 1 and S1 is cluster 2 in the fixture; a later item
+    # whose only voice is a new cluster S2 must read "Speaker 3", not "Speaker 1".
+    fx = meeting_with_transcript; _publish(fx["transcript_id"])
+    with db_cursor() as cur:
+        cur.execute("""INSERT INTO agenda_items (meeting_id, item_number, title)
+                       VALUES (%s, '17', 'Later item') RETURNING id""", [fx["meeting_id"]])
+        later = cur.fetchone()["id"]
+        cur.execute("""INSERT INTO transcript_segments
+                         (transcript_id, seq, start_s, end_s, text, cluster_label, agenda_item_id)
+                       VALUES (%s, 3, 4000.0, 4004.0, 'Point of order.', 'S2', %s)""",
+                    [fx["transcript_id"], later])
+    item_html = client.get(f"/al/birmingham/items/{later}/").get_data(as_text=True)
+    page_html = client.get(f"/al/birmingham/meetings/{fx['meeting_id']}/transcript/").get_data(as_text=True)
+    assert "Speaker 3" in item_html and "Speaker 1" not in item_html
+    assert "Speaker 3" in page_html
 ```
 
 - [ ] **Step 2: Run to verify failure**
 
 Run: `pytest tests/integration/test_transcript_routes.py -k item_page -v`
-Expected: first test FAIL ("From the video" missing); the other two PASS trivially.
+Expected: first and fourth FAIL ("From the video" missing; "Speaker 3" missing); the middle two PASS trivially.
 
 - [ ] **Step 3: Add the service function**
 
@@ -2964,7 +3019,7 @@ def excerpt_for_item(item_id: int, max_turns: int = 4) -> dict | None:
         segs = [dict(r) for r in cur.fetchall()]
     if not segs:
         return None
-    turns = group_turns(segs)
+    turns = group_turns(segs, ordinals=speaker_ordinals(head["transcript_id"]))
     return {
         "meeting_id": head["meeting_id"],
         "transcript_id": head["transcript_id"],
@@ -2974,7 +3029,7 @@ def excerpt_for_item(item_id: int, max_turns: int = 4) -> dict | None:
     }
 ```
 
-Note `group_turns` numbers "Speaker N" by order of first appearance within the segments it is given, so an excerpt may say "Speaker 1" where the full page says "Speaker 3". Acceptable for phase 1; resolved names are unaffected.
+The excerpt passes `speaker_ordinals(transcript_id)` so an unresolved voice carries the same "Speaker N" here as on the full transcript page. Without the map, `group_turns` would number from the slice and the item page could say "Speaker 1" where the transcript says "Speaker 3".
 
 - [ ] **Step 4: Wire the route and template**
 
@@ -3018,7 +3073,7 @@ In `item_detail.html`, directly after the `item-body` section ends (before the e
 - [ ] **Step 5: Run to verify pass**
 
 Run: `pytest tests/integration/test_transcript_routes.py -v`
-Expected: 7 PASS. (Review Focus item 5 is `test_item_page_without_segments_has_no_excerpt_block`.)
+Expected: 8 PASS. (Review Focus item 5 is `test_item_page_without_segments_has_no_excerpt_block`.)
 
 - [ ] **Step 6: Commit**
 
@@ -3074,7 +3129,7 @@ Expected: FAIL, `ImportError: parse_speaker_token`.
 
 - [ ] **Step 3: Add the parser and the search query**
 
-Append to `src/docket/services/transcripts.py`:
+Append to `src/docket/services/transcripts.py` (and add `from markupsafe import Markup, escape` to the imports at the top of the module; markupsafe ships with Flask):
 
 ```python
 import re as _re
@@ -3103,7 +3158,7 @@ def search_transcripts(q: str, *, municipality_slug: str | None, speaker: str | 
     if q:
         where.append("s.search_vector @@ websearch_to_tsquery('english', %s)"); params.append(q)
         select_rank = "ts_rank(s.search_vector, websearch_to_tsquery('english', %s)) AS rank,"
-        headline = "ts_headline('english', s.text, websearch_to_tsquery('english', %s), 'MaxWords=40, MinWords=20, StartSel=<mark>, StopSel=</mark>') AS headline"
+        headline = "ts_headline('english', s.text, websearch_to_tsquery('english', %s), 'MaxWords=40, MinWords=20, StartSel=[[HL]], StopSel=[[/HL]]') AS headline"
         head_params = [q, q]
         order = "ORDER BY rank DESC, m.meeting_date DESC, s.seq"
     else:
@@ -3131,8 +3186,24 @@ def search_transcripts(q: str, *, municipality_slug: str | None, speaker: str | 
         )
         rows = [dict(r) for r in cur.fetchall()]
     for r in rows:
+        r["headline"] = _safe_headline(r["headline"] or "")
         r["anchor_url"] = f"/al/{r['municipality_slug']}/meetings/{r['meeting_id']}/transcript/#t-{r['seq']}"
     return rows
+
+
+_HL_OPEN, _HL_CLOSE = "[[HL]]", "[[/HL]]"
+
+
+def _safe_headline(raw: str) -> Markup:
+    """Escape transcript text, then turn the ts_headline markers into <mark>.
+
+    ts_headline does not HTML-escape the document (the Postgres docs say so),
+    and the no-text-query path is a plain left(text, 240). Both go through here,
+    so a transcript containing '<' or '&' can never inject markup. Returns a
+    Markup object: Jinja renders it as-is, the template needs no `| safe`.
+    """
+    escaped = str(escape(raw))
+    return Markup(escaped.replace(_HL_OPEN, "<mark>").replace(_HL_CLOSE, "</mark>"))
 ```
 
 Parameter order matters: the `SELECT` list's placeholders (`head_params`) come before the `WHERE` placeholders (`params`). The `%%` in the speaker clause is the psycopg2 escape for the trgm `%` operator.
@@ -3208,6 +3279,24 @@ def test_speaker_only_query_has_no_sql_error_and_returns_turns(searchable):
     assert any(r["meeting_id"] == searchable["meeting_id"] and r["seq"] == 0 for r in rows)
 
 
+def test_headline_escapes_html_in_transcript_text(searchable):
+    with db_cursor() as cur:
+        cur.execute("SELECT id FROM transcripts WHERE meeting_id=%s", [searchable["meeting_id"]])
+        tid = cur.fetchone()["id"]
+        cur.execute("""INSERT INTO transcript_segments (transcript_id, seq, start_s, end_s, text, cluster_label)
+                       VALUES (%s, 3, 95, 99, 'fee is <b>less</b> than 5 & <script>x</script> per license', 'S1')""",
+                    [tid])
+    # ts_headline path
+    rows = tsvc.search_transcripts("license", municipality_slug="birmingham", speaker=None)
+    hit = next(r for r in rows if r["meeting_id"] == searchable["meeting_id"] and r["seq"] == 3)
+    assert "<script>" not in hit["headline"] and "&lt;script&gt;" in hit["headline"]
+    assert "&amp;" in hit["headline"] and "<mark>license</mark>" in hit["headline"]
+    # left(text, 240) fallback path
+    rows = tsvc.search_transcripts("", municipality_slug="birmingham", speaker=None)
+    hit = next(r for r in rows if r["meeting_id"] == searchable["meeting_id"] and r["seq"] == 3)
+    assert "<script>" not in hit["headline"] and "&lt;b&gt;less&lt;/b&gt;" in hit["headline"]
+
+
 def test_search_page_renders_transcript_section(client, searchable):
     html = client.get("/search?q=license+plate&city=birmingham").get_data(as_text=True)
     assert "From transcripts" in html
@@ -3217,7 +3306,7 @@ def test_search_page_renders_transcript_section(client, searchable):
 - [ ] **Step 6: Run to verify failure**
 
 Run: `pytest tests/integration/test_transcript_search.py -v`
-Expected: first three PASS (service exists), the page test FAILS ("From transcripts" missing).
+Expected: first four PASS (service exists and escapes), the page test FAILS ("From transcripts" missing).
 
 - [ ] **Step 7: Wire the search route and template**
 
@@ -3243,7 +3332,7 @@ and pass `transcript_hits=transcript_hits` to `render_template`. Note the existi
   <a class="link" href="{{ hit.anchor_url }}">
     <span class="t-mono t-meta">{{ hit.start_s | format_timestamp }}</span>
     {% if hit.speaker_name %}<strong>{{ hit.speaker_name }}:</strong>{% endif %}
-    {{ hit.headline | safe }}
+    {{ hit.headline }}
   </a>
   <div class="t-meta">{{ hit.meeting_title }} · {{ hit.meeting_date | format_date }} · machine transcript</div>
 </li>
@@ -3271,7 +3360,7 @@ Also change the "No results" condition at line ~87 so it only fires when both `r
 - [ ] **Step 8: Run to verify pass**
 
 Run: `pytest tests/integration/test_transcript_search.py tests/unit/test_transcript_search_parse.py -v`
-Expected: 8 PASS. (Review Focus item 4 is `test_speaker_only_query_has_no_sql_error_and_returns_turns`.)
+Expected: 9 PASS. (Review Focus item 4 is `test_speaker_only_query_has_no_sql_error_and_returns_turns`.)
 
 - [ ] **Step 9: Commit**
 
@@ -3291,7 +3380,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Test: `tests/integration/test_transcript_routes.py` (add two tests)
 
 **Interfaces:**
-- Produces: `list_transcript_debt(municipality_id: int, limit: int = 50) -> list[dict]` with keys `meeting_id, meeting_title, meeting_date, status, last_error, stage_attempts, friendly_label`. Includes meetings with a video URL and either no `transcripts` row older than 14 days past the meeting date, or a row in `failed`, `low_speech`, or `needs_review`. Friendly labels: `failed → "Transcription failed"`, `low_speech → "No usable audio"`, `needs_review → "Transcript held for review"`, missing → "Not yet transcribed".
+- Produces: `list_transcript_debt(municipality_id: int, limit: int = 50) -> list[dict]` with keys `meeting_id, meeting_title, meeting_date, status, last_error, stage_attempts, friendly_label`. Includes meetings with a video URL and either no `transcripts` row older than 14 days past the meeting date, a row in `failed` or `needs_review`, or a `low_speech` row whose recording is at least `SHORT_MEETING_S = 600.0` seconds long. A `low_speech` row on a recording under ten minutes is a short session (roll call, adjourn), not a failure, and never shows as debt. Friendly labels: `failed → "Transcription failed"`, `low_speech → "No usable audio"`, `needs_review → "Transcript held for review"`, missing → "Not yet transcribed".
 
 - [ ] **Step 1: Write the failing tests (append to `tests/integration/test_transcript_routes.py`)**
 
@@ -3310,12 +3399,25 @@ def test_data_debt_omits_uploaded_transcript(client, meeting_with_transcript):
     fx = meeting_with_transcript; _publish(fx["transcript_id"])
     html = client.get("/al/birmingham/data-debt").get_data(as_text=True)
     assert "TR test" not in html
+
+
+def test_data_debt_low_speech_only_counts_on_long_recordings(client, meeting_with_transcript):
+    fx = meeting_with_transcript
+    with db_cursor() as cur:
+        cur.execute("UPDATE transcripts SET status='low_speech', audio_duration_s=140 WHERE id=%s",
+                    [fx["transcript_id"]])
+    html = client.get("/al/birmingham/data-debt").get_data(as_text=True)
+    assert "TR test" not in html                      # a 2-minute recording is a short session
+    with db_cursor() as cur:
+        cur.execute("UPDATE transcripts SET audio_duration_s=5400 WHERE id=%s", [fx["transcript_id"]])
+    html = client.get("/al/birmingham/data-debt").get_data(as_text=True)
+    assert "No usable audio" in html and "TR test" in html   # 90 minutes of video, no speech: debt
 ```
 
 - [ ] **Step 2: Run to verify failure**
 
 Run: `pytest tests/integration/test_transcript_routes.py -k data_debt -v`
-Expected: first FAIL, second PASS trivially.
+Expected: first and third FAIL, second PASS trivially.
 
 - [ ] **Step 3: Add the query**
 
@@ -3328,6 +3430,11 @@ TRANSCRIPT_DEBT_LABELS = {
     "needs_review": "Transcript held for review",
     None: "Not yet transcribed",
 }
+
+# A low_speech result on a recording shorter than this is a short session
+# (roll call and adjourn), not a problem to fix. Longer recordings with under
+# three minutes of speech are a dead or near-empty stream and stay on the list.
+SHORT_MEETING_S = 600.0
 
 
 def list_transcript_debt(municipality_id: int, limit: int = 50) -> list[dict]:
@@ -3342,13 +3449,14 @@ def list_transcript_debt(municipality_id: int, limit: int = 50) -> list[dict]:
                   AND m.video_url IS NOT NULL
                   AND m.external_id ~ '^[0-9]+$'
                   AND (
-                        t.status IN ('failed', 'low_speech', 'needs_review')
+                        t.status IN ('failed', 'needs_review')
+                     OR (t.status = 'low_speech' AND COALESCE(t.audio_duration_s, 0) >= %s)
                      OR (t.id IS NULL AND m.meeting_date < CURRENT_DATE - 14
                          AND m.meeting_date >= DATE '2025-10-28')
                   )
                 ORDER BY m.meeting_date DESC
                 LIMIT %s""",
-            [municipality_id, limit],
+            [municipality_id, SHORT_MEETING_S, limit],
         )
         rows = [dict(r) for r in cur.fetchall()]
     for r in rows:
@@ -3356,7 +3464,7 @@ def list_transcript_debt(municipality_id: int, limit: int = 50) -> list[dict]:
     return rows
 ```
 
-The `2025-10-28` floor is the current-council backfill cutoff from the spec; older meetings without a transcript are not debt until a later backfill is approved. Move this constant to `docket/config.py` as `TRANSCRIPT_BACKFILL_SINCE = os.environ.get("TRANSCRIPT_BACKFILL_SINCE", "2025-10-28")` and pass it as a parameter rather than hard-coding the date in SQL.
+The `2025-10-28` floor is the current-council backfill cutoff from the spec; older meetings without a transcript are not debt until a later backfill is approved. Move this constant to `docket/config.py` as `TRANSCRIPT_BACKFILL_SINCE = os.environ.get("TRANSCRIPT_BACKFILL_SINCE", "2025-10-28")` and pass it as a parameter rather than hard-coding the date in SQL. `audio_duration_s` is set by the producer at the `audio_fetched` step (Task 9 `process_claim`), before any `low_speech` decision, so it is populated for every `low_speech` row; the `COALESCE` only guards hand-inserted rows. An admin control to dismiss an individual debt row belongs with the admin surfaces in Plan 2.
 
 - [ ] **Step 4: Wire route and template**
 
@@ -3392,7 +3500,7 @@ pass `transcript_debt=transcript_debt`. In `data_debt.html`, after the existing 
 - [ ] **Step 5: Run to verify pass**
 
 Run: `pytest tests/integration/test_transcript_routes.py -v`
-Expected: 9 PASS.
+Expected: 11 PASS.
 
 - [ ] **Step 6: Commit**
 
@@ -3521,6 +3629,9 @@ def run_scale_check(conn, rows: int) -> dict:
         t0 = time.time()
         mid, tid = _fill(cur, rows)
         log.append(f"filled {rows} rows in {time.time() - t0:.1f}s")
+        # ANALYZE is transactional: its pg_statistic rows roll back with the
+        # synthetic data. VACUUM is the command that cannot run inside a
+        # transaction block. Verified on PostgreSQL 18 (BEGIN; ANALYZE; ROLLBACK).
         cur.execute("ANALYZE transcript_segments")
         cur.execute("ANALYZE transcripts")
         log.append("ANALYZE done")
@@ -3594,4 +3705,6 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 - **Spec coverage, this plan:** Section 1 → Task 1; dedicated role → Task 2; pilot fixtures → Task 3; Section 2 producer (contract, prompt budget, audio, claim with zombie release, `transcribed` resume, COPY upload, heartbeat, OOM fallback, silence markers, `low_speech` floor, bind-mount work dir, `.wslconfig`, power plan, bring-up) → Tasks 4–9; Section 5 transcript page, item excerpt, search with `speaker:`, data debt → Tasks 10–13; Section 6 scale check with ANALYZE → Task 14. Deferred to Plan 2 by design: Sections 3 and 4, admin queue, speaker correction UI, public discrepancy block, webhook alert (including the heartbeat staleness alert, which needs the worker task), Haiku A/B, ship gate, live tests.
 - **Type consistency:** `Claim.status` values `claimed|transcribed` match `claim_next`; `TranscriptOutput` field names match `upload()`'s UPDATE; `Turn.anchor` format `t-<seq>` matches the template ids, the excerpt link, and `search_transcripts.anchor_url`; `PUBLIC_STATUSES` is the single list used by the page, excerpt, and search.
-- **Known rough edge:** `group_turns` numbers "Speaker N" by first appearance within the segments given, so an item excerpt may number an unresolved speaker differently from the full page. Accepted for phase 1.
+- **Speaker numbering:** `speaker_ordinals` is the single source of "Speaker N" across the page and the excerpt (Tasks 10–11). The earlier "accepted rough edge" of per-slice numbering is gone.
+- **Plan review dispositions (2026-10-07), accepted:** search headline XSS, fixed by escaping in Python and swapping `[[HL]]` markers for `<mark>` (Task 12); `low_speech` on short recordings is not debt below 600 s of audio (Task 13); `whisperx` dropped from `transcriber/requirements.txt` until the fallback engine task (Task 9); item excerpt numbering unified via `speaker_ordinals` (Tasks 10–11).
+- **Plan review dispositions, rejected with evidence (do not re-raise):** "ANALYZE cannot run inside a transaction block" is false; that restriction is VACUUM's. Confirmed on the production PostgreSQL 18 with `BEGIN; ANALYZE meetings; ROLLBACK;` succeeding and `BEGIN; VACUUM meetings;` failing with "VACUUM cannot run inside a transaction block". "pyannote 3.1 does not accept `return_embeddings=True`" is false; `SpeakerDiarization.apply` declares `return_embeddings: bool = False` and `Pipeline.__call__` forwards `**kwargs` in tags 3.1.0 and 3.1.1. Storing the ordinal as a column on `transcript_speakers` was declined in favor of the GROUP BY query: no producer coupling, no schema change, and it stays correct if an admin remap merges clusters.
