@@ -51,3 +51,8 @@ def test_seeded_ordinals_keep_whole_meeting_numbering():
 def test_manual_name_without_confidence_is_shown():
     segs = [_seg(0, 0, 2, "x", "S0", "LaTonya Tate", None)]
     assert group_turns(segs)[0].speaker_label == "LaTonya Tate"
+
+
+def test_item_anchor_map_skips_silence_turns():
+    segs = [_seg(0, 0, 60, "", None, item=7, silence=True), _seg(1, 60, 62, "a", "S0", item=7)]
+    assert item_anchor_map(group_turns(segs)) == {7: "t-1"}

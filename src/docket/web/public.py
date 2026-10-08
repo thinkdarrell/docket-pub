@@ -16,6 +16,7 @@ from flask import (
     Response,
     abort,
     current_app,
+    make_response,
     redirect,
     render_template,
     request,
@@ -329,8 +330,13 @@ def meeting_transcript(slug, meeting_id):
     items_by_id = {it.id: it for it in agenda_items}
     ctx = dict(municipality=municipality, meeting=meeting, transcript=transcript,
                turns=turns, item_anchors=anchors, items_by_id=items_by_id)
-    template = "partials/transcript_body.html" if request.headers.get("HX-Request") else "transcript.html"
-    return render_template(template, **ctx)
+    # htmx history restore re-fetches with HX-Request too but needs the full page.
+    is_partial = bool(request.headers.get("HX-Request")) and not request.headers.get(
+        "HX-History-Restore-Request")
+    template = "partials/transcript_body.html" if is_partial else "transcript.html"
+    resp = make_response(render_template(template, full_page=not is_partial, **ctx))
+    resp.headers["Vary"] = "HX-Request"
+    return resp
 
 
 @bp.route("/al/<slug>/items/<int:item_id>/")

@@ -139,6 +139,8 @@ def group_turns(segments: list[dict], confidence_floor: float = SPEAKER_CONFIDEN
 def item_anchor_map(turns: list[Turn]) -> dict[int, str]:
     out: dict[int, str] = {}
     for t in turns:
+        if t.is_silence:
+            continue  # silence turns render no item marker
         if t.agenda_item_id is not None and t.agenda_item_id not in out:
             out[t.agenda_item_id] = t.anchor
     return out

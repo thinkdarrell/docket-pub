@@ -26,7 +26,7 @@
     {% else %}
     {% set item_id = anchor_to_item.get(turn.anchor) %}
     {% if item_id %}
-    <li id="item-{{ item_id }}" class="transcript-item-marker">
+    <li id="{{ 'item-' if full_page else 'tr-item-' }}{{ item_id }}" class="transcript-item-marker">
       <span class="t-eyebrow">Item {{ items_by_id[item_id].item_number if item_id in items_by_id else '' }}</span>
       {% if item_id in items_by_id %}<a class="link" href="/al/{{ municipality.slug }}/items/{{ item_id }}/">{{ items_by_id[item_id].title }}</a>{% endif %}
     </li>

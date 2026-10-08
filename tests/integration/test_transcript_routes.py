@@ -89,3 +89,23 @@ def test_meeting_page_links_to_transcript_with_hx_attrs(client, meeting_with_tra
     html = client.get(f"/al/birmingham/meetings/{fx['meeting_id']}/").get_data(as_text=True)
     assert f'href="/al/birmingham/meetings/{fx["meeting_id"]}/transcript/"' in html
     assert 'hx-get="/al/birmingham/meetings/' in html and 'hx-push-url="true"' in html
+
+
+def test_htmx_partial_uses_namespaced_item_ids(client, meeting_with_transcript):
+    fx = meeting_with_transcript; _publish(fx["transcript_id"])
+    url = f"/al/birmingham/meetings/{fx['meeting_id']}/transcript/"
+    part = client.get(url, headers={"HX-Request": "true"}).get_data(as_text=True)
+    assert f'id="tr-item-{fx["item_id"]}"' in part
+    assert f'id="item-{fx["item_id"]}"' not in part
+    full = client.get(url).get_data(as_text=True)
+    assert f'id="item-{fx["item_id"]}"' in full
+
+
+def test_history_restore_gets_full_page_and_vary(client, meeting_with_transcript):
+    fx = meeting_with_transcript; _publish(fx["transcript_id"])
+    url = f"/al/birmingham/meetings/{fx['meeting_id']}/transcript/"
+    r = client.get(url, headers={"HX-Request": "true", "HX-History-Restore-Request": "true"})
+    assert "<html" in r.get_data(as_text=True)
+    assert "HX-Request" in r.headers.get("Vary", "")
+    assert "HX-Request" in client.get(url).headers.get("Vary", "")
+    assert "HX-Request" in client.get(url, headers={"HX-Request": "true"}).headers.get("Vary", "")
