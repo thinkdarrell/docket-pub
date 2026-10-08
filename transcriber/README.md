@@ -32,6 +32,7 @@ happens on the Railway worker.
 
     docker compose run --rm transcriber --since 2025-10-28 --limit 10 --max-hours 3
 
+The run stops after 5 consecutive failures (`--max-consecutive-failures`, env `TRANSCRIBER_MAX_CONSECUTIVE_FAILURES`).
 Ctrl-C finishes the current meeting and exits. Re-running is always safe: a
 meeting left in `transcribed` uploads without touching the GPU; a claim older
 than six hours is reclaimed.

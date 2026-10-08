@@ -20,6 +20,7 @@ class FakeEngine:
 class FakeConn:
     """No-op connection: the loop only calls commit()."""
     def commit(self): pass
+    def rollback(self): pass
 
 
 class FakeDB:
@@ -108,3 +109,26 @@ def test_max_hours_stops_between_meetings(monkeypatch, cfg):
     t = iter([0.0, 0.0, 3601.0, 3601.0, 3601.0])
     counts = cli.run_loop(FakeConn(), FakeEngine(), cfg, clock=lambda: next(t))
     assert counts["uploaded"] == 1 and len(fdb.claims) == 1
+
+
+def test_stops_after_consecutive_failures(monkeypatch, cfg):
+    fdb = FakeDB([_claim(i) for i in range(1, 8)]); _wire(monkeypatch, fdb, fetch_ok=False)
+    counts = cli.run_loop(FakeConn(), FakeEngine(), cfg)
+    assert counts["failed"] == 5 and len(fdb.claims) == 2
+    assert fdb.beats[-1] == "exited"
+
+
+def test_upload_exception_marks_failed_and_continues(monkeypatch, cfg):
+    fdb = FakeDB([_claim(1), _claim(2)]); _wire(monkeypatch, fdb)
+    calls = []
+    def flaky_upload(conn, out):
+        calls.append(out.meeting_id)
+        if len(calls) == 1:
+            raise RuntimeError("boom")
+        fdb.uploaded.append(out.meeting_id); return 1
+    monkeypatch.setattr(cli.tdb, "upload", flaky_upload)
+    counts = cli.run_loop(FakeConn(), FakeEngine(), cfg)
+    assert counts["failed"] == 1 and counts["uploaded"] == 1
+    failed = [x for x in fdb.status if x[1] == "failed"]
+    assert len(failed) == 1 and "boom" in failed[0][2]
+    assert fdb.uploaded == [102]

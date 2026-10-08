@@ -42,6 +42,7 @@ class Config:
     archive_dir: Path
     dry_run_file: str | None
     version: str
+    max_consecutive_failures: int = 5
 
 
 class _Stop:
@@ -59,13 +60,24 @@ def _archive_path(cfg: Config, meeting_id: int) -> Path:
     return cfg.archive_dir / str(meeting_id) / "transcript.json"
 
 
+def _upload_or_fail(conn, claim: tdb.Claim, out: TranscriptOutput) -> str:
+    try:
+        tdb.upload(conn, out)
+        conn.commit()
+    except Exception as e:  # noqa: BLE001 — an upload error is a per-meeting failure
+        log.exception("upload failed for meeting %s", claim.meeting_id)
+        conn.rollback()
+        tdb.mark_status(conn, claim.transcript_id, "failed", error=f"upload: {type(e).__name__}: {e}")
+        conn.commit()
+        return "failed"
+    return "uploaded"
+
+
 def process_claim(conn, engine: Engine, claim: tdb.Claim, cfg: Config) -> str:
     json_path = _archive_path(cfg, claim.meeting_id)
     if claim.status == "transcribed" and json_path.exists():
         out = TranscriptOutput.from_json(json_path.read_text())
-        tdb.upload(conn, out)
-        conn.commit()
-        return "uploaded"
+        return _upload_or_fail(conn, claim, out)
 
     wav = cfg.work_dir / f"{claim.meeting_id}.wav"
     source = download_url_for(claim.external_id)
@@ -77,6 +89,7 @@ def process_claim(conn, engine: Engine, claim: tdb.Claim, cfg: Config) -> str:
                         audio_sha256=sha, audio_duration_s=duration)
         conn.commit()
     except (AudioFetchError, subprocess.TimeoutExpired) as e:
+        conn.rollback()
         tdb.mark_status(conn, claim.transcript_id, "failed", error=str(e))
         conn.commit()
         wav.unlink(missing_ok=True)
@@ -113,6 +126,7 @@ def process_claim(conn, engine: Engine, claim: tdb.Claim, cfg: Config) -> str:
                         diarization_model=engine.diarization_model)
         conn.commit()
     except Exception as e:  # noqa: BLE001 — any GPU/model failure is a per-meeting failure
+        conn.rollback()
         log.exception("meeting %s failed", claim.meeting_id)
         tdb.mark_status(conn, claim.transcript_id, "failed", error=f"{type(e).__name__}: {e}")
         conn.commit()
@@ -120,14 +134,13 @@ def process_claim(conn, engine: Engine, claim: tdb.Claim, cfg: Config) -> str:
     finally:
         wav.unlink(missing_ok=True)
 
-    tdb.upload(conn, out)
-    conn.commit()
-    return "uploaded"
+    return _upload_or_fail(conn, claim, out)
 
 
 def run_loop(conn, engine: Engine, cfg: Config, *, clock=time.monotonic, stop_flag=None) -> dict:
     counts = {"uploaded": 0, "failed": 0, "low_speech": 0}
     started = clock()
+    consecutive_failures = 0
     stop = stop_flag or _Stop()
     tdb.heartbeat(conn, cfg.host, "started", None, cfg.version)
     conn.commit()
@@ -149,6 +162,10 @@ def run_loop(conn, engine: Engine, cfg: Config, *, clock=time.monotonic, stop_fl
         counts[status] += 1
         tdb.heartbeat(conn, cfg.host, status, claim.meeting_id, cfg.version)
         conn.commit()
+        consecutive_failures = consecutive_failures + 1 if status == "failed" else 0
+        if consecutive_failures >= cfg.max_consecutive_failures:
+            log.warning("%d consecutive failures; stopping", consecutive_failures)
+            break
     tdb.heartbeat(conn, cfg.host, "exited", None, cfg.version)
     conn.commit()
     return counts
@@ -176,6 +193,8 @@ def main(argv=None) -> int:
     ap.add_argument("--limit", type=int, default=int(os.environ.get("TRANSCRIBER_LIMIT", "100")))
     ap.add_argument("--max-hours", type=float, default=None)
     ap.add_argument("--dry-run", metavar="FILE_OR_URL", default=None)
+    ap.add_argument("--max-consecutive-failures", type=int,
+                    default=int(os.environ.get("TRANSCRIBER_MAX_CONSECUTIVE_FAILURES", "5")))
     ap.add_argument("--model", default=os.environ.get("TRANSCRIBER_MODEL", "large-v3"))
     ap.add_argument("--device", default=os.environ.get("TRANSCRIBER_DEVICE", "cuda"))
     ap.add_argument("--compute-type", default=os.environ.get("TRANSCRIBER_COMPUTE", "float16"))
@@ -188,6 +207,7 @@ def main(argv=None) -> int:
         work_dir=Path(os.environ.get("TRANSCRIBER_WORK_DIR", "/archive/work")),
         archive_dir=Path(os.environ.get("TRANSCRIBER_ARCHIVE_DIR", "/archive/transcripts")),
         dry_run_file=args.dry_run, version=__version__,
+        max_consecutive_failures=args.max_consecutive_failures,
     )
     cfg.work_dir.mkdir(parents=True, exist_ok=True)
 
