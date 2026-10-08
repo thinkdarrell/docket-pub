@@ -285,8 +285,12 @@ def meeting_detail(slug, meeting_id):
             if p.is_published_as_of(today)
         ]
 
+    from docket.services import transcripts as tsvc
+    has_transcript = tsvc.get_public_transcript(meeting_id) is not None
+
     return render_template(
         "meeting_detail.html",
+        has_transcript=has_transcript,
         municipality=municipality,
         meeting=meeting,
         agenda_items=agenda_items,
@@ -300,6 +304,33 @@ def meeting_detail(slug, meeting_id):
         kpi_stats=kpi_stats,
         coverage_posts=coverage_posts,
     )
+
+
+@bp.route("/al/<slug>/meetings/<int:meeting_id>/transcript/")
+def meeting_transcript(slug, meeting_id):
+    """Server-rendered machine transcript. HTMX requests get the body partial only."""
+    from docket.services import transcripts as tsvc
+
+    municipality = query.get_municipality(slug)
+    if not municipality:
+        abort(404)
+    meeting = query.get_meeting(meeting_id)
+    if not meeting or meeting.municipality_id != municipality["id"]:
+        abort(404)
+    if meeting.is_hidden and not session.get("admin_user"):
+        abort(404)
+    transcript = tsvc.get_public_transcript(meeting_id)
+    if transcript is None:
+        abort(404)
+
+    turns = tsvc.group_turns(tsvc.list_segments(transcript.id))
+    anchors = tsvc.item_anchor_map(turns)
+    agenda_items = query.list_agenda_items(meeting_id)
+    items_by_id = {it.id: it for it in agenda_items}
+    ctx = dict(municipality=municipality, meeting=meeting, transcript=transcript,
+               turns=turns, item_anchors=anchors, items_by_id=items_by_id)
+    template = "partials/transcript_body.html" if request.headers.get("HX-Request") else "transcript.html"
+    return render_template(template, **ctx)
 
 
 @bp.route("/al/<slug>/items/<int:item_id>/")
