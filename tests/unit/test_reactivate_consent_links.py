@@ -38,10 +38,11 @@ def seed():
         created["meetings"].append(mid)
         return muni, mid
 
-    def item(mid):
+    def item(mid, title="consent item", status="completed"):
         with db() as conn, conn.cursor() as cur:
-            cur.execute("INSERT INTO agenda_items (meeting_id, title, is_consent) "
-                        "VALUES (%s, 'consent item', TRUE) RETURNING id", (mid,))
+            cur.execute("INSERT INTO agenda_items (meeting_id, title, is_consent, processing_status) "
+                        "VALUES (%s, %s, TRUE, %s::processing_status_enum) RETURNING id",
+                        (mid, title, status))
             iid = cur.fetchone()[0]
             conn.commit()
         created["items"].append(iid)
@@ -76,8 +77,15 @@ def seed():
             cur.execute("SELECT is_active, provisional FROM vote_agenda_items WHERE id = %s", (lid,))
             return cur.fetchone()
 
+    def method(lid):
+        with db() as conn, conn.cursor() as cur:
+            cur.execute("SELECT match_method, match_confidence FROM vote_agenda_items WHERE id = %s",
+                        (lid,))
+            return cur.fetchone()
+
     yield type("Seed", (), {k: staticmethod(v) for k, v in
-                            dict(meeting=meeting, item=item, vote=vote, link=link, state=state).items()})
+                            dict(meeting=meeting, item=item, vote=vote, link=link, state=state,
+                                 method=method).items()})
     with db() as conn, conn.cursor() as cur:
         if created["votes"]:
             cur.execute("DELETE FROM vote_agenda_items WHERE vote_id = ANY(%s)", (created["votes"],))
@@ -151,6 +159,52 @@ def test_is_idempotent(seed):
     muni, mid = seed.meeting()
     seed.link(seed.vote(mid), seed.item(mid))
 
+    assert reactivate_consent_links_without_pull_evidence(muni) == [(mid, 1)]
+    assert reactivate_consent_links_without_pull_evidence(muni) == []
+
+
+def test_keeps_original_match_method_and_confidence(seed):
+    """Restored links were never confirmed from the enumerated list, so they
+    don't get the consent_enumerated upgrade."""
+    muni, mid = seed.meeting()
+    lid = seed.link(seed.vote(mid), seed.item(mid))
+
     reactivate_consent_links_without_pull_evidence(muni)
 
+    assert seed.method(lid) == ("consent_block_named", pytest.approx(0.8))
+
+
+def test_inactive_explicit_link_is_not_evidence(seed):
+    muni, mid = seed.meeting()
+    iid = seed.item(mid)
+    lid = seed.link(seed.vote(mid), iid)
+    seed.link(seed.vote(mid), iid, association="explicit", active=False, provisional=False)
+
+    reactivate_consent_links_without_pull_evidence(muni)
+
+    assert seed.state(lid)[0] is True
+
+
+def test_other_municipality_untouched(seed):
+    muni, mid = seed.meeting()
+    lid = seed.link(seed.vote(mid), seed.item(mid))
+
+    assert reactivate_consent_links_without_pull_evidence(muni + 1) == []
+    assert seed.state(lid)[0] is False
+
+
+@pytest.mark.parametrize("title, status", [
+    ("CONSENT ITEM 48. WITHDRAWN A Resolution approving payment", "completed"),
+    ("WITHDRAWN CONSENT ITEM 7. An Ordinance", "completed"),
+    ("CONSENT ITEM 42. [WITHDRAW PROPERTY #38 PER PUBLIC WORKS]", "completed"),
+    ("A Resolution approving payment", "withdrawn"),
+])
+def test_withdrawn_items_stay_hidden(seed, title, status):
+    """The consent-block matcher links every consent item, withdrawn ones
+    included; the old rule hid those by accident and that is the one thing it
+    got right. Restoring them would show "passed on consent" on item pages."""
+    muni, mid = seed.meeting()
+    lid = seed.link(seed.vote(mid), seed.item(mid, title=title, status=status))
+
     assert reactivate_consent_links_without_pull_evidence(muni) == []
+    assert seed.state(lid)[0] is False
