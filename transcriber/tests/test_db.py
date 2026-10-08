@@ -98,6 +98,23 @@ def test_transcribed_row_claims_straight_to_upload(conn, bham_meeting):
     assert c2.transcript_id == c.transcript_id and c2.status == "transcribed"
 
 
+def test_transcribed_row_is_not_claimable_by_another_host_until_stale(conn, bham_meeting):
+    c = tdb.claim_next(conn, since=SINCE, host="legion")
+    tdb.mark_status(conn, c.transcript_id, "transcribed", raw_output_path="/archive/x.json")
+    conn.commit()
+    assert tdb.claim_next(conn, since=SINCE, host="legion-2") is None      # fresh, other host: no
+    c_same = tdb.claim_next(conn, since=SINCE, host="legion")
+    conn.commit()
+    assert c_same is not None and c_same.status == "transcribed"          # same host resumes
+    with conn.cursor() as cur:
+        cur.execute("UPDATE transcripts SET claimed_at = now() - interval '7 hours' WHERE id=%s",
+                    [c.transcript_id])
+    conn.commit()
+    c_other = tdb.claim_next(conn, since=SINCE, host="legion-2")
+    conn.commit()
+    assert c_other is not None and c_other.transcript_id == c.transcript_id   # stale: anyone
+
+
 def test_mark_failed_increments_attempts_and_keeps_error(conn, bham_meeting):
     c = tdb.claim_next(conn, since=SINCE, host="legion")
     tdb.mark_status(conn, c.transcript_id, "failed", error="ffmpeg could not read: 403 Forbidden")

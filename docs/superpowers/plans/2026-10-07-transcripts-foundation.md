@@ -1330,6 +1330,23 @@ def test_transcribed_row_claims_straight_to_upload(conn, bham_meeting):
     assert c2.transcript_id == c.transcript_id and c2.status == "transcribed"
 
 
+def test_transcribed_row_is_not_claimable_by_another_host_until_stale(conn, bham_meeting):
+    c = tdb.claim_next(conn, since=date(2026, 1, 1), host="legion")
+    tdb.mark_status(conn, c.transcript_id, "transcribed", raw_output_path="/archive/x.json")
+    conn.commit()
+    assert tdb.claim_next(conn, since=date(2026, 1, 1), host="legion-2") is None      # fresh, other host: no
+    c_same = tdb.claim_next(conn, since=date(2026, 1, 1), host="legion")
+    conn.commit()
+    assert c_same is not None and c_same.status == "transcribed"          # same host resumes
+    with conn.cursor() as cur:
+        cur.execute("UPDATE transcripts SET claimed_at = now() - interval '7 hours' WHERE id=%s",
+                    [c.transcript_id])
+    conn.commit()
+    c_other = tdb.claim_next(conn, since=date(2026, 1, 1), host="legion-2")
+    conn.commit()
+    assert c_other is not None and c_other.transcript_id == c.transcript_id   # stale: anyone
+
+
 def test_mark_failed_increments_attempts_and_keeps_error(conn, bham_meeting):
     c = tdb.claim_next(conn, since=date(2026, 1, 1), host="legion")
     tdb.mark_status(conn, c.transcript_id, "failed", error="ffmpeg could not read: 403 Forbidden")
@@ -1440,7 +1457,9 @@ _CANDIDATE_SQL = """
        AND m.meeting_date >= %(since)s
        AND (
             t.id IS NULL
-         OR t.status = 'transcribed'
+         OR (t.status = 'transcribed'
+             AND (t.producer_host = %(host)s
+                  OR t.claimed_at < now() - make_interval(hours => %(stale)s)))
          OR (t.status IN ('claimed', 'audio_fetched')
              AND t.claimed_at < now() - make_interval(hours => %(stale)s))
        )
@@ -1452,7 +1471,7 @@ _CANDIDATE_SQL = """
 def claim_next(conn, *, since: date, host: str, stale_after_hours: int = 6) -> Claim | None:
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("SELECT pg_advisory_xact_lock(hashtext('transcriber_claim'))")
-        cur.execute(_CANDIDATE_SQL, {"since": since, "stale": stale_after_hours})
+        cur.execute(_CANDIDATE_SQL, {"since": since, "stale": stale_after_hours, "host": host})
         row = cur.fetchone()
         if row is None:
             return None
@@ -1588,7 +1607,7 @@ def upload(conn, out: TranscriptOutput) -> int:
 - [ ] **Step 4: Run to verify pass**
 
 Run: `cd transcriber && DATABASE_URL=postgresql://localhost/docket pytest tests/test_db.py -v`
-Expected: 8 PASS. (Review Focus item 2 is `test_upload_round_trips_awkward_text_and_is_idempotent`.)
+Expected: 9 PASS. (Review Focus item 2 is `test_upload_round_trips_awkward_text_and_is_idempotent`.)
 
 - [ ] **Step 5: Commit**
 

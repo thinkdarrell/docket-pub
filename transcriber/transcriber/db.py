@@ -47,7 +47,9 @@ _CANDIDATE_SQL = """
        AND m.meeting_date >= %(since)s
        AND (
             t.id IS NULL
-         OR t.status = 'transcribed'
+         OR (t.status = 'transcribed'
+             AND (t.producer_host = %(host)s
+                  OR t.claimed_at < now() - make_interval(hours => %(stale)s)))
          OR (t.status IN ('claimed', 'audio_fetched')
              AND t.claimed_at < now() - make_interval(hours => %(stale)s))
        )
@@ -59,7 +61,7 @@ _CANDIDATE_SQL = """
 def claim_next(conn, *, since: date, host: str, stale_after_hours: int = 6) -> Claim | None:
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("SELECT pg_advisory_xact_lock(hashtext('transcriber_claim'))")
-        cur.execute(_CANDIDATE_SQL, {"since": since, "stale": stale_after_hours})
+        cur.execute(_CANDIDATE_SQL, {"since": since, "stale": stale_after_hours, "host": host})
         row = cur.fetchone()
         if row is None:
             return None
