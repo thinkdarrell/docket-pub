@@ -82,6 +82,7 @@ def seed():
         for kind, rid in created:
             if kind == "meeting":
                 cur.execute("DELETE FROM meetings WHERE id = %s", (rid,))
+        cur.execute("DELETE FROM municipalities WHERE slug = 'test_recast'")
         conn.commit()
 
 
@@ -179,3 +180,29 @@ def test_recast_skips_hidden_meetings(seed):
     _do_recast_post_meeting_ai()
 
     assert seed.item(iid)[0] == "upcoming"
+    assert seed.meeting(mid)[3] == 2
+
+
+def test_recast_leaves_conflict_items_in_the_admin_queue(seed):
+    """Phase C records the voice even on a cross_stage_conflict item; pulling
+    it back to pending would take it out of the G4 review queue and pay for a
+    rewrite that lands in conflict again. Only completed items are recast."""
+    mid = seed.add_meeting()
+    conflict = seed.add_item(mid, status="cross_stage_conflict")
+    done = seed.add_item(mid)
+
+    _do_recast_post_meeting_ai()
+
+    assert seed.item(conflict) == ("upcoming", 100, "cross_stage_conflict")
+    assert seed.item(done)[2] == "pending"
+
+
+def test_recast_is_idempotent(seed):
+    mid = seed.add_meeting()
+    seed.add_item(mid)
+
+    first = _do_recast_post_meeting_ai()
+    second = _do_recast_post_meeting_ai()
+
+    assert first["items"] >= 1 and first["meetings"] >= 1
+    assert second == {"items": 0, "meetings": 0}

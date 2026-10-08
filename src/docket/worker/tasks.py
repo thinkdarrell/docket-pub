@@ -112,6 +112,9 @@ def _do_recast_post_meeting_ai() -> dict[str, int]:
                    FROM agenda_items ai
                    JOIN meetings m ON m.id = ai.meeting_id
                   WHERE ai.ai_rewrite_voice = 'upcoming'
+                    -- Phase C records the voice on cross_stage_conflict
+                    -- rows too; those stay in the admin review queue.
+                    AND ai.processing_status = 'completed'::processing_status_enum
                     AND m.is_hidden = FALSE
                     AND m.meeting_date < (NOW() AT TIME ZONE 'America/Chicago')::date
                     AND (m.video_url IS NOT NULL OR m.minutes_url IS NOT NULL)
