@@ -231,7 +231,7 @@ def reactivate_consent_links_without_pull_evidence(
             for link_id, meeting_id, title, status in cur.fetchall()
             if status != "withdrawn"
             and not is_withdrawn_or_deferred(title)
-            and not _WITHDRAW_RE.search(title or "")
+            and not _WITHDRAWN_HEADER_RE.search(" ".join((title or "").split()))
         ]
         per_meeting: dict[int, int] = {}
         for _link_id, meeting_id in rows:
@@ -254,6 +254,15 @@ def reactivate_consent_links_without_pull_evidence(
     return result
 
 
-# Clerk annotations the wave0 patterns don't cover, e.g.
-# "CONSENT ITEM 42. [WITHDRAW PROPERTY #38 PER PUBLIC WORKS]".
-_WITHDRAW_RE = re.compile(r"\bwithdr", re.IGNORECASE)
+# Clerk markings in the item header that the wave0 patterns miss:
+# "CONSENT ITEM 32.withdrawn A Resolution…", "CONSENT ITEM 22. WITHDRAWNA
+# Resolution…", "CONSENT ITEM 56. [WITHDRAWN PER P.E.P.] A Resolution…".
+# Header position only: "[WITHDRAW PROPERTY #38 …]" pulls one property from
+# a resolution that still passed, and "withdrawing" in the body is just the
+# resolution's subject.
+_WITHDRAWN_HEADER_RE = re.compile(
+    r"^(?:withdrawn\s+)?consent\s*(?:\(ph\))?\s*item\s+\d+\.?\s*"
+    r"(?:withdrawn|\[withdrawn\b[^\]]*\])"
+    r"|^withdrawn\b",
+    re.IGNORECASE,
+)

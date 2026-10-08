@@ -189,14 +189,16 @@ def test_other_municipality_untouched(seed):
     muni, mid = seed.meeting()
     lid = seed.link(seed.vote(mid), seed.item(mid))
 
-    assert reactivate_consent_links_without_pull_evidence(muni + 1) == []
+    assert reactivate_consent_links_without_pull_evidence(-1) == []
     assert seed.state(lid)[0] is False
 
 
 @pytest.mark.parametrize("title, status", [
     ("CONSENT ITEM 48. WITHDRAWN A Resolution approving payment", "completed"),
     ("WITHDRAWN CONSENT ITEM 7. An Ordinance", "completed"),
-    ("CONSENT ITEM 42. [WITHDRAW PROPERTY #38 PER PUBLIC WORKS]", "completed"),
+    ("CONSENT(ph) ITEM 15.WITHDRAWN A Resolution authorizing the abatement", "completed"),
+    ("CONSENT ITEM 22. WITHDRAWNA Resolution authorizing the Mayor", "completed"),
+    ("CONSENT ITEM 56. [WITHDRAWN PER P.E.P.] A Resolution determining", "completed"),
     ("A Resolution approving payment", "withdrawn"),
 ])
 def test_withdrawn_items_stay_hidden(seed, title, status):
@@ -208,3 +210,17 @@ def test_withdrawn_items_stay_hidden(seed, title, status):
 
     assert reactivate_consent_links_without_pull_evidence(muni) == []
     assert seed.state(lid)[0] is False
+
+
+@pytest.mark.parametrize("title", [
+    # one property pulled from a list resolution that still passed
+    "CONSENT ITEM 42. [WITHDRAW PROPERTY #38 PER PUBLIC WORKS] A Resolution finding that",
+    # 'withdrawing' in the body is the resolution's subject, not a marking
+    "CONSENT ITEM 54. A Resolution amending Resolution No. 30-12, withdrawing the property at",
+])
+def test_withdraw_elsewhere_in_title_is_restored(seed, title):
+    muni, mid = seed.meeting()
+    lid = seed.link(seed.vote(mid), seed.item(mid, title=title))
+
+    assert reactivate_consent_links_without_pull_evidence(muni) == [(mid, 1)]
+    assert seed.state(lid)[0] is True
