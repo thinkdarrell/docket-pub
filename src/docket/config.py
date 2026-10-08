@@ -37,6 +37,10 @@ BLOG_CONTENT_ROOT = os.environ.get("BLOG_CONTENT_ROOT", "content/blog")
 BLOG_AUTHORS_YAML = os.environ.get("BLOG_AUTHORS_YAML", "config/blog_authors.yaml")
 BLOG_PREVIEW_TOKEN = os.environ.get("BLOG_PREVIEW_TOKEN", "")
 
+# Transcripts: meetings dated before this have no transcript and are not data
+# debt until a later backfill is approved (current-council cutoff).
+TRANSCRIPT_BACKFILL_SINCE: str = os.environ.get("TRANSCRIPT_BACKFILL_SINCE", "2025-10-28")
+
 # Decision #45 + plan §FINAL-3: the IMPACT_FIRST_ENABLED flag gates the
 # v3 worker path. When False (default), the worker runs the legacy v2
 # pipeline (Haiku item summaries + Sonnet meeting executives). When

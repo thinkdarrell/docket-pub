@@ -151,3 +151,32 @@ def test_item_excerpt_speaker_numbers_match_full_page(client, meeting_with_trans
     page_html = client.get(f"/al/birmingham/meetings/{fx['meeting_id']}/transcript/").get_data(as_text=True)
     assert "Speaker 3" in item_html and "Speaker 1" not in item_html
     assert "Speaker 3" in page_html
+
+
+def test_data_debt_lists_failed_transcript(client, meeting_with_transcript):
+    fx = meeting_with_transcript
+    with db_cursor() as cur:
+        cur.execute("""UPDATE transcripts SET status='failed', stage_attempts=3,
+                              last_error='ffmpeg could not read: 403 Forbidden' WHERE id=%s""",
+                    [fx["transcript_id"]])
+    html = client.get("/al/birmingham/data-debt").get_data(as_text=True)
+    assert "Transcription failed" in html and "TR test" in html
+
+
+def test_data_debt_omits_uploaded_transcript(client, meeting_with_transcript):
+    fx = meeting_with_transcript; _publish(fx["transcript_id"])
+    html = client.get("/al/birmingham/data-debt").get_data(as_text=True)
+    assert "TR test" not in html
+
+
+def test_data_debt_low_speech_only_counts_on_long_recordings(client, meeting_with_transcript):
+    fx = meeting_with_transcript
+    with db_cursor() as cur:
+        cur.execute("UPDATE transcripts SET status='low_speech', audio_duration_s=140 WHERE id=%s",
+                    [fx["transcript_id"]])
+    html = client.get("/al/birmingham/data-debt").get_data(as_text=True)
+    assert "TR test" not in html                      # a 2-minute recording is a short session
+    with db_cursor() as cur:
+        cur.execute("UPDATE transcripts SET audio_duration_s=5400 WHERE id=%s", [fx["transcript_id"]])
+    html = client.get("/al/birmingham/data-debt").get_data(as_text=True)
+    assert "No usable audio" in html and "TR test" in html   # 90 minutes of video, no speech: debt

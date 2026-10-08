@@ -12,6 +12,7 @@ import re as _re
 
 from markupsafe import Markup, escape
 
+from docket.config import TRANSCRIPT_BACKFILL_SINCE
 from docket.db import db_cursor
 
 PUBLIC_STATUSES = ("uploaded", "speakers_resolved", "events_extracted", "compared")
@@ -273,3 +274,43 @@ def _safe_headline(raw: str, *, pre_escaped: bool = False) -> Markup:
     """
     escaped = raw if pre_escaped else str(escape(raw))
     return Markup(escaped.replace(_HL_OPEN, "<mark>").replace(_HL_CLOSE, "</mark>"))
+
+
+TRANSCRIPT_DEBT_LABELS = {
+    "failed": "Transcription failed",
+    "low_speech": "No usable audio",
+    "needs_review": "Transcript held for review",
+    None: "Not yet transcribed",
+}
+
+# A low_speech result on a recording shorter than this is a short session
+# (roll call and adjourn), not a problem to fix. Longer recordings with under
+# three minutes of speech are a dead or near-empty stream and stay on the list.
+SHORT_MEETING_S = 600.0
+
+
+def list_transcript_debt(municipality_id: int, limit: int = 50) -> list[dict]:
+    with db_cursor() as cur:
+        cur.execute(
+            """SELECT m.id AS meeting_id, m.title AS meeting_title, m.meeting_date,
+                      t.status, t.last_error, t.stage_attempts
+                 FROM meetings m
+                 LEFT JOIN transcripts t ON t.meeting_id = m.id
+                WHERE m.municipality_id = %s
+                  AND m.is_hidden = FALSE
+                  AND m.video_url IS NOT NULL
+                  AND m.external_id ~ '^[0-9]+$'
+                  AND (
+                        t.status IN ('failed', 'needs_review')
+                     OR (t.status = 'low_speech' AND COALESCE(t.audio_duration_s, 0) >= %s)
+                     OR (t.id IS NULL AND m.meeting_date < CURRENT_DATE - 14
+                         AND m.meeting_date >= %s)
+                  )
+                ORDER BY m.meeting_date DESC
+                LIMIT %s""",
+            [municipality_id, SHORT_MEETING_S, TRANSCRIPT_BACKFILL_SINCE, limit],
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+    for r in rows:
+        r["friendly_label"] = TRANSCRIPT_DEBT_LABELS.get(r["status"], "Transcript problem")
+    return rows

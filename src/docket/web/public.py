@@ -749,9 +749,13 @@ def data_debt(city):
     high_items = [i for i in items if i.get("data_debt_priority") == "high"]
     normal_items = [i for i in items if i.get("data_debt_priority") != "high"]
 
+    from docket.services import transcripts as tsvc
+    transcript_debt = tsvc.list_transcript_debt(municipality["id"])
+
     return render_template(
         "data_debt.html",
         municipality=municipality,
+        transcript_debt=transcript_debt,
         items=items,
         high_items=high_items,
         normal_items=normal_items,
