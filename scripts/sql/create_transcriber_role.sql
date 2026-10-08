@@ -1,6 +1,6 @@
 -- scripts/sql/create_transcriber_role.sql
 -- Run once per database as the app owner:
---   psql "$PGURL" -v password="'$(openssl rand -base64 32)'" -f scripts/sql/create_transcriber_role.sql
+--   psql "$PGURL" -v password="$(openssl rand -hex 32)" -f scripts/sql/create_transcriber_role.sql
 -- Then put the URL in transcriber/.env as
 --   TRANSCRIBER_DATABASE_URL=postgresql://transcriber:<password>@<host>:<port>/railway?sslmode=require
 -- The role writes only the producer's tables and reads the reference

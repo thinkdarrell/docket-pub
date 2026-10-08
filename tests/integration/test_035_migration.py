@@ -5,7 +5,7 @@ from docket.db import db, db_cursor
 from docket.migrations import runner
 
 pytestmark = pytest.mark.skipif(
-    "railway.internal" in DATABASE_URL or "railway.app" in DATABASE_URL,
+    any(h in DATABASE_URL for h in ("railway.internal", "railway.app", "rlwy.net")),
     reason="Migration test must not run against Railway prod.",
 )
 

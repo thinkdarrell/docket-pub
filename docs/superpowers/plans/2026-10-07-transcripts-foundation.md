@@ -476,7 +476,7 @@ Expected: FAIL with `FileNotFoundError` for the SQL script.
 ```sql
 -- scripts/sql/create_transcriber_role.sql
 -- Run once per database as the app owner:
---   psql "$PGURL" -v password="'$(openssl rand -base64 32)'" -f scripts/sql/create_transcriber_role.sql
+--   psql "$PGURL" -v password="$(openssl rand -hex 32)" -f scripts/sql/create_transcriber_role.sql
 -- Then put the URL in transcriber/.env as
 --   TRANSCRIBER_DATABASE_URL=postgresql://transcriber:<password>@<host>:<port>/railway?sslmode=require
 -- The role writes only the producer's tables and reads the reference
@@ -3695,7 +3695,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ## Operator steps after the code tasks
 
 1. Deploy: `scripts/deploy.sh --service docket-web` then `--service worker`; migrations run at container start.
-2. Create the role on Railway: `psql "$PGURL" -v password="'$(openssl rand -base64 32)'" -f scripts/sql/create_transcriber_role.sql` and put the URL in `transcriber/.env` on the Legion.
+2. Create the role on Railway: `psql "$PGURL" -v password="$(openssl rand -hex 32)" -f scripts/sql/create_transcriber_role.sql` and put the URL in `transcriber/.env` on the Legion.
 3. Legion bring-up (Task 9 Step 8). Then `docker compose run --rm transcriber --since 2025-10-28 --limit 3` and confirm three meetings reach `uploaded` and their transcript pages render on docket.pub.
 4. Run `python scripts/transcript_scale_check.py` once against a local database and record the numbers (Task 14 Step 5).
 5. Full current-council batch: `--limit 100 --max-hours 6`. About 69 meetings have video in that window as of 2026-10-06.

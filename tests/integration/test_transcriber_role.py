@@ -5,7 +5,7 @@ from docket.config import DATABASE_URL
 from docket.db import db
 
 pytestmark = pytest.mark.skipif(
-    "railway.internal" in DATABASE_URL or "railway.app" in DATABASE_URL,
+    any(h in DATABASE_URL for h in ("railway.internal", "railway.app", "rlwy.net")),
     reason="Role test must not run against Railway prod.",
 )
 
