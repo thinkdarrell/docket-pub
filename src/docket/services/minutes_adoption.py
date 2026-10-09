@@ -309,3 +309,65 @@ def sweep_adoptions(municipality_id: int) -> list[int]:
                 logger.warning("promotion failed for meeting %s after sweep: %s", mid, e)
 
     return flipped
+
+
+class AdoptionLines(NamedTuple):
+    by_target: dict[int, list[tuple[date, bool]]]
+    unreadable_dates: set[date]
+
+
+def adoption_lines_by_target(cur, municipality_id: int) -> AdoptionLines:
+    """Which agenda lines name each meeting's minutes for adoption.
+
+    Resolves every readable adoption line in the city the same way
+    sweep_adoptions does (lines on hidden adopting meetings included; a
+    range names the non-hidden meetings with a minutes document inside it;
+    a single date names that day's non-hidden meetings, narrowed to those
+    with minutes when there are several, none when several and none has
+    minutes) and returns, per target meeting id, ``(adoption_meeting_date,
+    adopting_meeting_recorded_a_passed_vote)`` pairs, plus the meeting dates
+    of the lines the parser cannot read. Read-only.
+    """
+    cur.execute(
+        """SELECT ai.title, m.meeting_date AS adoption_meeting_date,
+                  EXISTS (SELECT 1 FROM votes v
+                           WHERE v.meeting_id = m.id AND v.result = 'passed') AS has_vote
+           FROM agenda_items ai
+           JOIN meetings m ON m.id = ai.meeting_id
+           WHERE m.municipality_id = %s
+           ORDER BY m.meeting_date, ai.id""",
+        (municipality_id,),
+    )
+    lines = [dict(r) for r in cur.fetchall()]
+    cur.execute(
+        """SELECT id, meeting_date, minutes_url IS NOT NULL AS has_minutes
+           FROM meetings WHERE municipality_id = %s AND is_hidden = FALSE""",
+        (municipality_id,),
+    )
+    by_date: dict[date, list[dict]] = {}
+    for m in (dict(r) for r in cur.fetchall()):
+        by_date.setdefault(m["meeting_date"], []).append(m)
+
+    by_target: dict[int, list[tuple[date, bool]]] = {}
+    unreadable: set[date] = set()
+    for line in lines:
+        if not is_adoption_title(line["title"]):
+            continue
+        adoption_date = line["adoption_meeting_date"]
+        try:
+            spans = extract_adoption_targets(line["title"], adoption_meeting_date=adoption_date)
+        except AdoptionParseError:
+            unreadable.add(adoption_date)
+            continue
+        for span in spans:
+            if span.is_range:
+                targets = [
+                    m for d, ms in by_date.items() if span.start <= d <= span.end and d < adoption_date
+                    for m in ms if m["has_minutes"]
+                ]
+            else:
+                rows = by_date.get(span.start, [])
+                targets = [m for m in rows if m["has_minutes"]] if len(rows) > 1 else rows
+            for m in targets:
+                by_target.setdefault(m["id"], []).append((adoption_date, bool(line["has_vote"])))
+    return AdoptionLines(by_target, unreadable)
