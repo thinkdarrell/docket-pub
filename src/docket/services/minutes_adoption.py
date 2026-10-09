@@ -309,3 +309,59 @@ def sweep_adoptions(municipality_id: int) -> list[int]:
                 logger.warning("promotion failed for meeting %s after sweep: %s", mid, e)
 
     return flipped
+
+
+def adoption_lines_by_target(cur, municipality_id: int) -> dict[int, list[tuple[date, bool]]]:
+    """Which agenda lines name each meeting's minutes for adoption.
+
+    Resolves every readable adoption line in the city the same way
+    sweep_adoptions does (a range names the non-hidden meetings with a
+    minutes document inside it; a single date names that day's non-hidden
+    meetings, narrowed to those with minutes when there are several) and
+    returns, per target meeting id, ``(adoption_meeting_date,
+    adopting_meeting_recorded_a_passed_vote)`` pairs. Unreadable lines are
+    skipped. Read-only.
+    """
+    cur.execute(
+        """SELECT ai.title, m.meeting_date AS adoption_meeting_date,
+                  EXISTS (SELECT 1 FROM votes v
+                           WHERE v.meeting_id = m.id AND v.result = 'passed') AS has_vote
+           FROM agenda_items ai
+           JOIN meetings m ON m.id = ai.meeting_id
+           WHERE m.municipality_id = %s AND m.is_hidden = FALSE
+           ORDER BY m.meeting_date, ai.id""",
+        (municipality_id,),
+    )
+    lines = [dict(r) for r in cur.fetchall()]
+    cur.execute(
+        """SELECT id, meeting_date, minutes_url IS NOT NULL AS has_minutes
+           FROM meetings WHERE municipality_id = %s AND is_hidden = FALSE""",
+        (municipality_id,),
+    )
+    meetings = [dict(r) for r in cur.fetchall()]
+    by_date: dict[date, list[dict]] = {}
+    for m in meetings:
+        by_date.setdefault(m["meeting_date"], []).append(m)
+
+    out: dict[int, list[tuple[date, bool]]] = {}
+    for line in lines:
+        if not is_adoption_title(line["title"]):
+            continue
+        adoption_date = line["adoption_meeting_date"]
+        try:
+            spans = extract_adoption_targets(line["title"], adoption_meeting_date=adoption_date)
+        except AdoptionParseError:
+            continue
+        for span in spans:
+            if span.is_range:
+                targets = [
+                    m for d, ms in by_date.items() if span.start <= d <= span.end and d < adoption_date
+                    for m in ms if m["has_minutes"]
+                ]
+            else:
+                rows = by_date.get(span.start, [])
+                with_minutes = [m for m in rows if m["has_minutes"]]
+                targets = with_minutes if (len(rows) > 1 and with_minutes) else rows
+            for m in targets:
+                out.setdefault(m["id"], []).append((adoption_date, bool(line["has_vote"])))
+    return out

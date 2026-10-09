@@ -266,3 +266,55 @@ _WITHDRAWN_HEADER_RE = re.compile(
     r"|^withdrawn\b",
     re.IGNORECASE,
 )
+
+
+def correct_adoption_dates(
+    municipality_id: int, *, dry_run: bool = False,
+) -> list[tuple[int, date, date]]:
+    """Fix adoption dates the pre-2026-10-02 parser assigned from the wrong line.
+
+    For every meeting with a recorded ``minutes_adopted_at``, re-derive the
+    agenda lines that name it (minutes_adoption.adoption_lines_by_target).
+    A recorded date that matches one of them stands, including when an
+    earlier line exists (the sweep's "first recorded" rule). One that matches
+    none was taken from a line naming other meetings; it is replaced with the
+    earliest line whose meeting recorded a passed vote (the sweep's evidence
+    rule). No such line: left alone. Unrecorded meetings are the sweep's job.
+
+    Returns:
+        (meeting_id, old_date, new_date) per corrected meeting.
+    """
+    import psycopg2.extras
+
+    from docket.services.minutes_adoption import adoption_lines_by_target
+
+    fixes: list[tuple[int, date, date]] = []
+    with db() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            lines = adoption_lines_by_target(cur, municipality_id)
+            cur.execute(
+                """SELECT id, minutes_adopted_at::date AS recorded
+                   FROM meetings
+                   WHERE municipality_id = %s AND is_hidden = FALSE
+                     AND minutes_adopted_at IS NOT NULL
+                   ORDER BY meeting_date, id""",
+                (municipality_id,),
+            )
+            for row in cur.fetchall():
+                named = lines.get(row["id"], [])
+                if row["recorded"] in {d for d, _ in named}:
+                    continue
+                evidenced = sorted(d for d, has_vote in named if has_vote)
+                if not evidenced:
+                    continue
+                fixes.append((row["id"], row["recorded"], evidenced[0]))
+            if fixes and not dry_run:
+                for meeting_id, old, new in fixes:
+                    cur.execute(
+                        """UPDATE meetings SET minutes_adopted_at = %s
+                           WHERE id = %s AND minutes_adopted_at::date = %s""",
+                        (new, meeting_id, old),
+                    )
+                conn.commit()
+    log.info("correct_adoption_dates: %d meetings%s", len(fixes), " (dry run)" if dry_run else "")
+    return fixes
