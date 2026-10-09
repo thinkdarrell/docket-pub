@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from datetime import date
 from typing import Callable
@@ -177,3 +178,91 @@ def reparse_adopted_with_provisional_links(
         log.info("reparse_pending meeting=%s result=%s", meeting_id, result)
         done.append(meeting_id)
     return done
+
+
+def reactivate_consent_links_without_pull_evidence(
+    municipality_id: int, *, dry_run: bool = False,
+) -> list[tuple[int, int]]:
+    """Bring back consent-vote links the old strict re-parse hid without evidence.
+
+    Before 2026-10-02 the strict re-parse deactivated every consent link whose
+    item it could not find in the minutes' enumerated list. The current rule
+    (vote_matcher.strict_reparse_meeting) hides a link only when the minutes
+    also record a separate vote on that item. This restores, on adopted
+    meetings, every non-manual consent link that the current rule would not
+    have hidden: no separate active explicit minutes-text link for the item.
+    (Video-OCR links don't count, matching the re-parse.) Withdrawn items stay
+    hidden: the consent-block matcher links every consent item, withdrawn ones
+    included, and restoring those would show "passed on consent" on item
+    pages. Restored links are official (minutes adopted). Idempotent.
+
+    Returns:
+        (meeting_id, links restored) per meeting, ordered by meeting id.
+    """
+    from docket.ai.wave0 import is_withdrawn_or_deferred
+
+    sql = """
+        SELECT vai.id, v.meeting_id, ai.title, ai.processing_status::text
+          FROM vote_agenda_items vai
+          JOIN votes v ON v.id = vai.vote_id
+          JOIN meetings m ON m.id = v.meeting_id
+          JOIN agenda_items ai ON ai.id = vai.agenda_item_id
+         WHERE m.municipality_id = %s
+           AND m.minutes_adopted_at IS NOT NULL
+           AND vai.is_active = FALSE
+           AND vai.is_manual = FALSE
+           AND vai.association_type IN ('consent_named', 'consent_implicit')
+           AND NOT EXISTS (
+               SELECT 1 FROM vote_agenda_items sep
+               JOIN votes sv ON sv.id = sep.vote_id
+               WHERE sep.agenda_item_id = vai.agenda_item_id
+                 AND sep.vote_id <> vai.vote_id
+                 AND sv.meeting_id = v.meeting_id
+                 AND sv.source = 'minutes_text'
+                 AND sep.association_type = 'explicit'
+                 AND sep.is_active = TRUE
+           )
+         ORDER BY v.meeting_id, vai.id
+    """
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(sql, (municipality_id,))
+        rows = [
+            (link_id, meeting_id)
+            for link_id, meeting_id, title, status in cur.fetchall()
+            if status != "withdrawn"
+            and not is_withdrawn_or_deferred(title)
+            and not _WITHDRAWN_HEADER_RE.search(" ".join((title or "").split()))
+        ]
+        per_meeting: dict[int, int] = {}
+        for _link_id, meeting_id in rows:
+            per_meeting[meeting_id] = per_meeting.get(meeting_id, 0) + 1
+        if rows and not dry_run:
+            # Re-check the cheap invariants: an admin edit or a vote_matching
+            # tick could have landed between the SELECT and this UPDATE.
+            cur.execute(
+                """UPDATE vote_agenda_items
+                      SET is_active = TRUE, provisional = FALSE, updated_at = NOW()
+                    WHERE id = ANY(%s)
+                      AND is_active = FALSE
+                      AND is_manual = FALSE""",
+                ([link_id for link_id, _ in rows],),
+            )
+            conn.commit()
+    result = sorted(per_meeting.items())
+    log.info("reactivate_consent_links: %d links on %d meetings%s",
+             len(rows), len(result), " (dry run)" if dry_run else "")
+    return result
+
+
+# Clerk markings in the item header that the wave0 patterns miss:
+# "CONSENT ITEM 32.withdrawn A Resolution…", "CONSENT ITEM 22. WITHDRAWNA
+# Resolution…", "CONSENT ITEM 56. [WITHDRAWN PER P.E.P.] A Resolution…".
+# Header position only: "[WITHDRAW PROPERTY #38 …]" pulls one property from
+# a resolution that still passed, and "withdrawing" in the body is just the
+# resolution's subject.
+_WITHDRAWN_HEADER_RE = re.compile(
+    r"^(?:withdrawn\s+)?consent\s*(?:\(ph\))?\s*item\s+\d+\.?\s*"
+    r"(?:withdrawn|\[withdrawn\b[^\]]*\])"
+    r"|^withdrawn\b",
+    re.IGNORECASE,
+)
