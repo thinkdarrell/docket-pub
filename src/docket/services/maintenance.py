@@ -276,10 +276,15 @@ def correct_adoption_dates(
     For every meeting with a recorded ``minutes_adopted_at``, re-derive the
     agenda lines that name it (minutes_adoption.adoption_lines_by_target).
     A recorded date that matches one of them stands, including when an
-    earlier line exists (the sweep's "first recorded" rule). One that matches
-    none was taken from a line naming other meetings; it is replaced with the
-    earliest line whose meeting recorded a passed vote (the sweep's evidence
-    rule). No such line: left alone. Unrecorded meetings are the sweep's job.
+    earlier line exists (the sweep's "first recorded" rule); so does one
+    equal to the date of a line the current parser cannot read, since the
+    old parser may have read it. A date matching neither was taken from a
+    line naming other meetings; it is replaced with the earliest line whose
+    meeting recorded a passed vote (the sweep's evidence rule). No such
+    line: left alone. Unrecorded meetings are the sweep's job.
+
+    Dates are compared and written as UTC calendar days regardless of the
+    session timezone (Railway runs UTC; a laptop shell may not).
 
     Returns:
         (meeting_id, old_date, new_date) per corrected meeting.
@@ -291,6 +296,7 @@ def correct_adoption_dates(
     fixes: list[tuple[int, date, date]] = []
     with db() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SET LOCAL TIME ZONE 'UTC'")
             lines = adoption_lines_by_target(cur, municipality_id)
             cur.execute(
                 """SELECT id, minutes_adopted_at::date AS recorded
@@ -300,21 +306,28 @@ def correct_adoption_dates(
                    ORDER BY meeting_date, id""",
                 (municipality_id,),
             )
+            candidates = []
             for row in cur.fetchall():
-                named = lines.get(row["id"], [])
+                named = lines.by_target.get(row["id"], [])
                 if row["recorded"] in {d for d, _ in named}:
+                    continue
+                if row["recorded"] in lines.unreadable_dates:
                     continue
                 evidenced = sorted(d for d, has_vote in named if has_vote)
                 if not evidenced:
                     continue
-                fixes.append((row["id"], row["recorded"], evidenced[0]))
-            if fixes and not dry_run:
-                for meeting_id, old, new in fixes:
+                candidates.append((row["id"], row["recorded"], evidenced[0]))
+            if dry_run:
+                fixes = candidates
+            else:
+                for meeting_id, old, new in candidates:
                     cur.execute(
                         """UPDATE meetings SET minutes_adopted_at = %s
                            WHERE id = %s AND minutes_adopted_at::date = %s""",
                         (new, meeting_id, old),
                     )
+                    if cur.rowcount == 1:
+                        fixes.append((meeting_id, old, new))
                 conn.commit()
     log.info("correct_adoption_dates: %d meetings%s", len(fixes), " (dry run)" if dry_run else "")
     return fixes

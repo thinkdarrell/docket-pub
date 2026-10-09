@@ -48,12 +48,13 @@ def seed():
         created["meetings"].append(mid)
         return mid
 
-    def adopting(meeting_date, line, *, passed_vote=True):
+    def adopting(meeting_date, line, *, passed_vote=True, hidden=False):
         with db() as conn, conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO meetings (municipality_id, meeting_type, meeting_date, source_url, title)
-                VALUES (%s, 'council', %s, 'x', 'adopting') RETURNING id
-            """, (muni(), meeting_date))
+                INSERT INTO meetings (municipality_id, meeting_type, meeting_date, source_url, title,
+                                      is_hidden)
+                VALUES (%s, 'council', %s, 'x', 'adopting', %s) RETURNING id
+            """, (muni(), meeting_date, hidden))
             mid = cur.fetchone()[0]
             cur.execute("INSERT INTO agenda_items (meeting_id, title, is_consent) VALUES (%s, %s, FALSE) RETURNING id",
                         (mid, line))
@@ -68,7 +69,8 @@ def seed():
 
     def recorded(mid):
         with db() as conn, conn.cursor() as cur:
-            cur.execute("SELECT minutes_adopted_at::date FROM meetings WHERE id = %s", (mid,))
+            cur.execute("SELECT (minutes_adopted_at AT TIME ZONE 'UTC')::date FROM meetings WHERE id = %s",
+                        (mid,))
             return cur.fetchone()[0]
 
     yield type("Seed", (), {k: staticmethod(v) for k, v in
@@ -135,11 +137,46 @@ def test_leaves_unrecorded_meetings_to_the_sweep(seed):
 
 
 def test_range_line_counts_as_naming_the_meeting(seed):
+    """Recorded from a range line; an earlier single-date line also names the
+    meeting, so an implementation that ignored ranges would rewrite it."""
     t = seed.target(date(2018, 11, 6), recorded=date(2019, 1, 22))
+    seed.adopting(date(2019, 1, 8), LINE)
     seed.adopting(date(2019, 1, 22), "APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: November 6 – 27, 2018")
 
     assert correct_adoption_dates(seed.muni()) == []
     assert seed.recorded(t) == date(2019, 1, 22)
+
+
+def test_line_on_a_hidden_adopting_meeting_still_counts(seed):
+    """The sweep reads lines from hidden meetings too, so a date stamped from one is real."""
+    t = seed.target(date(2018, 11, 6), recorded=date(2019, 1, 22))
+    seed.adopting(date(2019, 1, 22), LINE, hidden=True)
+    seed.adopting(date(2019, 2, 5), LINE)
+
+    assert correct_adoption_dates(seed.muni()) == []
+    assert seed.recorded(t) == date(2019, 1, 22)
+
+
+def test_date_of_an_unreadable_line_is_left_alone(seed):
+    """The old parser may have read a line the current one rejects (clerk year
+    typo); a recorded date equal to that line's meeting date is not evidence of
+    a mistake, so it stands even though another line names the meeting."""
+    t = seed.target(date(2018, 11, 6), recorded=date(2019, 1, 22))
+    seed.adopting(date(2019, 1, 22), "APPROVAL OF MINUTES FROM PREVIOUS MEETINGS: November 6 and 13, 2019")
+    seed.adopting(date(2019, 2, 5), LINE)
+
+    assert correct_adoption_dates(seed.muni()) == []
+    assert seed.recorded(t) == date(2019, 1, 22)
+
+
+def test_several_rows_on_one_date_without_minutes_are_not_named(seed):
+    """Mirrors the sweep's adoption_multi_match skip."""
+    a = seed.target(date(2018, 11, 6), recorded=date(2019, 3, 26), minutes=False)
+    b = seed.target(date(2018, 11, 6), recorded=date(2019, 3, 26), minutes=False)
+    seed.adopting(date(2019, 1, 22), LINE)
+
+    assert correct_adoption_dates(seed.muni()) == []
+    assert seed.recorded(a) == date(2019, 3, 26) and seed.recorded(b) == date(2019, 3, 26)
 
 
 def test_dry_run_reports_without_writing(seed):
