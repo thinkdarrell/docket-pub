@@ -54,3 +54,30 @@ Task Scheduler (optional): a basic task "At log on" running
     TRANSCRIBER_DEVICE=cpu python -m transcriber.cli --dry-run /path/to/any-30s-clip.mp4 --model small.en
 
 No clip is committed; supply any short meeting clip of your own at that path.
+
+## Bring-up log
+
+2026-10-10, Lenovo Legion (Windows 11, Docker Desktop 29.8.2, NVIDIA driver 610.60). Result: **pass**.
+
+    torch 2.8.0+cu128 cuda 12.8 available True
+    device NVIDIA GeForce RTX 5070 Ti capability (12, 0)
+    ctranslate2 4.8.2 cuda devices 1
+    /archive/transcripts/dry_run/pilot.json
+    BRING-UP OK
+    real 0m35.498s
+
+Pilot clip: 2026-02-17 council meeting excerpt, 530.6 s audio (456 s speech) in 35.5 s
+wall-clock (~15x real time), large-v3 float16, 10 segments, 4 diarized speakers.
+Models were already cached; first run adds the large-v3 and pyannote downloads.
+
+No CTranslate2 fallback was needed: the prebuilt 4.8.2 wheel sees the Blackwell GPU at
+the default compute type. Three dependency fixes were needed first, all because
+unpinned installs pulled releases newer than pyannote.audio 3.x supports:
+
+- torch/torchaudio pinned to 2.8.0: torchaudio 2.9+ removed `AudioMetaData`
+  (`AttributeError` on `import pyannote.audio`).
+- huggingface_hub pinned `<1.0`: hub 1.0 removed `use_auth_token`, which pyannote 3.x
+  passes to `hf_hub_download` (`TypeError`).
+- `engine.py` allowlists the four globals the segmentation-3.0 checkpoint pickles
+  (`TorchVersion`, `Specifications`, `Problem`, `Resolution`) for torch's
+  weights-only loading, instead of disabling it (`UnpicklingError`).
