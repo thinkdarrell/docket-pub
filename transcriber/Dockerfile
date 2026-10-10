@@ -10,9 +10,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 COPY requirements.txt .
-# Blackwell (sm_120) needs the CUDA 12.8 torch wheels.
+# Blackwell (sm_120) needs the CUDA 12.8 torch wheels. Pinned to 2.8 because
+# torchaudio 2.9 removed AudioMetaData, which pyannote.audio 3.x imports
+# (requirements.txt carries the matching pins).
 RUN python -m pip install --no-cache-dir --upgrade pip \
- && python -m pip install --no-cache-dir torch torchaudio --index-url https://download.pytorch.org/whl/cu128 \
+ && python -m pip install --no-cache-dir torch==2.8.0 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cu128 \
  && python -m pip install --no-cache-dir -r requirements.txt
 
 COPY transcriber ./transcriber

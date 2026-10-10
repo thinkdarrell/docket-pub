@@ -1,6 +1,7 @@
 faster-whisper>=1.1,<2
 pyannote.audio>=3.1,<4
-torch>=2.6
-torchaudio>=2.6
+torch>=2.6,<2.9
+torchaudio>=2.6,<2.9
+huggingface_hub<1.0  # pyannote.audio 3.x passes use_auth_token, removed in hub 1.0
 psycopg2-binary>=2.9
 python-dotenv>=1.0

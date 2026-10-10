@@ -119,10 +119,15 @@ class FasterWhisperEngine:
         self.diarization_model: str | None = None
         self._pipeline = None
         if hf_token:
+            import torch
             from pyannote.audio import Pipeline
+            from pyannote.audio.core.task import Problem, Resolution, Specifications
+            # torch>=2.6 loads weights_only by default; allowlist exactly the globals
+            # pyannote's segmentation-3.0 checkpoint pickles, rather than disabling the check.
+            torch.serialization.add_safe_globals(
+                [torch.torch_version.TorchVersion, Specifications, Problem, Resolution])
             self.diarization_model = "pyannote/speaker-diarization-3.1"
             self._pipeline = Pipeline.from_pretrained(self.diarization_model, use_auth_token=hf_token)
-            import torch
             self._pipeline.to(torch.device(device))
         self.oom_fallbacks = 0
         self.last_words: list[dict] = []
