@@ -15,10 +15,12 @@ cron only claims numeric clip ids, so it leaves them alone.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import time
 from dataclasses import dataclass, field
 from datetime import date
+from pathlib import Path
 from typing import Callable
 
 import requests
@@ -63,17 +65,26 @@ class BackfillResult:
 
 
 _RETRY_STATUSES = {429, 500, 502, 503, 504}
-_RETRY_BUDGET = 5
-_RETRY_BASE_SECONDS = 15.0
+_RETRY_BUDGET = 6
+_RETRY_BASE_SECONDS = 30.0
 
 
-def fetch_agenda_text(url: str) -> str:
+def fetch_agenda_text(url: str, *, cache_dir: Path | None = None) -> str:
     """Download an agenda PDF (Wayback ``id_`` URLs serve the original bytes) and extract its text.
 
-    The Wayback Machine answers bursts with 429 and the odd 5xx; those are
-    retried with growing waits (15s, 30s, 60s, …) before giving up. A 200
-    that isn't a PDF (a truncated crawl, an error page) fails at once.
+    With ``cache_dir`` the PDF bytes are kept on disk, keyed by a hash of the
+    URL, and later calls never go back to the network: the Wayback Machine
+    throttles sustained fetching hard, so each agenda should be pulled once.
+    429 and 5xx answers are retried with growing waits (30s, 60s, … up to
+    about 16 minutes in all). A 200 that isn't a PDF (a truncated crawl, an
+    error page) fails at once and is not cached.
     """
+    cache_path = None
+    if cache_dir is not None:
+        cache_path = Path(cache_dir) / f"{hashlib.sha1(url.encode()).hexdigest()}.pdf"
+        if cache_path.exists():
+            return extract_text_from_pdf(cache_path.read_bytes())
+
     for attempt in range(_RETRY_BUDGET):
         resp = requests.get(url, timeout=120, headers={"User-Agent": _BROWSER_UA}, allow_redirects=True)
         if resp.status_code in _RETRY_STATUSES and attempt < _RETRY_BUDGET - 1:
@@ -84,6 +95,9 @@ def fetch_agenda_text(url: str) -> str:
         resp.raise_for_status()
         if resp.content[:5] != b"%PDF-":
             raise ValueError(f"not a PDF: {url} ({resp.content[:20]!r})")
+        if cache_path is not None:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            cache_path.write_bytes(resp.content)
         return extract_text_from_pdf(resp.content)
     raise AssertionError("unreachable")
 

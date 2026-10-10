@@ -211,3 +211,20 @@ def test_fetch_rejects_non_pdf_without_retrying(monkeypatch):
     with pytest.raises(ValueError):
         am.fetch_agenda_text("https://x/a.pdf")
     assert len(calls) == 1
+
+
+def test_fetch_caches_the_pdf_on_disk_and_reuses_it(monkeypatch, tmp_path):
+    """One Wayback fetch per agenda, ever: the validation run fills the cache,
+    the live run reads from it."""
+    from docket.services import archived_meetings as am
+
+    calls = []
+    monkeypatch.setattr(am.requests, "get", lambda url, **kw: (calls.append(url), _Resp(200, b"%PDF-1.4 cached"))[1])
+    monkeypatch.setattr(am.time, "sleep", lambda s: None)
+    monkeypatch.setattr(am, "extract_text_from_pdf", lambda b: b.decode())
+
+    url = "https://web.archive.org/web/1id_/https://x/a.pdf"
+    assert am.fetch_agenda_text(url, cache_dir=tmp_path) == "%PDF-1.4 cached"
+    assert am.fetch_agenda_text(url, cache_dir=tmp_path) == "%PDF-1.4 cached"
+    assert len(calls) == 1
+    assert len(list(tmp_path.glob("*.pdf"))) == 1
