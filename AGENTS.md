@@ -23,8 +23,8 @@ docket.pub ingests, parses, and indexes Alabama municipal meeting records and pu
 Run from the repository root (or the worktree root) with that checkout's own `venv/`.
 
 - Verify (cheap): `venv/bin/python -m pytest tests/unit tests/web tests/services -q` (about 70 s; five known failures, `D1`). There is no aggregated verify command yet; `D5` and the `fast-verify` card track it.
-- Full tests: `venv/bin/python -m pytest -q` (adds integration; needs local Postgres with `docket_db` migrated; one known failure, `D2`). Live tests: add `-m live`.
-- Migrations: `venv/bin/python -m docket.migrations.runner` (`--status`, `--down 1`).
+- Full tests: `venv/bin/python -m pytest tests/unit tests/web tests/services tests/integration -q` (about 105 s; needs local Postgres with `docket_db` migrated; three more known failures, `D2`). Never bare `pytest`, which also collects live tests (`D35`). Live tests: `-m live`.
+- Migrations: `venv/bin/python -m docket.migrations.runner` (`--status`; `--down <version>` rolls back that migration number, and `--down 1` drops the schema).
 - Dev server: `venv/bin/flask run`.
 - Deploy: humans only, from a clean `main`, `scripts/deploy.sh --service docket-web` or `--service worker`.
 
@@ -38,7 +38,6 @@ Run from the repository root (or the worktree root) with that checkout's own `ve
 - This file is a map, not an encyclopedia. Keep it under about 100 lines; content that wants to grow moves into `docs/` and leaves a one-line map entry.
 - Before changing anything under `src/docket/adapters/`, `src/docket/analysis/`, `src/docket/services/ingest.py`, or a template that renders data, read `docs/PRINCIPLES.md`.
 - Routes, worker tasks, and CLIs call `docket.services.*`; services own transactions. Known violations are `D7`.
-- Never run a per-row sweep or an unbounded batch against production; see decision `0026`.
-- Scrape city sites with at least one second between requests.
-- Commit as `hello@docket.pub`; the GitHub account is `thinkdarrell`.
-- Each worktree needs its own `venv/` (`python3.10 -m venv venv && venv/bin/pip install -e ".[dev]"`); the main checkout's venv tests the main checkout.
+- The Constraints in `GOALS.md` bind every change: production volume and worker memory, polite scraping, deploy from `main` only, commit identity.
+- Feature branches (`feat/*` by hand, `plan/<slug>` from the factory) merge to `main` by pull request.
+- Each worktree needs its own `venv/`; `docs/specs/operations.md` says why and how.

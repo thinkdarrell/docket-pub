@@ -25,7 +25,7 @@ Violated when: an agent, plan, or PR claims a test passed or a fix worked withou
 ## Production is not a sandbox
 
 The rule: nothing runs a per-row sweep, a full re-ingest, or an unbounded batch against the Railway database or the Anthropic API; bulk changes are one targeted SQL statement with a WHERE clause, and batches are bounded by a limit and the daily budget.
-Violated when: an agent writes an `UPDATE` or `DELETE` statement against `DATABASE_PUBLIC_URL` without a strict, narrow `WHERE` clause; a CLI API invocation omits the `--limit` flag; or a script loops per-row writes over thousands of production rows instead of issuing one statement, which is what overflowed the write-ahead log and crash-looped the production database on 2026-05-12.
+Violated when: an agent writes an `UPDATE` or `DELETE` statement against `DATABASE_PUBLIC_URL` without a strict, narrow `WHERE` clause; a CLI API invocation omits the `--limit` flag; or a script loops per-row writes over thousands of production rows instead of issuing one statement (decision 0026 records the incident this prevents).
 
 ## One owner per fact
 

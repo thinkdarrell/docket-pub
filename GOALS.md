@@ -43,14 +43,13 @@ Related repositories: `thinkdarrell/al-municipal-meetings` is the original Birmi
 
 ## Constraints
 
-- The production Postgres volume on Railway is small (1 GB). Per-row bulk updates across tens of thousands of rows overflow its write-ahead log and have crashed the database; bulk changes use one targeted SQL statement.
+- The production Postgres volume on Railway is 1 GB. Bulk changes are one targeted SQL statement; decision `0026` in `docs/decisions/` records why.
 - The Railway worker idles near 954 MB; an OCR scan adds roughly 750 MB. Nothing may spawn a second heavy Python process on the worker.
 - Daily AI spend is capped by `AI_DAILY_BUDGET_USD` and every batch respects it.
 - Scraping city sites uses polite delays of at least one second between requests.
 - `railway up` deploys whatever is in the local working tree, so deploys happen only from a clean `main` after merge, through `scripts/deploy.sh`.
 - Local Postgres is version 16; Railway runs 18.3. Dumps and restores against Railway use the postgresql@18 binaries.
 - Commits in this repository use the `hello@docket.pub` identity and the `thinkdarrell` GitHub account.
-- New Anthropic API call sites mirror the tool-use pattern in `src/docket/ai/client.py` and are smoke-tested live before they ship.
 
 ## Known unknowns
 
