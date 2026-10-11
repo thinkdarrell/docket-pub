@@ -6,14 +6,16 @@ A session that executes a milestone of a plan under `plans/active/` lands
 exactly one milestone, and lands it fully recorded. Decided from the git
 history and the plan file alone, between the commit the session started on
 and `HEAD`, that means all of the following hold: at least one new commit
-exists; every new commit changes the plan file; exactly one Progress entry
-went from open (`- [ ]`) to done (`- [x]`); that entry carries a date, where
-any `YYYY-MM-DD` anywhere on its line counts, in parentheses, in square
-brackets, or bare; no entry that was done at the start is open at the end;
-and `git status --porcelain` prints nothing. A plan whose Progress,
-Surprises & Discoveries, Decision Log, or Outcomes & Retrospective section is
-missing or empty cannot be judged at all, and is refused before the session
-starts.
+exists; every new commit changes the plan file by more than whitespace;
+exactly one Progress entry that was open (`- [ ]`) at the start is done
+(`- [x]`) at the end, and a done entry that did not exist at the start does
+not count; that entry carries a date, where any `YYYY-MM-DD` anywhere on its
+line counts, in parentheses, in square brackets, or bare; no entry that was
+done at the start is open at the end; no entry that was open at the start is
+gone at the end; and `git status --porcelain` prints nothing. A plan whose
+Progress, Surprises & Discoveries, Decision Log, or Outcomes & Retrospective
+section is missing or empty cannot be judged at all, and is refused before
+the session starts; so is a start revision the repository does not know.
 
 `plans/PLANS.md` owns why these rules exist (one milestone per session,
 observed evidence, no uncommitted work). This card owns only the decision.
@@ -25,7 +27,7 @@ Whether the recorded evidence is true is out of scope, as it is for
 
 Two places. The judge's self-test, `tools/fixtures/judge/run`, runs as one
 check inside `./tools/verify`, the cheap verification command named in
-`AGENTS.md`; a wrong verdict on any of its eight cases fails `./tools/verify`.
+`AGENTS.md`; a wrong verdict on any of its twelve cases fails `./tools/verify`.
 The judge itself, `tools/judge-milestone`, runs between sessions: `snapshot`
 before a session starts and `judge` after it ends. Until the `cycle-run`
 workflow (the next plan) exists, the operator runs both by hand; once it
@@ -35,8 +37,8 @@ exit 2 refuses to start a session on a plan whose record is defective.
 ## Acceptance
 
 Passing case: from the repository root, `tools/fixtures/judge/run` prints one
-`judge fixture: <case> ... ok` line for each of the eight cases and then
-`judge fixtures: 8 of 8 passed`, and exits 0; `./tools/verify` includes a
+`judge fixture: <case> ... ok` line for each of the twelve cases and then
+`judge fixtures: 12 of 12 passed`, and exits 0; `./tools/verify` includes a
 `verify: judge-fixtures ... ok` line; and `tools/judge-milestone snapshot
 plans/active/<plan>.md` exits 0 for every plan under `plans/active/`.
 
@@ -44,7 +46,7 @@ Failing case, for the self-test: in `tools/fixtures/judge/run`, change the
 expected exit code in the line `assert clean-advance 0 advanced ...` from `0`
 to `1` and run `./tools/verify`. Observe the runner print `judge fixture:
 clean-advance FAILED (want exit 1 word advanced; got exit 0: ...)` and `judge
-fixtures: 1 of 8 failed: clean-advance`, and verify print `verify:
+fixtures: 1 of 12 failed: clean-advance`, and verify print `verify:
 judge-fixtures ... FAILED` and exit nonzero. Revert the change.
 
 Failing case, for the judge: in a scratch git repository holding a plan with
@@ -67,17 +69,20 @@ entry`), the rule that failed, and what to do next.
     judge: Fix the cause, commit in the worktree, and re-run.
 
 The third line is one of: `no commit landed since <sha>.`; `commit <sha> did
-not touch the plan.`; `<n> Progress entries changed state (exactly one
-must).`; `entry at line <n> is ticked but carries no date.`; `entry "<text>"
-was done at the start and is no longer.`; `the working tree has uncommitted
-changes.`
+not touch the plan.` (a commit whose only change to the plan is whitespace
+reads this way); `<n> Progress entries changed state (exactly one must).`;
+`entry at line <n> is ticked but carries no date.`; `entry "<text>" was done
+at the start and is no longer.`; `open entry "<text>" was removed.`; `the
+working tree has uncommitted changes.`
 
-When the plan's record is structurally defective, the judge refuses instead
-of halting, with one line and exit 2:
+When the plan's record is structurally defective, or the start revision is
+not one the repository knows, the judge refuses instead of halting, with one
+line and exit 2:
 
     judge: defect plans/active/add-search.md is missing the required section `## Decision Log`
+    judge: defect start revision 0123456 is unknown
 
 The self-test reports a wrong verdict by case name:
 
     judge fixture: untouched-commit         FAILED (want exit 1 word halt; got exit 0: advanced "...")
-    judge fixtures: 1 of 8 failed: untouched-commit
+    judge fixtures: 1 of 12 failed: untouched-commit

@@ -191,6 +191,9 @@ Today an agent working in this repository cannot prove its change is safe with o
 - Decision: in `tests/web/test_city_overview_render.py` only the early `return` in `test_meeting_detail_source_links_below_executive_summary` becomes `pytest.skip("No Birmingham meetings seeded")`, with `import pytest` added at the top of the file (it had no imports). The identical `return` at line 37 in `test_overview_passes_city_stats_to_template` is left and recorded in `D41`.
   Rationale: M5 names one test and its acceptance says `5 skipped`; converting both would print `6` and is work the plan did not acceptance. Surprises & Discoveries records the finding.
   Date/Author: 2026-10-11, M5 session (Claude).
+- Decision: the documents say what the tools now do, and the verify timing has one owner. `docs/capabilities/judge-milestone.md` Invariant gains "by more than whitespace", "a done entry that did not exist at the start does not count", "no entry that was open at the start is gone at the end", and the unknown start revision as a refusal; its Remediation lists the new halt sentence and the new defect line; every "eight" and "8 of 8" becomes "twelve" and "12 of 12" (the self-test examples read `1 of 12 failed`). `docs/MATURITY.md` and `docs/specs/operations.md` drop "about 150 seconds (budget 180 s)" and say the wall time and budget are stated once in `AGENTS.md` Commands, which is now the only file naming them; `operations.md` Tests keeps the per-checkout database name rule, states `5 skipped` (four in `test_p5_translation.py`, one in `test_city_overview_render.py`, pointing at `D41`), and adds one sentence on `tools/test-db`'s refusals and drop-on-failure. `docs/DEBT.md` deletes `D39` (GitHub issue #110 owns the `::int` bug), rewrites `D40` to say the fixture drops in `finally` and the strays come from killed runs, with the trigger "a stray appears; drop it by hand", and adds `D41` for the five skips, naming the sixth test that still returns early. The register stays at 35 rows.
+  Rationale: the review's one-owner finding was that three files restated a number that changes with hardware; `AGENTS.md` is the file every session reads, so it keeps the number. The card's Invariant is the contract `cycle-run` will be written against and had to gain the two rules the judge now enforces. `D40` as written blamed the fixture for a leak that only an interrupted run produces (`tests/integration/test_analytics_views.py` drops in `finally`, read to confirm), so its trigger pointed at a change that would fix nothing. `D41`'s sixth test is recorded where a future payer will look, rather than fixed outside the milestone's acceptance.
+  Date/Author: 2026-10-11, M5 session (Claude).
 
 ## Outcomes & Retrospective
 
@@ -647,7 +650,22 @@ The card's second failing case, in a scratch repository under `mktemp -d` (`/var
     judge: commit 46cf3d0 did not touch the plan.
     judge: Fix the cause, commit in the worktree, and re-run.
 
-`judge exit=1`.
+`judge exit=1`. (The `18:30Z` in the ticked entry is a value typed into the scratch plan, not a clock reading; the demonstration ran at about 18:20Z.)
+
+Counts after the document edits, before the documents commit (clock 18:23Z):
+
+    grep -c '^| D[0-9]' docs/DEBT.md
+    35
+    grep -c '150' docs/MATURITY.md
+    0
+    grep -c 'query_c_baseline_drift' docs/DEBT.md
+    0
+    grep -n 'unknown' docs/DEBT.md
+    (nothing)
+    grep -rn '150' AGENTS.md docs/specs/operations.md docs/MATURITY.md
+    AGENTS.md:26 only
+    git diff | grep '^+' | grep -v '^+++' | grep -v '^+### D[0-9]* —' | grep -c '—'
+    0
 
 ## Interfaces and Dependencies
 
