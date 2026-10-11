@@ -33,13 +33,13 @@ docket.pub is a Python application with three runtime processes sharing one Post
 ### Enrichment
 
 - Lives in: `src/docket/enrichment/`
-- Owns: deterministic extraction from item text: dollar amounts and tiers, sponsors, keyword topics.
+- Owns: deterministic extraction from item text: dollar amounts and their display tiers (green under $50K, yellow to $250K, orange to $1M, red above), sponsors, keyword topics.
 - Does not: call a language model.
 
 ### AI pipeline
 
 - Lives in: `src/docket/ai/`
-- Owns: the Anthropic client with its tool-use pattern and retries, prompt versions, Wave 0 non-LLM classification, Stage 1 extraction, Stage 2 Smart Brevity rewrite, Stage 2.5 reconcile, badge policy, batch submission and ingest, cost telemetry, the operator CLI, and the daily budget gate.
+- Owns: the Anthropic client with its tool-use pattern and retries, prompt versions, Wave 0 non-LLM classification, Stage 1 extraction, Stage 2 Smart Brevity rewrite, Stage 2.5 reconcile, badge policy, batch submission and ingest, cost telemetry, the operator CLI, the daily budget gate, and the two 0 to 10 scores on every item (significance and consent placement), which stay NULL until the pipeline has processed the item.
 - Does not: serve pages or own the cron schedule.
 
 ### Worker
@@ -100,4 +100,5 @@ From outermost to innermost: entry points (`web/`, `worker/`, `ai/cli.py`, `enri
 
 - Six web modules execute SQL directly (`auth.py`, `admin.py`, `admin_badge_review.py`, `create_admin.py`, `source_security.py`, `public.py`), contrary to the web rule above. Tracked as `D7` in `docs/DEBT.md`.
 - `src/docket/ai/` imports `docket.services.badges` in three places, an inward layer reaching outward. Tracked as `D8` in `docs/DEBT.md`.
-- `src/docket/rosters/` is named in older documentation but does not exist; council rosters are scraped by adapters and stored by migration. No debt row: the reference is removed in this bootstrap.
+- `src/docket/rosters/` is a tracked empty package with no importers, left from an early layout; council rosters are stored by migration and resolved in `src/docket/analysis/ocr/rosters.py`. Deleting it is `D33` in `docs/DEBT.md`.
+- Five modules read the environment directly instead of through `src/docket/config.py`: `src/docket/ai/batches.py` (for `ANTHROPIC_API_KEY`, which config already exposes), `src/docket/web/__init__.py` (`SMART_BREVITY_UI`), `src/docket/worker/tasks.py` (`ANALYTICS_DATABASE_URL`), `src/docket/worker/scheduler.py` (`WORKER_TIMEZONE`), and `src/docket/worker/health.py` (per-task Healthchecks UUIDs). Tracked as `D34` in `docs/DEBT.md`.
