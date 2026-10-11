@@ -657,6 +657,16 @@ M3 session, `.claude/workflows/cycle-plan.js` as committed in `3ebf38c` (316 lin
     295-301  check agent (effort low, label check); null and `ok` false refuse with branch, worktree, plan_path, cleanup and a log line saying the plan is committed but to be fixed in the worktree; `cycle-plan: check ok, <n> open milestone(s), clean tree, one commit over origin/main`
     303-316  result { status: 'planned', branch, worktree, plan_path, milestone_count, first_milestone, first_acceptance, left_out, venv_seconds, next } with the `next` sentence from Plan of Work
 
+M3 session, self-check with the judge after commits `3ebf38c` and `c621267`, using a snapshot taken from the plan as committed at the session's start sha (`git show 4a731fd:plans/active/factory-workflows.md`), observed:
+
+    tools/judge-milestone snapshot <scratch>/fw-m3-start-plan.md > <scratch>/fw-m3-start.snapshot; echo "snapshot exit=$?"
+    snapshot exit=0
+    tools/judge-milestone judge plans/active/factory-workflows.md <scratch>/fw-m3-start.snapshot 4a731fd; echo "judge exit=$?"
+    judge: advanced "(2026-10-11 21:41Z) M3: `.claude/workflows/cycle-plan.js` turns a stated..."
+    judge exit=0
+
+This is the session's own check; `cycle-run`'s judge agent runs the same command from its own snapshot after this session returns, and the commit carrying this note lands after the check, so that judge sees three commits since `4a731fd`.
+
 ## Interfaces and Dependencies
 
 `.claude/workflows/cycle-run.js`: plain JavaScript for the Workflow runtime, no TypeScript syntax, no `import`, no clock. Arguments: a plan path string, or `{ plan, limit }`. Result: an object with `status` one of `refused`, `halt`, `advanced`, `complete`, and the fields named in Plan of Work. Depends on `tools/judge-milestone`, `./tools/verify`, `git`, `gh`, and `skills/plan-execute/SKILL.md`, `skills/retro/SKILL.md`, `skills/doc-garden/SKILL.md` as read by its agents.
