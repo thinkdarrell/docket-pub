@@ -239,7 +239,7 @@ M3 commands:
 
 Expected: the snapshot prints records beginning `OPEN`/`DONE` for this plan's four milestones (M1 and M2 `DONE` by then) and exits 0; the fixture runner prints eight case lines and `judge fixtures: 8 of 8 passed`; verify reports `all 3 checks passed`. Observed by the M3 session on 2026-10-11: the snapshot printed `DONE` for lines 13 and 14 (M1, M2) and `OPEN` for lines 15 and 16 (M3, M4) and exited 0 (measured without the `| head` pipe, which masks the exit; Surprises & Discoveries); the fixture runner printed the eight lines in Artifacts and `judge fixtures: 8 of 8 passed`, exit 0; the verify result is recorded in the M3 Progress entry and Artifacts.
 
-M4 commands are the two failing-case demonstrations described in Plan of Work, each followed by `git checkout -- <file>` to revert, then `./tools/verify` once more, then `wc -l AGENTS.md` (must stay under 100), then the reference walk from the bootstrap plan's Task 10 over the edited artifacts.
+M4 commands are the two failing-case demonstrations described in Plan of Work, each followed by `git checkout -- <file>` to revert, then `./tools/verify` once more, then `wc -l AGENTS.md` (must stay under 100), then the reference walk from the bootstrap plan's Task 10 over the edited artifacts. Observed by the M4 session on 2026-10-11: the baseline `./tools/verify` at `85ff70c` printed `verify: all 3 checks passed in 142s.`, exit 0; the `fast-verify` demonstration (`Decimal("2345678.00")` to `Decimal("2345678.01")` in `tests/unit/test_dollars.py` line 16) printed `1 failed, 1855 passed`, `verify: unit+web+services ... FAILED (60s)`, `verify: 1 of 3 checks failed in 146s.`, exit 1; the `judge-milestone` demonstration (case one's expected exit `0` to `1` in `tools/fixtures/judge/run` line 113) printed `judge fixture: clean-advance FAILED (want exit 1 word advanced; got exit 0: ...)`, `judge fixtures: 1 of 8 failed: clean-advance`, `verify: judge-fixtures ... FAILED (2s)`, `verify: 1 of 3 checks failed in 145s.`, exit 1; both files were reverted and `git status --porcelain` was empty after each. The post-revert verify, line count, debt row count, and walk results are recorded in the M4 Progress entry and Artifacts.
 
 ## Validation and Acceptance
 
@@ -257,7 +257,7 @@ Every step can be rerun. `tools/test-db` drops before it creates, so a half-buil
 
 ## Artifacts and Notes
 
-Still to be filled by later sessions: the two failing-case demonstrations (M4). (The `./tools/verify` summary and wall time from M2, and the M3 transcripts, are below.)
+Transcripts from every milestone are below in order: M1, M2, M3, then the M4 failing-case demonstrations. (This paragraph used to say the M4 demonstrations were still to be filled; the M4 session filled them on 2026-10-11.)
 
 M1 transcripts, observed 2026-10-11 in the worktree on `plan/factory-tools`:
 
@@ -428,6 +428,56 @@ The fixture runner (17:27Z), `tools/fixtures/judge/run; echo "exit=$?"`:
     0
 
 `dash -n tools/verify` passed after the edit.
+
+M4 transcripts, observed 2026-10-11 in the worktree on `plan/factory-tools` at `85ff70c`:
+
+Starting state, before any edit (17:34Z to 17:38Z), `./tools/verify > verify-before.txt 2>&1; echo "exit=$?"`:
+
+    verify: test-db ... ok (1s) postgresql://docket@localhost:5432/docket_test_692415bc
+    verify: unit+web+services ... ok (59s)
+    verify: integration ... ok (81s)
+    verify: judge-fixtures ... ok (1s)
+    verify: all 3 checks passed in 142s.
+    exit=0
+
+(fast tiers `1856 passed, 4 skipped, 4 xfailed, 1 warning in 58.23s`; integration `611 passed, 1 warning in 80.25s`; `judge fixtures: 8 of 8 passed`.)
+
+Failing case one, `fast-verify` (17:39Z to 17:41Z). The one-character change: line 16 of `tests/unit/test_dollars.py`, `Decimal("2345678.00")` to `Decimal("2345678.01")` in `test_standard_with_cents`. `git diff --stat` showed `tests/unit/test_dollars.py | 2 +-`. Then `./tools/verify > verify-demo1.txt 2>&1; echo "exit=$?"`, output 155 lines; the failing check's own text (pytest's) and the summary, line numbers from the capture:
+
+    102 >       assert extract_dollars("Approve $2,345,678.00 contract") == Decimal("2345678.01")
+    103 E       AssertionError: assert Decimal('2345678.00') == Decimal('2345678.01')
+    104 E        +  where Decimal('2345678.00') = extract_dollars('Approve $2,345,678.00 contract')
+    119 FAILED tests/unit/test_dollars.py::TestExtractDollars::test_standard_with_cents
+    120 1 failed, 1855 passed, 4 skipped, 4 xfailed, 1 warning in 58.60s
+    137 611 passed, 1 warning in 84.09s (0:01:24)
+    147 judge fixtures: 8 of 8 passed
+    149 verify: test-db ... ok (0s) postgresql://docket@localhost:5432/docket_test_692415bc
+    150 verify: unit+web+services ... FAILED (60s)
+    151 verify: integration ... ok (84s)
+    152 verify: judge-fixtures ... ok (2s)
+    153 verify: 1 of 3 checks failed in 146s. Each failing check's output is above its summary line; re-run one with:
+    154     DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit tests/web tests/services -q -p no:cacheprovider; tools/test-db --drop
+    exit=1
+
+The other two checks still ran and passed, as the "all checks run" rule requires. Reverted with `git checkout -- tests/unit/test_dollars.py`; `git status --porcelain` printed nothing.
+
+Failing case two, `judge-milestone` (17:42Z to 17:45Z). The one-token change: line 113 of `tools/fixtures/judge/run`, `assert clean-advance 0 advanced` to `assert clean-advance 1 advanced`, so case one expects exit 1 from a clean advance. `git diff --stat` showed `tools/fixtures/judge/run | 2 +-`. (A first attempt at this edit was undone before verify ran, because the shell chain that checked the diff used a pattern that missed an unindented line; nothing was observed from it and the tree was clean before the second attempt.) Then `./tools/verify > verify-demo2.txt 2>&1; echo "exit=$?"`, output 141 lines:
+
+    106 1856 passed, 4 skipped, 4 xfailed, 1 warning in 58.39s
+    123 611 passed, 1 warning in 82.40s (0:01:22)
+    125 judge fixture: clean-advance            FAILED (want exit 1 word advanced; got exit 0: advanced "(2026-10-02 11:00Z) M2: the second thing.")
+    126 judge fixture: no-commit                ok (exit 1, halt: no commit landed since f5d2434.)
+    132 judge fixture: missing-section          ok (exit 2, defect plan.md is missing the required section `## Decision Log`)
+    133 judge fixtures: 1 of 8 failed: clean-advance
+    135 verify: test-db ... ok (1s) postgresql://docket@localhost:5432/docket_test_692415bc
+    136 verify: unit+web+services ... ok (59s)
+    137 verify: integration ... ok (83s)
+    138 verify: judge-fixtures ... FAILED (2s)
+    139 verify: 1 of 3 checks failed in 145s. Each failing check's output is above its summary line; re-run one with:
+    140     DATABASE_URL=$(tools/test-db) tools/fixtures/judge/run; tools/test-db --drop
+    exit=1
+
+(Lines 127 to 131, the other five `ok` cases, are elided; they matched the M3 transcript.) Reverted with `git checkout -- tools/fixtures/judge/run`; `git status --porcelain` printed nothing. Both register rows were changed to `built` only after these two transcripts were written.
 
 ## Interfaces and Dependencies
 
