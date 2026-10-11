@@ -75,3 +75,21 @@ def test_structured_output_round_trip(client, model):
     assert vote["quote"] and "passes" in vote["quote"]
     assert res.usage.input_tokens > 0 and res.usage.output_tokens > 0
     print(f"\n{model}: {res.data}")
+
+
+from docket.ai.transcripts import schemas as S
+
+
+@pytest.mark.parametrize("schema,model", [
+    (S.SPEAKER_SCHEMA, AI_TRANSCRIPT_EVENTS_MODEL),
+    (S.EVENTS_SCHEMA, AI_TRANSCRIPT_EVENTS_MODEL),
+    (S.JUDGE_SCHEMA, AI_TRANSCRIPT_COMPARE_MODEL),
+    (S.HUNTER_SCHEMA, AI_TRANSCRIPT_COMPARE_MODEL),
+])
+def test_production_schemas_are_accepted(client, schema, model):
+    """Each schema is accepted by the model that will use it. Empty-list answers are fine."""
+    res = client.call(model=model, system="Return an empty result that fits the schema.",
+                      user="There is no input. Return the schema's top-level array empty.",
+                      schema=schema, max_tokens=2000, effort="low")
+    (key,) = schema["properties"].keys()
+    assert res.data[key] == []
