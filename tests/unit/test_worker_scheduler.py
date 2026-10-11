@@ -15,7 +15,7 @@ def test_build_scheduler_registers_all_jobs():
         "ingest_all", "video_ocr", "ai_items", "ai_meetings", "vote_matching",
         "repair_empty_agendas", "process_badges", "calibration_report",
         "process_batches", "refresh_backfill_ratio_mv", "prune_analytics",
-        "recast_post_meeting_ai",
+        "recast_post_meeting_ai", "transcript_pipeline",
     }
 
 

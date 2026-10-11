@@ -173,10 +173,10 @@ def test_data_debt_omits_uploaded_transcript(client, meeting_with_transcript):
 def test_data_debt_low_speech_only_counts_on_long_recordings(client, meeting_with_transcript):
     fx = meeting_with_transcript
     with db_cursor() as cur:
-        cur.execute("UPDATE transcripts SET status='low_speech', audio_duration_s=140 WHERE id=%s",
+        cur.execute("UPDATE transcripts SET status='low_speech', audio_duration_s=140, word_count=NULL WHERE id=%s",
                     [fx["transcript_id"]])
     html = client.get("/al/birmingham/data-debt").get_data(as_text=True)
-    assert "TR test" not in html                      # a 2-minute recording is a short session
+    assert "TR test" not in html                      # a 2-minute recording with no word count is a short session
     with db_cursor() as cur:
         cur.execute("UPDATE transcripts SET audio_duration_s=5400 WHERE id=%s", [fx["transcript_id"]])
     html = client.get("/al/birmingham/data-debt").get_data(as_text=True)
