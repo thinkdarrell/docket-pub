@@ -11,7 +11,7 @@ Today an agent working in this repository cannot prove its change is safe with o
 ## Progress
 
 - [x] (2026-10-11 16:56Z) M1: the eight failing tests pass on a developer database. Acceptance run `venv/bin/python -m pytest tests/unit tests/web tests/services tests/integration -q -p no:cacheprovider` printed `2468 passed, 3 skipped, 4 xfailed, 2 warnings in 133.36s`, zero failed. Carve-outs against the stated acceptance: (1) the diff touches four test files, not three; `tests/integration/test_blog_integration.py` needed its own fix because the plan's diagnosis of that test was wrong (Decision Log). (2) The acceptance holds for the first full run after the `mv_badge_volume_monthly` repair; every run of `tests/integration` re-drifts the view through `test_migration_013.py`, and the unit tier leaves rows that break 16 calibration tests on a following run, so a second run on `docket_db` is red again for reasons outside the eight tests and outside M1's scope (Surprises & Discoveries, Decision Log). M2's disposable database is the durable condition under which the suite is green.
-- [ ] M2: `tools/verify` and `tools/test-db` exist; every tier runs on a disposable database named from the checkout; bare `pytest` no longer collects live tests (completed: `tools/test-db` builds and drops `docket_test_692415bc` in this checkout, transcript in Artifacts; `pyproject.toml` `addopts` excludes the live tier, collect-only `0` bare and `12` with `-m live`; remaining: `tools/verify`, the full acceptance run with before/after row counts).
+- [x] (2026-10-11 17:14Z) M2: `tools/verify` and `tools/test-db` exist; every tier runs on a disposable database named from the checkout; bare `pytest` no longer collects live tests. Acceptance run `./tools/verify; echo "exit=$?"` printed `verify: all 2 checks passed in 144s.` and `exit=0` (fast tiers `1856 passed, 4 skipped, 4 xfailed` in 61 s, integration `611 passed` in 83 s); `docket_db` row counts were `votes 0`, `agenda_items 1`, `member_votes 0` immediately before and immediately after, as the reviewer's revised acceptance requires; collect-only live count `0` bare and `12` with `-m live`; the disposable database `docket_test_692415bc` was gone after the run. Carve-outs against the stated acceptance: (1) the "second checkout builds a differently named database" clause was shown by hashing the main checkout's path string (`docket_test_0a1dedec` versus this worktree's `docket_test_692415bc`), not by running `tools/test-db` in a second checkout, because this session may not touch any other directory. (2) The fast tiers report `4 skipped` on the fresh database where M1 saw `3 skipped` on `docket_db`: four data-dependent `tests/web/test_p5_translation.py` tests skip when no meetings, tagged items, search hits, or coverage rows exist (Surprises & Discoveries); nothing fails, but the fresh database tests one case fewer than the developer database did.
 - [ ] M3: `tools/judge-milestone` exists with its fixture self-test under `tools/verify`, and its card is in the register.
 - [ ] M4: `AGENTS.md`, `docs/specs/operations.md`, `docs/DEBT.md`, `docs/MATURITY.md`, and `docs/capabilities/index.md` reflect the new commands; debt rows D1, D2, D3, D5, D35 are closed.
 
@@ -35,6 +35,10 @@ Today an agent working in this repository cannot prove its change is safe with o
   Evidence: `echo ${DATABASE_URL:-<unset>}` printed `<unset>`; `venv/bin/python -c "from docket.config import DATABASE_URL; print(DATABASE_URL)"` printed `postgresql://docket@localhost:5432/docket_db`; `venv/bin/python -c "from dotenv import find_dotenv; print(find_dotenv(usecwd=True))"` printed `/Users/darrellnance/docket-pub/.env`. Because `load_dotenv` does not override variables already set, exporting `DATABASE_URL` from `tools/verify` wins over the `.env`.
 - Observation (M2): the plan's `DATABASE_URL=$(tools/test-db)` idiom and its "prints the migration runner's output and ends with the URL" description conflict unless the runner's output leaves stdout; `$(...)` captures every stdout line, not the last one. Resolved by sending progress and the runner's output to stderr (Decision Log); a terminal still shows both.
   Evidence: with stderr redirected to a file, `URL=$(tools/test-db)` gave `URL=postgresql://docket@localhost:5432/docket_test_692415bc` exactly, and the file held 68 lines (`test-db: building ...`, 33 `Applying`/`Applied` pairs, `All migrations applied.`).
+- Observation (M2): on the fresh database the fast tiers pass `1856` and skip `4`, against M1's `1857` passed and `3` skipped on `docket_db`. All four skips are `tests/web/test_p5_translation.py` tests that call `pytest.skip` when the database has no rows to render; `docket_db` evidently satisfied one of them. A fresh database is cleaner but also emptier, so the suite's data-dependent assertions run only where someone has seeded data; a seeding step for `tools/test-db` is a candidate for the debt register, not for this milestone.
+  Evidence: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_query_hidden_meetings.py tests/web/test_p5_translation.py -q -rs -p no:cacheprovider` printed `SKIPPED [1] tests/web/test_p5_translation.py:38: No Birmingham meetings seeded in this env`, `:64: No tagged items seeded in this env`, `:123: No search hits for 'council' in this env`, `:212: No coverage entries in DB to permalink-test`, then `34 passed, 4 skipped in 2.19s`.
+- Observation (M2): building the disposable database is effectively free; all 33 migrations applied in under one second of wall time (`verify: test-db ... ok (0s)`), so the verify budget is spent entirely in pytest: 61 s fast tiers, 83 s integration, 144 s total, within the 180 s budget the Decision Log sets.
+  Evidence: the `./tools/verify` summary lines in Artifacts.
 
 ## Decision Log
 
@@ -87,10 +91,18 @@ Today an agent working in this repository cannot prove its change is safe with o
 - Decision: `tools/test-db` resolves the base `DATABASE_URL` by asking `docket.config` when the variable is not set in the environment, falling back to `postgresql://docket@localhost:5432/docket_db` only if that import fails; it `cd`s to the repository root before computing `pwd -P`, so the database name is the same from any working directory inside the checkout; and it writes its progress line and the migration runner's output to stderr, leaving the URL as the only stdout line.
   Rationale: the tests reach the server through `docket.config`, `.env` included (Surprises & Discoveries), so the disposable database must be created on that same server; a name that varied with the caller's subdirectory would defeat the drop-before-create idempotence; and `DATABASE_URL=$(tools/test-db)`, the idiom the plan writes for `tools/verify`, needs a single-line stdout.
   Date/Author: 2026-10-11, M2 session (Claude).
+- Decision: when `tools/test-db` fails inside `tools/verify`, no test tier runs; each check is reported as `FAILED (not run: no test database)` and verify exits 1. The plan's "all checks run even if an earlier one fails" rule applies to the checks, not to the database build they depend on.
+  Rationale: without the exported `DATABASE_URL`, pytest would fall back to `docket_db` through `.env`, and the unit tier would delete its rows; the revised acceptance (row counts unchanged) forbids exactly that, and it is the one failure mode where running on is worse than stopping.
+  Date/Author: 2026-10-11, M2 session (Claude).
+- Decision: `tools/verify` drops the disposable database through a `trap ... EXIT`, so the drop runs on every exit path including a failed check or an interrupt; the build is not counted among the checks (the final line says `2 checks` in M2 and will say `3` after M3) but gets its own `verify: test-db ... ok <url>` summary line; and each check's summary line carries its wall time in parentheses, `verify: <name> ... ok (61s)`, a suffix on the contract the Interfaces section states rather than a change to its prefix.
+  Rationale: a leaked database after a red run would make the next run's drop-before-create do the cleanup anyway, but an operator reading `pg_database` should not find strays; counting the build as a check would make the plan's expected `all 2 checks passed` wrong; and the per-check seconds are the evidence the 180 s budget decision needs on every run.
+  Date/Author: 2026-10-11, M2 session (Claude).
 
 ## Outcomes & Retrospective
 
 M1 (2026-10-11): the eight tests pass and the full non-live suite is green in one run on the repaired developer database (`2468 passed, 3 skipped, 4 xfailed`). Four of the eight needed what the plan said (three masthead stubs instead of one), one needed more than the plan said (the `kpi-strip` test had a second latent assertion the plan did not see), one needed a different fix in a file the plan did not name (the blog rail test and the module-level overview cache), and one is fixed only until the next integration run (the materialised view, which `test_migration_013.py` re-drifts). Three test files changed as planned plus `tests/integration/test_blog_integration.py`; no source file changed. The important discovery is not any of the eight tests but what the suite does to the database it runs against: a unit-tier fixture deletes every `agenda_items` and `votes` row in whatever `DATABASE_URL` names, and runs leave rows and schema drift behind that make the next run red. That is the plan's M2 case made concrete, and it means "green on a developer database" is a one-shot statement until `tools/test-db` exists. Lesson for plan authoring: a diagnosis of a failing test should include the command that reproduces it in isolation and in suite order, because two of the eight had causes the plan's single reading of the failure did not reach.
+
+M2 (2026-10-11): `tools/test-db` and `tools/verify` exist and `pyproject.toml` excludes the live tier by default. One command now runs every non-live tier on a database built from the migrations in under a second and dropped on exit, in 144 s, leaving `docket_db` untouched (`0 / 1 / 0` rows before and after). Two of the plan's details did not survive contact: the `DATABASE_URL` the tests use comes from a `.env` above the worktree rather than from the shell or the code default, and the plan's `$(tools/test-db)` idiom needed the runner's output moved to stderr. One thing is slightly worse on a fresh database: four data-dependent web tests skip instead of running. Nothing in `src/` changed. Lesson: a plan that says "the fast tiers need no database" should name the command that proves it; here the proof would have found `fresh_db` in M1's planning rather than in M1's execution.
 
 ## Context and Orientation
 
@@ -175,7 +187,7 @@ M2 commands:
     ./tools/verify; echo "exit=$?"
     venv/bin/python -m pytest --collect-only -q 2>&1 | grep -c 'tests/live/'
 
-Expected: `tools/test-db` prints the migration runner's output and ends with a line `postgresql://docket@localhost:5432/docket_test_<8 hex>`; the drop prints nothing; verify prints one line per check and `verify: all 2 checks passed in <N>s.` with `exit=0`; the collect-only count of live tests is `0` after the `addopts` change and nonzero before it (record both).
+Expected: `tools/test-db` prints the migration runner's output and ends with a line `postgresql://docket@localhost:5432/docket_test_<8 hex>`; the drop prints nothing; verify prints one line per check and `verify: all 2 checks passed in <N>s.` with `exit=0`; the collect-only count of live tests is `0` after the `addopts` change and nonzero before it (record both). Observed by the M2 session on 2026-10-11: `tools/test-db` wrote the runner's output to stderr and `postgresql://docket@localhost:5432/docket_test_692415bc` to stdout; `--drop` printed nothing; `./tools/verify` printed `verify: all 2 checks passed in 144s.` and `exit=0`; live collect-only counts were `12` before and `0` after (`12` with `-m live` both times). Transcripts in Artifacts.
 
 M3 commands:
 
@@ -204,7 +216,7 @@ Every step can be rerun. `tools/test-db` drops before it creates, so a half-buil
 
 ## Artifacts and Notes
 
-Still to be filled by later sessions: the `./tools/verify` summary and wall time (M2); the fixture runner's eight lines (M3); the two failing-case demonstrations (M4).
+Still to be filled by later sessions: the fixture runner's eight lines (M3); the two failing-case demonstrations (M4). (The `./tools/verify` summary and wall time from M2 are below.)
 
 M1 transcripts, observed 2026-10-11 in the worktree on `plan/factory-tools`:
 
@@ -299,11 +311,35 @@ Live-tier collection after adding `addopts = "-m 'not live'"` to `pyproject.toml
 
 The last line shows the `addopts` expression deselects nothing inside the four non-live tiers, so `tools/verify`'s counts are unaffected by it.
 
+`./tools/verify` acceptance run, started 17:08Z, finished 17:10Z, output 128 lines (the runner's 67 lines, two pytest runs, the summary); row counts taken through `docket.db.db_cursor` against `docket_db` immediately before and after:
+
+    before:  votes 0   agenda_items 1   member_votes 0
+    ./tools/verify >verify-run1.txt 2>&1; echo "exit=$?"
+    exit=0
+    tail -4 verify-run1.txt
+    verify: test-db ... ok (0s) postgresql://docket@localhost:5432/docket_test_692415bc
+    verify: unit+web+services ... ok (61s)
+    verify: integration ... ok (83s)
+    verify: all 2 checks passed in 144s.
+    grep -E 'passed|failed' verify-run1.txt | grep -v '^verify'
+    1856 passed, 4 skipped, 4 xfailed, 1 warning in 59.38s
+    611 passed, 1 warning in 82.55s (0:01:22)
+    after:   votes 0   agenda_items 1   member_votes 0
+    select count(*) from pg_database where datname = 'docket_test_692415bc'
+    0
+
+Name divergence between checkouts, computed from the path strings (this session may not run anything in the main checkout):
+
+    /Users/darrellnance/docket-pub -> docket_test_0a1dedec
+    /Users/darrellnance/docket-pub/.claude/worktrees/factory-tools -> docket_test_692415bc
+
+POSIX check: `dash -n tools/test-db && dash -n tools/verify` passed; `dash tools/test-db` built the database and printed the same URL, `dash tools/test-db --drop` exited 0 and left no `docket_test_692415bc` row in `pg_database`. `shellcheck` is not installed on this machine.
+
 ## Interfaces and Dependencies
 
 `tools/test-db`: POSIX sh. Reads `DATABASE_URL` (optional). Prints the test database URL as its last line and exits 0, or exits nonzero with psql's or the runner's error. `tools/test-db --drop` drops it silently. Requires `psql` on PATH or at `/opt/homebrew/opt/postgresql@16/bin/psql` (try PATH first, then that path) and `venv/bin/python`.
 
-`tools/verify`: POSIX sh, no arguments, exit 0 only if every check passed. Checks are listed in the script as `name` and `command` pairs so adding one is one line. Output contract: each check's own output, then one summary line per check in the form `verify: <name> ... ok` or `verify: <name> ... FAILED`, then the final line.
+`tools/verify`: POSIX sh, no arguments, exit 0 only if every check passed. Checks are listed in the script as `name` and `command` pairs so adding one is one line. Output contract: each check's own output, then one summary line per check in the form `verify: <name> ... ok` or `verify: <name> ... FAILED`, then the final line. (As built in M2: the `ok`/`FAILED` word is followed by the check's wall time in parentheses, a `verify: test-db ... ok <url>` line precedes the checks, a check that could not run because the database failed to build reads `FAILED (not run: no test database)`, and the final failing line is `verify: N of M checks failed in Ss. Each failing check's output is above its summary line; re-run one with:` followed by one indented command per failing check. `DATABASE_URL` is exported to every check.)
 
 `tools/judge-milestone`: POSIX sh. `snapshot <plan>` to stdout, exit 0 or 2. `judge <plan> <snapshot-file> <start-sha>`, exit 0, 1, or 2, output as specified in Plan of Work. Uses only `git`, `awk`, `sed`, `printf`; no Python.
 
@@ -316,3 +352,4 @@ The last line shows the `addopts` expression deselects nothing inside the four n
 ## Revision notes
 
 - 2026-10-11, M1 session: recorded M1's execution. Added Surprises & Discoveries entries (context-manager one-liner, three masthead stubs, hidden roll-call assertion, Sunday demonstration, overview cache, destructive unit fixture, migration-013 view drift), four Decision Log entries (roll-call conditional, extra stubs, editing `test_blog_integration.py`, not editing `test_migration_013.py` or `test_ai_worker_claim.py`), corrected the `db_cursor` command forms in Concrete Steps, appended two corrections to Context and Orientation without removing the original sentences, filled Artifacts with the observed transcripts, ticked M1 with its carve-outs, and wrote the M1 Outcomes entry. Reason: PLANS.md requires observed evidence and visible corrections; two of the plan's eight diagnoses were wrong and the record has to show that.
+- 2026-10-11, M2 session: recorded M2's execution. Added Surprises & Discoveries entries (`.env` resolution of `DATABASE_URL`, the `$(tools/test-db)` stdout conflict, four data-dependent skips on a fresh database, sub-second database build), four Decision Log entries (no destructive starting-state run against `docket_db`, `tools/test-db` resolution and stderr contract, no tiers without a database, drop-on-exit and summary-line shape), the observed M2 results in Concrete Steps, the M2 transcripts in Artifacts, the as-built output contract in Interfaces, ticked M2 with two carve-outs, and wrote the M2 Outcomes entry. Reason: PLANS.md requires observed evidence and visible corrections; the reviewer's revision of M2 (every tier on the disposable database, row counts unchanged) is the acceptance recorded here.
