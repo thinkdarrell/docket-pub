@@ -81,7 +81,7 @@ Manual worker tasks run inside the container: `railway ssh --service worker` the
 
 Dumps and restores from a laptop use the postgresql@18 binaries (`/opt/homebrew/opt/postgresql@18/bin/pg_dump`, `psql`); the version 16 binaries refuse with a server version mismatch. The version gap is a constraint in `GOALS.md`.
 
-The worker's memory ceiling is a constraint in `GOALS.md`. Never start a second heavy Python process on the worker (`railway ssh --run-once <heavy task>` has caused out-of-memory kills). If headroom shrinks, the options are a larger tier, `LIMIT 1` per OCR tick, or a separate OCR service.
+The worker's memory ceiling and the ban on a second heavy Python process are constraints in `GOALS.md`; `railway ssh --run-once <heavy task>` starts exactly such a process and has caused out-of-memory kills. If headroom shrinks, the options are a larger tier, `LIMIT 1` per OCR tick, or a separate OCR service.
 
 Feature flags in production: `IMPACT_FIRST_ENABLED=true` on `worker` (the v3 pipeline writes) and `SMART_BREVITY_UI=true` on `docket-web` (citizen rendering of v3 cards) are on. `MINUTES_VS_VIDEO_UI` on `docket-web` stays unset until the transcript ship gate on `/admin/ai` reads "met" (decision `0032`). `TRANSCRIPT_PER_TICK` (default 5) bounds the worker's transcript stage advances per tick. Flags are read in `src/docket/config.py` and `src/docket/web/__init__.py`; Railway holds the values.
 
