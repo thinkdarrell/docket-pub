@@ -3,8 +3,9 @@
 Operator notes for the transcript pipeline. Plan 1 (migration 035, the desktop
 producer, the public transcript page, item excerpts, and search) is live since
 2026-10-10. Plan 2 (speaker resolution, event extraction, the transcript-versus-
-minutes comparison, the admin review queue, and the public discrepancy block)
-is not written yet. Design: `docs/superpowers/specs/2026-10-05-meeting-transcripts-design.md`.
+minutes comparison, the admin review queue, and the public discrepancy block
+behind `MINUTES_VS_VIDEO_UI`) is implemented on `feat/transcripts-comparison`
+and ships with the steps under "Ship gate". Design: `docs/superpowers/specs/2026-10-05-meeting-transcripts-design.md`.
 Plan 1: `docs/superpowers/plans/2026-10-07-transcripts-foundation.md` (PR #99).
 
 ## Shape
@@ -17,8 +18,8 @@ Plan 1: `docs/superpowers/plans/2026-10-07-transcripts-foundation.md` (PR #99).
   Setup and run commands: `transcriber/README.md`, which also has the desktop
   operating notes, a "What to expect" section from the first runs, and the
   bring-up log.
-- **Railway worker**: nothing yet. Plan 2 adds the `transcript_pipeline` cron
-  (10:00 CT) that runs the LLM stages on uploaded transcripts.
+- **Railway worker**: the `transcript_pipeline` cron (10:00 CT) runs the LLM stages
+  on uploaded transcripts; see "Worker stages (plan 2)".
 - **Web**: `/al/<slug>/meetings/<id>/transcript/` (full machine transcript with
   per-turn anchors `#t-N`, HTMX tab on the meeting page), a "From the video"
   excerpt on item pages, transcript hits in `/search` with `speaker:` filter,
@@ -27,7 +28,7 @@ Plan 1: `docs/superpowers/plans/2026-10-07-transcripts-foundation.md` (PR #99).
   machine), `transcript_segments` (cascade from transcripts; re-transcription is
   delete-and-replace), `transcript_speakers` (keyed by `meeting_id` +
   `cluster_label`, so manual names survive a re-run), `producer_heartbeats`,
-  and three plan 2 tables that are empty today: `minutes_texts`,
+  and three plan 2 tables written by the worker: `minutes_texts`,
   `meeting_events`, `minutes_discrepancies`.
 
 ## Status machine (`transcripts.status`)
@@ -37,10 +38,91 @@ Plan 1: `docs/superpowers/plans/2026-10-07-transcripts-foundation.md` (PR #99).
 | `claimed` | producer | Row inserted; audio not fetched yet. Stale after 6 h and reclaimable. |
 | `audio_fetched` | producer | ffmpeg wrote the WAV. Stale after 6 h. |
 | `transcribed` | producer | JSON written to the Legion archive, upload pending. Only the same host may resume it until it is stale. |
-| `uploaded` | producer | Segments are in Postgres. Public page renders. Plan 2 picks up here. |
+| `uploaded` | producer | Segments are in Postgres. Public page renders. The worker picks up here. |
 | `low_speech` | producer | Under the speech floor (for example a Granicus test stream). Terminal; never retried. |
 | `failed` | producer | ffmpeg 403 or timeout, upload error, and so on. `last_error` has the reason. Retried only with `--retry-failed`. |
-| `speakers_resolved`, `events_extracted`, `compared`, `needs_review` | worker (plan 2) | Not used yet. |
+| `speakers_resolved` | worker | Speaker names resolved per cluster; event extraction is next. |
+| `events_extracted` | worker | Event timelines extracted (transcript side always, minutes side when the PDF downloads); comparison is next. |
+| `compared` | worker | Aligner, judge, hunter, and vote check done; discrepancies are in the review queue. |
+| `needs_review` | worker | Schema failure, refusal, token ceiling, or candidate cap; `needs_review_reason` says which. Retry from the held tab. |
+
+## Worker stages (plan 2)
+
+`transcript_pipeline` runs at 10:00 America/Chicago (after vote matching) and
+advances up to `TRANSCRIPT_PER_TICK` (default 5) transcripts one stage each:
+
+| From | Stage | Model | To |
+|---|---|---|---|
+| `uploaded` | fitness gate (`TRANSCRIPT_MIN_WORDS`, default 300) then index-point item assignment, then speaker resolution | Sonnet 5.5 | `speakers_resolved` (or `low_speech` when under the floor) |
+| `speakers_resolved` | event extraction: transcript side always; minutes side when the minutes PDF downloads | Sonnet 5.5 | `events_extracted` (`compare_skipped_reason` = `no_minutes` / `minutes_unavailable` when the minutes side did not run; re-claimed when minutes appear) |
+| `events_extracted` | aligner, Opus judge, Opus hunter, deterministic vote check | Opus 5.5 | `compared` |
+
+Per stage: three attempts with a 24-hour backoff, then `failed`. Schema failures,
+refusals, token-ceiling breaches (`TRANSCRIPT_TOKEN_CEILING`), and candidate-cap
+trips (`TRANSCRIPT_CANDIDATE_CAP`) go straight to `needs_review` with the reason.
+A transcript that was uploaded stays public through `failed`/`needs_review`.
+Every call writes `ai_runs` (stages `transcript_speakers`, `transcript_events`,
+`transcript_compare`, `transcript_ab`) so `AI_DAILY_BUDGET_USD` applies.
+Manual run: `railway ssh --service worker` then `python -m docket.worker.scheduler --run-once transcript_pipeline`.
+One meeting: `venv/bin/python scripts/transcript_recompare.py --meeting-id N --now` (laptop, public DB URL, API key).
+
+## Worker environment
+
+`AI_TRANSCRIPT_SPEAKER_MODEL`, `AI_TRANSCRIPT_EVENTS_MODEL` (default `claude-sonnet-5-5`),
+`AI_TRANSCRIPT_COMPARE_MODEL` (default `claude-opus-5-5`), `AI_TRANSCRIPT_AB_MODEL`
+(A/B script only), `TRANSCRIPT_TOKEN_CEILING`,
+`TRANSCRIPT_CANDIDATE_CAP`, `TRANSCRIPT_PER_TICK`, `TRANSCRIPT_MIN_WORDS`,
+`ALERT_WEBHOOK_URL` (Slack or Discord incoming webhook; unset = silent),
+`HEALTHCHECK_TRANSCRIPT_PIPELINE_UUID`. Web service: `MINUTES_VS_VIDEO_UI` (see ship gate).
+
+## Review queue
+
+`/admin/review/discrepancies`: proposed rows, material first. Approve, reject with a
+reason, or edit title/description then approve (edits go to `admin_*` columns; the
+model text is kept). Rows with `citation_match = 'missing'` cannot be approved until
+you paste the exact excerpt and the guard finds it. Tabs: dismissed by model, stale
+(re-comparison no longer shows it), held (needs_review/failed transcripts, with Retry).
+Speaker fixes: `/admin/transcripts/<meeting_id>/speakers`; a saved row is manual and
+never overwritten by the stage; Release lets the stage try again.
+
+## Ship gate
+
+The public "Minutes vs. Video" block and `/minutes-vs-video/` stay off until at least
+70% of material candidates over the first 10 reviewed meetings or the first 30 reviewed
+candidates (whichever comes first) are approved. `/admin/ai` shows the running ratio.
+When it reads "met", set `MINUTES_VS_VIDEO_UI=true` on the `docket-web` service and
+redeploy. The flip is manual and reversible.
+
+## Re-comparison
+
+Corrected minutes: the daily tick re-downloads each compared meeting's minutes at most
+weekly; a changed PDF re-extracts the minutes side and re-runs the comparison. Approved
+rows go `stale`, and a candidate that comes back is re-proposed in place (badged
+"re-review") instead of duplicated. Unmatched approvals stay `stale` and visible under
+the stale tab. Bumping `EVENTS_PROMPT_VERSION` re-extracts the transcript side, which
+changes transcript event ids and strands approvals as `stale`; keep that rare.
+
+## Alerts
+
+`ALERT_WEBHOOK_URL` receives a JSON post when a transcript enters `failed` or
+`needs_review` and once a day when the Legion looks stalled (a meeting with video older
+than seven days has no transcript and no heartbeat is newer than seven days).
+
+## Haiku A/B and live tests
+
+`venv/bin/python scripts/transcript_extraction_ab.py --meetings 10` writes
+`docs/superpowers/experiments/<date>-haiku-extraction-ab.md` with the decision rule and
+a verdict. Flip `AI_TRANSCRIPT_EVENTS_MODEL` only on a passing verdict.
+
+Result 2026-10-11 on the meeting 2543 fixture: "Sonnet stays" (Haiku recall 0.79,
+precision 0.21, action-type recall floor 0.5; cost $0.17 vs $0.14; 252 s vs 34 s), so
+events extraction stays on Sonnet 5.5. The report the live test wrote was not committed.
+
+Live tests (`-m live`, API key required) on 2026-10-11: the pilot end-to-end test
+reproduced both hand-verified discrepancies (sequence and wording, both material, exact
+citations). The chaotic-meeting test passes with `CHAOTIC_SEQ_RANGE=166-190` on the
+meeting 2543 fixture; seq 191 holds a real motion and vote, so 166-191 correctly fails.
+
 
 ## Running the producer (on the Legion)
 
@@ -112,7 +194,7 @@ not read yet; an ingest-side auto-hide for short clips is the open follow-up.
 
 What the producer does with them: the speech floor catches the silent ones as
 `low_speech`; a mic-check clip with real speech passes and uploads a tiny
-transcript (a word-count floor is a plan 2 item).
+transcript (the plan 2 word-count floor, `TRANSCRIPT_MIN_WORDS`, sends it to `low_speech`).
 
 What to do: hide the meeting from the admin meeting page (`/admin/meetings/<id>/hide`),
 which sets `is_hidden`, `hidden_at`, `hidden_by`. The public page and transcript page
@@ -137,3 +219,4 @@ single pytest invocation fails collection:
   role created on Railway. First runs: 10 meetings in about 39 minutes, three
   caught as `low_speech`.
 - 2026-10-11: 19 Monday test-stream meetings hidden.
+- 2026-10: plan 2 (worker stages, review queue, public block behind flag).
