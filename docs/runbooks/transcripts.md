@@ -44,7 +44,7 @@ Plan 1: `docs/superpowers/plans/2026-10-07-transcripts-foundation.md` (PR #99).
 | `speakers_resolved` | worker | Speaker names resolved per cluster; event extraction is next. |
 | `events_extracted` | worker | Event timelines extracted (transcript side always, minutes side when the PDF downloads); comparison is next. |
 | `compared` | worker | Aligner, judge, hunter, and vote check done; discrepancies are in the review queue. |
-| `needs_review` | worker | Schema failure, refusal, token ceiling, or candidate cap; `needs_review_reason` says which. Retry from the held tab. |
+| `needs_review` | worker | Schema failure, refusal, token ceiling, candidate cap, or a minutes PDF with no text layer; `needs_review_reason` says which. Retry from the held tab. |
 
 ## Worker stages (plan 2)
 
@@ -57,9 +57,14 @@ advances up to `TRANSCRIPT_PER_TICK` (default 5) transcripts one stage each:
 | `speakers_resolved` | event extraction: transcript side always; minutes side when the minutes PDF downloads | Sonnet 5.5 | `events_extracted` (`compare_skipped_reason` = `no_minutes` / `minutes_unavailable` when the minutes side did not run; re-claimed when minutes appear) |
 | `events_extracted` | aligner, Opus judge, Opus hunter, deterministic vote check | Opus 5.5 | `compared` |
 
-Per stage: three attempts with a 24-hour backoff, then `failed`. Schema failures,
-refusals, token-ceiling breaches (`TRANSCRIPT_TOKEN_CEILING`), and candidate-cap
-trips (`TRANSCRIPT_CANDIDATE_CAP`) go straight to `needs_review` with the reason.
+Per stage: three attempts with a 24-hour backoff, then `failed`. A 429 does
+not count as an attempt (the claim's attempt is handed back; the row still
+waits a day). Schema failures, refusals, token-ceiling breaches
+(`TRANSCRIPT_TOKEN_CEILING`), candidate-cap trips (`TRANSCRIPT_CANDIDATE_CAP`),
+and a minutes PDF with no text layer (`minutes_no_text`: under 50 words
+extracted, usually a scan that needs OCR or a different URL) go straight to
+`needs_review` with the reason. Minutes PDFs over 40 MB are treated as
+unavailable and retried daily.
 A transcript that was uploaded stays public through `failed`/`needs_review`.
 Every call writes `ai_runs` (stages `transcript_speakers`, `transcript_events`,
 `transcript_compare`, `transcript_ab`) so `AI_DAILY_BUDGET_USD` applies.
