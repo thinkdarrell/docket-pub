@@ -38,13 +38,19 @@ Then `DATABASE_URL=postgresql://docket@localhost:5432/docket_db` in `.env`.
 
 ## Tests
 
-Three tiers.
+One command runs everything that does not call Anthropic:
 
-- Unit, web, and services: `venv/bin/python -m pytest tests/unit tests/web tests/services -q`. About 70 seconds. Needs no database beyond what `tests/conftest.py` sets (a dummy `ANTHROPIC_API_KEY`, `PGTZ=UTC`, `TZ=UTC`). Five tests fail on `main` as of 2026-10-11; they are `D1` in `docs/DEBT.md`.
-- Full (unit, web, services, integration): `venv/bin/python -m pytest tests/unit tests/web tests/services tests/integration -q`. About 105 seconds. Needs local Postgres with `docket_db` migrated. There is no global rollback; tests that insert rows own their cleanup, and the migration tests apply and roll back real migrations against that database. Three integration tests fail on `main` as of 2026-10-11; they are `D2`. The shared-database shape is `D3`.
-- Live: `venv/bin/python -m pytest -m live`. Opt in only. Makes real Anthropic calls and needs a real `ANTHROPIC_API_KEY`.
+    ./tools/verify
 
-Never run bare `pytest`: `pyproject.toml` sets no `addopts`, so it also collects `tests/live/`, whose fixtures skip only when no key is set, and `tests/conftest.py` sets a dummy key. Tracked as `D35`.
+It takes about 150 seconds (budget 180 s) and exits zero only when every check passed. It first runs `tools/test-db`, which builds a disposable database on the server that `DATABASE_URL` names (the `.env` value when the variable is unset in the shell) by applying every migration, in under a second. The database is named `docket_test_<hash>`, where `<hash>` is the first eight hex characters of the SHA-1 of the checkout's absolute path, so two checkouts never share one and the name is the same from any directory inside a checkout; `tools/test-db --drop` removes it. With `DATABASE_URL` exported at that database, verify runs the fast tiers (`tests/unit`, `tests/web`, `tests/services`), the integration tier (`tests/integration`), and the milestone judge's fixture self-test (`tools/fixtures/judge/run`), prints one `verify: <name> ... ok (Ns)` or `verify: <name> ... FAILED (Ns)` line per check with each failing check's own output above the summary, and drops the database on every exit path. Every check runs even when an earlier one fails; the one exception is a failed database build, after which no tier runs and verify exits 1, because without the exported URL the unit tier would delete rows from `docket_db` (`D37`).
+
+A stale developer `docket_db` is no longer what the tests run against: `./tools/verify` neither reads nor changes it, so drift in it cannot make the suite red, and the suite's own leftovers (the rows and the materialised-view drift that `D37` and `D38` describe) vanish with the disposable database. Expected on a fresh database: the fast tiers report `4 skipped`, all in `tests/web/test_p5_translation.py`, whose data-dependent cases skip when no meetings, tagged items, search hits, or coverage rows exist; that is expected, not a failure. Tests that insert rows own their cleanup, the migration tests apply and roll back real migrations against the disposable database, and the integration tier keeps pytest's default file order (`D38` says why).
+
+To run one tier by hand on a disposable database: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/integration -q -p no:cacheprovider`, then `tools/test-db --drop`. `tools/test-db` writes its progress and the migration runner's output to stderr and the URL alone to stdout, which is what makes the `$(...)` form work.
+
+Live tests make real Anthropic calls and need a real `ANTHROPIC_API_KEY`: `venv/bin/python -m pytest -m live`. Bare `pytest` no longer collects them, because `pyproject.toml` sets `addopts = "-m 'not live'"` and an explicit `-m live` replaces that expression.
+
+The milestone judge, `tools/judge-milestone`, decides from a plan file and the git history alone whether a session advanced exactly one milestone (`snapshot <plan>` before the session, `judge <plan> <snapshot-file> <start-sha>` after it); its contract is `docs/capabilities/judge-milestone.md`, and its eight-case self-test is verify's third check.
 
 ## Deploying
 

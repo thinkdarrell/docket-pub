@@ -8,11 +8,12 @@ docket.pub ingests, parses, and indexes Alabama municipal meeting records and pu
 - `ARCHITECTURE.md`: components, layer map, dependency rules, known rough edges.
 - `docs/PRINCIPLES.md`: six rules that override convenience.
 - `docs/MATURITY.md`: the autonomy ladder; this project is at L0.
-- `docs/DEBT.md`: deliberate deferrals with triggers, `D1` onward.
+- `docs/DEBT.md`: deliberate deferrals with triggers; stable ids `Dn`, closed rows are deleted and numbers are never reused.
 - `docs/decisions/`: one file per durable decision, `0001` onward.
 - `docs/specs/`: present-tense behaviour. `operations.md` is how the system is run.
 - `docs/capabilities/`: spec cards for mechanical checks, with status in `index.md`.
 - `plans/PLANS.md`: the plan convention. `plans/active/` in flight, `plans/completed/` done.
+- `tools/`: `verify` (the one check command), `test-db` (the disposable database it builds), `judge-milestone` (did a session advance exactly one milestone), `fixtures/judge/run` (the judge's self-test).
 - `skills/`: the six procedures (`plan-author`, `plan-execute`, `doc-garden`, `retro`, `capability-build`, `harness-init`). Also reachable as `.claude/skills/`.
 - `docs/superpowers/`: design specs, plans, and reviews written before this harness. History, not current behaviour.
 - `docs/runbooks/`: operator procedures, indexed from `docs/specs/operations.md`.
@@ -22,8 +23,9 @@ docket.pub ingests, parses, and indexes Alabama municipal meeting records and pu
 
 Run from the repository root (or the worktree root) with that checkout's own `venv/`.
 
-- Verify (cheap): `venv/bin/python -m pytest tests/unit tests/web tests/services -q` (about 70 s; five known failures, `D1`). There is no aggregated verify command yet; `D5` and the `fast-verify` card track it.
-- Full tests: `venv/bin/python -m pytest tests/unit tests/web tests/services tests/integration -q` (about 105 s; needs local Postgres with `docket_db` migrated; three more known failures, `D2`). Never bare `pytest`, which also collects live tests (`D35`). Live tests: `-m live`.
+- Verify (cheap, after any edit): `./tools/verify` (about 150 seconds; budget 180 s). Builds a throwaway database from the migrations, runs every non-live tier (unit, web, services, integration) and the judge fixtures against it, prints one summary line per check, drops the database, and exits zero only when every check passed. Never bare `pytest` against a database you care about: `pyproject.toml` excludes the live tier, but the unit tier deletes rows from whatever `DATABASE_URL` names (`D37`).
+- Live tests: `venv/bin/python -m pytest -m live` (real Anthropic calls; needs a real `ANTHROPIC_API_KEY`).
+- Milestone judge: `tools/judge-milestone snapshot <plan>` before a session, `tools/judge-milestone judge <plan> <snapshot-file> <start-sha>` after it; the contract is `docs/capabilities/judge-milestone.md`.
 - Migrations: `venv/bin/python -m docket.migrations.runner` (`--status`; `--down <version>` rolls back that migration number, and `--down 1` drops the schema).
 - Dev server: `venv/bin/flask run`.
 - Deploy: humans only, from a clean `main`, `scripts/deploy.sh --service docket-web` or `--service worker`.
