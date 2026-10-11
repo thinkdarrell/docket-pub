@@ -1,33 +1,5 @@
 # Behavior specs
 
-<!--
-GUIDANCE — MARKERS
-  {{FILL: ...}} is a slot you must replace with real content.
-  Every HTML comment block in this file starts with the word GUIDANCE and is
-  an authoring instruction. Delete all of them once the file is filled.
-  This index ships with no spec files beside it; that is the correct initial
-  state. Fill the table as behavior lands.
-
-GUIDANCE — WHAT THIS DIRECTORY OWNS
-  How the system behaves right now, described from the outside: inputs,
-  outputs, states, and the edges where it refuses. Written in the present
-  tense, with no history and no plan. A spec is the answer to "what does it
-  do today" for someone who will not read the code.
-
-GUIDANCE — WHAT IT MUST NOT ABSORB
-  Internal structure (`ARCHITECTURE.md`), reasoning (`docs/decisions/`),
-  known wrongness (`docs/DEBT.md`), or the narrative of any change
-  (`plans/`). If a sentence contains "now" or "used to", it belongs
-  elsewhere.
-
-GUIDANCE — ANTI-PATTERN THIS DIRECTORY EXISTS TO PREVENT
-  Behavior truth rotting inside `plans/completed/`. A completed plan is an
-  archive of one change, correct only as of the day it landed; three plans
-  later, reconstructing current behavior means reading all of them in order
-  and hoping none contradicts another. Specs collapse that stack into one
-  present-tense description with a single owner.
--->
-
 ## The reflection rule
 
 A plan does not complete until its behavioral outcome is reflected here.
@@ -46,13 +18,8 @@ history lives in version control and in `plans/completed/`.
 
 ## Index
 
-<!--
-GUIDANCE
-  One row per spec file. Keep the "Covers" column narrow enough that routing
-  a new behavior to exactly one file is obvious; overlapping rows are how
-  two files end up describing the same thing differently.
--->
-
 | Spec | Covers |
 | --- | --- |
-| {{FILL: filename.md}} | {{FILL: the behavior this file owns}} |
+| `operations.md` | How the system is run: environments, tests, deploys, Railway, domain, transcriber, runbook index |
+
+Present-tense behaviour specs for ingest, vote matching, the AI pipeline, OCR, coverage, blog, and transcripts do not exist yet; the design documents under `docs/superpowers/specs/` describe each as of the day it shipped. Tracked as `D9` in `docs/DEBT.md`.
