@@ -14,7 +14,7 @@
   <td style="max-width: 300px;">
     {% if row.transcript_excerpt %}<blockquote>{{ row.transcript_excerpt }}</blockquote>{% else %}<span class="t-meta">no transcript excerpt</span>{% endif %}
     {% if row.transcript_start_s is not none %}
-      <span class="t-mono t-meta">{% set ts = row.transcript_start_s | int %}{{ '%02d:%02d:%02d' | format(ts // 3600, ts % 3600 // 60, ts % 60) }}</span>
+      <span class="t-mono t-meta">{{ row.transcript_start_s | format_timestamp }}</span>
       · <a href="/al/{{ row.municipality_slug }}/meetings/{{ row.meeting_id }}/transcript/">transcript</a>
       {% set ch = chapter_url(row.video_url, row.item_external_id) %}{% if ch %} · <a href="{{ ch }}" target="_blank" rel="noreferrer">video chapter ↗</a>{% endif %}
     {% endif %}
@@ -26,11 +26,10 @@
   </td>
   <td style="min-width: 220px;">
     {% if row.review_state == 'proposed' %}
-      <fieldset style="display:inline; border:0; padding:0; margin:0;"{% if row.citation_match == 'missing' %} disabled{% endif %}>
       <form method="post" action="{{ url_for('admin_transcripts.approve', discrepancy_id=row.id) }}" style="display:inline;">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button type="submit" style="font-size: 0.85rem;"{% if row.citation_match == 'missing' %} disabled title="Attach a citation first (edit below)"{% endif %}>Approve</button>
-      </form></fieldset>
+      </form>
       <details><summary style="font-size: 0.85rem;">Reject</summary>
         <form method="post" action="{{ url_for('admin_transcripts.reject', discrepancy_id=row.id) }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

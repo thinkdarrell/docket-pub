@@ -74,7 +74,7 @@ def test_queue_lists_material_first_with_both_excerpts_and_links(admin, pilot):
     html = admin.get("/admin/review/discrepancies").get_data(as_text=True)
     assert html.index("Different statutory ground") < html.index("Minor wording")
     assert "we will go into executive session" in html and "go into Executive Session" in html
-    assert "p. 12" in html and "00:56:40" in html                         # minutes page, transcript timestamp
+    assert "p. 12" in html and "56:40" in html                         # minutes page, transcript timestamp
     assert "MinutesViewer.php" in html and "meta_id=" not in html          # minutes link; chapter link needs numeric meta_id (pilot's is '1950-15')
     assert f"/admin/review/discrepancies/{material}/approve" in html
 
@@ -89,6 +89,16 @@ def test_filters_by_state_category_and_meeting(admin, pilot):
     assert "Sequence one" in admin.get(f"/admin/review/discrepancies?meeting_id={pilot.meeting_id}").get_data(as_text=True)
 
 
+def _approve_form(html, did):
+    """The approve <form> block for one discrepancy."""
+    return html.split(f"/discrepancies/{did}/approve")[1].split("</form>")[0]
+
+
+def test_exact_citation_approve_button_is_enabled(admin, pilot):
+    did = _disc(pilot)
+    assert "disabled" not in _approve_form(admin.get("/admin/review/discrepancies").get_data(as_text=True), did)
+
+
 def test_approve_sets_state_and_reviewer(admin, pilot):
     did = _disc(pilot)
     r = admin.post(f"/admin/review/discrepancies/{did}/approve", data={"csrf_token": TOK})
@@ -101,7 +111,7 @@ def test_approve_sets_state_and_reviewer(admin, pilot):
 def test_missing_citation_cannot_be_approved_until_attached(admin, pilot):
     did = _disc(pilot, citation_match="missing", transcript_excerpt="words nobody said", confidence=0.4)
     html = admin.get("/admin/review/discrepancies").get_data(as_text=True)
-    assert "disabled" in html.split(f"/discrepancies/{did}/approve")[0][-400:]           # Review Focus 2: button disabled
+    assert "disabled" in _approve_form(html, did)                                          # Review Focus 2: button disabled
     r = admin.post(f"/admin/review/discrepancies/{did}/approve", data={"csrf_token": TOK})
     assert r.status_code in (302, 303) and _state(did)["review_state"] == "proposed"
     assert "attach a citation" in admin.get("/admin/review/discrepancies").get_data(as_text=True)   # flashed, not an error page
