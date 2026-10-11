@@ -855,7 +855,9 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 - [ ] **Step 1: Confirm the import syntax with the claude-code-guide agent**
 
-Ask the `claude-code-guide` agent: "Does a CLAUDE.md consisting only of the line `@AGENTS.md` import that file's contents into every session, and does Claude Code discover skills through a symlinked `.claude/skills` directory?" Record both answers here as `Observed:` lines. If the import syntax differs, use the documented form in Step 3. If that agent is unavailable in the executing environment, read the Claude Code documentation page on memory and CLAUDE.md imports (https://docs.anthropic.com/en/docs/claude-code/memory) directly and record what it says; if neither is reachable, write `@AGENTS.md` anyway, since it is the form factory-loop's own CLAUDE.md uses, and record `not confirmed` in the bootstrap report.
+Ask the `claude-code-guide` agent: "Does a CLAUDE.md consisting only of the line `@AGENTS.md` import that file's contents into every session, and does Claude Code discover skills through a symlinked `.claude/skills` directory?" Record both answers here as `Observed:` lines. If the import syntax differs, use the documented form in Step 3.
+
+Observed (2026-10-11, claude-code-guide agent citing https://code.claude.com/docs/en/memory.md and https://code.claude.com/docs/en/skills.md): `@AGENTS.md` imports the sibling file into every session; relative paths resolve against the importing file; imports recurse up to four hops. Symlinked `.claude/skills` directories are not mentioned in the skills documentation either way (symlinks are documented only for `.claude/rules/`). The symlink stays as a best-effort convenience; the route every agent prompt uses is the file path `skills/<name>/SKILL.md`. If that agent is unavailable in the executing environment, read the Claude Code documentation page on memory and CLAUDE.md imports (https://docs.anthropic.com/en/docs/claude-code/memory) directly and record what it says; if neither is reachable, write `@AGENTS.md` anyway, since it is the form factory-loop's own CLAUDE.md uses, and record `not confirmed` in the bootstrap report.
 
 - [ ] **Step 2: Write AGENTS.md**
 
@@ -1051,3 +1053,25 @@ Expected: the first line shows the `thinkdarrell` account; the second prints the
 - [ ] **Step 3: Report to the operator**
 
 State the PR URL, the AGENTS.md line count, the verify summary observed, the reserved paths, and that plan one is the next step and has not been started.
+
+## Bootstrap report
+
+Executed 2026-10-11 inline on branch `docs/factory-cycle-spec` in the worktree `.claude/worktrees/factory-cycle`, from `origin/main` at `3d08e5f`. factory-loop payload and skills from `bcbd3a42026a76325ca792c8295a02e78cdb1e41`, cloned to `/Users/darrellnance/projects/factory-loop`.
+
+Created. Root: `AGENTS.md` (44 lines), `GOALS.md`, `ARCHITECTURE.md`; `CLAUDE.md` reduced to `@AGENTS.md`; one pointer line in `README.md`. `docs/`: `PRINCIPLES.md` (six rules, operator-authored), `MATURITY.md` (L0), `DEBT.md` (32 rows, 4 detail sections), `decisions/` (30 records plus the shipped format), `specs/` (`index.md`, `operations.md`), `capabilities/` (index, format, six cards unchanged). `plans/`: `PLANS.md` byte-identical to upstream, `active/` and `completed/` empty. `skills/`: six procedures byte-identical to upstream, reachable also through the committed relative symlink `.claude/skills`. 58 tracked files in the new set.
+
+From interview rather than tree: GOALS.md Purpose, Outcomes, Non-goals, Constraints, and Known unknowns; all of PRINCIPLES.md (the operator's draft with four precision edits); decisions 0027, 0028, and 0029. Everything else was moved from CLAUDE.md, the design specs, or derived from greps of the code (the ARCHITECTURE.md layer rules and both rough edges were confirmed by grep before being written).
+
+Omitted: nothing from the payload. All six starter cards apply here: fast-verify (D5), evidence-check (plans now exist), doc-integrity (the reference walk below), boundary-lint (the layer map), isolated-env (D3, D6), prose-duplication (one owner per fact).
+
+Debt register: 32 rows. Overdue at bootstrap: D19 (deprecated `scripts/import_video_ocr.py`, its one-cycle grace long past) and D31 (stale `worktree-*` branches on origin). D5 (`tools/verify`) and D3 (`docket_test`) are the first plan's work.
+
+Reference walk over the filled artifacts: every backticked repository path resolves except `tools/verify`, reserved for plan one and carried by D5 in `docs/DEBT.md` and by the Current rung text in `docs/MATURITY.md`. Two walk hits were not paths: a command line (`scripts/deploy.sh --service docket-web`) and a path with a line number (`src/docket/ai/pipeline.py:70`); both files exist. Two defects found and fixed during the walk: GOALS.md had backticked a path inside the factory-loop repository (now a URL), and D14 used a glob (now two real paths). Finish searches for `{{FILL` and `GUIDANCE` across every filled artifact: zero hits. Card files and register rows agree; every gating row names an existing card. Upstream byte identity holds for `plans/PLANS.md`, both format documents, the six cards, and all six skills.
+
+Entry points. CLAUDE.md is `@AGENTS.md`; the claude-code-guide agent confirmed the import against the memory documentation (relative to the importing file, four hops). `.claude/skills` is a committed relative symlink to `skills/`; the skills documentation does not mention symlinked skill directories, so this is not confirmed and is noted for the first real plan to observe. Reading `skills/<name>/SKILL.md` by path is the route every factory prompt uses regardless.
+
+Verify command observed at HEAD: `venv/bin/python -m pytest tests/unit tests/web tests/services -q` printed `5 failed, 1726 passed, 3 skipped, 4 xfailed, 1 warning in 58.59s`; the five failures are D1. `venv/bin/python -m docket.migrations.runner --status` lists migrations applied through 035. `venv/bin/flask --help` and `scripts/deploy.sh --help` print their usage.
+
+Deviations from the plan as written: the baseline had five failing web tests, not one (D1 widened; AGENTS.md says five); the worktree lacked a `.claude/` directory, created before the symlink; `transcriber/.env` was un-backticked because it exists only on the Legion; `docs/specs/index.md` keeps two em dashes inside upstream prose kept verbatim.
+
+Next: plan one, authored by hand following `skills/plan-author/SKILL.md`, covering `tools/verify`, `tools/judge-milestone` with its fixtures and card, D1, D2, and D3 (`docket_test`). Not started here.
