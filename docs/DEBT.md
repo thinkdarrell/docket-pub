@@ -5,7 +5,7 @@
 | ID | Item | Where | Why deferred | Trigger to pay it down |
 | --- | --- | --- | --- | --- |
 | D4 | Local Postgres 16, Railway 18.3 | local environment | Homebrew default; the installed postgresql@18 is not running as a service | `tools/test-db` can be pointed at postgresql@18 by changing the server part of `DATABASE_URL`; do that once that server runs as a service |
-| D6 | A worktree using the main checkout's venv tests the main checkout's code | `venv/` editable install | Only one checkout existed | `cycle-plan` builds a venv per worktree; the `isolated-env` card |
+| D6 | A worktree's `venv/` is built by hand; nothing creates one when a worktree is made, and a borrowed venv tests the wrong checkout (`docs/specs/operations.md` Local environment says why) | `venv/` editable install | Only one checkout existed | `cycle-plan` builds a venv per worktree; the `isolated-env` card |
 | D7 | Seven web modules execute SQL directly | `src/docket/web/auth.py`, `admin.py`, `admin_badge_review.py`, `admin_transcripts.py`, `create_admin.py`, `source_security.py`, `public.py` | Grew with the admin surface | The next plan touching each module moves its SQL into `services/` |
 | D8 | `ai/` imports `docket.services.badges` | `src/docket/ai/pipeline.py:70`, `batch_ingest.py:252`, `badges_policy.py:106` | Badge slugs live in services | Next change to badge policy moves the enabled-slug lookup into `ai/` or a shared module |
 | D9 | No present-tense behaviour specs for ingest, vote matching, AI pipeline, OCR, coverage, blog, transcripts | `docs/specs/` | Design docs under `docs/superpowers/specs/` served as specs | The first plan touching each area reflects its behaviour into `docs/specs/` |
