@@ -400,6 +400,8 @@ grep -rn 'from docket\.' src/docket/models | grep -v 'from docket.models'
 
 Expected on 2026-10-11: six web files (`auth.py`, `admin_badge_review.py`, `admin.py`, `create_admin.py`, `source_security.py`, `public.py`); four inner-layer imports of `docket.services` (`enrichment/cli.py:14`, `ai/batch_ingest.py:252`, `ai/pipeline.py:70`, `ai/badges_policy.py:106`); nothing for the last two. Record the actual output under this step as `Observed:` lines. If the counts differ, the "Known rough edges" section below is edited to match reality before committing.
 
+Observed (2026-10-11, origin/main 3d08e5f): exactly the six web files and the four inner-layer import lines listed above; nothing for services-to-web/worker and nothing for models-to-above. Rough edges written as drafted.
+
 - [ ] **Step 2: Confirm ARCHITECTURE.md is still a skeleton, then replace it with this content, adjusting the rough edges to Step 1's output**
 
 ```bash
