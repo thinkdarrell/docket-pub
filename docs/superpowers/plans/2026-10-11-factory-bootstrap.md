@@ -16,7 +16,10 @@
 - Copy factory-loop files, never retype them. The payload comes from `/Users/darrellnance/projects/factory-loop` pinned at commit `bcbd3a42026a76325ca792c8295a02e78cdb1e41`.
 - Never edit a copied format document or skill: `plans/PLANS.md`, `docs/capabilities/CARD_FORMAT.md`, `docs/decisions/DECISION_FORMAT.md`, the six card files, and everything under `skills/` stay byte-identical to upstream.
 - Never overwrite a file the repo already has. If a copy would collide, stop and record the collision in this plan.
-- No em dashes anywhere in the new artifacts. Use a comma, a colon, or a new sentence.
+- No em dashes in prose anywhere in the new artifacts; use a comma, a colon, or a new sentence. The one exception is a heading where the upstream skeleton or format document itself puts an em dash: the `# NNNN — <statement>` title `docs/decisions/DECISION_FORMAT.md` mandates, the `### Dn — title` detail headings in `docs/DEBT.md`, and the `# <name> — agent guide` title of `AGENTS.md`. Each task's em dash count below follows from this rule.
+- Every `grep -c` used as a check ends with `|| true`, because a zero count exits 1 and would abort a chained line.
+- Before replacing any skeleton, confirm it is still a skeleton: `grep -c '{{FILL' <file> || true` must print a number above zero. If it prints 0, stop; someone already filled it.
+- If `gh` is not authenticated or the active account is not `thinkdarrell`, stop and ask the operator to run `gh auth switch -u thinkdarrell` or `gh auth login` themselves; both are interactive and cannot be run by an agent.
 - Commit email is `hello@docket.pub` (already configured in this worktree). Every commit message ends with the line `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`.
 - `AGENTS.md` stays under 100 lines. Count with `wc -l AGENTS.md` before committing it.
 - A command published in `AGENTS.md` must have been run in this worktree during this plan, with its observed result recorded in the task that ran it.
@@ -83,6 +86,8 @@ python3.10 -m venv venv
 venv/bin/pip install -q -e ".[dev]"
 venv/bin/python -c "import docket; print(docket.__file__)"
 ```
+
+`python3.10` is on PATH on this machine (3.10.21 observed 2026-10-11). If it is not, use `/opt/homebrew/bin/python3.10`, or `brew install python@3.10` first; do not substitute a different minor version, because `requirements.lock` is compiled for 3.10.
 
 Expected: the last line prints `/Users/darrellnance/docket-pub/.claude/worktrees/factory-cycle/src/docket/__init__.py`. Takes two to four minutes. `venv/` is already in `.gitignore`; confirm with `git status --porcelain | grep venv` printing nothing.
 
@@ -160,7 +165,7 @@ Expected: about 24 new paths. `-n` refuses to overwrite, which is the harness-in
 ```bash
 cd /Users/darrellnance/docket-pub/.claude/worktrees/factory-cycle
 FL=/Users/darrellnance/projects/factory-loop
-diff -r $FL/template . --brief 2>/dev/null | grep -v '^Only in \.' ; echo "template diff done"
+LC_ALL=C diff -r $FL/template . --brief 2>/dev/null | grep -v '^Only in \.' ; echo "template diff done"
 diff -r $FL/skills skills --brief; echo "skills diff done"
 ```
 
@@ -200,9 +205,16 @@ Expected: roughly 24 files changed, all insertions.
 **Interfaces:**
 - Produces: the scope and non-goals every later plan is graded against. `docs/PRINCIPLES.md` (Task 3) and `docs/DEBT.md` (Task 7) refer to constraints and unknowns stated here.
 
-The content below is the operator's interview answers, drafted on 2026-10-11 from CLAUDE.md, the design specs, and the operator's memory notes, and presented to the operator in this plan for correction. Anything the operator changes during plan review is changed here before execution.
+The content below is the operator's interview answers, drafted on 2026-10-11 from CLAUDE.md, the design specs, and the operator's memory notes. The operator's review of this plan is the interview: any correction they make during that review is edited into this task before execution, and approval of the plan is approval of this text. Do not pause for a second confirmation during execution.
 
-- [ ] **Step 1: Replace GOALS.md with this content**
+- [ ] **Step 1: Confirm GOALS.md is still a skeleton, then replace it with this content**
+
+```bash
+cd /Users/darrellnance/docket-pub/.claude/worktrees/factory-cycle
+grep -c '{{FILL' GOALS.md || true
+```
+
+Expected: a number above zero. Then replace the file:
 
 ```markdown
 # Goals
@@ -272,7 +284,7 @@ Related repositories: `thinkdarrell/al-municipal-meetings` is the original Birmi
 
 ```bash
 cd /Users/darrellnance/docket-pub/.claude/worktrees/factory-cycle
-grep -c '{{FILL' GOALS.md; grep -c GUIDANCE GOALS.md; grep -c '—' GOALS.md
+grep -c '{{FILL' GOALS.md || true; grep -c GUIDANCE GOALS.md; grep -c '—' GOALS.md || true
 ```
 
 Expected: `0`, `0`, `0`.
@@ -296,7 +308,14 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Interfaces:**
 - Produces: the six rules `AGENTS.md` (Task 9) tells agents to read before data-touching changes, and the rules doc-garden and retro grade against.
 
-- [ ] **Step 1: Replace docs/PRINCIPLES.md with this content**
+- [ ] **Step 1: Confirm docs/PRINCIPLES.md is still a skeleton, then replace it with this content**
+
+```bash
+cd /Users/darrellnance/docket-pub/.claude/worktrees/factory-cycle
+grep -c '{{FILL' docs/PRINCIPLES.md || true
+```
+
+Expected: a number above zero. Then replace the file:
 
 ```markdown
 # Principles
@@ -338,7 +357,7 @@ Violated when: two files state the same thing and one has quietly gone stale, su
 
 ```bash
 cd /Users/darrellnance/docket-pub/.claude/worktrees/factory-cycle
-grep -c '{{FILL' docs/PRINCIPLES.md; grep -c GUIDANCE docs/PRINCIPLES.md; grep -c '—' docs/PRINCIPLES.md
+grep -c '{{FILL' docs/PRINCIPLES.md || true; grep -c GUIDANCE docs/PRINCIPLES.md; grep -c '—' docs/PRINCIPLES.md || true
 ```
 
 Expected: `0`, `0`, `0`.
@@ -379,7 +398,14 @@ grep -rn 'from docket\.' src/docket/models | grep -v 'from docket.models'
 
 Expected on 2026-10-11: six web files (`auth.py`, `admin_badge_review.py`, `admin.py`, `create_admin.py`, `source_security.py`, `public.py`); four inner-layer imports of `docket.services` (`enrichment/cli.py:14`, `ai/batch_ingest.py:252`, `ai/pipeline.py:70`, `ai/badges_policy.py:106`); nothing for the last two. Record the actual output under this step as `Observed:` lines. If the counts differ, the "Known rough edges" section below is edited to match reality before committing.
 
-- [ ] **Step 2: Replace ARCHITECTURE.md with this content, adjusting the rough edges to Step 1's output**
+- [ ] **Step 2: Confirm ARCHITECTURE.md is still a skeleton, then replace it with this content, adjusting the rough edges to Step 1's output**
+
+```bash
+cd /Users/darrellnance/docket-pub/.claude/worktrees/factory-cycle
+grep -c '{{FILL' ARCHITECTURE.md || true
+```
+
+Expected: a number above zero. Then replace the file:
 
 ```markdown
 # Architecture
@@ -492,7 +518,7 @@ From outermost to innermost: entry points (`web/`, `worker/`, `ai/cli.py`, `enri
 ```bash
 cd /Users/darrellnance/docket-pub/.claude/worktrees/factory-cycle
 grep -o '`[^`]*`' ARCHITECTURE.md | tr -d '`' | grep -E '^(src|scripts|transcriber|content|docs)/' | sort -u | while read p; do [ -e "$p" ] || echo "MISSING: $p"; done; echo walk done
-grep -c '{{FILL' ARCHITECTURE.md; grep -c GUIDANCE ARCHITECTURE.md; grep -c '—' ARCHITECTURE.md
+grep -c '{{FILL' ARCHITECTURE.md || true; grep -c GUIDANCE ARCHITECTURE.md; grep -c '—' ARCHITECTURE.md || true
 ```
 
 Expected: `walk done` with no MISSING lines, then `0`, `0`, `0`. `src/docket/rosters/` is deliberately not backticked in the rough-edges line because it must not resolve.
@@ -519,9 +545,11 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 Each file follows the format exactly: title `# NNNN — <statement>` is the one place an em dash is required by the upstream format, so it is allowed in the H1 only. Date is `2026-10-11, recorded at harness bootstrap from CLAUDE.md and operator notes; original decision date where known in parentheses`. Status is `accepted` for all thirty.
 
-- [ ] **Step 1: Create the thirty files from this table**
+- [ ] **Step 1: Create the thirty files from this table, in three batches**
 
 For each row, create `docs/decisions/<NNNN>-<slug>.md` with the Decision text as given and a Rationale of two to five sentences expanding the rationale column. Where the rationale column names an incident date, include it.
+
+Work in three batches so no single step generates more than ten files: 0001 to 0010, then 0011 to 0020, then 0021 to 0030. After each batch run `ls docs/decisions | grep -c '^00' || true` and expect `10`, `20`, `30` in turn, then commit the batch with the message `docs: decision records NNNN to NNNN` (plus the co-author line). Step 2 and Step 3 below run once, after the third batch, and Step 3's commit will then contain nothing new unless Step 2 found a fix to make; that is fine.
 
 | NNNN | slug | Decision | Rationale (expand) |
 | --- | --- | --- | --- |
@@ -647,7 +675,7 @@ Add one sentence under the table: "Present-tense behaviour specs for ingest, vot
 
 ```bash
 cd /Users/darrellnance/docket-pub/.claude/worktrees/factory-cycle
-grep -c '{{FILL' docs/specs/index.md docs/specs/operations.md; grep -c GUIDANCE docs/specs/index.md docs/specs/operations.md; grep -c '—' docs/specs/operations.md docs/specs/index.md
+grep -c '{{FILL' docs/specs/index.md docs/specs/operations.md || true; grep -c GUIDANCE docs/specs/index.md docs/specs/operations.md; grep -c '—' docs/specs/operations.md docs/specs/index.md || true
 grep -o '`docs/[^`]*`\|`scripts/[^`]*`\|`src/[^`]*`\|`transcriber/[^`]*`' docs/specs/operations.md | tr -d '`' | sort -u | while read p; do [ -e "$p" ] || echo "MISSING: $p"; done; echo walk done
 ```
 
@@ -675,7 +703,14 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 The rule from the skeleton's guidance: debt is deliberate. Bugs nobody chose stay in GitHub issues. An issue appears here only when it records a deliberate deferral, and the row cites the issue.
 
-- [ ] **Step 1: Replace docs/DEBT.md with this content**
+- [ ] **Step 1: Confirm docs/DEBT.md is still a skeleton, then replace it with this content**
+
+```bash
+cd /Users/darrellnance/docket-pub/.claude/worktrees/factory-cycle
+grep -c '{{FILL' docs/DEBT.md || true
+```
+
+Expected: a number above zero. Then replace the file:
 
 ```markdown
 # Debt
@@ -740,9 +775,9 @@ Shapes not matched: `ITEM N. (WITHDRAWN)`, `(ph) ITEM N. REQUESTED TO BE WITHDRA
 
 ```bash
 cd /Users/darrellnance/docket-pub/.claude/worktrees/factory-cycle
-grep -c '{{FILL' docs/DEBT.md; grep -c GUIDANCE docs/DEBT.md
+grep -c '{{FILL' docs/DEBT.md || true; grep -c GUIDANCE docs/DEBT.md || true
 grep -c '^| D[0-9]' docs/DEBT.md
-grep -c '—' docs/DEBT.md
+grep -c '—' docs/DEBT.md || true
 ```
 
 Expected: `0`, `0`, `32`, and `4` (one em dash per Details heading, which mirrors the skeleton's `### D1 — title` form; that form is the upstream format and is allowed there only).
@@ -785,7 +820,7 @@ Delete the GUIDANCE comment blocks. Keep all six rows as `specced` with `—` in
 
 ```bash
 cd /Users/darrellnance/docket-pub/.claude/worktrees/factory-cycle
-grep -c '{{FILL' docs/MATURITY.md docs/capabilities/index.md; grep -c GUIDANCE docs/MATURITY.md docs/capabilities/index.md
+grep -c '{{FILL' docs/MATURITY.md docs/capabilities/index.md || true; grep -c GUIDANCE docs/MATURITY.md docs/capabilities/index.md || true
 for c in $(grep -o '^| `[a-z-]*`' docs/capabilities/index.md | tr -d '|` '); do [ -f docs/capabilities/$c.md ] || echo "MISSING card $c"; done; echo register check done
 for c in $(grep -o '^| L[0-9] | `[a-z-]*`' docs/MATURITY.md | awk -F'`' '{print $2}'); do grep -q "^| \`$c\`" docs/capabilities/index.md || echo "GATING ROW WITHOUT CARD $c"; done; echo gating check done
 ```
@@ -816,7 +851,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 - [ ] **Step 1: Confirm the import syntax with the claude-code-guide agent**
 
-Ask the `claude-code-guide` agent: "Does a CLAUDE.md consisting only of the line `@AGENTS.md` import that file's contents into every session, and does Claude Code discover skills through a symlinked `.claude/skills` directory?" Record both answers here as `Observed:` lines. If the import syntax differs, use the documented form in Step 3.
+Ask the `claude-code-guide` agent: "Does a CLAUDE.md consisting only of the line `@AGENTS.md` import that file's contents into every session, and does Claude Code discover skills through a symlinked `.claude/skills` directory?" Record both answers here as `Observed:` lines. If the import syntax differs, use the documented form in Step 3. If that agent is unavailable in the executing environment, read the Claude Code documentation page on memory and CLAUDE.md imports (https://docs.anthropic.com/en/docs/claude-code/memory) directly and record what it says; if neither is reachable, write `@AGENTS.md` anyway, since it is the form factory-loop's own CLAUDE.md uses, and record `not confirmed` in the bootstrap report.
 
 - [ ] **Step 2: Write AGENTS.md**
 
@@ -893,7 +928,7 @@ venv/bin/python -m docket.migrations.runner --status 2>&1 | tail -2
 venv/bin/flask --help 2>&1 | head -1
 scripts/deploy.sh --help 2>&1 | head -2 || sed -n 1,15p scripts/deploy.sh
 wc -l AGENTS.md
-grep -c '{{FILL' AGENTS.md; grep -c GUIDANCE AGENTS.md; grep -c '—' AGENTS.md
+grep -c '{{FILL' AGENTS.md || true; grep -c GUIDANCE AGENTS.md; grep -c '—' AGENTS.md || true
 ```
 
 Expected: the status command prints the migration table tail (or a connection error if local Postgres is down, which is still a run and is recorded as observed); flask prints its usage line; deploy.sh prints usage or its header (do not run it without `--help`); `wc -l` under 100; counts `0`, `0`, `1` (the H1 em dash, which mirrors the upstream skeleton's title form).
@@ -1007,7 +1042,7 @@ gh auth status 2>&1 | grep -m1 'Logged in'
 gh pr create --base main --head docs/factory-cycle-spec --title "docs: adopt the factory-loop harness and the factory cycle spec" --body-file <(sed -n '/^## Bootstrap report/,$p' docs/superpowers/plans/2026-10-11-factory-bootstrap.md; printf '\n\nSpec: docs/superpowers/specs/2026-10-10-factory-cycle-design.md\nPlan: docs/superpowers/plans/2026-10-11-factory-bootstrap.md\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n')
 ```
 
-Expected: the first line shows the `thinkdarrell` account; the second prints the PR URL. Record the URL here.
+Expected: the first line shows the `thinkdarrell` account; the second prints the PR URL. Record the URL here. If the first line shows a different account or no login, stop before `gh pr create`, report that the branch is pushed and the PR is not opened, and ask the operator to run `gh auth switch -u thinkdarrell` (or `gh auth login`) and then re-run Step 2 themselves or in a new session.
 
 - [ ] **Step 3: Report to the operator**
 
