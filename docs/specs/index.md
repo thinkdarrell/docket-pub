@@ -22,4 +22,4 @@ history lives in version control and in `plans/completed/`.
 | --- | --- |
 | `operations.md` | How the system is run: environments, tests (`./tools/verify`, the disposable `docket_test_<hash>` database, the live-tier exclusion, the milestone judge as verify's third check), deploys, Railway, domain, transcriber, runbook index |
 
-Present-tense behaviour specs for ingest, vote matching, the AI pipeline, OCR, coverage, blog, and transcripts do not exist yet; the design documents under `docs/superpowers/specs/` describe each as of the day it shipped. Tracked as `D9` in `docs/DEBT.md`.
+Present-tense behaviour specs do not exist yet for the areas `D9` in `docs/DEBT.md` lists; the design documents under `docs/superpowers/specs/` describe each as of the day it shipped.
