@@ -31,11 +31,12 @@ Whether the recorded evidence is true is out of scope, as it is for
 Two places. The judge's self-test, `tools/fixtures/judge/run`, runs as one
 check inside `./tools/verify`, the cheap verification command named in
 `AGENTS.md`; a wrong verdict on any of its twelve cases fails `./tools/verify`.
-The judge itself, `tools/judge-milestone`, runs between sessions: `snapshot`
-before a session starts and `judge` after it ends. Until the `cycle-run`
-workflow (the next plan) exists, the operator runs both by hand; once it
-exists, `cycle-run` runs them, and exit 1 halts the loop on that plan while
-exit 2 refuses to start a session on a plan whose record is defective.
+The judge itself, `tools/judge-milestone`, is run by the `cycle-run`
+workflow (`.claude/workflows/cycle-run.js`): `snapshot` before each
+milestone session starts and `judge` after it ends. Exit 1 halts the run on
+that plan; exit 2 refuses to start the session, because the plan's record is
+defective. The operator can run both by hand the same way; `AGENTS.md`
+Commands shows the two invocations.
 
 ## Acceptance
 

@@ -57,4 +57,4 @@ Related repositories: `thinkdarrell/al-municipal-meetings` is the original Birmi
 - Can the 89 percent of minutes votes with no linked agenda item be linked without a language-model fallback, or is that the floor?
 - Does a factory workflow run survive a multi-hour plan without being cut off? The first real plan measures this.
 - What does public launch require beyond `docs/SECURITY_CHECKLIST.md`, and when?
-- Is a two-to-four-minute venv build per worktree acceptable at the start of every plan?
+- How long does a venv build per worktree take with a cold pip cache? With a warm cache it took 18 seconds in `.claude/worktrees/factory-workflows` (and 15 seconds in `cycle-plan`'s first live run), not the two to four minutes first feared, so the warm case is a non-issue.

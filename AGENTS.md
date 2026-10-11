@@ -13,7 +13,8 @@ docket.pub ingests, parses, and indexes Alabama municipal meeting records and pu
 - `docs/specs/`: present-tense behaviour. `operations.md` is how the system is run.
 - `docs/capabilities/`: spec cards for mechanical checks, with status in `index.md`.
 - `plans/PLANS.md`: the plan convention. `plans/active/` in flight, `plans/completed/` done.
-- `tools/`: `verify` (the one check command), `test-db` (the disposable database it builds), `judge-milestone` (did a session advance exactly one milestone), `fixtures/judge/run` (the judge's self-test).
+- `tools/`: `verify` (the one check command), `test-db` (the disposable database it builds), `judge-milestone` (did a session advance exactly one milestone), `fixtures/judge/run` (the judge's self-test), `check-workflows` (every saved workflow parses and its meta names its file).
+- `.claude/workflows/`: the factory's two commands, `cycle-plan` (a stated goal becomes a committed plan on its own branch, worktree, and venv) and `cycle-run` (a plan becomes a pull request, one fresh agent per milestone, judged from git). `docs/specs/operations.md` Running the factory says how they are run.
 - `skills/`: the six procedures (`plan-author`, `plan-execute`, `doc-garden`, `retro`, `capability-build`, `harness-init`). Also reachable as `.claude/skills/`.
 - `docs/superpowers/`: design specs, plans, and reviews written before this harness. History, not current behaviour.
 - `docs/runbooks/`: operator procedures, indexed from `docs/specs/operations.md`.
@@ -29,6 +30,7 @@ Run from the repository root (or the worktree root) with that checkout's own `ve
 - Migrations: `venv/bin/python -m docket.migrations.runner` (`--status`; `--down <version>` rolls back that migration number, and `--down 1` drops the schema).
 - Dev server: `venv/bin/flask run`.
 - Deploy: humans only, from a clean `main`, `scripts/deploy.sh --service docket-web` or `--service worker`.
+- Factory: `/cycle-plan <goal>` from any checkout; `/cycle-run plans/active/<slug>.md` from a session started in `.claude/worktrees/<slug>`. One run at a time.
 
 ## Working rules
 
