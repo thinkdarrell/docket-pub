@@ -34,3 +34,40 @@ def test_report_states_the_decision_rule_and_a_verdict():
                 "sonnet": {"cost_usd": 0.20, "latency_s": 35.0, "tokens": 40000}, "material_recall": {"haiku": 1.0, "sonnet": 1.0}, "skipped": None}]
     text = render_report(results)
     assert "Decision rule" in text and "recall" in text and "Verdict" in text and "meeting 1" in text
+
+
+def _row(mid, h_mat, s_mat, h_cost=0.05, s_cost=0.20):
+    return {"meeting_id": mid, "haiku": {"recall": 0.95, "precision": 0.9, "per_type_recall": {"motion": 1.0, "statement": 0.9},
+                                         "cost_usd": h_cost, "latency_s": 1.0, "tokens": 1},
+            "sonnet": {"cost_usd": s_cost, "latency_s": 1.0, "tokens": 1},
+            "material_recall": {"haiku": h_mat, "sonnet": s_mat}, "skipped": None}
+
+
+def test_verdict_fails_when_haiku_material_recall_below_sonnet():
+    text = render_report([_row(1, 0.5, 1.0)])
+    assert "does not pass" in text
+
+
+def test_verdict_fails_and_says_not_evaluated_without_labels():
+    text = render_report([_row(1, None, None)])
+    assert "not evaluated (no approved omission labels yet)" in text and "does not pass" in text
+
+
+def test_verdict_passes_when_all_criteria_met_with_labels():
+    text = render_report([_row(1, 1.0, 1.0)])
+    assert "Haiku passes the rule" in text
+
+
+def test_run_ab_isolates_a_failing_meeting():
+    from unittest.mock import MagicMock, patch
+    from docket.ai.transcripts import ab
+
+    def fake(mid, client, prefix):
+        if mid == 2:
+            raise RuntimeError("boom")
+        return _row(mid, 1.0, 1.0)
+
+    with patch.object(ab, "_ab_meeting", side_effect=fake):
+        res = ab.run_ab([1, 2], client=MagicMock())
+    assert res[0]["skipped"] is None and res[1]["skipped"].startswith("failed: RuntimeError: boom")
+    assert "meeting 2 | skipped: failed" in render_report(res)

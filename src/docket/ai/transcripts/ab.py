@@ -10,6 +10,7 @@ AI_TRANSCRIPT_EVENTS_MODEL; nothing flips automatically.
 """
 from __future__ import annotations
 
+import logging
 import time
 from collections import Counter
 from datetime import date
@@ -21,6 +22,7 @@ from docket.ai.transcripts.schemas import EVENTS_SCHEMA, EventList, ExtractedEve
 from docket.config import AI_TRANSCRIPT_AB_MODEL, AI_TRANSCRIPT_EVENTS_MODEL
 from docket.db import db, db_cursor
 from docket.services.transcripts import speaker_ordinals
+log = logging.getLogger(__name__)
 
 HAIKU_WINDOW_TOKENS = 180_000      # Haiku 4.5 has a 200K window; leave room for output
 ACTION_TYPES = ("motion", "vote", "executive_session_motion", "amendment", "item_deferred", "recusal")
@@ -56,10 +58,11 @@ def _one(client, model: str, user: str, effort: str | None, notes: str) -> tuple
     with db() as conn:
         run_id = _open_run(conn, "transcript_ab", model, notes)
     summary = RunSummary(stage="transcript_ab")
+    emissions: list = []
     t0 = time.monotonic()
     try:
         with usage_capture() as emissions:
-            res = client.call(model=model, system=EVENTS_TRANSCRIPT_SYSTEM, user=user, schema=EVENTS_SCHEMA, max_tokens=32000, effort=effort)
+            res = client.call(model=model, system=EVENTS_TRANSCRIPT_SYSTEM, user=user, schema=EVENTS_SCHEMA, max_tokens=64000, effort=effort)
         events = EventList.model_validate(res.data).events
         summary.rows_processed = 1
     except Exception:
@@ -75,30 +78,38 @@ def _one(client, model: str, user: str, effort: str | None, notes: str) -> tuple
     return events, {"cost_usd": round(summary.cost_usd, 4), "latency_s": round(time.monotonic() - t0, 1), "tokens": summary.usage.input_tokens}
 
 
+def _ab_meeting(mid: int, client, notes_prefix: str) -> dict:
+    with db_cursor() as cur:
+        cur.execute("SELECT t.id FROM transcripts t WHERE t.meeting_id = %s", [mid])
+        tid = cur.fetchone()["id"]
+        cur.execute("SELECT title, meeting_date::text FROM meetings WHERE id = %s", [mid])
+        meeting = dict(cur.fetchone())
+    agenda = load_agenda(mid)
+    user = (f"Meeting: {meeting['title']} on {meeting['meeting_date']}\n\n{render_agenda(agenda)}\n\n"
+            f"Transcript:\n{render_transcript(load_segments_with_speakers(tid), agenda, speaker_ordinals(tid))}")
+    row = {"meeting_id": mid, "skipped": None}
+    if client.count_tokens(model=AI_TRANSCRIPT_AB_MODEL, system=EVENTS_TRANSCRIPT_SYSTEM, user=user) > HAIKU_WINDOW_TOKENS:
+        row["skipped"] = "transcript exceeds Haiku's window"
+        return row
+    sonnet_events, sonnet_meta = _one(client, AI_TRANSCRIPT_EVENTS_MODEL, user, "medium", f"{notes_prefix}_sonnet")
+    haiku_events, haiku_meta = _one(client, AI_TRANSCRIPT_AB_MODEL, user, None, f"{notes_prefix}_haiku")
+    labels = material_labels(mid)
+
+    def mat(evs):
+        return round(len(labels & set(event_keys(evs))) / len(labels), 3) if labels else None
+    row.update(sonnet=sonnet_meta, haiku={**compare_event_lists(sonnet_events, haiku_events), **haiku_meta},
+               material_recall={"sonnet": mat(sonnet_events), "haiku": mat(haiku_events)}, labels=len(labels))
+    return row
+
+
 def run_ab(meeting_ids: list[int], *, client, notes_prefix: str = "ab") -> list[dict]:
     results = []
     for mid in meeting_ids:
-        with db_cursor() as cur:
-            cur.execute("SELECT t.id FROM transcripts t WHERE t.meeting_id = %s", [mid])
-            tid = cur.fetchone()["id"]
-            cur.execute("SELECT title, meeting_date::text FROM meetings WHERE id = %s", [mid])
-            meeting = dict(cur.fetchone())
-        agenda = load_agenda(mid)
-        user = (f"Meeting: {meeting['title']} on {meeting['meeting_date']}\n\n{render_agenda(agenda)}\n\n"
-                f"Transcript:\n{render_transcript(load_segments_with_speakers(tid), agenda, speaker_ordinals(tid))}")
-        row = {"meeting_id": mid, "skipped": None}
-        if client.count_tokens(model=AI_TRANSCRIPT_AB_MODEL, system=EVENTS_TRANSCRIPT_SYSTEM, user=user) > HAIKU_WINDOW_TOKENS:
-            row["skipped"] = "transcript exceeds Haiku's window"
-            results.append(row)
-            continue
-        sonnet_events, sonnet_meta = _one(client, AI_TRANSCRIPT_EVENTS_MODEL, user, "medium", f"{notes_prefix}_sonnet")
-        haiku_events, haiku_meta = _one(client, AI_TRANSCRIPT_AB_MODEL, user, None, f"{notes_prefix}_haiku")
-        labels = material_labels(mid)
-        def mat(evs):
-            return round(len(labels & set(event_keys(evs))) / len(labels), 3) if labels else None
-        row.update(sonnet=sonnet_meta, haiku={**compare_event_lists(sonnet_events, haiku_events), **haiku_meta},
-                   material_recall={"sonnet": mat(sonnet_events), "haiku": mat(haiku_events)}, labels=len(labels))
-        results.append(row)
+        try:
+            results.append(_ab_meeting(mid, client, notes_prefix))
+        except Exception as e:  # one failed meeting must not abort the batch
+            log.exception("A/B failed for meeting %s", mid)
+            results.append({"meeting_id": mid, "skipped": f"failed: {type(e).__name__}: {e}"})
     return results
 
 
@@ -130,9 +141,17 @@ def render_report(results: list[dict]) -> str:
             lines.append(f"| meeting {r['meeting_id']} | skipped: {r['skipped']} | | | | | | |")
     min_action = min(agg_action) if agg_action else 0.0
     min_stmt = min(agg_stmt) if agg_stmt else 0.0
-    passes = bool(scored) and min_action >= 0.90 and min_stmt >= 0.80 and h_cost <= 0.5 * s_cost
+    labeled = [r["material_recall"] for r in scored if r["material_recall"]["haiku"] is not None and r["material_recall"]["sonnet"] is not None]
+    if labeled:
+        h_mat = sum(m["haiku"] for m in labeled) / len(labeled)
+        s_mat = sum(m["sonnet"] for m in labeled) / len(labeled)
+        mat_ok, mat_text = h_mat >= s_mat, f"Material recall (labeled meetings) Haiku {h_mat:.3f} vs Sonnet {s_mat:.3f}. "
+    else:
+        mat_ok, mat_text = False, ("Material-recall criterion not evaluated (no approved omission labels yet); "
+                                   "Haiku cannot pass until it is. ")
+    passes = bool(scored) and min_action >= 0.90 and min_stmt >= 0.80 and h_cost <= 0.5 * s_cost and mat_ok
     lines += ["", "## Verdict", "",
-              f"Action-type recall floor {min_action}, statement recall floor {min_stmt}, cost ${h_cost:.2f} vs ${s_cost:.2f}. "
+              f"Action-type recall floor {min_action}, statement recall floor {min_stmt}, cost ${h_cost:.2f} vs ${s_cost:.2f}. " + mat_text
               + ("Haiku passes the rule: set `AI_TRANSCRIPT_EVENTS_MODEL=claude-haiku-4-5-20251001` on the worker and re-run the pilot live test."
                  if passes else "Haiku does not pass the rule: Sonnet 5.5 stays the extraction model.")]
     return "\n".join(lines)
