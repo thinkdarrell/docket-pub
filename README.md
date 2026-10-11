@@ -22,6 +22,8 @@ The full pipeline is live: scraping, enrichment, vote extraction (from both offi
 
 **Cron worker (live in production since 2026-05-04).** Railway `worker` service runs APScheduler with eleven scheduled tasks in `America/Chicago` — five from the original 2026-05-04 ship, six added through Phase 2/3: `prune_analytics` (day 1, 04:00, monthly), `refresh_backfill_ratio_mv` (04:30 daily), `repair_empty_agendas` (Mon 05:00), `ingest_all` (06:00), `video_ocr` (06:30), `ai_items` (07:00), `ai_meetings` (08:00), `vote_matching` (09:00), `process_badges` (09:30), `calibration_report` (11:00), and `process_batches` (every :00 and :30, polling Anthropic Batches API). Each task pings Healthchecks.io start/success/fail with the traceback as the alert body — two tasks are silent-by-design (`prune_analytics`, `calibration_report` — local-impact failure modes only). Manual triggers via `railway ssh --service worker` then `python -m docket.worker.scheduler --run-once <task>`. Spec at `docs/superpowers/specs/2026-05-04-cron-worker-design.md`; runbook at `docs/runbooks/cron-worker.md`.
 
+**Meeting transcripts (plan 1 of 2, live 2026-10-10).** Every Birmingham meeting with Granicus video gets a machine transcript. A desktop producer (`transcriber/`, Lenovo Legion with an RTX 5070 Ti, Docker + WSL2) runs faster-whisper large-v3 and pyannote 3.1 and uploads raw segments through a narrow `transcriber` Postgres role; no LLM calls happen on the desktop. Public surfaces: a per-meeting transcript page with per-turn anchors and an HTMX tab, a "From the video" excerpt on item pages, and transcript hits in search with a `speaker:` filter. Migration 035 adds seven tables (see Database Schema). Plan 2 (speaker resolution, event extraction, the transcript-versus-minutes comparison, admin review, public discrepancy block) is designed but not built. Spec at `docs/superpowers/specs/2026-10-05-meeting-transcripts-design.md`; runbook at `docs/runbooks/transcripts.md`.
+
 **Prompt v2 design choices (validated in pilot):**
 - Procedural items (Roll Call, Pledge, Invocation, "minutes not ready", etc.) get `is_substantive=false` with empty summary + empty rationales — title is self-explanatory and a paraphrase would be noise. Template renders nothing extra for these items.
 - Meeting summaries split items into **distinctive** (sig ≥ 6) and **routine** (sig < 6) before feeding Sonnet. Distinctive items render in full and Sonnet leads with them. Routine items are grouped by topic with counts ("33 demolition orders, 18 public_safety items, 12 contracts") and Sonnet treats them as one closing background sentence at most. Without this split, Sonnet's framing was dominated by recurring abatement / demolition / weed-clearance volume, hiding the distinctive policy decisions citizens want to know about.
@@ -282,6 +284,15 @@ id, vote_id, council_member_id, member_name, position
 
 ### Search
 
+#### Transcript tables (migration 035, PR #99)
+Seven tables for meeting transcripts and the planned minutes comparison. Written by the desktop producer (first four) and, in plan 2, the Railway worker.
+
+- `transcripts`: one row per meeting. `status` is the pipeline state machine: `claimed`, `audio_fetched`, `transcribed`, `uploaded` (producer) then `speakers_resolved`, `events_extracted`, `compared` (worker, plan 2), plus terminal `failed`, `needs_review`, `low_speech`. Also `engine`, `asr_model`, `diarization_model`, `audio_duration_s`, `speech_ratio`, `word_count`, `producer_host`, `claimed_at`, `uploaded_at`, `version`, `last_error`.
+- `transcript_segments`: `transcript_id` (CASCADE), `seq`, `start_s`, `end_s`, `text`, `cluster_label`, `speaker_id`, `agenda_item_id`, `assignment_method` (`index_point` | `event` | `manual`), `is_silence`, `search_vector` (generated tsvector; GIN + trigram indexes). Re-transcribing a meeting replaces its segments.
+- `transcript_speakers`: keyed by (`meeting_id`, `cluster_label`), not segment ids, so manual names survive a re-run. `council_member_id`, `display_name`, `role`, `confidence`, `method` (`roll_call` | `addressed_by_chair` | `llm_inference` | `manual`), `is_manual`, `embedding`, `needs_review`.
+- `producer_heartbeats`: `host`, `last_seen_at`, `last_status`, `last_meeting_id`, `producer_version`.
+- `minutes_texts`, `meeting_events`, `minutes_discrepancies`: plan 2. Event timelines from both transcript and minutes, and the discrepancies between them with `review_state` (`proposed` → `approved` | `rejected`) and citation checks.
+
 Full-text search is **already wired into the schema** via PostgreSQL tsvector:
 
 - `meetings.search_vector` — auto-populated from `title` via trigger
@@ -498,6 +509,7 @@ GET  /al/<slug>/                        City overview (meetings, topics, stats)
 GET  /al/<slug>/meetings/               Paginated meeting list with type filter
 GET  /al/<slug>/meetings/<id>/          Meeting detail (agenda items, dollars, votes)
 GET  /al/<slug>/meetings/<id>/items/<item_id>/   Item-centric detail (PR #64 item-centric nav)
+GET  /al/<slug>/meetings/<id>/transcript/   Machine transcript, per-turn anchors #t-N, HTMX tab (PR #99)
 GET  /al/<slug>/council/                Council member cards
 GET  /al/<slug>/council/<id>/           Council member detail (sponsored items, votes)
 GET  /search                            FTS search (city-scoped by default)
@@ -617,6 +629,11 @@ docket-pub/
       agenda_parser.py           # Granicus upcoming-meeting agenda PDF parser (PR #65)
       ocr/                       # Video OCR subpackage (folded from al-municipal-meetings, PR #84)
     rosters/                     # Reserved for future auto-scrapers (council pages → council_members table)
+  transcriber/                   # Desktop GPU producer (Lenovo Legion): faster-whisper + pyannote, uploads segments as the `transcriber` role
+    README.md                    # Windows/WSL2 setup, run commands, bring-up log
+    transcriber/                 # claim/heartbeat/upload (db.py), engine, audio fetch, CLI loop
+    scripts/bringup.sh           # GPU acceptance check against a short clip
+  scripts/sql/create_transcriber_role.sql  # Narrow Postgres role for the producer (run once per database)
   tests/
     unit/                        # 200+ unit tests
       test_dollars.py            # dollar extraction + tiers
@@ -648,6 +665,7 @@ docket-pub/
   docs/
     Docket_pub_Project_Plan.md   # High-level strategy document
     SECURITY_CHECKLIST.md        # Pre-deployment security requirements
+    runbooks/transcripts.md      # Transcript pipeline operations (producer runs, status machine, junk clips)
   docker-compose.yml             # PostgreSQL 16 + app container
   Dockerfile
   pyproject.toml                 # Package config, dependencies, pytest/ruff settings

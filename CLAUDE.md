@@ -38,6 +38,7 @@ docket-pub/
       021_badge_status_column.py        # agenda_item_badges.status (applied/flagged/rejected) — refactor #2
       022_badge_mv_status_filter.py     # mv_badge_volume_monthly filters status='applied' — refactor #2
       023_processing_status_withdrawn.py  # Adds 'withdrawn' to processing_status_enum
+      035_transcripts.py       # Meeting transcripts: 7 tables (transcripts, segments, speakers, heartbeats + plan 2 events/discrepancies)
       runner.py            # Migration runner (apply/rollback/status)
     adapters/              # Platform adapters (one per CMS type)
       _helpers.py          # Shared classify_meeting(), is_consent_item()
@@ -85,11 +86,13 @@ docket-pub/
       scoring.py           # Scoring stubs (AI deferred)
       cli.py               # Backfill CLI: python -m docket.enrichment.cli
   scripts/                   # Data backfill and import scripts
+    sql/create_transcriber_role.sql  # Narrow Postgres role for the desktop transcript producer
     import_video_ocr.py      # Import video OCR votes from al-municipal-meetings SQLite
     backfill_member_vote_ids.py  # Dynamic name→council_member_id resolution using roster
     backfill_agenda_timestamps.py  # Re-scrape Granicus for agenda item video timestamps
     backfill_vote_context.py  # Re-parse minutes PDFs for resolution_number + match_context
     run_vote_matching.py      # Batch runner for vote-to-agenda-item matching
+  transcriber/               # Desktop GPU transcript producer (Legion): own package, Dockerfile, tests; see transcriber/README.md and docs/runbooks/transcripts.md
   tests/
     unit/                  # ~270 tests (dollars, helpers, sponsors, topics, civicclerk, generic_cms, ai/*, worker/*)
     integration/           # AI pipeline e2e + maintenance repair
