@@ -308,7 +308,7 @@ M1 session, 2026-10-11 23:47Z, post-fix:
     (the command's entire output was that one line; no "task=calibration_report failed" line)
     $ tools/test-db --drop
 
-M1 session, 2026-10-11 23:53Z, final verify on the committed M1 tree (76d9bc8):
+M1 session, 2026-10-11 23:50Z (heading first written as 23:53Z in commit d1a490a; the clock read 23:50Z), final verify on the committed M1 tree (76d9bc8):
 
     $ ./tools/verify; echo "exit=$?"
     verify: test-db ... ok (1s) postgresql://docket@localhost:5432/docket_test_2cf3596f
