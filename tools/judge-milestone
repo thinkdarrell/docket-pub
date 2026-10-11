@@ -14,17 +14,22 @@
 #       Re-read the plan as committed at HEAD, compare it with the snapshot
 #       taken before the session, list the commits <start-sha>..HEAD, and check
 #       the working tree. Exit 0 and print `judge: advanced "<entry>"` when
-#       exactly one Progress entry went from open to done with a date, every
-#       new commit touched the plan, no done entry reverted, and the tree is
-#       clean. Exit 1 with a four-line halt otherwise (plan path; the entry it
-#       stopped on or `no entry`; the rule that failed; what to do). Exit 2
-#       with `judge: defect ...` when the plan at HEAD has a structural defect.
+#       exactly one Progress entry that was OPEN in the snapshot is done with a
+#       date, every new commit changed the plan by more than whitespace, no done
+#       entry reverted, no open entry disappeared, and the tree is clean. Exit 1
+#       with a four-line halt otherwise (plan path; the entry it stopped on or
+#       `no entry`; the rule that failed; what to do). Exit 2 with
+#       `judge: defect ...` when the plan at HEAD has a structural defect or
+#       <start-sha> is not a revision of the repository.
 #
 # The key is the entry text lowercased, with every date (YYYY-MM-DD and any
 # time that follows it, bare or in parentheses or brackets) removed and runs of
 # non-alphanumerics collapsed to one space, so an entry keeps its identity when
 # it is ticked and stamped. A ticked entry counts as dated when any YYYY-MM-DD
-# appears anywhere on its line.
+# appears anywhere on its line. A ticked entry whose key was not OPEN in the
+# snapshot (an invented entry) does not count as newly done. Section headings
+# are matched after trailing spaces and carriage returns are trimmed, and both
+# backtick and tilde fences hide their contents.
 #
 # Adapted from the read_plan, plan_defect, compare_records, and
 # untouching_commits functions of factory-loop's tools/loop-runner. Uses only
@@ -60,22 +65,32 @@ read_plan() {
         n = split("Progress|Surprises & Discoveries|Decision Log|Outcomes & Retrospective", req, "|")
     }
     {
-        if ($0 ~ /^[ \t]*```/) { fence = !fence; next }
-        if (fence) { next }
-        if ($0 ~ /^## /) { cur = substr($0, 4); seen[cur] = 1; next }
-        if ($0 ~ /^[ \t]*$/) { next }
+        # A fence opened with backticks closes only with backticks, and one
+        # opened with tildes only with tildes.
+        if (fence == "") {
+            if ($0 ~ /^[ \t]*```/) { fence = "`"; next }
+            if ($0 ~ /^[ \t]*~~~/) { fence = "~"; next }
+        } else {
+            if (fence == "`" && $0 ~ /^[ \t]*```/) { fence = ""; next }
+            if (fence == "~" && $0 ~ /^[ \t]*~~~/) { fence = ""; next }
+            next
+        }
+        if ($0 ~ /^## /) { cur = substr($0, 4); sub(/[ \t\r]+$/, "", cur); seen[cur] = 1; next }
+        if ($0 ~ /^[ \t\r]*$/) { next }
         if (cur != "") { content[cur] = 1 }
         if (cur != "Progress") { next }
         if ($0 ~ /^(    |\t)/) { next }
         if ($0 ~ /^[ \t]*- \[[ ]\]/) {
             t = $0
             sub(/^[ \t]*- \[[ ]\][ \t]*/, "", t)
+            sub(/[ \t\r]+$/, "", t)
             print "OPEN\t" FNR "\t" shorten(t) "\t" key(t)
             next
         }
         if ($0 ~ /^[ \t]*- \[[xX]\]/) {
             t = $0
             sub(/^[ \t]*- \[[xX]\][ \t]*/, "", t)
+            sub(/[ \t\r]+$/, "", t)
             kind = ($0 ~ /[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/) ? "DONE" : "NOSTAMP"
             print kind "\t" FNR "\t" shorten(t) "\t" key(t)
             next
@@ -101,33 +116,45 @@ plan_defect() {
     ' "$1"
 }
 
-# compare_records <before> <after>: NEWDONE lines for entries that became
-# complete, REVERTED lines for completed entries that stopped being complete.
+# compare_records <before> <after>: NEWDONE lines for entries that were OPEN
+# in the snapshot and are complete now, REVERTED lines for completed entries
+# that stopped being complete, REMOVED lines for entries that were OPEN in the
+# snapshot and have no entry of any kind now. A complete entry whose key was
+# neither OPEN nor complete in the snapshot is an invented entry and produces
+# no line, so it cannot count as the one entry that changed state.
 compare_records() {
     awk -F'\t' '
     FNR == NR {
         if ($1 == "DONE" || $1 == "NOSTAMP") { before[$4] = $3 }
+        if ($1 == "OPEN") { open[$4] = $3 }
         next
     }
     {
+        if ($1 == "OPEN" || $1 == "DONE" || $1 == "NOSTAMP") { present[$4] = 1 }
         if ($1 != "DONE" && $1 != "NOSTAMP") { next }
         after[$4] = 1
-        if (!($4 in before)) { print "NEWDONE\t" $3 "\t" ($1 == "DONE" ? "stamped" : "unstamped") }
+        if ($4 in open) { print "NEWDONE\t" $3 "\t" ($1 == "DONE" ? "stamped" : "unstamped") }
     }
     END {
         for (k in before) { if (!(k in after)) { print "REVERTED\t" before[k] "\t" } }
+        for (k in open) { if (!(k in present)) { print "REMOVED\t" open[k] "\t" } }
     }
     ' "$1" "$2"
 }
 
 # untouching_commits <root> <rel-plan> <start> <end>: every commit in the range
-# that changed nothing in the plan file, oldest first.
+# whose change to the plan file is empty once whitespace is ignored, oldest
+# first. A commit that adds only blank lines or trailing spaces to the plan
+# did not touch it.
 untouching_commits() {
-    git -C "$1" log --reverse --name-only --format='C%x09%H' "$3..$4" | awk -v plan="$2" '
-    $1 == "C" && NF == 2 { c = $2; order[++k] = c; next }
-    $0 == plan { touched[c] = 1 }
-    END { for (i = 1; i <= k; i++) { if (!(order[i] in touched)) { print order[i] } } }
-    '
+    for c in $(git -C "$1" rev-list --reverse "$3..$4"); do
+        # A root commit has no parent; diff it against the empty tree.
+        parent=$(git -C "$1" rev-parse --verify --quiet "$c^") \
+            || parent=$(git -C "$1" hash-object -t tree /dev/null)
+        if [ -z "$(git -C "$1" diff --ignore-all-space --ignore-blank-lines "$parent" "$c" -- "$2")" ]; then
+            printf '%s\n' "$c"
+        fi
+    done
 }
 
 halt() {
@@ -181,9 +208,15 @@ judge)
     }
     rel="$(git -C "$plandir" rev-parse --show-prefix)$(basename "$plan")"
 
+    # The start revision must exist, or "no commit landed" would be a lie.
+    if ! git -C "$root" rev-parse --verify --quiet "$start^{commit}" >/dev/null; then
+        printf 'judge: defect start revision %s is unknown\n' "$start" >&2
+        exit 2
+    fi
+
     # Rule 1: at least one commit landed.
-    if [ -z "$(git -C "$root" rev-list "$start..HEAD" 2>/dev/null)" ]; then
-        halt "$plan" "" "no commit landed since $(git -C "$root" rev-parse --short "$start" 2>/dev/null || printf '%s' "$start")."
+    if [ -z "$(git -C "$root" rev-list "$start..HEAD")" ]; then
+        halt "$plan" "" "no commit landed since $(git -C "$root" rev-parse --short "$start")."
     fi
 
     # The plan as committed at HEAD, and the entry that became done (if one).
@@ -199,7 +232,7 @@ judge)
         entry=$(awk -F'\t' '$1 == "NEWDONE" { print $2; exit }' "$TMP/diff")
     fi
 
-    # Rule 2: every new commit touched the plan.
+    # Rule 2: every new commit touched the plan (whitespace does not count).
     untouched=$(untouching_commits "$root" "$rel" "$start" HEAD | head -1)
     if [ -n "$untouched" ]; then
         halt "$plan" "$entry" "commit $(git -C "$root" rev-parse --short "$untouched") did not touch the plan."
@@ -212,7 +245,7 @@ judge)
         exit 2
     fi
 
-    # Rule 3: exactly one entry changed state.
+    # Rule 3: exactly one entry that was open in the snapshot is done now.
     if [ "$newdone" -ne 1 ]; then
         halt "$plan" "" "$newdone Progress entries changed state (exactly one must)."
     fi
@@ -227,6 +260,12 @@ judge)
     reverted=$(awk -F'\t' '$1 == "REVERTED" { print $2; exit }' "$TMP/diff")
     if [ -n "$reverted" ]; then
         halt "$plan" "$reverted" "entry \"$reverted\" was done at the start and is no longer."
+    fi
+
+    # Rule 5b: no open entry disappeared. A deleted milestone is not a done one.
+    removed=$(awk -F'\t' '$1 == "REMOVED" { print $2; exit }' "$TMP/diff")
+    if [ -n "$removed" ]; then
+        halt "$plan" "$removed" "open entry \"$removed\" was removed."
     fi
 
     # Rule 6: the working tree is clean.

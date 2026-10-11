@@ -1,12 +1,13 @@
 #!/bin/sh
 # tools/fixtures/judge/run: the milestone judge's self-test.
 #
-# Builds a throwaway git repository under mktemp -d for each of eight cases,
-# takes a snapshot of a small plan, performs the case's edits and commits,
-# runs tools/judge-milestone, and asserts the exit code and the first word
-# after `judge:` on the first line of output. Prints one line per case and
-# `judge fixtures: 8 of 8 passed`, or the failing case names, and exits
-# nonzero if any case failed. Leaves nothing behind.
+# Builds a throwaway git repository under mktemp -d for each of twelve cases,
+# takes a snapshot of a small plan (asserting that the snapshot exits 0),
+# performs the case's edits and commits, runs tools/judge-milestone, and
+# asserts the exit code and the first word after `judge:` on the first line of
+# output. Prints one line per case and `judge fixtures: 12 of 12 passed`, or
+# the failing case names, and exits nonzero if any case failed. Leaves nothing
+# behind.
 #
 # The fixture repositories ignore the machine's global and system git
 # configuration so that signing, hooks, or templates there cannot change a
@@ -100,9 +101,17 @@ assert() {
     fi
 }
 
-# run_judge: judge the repository in $R from $START, capturing exit and output.
+# run_judge [start]: judge the repository in $R from $START (or the given
+# revision), capturing exit and output. A snapshot that did not exit 0 fails
+# the case before the judge runs, since every case below starts from a plan
+# whose record holds.
 run_judge() {
-    OUT=$(cd "$R" && "$JUDGE" judge plan.md .snapshot "$START" 2>&1)
+    if [ "$SNAP_EXIT" -ne 0 ]; then
+        OUT="judge: snapshot exited $SNAP_EXIT: $(cat "$R/.snapshot.err")"
+        JEXIT=$SNAP_EXIT
+        return
+    fi
+    OUT=$(cd "$R" && "$JUDGE" judge plan.md .snapshot "${1:-$START}" 2>&1)
     JEXIT=$?
 }
 
@@ -163,9 +172,43 @@ OUT=$(cd "$R" && "$JUDGE" snapshot plan.md 2>&1 >/dev/null)
 SEXIT=$?
 assert missing-section 2 defect "$SEXIT" "$OUT"
 
+# 9. An invented done entry: a new ticked, dated line is added and no open
+#    entry is ticked. It must not count as the one entry that changed state.
+new_repo invented-done
+printf -- '- [x] (2026-10-02 11:00Z) M9: a thing the plan never asked for.\n' >"$R/line.tmp"
+sed '/^- \[ \] M3: the third thing\.$/r '"$R/line.tmp" "$R/plan.md" >"$R/plan.tmp" && mv "$R/plan.tmp" "$R/plan.md"
+rm -f "$R/line.tmp"
+commit_all "$R" "M9 invented"
+run_judge; assert invented-done 1 halt "$JEXIT" "$OUT"
+
+# 10. An open entry deleted (beside an otherwise clean advance).
+new_repo deleted-open
+set_line "$R" "M2: the second thing." "- [x] (2026-10-02 11:00Z) M2: the second thing."
+sed '/^- \[ \] M3: the third thing\.$/d' "$R/plan.md" >"$R/plan.tmp" && mv "$R/plan.tmp" "$R/plan.md"
+commit_all "$R" "M2 done, M3 deleted"
+run_judge; assert deleted-open 1 halt "$JEXIT" "$OUT"
+
+# 11. A commit whose only change to the plan is whitespace (a trailing space
+#     and a blank line), beside a change to another file, after a clean
+#     advance. It must read as a commit that did not touch the plan.
+new_repo whitespace-touch
+set_line "$R" "M2: the second thing." "- [x] (2026-10-02 11:00Z) M2: the second thing."
+commit_all "$R" "M2 done"
+sed 's/^- \[ \] M3: the third thing\.$/& /' "$R/plan.md" >"$R/plan.tmp" && mv "$R/plan.tmp" "$R/plan.md"
+printf '\n' >>"$R/plan.md"
+printf 'changed\n' >"$R/other.txt"
+commit_all "$R" "touch other, whitespace in plan"
+run_judge; assert whitespace-touch 1 halt "$JEXIT" "$OUT"
+
+# 12. A start revision that is not in the repository.
+new_repo bad-start-sha
+set_line "$R" "M2: the second thing." "- [x] (2026-10-02 11:00Z) M2: the second thing."
+commit_all "$R" "M2 done"
+run_judge 0123456789abcdef0123456789abcdef01234567; assert bad-start-sha 2 defect "$JEXIT" "$OUT"
+
 if [ "$FAILED" -eq 0 ]; then
-    printf 'judge fixtures: %s of 8 passed\n' "$PASSED"
+    printf 'judge fixtures: %s of 12 passed\n' "$PASSED"
     exit 0
 fi
-printf 'judge fixtures: %s of 8 failed:%s\n' "$FAILED" "$FAILED_NAMES"
+printf 'judge fixtures: %s of 12 failed:%s\n' "$FAILED" "$FAILED_NAMES"
 exit 1

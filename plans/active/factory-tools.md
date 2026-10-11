@@ -46,6 +46,12 @@ Today an agent working in this repository cannot prove its change is safe with o
   Evidence: `judge: halt plans/active/factory-tools.md`, `judge: entry "(2026-10-11 17:14Z) M2: ..."`, `judge: the working tree has uncommitted changes.`, `judge: Fix the cause, commit in the worktree, and re-run.`, exit 1.
 - Observation (M3): the local git configuration points `core.hooksPath` at the main checkout's `.git/hooks`, which holds only `*.sample` files, so no hook runs on commits from this worktree; nothing was bypassed and nothing needed to be.
   Evidence: `git config --local --list | grep -i hooks` printed `core.hookspath=/Users/darrellnance/docket-pub/.git/hooks`; `ls` of that directory listed only `.sample` files.
+- Observation (M5, 2026-10-11): the judge as built in M3 could not read a plan saved with Windows line endings at all. On a plan whose headings end in `\r` (and one with a trailing space after `## Progress`), the M3 judge reported every required section missing and exited 2, so a CRLF plan would have refused to start a session rather than been misjudged; the trailing-space case was the reviewer's Minor finding. After trimming trailing spaces and carriage returns from headings and entry text, the same file snapshots as `OPEN 5 M1: thing one.` with exit 0, and a ticked entry inside a `~~~` fence in that file is ignored as a backtick-fenced one would be.
+  Evidence: old judge, `judge: defect .../crlf-plan.md is missing the required section `## Progress``, exit 2; new judge, one `OPEN` record with key `m1 thing one` and exit 0 (Artifacts).
+- Observation (M5): the four new fixture cases each reproduce the reviewer's wrong verdict on the M3 judge, which is the evidence that the cases test what they are named for. Running the new twelve-case runner against `git show HEAD:tools/judge-milestone` (the M3 judge, copied to a scratch directory) passed the original eight and failed exactly `invented-done` (got `advanced "(2026-10-02 11:00Z) M9: a thing the plan never asked for."`), `deleted-open` (got `advanced` on M2 with M3 gone), `whitespace-touch` (got `advanced`), and `bad-start-sha` (got exit 1 `halt: no commit landed since 0123456.` instead of exit 2).
+  Evidence: `judge fixtures: 4 of 12 failed: invented-done deleted-open whitespace-touch bad-start-sha`, exit 1, against the old judge; `judge fixtures: 12 of 12 passed`, exit 0, against the new one (Artifacts).
+- Observation (M5): `tests/web/test_city_overview_render.py` has a second early `return` of the same vacuous kind, at line 37 in `test_overview_passes_city_stats_to_template` (`return  # local DB may not have birmingham; skip`). M5 names only the `test_meeting_detail_source_links_below_executive_summary` return, and its acceptance says the fast tier reports `5 skipped`, which is the four `test_p5_translation.py` skips plus one; converting the second would make it `6` and widen the milestone. Left as it is and recorded in the new debt row `D41`.
+  Evidence: `grep -n 'return' tests/web/test_city_overview_render.py` printed lines 37 and 268 (the latter now a `pytest.skip`); the file run on a fresh disposable database printed `16 passed, 1 skipped`.
 
 ## Decision Log
 
@@ -161,6 +167,31 @@ Today an agent working in this repository cannot prove its change is safe with o
   Rationale: `cycle-run` (the next plan) will trust the judge; a judge that accepts an invented entry or a whitespace touch is not one to build on. The fixes are small and belong to the milestone that built the tool, not to a later gardening pass.
   Date/Author: 2026-10-11, reviewer.
 
+- Decision (spec deviation, recorded late): `tools/judge-milestone` takes the subcommands `snapshot <plan>` and `judge <plan> <snapshot-file> <start-sha>`, not the `--snapshot` and `--judge` flags that section 4 of `docs/superpowers/specs/2026-10-10-factory-cycle-design.md` sketches. This was built in M3 and is recorded here because the review found it unrecorded.
+  Rationale: every input the verdict depends on (the plan path, the snapshot file, the start revision) is an explicit argument, so the judge has no hidden state such as a default snapshot location or a remembered start commit; `cycle-run` can pass exactly what it stored, and a human can re-run the same command from the plan's Artifacts. The spec's flag form was a sketch of behaviour, not of the command line.
+  Date/Author: 2026-10-11, M5 session (Claude), for a decision taken in M3.
+- Decision (spec deviation, recorded late): in `judge` mode the judge exits 2, not 1, when it cannot decide: the plan at HEAD lacks a required living section or has one with nothing under it, the plan is not in the tree at HEAD, the snapshot file is missing, or (from M5) the start revision is unknown to the repository. Section 4 describes only exit 0 and the exit 1 halt. Built in M3, extended in M5, recorded here because the review found it unrecorded.
+  Rationale: a halt means "the session's record says the work did not land correctly; a human reads it"; a defect means "the judge could not read the record at all". `cycle-run` must treat them differently (halt the loop on that plan versus refuse to start the next session), and factory-loop's `loop-runner`, which this judge adapts, draws the same line with the same exit code.
+  Date/Author: 2026-10-11, M5 session (Claude), for a decision taken in M3.
+- Decision: rule 3 counts an entry as newly done only when its key was `OPEN` in the snapshot, and a key that was `OPEN` in the snapshot and has no entry of any kind at HEAD halts with `open entry "<text>" was removed.` The removal check runs after the revert rule (as rule 5b) and before the clean-tree rule, and its halt names the removed entry. A done entry whose key was in neither list (an invented entry) produces no record at all, so alone it reads as `0 Progress entries changed state`.
+  Rationale: the reviewer's finding was that "done after, not done before" let an invented line or a deleted open line read as progress. Keying on the snapshot's `OPEN` set is the smallest change that closes both: an invented line cannot be the one that changed state, and a deleted open line is a loss the judge now names. The removal rule sits next to the revert rule because they are the same kind of fact (an entry the snapshot had is gone) and because the count rule must run first for the count message to be meaningful. Two consequences are recorded rather than fixed: splitting an open entry in place (changing its text to "completed: X; remaining: Y", as PLANS.md asks when a milestone will not fit) changes its key and reads as a removal, which is a halt; that is the correct verdict for a session that ended without a milestone done, and the operator reads the halt. And an invented ticked line added beside a legitimate tick still reads `advanced`, because M5's acceptance fixes the case list at twelve and the reviewer's ruling defines the guarantee as "exactly one open entry become done, no done entry lost, no open entry lost"; a later milestone can add a thirteenth case if the loophole matters.
+  Date/Author: 2026-10-11, M5 session (Claude).
+- Decision: rule 2 decides whether a commit touched the plan by `git diff --ignore-all-space --ignore-blank-lines <parent> <commit> -- <plan>` being non-empty, one commit at a time over `git rev-list --reverse <start>..HEAD`, with a root commit compared against the empty tree (`git hash-object -t tree /dev/null`). The M3 implementation (`git log --name-only`) is replaced, not kept alongside.
+  Rationale: `--name-only` lists a file for any byte change, so a trailing space or an added blank line counted as a plan update; the review called that out. The per-commit loop costs one `git diff` per commit, a few milliseconds each on a session's handful of commits. The empty-tree fallback exists so that a range beginning at a root commit cannot make that commit read as untouched for lack of a parent.
+  Date/Author: 2026-10-11, M5 session (Claude).
+- Decision: before rule 1 the judge verifies the start revision with `git rev-parse --verify --quiet <start>^{commit}` and exits 2 with `judge: defect start revision <sha> is unknown` when it fails; the `rev-list` call's stderr is no longer discarded.
+  Rationale: with stderr discarded, a typo in the start SHA produced an empty `rev-list` and the halt `no commit landed`, which is false and sends the operator looking for a missing commit instead of a wrong argument. Not being able to resolve the start is "cannot decide", so exit 2.
+  Date/Author: 2026-10-11, M5 session (Claude).
+- Decision: in `tools/fixtures/judge/run` the snapshot's exit is asserted inside `run_judge`: a nonzero snapshot sets the case's output to `judge: snapshot exited <n>: <stderr>` and its exit to the snapshot's, so the case fails before the judge runs. The four new cases are numbered 9 to 12 and placed after `missing-section`; `deleted-open` and `whitespace-touch` pair the condition under test with a clean one-entry advance, as cases 3 and 6 do, so that they halt on the rule they are named for rather than on the count rule; `invented-done` adds a ticked, dated `M9` line after `M3` and ticks nothing; `bad-start-sha` passes a forty-hex SHA that no repository holds (`0123456789abcdef0123456789abcdef01234567`) to a repository holding a clean advance; `whitespace-touch` adds a trailing space to the `M3` line and a blank line at the end of the plan in the same commit as a change to `other.txt`.
+  Rationale: the reviewer's Minor was that the runner captured `SNAP_EXIT` and never read it; every case builds on a plan whose record holds, so asserting it is one `if`. Pairing is the established fixture convention (M3 Decision Log). The bad SHA is forty hex characters so that `rev-parse` treats it as a full object name and cannot match a prefix by accident.
+  Date/Author: 2026-10-11, M5 session (Claude).
+- Decision: `tools/test-db` checks its arguments before anything else (zero arguments builds, exactly `--drop` drops, anything else prints a two-line usage to stderr and exits 2), then checks that the URL without its query string matches `*://*/?*` (a scheme, an authority, a slash, and at least one character of database name) and otherwise exits 2 with a line that quotes the URL and the expected shape; both checks run before `psql` is invoked. The drop `trap ... EXIT` is installed before `CREATE DATABASE` and cleared with `trap - EXIT` after the migration runner succeeds, so a failed run drops the half-built database and a successful one keeps it. `docket.config`'s stderr is no longer sent to `/dev/null`; the fallback to `postgresql://docket@localhost:5432/docket_db` when the import fails is kept.
+  Rationale: `${NOQUERY%/*}` on `postgresql://localhost` yields `postgresql:/`, which made the maintenance URL `postgresql://postgres`, a host literally named `postgres` that resolves inside docker-compose networks; refusing a URL with no database name is the only safe reading. The `--help` behaviour the acceptance names falls out of "anything other than none or `--drop`". Clearing the trap on success is what keeps `DATABASE_URL=$(tools/test-db)` meaningful; without it the database would be dropped as the script exited. Showing `docket.config`'s stderr means an import error (a missing dependency, a broken `.env`) is seen rather than silently replaced by the default URL.
+  Date/Author: 2026-10-11, M5 session (Claude).
+- Decision: in `tests/web/test_city_overview_render.py` only the early `return` in `test_meeting_detail_source_links_below_executive_summary` becomes `pytest.skip("No Birmingham meetings seeded")`, with `import pytest` added at the top of the file (it had no imports). The identical `return` at line 37 in `test_overview_passes_city_stats_to_template` is left and recorded in `D41`.
+  Rationale: M5 names one test and its acceptance says `5 skipped`; converting both would print `6` and is work the plan did not acceptance. Surprises & Discoveries records the finding.
+  Date/Author: 2026-10-11, M5 session (Claude).
+
 ## Outcomes & Retrospective
 
 M1 (2026-10-11): the eight tests pass and the full non-live suite is green in one run on the repaired developer database (`2468 passed, 3 skipped, 4 xfailed`). Four of the eight needed what the plan said (three masthead stubs instead of one), one needed more than the plan said (the `kpi-strip` test had a second latent assertion the plan did not see), one needed a different fix in a file the plan did not name (the blog rail test and the module-level overview cache), and one is fixed only until the next integration run (the materialised view, which `test_migration_013.py` re-drifts). Three test files changed as planned plus `tests/integration/test_blog_integration.py`; no source file changed. The important discovery is not any of the eight tests but what the suite does to the database it runs against: a unit-tier fixture deletes every `agenda_items` and `votes` row in whatever `DATABASE_URL` names, and runs leave rows and schema drift behind that make the next run red. That is the plan's M2 case made concrete, and it means "green on a developer database" is a one-shot statement until `tools/test-db` exists. Lesson for plan authoring: a diagnosis of a failing test should include the command that reproduces it in isolation and in suite order, because two of the eight had causes the plan's single reading of the failure did not reach.
@@ -269,6 +300,23 @@ Expected: the snapshot prints records beginning `OPEN`/`DONE` for this plan's fo
 
 M4 commands are the two failing-case demonstrations described in Plan of Work, each followed by `git checkout -- <file>` to revert, then `./tools/verify` once more, then `wc -l AGENTS.md` (must stay under 100), then the reference walk from the bootstrap plan's Task 10 over the edited artifacts. Observed by the M4 session on 2026-10-11: the baseline `./tools/verify` at `85ff70c` printed `verify: all 3 checks passed in 142s.`, exit 0; the `fast-verify` demonstration (`Decimal("2345678.00")` to `Decimal("2345678.01")` in `tests/unit/test_dollars.py` line 16) printed `1 failed, 1855 passed`, `verify: unit+web+services ... FAILED (60s)`, `verify: 1 of 3 checks failed in 146s.`, exit 1; the `judge-milestone` demonstration (case one's expected exit `0` to `1` in `tools/fixtures/judge/run` line 113) printed `judge fixture: clean-advance FAILED (want exit 1 word advanced; got exit 0: ...)`, `judge fixtures: 1 of 8 failed: clean-advance`, `verify: judge-fixtures ... FAILED (2s)`, `verify: 1 of 3 checks failed in 145s.`, exit 1; both files were reverted and `git status --porcelain` was empty after each. The post-revert verify, line count, debt row count, and walk results are recorded in the M4 Progress entry and Artifacts.
 
+M5 commands, in the order the session ran them:
+
+    ./tools/verify > verify-before.log 2>&1; echo "exit=$?"        (starting state, before any edit)
+    dash -n tools/judge-milestone && dash -n tools/test-db && dash -n tools/fixtures/judge/run
+    tools/fixtures/judge/run; echo "exit=$?"
+    tools/judge-milestone snapshot plans/active/factory-tools.md > /dev/null; echo "exit=$?"
+    DATABASE_URL=postgresql://localhost tools/test-db; echo "exit=$?"
+    tools/test-db --help; echo "exit=$?"
+    psql postgresql://docket@localhost:5432/postgres -Atc "select count(*) from pg_database"   (before and after the two refusals)
+    URL=$(tools/test-db 2>/dev/null); DATABASE_URL=$URL venv/bin/python -m pytest tests/web/test_city_overview_render.py -q -rs -p no:cacheprovider; tools/test-db --drop
+    (scratch repository under mktemp -d: commit plan + app.py, snapshot, tick M2 and commit, change app.py and commit, judge)
+    grep -c '^| D[0-9]' docs/DEBT.md
+    grep -c '150' docs/MATURITY.md
+    ./tools/verify > verify-after.log 2>&1; echo "exit=$?"
+
+Expected: the fixture runner prints twelve `ok` lines and `judge fixtures: 12 of 12 passed`; the two `tools/test-db` refusals exit 2 and the `pg_database` count is unchanged; the test file reports `1 skipped`; the scratch judge prints the four-line halt and exits 1; the counts are `35` and `0`; both verify runs exit 0, the second with `5 skipped` in the fast tier. Observed by the M5 session on 2026-10-11: starting-state verify `verify: all 3 checks passed in 138s.`, exit 0 (fast tiers `1856 passed, 4 skipped, 4 xfailed`); `dash -n` passed on all three scripts; `judge fixtures: 12 of 12 passed`, exit 0; the plan snapshot exited 0 with `DONE` for M1 to M4 and `OPEN` for M5; `DATABASE_URL=postgresql://localhost tools/test-db` printed `test-db: DATABASE_URL has no database name after the host: postgresql://localhost (expected <scheme>://<host>[:port]/<dbname>)`, exit 2; `tools/test-db --help` printed the two usage lines, exit 2; `pg_database` counted `8` before and `8` after; the test file printed `16 passed, 1 skipped` with `SKIPPED [1] tests/web/test_city_overview_render.py:272: No Birmingham meetings seeded`; the scratch judge printed the four lines in Artifacts and exited 1. The remaining results are recorded in the M5 Progress entry and Artifacts as they were observed.
+
 ## Validation and Acceptance
 
 M1 is accepted when `venv/bin/python -m pytest tests/unit tests/web tests/services tests/integration -q -p no:cacheprovider` prints a summary with `0 failed` or no `failed` count at all, and the diff touches only the three test files named (plus this plan). The `docket_db` repair is recorded as a command transcript, not a code change.
@@ -287,7 +335,7 @@ Every step can be rerun. `tools/test-db` drops before it creates, so a half-buil
 
 ## Artifacts and Notes
 
-Transcripts from every milestone are below in order: M1, M2, M3, then the M4 failing-case demonstrations. (This paragraph used to say the M4 demonstrations were still to be filled; the M4 session filled them on 2026-10-11.)
+Transcripts from every milestone are below in order: M1, M2, M3, then the M4 failing-case demonstrations. (This paragraph used to say the M4 demonstrations were still to be filled; the M4 session filled them on 2026-10-11.) The M5 transcripts follow the M4 ones, appended by the M5 session on 2026-10-11.
 
 M1 transcripts, observed 2026-10-11 in the worktree on `plan/factory-tools`:
 
@@ -531,15 +579,85 @@ Post-revert `./tools/verify`, run after both demonstrations were reverted and th
 
 (fast tiers `1856 passed, 4 skipped, 4 xfailed, 1 warning in 58.38s`; integration `611 passed, 1 warning in 79.73s`; `judge fixtures: 8 of 8 passed`.) `git status --porcelain` before the final plan commit listed only `plans/active/factory-tools.md`.
 
+M5 transcripts, observed 2026-10-11 in the worktree on `plan/factory-tools` at `10beaac`:
+
+Starting state, before any edit (the clock read 18:13Z during the fast tier; the run took 138 s), `./tools/verify > verify-before.log 2>&1; echo "exit=$?"`, 140 lines:
+
+    verify: test-db ... ok (1s) postgresql://docket@localhost:5432/docket_test_692415bc
+    verify: unit+web+services ... ok (58s)
+    verify: integration ... ok (78s)
+    verify: judge-fixtures ... ok (1s)
+    verify: all 3 checks passed in 138s.
+    exit=0
+
+(fast tiers `1856 passed, 4 skipped, 4 xfailed, 1 warning in 57.37s`; integration `611 passed, 1 warning in 77.17s`; `judge fixtures: 8 of 8 passed`.) `git status --porcelain` printed nothing.
+
+The fixture runner after the judge and runner edits, `tools/fixtures/judge/run; echo "exit=$?"`:
+
+    judge fixture: clean-advance            ok (exit 0, advanced "(2026-10-02 11:00Z) M2: the second thing.")
+    judge fixture: no-commit                ok (exit 1, halt: no commit landed since 708b208.)
+    judge fixture: untouched-commit         ok (exit 1, halt: commit 3692d3f did not touch the plan.)
+    judge fixture: two-ticked               ok (exit 1, halt: 2 Progress entries changed state (exactly one must).)
+    judge fixture: ticked-undated           ok (exit 1, halt: entry at line 6 is ticked but carries no date.)
+    judge fixture: done-reverted            ok (exit 1, halt: entry "(2026-10-01 10:00Z) M1: the first thing." was done at the start and is no longer.)
+    judge fixture: dirty-tree               ok (exit 1, halt: the working tree has uncommitted changes.)
+    judge fixture: missing-section          ok (exit 2, defect plan.md is missing the required section `## Decision Log`)
+    judge fixture: invented-done            ok (exit 1, halt: 0 Progress entries changed state (exactly one must).)
+    judge fixture: deleted-open             ok (exit 1, halt: open entry "M3: the third thing." was removed.)
+    judge fixture: whitespace-touch         ok (exit 1, halt: commit c2ef0ba did not touch the plan.)
+    judge fixture: bad-start-sha            ok (exit 2, defect start revision 0123456789abcdef0123456789abcdef01234567 is unknown)
+    judge fixtures: 12 of 12 passed
+    exit=0
+
+Negative control: the same runner, copied beside `git show HEAD:tools/judge-milestone` (the M3 judge) in a scratch directory so that the runner's relative path found the old judge, printed the original eight `ok` lines and then:
+
+    judge fixture: invented-done            FAILED (want exit 1 word halt; got exit 0: advanced "(2026-10-02 11:00Z) M9: a thing the plan never asked for.")
+    judge fixture: deleted-open             FAILED (want exit 1 word halt; got exit 0: advanced "(2026-10-02 11:00Z) M2: the second thing.")
+    judge fixture: whitespace-touch         FAILED (want exit 1 word halt; got exit 0: advanced "(2026-10-02 11:00Z) M2: the second thing.")
+    judge fixture: bad-start-sha            FAILED (want exit 2 word defect; got exit 1: halt: no commit landed since 0123456.)
+    judge fixtures: 4 of 12 failed: invented-done deleted-open whitespace-touch bad-start-sha
+    exit=1
+
+Heading trim and tilde fence: a scratch plan written with `\r\n` line endings, `## Progress ` with a trailing space, and a ticked, dated line inside a `~~~` fence. Old judge: `judge: defect <path> is missing the required section `## Progress``, exit 2. New judge: one record, `OPEN<TAB>5<TAB>M1: thing one.<TAB>m1 thing one` (shown with `cat -vet`, no `^M` left in the text), exit 0. `tools/judge-milestone snapshot plans/active/factory-tools.md` on this plan: `DONE` at lines 13 to 16, `OPEN` at line 17, exit 0.
+
+`tools/test-db` refusals, with `select count(*) from pg_database` on the local server printing `8` immediately before and `8` immediately after (the only `docket_test%` names present both times were the two `docket_test_umami_*` strays `D40` describes):
+
+    DATABASE_URL=postgresql://localhost tools/test-db; echo "exit=$?"
+    test-db: DATABASE_URL has no database name after the host: postgresql://localhost (expected <scheme>://<host>[:port]/<dbname>)
+    exit=2
+    tools/test-db --help; echo "exit=$?"
+    usage: tools/test-db          build the disposable database; prints its URL
+           tools/test-db --drop   drop it; prints nothing
+    exit=2
+    tools/test-db --drop extra; echo "exit=$?"
+    (the same two usage lines)
+    exit=2
+
+A normal build still works: `URL=$(tools/test-db 2>err)` set `URL=postgresql://docket@localhost:5432/docket_test_692415bc` with exit 0 and 68 lines on stderr beginning `test-db: building docket_test_692415bc on postgresql://docket@localhost:5432`; `pg_database` then held the name once; `tools/test-db --drop` exited 0 and the count was `0`. The drop trap was demonstrated on a scratch copy of the script (in the scratchpad, not the tree) with the migration-runner line replaced by `false`: it printed `test-db: building docket_test_29e5304e on ...`, exited 1, and `select count(*) from pg_database where datname='docket_test_29e5304e'` printed `0`.
+
+The overview test on a fresh disposable database, `DATABASE_URL=$(tools/test-db 2>/dev/null) venv/bin/python -m pytest tests/web/test_city_overview_render.py -q -rs -p no:cacheprovider`:
+
+    SKIPPED [1] tests/web/test_city_overview_render.py:272: No Birmingham meetings seeded
+    16 passed, 1 skipped in 1.31s
+
+The card's second failing case, in a scratch repository under `mktemp -d` (`/var/folders/.../tmp.QtoXs6fS0J`, removed afterwards) with `GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1`: `plan.md` (M1 done, M2 `index writer` open, the four living sections) and `app.py` committed as `f05b5fd`; `tools/judge-milestone snapshot plan.md > snap` exited 0 (`DONE 5`, `OPEN 6`); M2 ticked `(2026-10-11 18:30Z)` and committed as `baefabb M2 done`; `app.py` changed and committed as `46cf3d0 app: greeting`; then `tools/judge-milestone judge plan.md snap f05b5fd`, verbatim:
+
+    judge: halt plan.md
+    judge: entry "(2026-10-11 18:30Z) M2: index writer."
+    judge: commit 46cf3d0 did not touch the plan.
+    judge: Fix the cause, commit in the worktree, and re-run.
+
+`judge exit=1`.
+
 ## Interfaces and Dependencies
 
-`tools/test-db`: POSIX sh. Reads `DATABASE_URL` (optional). Prints the test database URL as its last line and exits 0, or exits nonzero with psql's or the runner's error. `tools/test-db --drop` drops it silently. Requires `psql` on PATH or at `/opt/homebrew/opt/postgresql@16/bin/psql` (try PATH first, then that path) and `venv/bin/python`.
+`tools/test-db`: POSIX sh. Reads `DATABASE_URL` (optional). Prints the test database URL as its last line and exits 0, or exits nonzero with psql's or the runner's error. `tools/test-db --drop` drops it silently. Requires `psql` on PATH or at `/opt/homebrew/opt/postgresql@16/bin/psql` (try PATH first, then that path) and `venv/bin/python`. (As fixed in M5: any argument other than none or `--drop`, including `--help`, prints two usage lines to stderr and exits 2; a URL whose part before any `?` does not match `*://*/?*` exits 2 with `test-db: DATABASE_URL has no database name after the host: <url> (expected <scheme>://<host>[:port]/<dbname>)`; both happen before `psql` runs. A migration-runner failure drops the database it was building before the script exits.)
 
 `tools/verify`: POSIX sh, no arguments, exit 0 only if every check passed. Checks are listed in the script as `name` and `command` pairs so adding one is one line. Output contract: each check's own output, then one summary line per check in the form `verify: <name> ... ok` or `verify: <name> ... FAILED`, then the final line. (As built in M2: the `ok`/`FAILED` word is followed by the check's wall time in parentheses, a `verify: test-db ... ok <url>` line precedes the checks, a check that could not run because the database failed to build reads `FAILED (not run: no test database)`, and the final failing line is `verify: N of M checks failed in Ss. Each failing check's output is above its summary line; re-run one with:` followed by one indented command per failing check. `DATABASE_URL` is exported to every check.)
 
-`tools/judge-milestone`: POSIX sh. `snapshot <plan>` to stdout, exit 0 or 2. `judge <plan> <snapshot-file> <start-sha>`, exit 0, 1, or 2, output as specified in Plan of Work. Uses only `git`, `awk`, `sed`, `printf`; no Python. (As built in M3: records are `KIND<TAB>line<TAB>shortened text<TAB>key`, where KIND is `OPEN`, `DONE`, `NOSTAMP`, `MISSING`, or `EMPTY`, line is `0` for the last two, the shortened text is the first 72 characters plus `...`, and the key is the lowercased text with dates and non-alphanumerics normalised away. Every message line begins `judge: ` and its first word is the verdict: `advanced "<shortened entry>"` on exit 0; `halt <plan>` as the first of four lines on exit 1, followed by `entry "<shortened entry>"` or `no entry`, the rule sentence, and `Fix the cause, commit in the worktree, and re-run.`; `defect <plan> <phrase>` on exit 2, written to stderr in both modes. `judge` resolves the plan's path relative to the repository root with `git rev-parse --show-prefix`, reads it with `git show HEAD:<path>`, and runs `git status --porcelain` for the whole repository. The judge may be invoked from any directory; the plan path is taken relative to the current directory.)
+`tools/judge-milestone`: POSIX sh. `snapshot <plan>` to stdout, exit 0 or 2. `judge <plan> <snapshot-file> <start-sha>`, exit 0, 1, or 2, output as specified in Plan of Work. Uses only `git`, `awk`, `sed`, `printf`; no Python. (As built in M3: records are `KIND<TAB>line<TAB>shortened text<TAB>key`, where KIND is `OPEN`, `DONE`, `NOSTAMP`, `MISSING`, or `EMPTY`, line is `0` for the last two, the shortened text is the first 72 characters plus `...`, and the key is the lowercased text with dates and non-alphanumerics normalised away. Every message line begins `judge: ` and its first word is the verdict: `advanced "<shortened entry>"` on exit 0; `halt <plan>` as the first of four lines on exit 1, followed by `entry "<shortened entry>"` or `no entry`, the rule sentence, and `Fix the cause, commit in the worktree, and re-run.`; `defect <plan> <phrase>` on exit 2, written to stderr in both modes. `judge` resolves the plan's path relative to the repository root with `git rev-parse --show-prefix`, reads it with `git show HEAD:<path>`, and runs `git status --porcelain` for the whole repository. The judge may be invoked from any directory; the plan path is taken relative to the current directory.) (As fixed in M5: a done entry counts as newly done only if its key was `OPEN` in the snapshot; the halt sentences gain `open entry "<text>" was removed.`, checked after the revert rule; a commit touches the plan only if `git diff --ignore-all-space --ignore-blank-lines` against its parent is non-empty for the plan; an unknown start revision is `judge: defect start revision <sha> is unknown`, exit 2, checked before rule 1; headings and entry text are trimmed of trailing spaces and carriage returns; `~~~` fences hide their contents as backtick fences do.)
 
-`tools/fixtures/judge/run`: POSIX sh, no arguments, exit 0 if all cases pass. Creates and removes its own temporary repositories; leaves nothing behind. (As built in M3: one line per case, `judge fixture: <case> ... ok (exit N, <verdict or halt rule>)` or `... FAILED (want exit N word W; got exit M: <first line>)`, then `judge fixtures: 8 of 8 passed` or `judge fixtures: N of 8 failed: <names>`. The cases are named `clean-advance`, `no-commit`, `untouched-commit`, `two-ticked`, `ticked-undated`, `done-reverted`, `dirty-tree`, `missing-section`. Git runs with `GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1`.)
+`tools/fixtures/judge/run`: POSIX sh, no arguments, exit 0 if all cases pass. Creates and removes its own temporary repositories; leaves nothing behind. (As built in M3: one line per case, `judge fixture: <case> ... ok (exit N, <verdict or halt rule>)` or `... FAILED (want exit N word W; got exit M: <first line>)`, then `judge fixtures: 8 of 8 passed` or `judge fixtures: N of 8 failed: <names>`. The cases are named `clean-advance`, `no-commit`, `untouched-commit`, `two-ticked`, `ticked-undated`, `done-reverted`, `dirty-tree`, `missing-section`. Git runs with `GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1`.) (As fixed in M5: twelve cases, the totals read `12 of 12`, and the four added names are `invented-done`, `deleted-open`, `whitespace-touch`, `bad-start-sha`; a snapshot that does not exit 0 fails its case with `judge: snapshot exited <n>: <stderr>` before the judge runs.)
 
 `pyproject.toml`: `[tool.pytest.ini_options]` gains `addopts = "-m 'not live'"`.
 

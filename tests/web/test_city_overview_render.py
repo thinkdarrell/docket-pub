@@ -3,6 +3,8 @@
 These tests use the Flask `client` fixture (provided by tests/web/conftest.py).
 """
 
+import pytest
+
 
 def test_overview_passes_city_stats_to_template(client):
     """city_overview builds city_stats dict for the new 3-card YTD strip.
@@ -265,7 +267,9 @@ def test_meeting_detail_source_links_below_executive_summary(client):
         import re
         m = re.search(r"/al/birmingham/meetings/(\d+)/", listing.data.decode())
         if not m:
-            return  # nothing to test
+            # A fresh database has no Birmingham meetings; say so rather
+            # than pass while asserting nothing.
+            pytest.skip("No Birmingham meetings seeded")
         resp = client.get(f"/al/birmingham/meetings/{m.group(1)}/")
     assert resp.status_code == 200
     html = resp.data.decode()

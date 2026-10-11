@@ -7,6 +7,11 @@
 #     tools/test-db           build it; the URL is the only line on stdout
 #     tools/test-db --drop    drop it; prints nothing
 #
+# Any other argument, and a DATABASE_URL with no database name after the
+# host (such as postgresql://localhost), is refused with exit 2 and one line
+# on stderr before anything touches the server. If the migration runner
+# fails, the half-built database is dropped before the script exits.
+#
 # The database is named docket_test_<hash>, where <hash> is the first eight
 # hex characters of the SHA-1 of the checkout's absolute path, so two
 # worktrees can build at the same time without dropping each other's
@@ -15,6 +20,18 @@
 # Progress and the migration runner's output go to stderr so that
 # `DATABASE_URL=$(tools/test-db)` captures just the URL.
 set -eu
+
+usage() {
+    echo "usage: tools/test-db          build the disposable database; prints its URL" >&2
+    echo "       tools/test-db --drop   drop it; prints nothing" >&2
+    exit 2
+}
+
+case $# in
+    0) MODE=build ;;
+    1) [ "$1" = "--drop" ] || usage; MODE=drop ;;
+    *) usage ;;
+esac
 
 cd "$(dirname "$0")/.."
 ROOT=$(pwd -P)
@@ -35,14 +52,24 @@ fi
 if [ -n "${DATABASE_URL:-}" ]; then
     BASE_URL=$DATABASE_URL
 else
-    BASE_URL=$(venv/bin/python -c 'from docket.config import DATABASE_URL; print(DATABASE_URL)' 2>/dev/null) \
+    BASE_URL=$(venv/bin/python -c 'from docket.config import DATABASE_URL; print(DATABASE_URL)') \
         || BASE_URL=postgresql://docket@localhost:5432/docket_db
 fi
 
-# Split "<server>/<dbname>[?query]" into its parts; keep any query string.
+# Split "<scheme>://<authority>/<dbname>[?query]" into its parts; keep any
+# query string. The URL must name a database after the authority, or
+# "${NOQUERY%/*}" would cut inside the scheme and the maintenance URL would
+# point at a host literally named postgres.
 case $BASE_URL in
     *\?*) QUERY="?${BASE_URL#*\?}"; NOQUERY=${BASE_URL%%\?*} ;;
     *)    QUERY=""; NOQUERY=$BASE_URL ;;
+esac
+case $NOQUERY in
+    *://*/?*) ;;
+    *)
+        echo "test-db: DATABASE_URL has no database name after the host: $BASE_URL (expected <scheme>://<host>[:port]/<dbname>)" >&2
+        exit 2
+        ;;
 esac
 SERVER=${NOQUERY%/*}
 MAINT_URL="$SERVER/postgres$QUERY"
@@ -51,15 +78,22 @@ TEST_URL="$SERVER/$NAME$QUERY"
 # Quiet the "does not exist, skipping" notice from DROP ... IF EXISTS.
 export PGOPTIONS="-c client_min_messages=warning"
 
-if [ "${1:-}" = "--drop" ]; then
+drop_db() {
     "$PSQL" "$MAINT_URL" -q -v ON_ERROR_STOP=1 \
         -c "DROP DATABASE IF EXISTS \"$NAME\" WITH (FORCE)"
+}
+
+if [ "$MODE" = drop ]; then
+    drop_db
     exit 0
 fi
 
 echo "test-db: building $NAME on $SERVER" >&2
-"$PSQL" "$MAINT_URL" -q -v ON_ERROR_STOP=1 \
-    -c "DROP DATABASE IF EXISTS \"$NAME\" WITH (FORCE)" \
-    -c "CREATE DATABASE \"$NAME\""
+# From here until the build succeeds, any exit drops the database, so a
+# failed migration run cannot leave a half-built one behind.
+trap 'drop_db' EXIT
+drop_db
+"$PSQL" "$MAINT_URL" -q -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"$NAME\""
 DATABASE_URL="$TEST_URL" venv/bin/python -m docket.migrations.runner >&2
+trap - EXIT
 echo "$TEST_URL"
