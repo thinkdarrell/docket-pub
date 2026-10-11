@@ -37,7 +37,8 @@
       <td>{{ t.status }}</td><td><code>{{ t.needs_review_reason or '' }}</code></td>
       <td class="t-mono" style="font-size: 12px;">{{ (t.last_error or '') | truncate(160) }}</td>
       <td><form method="post" action="{{ url_for('admin_transcripts.retry_transcript', meeting_id=t.meeting_id) }}" style="display:inline;">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit" style="font-size: 0.85rem;">Retry</button></form></td>
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit" style="font-size: 0.85rem;">Retry</button></form>
+          · <a href="{{ url_for('admin_transcripts.speaker_correction', meeting_id=t.meeting_id) }}">Fix speakers</a></td>
     </tr>{% endfor %}</tbody></table>
   {% endif %}
   </section>

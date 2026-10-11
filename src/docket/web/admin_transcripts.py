@@ -6,7 +6,9 @@ from urllib.parse import urlsplit
 
 from flask import Blueprint, abort, flash, redirect, render_template, request, session, url_for
 
+from docket.db import db_cursor
 from docket.services import discrepancies as D
+from docket.services import speaker_correction as SC
 from docket.web.csrf import validate_csrf
 
 bp = Blueprint("admin_transcripts", __name__, url_prefix="/admin")
@@ -99,3 +101,40 @@ def retry_transcript(meeting_id: int):
         return redirect(_back())
     flash(f"Transcript for meeting {meeting_id} reset to {status}; the next cron tick picks it up.")
     return redirect(_back())
+
+
+@bp.route("/transcripts/<int:meeting_id>/speakers")
+def speaker_correction(meeting_id: int):
+    clusters = SC.list_clusters(meeting_id)
+    if not clusters:
+        abort(404)
+    with db_cursor() as cur:
+        cur.execute("""SELECT m.id, m.title, m.meeting_date, mu.slug FROM meetings m JOIN municipalities mu ON mu.id = m.municipality_id
+                        WHERE m.id = %s""", [meeting_id])
+        meeting = dict(cur.fetchone())
+    return render_template("admin/speaker_correction.html", meeting=meeting, clusters=clusters,
+                           roster=SC.roster_options(meeting_id), roles=SC.ROLES)
+
+
+@bp.post("/transcripts/<int:meeting_id>/speakers/<cluster_label>")
+def reassign_speaker(meeting_id: int, cluster_label: str):
+    member = request.form.get("council_member_id", type=int)
+    try:
+        SC.reassign(meeting_id, cluster_label, council_member_id=member, display_name=request.form.get("display_name"),
+                    role=request.form.get("role", "unknown"), actor=session.get("admin_user", "unknown"))
+    except ValueError as e:
+        abort(400, str(e))
+    except LookupError:
+        abort(404)
+    flash(f"Cluster {cluster_label} reassigned.")
+    return redirect(url_for("admin_transcripts.speaker_correction", meeting_id=meeting_id))
+
+
+@bp.post("/transcripts/<int:meeting_id>/speakers/<cluster_label>/release")
+def release_speaker(meeting_id: int, cluster_label: str):
+    try:
+        SC.release(meeting_id, cluster_label)
+    except LookupError:
+        abort(404)
+    flash(f"Cluster {cluster_label} released; the next speaker run may re-resolve it.")
+    return redirect(url_for("admin_transcripts.speaker_correction", meeting_id=meeting_id))

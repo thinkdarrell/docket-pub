@@ -6,7 +6,7 @@
     <div><strong>{{ row.display_title }}</strong></div>
     <div class="t-meta">{{ row.display_description }}</div>
     <div class="t-meta" style="margin-top: 4px;">
-      <a href="/al/{{ row.municipality_slug }}/meetings/{{ row.meeting_id }}/">{{ row.meeting_title }}</a> · {{ row.meeting_date | format_date }}
+      <a href="/al/{{ row.municipality_slug }}/meetings/{{ row.meeting_id }}/">{{ row.meeting_title }}</a> · {{ row.meeting_date | format_date }} · <a href="{{ url_for('admin_transcripts.speaker_correction', meeting_id=row.meeting_id) }}">speakers</a>
       {% if row.item_number %}· Item {{ row.item_number }}{% endif %}
       · confidence {{ '%.2f' | format(row.confidence or 0) }} · citation {{ row.citation_match }} · #{{ row.id }}
     </div>
