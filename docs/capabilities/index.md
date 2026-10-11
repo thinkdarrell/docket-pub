@@ -10,3 +10,4 @@
 | `boundary-lint` | specced | — |
 | `isolated-env` | specced | — |
 | `prose-duplication` | specced | — |
+| `judge-milestone` | specced | — |
