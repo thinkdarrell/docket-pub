@@ -85,7 +85,7 @@ The apex `docket.pub` is on Railway with a Let's Encrypt certificate it provisio
 
 ## Transcriber
 
-The desktop producer on the Legion transcribes council video and uploads through the `transcriber` database role, created once by `scripts/sql/create_transcriber_role.sql`. The role can write only `transcripts`, `transcript_segments`, `transcript_speakers`, and `producer_heartbeats`. Rotate it with `ALTER ROLE transcriber PASSWORD '...'` and update `transcriber/.env` on the Legion. Uploads are public on arrival. Operating notes, expected oddities (stray Monday Granicus clips, over-split speakers), and the bring-up log are in `transcriber/README.md`; the runbook is `docs/runbooks/transcripts.md`.
+The desktop producer on the Legion transcribes council video and uploads through the `transcriber` database role, created once by `scripts/sql/create_transcriber_role.sql`. The role can write only `transcripts`, `transcript_segments`, `transcript_speakers`, and `producer_heartbeats`. Rotate it with `ALTER ROLE transcriber PASSWORD '...'` and update the transcriber's .env file on the Legion (not in this repository). Uploads are public on arrival. Operating notes, expected oddities (stray Monday Granicus clips, over-split speakers), and the bring-up log are in `transcriber/README.md`; the runbook is `docs/runbooks/transcripts.md`.
 
 ## Runbooks
 
