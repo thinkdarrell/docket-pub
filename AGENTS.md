@@ -34,6 +34,7 @@ Run from the repository root (or the worktree root) with that checkout's own `ve
 
 - Multi-file or multi-session work requires an ExecPlan per `plans/PLANS.md`.
 - Execute one milestone per session. Update every living section `plans/PLANS.md` requires, with observed evidence. Stop.
+- In a milestone session, every commit changes the plan file (decision `0037`); a Progress entry's text is never reworded once written, because the judge identifies entries by their text (`docs/capabilities/judge-milestone.md`); git hooks are never disabled or bypassed.
 - Never report a planned command as passing evidence. Run it, record what you observed.
 - Decisions with lasting effect go in the plan's Decision Log; durable ones graduate to `docs/decisions/`.
 - Nothing material lives outside the repo. If it was decided, it is written here.
