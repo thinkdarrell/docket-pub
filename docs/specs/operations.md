@@ -50,7 +50,7 @@ To run one tier by hand on a disposable database: `DATABASE_URL=$(tools/test-db)
 
 Live tests make real Anthropic calls and need a real `ANTHROPIC_API_KEY`: `venv/bin/python -m pytest -m live`. Bare `pytest` no longer collects them, because `pyproject.toml` sets `addopts = "-m 'not live'"` and an explicit `-m live` replaces that expression.
 
-The milestone judge, `tools/judge-milestone`, decides from a plan file and the git history alone whether a session advanced exactly one milestone (`snapshot <plan>` before the session, `judge <plan> <snapshot-file> <start-sha>` after it); its contract is `docs/capabilities/judge-milestone.md`, and its twelve-case self-test is verify's third check.
+The milestone judge, `tools/judge-milestone`, decides from a plan file and the git history alone whether a session advanced exactly one milestone; `AGENTS.md` Commands says how it is run, its contract is `docs/capabilities/judge-milestone.md`, and its twelve-case self-test is verify's third check.
 
 ## Deploying
 
