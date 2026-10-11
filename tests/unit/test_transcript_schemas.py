@@ -78,3 +78,11 @@ def test_empty_detail_values_normalize_to_none():
     d = S.EventDetail.model_validate({"action": "", "items": [], "result": "passed", "present": ["A"]})
     assert d.action is None and d.items is None
     assert d.compact() == {"result": "passed", "present": ["A"]}
+
+
+def test_verdict_category_validated_by_literal_even_without_schema_enum():
+    base = {"candidate_id": 1, "is_real": False, "severity": None, "title": None, "description": None,
+            "transcript_quote": None, "minutes_quote": None, "confidence": 0.5, "dismiss_reason": "x"}
+    assert S.Verdict.model_validate({**base, "category": None}).category is None
+    with pytest.raises(ValidationError):
+        S.Verdict.model_validate({**base, "category": "bogus"})

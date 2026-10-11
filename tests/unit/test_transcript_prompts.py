@@ -37,3 +37,9 @@ def test_extraction_prompts_handle_consent_by_number_and_unlisted_items():
 def test_prompts_tell_the_model_to_quote_exactly_as_shown():
     for text in (P.JUDGE_SYSTEM, P.HUNTER_SYSTEM, P.EVENTS_TRANSCRIPT_SYSTEM, P.EVENTS_MINUTES_SYSTEM):
         assert "exactly as shown" in text
+
+
+def test_extraction_prompts_match_the_non_nullable_detail_schema():
+    for text in (P.EVENTS_TRANSCRIPT_SYSTEM, P.EVENTS_MINUTES_SYSTEM):
+        assert 'use ""' in text
+        assert "leave the others null" not in text
