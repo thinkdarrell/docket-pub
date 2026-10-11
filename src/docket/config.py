@@ -51,3 +51,21 @@ TRANSCRIPT_BACKFILL_SINCE: str = os.environ.get("TRANSCRIPT_BACKFILL_SINCE", "20
 IMPACT_FIRST_ENABLED: bool = (
     os.environ.get("IMPACT_FIRST_ENABLED", "false").lower() == "true"
 )
+
+# Transcript pipeline (spec 2026-10-05 Sections 3-4; plan 2026-10-10).
+# Sonnet 5.5 resolves speakers and extracts events; Opus 5.5 judges and
+# hunts discrepancies. Haiku is an A/B experiment, never a default here.
+AI_TRANSCRIPT_SPEAKER_MODEL: str = os.environ.get("AI_TRANSCRIPT_SPEAKER_MODEL", "claude-sonnet-5-5")
+AI_TRANSCRIPT_EVENTS_MODEL: str = os.environ.get("AI_TRANSCRIPT_EVENTS_MODEL", "claude-sonnet-5-5")
+AI_TRANSCRIPT_COMPARE_MODEL: str = os.environ.get("AI_TRANSCRIPT_COMPARE_MODEL", "claude-opus-5-5")
+# Guards against runaway cost from a bad input, not against long meetings:
+# a twelve-hour hearing plus a 300-page packet is about 300K tokens.
+TRANSCRIPT_TOKEN_CEILING: int = int(os.environ.get("TRANSCRIPT_TOKEN_CEILING", "500000"))
+# More candidates than this usually means a timestamp offset, not 40 problems.
+TRANSCRIPT_CANDIDATE_CAP: int = int(os.environ.get("TRANSCRIPT_CANDIDATE_CAP", "40"))
+TRANSCRIPT_PER_TICK: int = int(os.environ.get("TRANSCRIPT_PER_TICK", "5"))
+# Granicus junk clips (a 6-minute mic check had 24 words) get transcribed;
+# anything under this many words is not a meeting and gets no LLM call.
+TRANSCRIPT_MIN_WORDS: int = int(os.environ.get("TRANSCRIPT_MIN_WORDS", "300"))
+# Outbound alert webhook (Slack or Discord incoming webhook). Unset = silent.
+ALERT_WEBHOOK_URL: str | None = os.environ.get("ALERT_WEBHOOK_URL") or None
