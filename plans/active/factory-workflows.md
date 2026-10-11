@@ -12,7 +12,7 @@ Today the operator of this repository drives every plan by hand: start a fresh s
 
 - [x] (2026-10-11 21:04Z) M1: `.claude/workflows/cycle-run.js` runs preflight and the milestone loop with a limit and halts on the judge; `tools/check-workflows` guards every saved workflow inside `./tools/verify`.
 - [x] (2026-10-11 21:20Z) M2: `cycle-run` closes a finished plan: review panel, review record, retro, doc-garden, final verify, push, pull request.
-- [ ] M3: `.claude/workflows/cycle-plan.js` turns a stated goal into a committed plan on its own branch, worktree, and venv, or stops with the operator's questions.
+- [x] (2026-10-11 21:41Z) M3: `.claude/workflows/cycle-plan.js` turns a stated goal into a committed plan on its own branch, worktree, and venv, or stops with the operator's questions.
 - [ ] M4: `AGENTS.md`, `docs/specs/operations.md`, the judge card and register, `GOALS.md`, and `docs/DEBT.md` say what the factory now does.
 
 ## Surprises & Discoveries
@@ -138,6 +138,8 @@ Nothing has been executed. This section is filled as milestones land, one entry 
 M1 (2026-10-11, hand-launched milestone session; commits `094a50d` and the commit carrying this entry, on top of `c309ace`). Landed: `.claude/workflows/cycle-run.js` (313 lines: argument handling, the ten-check preflight, the snapshot / milestone / judge loop with `limit` and a hard cap of 20, the halt shape) and `tools/check-workflows` (POSIX sh plus `awk` and `node --check`), wired into `./tools/verify` as the fourth check. Static acceptance met and observed: `tools/check-workflows` printed `workflows: 1 of 1 ok` with exit 0 on the committed tree; exit 1 naming the file on the renamed meta (`meta.name "cycle-runn" does not match file cycle-run.js`) and on the appended `Date.now()`; `./tools/verify` printed `verify: workflows ... ok (0s)` as its fourth check and `verify: all 4 checks passed in 139s.` with exit 0; the script's contents are listed by line number in Artifacts and Notes. Carve-outs: none against the static half. Not observed by this session, by design (Decision Log, second entry): the live half, which is the run of this script that executes M2; in particular no agent prompt, schema, `stallMs`, or `isoFromEpoch` has been exercised by the Workflow runtime, and the first live run is where a runtime-shape mistake would show. The starting-state `./tools/verify` took 160 s and the post-change run 139 s; both within the 180 s budget `AGENTS.md` states.
 
 M2 (2026-10-11, milestone session launched by `cycle-run` with `limit` 1; commits `a03e5e8` and the commit carrying this entry, on top of `f0f7b6a`). Landed: the closing sequence in `.claude/workflows/cycle-run.js` (lines 311 to 605: diffstat, three-lens review panel in `parallel()`, review record committed into the plan's Decision Log, retro, doc-garden, final verify, publish, and the `complete` result with `review` and `pr_url`), replacing M1's three placeholder lines. Static acceptance met and observed: `tools/check-workflows` printed `workflows: 1 of 1 ok` with exit 0; `./tools/verify` printed `verify: all 4 checks passed in 157s.` with exit 0; the seven stages with their lens paragraphs, schemas, and record shape are listed by line number in Artifacts and Notes. Beyond the stated acceptance, a stub runtime exercised the closing path through the complete result and three halts (Decision Log; Artifacts and Notes). Carve-outs: none against the static half. Not observed by this session, by design: the live half, which is the closing run after M4; in particular no closing prompt or schema has met the Workflow runtime, the record agent's Decision Log edit has not been parsed by `tools/judge-milestone snapshot` on a real plan, and the retro and publish agents have not run. The starting `./tools/verify` took 156 s and the post-change run is in the transcript above; both within the 180 s budget.
+
+M3 (2026-10-11, milestone session launched by `cycle-run` with `limit` 1; commits `3ebf38c` and the commit carrying this entry, on top of `4a731fd`). Landed: `.claude/workflows/cycle-plan.js` (316 lines: argument handling with the empty-goal refusal, the guard, scope, setup, plan-author, and check agents with their schemas and prompts, the `questions` stop, the slug rule, the `refused` shape with its `cleanup` string, and the `planned` result with its `next` sentence). Static acceptance met and observed: `tools/check-workflows` printed `workflows: 2 of 2 ok` with exit 0; `./tools/verify` printed `verify: all 4 checks passed in 150s.` with exit 0; the five stages with their schemas and prompts are listed by line number in Artifacts and Notes. Beyond the stated acceptance, a stub runtime exercised the script through the `planned` result, the `questions` stop, and seven refusals (Decision Log; Artifacts and Notes). Carve-outs: none against the static half. Not observed by this session, by design: the live half, which is the operator's run of `cycle-plan` from this worktree with the issue #110 goal after this milestone is judged (Validation and Acceptance); in particular no prompt or schema here has met the Workflow runtime, no scope agent has read a real issue, no `git worktree add` or venv build has been run by the setup prompt, and the plan-author prompt has not produced a plan that `tools/judge-milestone snapshot` has parsed. The starting `./tools/verify` took 156 s and the post-change run 150 s; both within the 180 s budget.
 
 ## Context and Orientation
 
@@ -322,7 +324,7 @@ Observed in the M2 session (2026-10-11), starting from `f0f7b6a`: the starting `
 
 M3. Write `.claude/workflows/cycle-plan.js`. Run `tools/check-workflows` (expected `workflows: 2 of 2 ok`) and `./tools/verify`. In Artifacts and Notes list each stage with its line numbers.
 
-Observed in the M3 session (2026-10-11, launched by `cycle-run` with `limit` 1), starting from `4a731fd`: the starting `./tools/verify` printed `verify: all 4 checks passed in 156s.` and `exit=0` (test-db 0s, unit+web+services 66s, integration 87s, judge-fixtures 3s, workflows 0s). After writing `.claude/workflows/cycle-plan.js` (316 lines) `tools/check-workflows` printed `workflows: .claude/workflows/cycle-plan.js ... ok`, `workflows: .claude/workflows/cycle-run.js ... ok`, `workflows: 2 of 2 ok`, `exit=0`. The stub dry run (Decision Log) printed the expected log lines and results for all ten scenarios; transcript in Artifacts and Notes.
+Observed in the M3 session (2026-10-11, launched by `cycle-run` with `limit` 1), starting from `4a731fd`: the starting `./tools/verify` printed `verify: all 4 checks passed in 156s.` and `exit=0` (test-db 0s, unit+web+services 66s, integration 87s, judge-fixtures 3s, workflows 0s). After writing `.claude/workflows/cycle-plan.js` (316 lines) `tools/check-workflows` printed `workflows: .claude/workflows/cycle-plan.js ... ok`, `workflows: .claude/workflows/cycle-run.js ... ok`, `workflows: 2 of 2 ok`, `exit=0`. The stub dry run (Decision Log) printed the expected log lines and results for all ten scenarios; transcript in Artifacts and Notes. The post-change `./tools/verify` on `3ebf38c` printed `verify: all 4 checks passed in 150s.` with `exit=0`; transcript in Artifacts and Notes.
 
 M4. Make the edits. Run `wc -l AGENTS.md` (expected: at most 100). Walk the paths: for every backticked repository-relative path in the five edited files, `ls` it. Run `./tools/verify`. Expected: `all 4 checks passed`.
 
@@ -611,6 +613,49 @@ M3 session, stub dry run (Decision Log; `dryrun-plan.mjs` in the session scratch
     RESULT {"status":"refused",...,"where":"plan-author, stage 4","branch":"plan/fix-110","worktree":"/repo/.claude/worktrees/fix-110","cleanup":"from /repo: ..."}
 
 The rendered `guard`, `scope`, `setup`, `plan-author`, and `check` prompts were printed from the stub with `{goal, answers}` arguments and read back; the checkout, main checkout, worktree, slug, branch, plan path, goal, appended answers, and brief JSON appeared where intended.
+
+M3 session, `./tools/verify` on the tree committed in `3ebf38c` (script and the first batch of plan evidence), observed:
+
+    ./tools/verify > <scratch>/verify-after.txt 2>&1; echo "exit=$?"
+    verify: test-db ... ok (0s) postgresql://docket@localhost:5432/docket_test_7da4fd23
+    verify: unit+web+services ... ok (65s)
+    verify: integration ... ok (81s)
+    verify: judge-fixtures ... ok (4s)
+    verify: workflows ... ok (0s)
+    verify: all 4 checks passed in 150s.
+    exit=0
+
+M3 session, `.claude/workflows/cycle-plan.js` as committed in `3ebf38c` (316 lines), read back with `grep -n`; the parts Plan of Work M3 requires and where they are:
+
+    1-6      meta literal: name cycle-plan, description, whenToUse, phases Scope / Setup / Author
+    25-38    args normalised to `goal` and `answers`: string, array (goal, answers), and object ({ goal, answers }) forms
+    40-43    refusal of an empty goal (result { status: 'refused', reason: 'no goal given', where: 'arguments' })
+    47-49    goalText: the goal, plus the operator's answers under their heading when present
+    59-64    confine(kind, dir): the two lines every later prompt begins with (`checkout` or `worktree`)
+    69-72    refuse(reason, where, extra): logs `cycle-plan: refused: <reason>`, returns { status: 'refused', reason, where, ...extra }
+    75-77    noResult(label, where, extra): the `agent <label> returned no result` refusal
+    85       phase('Scope')
+    87-97    GUARD_SCHEMA (checkout, main, ok, detail, origin_main)
+    99-113   stage 1 guard prompt: the `pwd -P` first variant; checks 1 to 7 on lines 105-111 (checkout via show-toplevel, main via git-common-dir/.., origin, gh-user, fetch, origin-main, tools)
+    115-120  guard agent (effort low, label guard); null and `ok` false refuse; `cycle-plan: guard ok, checkout <c>, main <m>, origin/main <sha7>`
+    127-140  SCOPE_SCHEMA: the brief exactly as Plan of Work gives it (outcome, slug, files, debt_paid, debt_tripped, specs_altered, out_of_scope, questions)
+    142-161  stage 2 scope prompt: read-only, the goal text, the reading list (AGENTS.md, GOALS.md, docs/DEBT.md, docs/capabilities/index.md, gh issue list/view, the code the goal touches), the eight fields on lines 154-161 with the slug and questions rules
+    163-164  scope agent (label scope, default effort and model); null refuses
+    166-170  questions: log line telling the operator to rerun with the answers appended, one log line per question, result { status: 'questions', questions, brief }
+    172-178  slug validated against ^[a-z0-9-]{1,40}$ (refusal carries the brief); branch plan/<slug>; planPath plans/active/<slug>.md; `cycle-plan: scope ok, slug <slug>: ...` counts
+    185      phase('Setup')
+    187-198  SETUP_SCHEMA (worktree, branch, venv_seconds, import_path, ok, detail)
+    200      expectedWorktree = <main>/.claude/worktrees/<slug>
+    202-213  stage 3 setup prompt: confinement to <main> and the new worktree; steps 1 to 4 on lines 208-211 (git worktree add -b plan/<slug> .claude/worktrees/<slug> origin/main; pwd -P and abbrev-ref; venv + pip install -e ".[dev]" timed with date +%s under a 600000 ms timeout; import docket path inside the worktree); detail names what exists on a failure
+    215-222  setup agent (effort low, label setup); cleanup string; null and `ok` false refuse with branch, worktree, cleanup; `cycle-plan: setup ok, worktree <w> on <branch>, venv built in <n>s`
+    229      phase('Author')
+    231-241  AUTHOR_SCHEMA (plan_path, milestone_count, first_milestone, first_acceptance, left_out)
+    243-262  stage 4 plan-author prompt: common lines for the new worktree, skills/plan-author/SKILL.md and its reading list, the goal text, the brief as JSON, folding into Purpose and Context (256), the judge's section rules (258), write plans/active/<slug>.md, commit alone as `plan: <slug>, authored`, never bypass hooks, do not start the work
+    264-266  plan-author agent (label plan-author, stallMs 1800000, default effort and model); null refuses with branch, worktree, cleanup; `cycle-plan: plan authored at <path>, <n> milestone(s); first: ...`
+    274-282  CHECK_SCHEMA (ok, detail, open_count)
+    284-293  stage 5 check prompt: from the launching checkout; tools/judge-milestone snapshot <worktree>/plans/active/<slug>.md exit 0 with OPEN and no DONE (289); git -C <worktree> status --porcelain empty (290); git -C <worktree> log --oneline origin/main..HEAD exactly one line (291)
+    295-301  check agent (effort low, label check); null and `ok` false refuse with branch, worktree, plan_path, cleanup and a log line saying the plan is committed but to be fixed in the worktree; `cycle-plan: check ok, <n> open milestone(s), clean tree, one commit over origin/main`
+    303-316  result { status: 'planned', branch, worktree, plan_path, milestone_count, first_milestone, first_acceptance, left_out, venv_seconds, next } with the `next` sentence from Plan of Work
 
 ## Interfaces and Dependencies
 
