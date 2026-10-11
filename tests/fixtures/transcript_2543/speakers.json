@@ -1,0 +1,218 @@
+[
+ {
+  "cluster_label": "SPEAKER_00",
+  "council_member_id": null,
+  "display_name": null,
+  "role": null,
+  "confidence": null,
+  "method": null,
+  "is_manual": false
+ },
+ {
+  "cluster_label": "SPEAKER_01",
+  "council_member_id": null,
+  "display_name": null,
+  "role": null,
+  "confidence": null,
+  "method": null,
+  "is_manual": false
+ },
+ {
+  "cluster_label": "SPEAKER_02",
+  "council_member_id": null,
+  "display_name": null,
+  "role": null,
+  "confidence": null,
+  "method": null,
+  "is_manual": false
+ },
+ {
+  "cluster_label": "SPEAKER_03",
+  "council_member_id": null,
+  "display_name": null,
+  "role": null,
+  "confidence": null,
+  "method": null,
+  "is_manual": false
+ },
+ {
+  "cluster_label": "SPEAKER_05",
+  "council_member_id": null,
+  "display_name": null,
+  "role": null,
+  "confidence": null,
+  "method": null,
+  "is_manual": false
+ },
+ {
+  "cluster_label": "SPEAKER_07",
+  "council_member_id": null,
+  "display_name": null,
+  "role": null,
+  "confidence": null,
+  "method": null,
+  "is_manual": false
+ },
+ {
+  "cluster_label": "SPEAKER_10",
+  "council_member_id": null,
+  "display_name": null,
+  "role": null,
+  "confidence": null,
+  "method": null,
+  "is_manual": false
+ },
+ {
+  "cluster_label": "SPEAKER_11",
+  "council_member_id": null,
+  "display_name": null,
+  "role": null,
+  "confidence": null,
+  "method": null,
+  "is_manual": false
+ },
+ {
+  "cluster_label": "SPEAKER_12",
+  "council_member_id": null,
+  "display_name": null,
+  "role": null,
+  "confidence": null,
+  "method": null,
+  "is_manual": false
+ },
+ {
+  "cluster_label": "SPEAKER_13",
+  "council_member_id": null,
+  "display_name": null,
+  "role": null,
+  "confidence": null,
+  "method": null,
+  "is_manual": false
+ },
+ {
+  "cluster_label": "SPEAKER_14",
+  "council_member_id": null,
+  "display_name": null,
+  "role": null,
+  "confidence": null,
+  "method": null,
+  "is_manual": false
+ },
+ {
+  "cluster_label": "SPEAKER_15",
+  "council_member_id": null,
+  "display_name": null,
+  "role": null,
+  "confidence": null,
+  "method": null,
+  "is_manual": false
+ },
+ {
+  "cluster_label": "SPEAKER_16",
+  "council_member_id": null,
+  "display_name": null,
+  "role": null,
+  "confidence": null,
+  "method": null,
+  "is_manual": false
+ },
+ {
+  "cluster_label": "SPEAKER_17",
+  "council_member_id": null,
+  "display_name": null,
+  "role": null,
+  "confidence": null,
+  "method": null,
+  "is_manual": false
+ },
+ {
+  "cluster_label": "SPEAKER_18",
+  "council_member_id": null,
+  "display_name": null,
+  "role": null,
+  "confidence": null,
+  "method": null,
+  "is_manual": false
+ },
+ {
+  "cluster_label": "SPEAKER_19",
+  "council_member_id": null,
+  "display_name": null,
+  "role": null,
+  "confidence": null,
+  "method": null,
+  "is_manual": false
+ },
+ {
+  "cluster_label": "SPEAKER_20",
+  "council_member_id": null,
+  "display_name": null,
+  "role": null,
+  "confidence": null,
+  "method": null,
+  "is_manual": false
+ },
+ {
+  "cluster_label": "SPEAKER_21",
+  "council_member_id": null,
+  "display_name": null,
+  "role": null,
+  "confidence": null,
+  "method": null,
+  "is_manual": false
+ },
+ {
+  "cluster_label": "SPEAKER_22",
+  "council_member_id": null,
+  "display_name": null,
+  "role": null,
+  "confidence": null,
+  "method": null,
+  "is_manual": false
+ },
+ {
+  "cluster_label": "SPEAKER_23",
+  "council_member_id": null,
+  "display_name": null,
+  "role": null,
+  "confidence": null,
+  "method": null,
+  "is_manual": false
+ },
+ {
+  "cluster_label": "SPEAKER_24",
+  "council_member_id": null,
+  "display_name": null,
+  "role": null,
+  "confidence": null,
+  "method": null,
+  "is_manual": false
+ },
+ {
+  "cluster_label": "SPEAKER_25",
+  "council_member_id": null,
+  "display_name": null,
+  "role": null,
+  "confidence": null,
+  "method": null,
+  "is_manual": false
+ },
+ {
+  "cluster_label": "SPEAKER_26",
+  "council_member_id": null,
+  "display_name": null,
+  "role": null,
+  "confidence": null,
+  "method": null,
+  "is_manual": false
+ },
+ {
+  "cluster_label": "SPEAKER_27",
+  "council_member_id": null,
+  "display_name": null,
+  "role": null,
+  "confidence": null,
+  "method": null,
+  "is_manual": false
+ }
+]
