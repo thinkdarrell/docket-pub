@@ -51,13 +51,18 @@ def get(discrepancy_id: int) -> dict | None:
         return dict(row) if row else None
 
 
-def approve(discrepancy_id: int, actor: str, note: str | None = None) -> None:
+def approve(discrepancy_id: int, actor: str, note: str | None = None, *, updates: dict | None = None) -> None:
+    """One guarded UPDATE. `updates` (admin text and a re-verified citation from edit_and_approve) ride in the
+    same statement, so an edit can never land on a row that the guard then refuses to approve. The citation
+    check reads the incoming citation_match when there is one, else the stored column."""
     note = (note or "").strip() or None
+    updates = dict(updates or {})
+    extra_sql = "".join(f", {col} = %s" for col in updates)   # column names come from this module, never from a request
     with db_cursor() as cur:
-        cur.execute("""UPDATE minutes_discrepancies
-                          SET review_state = 'approved', reviewed_at = now(), reviewed_by = %s, review_note = COALESCE(%s, review_note)
-                        WHERE id = %s AND review_state = 'proposed' AND citation_match <> 'missing'""",
-                    [actor, note, discrepancy_id])
+        cur.execute(f"""UPDATE minutes_discrepancies
+                          SET review_state = 'approved', reviewed_at = now(), reviewed_by = %s, review_note = COALESCE(%s, review_note){extra_sql}
+                        WHERE id = %s AND review_state = 'proposed' AND COALESCE(%s, citation_match) <> 'missing'""",
+                    [actor, note, *updates.values(), discrepancy_id, updates.get("citation_match")])
         if cur.rowcount == 0:
             cur.execute("SELECT review_state, citation_match FROM minutes_discrepancies WHERE id = %s", [discrepancy_id])
             row = cur.fetchone()
@@ -129,10 +134,7 @@ def edit_and_approve(discrepancy_id: int, actor: str, admin_title: str, admin_de
     if row["citation_match"] == "missing" or transcript_excerpt or minutes_excerpt:
         match, cit = _attach_citation(row, transcript_excerpt, minutes_excerpt)
         updates.update(cit, citation_match=match)
-    sets = ", ".join(f"{k} = %s" for k in updates)
-    with db_cursor() as cur:
-        cur.execute(f"UPDATE minutes_discrepancies SET {sets} WHERE id = %s", [*updates.values(), discrepancy_id])
-    approve(discrepancy_id, actor)
+    approve(discrepancy_id, actor, updates=updates)
 
 
 def held_transcripts() -> list[dict]:

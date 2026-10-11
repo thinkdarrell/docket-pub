@@ -47,7 +47,8 @@ def _checked_recently(mid):
 
 def _states(mid):
     with db_cursor() as cur:
-        cur.execute("SELECT id, category, review_state, previous_review_state FROM minutes_discrepancies WHERE meeting_id=%s ORDER BY id", [mid])
+        cur.execute("""SELECT id, category, review_state, previous_review_state, reviewed_by, reviewed_at
+                         FROM minutes_discrepancies WHERE meeting_id=%s ORDER BY id""", [mid])
         return [dict(r) for r in cur.fetchall()]
 
 
@@ -76,7 +77,8 @@ def test_recompare_updates_matched_rows_in_place_and_leaves_others_stale(pilot):
     sequence = next(r for r in second if r["category"] == "sequence" and r["review_state"] != "dismissed_by_model")
     assert wording["id"] == next(r["id"] for r in first if r["category"] == "wording")      # updated in place, no duplicate
     assert (wording["review_state"], wording["previous_review_state"]) == ("proposed", "approved")
-    assert sequence["review_state"] == "stale"                                               # corrected minutes no longer show it
+    assert wording["reviewed_by"] is None and wording["reviewed_at"] is None               # unreviewed again; history is in previous_review_state
+    assert sequence["review_state"] == "stale" and sequence["reviewed_by"] == "t"            # corrected minutes no longer show it
     with db_cursor() as cur:
         cur.execute("SELECT title FROM minutes_discrepancies WHERE id=%s", [wording["id"]])
         assert cur.fetchone()["title"] == "wording title v2"

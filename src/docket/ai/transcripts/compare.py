@@ -349,14 +349,19 @@ def reconcile(meeting_id: int, rows: list[dict]) -> dict:
                 continue
             used.add(match["id"])
             new_state = "rejected" if match["review_state"] == "rejected" else "proposed"
+            # A re-proposed row is unreviewed again: clear who signed off on the old version (the old state
+            # survives in previous_review_state). A still-rejected row keeps its reviewer and reason.
             cur.execute("""UPDATE minutes_discrepancies
                               SET title = %s, description = %s, severity = %s, minutes_event_id = %s, minutes_excerpt = %s,
                                   minutes_page = %s, transcript_excerpt = %s, transcript_start_s = %s, citation_match = %s,
-                                  confidence = %s, prompt_version = %s, review_state = %s
+                                  confidence = %s, prompt_version = %s, review_state = %s,
+                                  reviewed_at  = CASE WHEN %s = 'proposed' THEN NULL ELSE reviewed_at  END,
+                                  reviewed_by  = CASE WHEN %s = 'proposed' THEN NULL ELSE reviewed_by  END,
+                                  review_note  = CASE WHEN %s = 'proposed' THEN NULL ELSE review_note  END
                             WHERE id = %s""",
                         [r["title"], r["description"], r["severity"], r["minutes_event_id"], r["minutes_excerpt"], r["minutes_page"],
                          r["transcript_excerpt"], r["transcript_start_s"], r["citation_match"], r["confidence"], r["prompt_version"],
-                         new_state, match["id"]])
+                         new_state, new_state, new_state, new_state, match["id"]])
             updated += 1
         cur.execute("SELECT count(*) AS n FROM minutes_discrepancies WHERE meeting_id = %s AND review_state = 'stale'", [meeting_id])
         stale = cur.fetchone()["n"]

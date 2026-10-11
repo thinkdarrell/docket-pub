@@ -206,3 +206,18 @@ def test_transcript_only_row_needs_just_the_transcript_excerpt(admin, pilot):
                data={"csrf_token": TOK, "admin_title": "t", "admin_description": "d", "transcript_excerpt": "executive session"})
     s = _state(did)
     assert s["review_state"] == "approved" and s["citation_match"] in ("exact", "fuzzy")
+
+
+def test_edit_approve_is_one_statement_so_a_lost_race_writes_nothing(pilot, monkeypatch):
+    """Reviewer A opens the row as proposed; reviewer B rejects it; A submits edit-approve. The admin text
+    must not land on a row the guard refuses to approve."""
+    did = _disc(pilot)
+    stale_view = D.get(did)                                   # what A's form was built from
+    with db_cursor() as cur:
+        cur.execute("UPDATE minutes_discrepancies SET review_state='rejected', reject_reason='dup', reviewed_by='b' WHERE id=%s", [did])
+    monkeypatch.setattr(D, "get", lambda _id: dict(stale_view))
+    with pytest.raises(D.DiscrepancyStateError):
+        D.edit_and_approve(did, "a", "A's title", "A's description", transcript_excerpt="executive session")
+    s = _state(did)
+    assert s["review_state"] == "rejected" and s["reviewed_by"] == "b"
+    assert s["admin_title"] is None and s["admin_description"] is None
