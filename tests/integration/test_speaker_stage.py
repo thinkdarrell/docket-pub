@@ -161,6 +161,12 @@ def test_roll_call_short_response_still_verifies():
     off = a.model_copy(update={"council_member_id": 2, "evidence_quote": "Present and ready", "method": "addressed_by_chair"})
     conf, method, _ = SP.apply_confidence_rules(off, {"S9": "Here. Present and ready."}, {1})
     assert conf == pytest.approx(0.55) and method == "llm_inference"
+    # The roll-call waiver covers response words only; a short fragment that happens to occur is not evidence.
+    grunt = a.model_copy(update={"evidence_quote": "and"})
+    conf, method, verified = SP.apply_confidence_rules(grunt, {"S9": "Here. Present and ready."}, {1})
+    assert not verified and method == "llm_inference" and conf == pytest.approx(0.55)
+    present = a.model_copy(update={"evidence_quote": "Present"})
+    assert SP.apply_confidence_rules(present, {"S9": "Here. Present and ready."}, {1})[2]
 
 
 def test_token_ceiling_holds_before_calling(inst):

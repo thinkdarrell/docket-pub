@@ -64,3 +64,11 @@ def test_window_clamps_to_source():
     src = "abcdefghij"
     assert window(src, 4, 6, 3) == "bcdefghi"
     assert window(src, 0, 2, 50) == src
+
+
+def test_accents_are_folded_whichever_way_the_model_composed_them():
+    assert normalize("Peña") == normalize("Peña") == "pena"
+    source = "Councilor Peña moved approval."
+    cm = find_citation("peña moved", source)
+    assert cm.kind == "exact" and source[cm.start:cm.end] == "Peña moved"
+    assert normalize("ﬁrst") == "first"                 # compatibility folding is kept

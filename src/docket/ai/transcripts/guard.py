@@ -52,7 +52,11 @@ def normalize_with_map(s: str) -> tuple[str, list[int]]:
         elif pending_space:
             pending_space = False
         ch = _QUOTES.get(ch, ch)
-        for c in unicodedata.normalize("NFKC", ch).lower():
+        # NFKD so compatibility forms still fold ("ﬁ" -> "fi") and accents become separate combining
+        # marks, which are then dropped: "Peña" and "Peña" (a model may emit either) both match "pena".
+        for c in unicodedata.normalize("NFKD", ch).lower():
+            if unicodedata.combining(c):
+                continue
             out.append(c)
             idx.append(i)
         i += 1

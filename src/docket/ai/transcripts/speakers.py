@@ -263,13 +263,18 @@ def _meeting(meeting_id: int) -> dict:
         return dict(cur.fetchone())
 
 
-MIN_QUOTE_CHARS = 8   # a shorter normalized quote verifies only for a roll-call response ("here.")
+MIN_QUOTE_CHARS = 8   # a shorter normalized quote verifies only as a roll-call response word ("here.", "present")
 
 
 def _quote_verified(quote: str | None, text: str, *, roll_call: bool) -> bool:
     q = normalize(quote or "").strip()
-    if not q or (len(q) < MIN_QUOTE_CHARS and not roll_call):
+    if not q:
         return False
+    if len(q) < MIN_QUOTE_CHARS:
+        # The roll-call waiver is for the response words the pairing step itself looks for, not for
+        # any short fragment: "uh" or "ok" found somewhere in a cluster's text is not evidence.
+        if not (roll_call and re.sub(r"[^a-z]", "", q) in RESPONSE_WORDS):
+            return False
     return q in text
 
 
