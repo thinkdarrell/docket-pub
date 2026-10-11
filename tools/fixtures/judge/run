@@ -1,0 +1,214 @@
+#!/bin/sh
+# tools/fixtures/judge/run: the milestone judge's self-test.
+#
+# Builds a throwaway git repository under mktemp -d for each of twelve cases,
+# takes a snapshot of a small plan (asserting that the snapshot exits 0),
+# performs the case's edits and commits, runs tools/judge-milestone, and
+# asserts the exit code and the first word after `judge:` on the first line of
+# output. Prints one line per case and `judge fixtures: 12 of 12 passed`, or
+# the failing case names, and exits nonzero if any case failed. Leaves nothing
+# behind.
+#
+# The fixture repositories ignore the machine's global and system git
+# configuration so that signing, hooks, or templates there cannot change a
+# verdict. Uses only git, awk, sed, and printf.
+set -u
+
+JUDGE=$(cd "$(dirname "$0")/../.." && pwd -P)/judge-milestone
+WORK=$(mktemp -d) || exit 70
+trap 'rm -rf "$WORK"' EXIT
+
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
+export GIT_AUTHOR_NAME=fixture GIT_AUTHOR_EMAIL=fixture@example.invalid
+export GIT_COMMITTER_NAME=fixture GIT_COMMITTER_EMAIL=fixture@example.invalid
+
+PASSED=0
+FAILED=0
+FAILED_NAMES=""
+
+# A minimal plan with the four required living sections, one done entry, and
+# two open entries. `$1` is the directory to write it in.
+write_plan() {
+    cat >"$1/plan.md" <<'EOF'
+# Fixture plan
+
+## Progress
+
+- [x] (2026-10-01 10:00Z) M1: the first thing.
+- [ ] M2: the second thing.
+- [ ] M3: the third thing.
+
+## Surprises & Discoveries
+
+- Observation: none yet.
+
+## Decision Log
+
+- Decision: none yet.
+
+## Outcomes & Retrospective
+
+Nothing yet.
+EOF
+}
+
+# Replace one Progress line in plan.md. $1 dir, $2 the open text to find,
+# $3 the replacement line.
+set_line() {
+    sed "s|^- \[ \] $2\$|$3|" "$1/plan.md" >"$1/plan.tmp" && mv "$1/plan.tmp" "$1/plan.md"
+}
+
+# new_repo <name>: create the repository, commit the plan, snapshot it.
+# Sets $R (repo dir) and $START (sha).
+new_repo() {
+    R="$WORK/$1"
+    mkdir -p "$R"
+    git -C "$R" -c init.defaultBranch=main init -q
+    # The snapshot is written inside the repository as an untracked file;
+    # exclude it so that only the case's own edits can dirty the tree.
+    printf '.snapshot\n.snapshot.err\n' >>"$R/.git/info/exclude"
+    write_plan "$R"
+    printf 'other\n' >"$R/other.txt"
+    git -C "$R" add plan.md other.txt
+    git -C "$R" -c commit.gpgsign=false commit -q -m "fixture: initial plan"
+    START=$(git -C "$R" rev-parse HEAD)
+    (cd "$R" && "$JUDGE" snapshot plan.md >"$R/.snapshot" 2>"$R/.snapshot.err")
+    SNAP_EXIT=$?
+}
+
+commit_all() {
+    git -C "$1" add -A
+    git -C "$1" -c commit.gpgsign=false commit -q -m "$2"
+}
+
+# assert <case> <want-exit> <want-word> <got-exit> <output>: the word is the
+# first word after `judge:` on the first line; the line shown is the rule (the
+# third line) for a halt, the first line otherwise.
+assert() {
+    word=$(printf '%s\n' "$5" | awk 'NR == 1 && $1 == "judge:" { print $2 }')
+    if [ "$word" = halt ]; then
+        rule=$(printf '%s\n' "$5" | sed -n '3s/^judge: /halt: /p')
+    else
+        rule=$(printf '%s\n' "$5" | sed -n '1s/^judge: //p')
+    fi
+    if [ "$2" = "$4" ] && [ "$3" = "$word" ]; then
+        PASSED=$((PASSED + 1))
+        printf 'judge fixture: %-24s ok (exit %s, %s)\n' "$1" "$4" "$rule"
+    else
+        FAILED=$((FAILED + 1))
+        FAILED_NAMES="$FAILED_NAMES $1"
+        printf 'judge fixture: %-24s FAILED (want exit %s word %s; got exit %s: %s)\n' "$1" "$2" "$3" "$4" "$rule"
+    fi
+}
+
+# run_judge [start]: judge the repository in $R from $START (or the given
+# revision), capturing exit and output. A snapshot that did not exit 0 fails
+# the case before the judge runs, since every case below starts from a plan
+# whose record holds.
+run_judge() {
+    if [ "$SNAP_EXIT" -ne 0 ]; then
+        OUT="judge: snapshot exited $SNAP_EXIT: $(cat "$R/.snapshot.err")"
+        JEXIT=$SNAP_EXIT
+        return
+    fi
+    OUT=$(cd "$R" && "$JUDGE" judge plan.md .snapshot "${1:-$START}" 2>&1)
+    JEXIT=$?
+}
+
+# 1. A clean one-entry advance.
+new_repo clean-advance
+set_line "$R" "M2: the second thing." "- [x] (2026-10-02 11:00Z) M2: the second thing."
+commit_all "$R" "M2 done"
+run_judge; assert clean-advance 0 advanced "$JEXIT" "$OUT"
+
+# 2. No commit landed.
+new_repo no-commit
+run_judge; assert no-commit 1 halt "$JEXIT" "$OUT"
+
+# 3. A commit that does not touch the plan (beside an otherwise clean advance).
+new_repo untouched-commit
+set_line "$R" "M2: the second thing." "- [x] (2026-10-02 11:00Z) M2: the second thing."
+commit_all "$R" "M2 done"
+printf 'changed\n' >"$R/other.txt"
+commit_all "$R" "touch other only"
+run_judge; assert untouched-commit 1 halt "$JEXIT" "$OUT"
+
+# 4. Two entries ticked in one iteration.
+new_repo two-ticked
+set_line "$R" "M2: the second thing." "- [x] (2026-10-02 11:00Z) M2: the second thing."
+set_line "$R" "M3: the third thing." "- [x] (2026-10-02 11:05Z) M3: the third thing."
+commit_all "$R" "M2 and M3 done"
+run_judge; assert two-ticked 1 halt "$JEXIT" "$OUT"
+
+# 5. One entry ticked without a date.
+new_repo ticked-undated
+set_line "$R" "M2: the second thing." "- [x] M2: the second thing."
+commit_all "$R" "M2 done, no date"
+run_judge; assert ticked-undated 1 halt "$JEXIT" "$OUT"
+
+# 6. A done entry un-ticked (beside an otherwise clean advance).
+new_repo done-reverted
+set_line "$R" "M2: the second thing." "- [x] (2026-10-02 11:00Z) M2: the second thing."
+sed 's|^- \[x\] (2026-10-01 10:00Z) M1: the first thing.$|- [ ] M1: the first thing.|' "$R/plan.md" >"$R/plan.tmp" && mv "$R/plan.tmp" "$R/plan.md"
+commit_all "$R" "M2 done, M1 reopened"
+run_judge; assert done-reverted 1 halt "$JEXIT" "$OUT"
+
+# 7. A dirty tree after an otherwise clean advance.
+new_repo dirty-tree
+set_line "$R" "M2: the second thing." "- [x] (2026-10-02 11:00Z) M2: the second thing."
+commit_all "$R" "M2 done"
+printf 'uncommitted\n' >>"$R/other.txt"
+run_judge; assert dirty-tree 1 halt "$JEXIT" "$OUT"
+
+# 8. A plan missing `## Decision Log` at snapshot time.
+R="$WORK/missing-section"
+mkdir -p "$R"
+git -C "$R" -c init.defaultBranch=main init -q
+write_plan "$R"
+sed '/^## Decision Log$/,/^## Outcomes/{/^## Outcomes/!d;}' "$R/plan.md" >"$R/plan.tmp" && mv "$R/plan.tmp" "$R/plan.md"
+git -C "$R" add plan.md
+git -C "$R" -c commit.gpgsign=false commit -q -m "fixture: plan without Decision Log"
+OUT=$(cd "$R" && "$JUDGE" snapshot plan.md 2>&1 >/dev/null)
+SEXIT=$?
+assert missing-section 2 defect "$SEXIT" "$OUT"
+
+# 9. An invented done entry: a new ticked, dated line is added and no open
+#    entry is ticked. It must not count as the one entry that changed state.
+new_repo invented-done
+printf -- '- [x] (2026-10-02 11:00Z) M9: a thing the plan never asked for.\n' >"$R/line.tmp"
+sed '/^- \[ \] M3: the third thing\.$/r '"$R/line.tmp" "$R/plan.md" >"$R/plan.tmp" && mv "$R/plan.tmp" "$R/plan.md"
+rm -f "$R/line.tmp"
+commit_all "$R" "M9 invented"
+run_judge; assert invented-done 1 halt "$JEXIT" "$OUT"
+
+# 10. An open entry deleted (beside an otherwise clean advance).
+new_repo deleted-open
+set_line "$R" "M2: the second thing." "- [x] (2026-10-02 11:00Z) M2: the second thing."
+sed '/^- \[ \] M3: the third thing\.$/d' "$R/plan.md" >"$R/plan.tmp" && mv "$R/plan.tmp" "$R/plan.md"
+commit_all "$R" "M2 done, M3 deleted"
+run_judge; assert deleted-open 1 halt "$JEXIT" "$OUT"
+
+# 11. A commit whose only change to the plan is whitespace (a trailing space
+#     and a blank line), beside a change to another file, after a clean
+#     advance. It must read as a commit that did not touch the plan.
+new_repo whitespace-touch
+set_line "$R" "M2: the second thing." "- [x] (2026-10-02 11:00Z) M2: the second thing."
+commit_all "$R" "M2 done"
+sed 's/^- \[ \] M3: the third thing\.$/& /' "$R/plan.md" >"$R/plan.tmp" && mv "$R/plan.tmp" "$R/plan.md"
+printf '\n' >>"$R/plan.md"
+printf 'changed\n' >"$R/other.txt"
+commit_all "$R" "touch other, whitespace in plan"
+run_judge; assert whitespace-touch 1 halt "$JEXIT" "$OUT"
+
+# 12. A start revision that is not in the repository.
+new_repo bad-start-sha
+set_line "$R" "M2: the second thing." "- [x] (2026-10-02 11:00Z) M2: the second thing."
+commit_all "$R" "M2 done"
+run_judge 0123456789abcdef0123456789abcdef01234567; assert bad-start-sha 2 defect "$JEXIT" "$OUT"
+
+if [ "$FAILED" -eq 0 ]; then
+    printf 'judge fixtures: %s of 12 passed\n' "$PASSED"
+    exit 0
+fi
+printf 'judge fixtures: %s of 12 failed:%s\n' "$FAILED" "$FAILED_NAMES"
+exit 1

@@ -1,0 +1,282 @@
+#!/bin/sh
+# tools/judge-milestone: decide, from git and the plan file alone, whether a
+# session advanced exactly one milestone of an ExecPlan.
+#
+#   tools/judge-milestone snapshot <plan>
+#       Parse the plan's Progress section and living sections. Print one
+#       tab-separated record per line: KIND, line number, shortened text, key.
+#       KIND is OPEN, DONE (ticked and dated), NOSTAMP (ticked, no date),
+#       MISSING (a required section is absent; line 0), or EMPTY (present with
+#       nothing under it; line 0). Exit 0 when the record holds, 2 when it has
+#       a defect; the defect is one line on stderr beginning `judge: defect`.
+#
+#   tools/judge-milestone judge <plan> <snapshot-file> <start-sha>
+#       Re-read the plan as committed at HEAD, compare it with the snapshot
+#       taken before the session, list the commits <start-sha>..HEAD, and check
+#       the working tree. Exit 0 and print `judge: advanced "<entry>"` when
+#       exactly one Progress entry that was OPEN in the snapshot is done with a
+#       date, every new commit changed the plan by more than whitespace, no done
+#       entry reverted, no open entry disappeared, and the tree is clean. Exit 1
+#       with a four-line halt otherwise (plan path; the entry it stopped on or
+#       `no entry`; the rule that failed; what to do). Exit 2 with
+#       `judge: defect ...` when the plan at HEAD has a structural defect or
+#       <start-sha> is not a revision of the repository.
+#
+# The key is the entry text lowercased, with every date (YYYY-MM-DD and any
+# time that follows it, bare or in parentheses or brackets) removed and runs of
+# non-alphanumerics collapsed to one space, so an entry keeps its identity when
+# it is ticked and stamped. A ticked entry counts as dated when any YYYY-MM-DD
+# appears anywhere on its line. A ticked entry whose key was not OPEN in the
+# snapshot (an invented entry) does not count as newly done. Section headings
+# are matched after trailing spaces and carriage returns are trimmed, and both
+# backtick and tilde fences hide their contents.
+#
+# Adapted from the read_plan, plan_defect, compare_records, and
+# untouching_commits functions of factory-loop's tools/loop-runner. Uses only
+# git, awk, sed, and printf.
+set -u
+
+usage() {
+    printf 'usage: %s snapshot <plan>\n       %s judge <plan> <snapshot-file> <start-sha>\n' "$0" "$0" >&2
+    exit 64
+}
+
+# read_plan: records for the plan text on stdin.
+read_plan() {
+    awk '
+    function trim(t) {
+        sub(/^[ \t]+/, "", t)
+        sub(/[ \t]+$/, "", t)
+        return t
+    }
+    function key(t,   k) {
+        k = tolower(t)
+        gsub(/\([0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9][^)]*\)/, " ", k)
+        gsub(/\[[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9][^]]*\]/, " ", k)
+        gsub(/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]( [0-9][0-9]:[0-9][0-9]z?)?/, " ", k)
+        gsub(/[^a-z0-9]+/, " ", k)
+        return trim(k)
+    }
+    function shorten(t) {
+        if (length(t) > 72) { return substr(t, 1, 72) "..." }
+        return t
+    }
+    BEGIN {
+        n = split("Progress|Surprises & Discoveries|Decision Log|Outcomes & Retrospective", req, "|")
+    }
+    {
+        # A fence opened with backticks closes only with backticks, and one
+        # opened with tildes only with tildes.
+        if (fence == "") {
+            if ($0 ~ /^[ \t]*```/) { fence = "`"; next }
+            if ($0 ~ /^[ \t]*~~~/) { fence = "~"; next }
+        } else {
+            if (fence == "`" && $0 ~ /^[ \t]*```/) { fence = ""; next }
+            if (fence == "~" && $0 ~ /^[ \t]*~~~/) { fence = ""; next }
+            next
+        }
+        if ($0 ~ /^## /) { cur = substr($0, 4); sub(/[ \t\r]+$/, "", cur); seen[cur] = 1; next }
+        if ($0 ~ /^[ \t\r]*$/) { next }
+        if (cur != "") { content[cur] = 1 }
+        if (cur != "Progress") { next }
+        if ($0 ~ /^(    |\t)/) { next }
+        if ($0 ~ /^[ \t]*- \[[ ]\]/) {
+            t = $0
+            sub(/^[ \t]*- \[[ ]\][ \t]*/, "", t)
+            sub(/[ \t\r]+$/, "", t)
+            print "OPEN\t" FNR "\t" shorten(t) "\t" key(t)
+            next
+        }
+        if ($0 ~ /^[ \t]*- \[[xX]\]/) {
+            t = $0
+            sub(/^[ \t]*- \[[xX]\][ \t]*/, "", t)
+            sub(/[ \t\r]+$/, "", t)
+            kind = ($0 ~ /[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/) ? "DONE" : "NOSTAMP"
+            print kind "\t" FNR "\t" shorten(t) "\t" key(t)
+            next
+        }
+    }
+    END {
+        for (i = 1; i <= n; i++) {
+            if (!(req[i] in seen)) { print "MISSING\t0\t" req[i] "\t" }
+            else if (!(req[i] in content)) { print "EMPTY\t0\t" req[i] "\t" }
+        }
+    }
+    '
+}
+
+# plan_defect <records> [structural]: the first defect as a phrase completing
+# "<plan> ...". With a second argument, NOSTAMP is not a defect (judge mode
+# reports it as a halt rule instead). Empty output means the record holds.
+plan_defect() {
+    awk -F'\t' -v structural="${2:-}" '
+    $1 == "NOSTAMP" && structural == "" { print "has a completed Progress entry with no date at line " $2 " (\"" $3 "\")"; exit }
+    $1 == "MISSING" { print "is missing the required section `## " $3 "`"; exit }
+    $1 == "EMPTY" { print "carries the required section `## " $3 "` with nothing under it"; exit }
+    ' "$1"
+}
+
+# compare_records <before> <after>: NEWDONE lines for entries that were OPEN
+# in the snapshot and are complete now, REVERTED lines for completed entries
+# that stopped being complete, REMOVED lines for entries that were OPEN in the
+# snapshot and have no entry of any kind now. A complete entry whose key was
+# neither OPEN nor complete in the snapshot is an invented entry and produces
+# no line, so it cannot count as the one entry that changed state.
+compare_records() {
+    awk -F'\t' '
+    FNR == NR {
+        if ($1 == "DONE" || $1 == "NOSTAMP") { before[$4] = $3 }
+        if ($1 == "OPEN") { open[$4] = $3 }
+        next
+    }
+    {
+        if ($1 == "OPEN" || $1 == "DONE" || $1 == "NOSTAMP") { present[$4] = 1 }
+        if ($1 != "DONE" && $1 != "NOSTAMP") { next }
+        after[$4] = 1
+        if ($4 in open) { print "NEWDONE\t" $3 "\t" ($1 == "DONE" ? "stamped" : "unstamped") }
+    }
+    END {
+        for (k in before) { if (!(k in after)) { print "REVERTED\t" before[k] "\t" } }
+        for (k in open) { if (!(k in present)) { print "REMOVED\t" open[k] "\t" } }
+    }
+    ' "$1" "$2"
+}
+
+# untouching_commits <root> <rel-plan> <start> <end>: every commit in the range
+# whose change to the plan file is empty once whitespace is ignored, oldest
+# first. A commit that adds only blank lines or trailing spaces to the plan
+# did not touch it.
+untouching_commits() {
+    for c in $(git -C "$1" rev-list --reverse "$3..$4"); do
+        # A root commit has no parent; diff it against the empty tree.
+        parent=$(git -C "$1" rev-parse --verify --quiet "$c^") \
+            || parent=$(git -C "$1" hash-object -t tree /dev/null)
+        if [ -z "$(git -C "$1" diff --ignore-all-space --ignore-blank-lines "$parent" "$c" -- "$2")" ]; then
+            printf '%s\n' "$c"
+        fi
+    done
+}
+
+halt() {
+    # halt <plan> <entry-or-empty> <rule>
+    printf 'judge: halt %s\n' "$1"
+    if [ -n "$2" ]; then
+        printf 'judge: entry "%s"\n' "$2"
+    else
+        printf 'judge: no entry\n'
+    fi
+    printf 'judge: %s\n' "$3"
+    printf 'judge: Fix the cause, commit in the worktree, and re-run.\n'
+    exit 1
+}
+
+[ $# -ge 2 ] || usage
+mode=$1
+plan=$2
+
+TMP=$(mktemp -d) || exit 70
+trap 'rm -rf "$TMP"' EXIT
+
+case "$mode" in
+snapshot)
+    [ $# -eq 2 ] || usage
+    if [ ! -f "$plan" ]; then
+        printf 'judge: defect %s does not exist\n' "$plan" >&2
+        exit 2
+    fi
+    read_plan <"$plan" >"$TMP/records"
+    cat "$TMP/records"
+    defect=$(plan_defect "$TMP/records")
+    if [ -n "$defect" ]; then
+        printf 'judge: defect %s %s\n' "$plan" "$defect" >&2
+        exit 2
+    fi
+    exit 0
+    ;;
+judge)
+    [ $# -eq 4 ] || usage
+    before=$3
+    start=$4
+    if [ ! -f "$before" ]; then
+        printf 'judge: defect snapshot file %s does not exist\n' "$before" >&2
+        exit 2
+    fi
+    plandir=$(dirname "$plan")
+    root=$(git -C "$plandir" rev-parse --show-toplevel 2>/dev/null) || {
+        printf 'judge: defect %s is not inside a git repository\n' "$plan" >&2
+        exit 2
+    }
+    rel="$(git -C "$plandir" rev-parse --show-prefix)$(basename "$plan")"
+
+    # The start revision must exist, or "no commit landed" would be a lie.
+    if ! git -C "$root" rev-parse --verify --quiet "$start^{commit}" >/dev/null; then
+        printf 'judge: defect start revision %s is unknown\n' "$start" >&2
+        exit 2
+    fi
+
+    # Rule 1: at least one commit landed.
+    if [ -z "$(git -C "$root" rev-list "$start..HEAD")" ]; then
+        halt "$plan" "" "no commit landed since $(git -C "$root" rev-parse --short "$start")."
+    fi
+
+    # The plan as committed at HEAD, and the entry that became done (if one).
+    if ! git -C "$root" show "HEAD:$rel" >"$TMP/plan" 2>/dev/null; then
+        printf 'judge: defect %s is not in the tree at HEAD\n' "$plan" >&2
+        exit 2
+    fi
+    read_plan <"$TMP/plan" >"$TMP/after"
+    compare_records "$before" "$TMP/after" >"$TMP/diff"
+    newdone=$(awk -F'\t' '$1 == "NEWDONE"' "$TMP/diff" | wc -l | tr -d ' ')
+    entry=""
+    if [ "$newdone" -eq 1 ]; then
+        entry=$(awk -F'\t' '$1 == "NEWDONE" { print $2; exit }' "$TMP/diff")
+    fi
+
+    # Rule 2: every new commit touched the plan (whitespace does not count).
+    untouched=$(untouching_commits "$root" "$rel" "$start" HEAD | head -1)
+    if [ -n "$untouched" ]; then
+        halt "$plan" "$entry" "commit $(git -C "$root" rev-parse --short "$untouched") did not touch the plan."
+    fi
+
+    # A structurally broken plan cannot be judged.
+    defect=$(plan_defect "$TMP/after" structural)
+    if [ -n "$defect" ]; then
+        printf 'judge: defect %s %s\n' "$plan" "$defect" >&2
+        exit 2
+    fi
+
+    # Rule 3: exactly one entry that was open in the snapshot is done now.
+    if [ "$newdone" -ne 1 ]; then
+        halt "$plan" "" "$newdone Progress entries changed state (exactly one must)."
+    fi
+
+    # Rule 4: a ticked entry carries a date.
+    nostamp=$(awk -F'\t' '$1 == "NOSTAMP" { print $2; exit }' "$TMP/after")
+    if [ -n "$nostamp" ]; then
+        halt "$plan" "$(awk -F'\t' '$1 == "NOSTAMP" { print $3; exit }' "$TMP/after")" "entry at line $nostamp is ticked but carries no date."
+    fi
+
+    # Rule 5: no done entry reverted.
+    reverted=$(awk -F'\t' '$1 == "REVERTED" { print $2; exit }' "$TMP/diff")
+    if [ -n "$reverted" ]; then
+        halt "$plan" "$reverted" "entry \"$reverted\" was done at the start and is no longer."
+    fi
+
+    # Rule 5b: no open entry disappeared. A deleted milestone is not a done one.
+    removed=$(awk -F'\t' '$1 == "REMOVED" { print $2; exit }' "$TMP/diff")
+    if [ -n "$removed" ]; then
+        halt "$plan" "$removed" "open entry \"$removed\" was removed."
+    fi
+
+    # Rule 6: the working tree is clean.
+    if [ -n "$(git -C "$root" status --porcelain)" ]; then
+        halt "$plan" "$entry" "the working tree has uncommitted changes."
+    fi
+
+    printf 'judge: advanced "%s"\n' "$entry"
+    exit 0
+    ;;
+*)
+    usage
+    ;;
+esac

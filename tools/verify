@@ -1,0 +1,74 @@
+#!/bin/sh
+# tools/verify: the one command that proves a change is safe.
+#
+# Builds a disposable database with tools/test-db, points DATABASE_URL at it
+# for every test tier (the unit tier deletes rows from whatever database it
+# is given, so no tier may run against the developer's docket_db), runs each
+# check in order even if an earlier one fails (the test tiers, then the
+# milestone judge's fixture self-test), prints each check's own output
+# followed by one summary line per check, then a final line, and exits
+# nonzero if any check failed. Run it from anywhere; it works in the
+# checkout that contains it.
+#
+# To add a check, add one `check <name> <command...>` line below.
+set -u
+
+cd "$(dirname "$0")/.."
+PY=venv/bin/python
+START=$(date +%s)
+SUMMARY=""
+RERUN=""
+TOTAL=0
+FAILED=0
+DB_READY=no
+
+# check <name> <command...>: run the command, remember its result.
+check() {
+    name=$1; shift
+    TOTAL=$((TOTAL + 1))
+    if [ "$DB_READY" = yes ]; then
+        t0=$(date +%s)
+        echo "verify: running $name: $*"
+        if "$@"; then
+            status=ok
+        else
+            status=FAILED
+            FAILED=$((FAILED + 1))
+            RERUN="$RERUN
+    DATABASE_URL=\$(tools/test-db) $*; tools/test-db --drop"
+        fi
+        status="$status ($(( $(date +%s) - t0 ))s)"
+    else
+        status="FAILED (not run: no test database)"
+        FAILED=$((FAILED + 1))
+    fi
+    SUMMARY="$SUMMARY
+verify: $name ... $status"
+}
+
+# A database that fails to build is reported, and no tier runs: running the
+# tiers without one would fall back to docket_db and delete its rows.
+if TEST_DB_URL=$(tools/test-db); then
+    DB_READY=yes
+    export DATABASE_URL="$TEST_DB_URL"
+    trap 'tools/test-db --drop' EXIT
+    SUMMARY="verify: test-db ... ok ($(( $(date +%s) - START ))s) $TEST_DB_URL"
+else
+    SUMMARY="verify: test-db ... FAILED"
+fi
+
+# The checks. Keep pytest's default collection order inside tests/integration:
+# test_033_migration.py must collect before test_migration_013.py.
+check "unit+web+services" $PY -m pytest tests/unit tests/web tests/services -q -p no:cacheprovider
+check "integration"       $PY -m pytest tests/integration -q -p no:cacheprovider
+check "judge-fixtures"    tools/fixtures/judge/run
+
+ELAPSED=$(( $(date +%s) - START ))
+echo
+echo "$SUMMARY"
+if [ "$FAILED" -eq 0 ]; then
+    echo "verify: all $TOTAL checks passed in ${ELAPSED}s."
+    exit 0
+fi
+echo "verify: $FAILED of $TOTAL checks failed in ${ELAPSED}s. Each failing check's output is above its summary line; re-run one with:$RERUN"
+exit 1

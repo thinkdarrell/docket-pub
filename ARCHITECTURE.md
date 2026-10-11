@@ -98,7 +98,7 @@ From outermost to innermost: entry points (`web/`, `worker/`, `ai/cli.py`, `enri
 
 ## Known rough edges
 
-- Six web modules execute SQL directly (`auth.py`, `admin.py`, `admin_badge_review.py`, `create_admin.py`, `source_security.py`, `public.py`), contrary to the web rule above. Tracked as `D7` in `docs/DEBT.md`.
-- `src/docket/ai/` imports `docket.services.badges` in three places, an inward layer reaching outward. Tracked as `D8` in `docs/DEBT.md`.
-- `src/docket/rosters/` is a tracked empty package with no importers, left from an early layout; council rosters are stored by migration and resolved in `src/docket/analysis/ocr/rosters.py`. Deleting it is `D33` in `docs/DEBT.md`.
-- Five modules read the environment directly instead of through `src/docket/config.py`: `src/docket/ai/batches.py` (for `ANTHROPIC_API_KEY`, which config already exposes), `src/docket/web/__init__.py` (`SMART_BREVITY_UI`), `src/docket/worker/tasks.py` (`ANALYTICS_DATABASE_URL`), `src/docket/worker/scheduler.py` (`WORKER_TIMEZONE`), and `src/docket/worker/health.py` (per-task Healthchecks UUIDs). Tracked as `D34` in `docs/DEBT.md`.
+- Some web modules still execute SQL directly, contrary to the web rule above. `D7` in `docs/DEBT.md` lists them.
+- `src/docket/ai/` imports from `src/docket/services/` at six sites, an inward layer reaching outward: the badge-slug lookup (`D8` in `docs/DEBT.md`) and the transcript speaker helpers (`D42`).
+- `src/docket/rosters/` is an empty leftover from an early layout; council rosters are stored by migration and resolved in `src/docket/analysis/ocr/rosters.py`. Deleting it is `D33` in `docs/DEBT.md`.
+- A few modules read `os.environ` for settings that belong in `src/docket/config.py`, contrary to the configuration invariant above. `D34` in `docs/DEBT.md` lists them.

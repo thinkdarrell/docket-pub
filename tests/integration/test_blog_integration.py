@@ -16,6 +16,7 @@ from datetime import date
 import pytest
 
 from docket.blog.types import Author, BlogState, Post
+from docket.web import public as public_module
 
 
 def _make_post(*, city: str, related_meetings: list[int] | None = None,
@@ -85,14 +86,24 @@ def app_with_db():
 def override_blog_state(app_with_db):
     """Helper that temporarily replaces ``app_with_db.config['BLOG_STATE']``
     and restores the original after the test, so a flaky test can't leak its
-    BlogState into subsequent tests sharing the same app instance."""
+    BlogState into subsequent tests sharing the same app instance.
+
+    ``public._overview_cache`` is a module-level, five-minute cache of the
+    rendered city overview keyed by slug. Any earlier test in the same
+    process that fetched ``/al/<slug>/`` (``tests/web`` does) leaves a page
+    rendered from the real blog state there, and the overview route would
+    serve that page instead of rendering with the swapped state. Clear it
+    on every swap and on restore, as ``test_f4_browse_by_priority.py`` and
+    ``test_f5_data_debt.py`` do."""
     original = app_with_db.config.get("BLOG_STATE")
 
     def _swap(new_state: BlogState) -> None:
         app_with_db.config["BLOG_STATE"] = new_state
+        public_module._overview_cache.clear()
 
     yield _swap
     app_with_db.config["BLOG_STATE"] = original
+    public_module._overview_cache.clear()
 
 
 def test_city_page_shows_blog_rail(app_with_db, override_blog_state, seeded_birmingham):

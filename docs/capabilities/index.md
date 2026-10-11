@@ -4,9 +4,10 @@
 
 | Card | Status | Enforced at |
 | --- | --- | --- |
-| `fast-verify` | specced | — |
+| `fast-verify` | built | `./tools/verify` |
 | `evidence-check` | specced | — |
 | `doc-integrity` | specced | — |
 | `boundary-lint` | specced | — |
 | `isolated-env` | specced | — |
 | `prose-duplication` | specced | — |
+| `judge-milestone` | built | `./tools/verify` (the fixture self-test); `cycle-run` (planned, the judge itself) |

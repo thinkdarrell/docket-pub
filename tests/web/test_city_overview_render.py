@@ -3,6 +3,8 @@
 These tests use the Flask `client` fixture (provided by tests/web/conftest.py).
 """
 
+import pytest
+
 
 def test_overview_passes_city_stats_to_template(client):
     """city_overview builds city_stats dict for the new 3-card YTD strip.
@@ -265,24 +267,30 @@ def test_meeting_detail_source_links_below_executive_summary(client):
         import re
         m = re.search(r"/al/birmingham/meetings/(\d+)/", listing.data.decode())
         if not m:
-            return  # nothing to test
+            # A fresh database has no Birmingham meetings; say so rather
+            # than pass while asserting nothing.
+            pytest.skip("No Birmingham meetings seeded")
         resp = client.get(f"/al/birmingham/meetings/{m.group(1)}/")
     assert resp.status_code == 200
     html = resp.data.decode()
     # The source-links section ("Agenda" rail-link-label is unique to it)
     sources_pos = html.find('class="mtg-sources"')
-    # The KPI grid at top has class="kpi-grid" (or similar) — must be earlier
-    kpi_pos = html.find('class="kpi-grid"')
-    # Roll call / votes section ("Roll call" eyebrow appears in body)
+    # The KPI strip at top has class="kpi-strip" — must be earlier
+    kpi_pos = html.find('class="kpi-strip"')
+    # Roll call / votes section ("Roll call" eyebrow appears in body).
+    # The template renders it only when the meeting has votes
+    # (`{% if votes %}`), so a local database without vote rows renders
+    # no roll-call section; the ordering check against it applies only
+    # when the section is present.
     rollcall_pos = html.find("ROLL CALL")
     if rollcall_pos == -1:
         rollcall_pos = html.find("Roll call")
     assert sources_pos > -1, "mtg-sources section missing"
-    assert kpi_pos > -1, "kpi-grid section missing"
-    assert rollcall_pos > -1, "roll-call section missing"
-    # The source links should appear AFTER the KPI grid AND after the
-    # roll-call section.
-    assert sources_pos > kpi_pos, "sources should be below KPI grid"
-    assert sources_pos > rollcall_pos, (
-        f"sources at {sources_pos} should be below roll-call at {rollcall_pos}"
-    )
+    assert kpi_pos > -1, "kpi-strip section missing"
+    # The source links should appear AFTER the KPI strip AND, when the
+    # meeting has votes, after the roll-call section.
+    assert sources_pos > kpi_pos, "sources should be below KPI strip"
+    if rollcall_pos > -1:
+        assert sources_pos > rollcall_pos, (
+            f"sources at {sources_pos} should be below roll-call at {rollcall_pos}"
+        )

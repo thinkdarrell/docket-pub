@@ -29,6 +29,9 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = ["live: makes real Anthropic API calls; opt-in via -m live"]
+# Exclude the live tier by default; an explicit `-m live` on the command line
+# replaces this expression, so `pytest -m live` still selects it.
+addopts = "-m 'not live'"
 
 [tool.ruff]
 target-version = "py310"
