@@ -54,8 +54,8 @@
 Inputs the spec implies but no obvious task test covers, most likely to bite first. Each has a test pinned to the owning task below.
 
 1. **A minutes URL that returns an HTML page (login wall, Granicus error) instead of a PDF.** Expected: minutes capture returns None, the transcript stops at `events_extracted` with `compare_skipped_reason = 'minutes_unavailable'`, nothing is marked `failed`, and the next day's tick retries. Pinned to Tasks 8 and 9.
-2. **A judge verdict whose quoted excerpt the guard cannot find on either side.** Expected: the row is still written as `proposed` with `citation_match = 'missing'` and confidence halved, it appears in the queue with the Approve button disabled, and `approve()` refuses it server-side with 409. Pinned to Tasks 11 and 14.
-3. **An admin approving a row that a re-comparison set to `stale` between page load and click.** Expected: 409, no state change, the row stays `stale`. Pinned to Task 14.
+2. **A judge verdict whose quoted excerpt the guard cannot find on either side.** Expected: the row is still written as `proposed` with `citation_match = 'missing'` and confidence halved, it appears in the queue with the Approve button disabled, and `approve()` refuses it server-side with a flashed error and no state change. Pinned to Tasks 11 and 14.
+3. **An admin approving a row that a re-comparison set to `stale` between page load and click.** Expected: a flashed error on redirect, no state change, the row stays `stale`. Pinned to Task 14.
 4. **Two clusters resolved to the same council member, one by the model and one by hand.** Expected: the transcript page's speaker index lists the member once with combined turn counts, and the search `speaker:` filter returns both clusters' turns. Pinned to Task 16.
 5. **A consent item pulled on the floor and also recorded as pulled in the minutes.** Expected: both effective consent blocks exclude it, the item becomes its own group on both sides, and no `consent_block`, `omission`, or `addition` candidate is produced for the pull itself. Pinned to Task 10.
 
@@ -2159,6 +2159,20 @@ def test_normalize_handles_pdf_artifacts():
     assert normalize(raw) == 'the first "executivesession" was approved at 10:20 o\'clock'
 
 
+def test_hyphenated_line_breaks_join_with_or_without_trailing_space():
+    assert normalize("ap-\nproved") == normalize("ap- \nproved") == normalize("ap-\n proved") == "approved"
+    assert normalize("well-known rule") == "well-known rule"          # an in-line hyphen is kept
+
+
+def test_fuzzy_pass_is_anchored_and_bounded_on_long_sources():
+    filler = ("the council considered routine business and heard from staff about the schedule. " * 2500)   # ~200K chars
+    source = filler + "upon the roll being called the vote was as fol lows: Ayes: nine" + filler
+    cm = find_citation("upon the roll being called the vote was as follows: Ayes: nine", source)
+    assert cm.kind == "fuzzy" and "roll being called" in source[cm.start:cm.end]
+    # No three consecutive words of this quote exist in the source: missing, with no sweep.
+    assert find_citation("zebra quartz umbrella nine", source).kind == "missing"
+
+
 def test_normalize_with_map_points_back_into_the_original():
     raw = "Said  ordinance  ADOPTED."
     norm, m = normalize_with_map(raw)
@@ -2245,12 +2259,17 @@ def normalize_with_map(s: str) -> tuple[str, list[int]]:
         if ch == _SOFT_HYPHEN:
             i += 1
             continue
-        # "ap-\nproved" -> "approved": a hyphen followed by a line break joins the word.
-        if ch == "-" and i + 1 < n and s[i + 1] in "\r\n":
-            i += 1
-            while i < n and s[i] in " \t\r\n":
-                i += 1
-            continue
+        # "ap-\nproved", "ap- \nproved", "ap-\n proved" -> "approved": a hyphen followed by
+        # optional spaces and a line break joins the word (pdfplumber emits all three).
+        if ch == "-":
+            j = i + 1
+            while j < n and s[j] in " \t":
+                j += 1
+            if j < n and s[j] in "\r\n":
+                i = j
+                while i < n and s[i] in " \t\r\n":
+                    i += 1
+                continue
         if ch.isspace():
             pending_space = True
             i += 1
@@ -2282,6 +2301,7 @@ class CitationMatch:
 
 
 MISSING = CitationMatch("missing", None, None, 0.0)
+MAX_FUZZY_ANCHORS = 50
 
 
 def find_citation(excerpt: str, source: str, *, fuzzy_threshold: float = 0.92) -> CitationMatch:
@@ -2292,18 +2312,33 @@ def find_citation(excerpt: str, source: str, *, fuzzy_threshold: float = 0.92) -
     pos = ns.find(ne)
     if pos >= 0:
         return CitationMatch("exact", m[pos], m[pos + len(ne) - 1] + 1, 1.0)
-    # Fuzzy: slide a window a little longer than the excerpt; quick_ratio prunes.
-    wlen = int(len(ne) * 1.15) + 4
-    step = max(1, len(ne) // 4)
-    best, best_pos = 0.0, -1
-    for start in range(0, max(1, len(ns) - len(ne) + 1), step):
-        seg = ns[start:start + wlen]
-        sm = SequenceMatcher(None, ne, seg, autojunk=False)
-        if sm.quick_ratio() < fuzzy_threshold:
+    # Fuzzy pass, anchored: never a full sweep of the source. An anchor is an exact
+    # hit of any three-word shingle of the excerpt; windows are tried only where the
+    # excerpt would sit around each anchor. A quote with no three consecutive words
+    # intact anywhere in the source is reported missing. Cost is O(anchors), not
+    # O(len(source)), so a 300-page minutes text costs the same as a short one.
+    words = ne.split(" ")
+    anchors: set[int] = set()
+    for k in range(max(1, len(words) - 2)):
+        shingle = " ".join(words[k:k + 3])
+        if len(shingle) < 8:
             continue
-        r = sm.ratio()
-        if r > best:
-            best, best_pos = r, start
+        off = ne.find(shingle)
+        pos = ns.find(shingle)
+        while pos >= 0 and len(anchors) < MAX_FUZZY_ANCHORS:
+            anchors.add(max(0, pos - off))
+            pos = ns.find(shingle, pos + 1)
+    wlen = int(len(ne) * 1.15) + 4
+    best, best_pos = 0.0, -1
+    for a in sorted(anchors):
+        for start in range(max(0, a - 8), min(a + 9, len(ns)), 4):
+            seg = ns[start:start + wlen]
+            sm = SequenceMatcher(None, ne, seg, autojunk=False)
+            if sm.quick_ratio() < fuzzy_threshold:
+                continue
+            r = sm.ratio()
+            if r > best:
+                best, best_pos = r, start
     if best < fuzzy_threshold:
         return MISSING
     # Tighten to the matched blocks so the offsets hug the quote.
@@ -2345,7 +2380,7 @@ def window(source: str, start: int, end: int, radius: int) -> str:
 - [ ] **Step 4: Run to verify pass**
 
 Run: `venv/bin/python -m pytest tests/unit/test_guard.py -v`
-Expected: 8 PASS. If `test_fuzzy_pass_catches_a_stray_space_inside_a_word` reports a ratio just under 0.92, do not lower the threshold; check that `quick_ratio` pruning is not skipping the right window (the window must start at a `step` boundary; `step = len // 4` guarantees one within a quarter of the excerpt length).
+Expected: 10 PASS. If `test_fuzzy_pass_catches_a_stray_space_inside_a_word` reports a ratio just under 0.92, do not lower the threshold; check that an anchor was found (the shingle `the roll being` is intact in the source) and that the jittered window starts cover the anchor offset. The long-source test must finish in well under a second; if it does not, the anchor loop is sweeping.
 
 - [ ] **Step 5: Commit**
 
@@ -3807,6 +3842,14 @@ def test_effective_consent_block_applies_pulls_and_adds():
     assert effective_consent_block(CONSENT, evs) == {20, 22, 30}
 
 
+def test_consent_amendments_apply_in_sequence_order():
+    # Pulled, then put back before the vote: the item is in the effective block again.
+    evs = [ev("transcript", 0, "consent_amendment", scope="consent_block", detail={"action": "pulled", "items": [21]}),
+           ev("transcript", 1, "consent_amendment", scope="consent_block", detail={"action": "added", "items": [21]})]
+    assert effective_consent_block(CONSENT, evs) == CONSENT
+    assert effective_consent_block(CONSENT, list(reversed(evs))) == {20, 22}   # order matters; callers pass seq order
+
+
 def test_consent_vote_satisfies_the_block_and_pulled_item_gets_its_own_group():
     t = [ev("transcript", 0, "consent_amendment", scope="consent_block", detail={"action": "pulled", "items": [21]}),
          ev("transcript", 1, "motion", {20, 22}, scope="consent_block"), ev("transcript", 2, "vote", {20, 22}, scope="consent_block", detail={"result": "passed"}),
@@ -3998,8 +4041,9 @@ class Candidate:
 
 
 def effective_consent_block(published: set[int], events: list[Event]) -> set[int]:
+    """Events must be in timeline order (load_events orders by seq); a pull then an add re-admits the item."""
     block = set(published)
-    for ev in events:
+    for ev in sorted(events, key=lambda e: e.seq):
         if ev.event_type != "consent_amendment":
             continue
         items = set(ev.detail.get("items") or []) or set(ev.item_refs)
@@ -4160,7 +4204,7 @@ def align(t_events: list[Event], m_events: list[Event], *, consent_items: set[in
 - [ ] **Step 4: Run to verify pass**
 
 Run: `venv/bin/python -m pytest tests/unit/test_aligner.py -v`
-Expected: 14 PASS. The pilot-shape test must yield exactly one sequence candidate; if two appear, the LIS tie-break picked the wrong pair; the sort key in `sequence_candidates` is transcript seq, and `bisect_left` keeps the earliest minutes seq on ties.
+Expected: 15 PASS. The pilot-shape test must yield exactly one sequence candidate; if two appear, the LIS tie-break picked the wrong pair; the sort key in `sequence_candidates` is transcript seq, and `bisect_left` keeps the earliest minutes seq on ties.
 
 - [ ] **Step 5: Commit**
 
@@ -5366,7 +5410,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
   - `csrf.csrf_token() -> str` (Jinja global; creates `session["csrf_token"]` on first use), `csrf.validate_csrf() -> None` (aborts 400 on a POST without a matching `csrf_token` form field or `X-CSRF-Token` header), `csrf.register(app)`.
   - `discrepancies.list_queue(*, state="proposed", category=None, meeting_id=None, limit=50, offset=0) -> list[dict]` with the row columns plus `meeting_title, meeting_date, municipality_slug, video_url, minutes_url, item_number, item_external_id, item_title, display_title, display_description`.
   - `discrepancies.get(discrepancy_id) -> dict | None`.
-  - `class DiscrepancyStateError(Exception)` (409), `class CitationNotFound(Exception)` (400).
+  - `class DiscrepancyStateError(Exception)`, `class CitationNotFound(Exception)` — the blueprint turns both into a flashed error and a redirect back to the queue (a raw error page would lose the reviewer's place); 404 stays for unknown ids and 400 for a missing CSRF token or reject reason.
   - `approve(discrepancy_id, actor, note=None)`, `reject(discrepancy_id, actor, reason)`, `edit_and_approve(discrepancy_id, actor, admin_title, admin_description, transcript_excerpt=None, minutes_excerpt=None)`.
   - `held_transcripts() -> list[dict]`; `retry_transcript(meeting_id) -> str` (new status).
   - `list_public_for_meeting(meeting_id)`, `list_public_for_item(item_id)`, `list_public_recent(limit=50, offset=0)` — `approved` only (Task 16 consumes).
@@ -5524,8 +5568,9 @@ def test_missing_citation_cannot_be_approved_until_attached(admin, pilot):
     did = _disc(pilot, citation_match="missing", transcript_excerpt="words nobody said", confidence=0.4)
     html = admin.get("/admin/review/discrepancies").get_data(as_text=True)
     assert "disabled" in html.split(f"/discrepancies/{did}/approve")[0][-400:]           # Review Focus 2: button disabled
-    assert admin.post(f"/admin/review/discrepancies/{did}/approve", data={"csrf_token": TOK}).status_code == 409
-    assert _state(did)["review_state"] == "proposed"
+    r = admin.post(f"/admin/review/discrepancies/{did}/approve", data={"csrf_token": TOK})
+    assert r.status_code in (302, 303) and _state(did)["review_state"] == "proposed"
+    assert "attach a citation" in admin.get("/admin/review/discrepancies").get_data(as_text=True)   # flashed, not an error page
     # Reviewer attaches a transcript excerpt that the guard can find in the pilot transcript.
     r = admin.post(f"/admin/review/discrepancies/{did}/edit-approve",
                    data={"csrf_token": TOK, "admin_title": "Statutory ground differs", "admin_description": "Edited.",
@@ -5537,13 +5582,15 @@ def test_missing_citation_cannot_be_approved_until_attached(admin, pilot):
     bad = _disc(pilot, citation_match="missing", tseq=5, mseq=5)
     r = admin.post(f"/admin/review/discrepancies/{bad}/edit-approve",
                    data={"csrf_token": TOK, "admin_title": "x", "admin_description": "y", "transcript_excerpt": "not in there at all"})
-    assert r.status_code == 400 and _state(bad)["review_state"] == "proposed"
+    assert r.status_code in (302, 303) and _state(bad)["review_state"] == "proposed"
+    assert "not found in the transcript" in admin.get("/admin/review/discrepancies").get_data(as_text=True)
 
 
 def test_stale_row_cannot_be_approved(admin, pilot):
     did = _disc(pilot, review_state="stale")
-    assert admin.post(f"/admin/review/discrepancies/{did}/approve", data={"csrf_token": TOK}).status_code == 409   # Review Focus 3
-    assert _state(did)["review_state"] == "stale"
+    r = admin.post(f"/admin/review/discrepancies/{did}/approve", data={"csrf_token": TOK})   # Review Focus 3
+    assert r.status_code in (302, 303) and _state(did)["review_state"] == "stale"
+    assert "row is stale" in admin.get("/admin/review/discrepancies?state=stale").get_data(as_text=True)
     assert "Different statutory ground" in admin.get("/admin/review/discrepancies?state=stale").get_data(as_text=True)
 
 
@@ -5900,6 +5947,12 @@ def review_discrepancies():
                            gate=D.approval_ratio(), states=D.QUEUE_STATES + ("held",))
 
 
+def _fail(discrepancy_id: int, e: Exception):
+    """A state race or a bad excerpt is a reviewer-facing message, not an error page."""
+    flash(f"Discrepancy #{discrepancy_id} not changed: {e}", "error")
+    return redirect(_back())
+
+
 @bp.post("/review/discrepancies/<int:discrepancy_id>/approve")
 def approve(discrepancy_id: int):
     try:
@@ -5907,7 +5960,7 @@ def approve(discrepancy_id: int):
     except LookupError:
         abort(404)
     except D.DiscrepancyStateError as e:
-        abort(409, str(e))
+        return _fail(discrepancy_id, e)
     flash(f"Discrepancy #{discrepancy_id} approved.")
     return redirect(_back())
 
@@ -5920,7 +5973,7 @@ def reject(discrepancy_id: int):
     try:
         D.reject(discrepancy_id, session.get("admin_user", "unknown"), reason)
     except D.DiscrepancyStateError as e:
-        abort(409, str(e))
+        return _fail(discrepancy_id, e)
     flash(f"Discrepancy #{discrepancy_id} rejected.")
     return redirect(_back())
 
@@ -5933,10 +5986,8 @@ def edit_approve(discrepancy_id: int):
                            request.form.get("transcript_excerpt"), request.form.get("minutes_excerpt"))
     except LookupError:
         abort(404)
-    except D.CitationNotFound as e:
-        abort(400, str(e))
-    except D.DiscrepancyStateError as e:
-        abort(409, str(e))
+    except (D.CitationNotFound, D.DiscrepancyStateError) as e:
+        return _fail(discrepancy_id, e)
     flash(f"Discrepancy #{discrepancy_id} edited and approved. Only what docket.pub shows changed; the model text is kept.")
     return redirect(_back())
 
@@ -5946,7 +5997,8 @@ def retry_transcript(meeting_id: int):
     try:
         status = D.retry_transcript(meeting_id)
     except D.DiscrepancyStateError as e:
-        abort(409, str(e))
+        flash(f"Transcript for meeting {meeting_id} not changed: {e}", "error")
+        return redirect(_back())
     flash(f"Transcript for meeting {meeting_id} reset to {status}; the next cron tick picks it up.")
     return redirect(_back())
 ```
@@ -5971,8 +6023,8 @@ def retry_transcript(meeting_id: int):
 <p class="t-meta">Proposed by the comparison pipeline; nothing here is public until approved. Material first.
    Ship gate: {{ gate.approved }}/{{ gate.total }} material approved ({{ (gate.ratio * 100) | round }}%) over {{ gate.meetings }} meetings
    — {{ 'met' if gate.gate_met else ('window open' if not gate.window_complete else 'not met') }}.</p>
-{% with messages = get_flashed_messages() %}
-  {% if messages %}<ul class="queue-flash">{% for msg in messages %}<li>{{ msg }}</li>{% endfor %}</ul>{% endif %}
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}<ul class="queue-flash">{% for cat, msg in messages %}<li{% if cat == 'error' %} style="color: var(--color-danger, #a00);"{% endif %}>{{ msg }}</li>{% endfor %}</ul>{% endif %}
 {% endwith %}
 <nav class="t-meta" style="margin: 8px 0;">
   {% for s in states %}<a href="{{ url_for('admin_transcripts.review_discrepancies', state=s) }}"{% if s == state %} style="font-weight: 700;"{% endif %}>{{ s.replace('_', ' ') }}</a>{% if not loop.last %} &middot; {% endif %}{% endfor %}
@@ -7411,4 +7463,6 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - **Deliberate deviations from plan 1, with reasons:** `PUBLIC_STATUSES` is widened by `public_predicate()` so a worker-stage failure after upload does not take a readable transcript off the site (plan 1's 404-on-failed test concerned producer failures with no segments). `list_transcript_debt` lists `low_speech` rows under the word floor regardless of recording length because the mic-check clip is exactly the junk the page should surface.
 - **Deliberate choices not in the spec:** rejected rows that match on re-comparison stay rejected (the reviewer already said no); old `dismissed_by_model` rows are replaced wholesale on re-comparison; `MINUTED_TYPES` limits omission/addition candidates to event types minutes record (item openings, public comment, roll calls, and standalone seconds never become candidates); a bump to `EVENTS_PROMPT_VERSION` re-extracts the transcript side, which changes transcript event ids and therefore strands approvals as `stale` (acceptable, documented in the runbook, keep rare).
 - **House rules honored:** every new call site mirrors v2's retry ladder and cache breakpoint and is smoke-tested live before anything builds on it (Tasks 1, 2, 7, 9, 18); the memory rule's "forced tool choice" half is superseded by spec decision H because the 5.5 models reject it; CSRF is scoped to the new blueprint and issue #83 keeps the rest.
+- **External plan review dispositions (2026-10-11), accepted:** fuzzy citation pass is now anchored on exact three-word shingles instead of sweeping the source (Task 5; `MAX_FUZZY_ANCHORS = 50`, long-source test added); hyphenated line breaks with a trailing or leading space join (Task 5); `effective_consent_block` sorts by seq and a pull-then-add test pins the order (Task 10); state races and bad excerpts in the review queue flash and redirect instead of returning 409/400 pages (Task 14), with the Review Focus 2 and 3 wording updated.
+- **External plan review dispositions, rejected with evidence (do not re-raise):** "budget checked once before the loop": the `_today_spend` check is inside `for _ in range(limit)` immediately before `claim_next()`, and each claim's cost lands in `ai_runs` at `_close_run` before the next check. "Connection held open during the Opus call": `with db() as conn: run_id = _open_run(...)` closes before the stage runs and `_close_run` opens its own connection; `docket.db.db()` is a fresh `psycopg2.connect` per call, there is no pool. "Minutes packets blow the ceiling": Birmingham's MinutesViewer PDF is the clerk's minutes (the pilot's whole-meeting minutes are about 27K tokens), the spec sizes a 300-page packet at 150K tokens against a 500K ceiling, and the spec's reviewer dispositions already rejected chunking; no truncation heuristic. "24-hour penalty for a 529": transient 5xx and 529 are retried three times with backoff inside `_with_retries` before the row ever takes an attempt, the spec prescribes the 24-hour row backoff, and the task runs once a day so a shorter interval would change nothing. The `regex` module was not added as a dependency; the anchor heuristic needs none.
 - **Known gaps left for later, on purpose:** splitting a mixed speaker cluster at segment level (phase 2); Batches mode (only if the 2021 to 2025 backfill is approved; builders already return parameter dicts); cross-meeting voice identification (embeddings are stored); `vote_outcome` candidates on pre-2026 meetings need the video OCR backfill mode the spec's side note describes, but the minutes-derived baseline works for every year.
