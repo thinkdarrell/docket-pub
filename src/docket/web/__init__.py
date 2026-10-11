@@ -187,6 +187,10 @@ def create_app() -> Flask:
     app.register_blueprint(auth_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(admin_badge_review_bp)
+    from docket.web import csrf as _csrf
+    from docket.web.admin_transcripts import bp as admin_transcripts_bp
+    _csrf.register(app)
+    app.register_blueprint(admin_transcripts_bp)
 
     # Strict-Transport-Security: pin browsers to HTTPS once they've successfully
     # connected. 1 year (31536000s). includeSubDomains is intentionally omitted

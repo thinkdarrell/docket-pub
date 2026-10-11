@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Minutes vs. video queue — Admin — docket.pub{% endblock %}
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center;">
+  <h1>Minutes vs. video queue</h1>
+  <form method="post" action="{{ url_for('auth.logout') }}" style="margin: 0;">
+    <button type="submit" style="font-size: 0.85rem;">Sign Out ({{ session.get('admin_user', '') }})</button>
+  </form>
+</div>
+<p><a href="{{ url_for('admin.list_members') }}">← Council Members</a> &middot;
+   <a href="{{ url_for('admin.review_conflicts') }}">Conflicts</a> &middot;
+   <a href="{{ url_for('admin.ai_panel') }}">AI Pipeline</a></p>
+<p class="t-meta">Proposed by the comparison pipeline; nothing here is public until approved. Material first.
+   Ship gate: {{ gate.approved }}/{{ gate.total }} material approved ({{ (gate.ratio * 100) | round }}%) over {{ gate.meetings }} meetings
+   — {{ 'met' if gate.gate_met else ('window open' if not gate.window_complete else 'not met') }}.</p>
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}<ul class="queue-flash">{% for cat, msg in messages %}<li{% if cat == 'error' %} style="color: var(--color-danger, #a00);"{% endif %}>{{ msg }}</li>{% endfor %}</ul>{% endif %}
+{% endwith %}
+<nav class="t-meta" style="margin: 8px 0;">
+  {% for s in states %}<a href="{{ url_for('admin_transcripts.review_discrepancies', state=s) }}"{% if s == state %} style="font-weight: 700;"{% endif %}>{{ s.replace('_', ' ') }}</a>{% if not loop.last %} &middot; {% endif %}{% endfor %}
+</nav>
+{% if state != 'held' %}
+<form method="get" class="audit-filter">
+  <input type="hidden" name="state" value="{{ state }}">
+  <label>Category <select name="category"><option value="">any</option>{% for c in categories %}<option value="{{ c }}"{% if c == category %} selected{% endif %}>{{ c }}</option>{% endfor %}</select></label>
+  <label>Meeting id <input type="number" name="meeting_id" value="{{ meeting_id or '' }}"></label>
+  <button type="submit">Filter</button>
+  <a href="{{ url_for('admin_transcripts.review_discrepancies', state=state) }}">Reset</a>
+</form>
+{% endif %}
+{% if state == 'held' %}
+  <section class="cal-panel">
+  {% if not held %}<p class="t-meta">No transcripts held for review or failed.</p>{% else %}
+    <table class="queue-table"><thead><tr><th>Meeting</th><th>Status</th><th>Reason</th><th>Error</th><th>Actions</th></tr></thead><tbody>
+    {% for t in held %}<tr>
+      <td><a href="/al/{{ t.municipality_slug }}/meetings/{{ t.meeting_id }}/">{{ t.meeting_title }}</a> <span class="t-meta">{{ t.meeting_date | format_date }}</span></td>
+      <td>{{ t.status }}</td><td><code>{{ t.needs_review_reason or '' }}</code></td>
+      <td class="t-mono" style="font-size: 12px;">{{ (t.last_error or '') | truncate(160) }}</td>
+      <td><form method="post" action="{{ url_for('admin_transcripts.retry_transcript', meeting_id=t.meeting_id) }}" style="display:inline;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit" style="font-size: 0.85rem;">Retry</button></form></td>
+    </tr>{% endfor %}</tbody></table>
+  {% endif %}
+  </section>
+{% elif not rows %}
+  <section class="cal-panel"><h2>Empty</h2><p class="t-meta">No {{ state.replace('_', ' ') }} discrepancies match.</p></section>
+{% else %}
+  <section class="cal-panel">
+    <table class="queue-table discrepancy-queue">
+      <thead><tr><th>Discrepancy</th><th>On video</th><th>In the minutes</th><th>Actions</th></tr></thead>
+      <tbody>{% for row in rows %}{% include 'admin/_discrepancy_row.html' %}{% endfor %}</tbody>
+    </table>
+    {% if next_offset is not none %}
+      <nav class="queue-pager"><a href="{{ url_for('admin_transcripts.review_discrepancies', state=state, category=category or none, meeting_id=meeting_id or none, offset=next_offset) }}">Load more →</a></nav>
+    {% endif %}
+  </section>
+{% endif %}
+<style>
+  .discrepancy-queue td { vertical-align: top; }
+  .discrepancy-queue blockquote { margin: 4px 0; padding-left: 8px; border-left: 3px solid var(--color-rule, #ddd); font-size: 13px; }
+  .discrepancy-queue .chip { display: inline-block; padding: 1px 6px; border-radius: 10px; font-size: 11px; border: 1px solid var(--color-rule, #ddd); margin-right: 4px; }
+  .discrepancy-queue .chip.material { font-weight: 700; }
+  .discrepancy-queue details { margin-top: 6px; }
+  .discrepancy-queue textarea, .discrepancy-queue input[type=text] { width: 100%; font-size: 13px; }
+</style>
+{% endblock %}
