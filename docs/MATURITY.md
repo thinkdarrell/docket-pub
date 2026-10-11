@@ -1,47 +1,8 @@
 # Maturity ladder
 
-<!--
-GUIDANCE — MARKERS
-  {{FILL: ...}} is a slot you must replace with real content.
-  Every HTML comment block in this file starts with the word GUIDANCE and is
-  an authoring instruction. Delete all of them once the file is filled.
-
-GUIDANCE — WHAT THIS FILE OWNS
-  How much an agent is allowed to do without a human in the loop, today and
-  later. It holds the rung definitions (L0 through L3), the rule by which a
-  project moves up a rung, the rule by which it falls back down, and which
-  mechanical checks from `docs/capabilities/` gate each rung.
-
-GUIDANCE — WHAT IT MUST NOT ABSORB
-  How any individual check works or what it enforces — that is the owning
-  spec card in `docs/capabilities/`. This file only names cards and states
-  what they must subsume before a gate can retire.
-
-GUIDANCE — ANTI-PATTERN THIS FILE EXISTS TO PREVENT
-  Autonomy by drift: nobody decides an agent may now merge unreviewed work,
-  it just gradually stops being reviewed, and the first serious failure has
-  no one to attribute it to. Naming the current rung makes the level of
-  trust a written, revisable claim. The mirror failure is autonomy by
-  optimism — granting a rung because the agent has been doing well rather
-  than because a check now catches the class of mistake the human gate was
-  catching.
-
-GUIDANCE — WHAT TO EDIT HERE
-  The rung definitions, the promotion rule, and the demotion rule below are
-  generic and should survive unchanged; they are the ladder, not this
-  project's position on it. What this project owns is the Current rung
-  section, the green-cycle count if twenty is wrong for this change rate,
-  and the Gating capabilities table, whose rows must name only cards that
-  exist in `docs/capabilities/`. Every project starts at L0 and most stay
-  below L2 for a long time. Keep the higher rungs written anyway: they are
-  what make the current rung a deliberate position rather than the only
-  thing anyone imagined.
--->
-
 ## Current rung
 
-{{FILL: the rung this project is on today, and the single thing that would
-have to become mechanical for it to move up.}}
+L0, human-gated. Nothing is mechanically enforced: the verify command in `AGENTS.md` is a pytest line an agent runs by hand, and every card in `docs/capabilities/index.md` is a specification. The single thing that moves this project toward L1 is `tools/verify` becoming the one command every session runs, with `fast-verify` promoted to `enforced` and green for twenty landed changes.
 
 ## Rungs
 
@@ -113,13 +74,6 @@ time.
 
 ## Demotion rule
 
-<!--
-GUIDANCE
-  Demotion has to be as mechanical as promotion, or the ladder only ever
-  points one way. Keep all three triggers; add project-specific ones under
-  them if some class of escape is peculiar to this project.
--->
-
 The current rung drops by one immediately on any of three triggers: a failure
 escapes that a gating card was supposed to catch; a gating card leaves
 `enforced` by being disabled, skipped in continuous integration, or made
@@ -133,15 +87,6 @@ zero. The drop and the reason are recorded in the Current rung section, since
 a ladder with no record of falling reads as one that only ever rose.
 
 ## Gating capabilities
-
-<!--
-GUIDANCE
-  One row per gate. The card must exist in `docs/capabilities/` and its
-  status there must be `enforced` before the rung it gates can be claimed.
-  Name only cards that exist; a row pointing at an imagined check is how a
-  rung gets claimed on paper. Delete rows for cards this project deleted
-  during right-sizing, and add rows for cards it wrote itself.
--->
 
 | Rung | Gating card | What it must subsume |
 | --- | --- | --- |
