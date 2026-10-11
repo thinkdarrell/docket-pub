@@ -85,6 +85,27 @@ Today the operator of this repository drives every plan by hand: start a fresh s
 - Decision: `tools/check-workflows` does the meta extraction in `awk` (one pass, character by character, tracking single, double, and backtick quotes with backslash escapes) and reads `name` and `description` with `grep -oE` on the flattened meta text; `node` is used only for `node --check` on the wrapped body.
   Rationale: Plan of Work asks for POSIX sh; `awk` is POSIX and present everywhere `sh` is, so the only non-POSIX dependency stays the one the plan already accepted (`node`). The key lookup requires the key to follow `{` or `,`, so a `name:` inside a description string is not mistaken for the property.
   Date/Author: 2026-10-11, M1 session.
+- Decision: the diffstat agent returns `fetch_exit` alongside the four fields Plan of Work names (`base`, `head`, `diffstat`, `commits`), and a nonzero fetch halts the run with the rule `git fetch origin exited <n>; the review range cannot be measured against a current origin/main`.
+  Rationale: `git merge-base origin/main HEAD` succeeds against a stale `origin/main` and the panel would then review a range that includes commits already merged. Preflight's `ls-remote` proved the remote reachable at the start, not at the close, which may be hours later.
+  Date/Author: 2026-10-11, M2 session.
+- Decision: in the closing sequence `finished_at` is the publish agent's observed `date -u +%Y-%m-%dT%H:%M:%SZ` (the final verify agent returns the same field as a fallback), not `isoFromEpoch` of an epoch; `isoFromEpoch` remains the source for a run that returns `advanced`.
+  Rationale: Plan of Work M2 names `date -u` for the final verify agent and the closing schemas are this milestone's to define, so the string can be observed directly; M1's arithmetic exists because the snapshot and judge schemas were fixed with `epoch` only.
+  Date/Author: 2026-10-11, M2 session.
+- Decision: the publish stage halts when the push fails (`git push -u origin plan/<slug> failed: <output>`) and when no pull request URL comes back (`gh pr create failed after the push: <output>`); when `gh pr create` reports that a pull request for the branch already exists, the publish agent returns that pull request's URL from `gh pr view` and says so in `detail`, and the run completes.
+  Rationale: Plan of Work gives the publish agent's return shape but not what the script does with `pushed: false` or an empty `pr_url`; a result of `complete` with no URL would be the silent failure the design's halt shape exists to prevent. The existing-pull-request case is the first rerun after a halt inside closing (`D43` from M4): the push is idempotent, the record and retro are not, and refusing to finish because the pull request already exists would leave the run with no way to complete.
+  Date/Author: 2026-10-11, M2 session.
+- Decision: the record entry's `After <last milestone>` clause is filled from the run's own `milestones` list when this run landed one, and otherwise the record agent is told to take the text of the last `- [x]` line in Progress.
+  Rationale: a run launched with `limit` set on the plan's last milestone returns `advanced` without closing; the next run finds no open entries, has an empty `milestones` list, and still owes the record a milestone name. The snapshot schema (fixed in M1) returns only `open_entries` and `done_count`, so the plan file is the only source.
+  Date/Author: 2026-10-11, M2 session.
+- Decision: the retro and doc-garden agents are started with the same thirty-minute stall window as the milestone agent (`stallMs: 1800000`); this extends the M1 decision that only the milestone agent had it. The diffstat, final verify, publish, record, and reviewer agents keep the default.
+  Rationale: the M1 rationale (long silent reading, and a restart from the same prompt would redo half-landed commits) applies to the retro and the gardening pass exactly, since each makes several commits; a restarted retro would write a second closing section and attempt a second `git mv`. The record agent makes one commit from a prompt that already holds its inputs, and the reviewers commit nothing.
+  Date/Author: 2026-10-11, M2 session.
+- Decision: the data-honesty lens's closing parenthetical reads `(run output, log lines, halt messages, records written into documents)` in the script, where Plan of Work wrote `(for this plan: run output, halt messages, review records)`; the complete result also carries `plan_path_now` beside `plan`, since the retro moves the file.
+  Rationale: the script serves every plan, so a lens paragraph naming this plan would be wrong for the next; the addition of `plan_path_now` lets the operator open the plan the result refers to without knowing the lifecycle.
+  Date/Author: 2026-10-11, M2 session.
+- Decision: before `./tools/verify`, the closing path's control flow was exercised with a stub runtime in the session's scratchpad (a Node script defining `agent`, `parallel`, `log`, `phase`, and `args` with canned returns keyed by label, wrapping the body as `tools/check-workflows` does) across four scenarios: complete, severe finding, a null reviewer, a failed fetch. The stub is not committed.
+  Rationale: `node --check` proves the file parses, not that a variable is spelled the same twice or that a halt returns before the next stage; the real runtime is not available to a milestone session (Surprises & Discoveries). The stub cannot show that the Workflow runtime accepts the schemas or prompts, so the live half of M2's acceptance stays with the closing run after M4.
+  Date/Author: 2026-10-11, M2 session.
 
 ## Outcomes & Retrospective
 
@@ -271,6 +292,8 @@ Observed in the M1 session (2026-10-11): every expectation in the M1 paragraph a
 
 M2. Extend `cycle-run.js` with the closing sequence. Run `tools/check-workflows` (expected `1 of 1 ok`) and `./tools/verify` (expected `all 4 checks passed`). Read the script once more against Plan of Work M2 and list in Artifacts and Notes each stage with the line numbers that implement it.
 
+Observed in the M2 session (2026-10-11), starting from `f0f7b6a`: the starting `./tools/verify` printed `verify: all 4 checks passed in 156s.` and `exit=0` (test-db 0s, unit+web+services 61s, integration 91s, judge-fixtures 4s, workflows 0s). After the closing block replaced the three placeholder lines (311 to 313) `tools/check-workflows` printed `workflows: .claude/workflows/cycle-run.js ... ok`, `workflows: 1 of 1 ok`, `exit=0`; the file is 605 lines. The stub dry run (Decision Log) printed the expected log lines and results for all four scenarios; transcript in Artifacts and Notes. The post-change `./tools/verify` result is recorded in Artifacts and Notes when observed.
+
 M3. Write `.claude/workflows/cycle-plan.js`. Run `tools/check-workflows` (expected `workflows: 2 of 2 ok`) and `./tools/verify`. In Artifacts and Notes list each stage with its line numbers.
 
 M4. Make the edits. Run `wc -l AGENTS.md` (expected: at most 100). Walk the paths: for every backticked repository-relative path in the five edited files, `ls` it. Run `./tools/verify`. Expected: `all 4 checks passed`.
@@ -393,6 +416,55 @@ M1 session, self-check with the judge after commits `094a50d` and `6beaf10`, usi
     judge exit=0
 
 This is the session's own check, not the operator's hand judgement the trial schedule calls for; the commit carrying this note lands after it, so the operator's judge sees three commits since `c309ace`.
+
+M2 session, 2026-10-11 (milestone session launched by the operator's `cycle-run` with `limit` 1, per the trial schedule). Starting state, observed before any edit, at `f0f7b6a`:
+
+    ./tools/verify > <scratch>/verify-start.log 2>&1; echo "exit=$?"
+    verify: test-db ... ok (0s) postgresql://docket@localhost:5432/docket_test_7da4fd23
+    verify: unit+web+services ... ok (61s)
+    verify: integration ... ok (91s)
+    verify: judge-fixtures ... ok (4s)
+    verify: workflows ... ok (0s)
+    verify: all 4 checks passed in 156s.
+    exit=0
+
+The repository has no active git hooks (`git config core.hooksPath` printed nothing; `.git/hooks` holds only `.sample` files), so the retro and doc-garden prompts carry no commit rule beyond what their skills say.
+
+M2 session, after replacing lines 311 to 313 of `cycle-run.js` (the M2 placeholder) with the closing block:
+
+    tools/check-workflows; echo "exit=$?"
+    workflows: .claude/workflows/cycle-run.js ... ok
+    workflows: 1 of 1 ok
+    exit=0
+    wc -l .claude/workflows/cycle-run.js
+    605
+
+M2 session, stub dry run of the closing path (Decision Log; the stub is `dryrun.mjs` in the session scratchpad, not committed). The stub's preflight passes and its snapshot returns no open entries, so each scenario runs straight into `Closing`; two of the three canned reviewers return the same minor finding, and the canned record agent reports one minor after deduplication. The `LOG` lines are the script's `log()` calls, `RESULT` the returned value:
+
+    === scenario complete ===
+    PHASE Closing
+    LOG cycle-run: review range bbbbbbb2..aaaaaaa1,  3 files changed, 10 insertions(+) (2 commits)
+    LOG cycle-run: review panel reported 0 severe, 0 important, 2 minor before deduplication
+    LOG cycle-run: review record committed as ccccccc: 0 severe, 0 important, 1 minor
+    LOG cycle-run: retro done, plan now at plans/completed/x.md: retro report line 1
+    LOG cycle-run: doc-garden done: garden report
+    LOG cycle-run: final verify ok at ddddddd, verify: all 4 checks passed in 150s. (150s)
+    LOG cycle-run: complete; plans/active/x.md closed to https://github.com/thinkdarrell/docket-pub/pull/999
+    RESULT {"status":"complete","plan":"plans/active/x.md","plan_path_now":"plans/completed/x.md","milestones":[],"review":{"severe":0,"important":0,"minor":1},"pr_url":"https://github.com/thinkdarrell/docket-pub/pull/999","started_at":"2026-10-11T00:00:00Z","finished_at":"2026-10-11T01:01:00Z"}
+    === scenario severe === (record returns severe 1)
+    LOG cycle-run: halt plans/active/x.md
+    LOG cycle-run: milestone none
+    LOG cycle-run: review found 1 severe finding(s); see the review record in plans/active/x.md
+    LOG cycle-run: fix the cause in the worktree, commit, and re-run /cycle-run with the same arguments
+    RESULT {"status":"halt",...,"rule":"review found 1 severe finding(s); see the review record in plans/active/x.md","where":"review record, closing stage 3 review record","milestones":[]}
+    === scenario reviewnull === (the scope reviewer returns null)
+    LOG cycle-run: agent review: scope returned no result
+    RESULT {"status":"halt",...,"where":"review: scope, closing stage 2 review panel",...}
+    === scenario fetchfail === (fetch_exit 128)
+    LOG cycle-run: git fetch origin exited 128; the review range cannot be measured against a current origin/main
+    RESULT {"status":"halt",...,"where":"diffstat, closing stage 1 diffstat",...}
+
+The rendered `review record`, `publish`, and `review: scope` prompts were printed from the stub and read back; the substituted values (range, commit list, slug, branch, plan path after the move) appeared where intended.
 
 ## Interfaces and Dependencies
 
