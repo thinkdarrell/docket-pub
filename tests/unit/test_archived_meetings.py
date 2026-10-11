@@ -285,3 +285,20 @@ def test_fetch_refetches_a_corrupt_cache_file(monkeypatch, tmp_path):
 
     assert am.fetch_agenda_text(url, cache_dir=tmp_path) == "%PDF-1.4 good"
     assert calls == [url]
+
+
+def test_skips_a_date_with_a_hidden_event_placeholder(muni):
+    """ingest._try_upgrade_event_row renames event-* rows whether or not they
+    are hidden, so a hidden placeholder must block the date too."""
+    with db() as conn, conn.cursor() as cur:
+        cur.execute("""INSERT INTO meetings (municipality_id, external_id, title, meeting_type, meeting_date,
+                                             source_url, is_hidden)
+                       VALUES (%s, 'event-999', 'Regular City Council Meeting', 'council', DATE '2023-08-22', 'x', TRUE)""",
+                    (muni,))
+        conn.commit()
+
+    result = backfill_archived_meetings(muni, [ENTRY], fetch_agenda_text=lambda u: AGENDA_TEXT)
+
+    assert _meeting(muni, "yt-mYSy3PV-BrA") is None
+    assert _meeting(muni, "event-999") is not None
+    assert result.inserted == [] and len(result.skipped) == 1

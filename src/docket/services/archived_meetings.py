@@ -186,10 +186,14 @@ def backfill_archived_meetings(
     for entry in entries:
         ext = entry.external_id
         with db() as conn, conn.cursor() as cur:
+            # Any other visible meeting on the date, or an event-* placeholder
+            # hidden or not: ingest._try_upgrade_event_row would rename a
+            # placeholder in place regardless of is_hidden.
             cur.execute(
                 """SELECT external_id FROM meetings
-                   WHERE municipality_id = %s AND meeting_date = %s AND is_hidden = FALSE
-                     AND external_id <> %s""",
+                   WHERE municipality_id = %s AND meeting_date = %s
+                     AND external_id <> %s
+                     AND (is_hidden = FALSE OR external_id LIKE 'event-%%')""",
                 (municipality_id, entry.meeting_date, ext),
             )
             others = [r[0] for r in cur.fetchall()]
