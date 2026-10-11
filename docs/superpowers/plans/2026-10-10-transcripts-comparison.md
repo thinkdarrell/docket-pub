@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-05-meeting-transcripts-design.md` (Sections 3 and 4 are this plan's core; Section 5 admin queue, speaker correction, public block, operational surfaces; Section 6 live tests and ship gate)
 
-**Plan 1 (done, PR #99, live):** `docs/superpowers/plans/2026-10-07-transcripts-foundation.md`. Migration 035, the `transcriber` role, the producer, the transcript page, item excerpt, search, data debt, scale check. This plan adds no migration: every table it writes already exists.
+**Plan 1 (done, PR #99, live):** `docs/superpowers/plans/2026-10-07-transcripts-foundation.md`. Migration 035, the `transcriber` role, the producer, the transcript page, item excerpt, search, data debt, scale check. This plan adds one migration, 036 (final-review fix wave): it drops the `minutes_discrepancies_has_event` CHECK and adds `minutes_texts.last_checked_at`; every table it writes already exists.
 
 **Facts from the first real run (2026-10-10) this plan accounts for:**
 
@@ -7449,7 +7449,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ## Operator steps after the code tasks
 
 1. Merge PRs #103 and #104 (docs) before this branch so the runbook edits in Task 19 apply cleanly.
-2. Deploy: `scripts/deploy.sh --service docket-web` then `--service worker`. No migration this time.
+2. Deploy: `scripts/deploy.sh --service docket-web` then `--service worker`. Migrations run at container start; 036 applies.
 3. Set worker variables: `AI_TRANSCRIPT_*` only if overriding defaults, `ALERT_WEBHOOK_URL`, `HEALTHCHECK_TRANSCRIPT_PIPELINE_UUID` (create the check in Healthchecks.io first, daily, grace 2h). Leave `MINUTES_VS_VIDEO_UI` unset on the web service.
 4. First tick by hand: `railway ssh --service worker` then `python -m docket.worker.scheduler --run-once transcript_pipeline`. Expect five transcripts to move one stage each; check `/admin/ai` for the `transcript_speakers` runs and cost, and a transcript page for resolved names. Run the tick two more mornings (or let cron) until the newest meetings reach `compared`.
 5. Review in `/admin/review/discrepancies`. Spot-check the first ten approvals against the video. If the citation-missing rate on `/admin/ai` is above 10 percent after ten meetings, tune the guard normalizer and the quote rule before approving more.

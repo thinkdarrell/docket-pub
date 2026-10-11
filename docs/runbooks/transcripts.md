@@ -74,6 +74,8 @@ One meeting: `venv/bin/python scripts/transcript_recompare.py --meeting-id N --n
 `TRANSCRIPT_CANDIDATE_CAP`, `TRANSCRIPT_PER_TICK`, `TRANSCRIPT_MIN_WORDS`,
 `ALERT_WEBHOOK_URL` (Slack or Discord incoming webhook; unset = silent),
 `HEALTHCHECK_TRANSCRIPT_PIPELINE_UUID`. Web service: `MINUTES_VS_VIDEO_UI` (see ship gate).
+`AI_DAILY_BUDGET_USD` is shared with `ai_items` and `ai_meetings`; when it is exhausted the
+tick advances no transcripts, but the weekly minutes sweep and the stalled-producer alert still run.
 
 ## Review queue
 
@@ -220,3 +222,5 @@ single pytest invocation fails collection:
   caught as `low_speech`.
 - 2026-10-11: 19 Monday test-stream meetings hidden.
 - 2026-10: plan 2 (worker stages, review queue, public block behind flag).
+- 2026-10: migration 036: dropped the has_event CHECK; added minutes_texts.last_checked_at.
+  Deploy: migrations run at container start; 036 applies.

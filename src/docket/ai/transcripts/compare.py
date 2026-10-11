@@ -273,6 +273,8 @@ def build_rows(meeting_id: int, candidates: list[Candidate], verdicts, hunted, *
                 if t_ev is None and m_events:
                     m_ev = shared(m_events) or m_events[0]
         if t_ev is None and m_ev is None:
+            # App-level anchor guard: migration 036 dropped the DB CHECK (re-extraction legitimately NULLs one side's
+            # FK on stale rows), so no new row may be inserted without at least one event anchor.
             log.warning("hunter row dropped: no events at all to anchor it (%s)", h.title)
             continue
         row = base(h.category, h.severity, h.title, h.description, t_ev, m_ev, refs, "model_initiated")
@@ -282,7 +284,12 @@ def build_rows(meeting_id: int, candidates: list[Candidate], verdicts, hunted, *
                    minutes_excerpt=m_exc, minutes_page=page if page is not None else row["minutes_page"], citation_match=match,
                    confidence=round(h.confidence * (0.5 if match == "missing" else 1.0), 3))
         rows.append(row)
-    return rows
+    # Every new row must carry an anchor (see the guard above). Aligner candidates should always have one; a row
+    # that somehow has neither is dropped here rather than written, since the DB no longer enforces it (036).
+    anchored = [r for r in rows if r["transcript_event_id"] is not None or r["minutes_event_id"] is not None]
+    if len(anchored) != len(rows):
+        log.warning("compare: meeting %s dropped %d row(s) with no event anchor", meeting_id, len(rows) - len(anchored))
+    return anchored
 
 
 _COLS = ("meeting_id", "agenda_item_id", "category", "severity", "title", "description", "transcript_event_id", "minutes_event_id",

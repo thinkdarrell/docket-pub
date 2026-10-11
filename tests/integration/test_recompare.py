@@ -146,3 +146,87 @@ def test_run_for_meeting_drives_stages_in_order(pilot, monkeypatch):
     assert calls == ["speakers", "events", "compare"] and outcomes == ["advanced", "advanced", "advanced"]
     with db_cursor() as cur:
         cur.execute("DELETE FROM ai_runs WHERE notes='pytest_run_for_meeting'")
+
+
+def test_minutes_changed_rerun_survives_one_sided_rows(pilot, monkeypatch):
+    """C1: re-extracting the minutes side deletes the old minutes events; one-sided rows must survive the SET NULL."""
+    import json
+
+    from docket.ai.transcripts import events as E
+    from docket.ai.transcripts.schemas import ExtractedEvent
+
+    info = _seed_events(pilot)
+    item = info["item"]
+    with db_cursor() as cur:
+        cur.execute("SELECT text FROM minutes_texts WHERE meeting_id=%s", [pilot.meeting_id])
+        mtext = cur.fetchone()["text"]
+        cur.execute("SELECT id, start_s FROM transcript_segments WHERE transcript_id=%s AND text=%s", [pilot.transcript_id, info["exec_text"]])
+        seg = cur.fetchone()
+        adj_quote = "the Council adjourned at 11:30"
+        # Transcript-only recess (-> omission candidate) and minutes-only adjourn (-> addition candidate).
+        cur.execute("""INSERT INTO meeting_events (meeting_id, source, seq, event_type, scope, agenda_item_refs, summary, detail,
+                                                   start_s, segment_id, prompt_version)
+                       VALUES (%s, 'transcript', 3, 'recess', 'meeting', '{}', 'recess', %s::jsonb, %s, %s, 200)""",
+                    [pilot.meeting_id, json.dumps({"quote": info["exec_text"]}), seg["start_s"] + 30, seg["id"]])
+        cur.execute("""INSERT INTO meeting_events (meeting_id, source, seq, event_type, scope, agenda_item_refs, summary, detail,
+                                                   page, char_offset, prompt_version)
+                       VALUES (%s, 'minutes', 3, 'adjourn', 'meeting', '{}', 'adjourn', %s::jsonb, 1, %s, 200)""",
+                    [pilot.meeting_id, json.dumps({"quote": adj_quote}), mtext.index(adj_quote)])
+
+    def verdicts(user):
+        out = []
+        for cid in _ids_in_prompt(user):
+            head = user.split(f"### Candidate {cid}")[1].split("\n")[0]
+            cat = next(c for c in ("sequence", "wording", "omission", "addition") if c in head)
+            out.append({"candidate_id": cid, "is_real": True, "category": cat, "severity": "material", "title": f"{cat} title",
+                        "description": "desc",
+                        "transcript_quote": info["exec_text"] if cat != "addition" else None,
+                        "minutes_quote": (adj_quote if cat == "addition" else "go into Executive Session") if cat != "omission" else None,
+                        "confidence": 0.9, "dismiss_reason": None})
+        return out
+
+    C.run_compare_stage(_claim(pilot), client=_client(verdicts))
+    first = {r["id"]: r for r in _states(pilot.meeting_id)}
+    cats = sorted(r["category"] for r in first.values())
+    assert {"omission", "addition", "sequence", "wording"} <= set(cats)
+    with db_cursor() as cur:
+        cur.execute("UPDATE minutes_discrepancies SET review_state='approved', reviewed_at=now(), reviewed_by='t' WHERE meeting_id=%s",
+                    [pilot.meeting_id])
+        cur.execute("SELECT id, category, transcript_event_id, minutes_event_id FROM minutes_discrepancies WHERE meeting_id=%s",
+                    [pilot.meeting_id])
+        before = {r["id"]: dict(r) for r in cur.fetchall()}
+    omission = next(r for r in before.values() if r["category"] == "omission")
+    addition = next(r for r in before.values() if r["category"] == "addition")
+    assert omission["minutes_event_id"] is None and addition["transcript_event_id"] is None
+
+    # minutes_changed: the minutes side is re-extracted through the real write_events (delete + re-insert).
+    def re_extract(mid, *, client):
+        minutes = M.load_minutes(mid)
+        evs = [ExtractedEvent(event_type="motion", scope="item", agenda_item_refs=[item], actor_text=None, actor_member_id=None,
+                              summary="motion", detail={"action": "approve"}, segment_seq=None, page=1, quote=None),
+               ExtractedEvent(event_type="vote", scope="item", agenda_item_refs=[item], actor_text=None, actor_member_id=None,
+                              summary="vote", detail={"result": "passed"}, segment_seq=None, page=1, quote="said ordinance adopted"),
+               ExtractedEvent(event_type="executive_session_motion", scope="item", agenda_item_refs=[item], actor_text=None,
+                              actor_member_id=None, summary="exec",
+                              detail={"stated_reason": "pending litigation, controversies not yet litigated"}, segment_seq=None,
+                              page=1, quote="go into Executive Session at the recommendation of the City Attorney"),
+               ExtractedEvent(event_type="adjourn", scope="meeting", agenda_item_refs=[], actor_text=None, actor_member_id=None,
+                              summary="adjourn", detail={}, segment_seq=None, page=1, quote=adj_quote)]
+        E.write_events(mid, "minutes", evs, minutes=minutes, roster=[], valid_item_ids={item})
+        return "ok"
+    monkeypatch.setattr(C, "extract_minutes_side", re_extract)
+
+    out = C.run_compare_stage(_claim(pilot, reason="minutes_changed"), client=_client(verdicts))   # must not raise
+    assert out.next_status == "compared"
+    with db_cursor() as cur:
+        cur.execute("""SELECT id, category, review_state, previous_review_state, transcript_event_id, minutes_event_id
+                         FROM minutes_discrepancies WHERE id = ANY(%s)""", [list(before)])
+        after = {r["id"]: dict(r) for r in cur.fetchall()}
+        cur.execute("SELECT id FROM meeting_events WHERE meeting_id=%s AND source='minutes'", [pilot.meeting_id])
+        new_minutes_ids = {r["id"] for r in cur.fetchall()}
+    assert set(after) == set(before)                                    # nothing deleted
+    for r in after.values():
+        assert r["review_state"] == "stale" or (r["review_state"] == "proposed" and r["previous_review_state"] == "approved")
+    add_after = after[addition["id"]]
+    assert add_after["minutes_event_id"] is None or add_after["minutes_event_id"] in new_minutes_ids
+    assert after[omission["id"]]["transcript_event_id"] == omission["transcript_event_id"]
