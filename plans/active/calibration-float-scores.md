@@ -42,6 +42,13 @@ Nothing has been executed yet. The entries below were observed while authoring t
 - Observation (M1 session, 2026-10-11 23:48Z): the first wording of the two docstring sentences contained the literal token `::numeric::int`, which made `grep -c "::numeric::int"` print `19` per file and `grep -c "::int"` print `19` and `20`, against an acceptance of `18`. The plan's docstring instruction and its grep acceptance conflict when the sentence quotes the cast verbatim; see the Decision Log.
   Evidence: after the first docstring edit, `grep -c "::numeric::int" src/docket/ai/calibration.py src/docket/services/calibration.py` printed `19` and `19`; after rewording, `18` and `18`.
 
+- Observation (M2 session, 2026-10-11 23:54Z): the repository agreed with the Progress record at the start of M2. The tree was clean (`git status --porcelain` printed nothing), `grep -c "::numeric::int"` printed `18` for each calibration file, `grep -n "ai\.updated_at" src/docket/ai/calibration.py` printed nothing, `docs/specs/` held only `index.md` and `operations.md`, and runbook item #56 was still on line 178 of `docs/runbooks/v3-cutover.md` in its unfixed form. `gh pr list --repo thinkdarrell/docket-pub --head plan/calibration-float-scores --json number` printed `[]` (exit 0), so the runbook sentence uses the branch-and-issue reference the Decision Log prescribes.
+  Evidence: the commands above, run from the worktree root at 23:54Z; `git log --oneline -1` printed `7cba3ca plan: calibration-float-scores M1, correct the final-verify heading timestamp to the observed 23:50Z`.
+- Observation (M2 session, 2026-10-11 23:56Z): the M2 starting-state `./tools/verify` passed. It was started at 23:54Z on the clean M1 tree and ran in the background; the three documentation files were edited while it ran, but no test or check reads `docs/specs/` or `docs/runbooks/`, so the result stands for the starting state.
+  Evidence: `verify: test-db ... ok (1s)`, `verify: unit+web+services ... ok (57s)` (`1858 passed, 5 skipped, 4 xfailed`), `verify: integration ... ok (81s)` (`616 passed`), `verify: judge-fixtures ... ok (3s)` (`12 of 12 passed`), `verify: workflows ... ok (0s)`, `verify: all 4 checks passed in 142s.`, `exit=0`.
+- Observation (M2 session, 2026-10-11 23:55Z): the three M2 files edited and every non-verify acceptance check observed green on the first try.
+  Evidence: `wc -l docs/specs/calibration.md` printed `29`; `head -1` printed `# Calibration`; `grep -c 'numeric::int' docs/specs/calibration.md` printed `1`; `grep -c 'ai_generated_at' docs/specs/calibration.md` printed `2`; `grep -n 'calibration.md' docs/specs/index.md` printed one row at line 24, directly after the `operations.md` row; `grep -c '^- \*\*#56 (FIXED)\*\* —' docs/runbooks/v3-cutover.md` printed `1`; `sed -n 178p docs/runbooks/v3-cutover.md | grep -c 'numeric::int'` printed `1`; `git diff --stat` listed only `docs/runbooks/v3-cutover.md` (2 +-) and `docs/specs/index.md` (1 +) plus the new untracked spec file.
+
 ## Decision Log
 
 - Decision: fix the readers, not the writer. Every `(ai.score_overrides->>'<key>')::int` in `src/docket/ai/calibration.py` and `src/docket/services/calibration.py` becomes `(ai.score_overrides->>'<key>')::numeric::int`; `src/docket/ai/rewrite_schema.py` keeps `float | None` for both scores and `src/docket/ai/pipeline.py` keeps writing `json.dumps` of the floats.
@@ -78,6 +85,10 @@ Nothing has been executed yet. The entries below were observed while authoring t
 - Decision: the M1 session's starting-state `./tools/verify` is recorded as observed (integration tier failed on exactly the five new tests) rather than re-run on a clean tree.
   Rationale: the run started on the clean tree but its integration tier collected the test file after the five tests were added, so its one failing check is the red run the milestone asks for, with every pre-existing test green; re-running would cost about 165 seconds to re-observe what the operator session already observed at 164 seconds on the same tree. The verify that proves M1 is the final one below.
   Date/Author: 2026-10-11 23:48Z, M1 session (Claude).
+
+- Decision: `docs/specs/calibration.md` also states what each of the five counters in the worker's log line means, including the `drift_alerts` rule (`sig_delta_wow < -1.0` and `abs(volume_delta_wow) < n * 0.3`), which the Plan of Work did not list.
+  Rationale: the Plan of Work asks the spec to describe "the daily `calibration_report` task's one log line with its five counters"; a reader who sees `drift_alerts=2` in Railway logs needs to know what counted, and the rule lives only in a docstring in `src/docket/ai/calibration.py` today. Adding it keeps the file within the "about twenty-five lines" guidance (29 lines) and adds no new behaviour.
+  Date/Author: 2026-10-11 23:55Z, M2 session (Claude).
 
 ## Outcomes & Retrospective
 
@@ -318,6 +329,33 @@ M1 session, 2026-10-11 23:50Z (heading first written as 23:53Z in commit d1a490a
     verify: workflows ... ok (0s)
     verify: all 4 checks passed in 124s.
     exit=0
+
+M2 session, 2026-10-11 23:56Z, starting-state verify (started 23:54Z on the clean M1 tree 7cba3ca):
+
+    $ ./tools/verify; echo "exit=$?"
+    verify: test-db ... ok (1s) postgresql://docket@localhost:5432/docket_test_2cf3596f
+    verify: unit+web+services ... ok (57s)     (1858 passed, 5 skipped, 4 xfailed)
+    verify: integration ... ok (81s)           (616 passed)
+    verify: judge-fixtures ... ok (3s)         (judge fixtures: 12 of 12 passed)
+    verify: workflows ... ok (0s)
+    verify: all 4 checks passed in 142s.
+    exit=0
+
+M2 session, 2026-10-11 23:55Z, documentation edits and their checks:
+
+    $ gh pr list --repo thinkdarrell/docket-pub --head plan/calibration-float-scores --json number
+    []
+    $ wc -l docs/specs/calibration.md; head -1 docs/specs/calibration.md
+    29 docs/specs/calibration.md
+    # Calibration
+    $ grep -c 'numeric::int' docs/specs/calibration.md; grep -c 'ai_generated_at' docs/specs/calibration.md
+    1
+    2
+    $ grep -n 'calibration.md' docs/specs/index.md
+    24:| `calibration.md` | The daily calibration report and the `/admin/calibration` dashboard: what they compare, their windows and thresholds, how scores are read |
+    $ grep -c '^- \*\*#56 (FIXED)\*\* —' docs/runbooks/v3-cutover.md; sed -n 178p docs/runbooks/v3-cutover.md | grep -c 'numeric::int'
+    1
+    1
 
 ## Interfaces and Dependencies
 
