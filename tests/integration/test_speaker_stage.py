@@ -68,6 +68,7 @@ def test_stage_writes_every_cluster_and_merges_two_clusters_to_one_member(inst):
     # One verified signal each -> capped at 0.75 (medium), still displayed (floor 0.6).
     assert rows[labels[0]]["confidence"] == pytest.approx(0.75) and rows[labels[0]]["method"] == "roll_call"
     assert rows[labels[2]]["method"] == "llm_inference" and rows[labels[2]]["needs_review"] is True
+    assert all(rows[l]["confidence"] <= 0.55 for l in labels[2:])        # "x" never verifies (I3: 8-char minimum)
     # Every non-silence segment is linked to its cluster's speaker row.
     with db_cursor() as cur:
         cur.execute("""SELECT count(*) AS n FROM transcript_segments WHERE transcript_id=%s AND is_silence=FALSE AND speaker_id IS NULL""",
@@ -93,6 +94,7 @@ def test_unverified_quote_downgrades_and_two_verified_quotes_reach_high(inst):
         rows = {r["cluster_label"]: r for r in cur.fetchall()}
     assert rows[labels[0]]["confidence"] == pytest.approx(0.95)
     assert rows[labels[1]]["confidence"] == pytest.approx(0.55) and rows[labels[1]]["method"] == "llm_inference"
+    assert all(rows[l]["confidence"] <= 0.55 for l in labels[2:])
 
 
 def test_manual_rows_are_never_overwritten(inst):
@@ -103,7 +105,8 @@ def test_manual_rows_are_never_overwritten(inst):
                               confidence=1.0, method='manual' WHERE meeting_id=%s AND cluster_label=%s""",
                     [inst.meeting_id, labels[0]])
     assignments = [{"cluster_label": l, "council_member_id": None, "display_name": "Wrong Name", "role": "public",
-                    "confidence": 0.9, "method": "self_identification", "evidence_quote": "x", "evidence_quote_2": None}
+                    "confidence": 0.9, "method": "self_identification", "evidence_quote": texts[l].split(".")[0][:80],
+                    "evidence_quote_2": None}
                    for l in labels]
     SP.run_speaker_stage(_claim(inst), client=_client(assignments))
     with db_cursor() as cur:
@@ -114,13 +117,50 @@ def test_manual_rows_are_never_overwritten(inst):
 
 
 def test_member_id_outside_roster_is_dropped(inst):
-    labels = list(_cluster_texts(inst))
+    texts = _cluster_texts(inst)
+    labels = list(texts)
+    sentences = {l: [x.strip() for x in texts[l].split(".") if len(x.strip()) >= 8] for l in labels}
     assignments = [{"cluster_label": l, "council_member_id": 999_999, "display_name": None, "role": "council",
-                    "confidence": 0.9, "method": "roll_call", "evidence_quote": "x", "evidence_quote_2": None} for l in labels]
+                    "confidence": 0.95, "method": "addressed_by_chair", "evidence_quote": sentences[l][0][:80],
+                    "evidence_quote_2": sentences[l][1][:80] if len(sentences[l]) > 1 else None} for l in labels]
     SP.run_speaker_stage(_claim(inst), client=_client(assignments))
     with db_cursor() as cur:
         cur.execute("SELECT count(*) AS n FROM transcript_speakers WHERE meeting_id=%s AND council_member_id IS NOT NULL", [inst.meeting_id])
         assert cur.fetchone()["n"] == 0
+        cur.execute("SELECT confidence, method FROM transcript_speakers WHERE meeting_id=%s", [inst.meeting_id])
+        rows = cur.fetchall()
+    # I3: a dropped off-roster id keeps no confidence from its (verified) quotes.
+    assert rows and all(r["confidence"] <= 0.55 and r["method"] == "llm_inference" for r in rows)
+
+
+def test_short_quote_does_not_verify_unless_roll_call(inst):
+    texts = _cluster_texts(inst)
+    labels = list(texts)
+    member_id = next(iter(inst.member_ids.values()))
+    word = next(w for w in texts[labels[0]].split() if len(w.strip(".,?!")) >= 3).strip(".,?!")   # a short substring of real text
+    assignments = [{"cluster_label": labels[0], "council_member_id": member_id, "display_name": None, "role": "council",
+                    "confidence": 0.9, "method": "addressed_by_chair", "evidence_quote": word[:5], "evidence_quote_2": None}]
+    assignments += [{"cluster_label": l, "council_member_id": None, "display_name": None, "role": "unknown", "confidence": 0.2,
+                     "method": "sample_inference", "evidence_quote": "", "evidence_quote_2": None} for l in labels[1:]]
+    SP.run_speaker_stage(_claim(inst), client=_client(assignments))
+    with db_cursor() as cur:
+        cur.execute("SELECT confidence, method FROM transcript_speakers WHERE meeting_id=%s AND cluster_label=%s",
+                    [inst.meeting_id, labels[0]])
+        row = cur.fetchone()
+    assert row["confidence"] == pytest.approx(0.55) and row["method"] == "llm_inference"
+
+
+def test_roll_call_short_response_still_verifies():
+    a = SP.SpeakerAssignment(cluster_label="S9", council_member_id=1, display_name=None, role="council", confidence=0.9,
+                             method="roll_call", evidence_quote="Here.", evidence_quote_2=None)
+    conf, method, verified = SP.apply_confidence_rules(a, {"S9": "Here. Present and ready."}, {1})
+    assert verified and method == "roll_call" and conf == pytest.approx(0.75)
+    short = a.model_copy(update={"method": "addressed_by_chair"})
+    conf, method, verified = SP.apply_confidence_rules(short, {"S9": "Here. Present and ready."}, {1})
+    assert not verified and method == "llm_inference" and conf == pytest.approx(0.55)
+    off = a.model_copy(update={"council_member_id": 2, "evidence_quote": "Present and ready", "method": "addressed_by_chair"})
+    conf, method, _ = SP.apply_confidence_rules(off, {"S9": "Here. Present and ready."}, {1})
+    assert conf == pytest.approx(0.55) and method == "llm_inference"
 
 
 def test_token_ceiling_holds_before_calling(inst):

@@ -263,19 +263,35 @@ def _meeting(meeting_id: int) -> dict:
         return dict(cur.fetchone())
 
 
+MIN_QUOTE_CHARS = 8   # a shorter normalized quote verifies only for a roll-call response ("here.")
+
+
+def _quote_verified(quote: str | None, text: str, *, roll_call: bool) -> bool:
+    q = normalize(quote or "").strip()
+    if not q or (len(q) < MIN_QUOTE_CHARS and not roll_call):
+        return False
+    return q in text
+
+
 def apply_confidence_rules(a: SpeakerAssignment, cluster_texts: dict[str, str],
                            roster_ids: set[int]) -> tuple[float, str, bool]:
     """Spec: two independent signals -> high; one -> medium cap; content-only -> below display floor.
 
-    The model's quotes are verified against the cluster's own text. An
-    unverified primary quote drops the assignment to sample_inference.
+    The model's quotes are verified against the cluster's own text and must be
+    at least MIN_QUOTE_CHARS normalized characters unless the method is
+    roll_call. An unverified primary quote drops the assignment to
+    sample_inference. A council_member_id outside the seated roster is dropped
+    by write_assignments, so its quotes earn nothing: capped as sample_inference.
     """
     text = normalize(cluster_texts.get(a.cluster_label, ""))
-    q1 = bool(a.evidence_quote.strip()) and normalize(a.evidence_quote) in text
-    q2 = bool(a.evidence_quote_2 and a.evidence_quote_2.strip()) and normalize(a.evidence_quote_2 or "") in text \
+    roll_call = a.method == "roll_call"
+    q1 = _quote_verified(a.evidence_quote, text, roll_call=roll_call)
+    q2 = _quote_verified(a.evidence_quote_2, text, roll_call=roll_call) \
         and normalize(a.evidence_quote_2 or "") != normalize(a.evidence_quote)
     method = a.method
     if method != "sample_inference" and not q1:
+        method = "sample_inference"
+    if a.council_member_id is not None and a.council_member_id not in roster_ids:
         method = "sample_inference"
     if method == "sample_inference":
         cap = CONFIDENCE_CAPS["sample_inference"]
