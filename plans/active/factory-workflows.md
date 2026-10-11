@@ -106,6 +106,30 @@ Today the operator of this repository drives every plan by hand: start a fresh s
 - Decision: before `./tools/verify`, the closing path's control flow was exercised with a stub runtime in the session's scratchpad (a Node script defining `agent`, `parallel`, `log`, `phase`, and `args` with canned returns keyed by label, wrapping the body as `tools/check-workflows` does) across four scenarios: complete, severe finding, a null reviewer, a failed fetch. The stub is not committed.
   Rationale: `node --check` proves the file parses, not that a variable is spelled the same twice or that a halt returns before the next stage; the real runtime is not available to a milestone session (Surprises & Discoveries). The stub cannot show that the Workflow runtime accepts the schemas or prompts, so the live half of M2's acceptance stays with the closing run after M4.
   Date/Author: 2026-10-11, M2 session.
+- Decision: `cycle-plan`'s common lines come from `confine(kind, dir)`, which reads `Work only in the git checkout at <dir>` for the directory the operator launched from (the guard, scope, and check agents) and `Work only in the git worktree at <dir>` for the one the run creates (the plan-author agent); the guard's prompt uses the "print it with `pwd -P` first" variant as `cycle-run`'s preflight does, and the setup prompt names both the main checkout and the worktree it creates beneath it.
+  Rationale: Plan of Work M3 says every prompt carries "the two common lines", whose M1 wording says "worktree"; `/cycle-plan` runs from any checkout, including the main one, so the noun follows what the directory is and the rule (one directory, every command prefixed) is unchanged. The setup agent must run `git worktree add` from the main checkout and then build the venv inside the new worktree, so its confinement names both.
+  Date/Author: 2026-10-11, M3 session.
+- Decision: the script validates the scope agent's `slug` against `^[a-z0-9-]{1,40}$` and refuses (`status: 'refused'`, with the brief in the result) when it does not match, rather than sanitising it or proceeding.
+  Rationale: Plan of Work puts the slug rule in the scope brief but says nothing about a slug that breaks it; a sanitised slug would be a name the operator never saw, chosen by the script, and proceeding would put an unquoted name into the setup and check stages' shell commands. The branch-exists check stays with the scope agent, which can run `git branch -a --list` and choose again; the script cannot.
+  Date/Author: 2026-10-11, M3 session.
+- Decision: a `null` from any of the five agents ends the run with `{ status: 'refused', reason: 'agent <label> returned no result', where }`, and a failed check stage ends with `status: 'refused'` (reason `check failed: <detail>`); from the setup stage onward a refused result also carries `branch`, `worktree`, `plan_path` when known, and a `cleanup` string (`from <main>: git worktree remove --force .claude/worktrees/<slug>; git branch -D plan/<slug>`).
+  Rationale: Interfaces and Dependencies fixes `cycle-plan`'s statuses as `refused`, `questions`, `planned`; Plan of Work names `refused` for the guard and setup stages and gives no status for a null agent or a failed check, so `refused` is the only one of the three that fits. The `cleanup` string is what Idempotence and Recovery tells the operator to run, carried from the stage that created the worktree so they need not compose it. A failed check leaves the worktree and the committed plan in place and logs that the plan is to be fixed there, because Plan of Work says what setup created is left for the operator.
+  Date/Author: 2026-10-11, M3 session.
+- Decision: when `args` is an array, its first element is the goal and its second the answers; a string is the goal; an object gives `goal` and `answers`. Answers, when present, are appended to the goal under the line "The operator's answers to the questions a previous run of /cycle-plan asked:", and the combined text is what the scope and plan-author agents read.
+  Rationale: mirrors the M1 decision on `cycle-run`'s argument forms, since a slash-command invocation may arrive in any of the three shapes. Plan of Work says the operator "appends" the answers to the goal; the script does the appending whether they come inline or as a separate field, so the plan-author sees them beside the brief either way.
+  Date/Author: 2026-10-11, M3 session.
+- Decision: the plan-author agent runs with `stallMs: 1800000`, as `cycle-run`'s milestone, retro, and doc-garden agents do; the guard, scope, setup, and check agents keep the default.
+  Rationale: the M1 and M2 rationale applies: `skills/plan-author/SKILL.md` has the agent read nine documents and every file the brief names before writing, a long silence without a tool call, and a restart from the same prompt after its commit would attempt a second `plan: <slug>, authored` commit. The scope agent also reads for long stretches but commits nothing, so a restart there costs only time.
+  Date/Author: 2026-10-11, M3 session.
+- Decision: the guard runs a seventh check, `tools`: `test -x tools/judge-milestone && test -x tools/verify` in the launching checkout.
+  Rationale: the check stage runs `tools/judge-milestone snapshot` from the launching checkout, and the plan the run writes is executed with both tools; a checkout without them (an old branch, or another repository with the same remote name) would fail at stage 5 after the branch, worktree, and venv exist. The check costs one command and fails before anything is created.
+  Date/Author: 2026-10-11, M3 session.
+- Decision: the plan-author prompt states the rules `tools/judge-milestone snapshot` enforces on the file (a `## Progress` section whose lines begin `- [ ] ` with none ticked; `## Surprises & Discoveries`, `## Decision Log`, and `## Outcomes & Retrospective` present with at least one sentence each; Progress lines written to stand unchanged and ticked later by prefixing a date), and that every milestone session starts and ends with `./tools/verify`.
+  Rationale: `tools/judge-milestone` (lines 64 and 99 to 102, read 2026-10-11) prints `MISSING` or `EMPTY` for any of the four required sections with nothing under it and the snapshot exits 2; `skills/plan-author/SKILL.md` and `plans/PLANS.md` require the sections but do not say an empty one fails a mechanical check, so a plan-author that left Outcomes & Retrospective blank until completion, a reasonable reading of `plans/PLANS.md`, would fail the check stage after the worktree and venv exist. Stating the rule costs one paragraph.
+  Date/Author: 2026-10-11, M3 session.
+- Decision: before `./tools/verify`, the script's control flow was exercised with a stub runtime in the session's scratchpad (`dryrun-plan.mjs`: a Node script defining `agent`, `parallel`, `log`, `phase`, and `args` with canned returns keyed by label, wrapping the body as `tools/check-workflows` does) across ten scenarios: empty goal; planned with string, array, and object arguments; questions; guard miss; bad slug; setup failure; check failure; null scope agent; null plan-author. The five rendered prompts were printed and read back. The stub is not committed.
+  Rationale: as in M2, `node --check` proves the file parses, not that a refusal returns before the next stage or that a substituted value lands where intended, and the Workflow runtime is not available to a milestone session. The stub cannot show that the runtime accepts the schemas or prompts, so the live half of M3's acceptance stays with the operator's run (Validation and Acceptance).
+  Date/Author: 2026-10-11, M3 session.
 
 ## Outcomes & Retrospective
 
@@ -297,6 +321,8 @@ M2. Extend `cycle-run.js` with the closing sequence. Run `tools/check-workflows`
 Observed in the M2 session (2026-10-11), starting from `f0f7b6a`: the starting `./tools/verify` printed `verify: all 4 checks passed in 156s.` and `exit=0` (test-db 0s, unit+web+services 61s, integration 91s, judge-fixtures 4s, workflows 0s). After the closing block replaced the three placeholder lines (311 to 313) `tools/check-workflows` printed `workflows: .claude/workflows/cycle-run.js ... ok`, `workflows: 1 of 1 ok`, `exit=0`; the file is 605 lines. The stub dry run (Decision Log) printed the expected log lines and results for all four scenarios; transcript in Artifacts and Notes. The post-change `./tools/verify` printed `verify: all 4 checks passed in 157s.` with `exit=0`; transcript in Artifacts and Notes.
 
 M3. Write `.claude/workflows/cycle-plan.js`. Run `tools/check-workflows` (expected `workflows: 2 of 2 ok`) and `./tools/verify`. In Artifacts and Notes list each stage with its line numbers.
+
+Observed in the M3 session (2026-10-11, launched by `cycle-run` with `limit` 1), starting from `4a731fd`: the starting `./tools/verify` printed `verify: all 4 checks passed in 156s.` and `exit=0` (test-db 0s, unit+web+services 66s, integration 87s, judge-fixtures 3s, workflows 0s). After writing `.claude/workflows/cycle-plan.js` (316 lines) `tools/check-workflows` printed `workflows: .claude/workflows/cycle-plan.js ... ok`, `workflows: .claude/workflows/cycle-run.js ... ok`, `workflows: 2 of 2 ok`, `exit=0`. The stub dry run (Decision Log) printed the expected log lines and results for all ten scenarios; transcript in Artifacts and Notes.
 
 M4. Make the edits. Run `wc -l AGENTS.md` (expected: at most 100). Walk the paths: for every backticked repository-relative path in the five edited files, `ls` it. Run `./tools/verify`. Expected: `all 4 checks passed`.
 
@@ -522,6 +548,69 @@ M2 session, self-check with the judge after commits `a03e5e8` and `4c3ecf6`, usi
     judge exit=0
 
 This is the session's own check; `cycle-run`'s judge agent runs the same command from its own snapshot after this session returns, and the commit carrying this note lands after the check, so that judge sees three commits since `f0f7b6a`.
+
+M3 session, 2026-10-11 (milestone session launched by the operator's `cycle-run` with `limit` 1, per the trial schedule). Starting state, observed before any edit, at `4a731fd`:
+
+    ./tools/verify > <scratch>/verify-baseline.txt 2>&1; echo "exit=$?"
+    verify: test-db ... ok (0s) postgresql://docket@localhost:5432/docket_test_7da4fd23
+    verify: unit+web+services ... ok (66s)
+    verify: integration ... ok (87s)
+    verify: judge-fixtures ... ok (3s)
+    verify: workflows ... ok (0s)
+    verify: all 4 checks passed in 156s.
+    exit=0
+
+M3 session, after writing `.claude/workflows/cycle-plan.js`:
+
+    tools/check-workflows; echo "exit=$?"
+    workflows: .claude/workflows/cycle-plan.js ... ok
+    workflows: .claude/workflows/cycle-run.js ... ok
+    workflows: 2 of 2 ok
+    exit=0
+    wc -l .claude/workflows/cycle-plan.js
+    316
+
+M3 session, stub dry run (Decision Log; `dryrun-plan.mjs` in the session scratchpad, not committed). Canned returns: a passing guard (`checkout /repo/.claude/worktrees/fw`, `main /repo`), a brief with slug `fix-110` and no questions, a setup with `venv_seconds 18`, a two-milestone plan, a passing check; each scenario overrides one agent's return. The `LOG` and `RESULT` lines, trimmed where marked `...`:
+
+    === scenario emptygoal === (args '   ')
+    LOG cycle-plan: refused: no goal given; run /cycle-plan <goal in a sentence or two>
+    RESULT {"status":"refused","reason":"no goal given","where":"arguments"}
+    === scenario planned === (args 'Fix GitHub issue #110'; the array form ['Fix GitHub issue #110', 'answers here'] printed the same lines)
+    PHASE Scope
+    LOG cycle-plan: guard ok, checkout /repo/.claude/worktrees/fw, main /repo, origin/main abcdef0
+    LOG cycle-plan: scope ok, slug fix-110: 1 file(s), 0 debt paid, 1 debt tripped, 0 spec(s) altered, 1 out of scope
+    PHASE Setup
+    LOG cycle-plan: setup ok, worktree /repo/.claude/worktrees/fix-110 on plan/fix-110, venv built in 18s
+    PHASE Author
+    LOG cycle-plan: plan authored at plans/active/fix-110.md, 2 milestone(s); first: M1: failing test
+    LOG cycle-plan: check ok, 2 open milestone(s), clean tree, one commit over origin/main
+    LOG cycle-plan: planned; plans/active/fix-110.md on plan/fix-110 in /repo/.claude/worktrees/fix-110
+    RESULT {"status":"planned","branch":"plan/fix-110","worktree":"/repo/.claude/worktrees/fix-110","plan_path":"plans/active/fix-110.md","milestone_count":2,"first_milestone":"M1: failing test","first_acceptance":"pytest fails before, passes after","left_out":"nothing","venv_seconds":18,"next":"Read the plan. Record any change you want as a dated Decision Log entry naming yourself as author, commit it in the worktree, then start a new Claude Code session in /repo/.claude/worktrees/fix-110 and run /cycle-run plans/active/fix-110.md"}
+    === scenario questions === (scope returns one question)
+    LOG cycle-plan: questions: the scope agent asks 1 question(s) only the operator can answer; rerun /cycle-plan with the answers appended to the goal
+    LOG cycle-plan: question 1: Which page shows the result? (the goal names none; the plan cannot pick one)
+    RESULT {"status":"questions","questions":["Which page shows the result? ..."],"brief":{...}}
+    === scenario guardmiss === (guard ok false)
+    LOG cycle-plan: refused: guard check failed: MISS gh-user: nobody
+    RESULT {"status":"refused","reason":"guard check failed: MISS gh-user: nobody","where":"guard, stage 1"}
+    === scenario badslug === (slug "Fix_Issue 110")
+    LOG cycle-plan: refused: scope agent returned slug "Fix_Issue 110", which is not lowercase letters, digits, and hyphens of at most 40 characters
+    RESULT {"status":"refused",...,"where":"scope, stage 2","brief":{...}}
+    === scenario setupfail === (setup ok false)
+    LOG cycle-plan: refused: setup failed: step 3 failed; exists: branch plan/fix-110, dir .claude/worktrees/fix-110, venv/ partial
+    RESULT {"status":"refused",...,"where":"setup, stage 3","branch":"plan/fix-110","worktree":"/repo/.claude/worktrees/fix-110","cleanup":"from /repo: git worktree remove --force .claude/worktrees/fix-110; git branch -D plan/fix-110"}
+    === scenario checkfail === (check ok false)
+    LOG cycle-plan: the plan is committed in /repo/.claude/worktrees/fix-110 but failed the check; fix it there, commit, and read it before running /cycle-run
+    LOG cycle-plan: refused: check failed: MISS snapshot: exit=2 judge: defect ... is missing the required section `## Decision Log`
+    RESULT {"status":"refused",...,"where":"check, stage 5","branch":"plan/fix-110","worktree":"/repo/.claude/worktrees/fix-110","plan_path":"plans/active/fix-110.md","cleanup":"from /repo: ..."}
+    === scenario nullscope === (scope returns null)
+    LOG cycle-plan: refused: agent scope returned no result
+    RESULT {"status":"refused","reason":"agent scope returned no result","where":"scope, stage 2"}
+    === scenario nullauthor === (plan-author returns null)
+    LOG cycle-plan: refused: agent plan-author returned no result
+    RESULT {"status":"refused",...,"where":"plan-author, stage 4","branch":"plan/fix-110","worktree":"/repo/.claude/worktrees/fix-110","cleanup":"from /repo: ..."}
+
+The rendered `guard`, `scope`, `setup`, `plan-author`, and `check` prompts were printed from the stub with `{goal, answers}` arguments and read back; the checkout, main checkout, worktree, slug, branch, plan path, goal, appended answers, and brief JSON appeared where intended.
 
 ## Interfaces and Dependencies
 
