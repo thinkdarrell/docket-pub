@@ -37,7 +37,7 @@ Installed once by following `skills/harness-init/SKILL.md` from a checkout of fa
 Where the current CLAUDE.md content goes:
 
 - CLAUDE.md becomes one line, `@AGENTS.md`.
-- `AGENTS.md` is the map, capped near 100 lines: one paragraph on what docket.pub is, the ownership map, the verify and test commands, the working rules.
+- `AGENTS.md` is the map, capped near 100 lines: one paragraph on what docket.pub is, the ownership map, the verify and test commands, the working rules. One project-specific working rule is mandatory: before changing anything under `adapters/`, `analysis/`, `services/ingest.py`, or a template that renders data, read `docs/PRINCIPLES.md`. A passive map line is not enough for the constraints that define this project.
 - The layout tree and the architecture section (adapter-per-platform, service layer is canonical, scoring model, dollar tiers) go to `ARCHITECTURE.md`.
 - The Data Honesty Protocol, the editorial no-false-balance rule, and the constraints that outrank convenience go to `docs/PRINCIPLES.md`.
 - Each entry in "Key decisions to preserve" becomes one file under `docs/decisions/` in the shape `docs/decisions/DECISION_FORMAT.md` defines.
@@ -58,13 +58,15 @@ The scope agent reads `AGENTS.md`, `GOALS.md`, `docs/DEBT.md`, the open GitHub i
 
 Before the plan-author agent starts, the scope agent also creates the working branch and worktree described under Isolation. The plan-author agent then follows `skills/plan-author/SKILL.md` with the brief in its prompt. The brief's content folds into the plan's Purpose and Context sections; the brief is not committed as a separate file, because the plan must be self-contained by rule. The agent writes `plans/active/<slug>.md`, commits it alone, and stops.
 
-The workflow's result reports: the branch, the worktree path, the plan path, the milestone count, the first milestone's title and acceptance, and what the plan deliberately left out.
+The workflow's result reports: the branch, the worktree path, the plan path, the milestone count, the first milestone's title and acceptance, and what the plan deliberately left out. It ends with the instruction to start the next Claude Code session in the worktree directory, because `cycle-run` runs only from there.
 
 The operator reads the plan. Changes the operator wants go into the plan's Decision Log as dated entries with the operator named as author, matching how factory-loop records reviewer findings. The operator commits that edit in the worktree before running `cycle-run`.
 
 ### 3. `cycle-run`: plan to pull request
 
 A saved Workflow at `.claude/workflows/cycle-run.js`. Invoked by name with the plan path (and therefore the worktree) as `args`.
+
+Preflight, before any milestone. A low-effort agent runs four checks in the current directory and returns them as structured data: the working directory is a path under `.claude/worktrees/` and is a git worktree; the checked-out branch is the plan's `plan/<slug>` branch; `gh auth status` succeeds; `git remote get-url origin` names the docket-pub repository. Any miss halts the run before the first milestone, so a missing tool is found in seconds rather than after hours of work.
 
 The milestone loop. For each unfinished milestone, in order:
 
@@ -77,7 +79,7 @@ The judge is a committed shell script, not an agent's opinion. It is invoked by 
 
 The closing sequence, after the last milestone lands:
 
-1. A review panel. Three agents run in parallel over the branch diff against main, one per lens: correctness, scope against the plan's acceptance, and data honesty (every new data point links back to a source; OCR and minutes stay distinguished; nothing hidden). Each is told to refute before confirming. Findings are returned as structured data with a severity. A fourth agent writes the surviving findings into the plan's Decision Log as a dated review record. If any finding is severe, the run halts here and names them.
+1. A review panel. Three agents run in parallel over the branch diff against main, one per lens: correctness, scope against the plan's acceptance, and data honesty (every new data point links back to a source; OCR and minutes stay distinguished; nothing hidden; no code path silently drops rows or swallows an exception without logging it, which for a civic-records project is the failure that matters most). Each is told to refute before confirming. Findings are returned as structured data with a severity. A fourth agent writes the surviving findings into the plan's Decision Log as a dated review record. If any finding is severe, the run halts here and names them.
 2. A retro agent follows `skills/retro/SKILL.md`.
 3. A doc-garden agent follows `skills/doc-garden/SKILL.md`.
 4. The judge runs `./tools/verify` once more at HEAD.
@@ -96,7 +98,7 @@ Fixture plans under `tools/fixtures/judge/` cover each stop-rule miss: no commit
 
 ### 5. Isolation and branching
 
-`cycle-plan` creates branch `plan/<slug>` from `origin/main` and a worktree at `.claude/worktrees/<slug>`. That directory is already gitignored. Every agent in both workflows is told to run every shell command from that worktree path. The operator's main checkout is never touched by the factory.
+`cycle-plan` creates branch `plan/<slug>` from `origin/main` and a worktree at `.claude/worktrees/<slug>`. That directory is already gitignored. The operator then starts a Claude Code session in that worktree directory and runs `cycle-run` from it. Every subagent inherits that working directory by construction, which is the only guard that does not depend on an agent remembering an instruction. The Agent tool offers no working-directory parameter, so this is the strongest isolation available. As a backstop every agent prompt still names the worktree path and says to run every shell command from it, and the preflight refuses to start anywhere else. The operator's main checkout is never touched by the factory.
 
 One `cycle-run` at a time. All worktrees share one local Postgres, so two runs would collide in the integration tier.
 
@@ -114,6 +116,8 @@ The two failures are pre-existing: `tests/web/test_blog_routes.py::test_city_rou
 In its first version `./tools/verify` runs the unit, web, and services tiers plus the judge fixtures. The integration tier runs against the developer's `docket_db` with hand-written cleanup and no rollback, which means a milestone that corrupts state can fail the next milestone's tests for reasons the next agent cannot see. So the integration tier joins `./tools/verify` only after a disposable `docket_test` database, rebuilt from migrations on each run, exists. Until then `cycle-run` runs integration once, at plan end, before the review panel. Building `docket_test` is the first plan the factory executes on itself.
 
 Live tests (`-m live`) stay opt-in and never run inside the cycle.
+
+Local Postgres is version 16 and Railway runs 18.3. That gap predates this design and is recorded as a debt row. Plan one may point `docket_test` at the Homebrew postgresql@18 already installed on the operator's machine for Railway dumps, which closes the gap for the test tier at no extra cost; the plan author decides.
 
 ### 7. Halts and resume
 
@@ -145,6 +149,8 @@ The workflows are tested by a live trial: the first real plan is small and inter
 
 An outside assessment of the first half of this design (pasted into the conversation on 2026-10-10) raised seven roadblocks. Four were already closed by factory-loop's conventions: rationale continuity (the plan is self-contained with a Decision Log), routing friction (plan-execute fixes the reading order and `@AGENTS.md` is injected into every agent), debt staleness (doc-garden prunes the register every run), and blind planning (plan-author must open the files and run commands before writing them down). Three changed the design: the tolerant date regex in the judge, the disposable test database, and the previous-milestone commit-range pointer in each brief. The alternative of pasting the previous diff into each prompt was rejected as the context tax the harness exists to avoid.
 
+A second outside review of the written spec raised seven more. Four changed the design: the session runs from the worktree so subagents inherit it (section 5), `cycle-run` preflights its tooling before the first milestone (section 3), AGENTS.md carries an explicit read-PRINCIPLES rule for data-touching changes (section 1), and the data honesty lens hunts silent drops and swallowed exceptions (section 3). One became a debt row: local Postgres 16 against Railway 18.3 (section 6). Two were rejected: a judge rule requiring doc updates when "core structural code" changes, because that condition is not mechanically decidable and doc-garden already owns the staleness problem at plan end; and a Railway deploy dry-run in the review panel, because the repo has no deploy config file to validate and a Docker build per run costs minutes, so it is a future capability card at most.
+
 ## Order of work
 
 This spec is implemented as factory-loop plans once the artifact layer exists, except the first step, which creates it.
@@ -159,5 +165,5 @@ Steps 2 and 3 may be re-cut by the plan-author step into a different number of p
 ## Known unknowns
 
 - Whether a Workflow run tolerates a multi-hour duration without being cut off. The live trial on plan one measures this. If it does not, `cycle-run` takes a `--limit <n>` of milestones per invocation, as factory-loop's runner does, and the operator reruns to continue.
-- Whether the plan-execute agent, given the factory-loop brief plus three lines, reliably stays inside the worktree. The memory of past sessions says subagents inherit the wrong working directory unless told on every call; the brief says so, and the judge catches any commit that landed outside the worktree because no commit appears in the worktree's branch.
+- Whether starting the session in the worktree fully removes worktree escapes. Past sessions showed subagents inheriting the wrong working directory when the session itself sat elsewhere; with the session in the worktree that cause is gone, and the judge catches any remaining escape because no commit appears on the branch.
 - How much of the 383-line CLAUDE.md survives routing. The goal is a map under 100 lines; the bootstrap report records the actual count.
