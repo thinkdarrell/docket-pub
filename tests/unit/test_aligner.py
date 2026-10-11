@@ -154,3 +154,36 @@ def test_candidate_ids_are_stable_and_start_at_one():
     t = [ev("transcript", 0, "motion", {1}, detail={"action": "approve"})]
     cands = align(t, [], consent_items=set(), votes=[])
     assert [c.candidate_id for c in cands] == [1]
+
+
+def _vrow(i, result, items, yeas=None, nays=None):
+    return {"id": i, "result": result, "yeas": yeas, "nays": nays, "abstentions": None, "raw_text": "", "item_ids": list(items)}
+
+
+def test_two_votes_on_one_item_pair_in_order_with_two_rows():
+    t = [ev("transcript", 1, "vote", {7}, detail={"result": "failed"}), ev("transcript", 2, "vote", {7}, detail={"result": "passed"})]
+    rows = [_vrow(10, "failed", [7]), _vrow(11, "passed", [7])]
+    assert not [c for c in align(t, [], consent_items=set(), votes=rows) if c.kind == "vote_outcome"]
+
+
+def test_two_votes_second_row_swapped_gives_one_candidate_on_second_vote():
+    t = [ev("transcript", 1, "vote", {7}, detail={"result": "failed"}), ev("transcript", 2, "vote", {7}, detail={"result": "passed"})]
+    rows = [_vrow(10, "failed", [7]), _vrow(11, "failed", [7])]
+    vo = [c for c in align(t, [], consent_items=set(), votes=rows) if c.kind == "vote_outcome"]
+    assert len(vo) == 1 and vo[0].transcript_event.seq == 2 and vo[0].vote_row["id"] == 11
+
+
+def test_consent_vote_compares_only_against_overlapping_row():
+    t = [ev("transcript", 1, "vote", {20, 22}, scope="consent_block", detail={"result": "passed"})]
+    rows = [_vrow(5, "failed", [5]), _vrow(6, "failed", [20, 21, 22])]
+    vo = [c for c in align(t, [], consent_items=set(), votes=rows) if c.kind == "vote_outcome"]
+    assert len(vo) == 1 and vo[0].vote_row["id"] == 6
+    rows_ok = [_vrow(5, "failed", [5]), _vrow(6, "passed", [20, 21, 22])]
+    assert not [c for c in align(t, [], consent_items=set(), votes=rows_ok) if c.kind == "vote_outcome"]
+
+
+def test_paired_minutes_vote_mismatch_suppresses_row_candidate():
+    t = [ev("transcript", 1, "vote", {7}, detail={"result": "failed"})]
+    m = [ev("minutes", 1, "vote", {7}, detail={"result": "passed"})]
+    cands = align(t, m, consent_items=set(), votes=[_vrow(10, "passed", [7])])
+    assert [c.kind for c in cands] == ["mismatch"] and cands[0].category == "vote_outcome"

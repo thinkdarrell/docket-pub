@@ -150,22 +150,42 @@ def sequence_candidates(pairs: list[tuple[Event, Event]]) -> list[tuple[Event, E
     return [p for i, p in enumerate(ordered) if i not in keep]
 
 
-def vote_outcome_candidates(t_events: list[Event], votes: list[dict]) -> list[Candidate]:
+def _pick_vote_row(ev: Event, votes: list[dict], k: int) -> dict | None:
+    """One votes row per transcript vote: exact item-set match, else largest overlap; ties pair k-th with k-th by id."""
+    exact = [v for v in votes if set(v.get("item_ids") or []) == set(ev.item_refs)]
+    if exact:
+        tied = exact
+    else:
+        overlap = {v["id"]: len(set(v.get("item_ids") or []) & ev.item_refs) for v in votes}
+        best = max(overlap.values(), default=0)
+        if best == 0:
+            return None
+        tied = [v for v in votes if overlap[v["id"]] == best]
+    tied = sorted(tied, key=lambda v: v["id"])
+    return tied[k] if k < len(tied) else None
+
+
+def vote_outcome_candidates(t_events: list[Event], votes: list[dict], skip_event_ids: frozenset[int] | set[int] = frozenset()) -> list[Candidate]:
     out = []
-    for ev in t_events:
+    seen: dict[frozenset[int], int] = {}
+    for ev in sorted(t_events, key=lambda e: e.seq):
         if ev.event_type != "vote" or not ev.item_refs:
             continue
-        for v in votes:
-            if not (set(v.get("item_ids") or []) & ev.item_refs):
-                continue
-            td = ev.detail
-            differs = (td.get("result") and v.get("result") and normalize(td["result"]) != normalize(v["result"])) or any(
-                td.get(k) is not None and v.get(k) is not None and td[k] != v[k] for k in ("yeas", "nays", "abstentions"))
-            if differs:
-                out.append(Candidate(0, "vote_outcome", "vote_outcome", ev, None,
-                                     f"transcript says {td.get('result')} {td.get('yeas')}-{td.get('nays')}; "
-                                     f"minutes vote row {v['id']} says {v.get('result')} {v.get('yeas')}-{v.get('nays')}",
-                                     ev.item_refs, vote_row=v))
+        k = seen.get(ev.item_refs, 0)
+        seen[ev.item_refs] = k + 1
+        if ev.id in skip_event_ids:   # already reported as a paired-vote mismatch
+            continue
+        v = _pick_vote_row(ev, votes, k)
+        if v is None:
+            continue
+        td = ev.detail
+        differs = (td.get("result") and v.get("result") and normalize(td["result"]) != normalize(v["result"])) or any(
+            td.get(key) is not None and v.get(key) is not None and td[key] != v[key] for key in ("yeas", "nays", "abstentions"))
+        if differs:
+            out.append(Candidate(0, "vote_outcome", "vote_outcome", ev, None,
+                                 f"transcript says {td.get('result')} {td.get('yeas')}-{td.get('nays')}; "
+                                 f"minutes vote row {v['id']} says {v.get('result')} {v.get('yeas')}-{v.get('nays')}",
+                                 ev.item_refs, vote_row=v))
     return out
 
 
@@ -212,7 +232,8 @@ def align(t_events: list[Event], m_events: list[Event], *, consent_items: set[in
                  for e in m_only if e.event_type in MINUTED_TYPES]
     seqs = [Candidate(0, "sequence", "sequence", a, b, "paired events occur in a different order", a.item_refs | b.item_refs)
             for a, b in sequence_candidates(all_pairs)]
-    ordered = cands + mism + omis + adds + seqs + vote_outcome_candidates(t_events, votes)
+    ordered = cands + mism + omis + adds + seqs + vote_outcome_candidates(
+        t_events, votes, {c.transcript_event.id for c in mism if c.category == "vote_outcome" and c.transcript_event})
     for i, c in enumerate(ordered, start=1):
         c.candidate_id = i
     return ordered
