@@ -12,7 +12,10 @@ exactly one Progress entry that was open (`- [ ]`) at the start is done
 not count; that entry carries a date, where any `YYYY-MM-DD` anywhere on its
 line counts, in parentheses, in square brackets, or bare; no entry that was
 done at the start is open at the end; no entry that was open at the start is
-gone at the end; and `git status --porcelain` prints nothing. A plan whose
+gone at the end; and `git status --porcelain` prints nothing. An entry is
+identified by its text with every date removed and case and punctuation
+ignored, so an entry whose text changed during the session, open or done,
+is to the judge one entry gone and another arrived. A plan whose
 Progress, Surprises & Discoveries, Decision Log, or Outcomes & Retrospective
 section is missing or empty cannot be judged at all, and is refused before
 the session starts; so is a start revision the repository does not know.
