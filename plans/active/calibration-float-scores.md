@@ -30,6 +30,9 @@ Nothing has been executed yet. The entries below were observed while authoring t
   Evidence: `ls tools` in this worktree printed `ls: tools/: No such file or directory`; `gh pr view 111` printed state `OPEN` and listed `tools/verify`, `tools/test-db`, `tools/judge-milestone` among its files.
 - Observation (authoring): the local `docket_db` has no rows with `score_overrides` at all, so a test database built from migrations will hold no float-valued rows unless a test or the demonstration below seeds one. The integration tests must seed their own.
   Evidence: `select count(*) filter (where score_overrides::text ~ '[0-9]\.[0-9]'), count(*) filter (where score_overrides is not null) from agenda_items` printed `0 | 0`.
+- Observation (operator session, 2026-10-11 23:30Z, before any milestone ran): `main` at `728df83` (pull requests #111 and #117 merged) was merged into this branch by `git merge main` with no conflicts (merge commit `18071cb`), so the tooling the acceptance commands assume now exists here: `tools/verify`, `tools/test-db`, `tools/judge-milestone`, `tools/check-workflows`. The `tools/` fallback in Context and Orientation is therefore not needed. Every authoring count was re-checked on the merged tree and still holds: eighteen `score_overrides` `::int` casts per file, five `ai.updated_at` tokens, runbook item #56 on line 178 of `docs/runbooks/v3-cutover.md`, twenty-eight tests collected from `tests/integration/test_calibration.py`, no `docs/specs/calibration.md`. The one change `main` made to the test file was to `test_query_c_returns_weeks_of_data` (week B now seeded eight days ago instead of six and a half, issue #70's Sunday flake); it does not touch the rows M1 adds. `src/` is identical to `origin/main`.
+  Evidence: `git merge main --no-edit` printed `34 files changed, 3618 insertions(+), 187 deletions(-)` with `create mode 100755 tools/verify` among the lines; `grep -c "score_overrides->>'[a-z_]*')::int" src/docket/ai/calibration.py src/docket/services/calibration.py` printed `18` and `18`; `grep -n updated_at src/docket/ai/calibration.py` printed lines 21, 47, 76, 91, 96; `pytest tests/integration/test_calibration.py --collect-only -q` printed `28 tests collected`; `git diff --stat origin/main -- src/` printed nothing.
+- Observation (operator session, 2026-10-11 23:30Z): the starting state has now been observed in this worktree. `./tools/verify` passed on the merged branch before any milestone work: `verify: test-db ... ok (1s)`, `verify: unit+web+services ... ok (70s)`, `verify: integration ... ok (88s)`, `verify: judge-fixtures ... ok (4s)`, `verify: workflows ... ok (1s)`, `verify: all 4 checks passed in 164s.` This is longer than the 150 seconds the Context section estimates; budget about 165 seconds per run.
 
 ## Decision Log
 
@@ -165,7 +168,7 @@ Starting state (M1 and M2 both begin here):
 
     ./tools/verify; echo "exit=$?"
 
-Expected (not yet observed in this worktree; the form is from `tools/verify` on `origin/plan/factory-tools`): several `verify: <name> ... ok (<n>s)` lines, then `verify: all <N> checks passed in <n>s.`, then `exit=0`.
+Expected (observed in this worktree 2026-10-11 after merging `main`, 164 seconds, see Surprises & Discoveries): several `verify: <name> ... ok (<n>s)` lines, then `verify: all <N> checks passed in <n>s.`, then `exit=0`.
 
 M1, run the test file before and after the SQL edit:
 
