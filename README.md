@@ -6,6 +6,8 @@ Docket.pub automates the collection, parsing, enrichment, and indexing of public
 
 **Domain:** live at [https://docket.pub](https://docket.pub) (apex, Let's Encrypt via Railway) | **Status:** Private Development | **Repo:** [`thinkdarrell/docket-pub`](https://github.com/thinkdarrell/docket-pub)
 
+**For agents and contributors:** start at [`AGENTS.md`](AGENTS.md).
+
 ---
 
 ## What's Built

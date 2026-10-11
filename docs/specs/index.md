@@ -1,0 +1,25 @@
+# Behavior specs
+
+## The reflection rule
+
+A plan does not complete until its behavioral outcome is reflected here.
+Before a plan moves to `plans/completed/`, whatever a user or caller can now
+observe that they could not before is written into a spec file in this
+directory — as a new file, or as an edit to the file that already owns that
+behavior — and listed in the index below.
+
+A plan whose outcome is purely internal (a refactor, a dependency bump)
+reflects nothing and says so in its own Outcomes section. Silence is only
+acceptable when it has been stated.
+
+Spec files are overwritten freely: they describe the present, so an edit
+that contradicts last month's text is a correct edit, not a lost one. The
+history lives in version control and in `plans/completed/`.
+
+## Index
+
+| Spec | Covers |
+| --- | --- |
+| `operations.md` | How the system is run: environments, tests, deploys, Railway, domain, transcriber, runbook index |
+
+Present-tense behaviour specs for ingest, vote matching, the AI pipeline, OCR, coverage, blog, and transcripts do not exist yet; the design documents under `docs/superpowers/specs/` describe each as of the day it shipped. Tracked as `D9` in `docs/DEBT.md`.
