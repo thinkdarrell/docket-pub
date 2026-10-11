@@ -103,6 +103,9 @@
 
 {# ── From the video (transcript excerpt) ───────────── #}
 {% include "partials/transcript_excerpt.html" %}
+{% if config.MINUTES_VS_VIDEO_UI and item_discrepancies %}
+  {% with discrepancies = item_discrepancies, block_context = 'item' %}{% include "partials/minutes_vs_video.html" %}{% endwith %}
+{% endif %}
 
 {# ── Vote Result block ─────────────────────────────── #}
 {% include 'partials/_vote_result_block.html' %}

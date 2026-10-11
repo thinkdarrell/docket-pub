@@ -19,6 +19,7 @@ TABLES = {
 @pytest.fixture
 def fresh_035():
     with db() as conn:
+        runner.rollback_migration(conn, 36)   # 036 alters 035's tables; roll it back first so re-apply restores both
         runner.rollback_migration(conn, 35)
     yield
     with db() as conn:
@@ -66,9 +67,11 @@ def test_segments_search_vector_is_generated(fresh_035):
 
 
 def test_discrepancy_requires_one_event(fresh_035):
+    # 035 alone enforces the CHECK; migration 036 drops it (re-runs NULL one side's FK).
     import psycopg2
     with db() as conn:
         runner.apply_migrations(conn)
+        runner.rollback_migration(conn, 36)
     with db_cursor() as cur:
         cur.execute("SELECT id FROM meetings ORDER BY id LIMIT 1")
         meeting_id = cur.fetchone()["id"]
@@ -84,5 +87,6 @@ def test_discrepancy_requires_one_event(fresh_035):
 def test_rollback_removes_tables(fresh_035):
     with db() as conn:
         runner.apply_migrations(conn)
+        runner.rollback_migration(conn, 36)
         runner.rollback_migration(conn, 35)
     assert _existing_tables() == set()

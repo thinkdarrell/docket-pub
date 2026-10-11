@@ -9,6 +9,15 @@
     · {{ transcript.word_count | default(0) }} words
     {% if transcript.audio_duration_s %}· {{ transcript.audio_duration_s | format_timestamp }} of audio{% endif %}
   </p>
+  {% if speakers %}
+  <div class="transcript-speakers t-meta" style="margin-top: 8px;">
+    <span class="t-eyebrow">Who spoke</span>
+    {% for sp in speakers %}
+      <a class="link" href="/search?city={{ municipality.slug }}&amp;q={{ ('speaker:"' ~ sp.name ~ '"') | urlencode }}" title="{{ sp.turns }} turns, {{ sp.seconds | format_timestamp }}">{{ sp.name }}</a>{% if not loop.last %} · {% endif %}
+    {% endfor %}
+    <span class="t-meta">· names assigned by software; <a class="link" href="/about/how-we-read-minutes/">how</a></span>
+  </div>
+  {% endif %}
 </section>
 <section class="feed">
   {% include "partials/transcript_body.html" %}

@@ -21,7 +21,7 @@ docket.pub is a Python application with three runtime processes sharing one Post
 ### Services
 
 - Lives in: `src/docket/services/`
-- Owns: every transaction. Ingest (scrape, enrich, upsert, then sweep minutes adoptions), query (all reads for the web layer), enrichment, maintenance, minutes adoption, video OCR orchestration, badges, coverage, archived-meeting backfill.
+- Owns: every transaction. Ingest (scrape, enrich, upsert, then sweep minutes adoptions), query (all reads for the web layer), enrichment, maintenance, minutes adoption, video OCR orchestration, badges, coverage, transcripts, and the archived-meeting backfill (`archived_meetings.py`, which creates the 2023 Boutwell-era Birmingham meetings Granicus never recorded; decision `0033`).
 - Does not: render HTML, schedule itself, or talk to a vendor site directly.
 
 ### Analysis
@@ -39,7 +39,7 @@ docket.pub is a Python application with three runtime processes sharing one Post
 ### AI pipeline
 
 - Lives in: `src/docket/ai/`
-- Owns: the Anthropic client with its tool-use pattern and retries, prompt versions, Wave 0 non-LLM classification, Stage 1 extraction, Stage 2 Smart Brevity rewrite, Stage 2.5 reconcile, badge policy, batch submission and ingest, cost telemetry, the operator CLI, the daily budget gate, and the two 0 to 10 scores on every item (significance and consent placement), which stay NULL until the pipeline has processed the item.
+- Owns: the Anthropic client with its tool-use pattern and retries, prompt versions, Wave 0 non-LLM classification, Stage 1 extraction, Stage 2 Smart Brevity rewrite, Stage 2.5 reconcile, badge policy, batch submission and ingest, cost telemetry, the operator CLI, the daily budget gate, and the two 0 to 10 scores on every item (significance and consent placement), which stay NULL until the pipeline has processed the item. Its `transcripts/` subpackage holds the transcript stages the worker advances one at a time (speaker resolution, event extraction on both the transcript and the minutes side, the citation guard, the deterministic aligner, the comparison judge, alerts) and the Haiku-versus-Sonnet A/B harness; `docs/runbooks/transcripts.md` is its runbook.
 - Does not: serve pages or own the cron schedule.
 
 ### Worker

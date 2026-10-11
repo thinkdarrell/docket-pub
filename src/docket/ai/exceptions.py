@@ -21,3 +21,16 @@ class AIFatalError(AIError):
 
 class AIPermanentRowError(AIError):
     """This row cannot be processed and should be marked completed_failed."""
+
+
+class TranscriptHeld(AIError):
+    """A transcript stage must stop and park the row as needs_review.
+
+    ``reason`` is the short machine label stored in
+    ``transcripts.needs_review_reason`` (token_ceiling, candidate_cap,
+    schema_invalid, refusal, max_tokens, permanent); the message is the detail.
+    """
+
+    def __init__(self, reason: str, detail: str = ""):
+        super().__init__(detail or reason)
+        self.reason = reason

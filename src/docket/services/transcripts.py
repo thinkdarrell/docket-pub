@@ -12,11 +12,21 @@ import re as _re
 
 from markupsafe import Markup, escape
 
-from docket.config import TRANSCRIPT_BACKFILL_SINCE
+from docket.config import TRANSCRIPT_BACKFILL_SINCE, TRANSCRIPT_MIN_WORDS
 from docket.db import db_cursor
 
 PUBLIC_STATUSES = ("uploaded", "speakers_resolved", "events_extracted", "compared")
 SPEAKER_CONFIDENCE_FLOOR = 0.6
+
+# A worker-stage failure after upload (speaker resolution, extraction,
+# comparison) must not take a readable transcript off the site. Producer
+# failures never set uploaded_at, so they stay hidden.
+_PUBLIC_PREDICATE = ("({a}.status = ANY(%s) OR ({a}.status IN ('failed', 'needs_review') "
+                     "AND {a}.uploaded_at IS NOT NULL))")
+
+
+def public_predicate(alias: str) -> str:
+    return _PUBLIC_PREDICATE.format(a=alias)
 
 
 @dataclass(frozen=True)
@@ -53,10 +63,10 @@ class Turn:
 def get_public_transcript(meeting_id: int) -> Transcript | None:
     with db_cursor() as cur:
         cur.execute(
-            """SELECT id, meeting_id, status, version, asr_model, diarization_model,
-                      audio_duration_s, word_count, uploaded_at
-                 FROM transcripts
-                WHERE meeting_id = %s AND status = ANY(%s)""",
+            f"""SELECT t.id, t.meeting_id, t.status, t.version, t.asr_model, t.diarization_model,
+                      t.audio_duration_s, t.word_count, t.uploaded_at
+                 FROM transcripts t
+                WHERE t.meeting_id = %s AND {public_predicate('t')}""",
             [meeting_id, list(PUBLIC_STATUSES)],
         )
         row = cur.fetchone()
@@ -156,10 +166,10 @@ def excerpt_for_item(item_id: int, max_turns: int = 4) -> dict | None:
     """First few transcript turns tagged with this agenda item, or None."""
     with db_cursor() as cur:
         cur.execute(
-            """SELECT t.id AS transcript_id, t.meeting_id
+            f"""SELECT t.id AS transcript_id, t.meeting_id
                  FROM agenda_items ai
                  JOIN transcripts t ON t.meeting_id = ai.meeting_id
-                WHERE ai.id = %s AND t.status = ANY(%s)""",
+                WHERE ai.id = %s AND {public_predicate('t')}""",
             [item_id, list(PUBLIC_STATUSES)],
         )
         head = cur.fetchone()
@@ -209,7 +219,7 @@ _PRE_ESCAPED_TEXT = "replace(replace(replace(s.text, '&', '&amp;'), '<', '&lt;')
 
 def search_transcripts(q: str, *, municipality_slug: str | None, speaker: str | None,
                        limit: int = 10, offset: int = 0) -> list[dict]:
-    where = ["mu.active = TRUE", "m.is_hidden = FALSE", "t.status = ANY(%s)", "s.is_silence = FALSE"]
+    where = ["mu.active = TRUE", "m.is_hidden = FALSE", public_predicate("t"), "s.is_silence = FALSE"]
     params: list = [list(PUBLIC_STATUSES)]
     if municipality_slug:
         where.append("mu.slug = %s"); params.append(municipality_slug)
@@ -295,7 +305,7 @@ def list_transcript_debt(municipality_id: int, limit: int = 50) -> list[dict]:
     with db_cursor() as cur:
         cur.execute(
             """SELECT m.id AS meeting_id, m.title AS meeting_title, m.meeting_date,
-                      t.status, t.last_error, t.stage_attempts
+                      t.status, t.last_error, t.stage_attempts, t.word_count
                  FROM meetings m
                  LEFT JOIN transcripts t ON t.meeting_id = m.id
                 WHERE m.municipality_id = %s
@@ -304,15 +314,40 @@ def list_transcript_debt(municipality_id: int, limit: int = 50) -> list[dict]:
                   AND m.external_id ~ '^[0-9]+$'
                   AND (
                         t.status IN ('failed', 'needs_review')
-                     OR (t.status = 'low_speech' AND COALESCE(t.audio_duration_s, 0) >= %s)
+                     OR (t.status = 'low_speech'
+                         AND (COALESCE(t.audio_duration_s, 0) >= %s
+                              OR (t.word_count IS NOT NULL AND t.word_count < %s)))
                      OR (t.id IS NULL AND m.meeting_date < CURRENT_DATE - 14
                          AND m.meeting_date >= %s)
                   )
                 ORDER BY m.meeting_date DESC
                 LIMIT %s""",
-            [municipality_id, SHORT_MEETING_S, TRANSCRIPT_BACKFILL_SINCE, limit],
+            [municipality_id, SHORT_MEETING_S, TRANSCRIPT_MIN_WORDS, TRANSCRIPT_BACKFILL_SINCE, limit],
         )
         rows = [dict(r) for r in cur.fetchall()]
     for r in rows:
-        r["friendly_label"] = TRANSCRIPT_DEBT_LABELS.get(r["status"], "Transcript problem")
+        if r["status"] == "low_speech" and r["word_count"] is not None and r["word_count"] < TRANSCRIPT_MIN_WORDS:
+            r["friendly_label"] = f"Too short to analyze ({r['word_count']} words)"
+        else:
+            r["friendly_label"] = TRANSCRIPT_DEBT_LABELS.get(r["status"], "Transcript problem")
     return rows
+
+
+def speaker_index(transcript_id: int) -> list[dict]:
+    """Resolved speakers for the 'Who spoke' list, merged by person across clusters."""
+    with db_cursor() as cur:
+        cur.execute(
+            """SELECT COALESCE(cm.name, sp.display_name) AS name, sp.council_member_id AS member_id,
+                      array_agg(DISTINCT sp.cluster_label) AS cluster_labels,
+                      count(*) AS turns, COALESCE(sum(s.end_s - s.start_s), 0) AS seconds
+                 FROM transcript_segments s
+                 JOIN transcript_speakers sp ON sp.id = s.speaker_id
+                 LEFT JOIN council_members cm ON cm.id = sp.council_member_id
+                WHERE s.transcript_id = %s AND s.is_silence = FALSE
+                  AND COALESCE(cm.name, sp.display_name) IS NOT NULL
+                  AND (sp.is_manual OR sp.confidence >= %s)
+                GROUP BY 1, 2
+                ORDER BY seconds DESC, name""",
+            [transcript_id, SPEAKER_CONFIDENCE_FLOOR],
+        )
+        return [dict(r) for r in cur.fetchall()]

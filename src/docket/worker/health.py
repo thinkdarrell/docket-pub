@@ -22,6 +22,7 @@ TASK_UUID_ENV: dict[str, str] = {
     "ai_items": "HEALTHCHECK_AI_ITEMS_UUID",
     "ai_meetings": "HEALTHCHECK_AI_MEETINGS_UUID",
     "vote_matching": "HEALTHCHECK_VOTE_MATCH_UUID",
+    "transcript_pipeline": "HEALTHCHECK_TRANSCRIPT_PIPELINE_UUID",
     "repair_empty_agendas": "HEALTHCHECK_REPAIR_UUID",
     "process_badges": "HEALTHCHECK_PROCESS_BADGES_UUID",
     "calibration_report": "HEALTHCHECK_CALIBRATION_UUID",

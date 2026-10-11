@@ -1,0 +1,1922 @@
+[
+ {
+  "seq": 0,
+  "start_s": 0.0,
+  "end_s": 925.49,
+  "text": "",
+  "cluster_label": null,
+  "is_silence": true,
+  "avg_logprob": null,
+  "no_speech_prob": null
+ },
+ {
+  "seq": 1,
+  "start_s": 925.49,
+  "end_s": 932.92,
+  "text": "Good morning Birmingham. Today is Tuesday, October 6th. The time is 9.39 a.m.",
+  "cluster_label": "SPEAKER_20",
+  "is_silence": false,
+  "avg_logprob": -0.16745923,
+  "no_speech_prob": 0.0022850037
+ },
+ {
+  "seq": 2,
+  "start_s": 933.18,
+  "end_s": 972.19,
+  "text": "I call to order the regular meeting of the Birmingham City Council. This morning's invocation will be led by Reverend Marcus Sims, associate pastor of Peace Baptist Church, Birmingham, Alabama. And as Reverend Sims makes his way up, our Pledge of Allegiance will be, I will lead us in our Pledge of Allegiance. Councilor Smith is on travel this week. If you'll please join and stand and join us. Thank you. Thank y'all for having me. Let us pray.",
+  "cluster_label": "SPEAKER_20",
+  "is_silence": false,
+  "avg_logprob": -0.08267597,
+  "no_speech_prob": 0.0010976791
+ },
+ {
+  "seq": 3,
+  "start_s": 974.6,
+  "end_s": 1005.82,
+  "text": "Father, I stretch my hand to thee. No other help I know. If thou would draw thyself from me, whither shall I go? Father God, when I woke up this morning, nothing changed. When I laid down last night and I woke up this morning, you put a different perspective in my life. Father God, I",
+  "cluster_label": "SPEAKER_03",
+  "is_silence": false,
+  "avg_logprob": -0.07432878,
+  "no_speech_prob": 0.002357483
+ },
+ {
+  "seq": 4,
+  "start_s": 1006.57,
+  "end_s": 1032.94,
+  "text": "I broke my ankle in three places three years ago. Father God had emergency gallbladder surgery. And Father God, I'm glad you still put my feet on solid ground. Father God, we thank you for the City Council, everything that they do for the city of Birmingham. Father God, guide them, teach them to",
+  "cluster_label": "SPEAKER_03",
+  "is_silence": false,
+  "avg_logprob": -0.16604479,
+  "no_speech_prob": 0.00059747696
+ },
+ {
+  "seq": 5,
+  "start_s": 1035.12,
+  "end_s": 1060.76,
+  "text": "God, the young generation that our forefathers fought for different things, let us stay focused in November to go vote because all our black folks, Father of God, all we got to do is just show our ID and we still don't want to do that. Father God, I thank you for at nine years old, I told my dad I was boy.",
+  "cluster_label": "SPEAKER_03",
+  "is_silence": false,
+  "avg_logprob": -0.126875,
+  "no_speech_prob": 0.0006508827
+ },
+ {
+  "seq": 6,
+  "start_s": 1061.43,
+  "end_s": 1089.4,
+  "text": "He went and got me a lawn mower, four rugs, and two garbage cans. And Father God, I thank him for the foundation. I thank him for being the boy to become a man. But Father God, as I go to my seat, instead of giving you 50%, we need to give you 100%. In Jesus' name, let us all say amen, amen, and amen.",
+  "cluster_label": "SPEAKER_03",
+  "is_silence": false,
+  "avg_logprob": -0.113798946,
+  "no_speech_prob": 0.000992775
+ },
+ {
+  "seq": 7,
+  "start_s": 1110.06,
+  "end_s": 1141.65,
+  "text": "Thank you so much, Reverend Sims, for that very thoughtful and inspirational prayer. At this time, good morning, Mr. Clerk. Good to see you. If you would please call the roll. Good morning, sir. Councilmember O'Quinn. Good morning. Councilmember Smith is absent. Councilmember Smitherman. Good morning. Councilmember Vassa. Good morning. Councilmember Williams. Good morning. Councilmember Woods. Good morning. Council President Pro Tem Tate. Good morning.",
+  "cluster_label": "SPEAKER_07",
+  "is_silence": false,
+  "avg_logprob": -0.11098345,
+  "no_speech_prob": 0.0021648407
+ },
+ {
+  "seq": 8,
+  "start_s": 1141.85,
+  "end_s": 1165.1,
+  "text": "Council, President Alexander. Good morning. Thank you very much, President. At this time, Councilors, I'm asking for a motion and a second to approve the following previous minutes. July 7th, 2026, the meeting of July 14th, 2026, July 21st, 2026, and July 28th, 2026.",
+  "cluster_label": "SPEAKER_20",
+  "is_silence": false,
+  "avg_logprob": -0.112676054,
+  "no_speech_prob": 0.0023593903
+ },
+ {
+  "seq": 9,
+  "start_s": 1172.21,
+  "end_s": 1202.41,
+  "text": "All right, thank you. Those minutes are approved. The minutes are not ready from the meetings of August 4th, 2026 through September 29th, 2026. At this time, we'll entertain communications from the mayor. Good morning, Mayor Woodfin. Mayor Woodfin. Mayor Woodfin. Madam President, good morning to you. Good morning to the entire council. It's good to see everybody this morning. Good morning to the general public, those who are here in the chamber, as well as those who are watching online. Madam President and council, just a few notes.",
+  "cluster_label": "SPEAKER_20",
+  "is_silence": false,
+  "avg_logprob": -0.089257814,
+  "no_speech_prob": 0.0013885498
+ },
+ {
+  "seq": 10,
+  "start_s": 1204.7,
+  "end_s": 1232.82,
+  "text": "We're doing the State of the Homelessness Summit again for 2026. I wanted you to mark your calendars for Friday, November 6. The City of Birmingham will host the 2026 State of the Homelessness Summit. The summit allows us to bring together community leaders, service providers, faith leaders, nonprofits, businesses, residents, and people with lived experiences of homelessness to address one of our city's and community's most pressing challenges.",
+  "cluster_label": "SPEAKER_27",
+  "is_silence": false,
+  "avg_logprob": -0.07301682,
+  "no_speech_prob": 0.00049066544
+ },
+ {
+  "seq": 11,
+  "start_s": 1234.29,
+  "end_s": 1260.31,
+  "text": "The summit will be held that Friday from 10 a.m. to 3 p.m. at the Palo Alto Auditorium. This year's summit carries the theme Beyond Awareness to Action, that keyword action, because the whole idea is to not just reflect on the city's focus on the conversation and collaboration, but turning the actual work into action for people experiencing homelessness and housing instability.",
+  "cluster_label": "SPEAKER_27",
+  "is_silence": false,
+  "avg_logprob": -0.09789737,
+  "no_speech_prob": 0.001168251
+ },
+ {
+  "seq": 12,
+  "start_s": 1261.81,
+  "end_s": 1289.61,
+  "text": "The good news is we're continuing to work with our local partners to align vision, strategy, and resources. And that's in a big thanks and support of this council supporting $3 million investment out of our general fund to address housing and homelessness services. I want to encourage you and your residents to visit, to want to attend this event, but to learn more on the website at birminghamal.gov slash homelessness.",
+  "cluster_label": "SPEAKER_27",
+  "is_silence": false,
+  "avg_logprob": -0.09720203,
+  "no_speech_prob": 0.00063562393
+ },
+ {
+  "seq": 13,
+  "start_s": 1290.51,
+  "end_s": 1316.29,
+  "text": "There they learn more about what the summit offers as well as all of our on-house strategies. We also have the Magic City Toy Drive. The City of Birmingham once again is partnering with Alabama 42 for our annual Magic City Toy Drive. The drive, as you know, was created to provide support for hundreds of less fortunate Birmingham youth from birth to 10 years of age by not only collecting toys and bicycles,",
+  "cluster_label": "SPEAKER_27",
+  "is_silence": false,
+  "avg_logprob": -0.1157756,
+  "no_speech_prob": 0.0008482933
+ },
+ {
+  "seq": 14,
+  "start_s": 1317.44,
+  "end_s": 1343.11,
+  "text": "To supplement for their holiday wishes, but to also be in a position to put a smile on their face. Families who are in need of support should register for help on Thursday, October 22nd at 9 a.m. until capacity is reached. Registration will take place at the Department of Youth Services. That address is 1608 7th Avenue North. Donations will be accepted from November 2nd.",
+  "cluster_label": "SPEAKER_27",
+  "is_silence": false,
+  "avg_logprob": -0.1015625,
+  "no_speech_prob": 0.0013132095
+ },
+ {
+  "seq": 15,
+  "start_s": 1343.43,
+  "end_s": 1371.8,
+  "text": "To December 4th, again, donations will be accepted from November 2nd to December 4th. And for more information, you can call 205-320-0879 and or visit birminghamal.gov slash DYS. Two more notes, Madam President and Council. One being that this is Breast Cancer Awareness Month. And so at this time, I would like to ask Demetria Harris.",
+  "cluster_label": "SPEAKER_27",
+  "is_silence": false,
+  "avg_logprob": -0.105377905,
+  "no_speech_prob": 0.0048446655
+ },
+ {
+  "seq": 16,
+  "start_s": 1372.58,
+  "end_s": 1402.79,
+  "text": "Who's the marketing and branding coordinating with the Department of Human Resources to join here at the podium and any guests they may have. Mr. Mitra is here to tell us about a special event the city and our partners are hosting this Friday. Good morning everyone. How y'all doing this morning? So this Friday, October the 9th, we will be having our Pink Power Acceleration of Courage Breast Cancer Awareness event.",
+  "cluster_label": "SPEAKER_27",
+  "is_silence": false,
+  "avg_logprob": -0.12751736,
+  "no_speech_prob": 0.00040769577
+ },
+ {
+  "seq": 17,
+  "start_s": 1403.68,
+  "end_s": 1425.66,
+  "text": "This event will have two parts. We will start in the morning, 10 a.m. on the second floor of City Hall in the Hall of the Single Citizens. We will feature Ms. Angela Hunter from My Beauty for Ashes. She will share her story and talk about her organization. And then we will also have Dr. Katisha Vance. She will do a Q&A session. People can ask questions.",
+  "cluster_label": "SPEAKER_16",
+  "is_silence": false,
+  "avg_logprob": -0.06972881,
+  "no_speech_prob": 0.00093984604
+ },
+ {
+  "seq": 18,
+  "start_s": 1426.25,
+  "end_s": 1454.65,
+  "text": "Debunk some myths about breast cancer and just educate themselves. And then we will move the event outdoors for our pink festival. We will have more vendors that you see here. They will have educational resources and giveaways. And then we will also have line dancing, a big reveal at 1145. And the highlight of the day at 1 o'clock will be our survival walk where we will honor our breast cancer warriors with a walk around Lynn Park.",
+  "cluster_label": "SPEAKER_16",
+  "is_silence": false,
+  "avg_logprob": -0.11455502,
+  "no_speech_prob": 0.0010986328
+ },
+ {
+  "seq": 19,
+  "start_s": 1455.53,
+  "end_s": 1479.17,
+  "text": "I'm going to move out of the way and let some of our organizations speak to you. Good morning, Council. My name is Angela Hunter. I'm the founder of My Beauty for Ashes. My Beauty for Ashes was founded in 2019. I was 36 years old, diagnosed with stage 3 HER2 positive breast cancer. Throughout my diagnosis, I did experience financial toxicity.",
+  "cluster_label": "SPEAKER_18",
+  "is_silence": false,
+  "avg_logprob": -0.09094551,
+  "no_speech_prob": 0.0011510849
+ },
+ {
+  "seq": 20,
+  "start_s": 1480.73,
+  "end_s": 1497.71,
+  "text": "I think a lot of times people don't know how much a person has to pay when it comes to cancer care. And so when I was on the other side of cancer, I wanted to be able to give back to those who were fighting a battle that I didn't want to have to fight. And so My Beauty for Ashes was founded. We have",
+  "cluster_label": "SPEAKER_18",
+  "is_silence": false,
+  "avg_logprob": -0.0797614,
+  "no_speech_prob": 0.0017404556
+ },
+ {
+  "seq": 21,
+  "start_s": 1498.38,
+  "end_s": 1523.84,
+  "text": "Giving grants to about 34 women nationwide and we help with mortgages, car notes, co-pays, mammograms, whatever a person might need going through breast cancer. And so we're excited to be here today and excited for this month. The world always turns pink in October, but I like to remind people that breast cancer happens every day, not just the month of October.",
+  "cluster_label": "SPEAKER_18",
+  "is_silence": false,
+  "avg_logprob": -0.09582369,
+  "no_speech_prob": 0.00037693977
+ },
+ {
+  "seq": 22,
+  "start_s": 1529.85,
+  "end_s": 1553.29,
+  "text": "My name is Shanique Stinson. I'm the president of Sisters Can Survive. We are a 501 organization and we help the women here in Birmingham with co-pays, medical expenses that you may have, helping them with their mortgages, gas stipends, just someone to be there with them when they go on their doctor's visits or have surgeries or whatever. We are there for them.",
+  "cluster_label": "SPEAKER_19",
+  "is_silence": false,
+  "avg_logprob": -0.08809742,
+  "no_speech_prob": 0.0021152496
+ },
+ {
+  "seq": 23,
+  "start_s": 1553.76,
+  "end_s": 1572.28,
+  "text": "The founder of Sisters Can Survive is Sister Talisha Harris, who's a three-time breast cancer survivor, and I myself am a 19-year-old breast cancer survivor on Friday. Thank you. We have Sister Donna Logan. She's one of our ambassadors.",
+  "cluster_label": "SPEAKER_19",
+  "is_silence": false,
+  "avg_logprob": -0.15401785,
+  "no_speech_prob": 0.00016868114
+ },
+ {
+  "seq": 24,
+  "start_s": 1573.19,
+  "end_s": 1597.13,
+  "text": "So to keep things from being just on myself the president and the vice president we have started having ambassadors where they can go throughout the city of Birmingham and not just address women who come to us but we get the word out there with literature and education and then the sisters who may encounter this journey that they'll never walk alone. Thank you.",
+  "cluster_label": "SPEAKER_19",
+  "is_silence": false,
+  "avg_logprob": -0.06289629,
+  "no_speech_prob": 0.00023782253
+ },
+ {
+  "seq": 25,
+  "start_s": 1601.58,
+  "end_s": 1613.6,
+  "text": "Good morning. Good morning. I'm just so honored and thankful to be here. My name is Loretta Herron. I am the co-founder of Cancer Awareness Network. And this organization has been around next year.",
+  "cluster_label": "SPEAKER_13",
+  "is_silence": false,
+  "avg_logprob": -0.14786783,
+  "no_speech_prob": 0.001824379
+ },
+ {
+  "seq": 26,
+  "start_s": 1614.08,
+  "end_s": 1638.42,
+  "text": "30 years, and I'm so excited about that. I'm also excited because I'm a 16-year breast cancer survivor, had a reoccurrence a couple of years ago, so I'm still getting past that. But what I'm so excited about is for the mayor of Birmingham and you guys to pull together something that we can all rally around and celebrate breast cancer survivors.",
+  "cluster_label": "SPEAKER_13",
+  "is_silence": false,
+  "avg_logprob": -0.11679193,
+  "no_speech_prob": 0.00084257126
+ },
+ {
+  "seq": 27,
+  "start_s": 1639.2,
+  "end_s": 1658.3,
+  "text": "Even though our organization service all cancers, the main thing that I'm really excited about is that we've been able to set up different type of resources for cancer patients. I gave you all a brochure and some flyers. Our 5K is coming up next Saturday. I hope you guys can come out and help us celebrate.",
+  "cluster_label": "SPEAKER_13",
+  "is_silence": false,
+  "avg_logprob": -0.07559742,
+  "no_speech_prob": 0.0002758503
+ },
+ {
+  "seq": 28,
+  "start_s": 1659.09,
+  "end_s": 1687.97,
+  "text": "The funds we raise for our organization go to cancer patients that are struggling with financial toxicities. We help them with co-pay, transportation, whatever their needs are. We don't take them through a lot of drama about filling out forms, but we have to be accountable, right? So we have a program that we fund. We give away over $10,000 every year to cancer patients struggling with these financial stressors. We also have a telehealth digital literacy program.",
+  "cluster_label": "SPEAKER_13",
+  "is_silence": false,
+  "avg_logprob": -0.05994898,
+  "no_speech_prob": 0.001455307
+ },
+ {
+  "seq": 29,
+  "start_s": 1688.37,
+  "end_s": 1714.45,
+  "text": "Well, we teach seniors, counselors, and caregivers how to operate these cell phones so they can have effective communication with their health care providers. Our seniors are struggling with technology. I'm a senior. I almost cried trying to park this morning because I still didn't get the parking right. Don't send me a ticket. And we also have another program that's called peer support. It's a peer match program where we match.",
+  "cluster_label": "SPEAKER_13",
+  "is_silence": false,
+  "avg_logprob": -0.09925426,
+  "no_speech_prob": 0.00028467178
+ },
+ {
+  "seq": 30,
+  "start_s": 1715.07,
+  "end_s": 1723.57,
+  "text": "Thank you for joining us.",
+  "cluster_label": "SPEAKER_13",
+  "is_silence": false,
+  "avg_logprob": -1.0725447,
+  "no_speech_prob": 0.0014324188
+ },
+ {
+  "seq": 31,
+  "start_s": 1744.37,
+  "end_s": 1755.28,
+  "text": "We can help them. Thank you. Thank you. Good morning. My name is Lauren Roberts and I have the privilege of serving as executive director of the Board's Breast Cancer Survivor Center.",
+  "cluster_label": "SPEAKER_00",
+  "is_silence": false,
+  "avg_logprob": -0.22808689,
+  "no_speech_prob": 0.0056419373
+ },
+ {
+  "seq": 32,
+  "start_s": 1756.01,
+  "end_s": 1783.71,
+  "text": "We were created as a pilot project in 2016 by the Community Foundation of Greater Birmingham and the five healthcare systems here to try to really address the gaps in services from the day you find out that you have breast cancer through the rest of life. So we've been doing this for 10 years now. We became a 501 in 2020. We now went from serving the five counties surrounding Birmingham to the entire state of Alabama and as of 2025, the entire state of Mississippi.",
+  "cluster_label": "SPEAKER_00",
+  "is_silence": false,
+  "avg_logprob": -0.05078125,
+  "no_speech_prob": 0.0006213188
+ },
+ {
+  "seq": 33,
+  "start_s": 1785.26,
+  "end_s": 1810.14,
+  "text": "Last year we supported over 11,000 breast cancer patients and survivors and paid almost $300,000 in mortgages, rent, car notes, child care, bed bug treatment, whatever it is that is getting in the way of you being able to take time off of work and go to treatment, gas cards, Lyft rides, mental health counseling for patients, children, family.",
+  "cluster_label": "SPEAKER_00",
+  "is_silence": false,
+  "avg_logprob": -0.06160997,
+  "no_speech_prob": 0.005340576
+ },
+ {
+  "seq": 34,
+  "start_s": 1810.9,
+  "end_s": 1840.56,
+  "text": "Anything that's an obstacle, we want to solve that. In the two states that are leaders, unfortunately, in breast cancer mortality, we feel like if we can get you to and through treatment, we can change those statistics. Thank you for having us. So that's all that we have for right now. But again, we just would like for you guys to join us this Friday starting at 10 a.m. on the second floor and right outside on Short 20th Street at 1130. Thank you.",
+  "cluster_label": "SPEAKER_00",
+  "is_silence": false,
+  "avg_logprob": -0.07176339,
+  "no_speech_prob": 0.00016343594
+ },
+ {
+  "seq": 35,
+  "start_s": 1843.94,
+  "end_s": 1871.98,
+  "text": "Ms. Harris and Mayor Woodfin, thank you so much for bringing these community partners in and telling us about their work. We know October is Breast Cancer Awareness Month, so we thank you for what you're doing for the city as well as what all of these partners are doing for families that are affected by cancer. For those counselors who were here during the COVID years, I want to remind you that Ms. Harris was the person that came up and always was shooting",
+  "cluster_label": "SPEAKER_20",
+  "is_silence": false,
+  "avg_logprob": -0.049049612,
+  "no_speech_prob": 0.0030269623
+ },
+ {
+  "seq": 36,
+  "start_s": 1873.16,
+  "end_s": 1904.52,
+  "text": "Step on the microphone for us. So she kept us safe and now look at her now. She's over there in HR doing her thing. Thank you so much. Madam President, Council, we have one more note of importance related to other community partners doing really important work. So at this time I would like to ask Councilor Darrell O'Quinn to the podium along with our partners at the YWCA in One Place Metro Alabama.",
+  "cluster_label": "SPEAKER_27",
+  "is_silence": false,
+  "avg_logprob": -0.109459914,
+  "no_speech_prob": 0.00042390823
+ },
+ {
+  "seq": 37,
+  "start_s": 1905.24,
+  "end_s": 1935.5,
+  "text": "Family Justice Center. I'm not sure why they're still sitting down and taking their time. They can do what they want to do. But as they come up, October's domestic violence awareness month. Madam President of the Council, I think the best way I can frame this is while we love the trend of violent crime decreasing and that it's helpful and safe for our residents around gun violence and",
+  "cluster_label": "SPEAKER_27",
+  "is_silence": false,
+  "avg_logprob": -0.081934795,
+  "no_speech_prob": 0.00072050095
+ },
+ {
+  "seq": 38,
+  "start_s": 1949.94,
+  "end_s": 1968.13,
+  "text": "ALEA, CJI, APC, Alabama Power, BJCC, Woodlawn, Ensley, Avondale, Pratt City, Norwood, Smithfield,",
+  "cluster_label": "SPEAKER_27",
+  "is_silence": false,
+  "avg_logprob": -0.36122534,
+  "no_speech_prob": 0.0022335052
+ },
+ {
+  "seq": 39,
+  "start_s": 1968.06,
+  "end_s": 1997.33,
+  "text": "Three are going to speak, one being Dr. Darrell O'Quinn, the other being Monica Y. Shields, who is the executive director for domestic violence services for the YWCA, and the other is Rebecca Williams, who will also speak as a director for One Place Metro Alabama Family Justice Center. I think their perspective and the hard work they're doing to address this issue and how we have to find better ways to protect victims of domestic violence is as",
+  "cluster_label": "SPEAKER_27",
+  "is_silence": false,
+  "avg_logprob": -0.14493814,
+  "no_speech_prob": 0.0010986328
+ },
+ {
+  "seq": 40,
+  "start_s": 1997.93,
+  "end_s": 2032.93,
+  "text": "As well as offer an exit ramp that's safe for them, if that makes any sense, for existing victims or potential victims. It's incumbent upon all of us, and so I'll let them come at this time and speak in their own way. Who's first? Rebecca McWilliams, Executive Director, One Place Metro Alabama Family Justice Center.",
+  "cluster_label": "SPEAKER_27",
+  "is_silence": false,
+  "avg_logprob": -0.13495292,
+  "no_speech_prob": 0.00035119057
+ },
+ {
+  "seq": 41,
+  "start_s": 2033.58,
+  "end_s": 2061.14,
+  "text": "On behalf of our board of directors, our staff, and the survivors we serve every day, I want to extend our gratitude to Mayor Woodfin and the Birmingham City Council for your efforts and support in bringing awareness to and recognizing the importance of addressing domestic violence in our community. Domestic violence is a public health and a public safety crisis in Birmingham.",
+  "cluster_label": "SPEAKER_23",
+  "is_silence": false,
+  "avg_logprob": -0.028169014,
+  "no_speech_prob": 0.00077199936
+ },
+ {
+  "seq": 42,
+  "start_s": 2062.16,
+  "end_s": 2090.1,
+  "text": "It is not just something that takes place in the home behind closed doors. In fact, just last week, Chief Pickett shared that while total violent crime is down, domestic violence cases are up 18%. This spills out into our neighborhoods through violence, addiction, homelessness, joblessness, physical and mental health issues, and through our children.",
+  "cluster_label": "SPEAKER_23",
+  "is_silence": false,
+  "avg_logprob": -0.04402902,
+  "no_speech_prob": 0.0018663406
+ },
+ {
+  "seq": 43,
+  "start_s": 2091.05,
+  "end_s": 2120.15,
+  "text": "Domestic violence perpetuates the generational cycle of violence, poverty, and trauma that affects so many communities. So as we work to lead a coordinated community response to domestic and sexual violence that protects survivors, promotes healing, and holds offenders accountable, I stand here representing not just the team at one place,",
+  "cluster_label": "SPEAKER_23",
+  "is_silence": false,
+  "avg_logprob": -0.053342726,
+  "no_speech_prob": 0.0011768341
+ },
+ {
+  "seq": 44,
+  "start_s": 2120.8,
+  "end_s": 2142.74,
+  "text": "But of all the community partners that join us in this work, Birmingham Police Department, the YWCA, the Hispanic and Immigrant Center of Alabama, Legal Services of Alabama, the Crisis Center, Safe House of Shelby County, the Black Women's Mental Health Institute, UAB Medical Center,",
+  "cluster_label": "SPEAKER_23",
+  "is_silence": false,
+  "avg_logprob": -0.045594264,
+  "no_speech_prob": 0.0012254715
+ },
+ {
+  "seq": 45,
+  "start_s": 2143.23,
+  "end_s": 2170.02,
+  "text": "The Jefferson County Sheriff's Office, the District Attorney's Office, the U.S. Attorney's Office, Birmingham Municipal Courts, our City Attorney's Office, and the City of Birmingham, just to name a few. It is not on an individual victim to solve their domestic violence crisis. It is the responsibility of all of us. We are all in this together. We must be part of the solution.",
+  "cluster_label": "SPEAKER_23",
+  "is_silence": false,
+  "avg_logprob": -0.049264707,
+  "no_speech_prob": 0.0006456375
+ },
+ {
+  "seq": 46,
+  "start_s": 2171.31,
+  "end_s": 2200.21,
+  "text": "Thank you for joining us in this work to build safer communities where survivors are believed and our systems work together, united against domestic and sexual violence. Systems that ensure safety and justice for survivors help to break the cycle of generational violence and uphold the belief that everyone has the right to live a life that is safe and free of violence. Thank you.",
+  "cluster_label": "SPEAKER_23",
+  "is_silence": false,
+  "avg_logprob": -0.037667412,
+  "no_speech_prob": 0.000895977
+ },
+ {
+  "seq": 47,
+  "start_s": 2206.48,
+  "end_s": 2224.48,
+  "text": "Good morning, Mayor, members of the City Council, distinguished guests, community partners, members of our community. I am Monica Shields and I'm currently serving in the role as the Executive Director for the Domestic Violence Services for the YWCA.",
+  "cluster_label": "SPEAKER_17",
+  "is_silence": false,
+  "avg_logprob": -0.06554237,
+  "no_speech_prob": 0.0010643005
+ },
+ {
+  "seq": 48,
+  "start_s": 2225.07,
+  "end_s": 2239.39,
+  "text": "Thank you so much for having us. Today, we are not simply recognizing a monk, we are recognizing lives. We are recognizing the mother who is trying to protect her children.",
+  "cluster_label": "SPEAKER_17",
+  "is_silence": false,
+  "avg_logprob": -0.06688133,
+  "no_speech_prob": 0.0004043579
+ },
+ {
+  "seq": 49,
+  "start_s": 2240.06,
+  "end_s": 2267.64,
+  "text": "The survivor who is quietly planning her next step towards safety. The child who has witnessed violence in a place that should have been their safest place. And the individual who may be sitting in this room or watching from somewhere else and wondering if anyone sees what they are experiencing.",
+  "cluster_label": "SPEAKER_17",
+  "is_silence": false,
+  "avg_logprob": -0.04612926,
+  "no_speech_prob": 0.00024724007
+ },
+ {
+  "seq": 50,
+  "start_s": 2268.49,
+  "end_s": 2286.89,
+  "text": "We see you. We see you. And our community must see you. October is Domestic Violence Awareness Month, but domestic violence does not take a month off. It impacts our families,",
+  "cluster_label": "SPEAKER_17",
+  "is_silence": false,
+  "avg_logprob": -0.08666992,
+  "no_speech_prob": 0.00026726723
+ },
+ {
+  "seq": 51,
+  "start_s": 2287.5,
+  "end_s": 2311.72,
+  "text": "Our neighborhoods, our workplace, our schools, and ultimately the health and safety of our entire community. That is why I am so grateful to stand before you today on behalf of the YWCA Central Alabama, our CEO, Rashida Workman, and our board president.",
+  "cluster_label": "SPEAKER_17",
+  "is_silence": false,
+  "avg_logprob": -0.09256418,
+  "no_speech_prob": 0.00028467178
+ },
+ {
+  "seq": 52,
+  "start_s": 2312.38,
+  "end_s": 2330.52,
+  "text": "Our work is centered on one fundamental belief. Survivors deserve safety, dignity, choice, and the opportunity to build a life free from violence.",
+  "cluster_label": "SPEAKER_17",
+  "is_silence": false,
+  "avg_logprob": -0.15585938,
+  "no_speech_prob": 0.00038003922
+ },
+ {
+  "seq": 53,
+  "start_s": 2333.87,
+  "end_s": 2360.55,
+  "text": "And St. Clair counties. Our team at the YWCA works daily to make that belief a reality. While we provide emergency shelter, a 24-hour crisis line, advocacy, legal services, counseling support group, housing assistance and education, as well as working diligently to connect",
+  "cluster_label": "SPEAKER_17",
+  "is_silence": false,
+  "avg_logprob": -0.10385237,
+  "no_speech_prob": 0.00031018257
+ },
+ {
+  "seq": 54,
+  "start_s": 2361.2,
+  "end_s": 2378.32,
+  "text": "We are committed to helping individuals to resources that help survivors move from crisis to stability. But as important as those services are, we know that the solution does not rest with one agency.",
+  "cluster_label": "SPEAKER_17",
+  "is_silence": false,
+  "avg_logprob": -0.33675987,
+  "no_speech_prob": 0.00027155876
+ },
+ {
+  "seq": 55,
+  "start_s": 2379.15,
+  "end_s": 2406.21,
+  "text": "It takes all of us, as Rebecca stated. It takes a city that understands that domestic violence is a public safety issue. It takes leaders who are willing to listen to survivors and support systems that make safety possible. It takes law enforcement, courts, health care,",
+  "cluster_label": "SPEAKER_17",
+  "is_silence": false,
+  "avg_logprob": -0.057110824,
+  "no_speech_prob": 0.00014424324
+ },
+ {
+  "seq": 56,
+  "start_s": 2406.94,
+  "end_s": 2434.74,
+  "text": "Providers, educators, employers, faith communities, nonprofit organizations, and community members all working together. And it takes elected leadership like yourselves willing to say publicly, violence in our homes is not a private matter when it threatens the safety and well-being of our community. Mayor,",
+  "cluster_label": "SPEAKER_17",
+  "is_silence": false,
+  "avg_logprob": -0.125,
+  "no_speech_prob": 0.00018239021
+ },
+ {
+  "seq": 57,
+  "start_s": 2435.39,
+  "end_s": 2448.13,
+  "text": "Today, I want to thank you and this City Council for giving us the opportunity to bring this message into your space. Holding space for this message",
+  "cluster_label": "SPEAKER_17",
+  "is_silence": false,
+  "avg_logprob": -0.073372394,
+  "no_speech_prob": 0.0015125275
+ },
+ {
+  "seq": 58,
+  "start_s": 2448.65,
+  "end_s": 2471.83,
+  "text": "This month is important because when our city recognizes Domestic Violence Awareness Month, it sends a message that matters. It tells survivors that their experiences are not invisible. It tells children that violence is not normal. It tells those who cause harm",
+  "cluster_label": "SPEAKER_17",
+  "is_silence": false,
+  "avg_logprob": -0.18510842,
+  "no_speech_prob": 0.00042057037
+ },
+ {
+  "seq": 59,
+  "start_s": 2472.37,
+  "end_s": 2498.23,
+  "text": "In our community that we will not remain silent. And it tells advocates and service providers that we do not carry this responsibility alone. But recognition is only the beginning. We need awareness that leads to action. We need action that leads to",
+  "cluster_label": "SPEAKER_17",
+  "is_silence": false,
+  "avg_logprob": -0.13167319,
+  "no_speech_prob": 0.0004339218
+ },
+ {
+  "seq": 60,
+  "start_s": 2498.67,
+  "end_s": 2513.35,
+  "text": "We need prevention and we need prevention that leads to safer families and safer communities. So today, I ask that we continue to have the conversation beyond this month.",
+  "cluster_label": "SPEAKER_17",
+  "is_silence": false,
+  "avg_logprob": -0.14666194,
+  "no_speech_prob": 0.00087594986
+ },
+ {
+  "seq": 61,
+  "start_s": 2513.93,
+  "end_s": 2542.31,
+  "text": "Mayor and members of the Council, we invite you to continue standing with us not just today but throughout the year. Let October be the month when we raise awareness but every month be an opportunity to continue to raise our commitment to stop violence within our communities. Thank you.",
+  "cluster_label": "SPEAKER_17",
+  "is_silence": false,
+  "avg_logprob": -0.06402699,
+  "no_speech_prob": 0.0001333952
+ },
+ {
+  "seq": 62,
+  "start_s": 2548.46,
+  "end_s": 2577.22,
+  "text": "I just want to take a moment to thank these two organizations that do vitally important work and I want to thank you Mr. Mayor and my fellow council members for also supporting them. I think it's also important to take a moment to recognize two individuals in our community that are really making a difference and one of those is Chief Michael Pickett.",
+  "cluster_label": "SPEAKER_21",
+  "is_silence": false,
+  "avg_logprob": -0.049955986,
+  "no_speech_prob": 0.0008354187
+ },
+ {
+  "seq": 63,
+  "start_s": 2577.93,
+  "end_s": 2601.63,
+  "text": "Thank you. Thank you very much.",
+  "cluster_label": "SPEAKER_21",
+  "is_silence": false,
+  "avg_logprob": -1.2239584,
+  "no_speech_prob": 0.0032730103
+ },
+ {
+  "seq": 64,
+  "start_s": 2606.64,
+  "end_s": 2633.84,
+  "text": "You know, some of the signs of domestic violence and acting on those, and so I think that's making a real difference. The other individual who I think deserves tremendous accolades is District Attorney Danny Carr. In 2016, Jefferson County had 4,000 untested rape kits that dated back to 1986.",
+  "cluster_label": "SPEAKER_21",
+  "is_silence": false,
+  "avg_logprob": -0.105406746,
+  "no_speech_prob": 0.0008831024
+ },
+ {
+  "seq": 65,
+  "start_s": 2636.14,
+  "end_s": 2663.07,
+  "text": "It was recently announced that they are nearing completion of testing those rape kits. Out of the 4,000, they've gotten about a thousand that have, the DNA has correlated to the national database. So, just goes to show you how vitally important, you know, getting that.",
+  "cluster_label": "SPEAKER_21",
+  "is_silence": false,
+  "avg_logprob": -0.1218099,
+  "no_speech_prob": 0.0022335052
+ },
+ {
+  "seq": 66,
+  "start_s": 2664.17,
+  "end_s": 2692.8,
+  "text": "I can't imagine being in a situation where I'm a victim of that type of violence and feeling forgotten and left behind so with all my heart I want to thank District Attorney Danny Carr and all of the individuals who",
+  "cluster_label": "SPEAKER_21",
+  "is_silence": false,
+  "avg_logprob": -0.1759588,
+  "no_speech_prob": 0.0024147034
+ },
+ {
+  "seq": 67,
+  "start_s": 2693.53,
+  "end_s": 2723.88,
+  "text": "Have been involved in that project for bringing those victims some justice and allowing them to not feel left behind, giving them a chance for justice. So all of that to say this is a vitally important issue and we recognize and see you and thank you earnestly for your work.",
+  "cluster_label": "SPEAKER_21",
+  "is_silence": false,
+  "avg_logprob": -0.108552635,
+  "no_speech_prob": 0.0010156631
+ },
+ {
+  "seq": 68,
+  "start_s": 2725.14,
+  "end_s": 2730.2,
+  "text": "Thank you, Councilor, and thank you all. Thank you all so much. Madam President and Council.",
+  "cluster_label": "SPEAKER_27",
+  "is_silence": false,
+  "avg_logprob": -0.13663383,
+  "no_speech_prob": 0.00182724
+ },
+ {
+  "seq": 69,
+  "start_s": 2730.6,
+  "end_s": 2758.26,
+  "text": "Yes, thank you all. Thank you again, Mayor Woodfin, and also thank you, Councilor O'Quinn, for bringing these two groups together and just reminding us of the work that you all do in our communities, not just in the month of October, as you said, but throughout the year. I want to thank you, Councilor O'Quinn. I believe it was when I first became a member of the council, you gave us an opportunity to visit One Place Metro. And out of all the services and the information you gave us that day,",
+  "cluster_label": "SPEAKER_20",
+  "is_silence": false,
+  "avg_logprob": -0.07527807,
+  "no_speech_prob": 0.010009766
+ },
+ {
+  "seq": 70,
+  "start_s": 2758.83,
+  "end_s": 2767.29,
+  "text": "I think what hit me the most was the statistic around if he chokes you, more than likely he'll turn around and the result will be...",
+  "cluster_label": "SPEAKER_20",
+  "is_silence": false,
+  "avg_logprob": -0.10578377,
+  "no_speech_prob": 0.0010976791
+ },
+ {
+  "seq": 71,
+  "start_s": 2783.5,
+  "end_s": 2791.88,
+  "text": "Thank you, Mayor Woodfin and Councilor O'Quinn for bringing these two organizations and thank you Councilor O'Quinn for supporting them.",
+  "cluster_label": "SPEAKER_15",
+  "is_silence": false,
+  "avg_logprob": -0.28051758,
+  "no_speech_prob": 0.006385803
+ },
+ {
+  "seq": 72,
+  "start_s": 2794.64,
+  "end_s": 2807.06,
+  "text": "Issues very dear to my heart because when I was at Alabama Law School, I worked at the domestic violence clinic. So I helped on the legal side and I want to commend you all for the work because you guys do every day what I just did for a semester.",
+  "cluster_label": "SPEAKER_15",
+  "is_silence": false,
+  "avg_logprob": -0.14592634,
+  "no_speech_prob": 0.002735138
+ },
+ {
+  "seq": 73,
+  "start_s": 2807.92,
+  "end_s": 2831.12,
+  "text": "And I remember being so disappointed when I worked with my client, you know, we were getting to court and then she basically ghosted me. And I remember one client that happened and that called her and she's like, well, I'm back on my husband. I was like, no, like you can't go back. But one of my first things, because I had my practice card, was getting a PFA for my 17 year old client because, you know, there's a loophole.",
+  "cluster_label": "SPEAKER_15",
+  "is_silence": false,
+  "avg_logprob": -0.10689603,
+  "no_speech_prob": 0.0049819946
+ },
+ {
+  "seq": 74,
+  "start_s": 2831.69,
+  "end_s": 2857.71,
+  "text": "Sometimes where parents can sign off for minors to be married early and her husband who was also young was abusing her so that gave me a whim but it's really also very special to me because my college best friend was in an abusive relationship and I've talked about it before how I was conflicted because he was my friend he was a friend of the guy I was dating and she had confided in me like hey like",
+  "cluster_label": "SPEAKER_15",
+  "is_silence": false,
+  "avg_logprob": -0.083468035,
+  "no_speech_prob": 0.0023593903
+ },
+ {
+  "seq": 75,
+  "start_s": 2858.9,
+  "end_s": 2859.82,
+  "text": "Thank you for joining us.",
+  "cluster_label": "SPEAKER_15",
+  "is_silence": false,
+  "avg_logprob": -1.046875,
+  "no_speech_prob": 0.0035648346
+ },
+ {
+  "seq": 76,
+  "start_s": 2887.72,
+  "end_s": 2915.98,
+  "text": "And, you know, I have known other people personally with it and men get abused too. That's not talked about enough and how they're scared to report it because they don't want to look, you know, weak or why did you let a woman beat on you? But I just, I really commend you all. I thank you so, so much for what you do because, you know, a lot of people don't realize you can be married and abused. And that's even harder because domestic violence is not just physical abuse, it's financial abuse.",
+  "cluster_label": "SPEAKER_15",
+  "is_silence": false,
+  "avg_logprob": -0.099474676,
+  "no_speech_prob": 0.0027580261
+ },
+ {
+  "seq": 77,
+  "start_s": 2916.72,
+  "end_s": 2946.13,
+  "text": "It is mental abuse. I mean, it's so many different types of abuses. And I was just telling somebody before I finish that, you know, a lot of people, they have to think, look at victims from a non-judgmental standpoint because you think, why can't she leave? Just leave. If they hit you the first time, why can't they leave? And not knowing they have kids, they may not have a job anymore. So I just want to thank all of you all for the work that you do. If there's anything I can do to help you, please let me know. Thank you. Thank you again.",
+  "cluster_label": "SPEAKER_15",
+  "is_silence": false,
+  "avg_logprob": -0.12581019,
+  "no_speech_prob": 0.0010652542
+ },
+ {
+  "seq": 78,
+  "start_s": 2949.84,
+  "end_s": 2972.6,
+  "text": "Madam President and Council, that concludes the Mayor's Report. Thank you, Mayor Woodfin. At this time, Mr. Clerk, do you have an announcement of boards and agency expirations for November? Yes, ma'am. We have one with the Zoning Board of Adjustments. Darrell Varner is a building contractor. Term expires 11-25-26, and it's a seven-year term. It's under planning in the Zoning Committee.",
+  "cluster_label": "SPEAKER_07",
+  "is_silence": false,
+  "avg_logprob": -0.12364477,
+  "no_speech_prob": 0.0007376671
+ },
+ {
+  "seq": 79,
+  "start_s": 2972.92,
+  "end_s": 3002.04,
+  "text": "All right, thank you. We'll refer that to planning and zoning so they can work on looking at that particular expiration. At this time, Councilors, we're ready to consider items that are being considered for consent. Before we go through those items, I'd like to read the statement regarding all items designated as consent are routine and non-controversial and will be approved by one motion. All items on the consent agenda will be announced by reading the item numbers only.",
+  "cluster_label": "SPEAKER_20",
+  "is_silence": false,
+  "avg_logprob": -0.057015467,
+  "no_speech_prob": 0.0009036064
+ },
+ {
+  "seq": 80,
+  "start_s": 3002.57,
+  "end_s": 3025.77,
+  "text": "No separate discussion of these items will be permitted unless a council member or the mayor requests the item be removed from the consent agenda. Additionally, a citizen interested in addressing the council with respect to an item on the consent agenda designated for a public hearing, that's with a small ph, may request the item be removed from the consent agenda to hold the hearing on the item.",
+  "cluster_label": "SPEAKER_20",
+  "is_silence": false,
+  "avg_logprob": -0.0599301,
+  "no_speech_prob": 0.0011873245
+ },
+ {
+  "seq": 81,
+  "start_s": 3026.22,
+  "end_s": 3054.05,
+  "text": "Any items removed from the consent agenda will revert to its normal place on the agenda order of business. For remaining matters, all matters of permanent operation that's indicated with a capital P will be read and all public hearings will be announced. Mr. Clerk, if you'll read the items to be considered for consent. Yes, ma'am. Consent agenda starts on page 2 with items 1, 2, and 3. Page 3, items 4, 5.",
+  "cluster_label": "SPEAKER_20",
+  "is_silence": false,
+  "avg_logprob": -0.07166941,
+  "no_speech_prob": 0.00042390823
+ },
+ {
+  "seq": 82,
+  "start_s": 3054.63,
+  "end_s": 3080.81,
+  "text": "Excuse me, 6 and 7 are on consent. Page 4, items 9, 10, 11, and 12 are on consent. Page 5, items 13, 14, 15, 16, and 17 are on consent. Page 6, items 18, 19, 20, 21, and 22 are on consent. Page 7, items 23, 24, 25, 26, and 27 are on consent. Page 8.",
+  "cluster_label": "SPEAKER_07",
+  "is_silence": false,
+  "avg_logprob": -0.08654204,
+  "no_speech_prob": 0.007511139
+ },
+ {
+  "seq": 83,
+  "start_s": 3081.33,
+  "end_s": 3109.24,
+  "text": "We have items 28, 29, 30, 31, and 32 on consent. Page 9, items 33, 34, 35, and 36. Page 10, items 37, 38, 39. Page 11, items 40, 41, 42, and 43. Page 12, 40, items 44, 45, and 46. Page 13, items 47, 48, 49, and 50.",
+  "cluster_label": "SPEAKER_07",
+  "is_silence": false,
+  "avg_logprob": -0.073872626,
+  "no_speech_prob": 0.0037345886
+ },
+ {
+  "seq": 84,
+  "start_s": 3111.31,
+  "end_s": 3132.73,
+  "text": "Items 51, 52, 53, and 54. Page 15. We have items 55, 56, and 57. Page 16. Items 58, 59, 60, 61, 62, and 63. And we conclude with item number 65 on page 17, and we have one addendum item.",
+  "cluster_label": "SPEAKER_07",
+  "is_silence": false,
+  "avg_logprob": -0.09116683,
+  "no_speech_prob": 0.0078086853
+ },
+ {
+  "seq": 85,
+  "start_s": 3134.25,
+  "end_s": 3166.16,
+  "text": "Thank you, Mr. Clerk. At this time, councilors, are there any items you'd like to have added or removed? And we do have the additional item 66. Any items you'd like to have added or removed? Yes. Councilor Smitherman? Right. Right, councilors, the request is to add item 66 for consent. Any other items? Councilor William? Can we please remove item 2 on page 2 as well as item 5 on page 3?",
+  "cluster_label": "SPEAKER_20",
+  "is_silence": false,
+  "avg_logprob": -0.098294005,
+  "no_speech_prob": 0.00072050095
+ },
+ {
+  "seq": 86,
+  "start_s": 3166.86,
+  "end_s": 3198.16,
+  "text": "Okay, the request is to remove item 2 on page 2 from consent and item 5 on page 3 from consent. Any other items? Madam President? Yes, Councilor Vassa? Could we withdraw item 45, please? Okay, that's item 45 has been requested to be removed from consent and that's on page 12. Any other items? All right, at this time I'll ask for a motion and a second.",
+  "cluster_label": "SPEAKER_20",
+  "is_silence": false,
+  "avg_logprob": -0.13173492,
+  "no_speech_prob": 0.0047187805
+ },
+ {
+  "seq": 87,
+  "start_s": 3198.65,
+  "end_s": 3246.38,
+  "text": "To approve the consent agenda. Some of. Okay. All right, voting should be open. I'm an aye. Okay. Thank you, sir. Now that vote should be up, Madam President. All right, thank you, councilors. Those items that are to be considered for consent have been approved. And for anyone in the audience, for any of those items, we will continue now with the rest of our agenda, and your item has been approved. First item, Mr. Clerk. Item two. And I'm sorry. Yeah, we've removed two.",
+  "cluster_label": "SPEAKER_07",
+  "is_silence": false,
+  "avg_logprob": -0.18870191,
+  "no_speech_prob": 0.0015602112
+ },
+ {
+  "seq": 88,
+  "start_s": 3246.73,
+  "end_s": 3268.17,
+  "text": "Yes. Yes. Item 2, an ordinance to further amend the neighborhood revitalization fund budget for the fiscal year ending June 30, 2027 by appropriating $609,699.33 to the Office of City Attorney for neighborhood revitalization funding sources of settlements funds from opioid litigation. Motion please.",
+  "cluster_label": "SPEAKER_07",
+  "is_silence": false,
+  "avg_logprob": -0.12896925,
+  "no_speech_prob": 0.00080394745
+ },
+ {
+  "seq": 89,
+  "start_s": 3269.9,
+  "end_s": 3293.64,
+  "text": "Alright, thank you. Councilors, this is an ordinance to further amend the neighborhood revitalization fund budget and by appropriating $699.33 to the Office of the City Attorney for neighborhood revitalization. Councilor Williams, you asked that we remove that from consent. Yeah, I have some questions about this. So, which specific settlement?",
+  "cluster_label": "SPEAKER_20",
+  "is_silence": false,
+  "avg_logprob": -0.112676054,
+  "no_speech_prob": 0.0014657974
+ },
+ {
+  "seq": 90,
+  "start_s": 3294.57,
+  "end_s": 3320.96,
+  "text": "Is this from, and how is it different from the ones that were used for that OASIS project? So this is from the remnant settlements, and I can give you the parties. This is associated with pharmacies, American Associated Pharmacies, J.M. Smith Corporation, Louisiana Wholesale Drug Company, North Carolina Mutual Company.",
+  "cluster_label": "SPEAKER_14",
+  "is_silence": false,
+  "avg_logprob": -0.10306079,
+  "no_speech_prob": 0.0015678406
+ },
+ {
+  "seq": 91,
+  "start_s": 3321.82,
+  "end_s": 3342.9,
+  "text": "Okay so is I guess so is this are there you know there's been a lot of parameters around some of the opioid money we've received is this some separate litigation that the city was involved in that does not have the parameters or does this have the same type of parameters that the state attorney general",
+  "cluster_label": "SPEAKER_05",
+  "is_silence": false,
+  "avg_logprob": -0.101692714,
+  "no_speech_prob": 0.008560181
+ },
+ {
+  "seq": 92,
+  "start_s": 3344.04,
+  "end_s": 3368.8,
+  "text": "Right. It's all combined. And so what this does is everything has to be screened from our office before it can be allocated anywhere else. So we have to have the first glance to make sure that everything is appropriated properly. Okay. And so how, I guess, so this is going to the neighborhood revitalization fund budget. I guess my question is how is that going?",
+  "cluster_label": "SPEAKER_14",
+  "is_silence": false,
+  "avg_logprob": -0.102148436,
+  "no_speech_prob": 0.0059547424
+ },
+ {
+  "seq": 93,
+  "start_s": 3370.51,
+  "end_s": 3400.8,
+  "text": "So this, remember, part of the approved uses, and I don't have the full list, but a part of the approval goes to police, fire safety, it goes to opioid treatment, opioid counseling, training mechanisms as well. But none of those things would be in the neighborhood revitalization budget, if I understand that budget correctly. Police and fire would not? It does have to go through with...",
+  "cluster_label": "SPEAKER_14",
+  "is_silence": false,
+  "avg_logprob": -0.11445783,
+  "no_speech_prob": 0.00035977364
+ },
+ {
+  "seq": 94,
+  "start_s": 3401.48,
+  "end_s": 3438.22,
+  "text": "Safety treatment concerns as well. If you recall, we handle a lot of cases through DNAT, and that also is involved. So is DNAT the neighborhood revitalization fund? Those funds go to the neighborhood revitalization fund. Yes, that's correct. I guess I'm still confused. Maybe I'm confused about that, but okay. So, Councilor, is some of the confusion are you looking at?",
+  "cluster_label": "SPEAKER_14",
+  "is_silence": false,
+  "avg_logprob": -0.16544119,
+  "no_speech_prob": 0.00073194504
+ },
+ {
+  "seq": 95,
+  "start_s": 3438.58,
+  "end_s": 3469.33,
+  "text": "What that fund or that particular fund is allocated, how it's designated to be used. Yeah, I mean like I thought the neighborhood revitalization fund we were using for paving streets, for paving sidewalks. Am I thinking of a different fund? So all of that, so the neighborhood revitalization fund goes towards the rehabilitation, the treatment, and it also goes towards mechanisms to improve the community.",
+  "cluster_label": "SPEAKER_14",
+  "is_silence": false,
+  "avg_logprob": -0.09389119,
+  "no_speech_prob": 0.0002322197
+ },
+ {
+  "seq": 96,
+  "start_s": 3470.47,
+  "end_s": 3508.29,
+  "text": "Okay, so I guess we're saying that those funds can be used towards DNAT. Is that what I'm... Got it. Yes. Okay. Thank you. I believe our budget and finance chair, Councilor Woods, did you have something to add or a question? I was going to add some context if needed. Very good. He's good. Perfect. Any other questions regarding this item? All right. Thank you. Councilors, we're ready for the vote. That vote should be up. All right. Thank you. Item number two passes. Next item. Should be item number five.",
+  "cluster_label": "SPEAKER_20",
+  "is_silence": false,
+  "avg_logprob": -0.14262499,
+  "no_speech_prob": 0.002571106
+ },
+ {
+  "seq": 97,
+  "start_s": 3509.23,
+  "end_s": 3538.43,
+  "text": "A resolution authorizing the mayor to execute and deliver an agreement with Flourish Alabama under which the Flourish Alabama shall provide the following community engagement initiatives, neighborhood environment initiatives for youth and young adults, education and technology programs which include music, art, and health awareness, community gardens, and cleanup initiatives. The term of the agreement shall end on June 30, 2027, and the city shall pay the Flourish Alabama an amount not to exceed $100,000.",
+  "cluster_label": "SPEAKER_07",
+  "is_silence": false,
+  "avg_logprob": -0.09729381,
+  "no_speech_prob": 0.0018672943
+ },
+ {
+  "seq": 98,
+  "start_s": 3540.02,
+  "end_s": 3568.84,
+  "text": "All right, thank you. Councilors, this is a resolution authorizing the mayor to execute and deliver an agreement with the Flourish, Alabama, which includes several initiatives that would be undertaken in the community. I know, Councilor Williams, you asked this to be removed, and the source of this request, is this a council request, administrator McDaniels? Sorry.",
+  "cluster_label": "SPEAKER_20",
+  "is_silence": false,
+  "avg_logprob": -0.13040864,
+  "no_speech_prob": 0.0032978058
+ },
+ {
+  "seq": 99,
+  "start_s": 3569.47,
+  "end_s": 3599.78,
+  "text": "Yes, ma'am, I missed a request submitted by District 8. Okay, so District 8. All right, and does that answer? Thank you. All right, thank you all. Any other questions related to this item? All right, we're ready for the vote. Okay, that vote should be up. All right, thank you. Item 5 passes. Next item? Should be item 8, a resolution appointing three members to the Birmingham Historical Commission at the recommendation of the mayor, two representatives at large, members...",
+  "cluster_label": "SPEAKER_20",
+  "is_silence": false,
+  "avg_logprob": -0.10586296,
+  "no_speech_prob": 0.0018968582
+ },
+ {
+  "seq": 100,
+  "start_s": 3600.12,
+  "end_s": 3639.48,
+  "text": "Terms expiring February 3rd, 2029. And one professional historian member to fill the uninspired term of Laura Knott's design. Terms expiring February 3rd, 2027. All right, Councilors, we need a motion and a second to bring these names forward. Second. All right, thank you. This is a resolution where we'll be appointing three members to the Birmingham Historic Commission. And I believe these appointments are recommended by the mayor, Mayor Woodfin. Madam President, I apologize. That's okay.",
+  "cluster_label": "SPEAKER_20",
+  "is_silence": false,
+  "avg_logprob": -0.12831858,
+  "no_speech_prob": 0.00054836273
+ },
+ {
+  "seq": 101,
+  "start_s": 3639.96,
+  "end_s": 3661.4,
+  "text": "Verify some information with a team member now. Okay, thank you. If we can, we can table this one and come back to it. Yes, ma'am. All right, thank you. So we'll table item eight and we'll go on now with the rest of the agenda. Do I need the motion? Here we go. Thank you. If you give us your name and...",
+  "cluster_label": "SPEAKER_20",
+  "is_silence": false,
+  "avg_logprob": -0.14937876,
+  "no_speech_prob": 0.0023231506
+ },
+ {
+  "seq": 102,
+  "start_s": 3662.7,
+  "end_s": 3687.26,
+  "text": "Good morning. My name is Hannah Garman. I serve as the Historic Preservation Manager for the City. We have put forward three names. One is Marjorie Wied, who is the Emeritus Chair at the Birmingham Historical Society. One is Roy Stoves, who works for Urban Impact. And then the other is, excuse me, the other is",
+  "cluster_label": "SPEAKER_24",
+  "is_silence": false,
+  "avg_logprob": -0.12273849,
+  "no_speech_prob": 0.0017814636
+ },
+ {
+  "seq": 103,
+  "start_s": 3694.54,
+  "end_s": 3717.69,
+  "text": "Stuart Oates, who's the sexton at Oak Hill Cemetery. These went to PNZ and were recommended and they will, one will serve out a remaining term and then the other two are for a three-year term. Alright, thank you. Councilors, any questions regarding those nominations or appointments? Alright, we're ready to entertain the vote. Thank you.",
+  "cluster_label": "SPEAKER_24",
+  "is_silence": false,
+  "avg_logprob": -0.1323117,
+  "no_speech_prob": 0.00030303
+ },
+ {
+  "seq": 104,
+  "start_s": 3729.9,
+  "end_s": 3760.77,
+  "text": "All right, thank you very much. Item 8 passes. We appreciate the designating an appointment of these three members to the Birmingham Historical Commission. Next item. Item, I think we pulled 45. Yes. Item 45, a resolution accepting and approving the bid of Oracle America Incorporated Redwood Shores, California for cloud solutions, including software as a service platform, as a service and infrastructure.",
+  "cluster_label": "SPEAKER_07",
+  "is_silence": false,
+  "avg_logprob": -0.15003765,
+  "no_speech_prob": 0.0037059784
+ },
+ {
+  "seq": 105,
+  "start_s": 3761.48,
+  "end_s": 3780.86,
+  "text": "As a service as needed at unit prices on file and office of the assistant purchasing agent for a period of 120 days contingent upon council approval for the information management services department per the NASPO value point master agreement contract number AR 2487. Motion please.",
+  "cluster_label": "SPEAKER_07",
+  "is_silence": false,
+  "avg_logprob": -0.24173677,
+  "no_speech_prob": 0.005680084
+ },
+ {
+  "seq": 106,
+  "start_s": 3783.21,
+  "end_s": 3808.37,
+  "text": "All right. Thank you, Councilors. This is a resolution accepting and approving the bid of Oracle for software and platforms for a period of 120 days. Councilor Vasa, you asked that we remove this from consent. Yes, ma'am. Thank you, Madam President. I was just looking for more information. I may have skipped it, but could not find information in the attachments. So just looking for more clarity on what this item is about.",
+  "cluster_label": "SPEAKER_20",
+  "is_silence": false,
+  "avg_logprob": -0.11019737,
+  "no_speech_prob": 0.0031700134
+ },
+ {
+  "seq": 107,
+  "start_s": 3809.1,
+  "end_s": 3837.71,
+  "text": "Thank you, Councilor Vassa. Administration, do you have some information to share? Yes, ma'am, Madam President. Councilor Vassa, so our IMS team is engaging Oracle. It's really for both service governance, service requests, critical business monitoring, so it's engaging the corporation that actually facilitates our Oracle system. It's really more for the technical assistance they'll provide. Councilor Williams.",
+  "cluster_label": "SPEAKER_26",
+  "is_silence": false,
+  "avg_logprob": -0.0860722,
+  "no_speech_prob": 0.0004916191
+ },
+ {
+  "seq": 108,
+  "start_s": 3838.85,
+  "end_s": 3866.55,
+  "text": "So now I'm actually confused what we're doing. You know, I've gotten nothing but complaints from any single city staff member that could possibly stop me about this Oracle rollout. So is this to help with fixing the issues that exist with Oracle, or is this more of like a tech...",
+  "cluster_label": "SPEAKER_05",
+  "is_silence": false,
+  "avg_logprob": -0.12506403,
+  "no_speech_prob": 0.007118225
+ },
+ {
+  "seq": 109,
+  "start_s": 3867.29,
+  "end_s": 3895.13,
+  "text": "Is this a technical support thing or is this help with the issues that are going on with Oracle? So it's both. So the issues that are going on are technical in nature. So Oracle's support is being engaged to help with issues with Oracle. So it's both. So the issues that are being raised, Oracle needs to be engaged to address the issues with the platform that they've created. What's the funding amount for, or is this included with the original agreement?",
+  "cluster_label": "SPEAKER_26",
+  "is_silence": false,
+  "avg_logprob": -0.06078603,
+  "no_speech_prob": 0.0005745888
+ },
+ {
+  "seq": 110,
+  "start_s": 3902.69,
+  "end_s": 3968.83,
+  "text": "Coming out of IMS account for my ERP system. Is there a funding amount? Because I don't have the... I don't see it. I don't have the supplemental documents. Is that included in our packet? I didn't... We don't have that funding, I don't believe. Getting it now, Madam President. Thank you. While we're waiting on that information, is it okay if we go ahead to item? Have you got it yet? 315,000. 315,000.",
+  "cluster_label": "SPEAKER_20",
+  "is_silence": false,
+  "avg_logprob": -0.16574182,
+  "no_speech_prob": 0.0022850037
+ },
+ {
+  "seq": 111,
+  "start_s": 3984.01,
+  "end_s": 4019.67,
+  "text": "It's recommended by the purchasing agent and the chief information officer. I mean, yeah, for IMS. So I guess my question is, do bids usually go to committee? I didn't think they did. This is a cooperative. It doesn't go through a bid. We're already engaging the same organization that's assisting. So we've already bidded out for the service to begin with. Is that satisfying? This is additional work on top of what they've already been engaging in to help address your colleagues.",
+  "cluster_label": "SPEAKER_27",
+  "is_silence": false,
+  "avg_logprob": -0.12434287,
+  "no_speech_prob": 0.0010900497
+ },
+ {
+  "seq": 112,
+  "start_s": 4020.21,
+  "end_s": 4062.51,
+  "text": "Concerns about city employees walking up to him, talking to him about their complaints about Oracle. How does that answer your question, Council? Any other questions, comments regarding this item? Yes, Councilor Woods. So just clarity, this is a standing agreement that already has some unit costs built in that we're tapping back into. Yes, sir. Any other questions? Thank you. Just one question. Yes, Councilor Smitherman.",
+  "cluster_label": "SPEAKER_20",
+  "is_silence": false,
+  "avg_logprob": -0.123883925,
+  "no_speech_prob": 0.0030269623
+ },
+ {
+  "seq": 113,
+  "start_s": 4063.42,
+  "end_s": 4092.62,
+  "text": "We've had Oracle for about a year or two. Have we assessed the effectiveness of transitioning to Oracle? It hasn't been a year. Oracle rolled out January 1 of this year. There have been significant challenges with any type of major overhaul rollout. You deal with a system of such magnitude that literally touches every part of your systems, from HR to finance, personnel, and a litany of things I'm not naming.",
+  "cluster_label": "SPEAKER_27",
+  "is_silence": false,
+  "avg_logprob": -0.07910156,
+  "no_speech_prob": 0.002199173
+ },
+ {
+  "seq": 114,
+  "start_s": 4093.42,
+  "end_s": 4122.14,
+  "text": "What we have been able to do is have a significant deep dive on addressing those issues. Chief Sparks has taken the lead on not just troubleshooting but putting everybody at the table between our department heads as well as our external vendors and partners who are addressing this. They're being held to a standard to address but there was also a recommendation to troubleshoot and to",
+  "cluster_label": "SPEAKER_27",
+  "is_silence": false,
+  "avg_logprob": -0.07300465,
+  "no_speech_prob": 0.0016479492
+ },
+ {
+  "seq": 115,
+  "start_s": 4122.66,
+  "end_s": 4151.16,
+  "text": "Kind of close the gap on some of these major issues. This additional support is needed to close those gaps. In the ideal world, you know, any new system you roll out doesn't have any kinks, but something of this magnitude to the tune of that many multi-million dollars, but literally overhauls your entire system. So thank every department, thank every major artery within the department, which would be IMS, finance.",
+  "cluster_label": "SPEAKER_27",
+  "is_silence": false,
+  "avg_logprob": -0.11692708,
+  "no_speech_prob": 0.002286911
+ },
+ {
+  "seq": 116,
+  "start_s": 4153.62,
+  "end_s": 4185.28,
+  "text": "HR would be lying to you if he told you it was without any challenges. And so all those concerns, and I wasn't being flippant, there are genuine concerns. We really, really want to address them. I believe, I believe, I believe, yes sir. So I think, I think Chief Sparks will put a button on what I said in a better way because he's literally like been a...",
+  "cluster_label": "SPEAKER_27",
+  "is_silence": false,
+  "avg_logprob": -0.1645115,
+  "no_speech_prob": 0.0030994415
+ },
+ {
+  "seq": 117,
+  "start_s": 4185.95,
+  "end_s": 4199.37,
+  "text": "Thank you for joining us.",
+  "cluster_label": "SPEAKER_26",
+  "is_silence": false,
+  "avg_logprob": -1.2165179,
+  "no_speech_prob": 0.00248909
+ },
+ {
+  "seq": 118,
+  "start_s": 4201.26,
+  "end_s": 4230.0,
+  "text": "Why are those things happening? So alignment has now happened and the Oracle engagement helps with that because obviously if they're the ones facilitating the system, when there's a breakdown, you want the people that are facilitating the system to be able to guide you on how to rectify issues. That hasn't been in place. That's what we're looking to do now. Okay. I'm almost of the mind, Madam President, when we get to the one year mark in the update.",
+  "cluster_label": "SPEAKER_26",
+  "is_silence": false,
+  "avg_logprob": -0.097853534,
+  "no_speech_prob": 0.0014877319
+ },
+ {
+  "seq": 119,
+  "start_s": 4230.81,
+  "end_s": 4258.66,
+  "text": "On the system and kind of see if it's been effective, how well have the employees, you know, adjusted, even our own department, because we, I'm not dumb, I shouldn't say that, but it's not easy to navigate Oracle, but I was just like that request, if y'all could just know, just for update, really almost all the systems we kind of transitioned. Yeah, we will be, yes ma'am.",
+  "cluster_label": "SPEAKER_15",
+  "is_silence": false,
+  "avg_logprob": -0.16821809,
+  "no_speech_prob": 0.0184021
+ },
+ {
+  "seq": 120,
+  "start_s": 4259.02,
+  "end_s": 4287.17,
+  "text": "Madam President, to all of you, not just to Councilor Smitherman's request, we would be honored to yield to that request and provide the update. We would like to make sure this fourth quarter is better than the first quarter when it started, and it needs to be more user-friendly for our internal team members as well as all departments, which includes Council. We are aware of...",
+  "cluster_label": "SPEAKER_27",
+  "is_silence": false,
+  "avg_logprob": -0.12085263,
+  "no_speech_prob": 0.005138397
+ },
+ {
+  "seq": 121,
+  "start_s": 4287.44,
+  "end_s": 4313.18,
+  "text": "We are aware of payments. We are aware of travel issues. We are aware of every single issue. With your support today, it allows us to go deeper on solving for those issues. So yes, 90 days from now, we'd love to provide you an update. Thank you. Councilor Vassa? Just a last question. After the period of 120 days are up, what happens at that point?",
+  "cluster_label": "SPEAKER_27",
+  "is_silence": false,
+  "avg_logprob": -0.16238838,
+  "no_speech_prob": 0.0021133423
+ },
+ {
+  "seq": 122,
+  "start_s": 4314.41,
+  "end_s": 4341.28,
+  "text": "So there's a couple of things. The infrastructure that's being built now is the Oracle Corporation will hand off the subject matter expertise to our internal team members. So we're not relying on external to resolve issues when they come up. So it's also included in technical assistance training for our own support members as well. So we don't need to engage them beyond that point financially. Any other questions? So if we're not satisfied with",
+  "cluster_label": "SPEAKER_26",
+  "is_silence": false,
+  "avg_logprob": -0.0900632,
+  "no_speech_prob": 0.0016078949
+ },
+ {
+  "seq": 123,
+  "start_s": 4360.92,
+  "end_s": 4370.77,
+  "text": "The desire, the desire is to get the necessary information, the training.",
+  "cluster_label": "SPEAKER_27",
+  "is_silence": false,
+  "avg_logprob": -0.44995117,
+  "no_speech_prob": 0.004196167
+ },
+ {
+  "seq": 124,
+  "start_s": 4384.6,
+  "end_s": 4407.57,
+  "text": "All right. Thank you very much. Thank you.",
+  "cluster_label": "SPEAKER_27",
+  "is_silence": false,
+  "avg_logprob": -1.1979166,
+  "no_speech_prob": 0.0017824173
+ },
+ {
+  "seq": 125,
+  "start_s": 4407.58,
+  "end_s": 4426.74,
+  "text": "Thank you. I do appreciate Mayor Woodfin and Chief your acknowledgement that it's not a perfect system. We are going through, I think it was a very massive undertaking and learning for those of us that are using the system. And I know primarily our touch point is mainly with, I think.",
+  "cluster_label": "SPEAKER_20",
+  "is_silence": false,
+  "avg_logprob": -0.114433914,
+  "no_speech_prob": 0.00057029724
+ },
+ {
+  "seq": 126,
+  "start_s": 4427.13,
+  "end_s": 4456.35,
+  "text": "Thank you. Thank you so much.",
+  "cluster_label": "SPEAKER_20",
+  "is_silence": false,
+  "avg_logprob": -1.2239584,
+  "no_speech_prob": 0.0037326813
+ },
+ {
+  "seq": 127,
+  "start_s": 4456.19,
+  "end_s": 4493.84,
+  "text": "Yes, ma'am. 100%. All in. All right. Thank you. All right. We're ready for the vote. Thank you. Council Member O'Quinn. Okay, sorry. I'm sorry. Council Member O'Quinn. Thank you. That vote's yours. All right. Thank you. Item 45 passes. Next item, I think we have for the public hearing next. Yes, ma'am. Item 64, resolution setting a public hearing November the 17th of 2026 to consider the closure of approximately 900 feet of Woodcrest Road South and Warwick's Court South.",
+  "cluster_label": "SPEAKER_07",
+  "is_silence": false,
+  "avg_logprob": -0.15997024,
+  "no_speech_prob": 0.0014543533
+ },
+ {
+  "seq": 128,
+  "start_s": 4503.69,
+  "end_s": 4523.03,
+  "text": "All right, thank you, Councilors. This is a resolution setting a public hearing for November 17, 2026 to consider the closure of the aforementioned roadway due to hazardous deterioration. Any questions about setting that date? We're ready for the vote.",
+  "cluster_label": "SPEAKER_20",
+  "is_silence": false,
+  "avg_logprob": -0.1385272,
+  "no_speech_prob": 0.0016355515
+ },
+ {
+  "seq": 129,
+  "start_s": 4531.95,
+  "end_s": 4559.93,
+  "text": "All right, thank you, Councilors. We've set that public hearing date for November 17th, 2026. Mr. Clerk, does that conclude our agenda for this morning? Thank you very much. At this time, Councilors, we're ready to entertain any updates you have from your various districts. And, Councilor Vassa, can you go first? Thank you, Madam President. Updates from District 3. Virginia Sanford Theatre is hosting Berlin to Broadway with Kurt Wheel.",
+  "cluster_label": "SPEAKER_20",
+  "is_silence": false,
+  "avg_logprob": -0.1351869,
+  "no_speech_prob": 0.0029315948
+ },
+ {
+  "seq": 130,
+  "start_s": 4560.36,
+  "end_s": 4588.34,
+  "text": "Musical voyage from October 8th through the 18th. So it starts in two days on Thursday opening night. Looking forward to that event. More information online at the Virginia Sanford Theater. Hoots and Howls 2026 daytime Halloween event will take place over the last three weekends in October. Y'all check that out. Hoots and Howls 2026. And then lastly, Forest Park, South Avondale has their neighborhood association meeting this Tuesday.",
+  "cluster_label": "SPEAKER_02",
+  "is_silence": false,
+  "avg_logprob": -0.119680844,
+  "no_speech_prob": 0.0035324097
+ },
+ {
+  "seq": 131,
+  "start_s": 4589.48,
+  "end_s": 4599.22,
+  "text": "Meeting tonight at 6 30 p.m. at the Avondale, South Avondale Library. Those are my announcements. Thank you. Thank you, Councilor Vassa. Councilor Smitherman? Thank you.",
+  "cluster_label": "SPEAKER_02",
+  "is_silence": false,
+  "avg_logprob": -0.17102581,
+  "no_speech_prob": 0.0018386841
+ },
+ {
+  "seq": 132,
+  "start_s": 4601.55,
+  "end_s": 4631.13,
+  "text": "Thank you, Madam President. In Councilor Smith's absence, I will be doing the District 8 announcements. The application for the District 8 Capital Improvement Awards is live. Residents can apply now through November 9th for this matching funds grant that supports resident-led neighborhood improvements. For more information, the District 8 office invites you to attend their virtual office hour session on Sunday, October 11th. That's this Sunday, October 11th at 4 p.m.",
+  "cluster_label": "SPEAKER_15",
+  "is_silence": false,
+  "avg_logprob": -0.07067871,
+  "no_speech_prob": 0.005241394
+ },
+ {
+  "seq": 133,
+  "start_s": 4631.15,
+  "end_s": 4642.57,
+  "text": "Email d8grants with an S at Birmingham spelled out AL.gov or call the office at 205-254-2304 for meeting details.",
+  "cluster_label": "SPEAKER_15",
+  "is_silence": false,
+  "avg_logprob": -0.25827208,
+  "no_speech_prob": 0.00818634
+ },
+ {
+  "seq": 134,
+  "start_s": 4643.5,
+  "end_s": 4672.86,
+  "text": "For neighborhood meetings, Fairview will have their meeting tonight at 5 30 via teleconference. The phone number is 774-337-0703 and the access code is 1 1 2 5 6 8 8. And then the Thomas neighborhood will also have their meeting tonight at 6 30 p.m. in person. The address is 153 First St. Thomas. Also, Park and Recreation Board meeting will be tomorrow.",
+  "cluster_label": "SPEAKER_15",
+  "is_silence": false,
+  "avg_logprob": -0.120399304,
+  "no_speech_prob": 0.0038833618
+ },
+ {
+  "seq": 135,
+  "start_s": 4672.91,
+  "end_s": 4700.69,
+  "text": "And then for District 6 announcements, we have two neighborhood meetings. Oakwood Place will be today at 4 p.m. at Harrison Park Recreation Center. Mason City will meet today at 4.30 p.m. via teleconference. And then we have West End Manor. They will meet this Monday, October 12th at 5 p.m. at New Hope Baptist Church. Thank you. Thank you very much for both sets of those announcements. Councilor Williams?",
+  "cluster_label": "SPEAKER_15",
+  "is_silence": false,
+  "avg_logprob": -0.094218746,
+  "no_speech_prob": 0.005340576
+ },
+ {
+  "seq": 136,
+  "start_s": 4701.57,
+  "end_s": 4731.76,
+  "text": "Thank you. Economic Development and Tourism Committee will have a work session 1130 in D&E, so if you're available, Mr. Cohn. Roebuck Springs Neighborhood will be Thursday, October 8th at 7 o'clock at New Beginnings Church, and Overton will be tonight at 6 o'clock at Macedonia Baptist Church. Thank you. Thank you very much. Councilor O'Quinn. Thank you, Madam President. Eastlake Neighborhood Association will meet tonight at 6 p.m. at Household of Faith Church for Spark South Avondale,",
+  "cluster_label": "SPEAKER_05",
+  "is_silence": false,
+  "avg_logprob": -0.11839431,
+  "no_speech_prob": 0.0049057007
+ },
+ {
+  "seq": 137,
+  "start_s": 4732.38,
+  "end_s": 4759.3,
+  "text": "Meet also tonight at 630 at the Avondale Library. Smithfield will meet on Thursday at 6 p.m. at Smithfield Court Community Center. And the Birmingham Metropolitan Planning Organization is updating its public transportation plan. This is a roadmap for public involvement in transportation planning.",
+  "cluster_label": "SPEAKER_21",
+  "is_silence": false,
+  "avg_logprob": -0.12808388,
+  "no_speech_prob": 0.0022678375
+ },
+ {
+  "seq": 138,
+  "start_s": 4760.36,
+  "end_s": 4788.95,
+  "text": "The public involvement meetings will take place on Wednesday, October 21st from 12 to 1 p.m. and 5 to 6 p.m. Again, that's Wednesday, October 21st. The meetings will take place at the Regional Planning Commission of Greater Birmingham, Conference Room 2 on 20th, that's 2 North 20th.",
+  "cluster_label": "SPEAKER_21",
+  "is_silence": false,
+  "avg_logprob": -0.062557444,
+  "no_speech_prob": 0.0017528534
+ },
+ {
+  "seq": 139,
+  "start_s": 4790.74,
+  "end_s": 4816.94,
+  "text": "The draft will be available starting Monday, October 19th with a 45-day comment and review period taking place from October 21st to December 4th. And comments can be emailed to MPO at rpcgb.org. And so there's two ways to...",
+  "cluster_label": "SPEAKER_21",
+  "is_silence": false,
+  "avg_logprob": -0.10773026,
+  "no_speech_prob": 0.0020103455
+ },
+ {
+  "seq": 140,
+  "start_s": 4818.85,
+  "end_s": 4845.55,
+  "text": "You can go online to www.rpcgb.org backslash public involvement or the two in-person meetings at RPCGB. Again, that's Wednesday, October 21st from 12 to 1 p.m. and on the same day at 5 to 6 p.m.",
+  "cluster_label": "SPEAKER_21",
+  "is_silence": false,
+  "avg_logprob": -0.09267893,
+  "no_speech_prob": 0.0036716461
+ },
+ {
+  "seq": 141,
+  "start_s": 4847.08,
+  "end_s": 4873.38,
+  "text": "And that concludes my announcements. Thank you. Thank you, Councilor O'Quinn. Councilor Woods? Thank you, Madam President. Quickly, the Budget and Finance Committee, the next meeting will be on Monday, October 12th at 3.30 p.m. Agenda submissions are due by noon on Wednesday, October 7th. Also this week, Apple Valley Neighborhood Association will meet tonight at 6.30 p.m. at the East Pinson Valley Rec Center.",
+  "cluster_label": "SPEAKER_25",
+  "is_silence": false,
+  "avg_logprob": -0.06347656,
+  "no_speech_prob": 0.00065135956
+ },
+ {
+  "seq": 142,
+  "start_s": 4873.9,
+  "end_s": 4901.86,
+  "text": "Spring Lake will meet Thursday, October 8th at 6.30 p.m. at Huffman High School via Zoom. Also, Echo Highlands will also meet on Thursday, October 8th at 7 p.m. The Roebuck meeting will be on October 12th at 6.30 p.m. As always, encourage residents to get involved and participate in your neighborhood meetings. The next Be Letter Free community cleanup",
+  "cluster_label": "SPEAKER_25",
+  "is_silence": false,
+  "avg_logprob": -0.11381392,
+  "no_speech_prob": 0.0011329651
+ },
+ {
+  "seq": 143,
+  "start_s": 4902.47,
+  "end_s": 4929.65,
+  "text": "Uh, will be Saturday, October 17th at 9 a.m. Uh, we appreciate partners from our recent cleanup helped remove 367 pounds of litter from the community. The Safe Summer Series coming up, uh, on, partnering with Councilor Crystal Smitherman, um, and excited about that coming up on October 25th at 6 p.m. Uh, got a, uh, great guest. It's gonna be a great time, so stay tuned for more details.",
+  "cluster_label": "SPEAKER_25",
+  "is_silence": false,
+  "avg_logprob": -0.1373565,
+  "no_speech_prob": 0.0023593903
+ },
+ {
+  "seq": 144,
+  "start_s": 4931.13,
+  "end_s": 4959.97,
+  "text": "Stay tuned, stay tuned, stay tuned. I also want to just invite everybody out on Sunday, October 11th from 2 p.m. to 4 p.m. We'll be having a District 1 Harvest and Garden Fest, and so come out, check out the community garden. The group of volunteers there has been doing a really great job of planning and keeping that place up. It's really grown, and so come out. You'll be able to learn how to garden. They'll have different stations set up, so I encourage everyone to get involved.",
+  "cluster_label": "SPEAKER_25",
+  "is_silence": false,
+  "avg_logprob": -0.09112339,
+  "no_speech_prob": 0.0013151169
+ },
+ {
+  "seq": 145,
+  "start_s": 4960.66,
+  "end_s": 4970.06,
+  "text": "Thank you, Councilor. Councilor Gunn? Thank you, Madam President. These are my announcements. This Saturday, the Northside Harvest Festival will be taking place at the North",
+  "cluster_label": "SPEAKER_01",
+  "is_silence": false,
+  "avg_logprob": -0.18780048,
+  "no_speech_prob": 0.0030937195
+ },
+ {
+  "seq": 146,
+  "start_s": 4970.15,
+  "end_s": 4989.97,
+  "text": "Councilor Wood, trolley stop from 6 to 9 p.m. Come out and enjoy live music, food, and local vendors. Also this Saturday we'll be hosting a community cleanup in the Collegeville neighborhood in partnership with the Black Warrior Riverkeeper at Macklin Park from 9 a.m. to 11 a.m. So come out and take pride in your community in the Collegeville area.",
+  "cluster_label": "SPEAKER_01",
+  "is_silence": false,
+  "avg_logprob": -0.14015438,
+  "no_speech_prob": 0.003376007
+ },
+ {
+  "seq": 147,
+  "start_s": 4991.15,
+  "end_s": 5013.41,
+  "text": "Upcoming neighborhood association meetings. This Monday, October the 12th, well, next Monday, October the 12th, the Englenook Neighborhood Association will take place at 5.30 p.m. at the Englenook Recreation Center. Also that same Monday, Woodlawn Neighborhood Association will take place at 6 p.m. at Willowwood Recreation Center. Also that same Monday, Airport Highlands will take place at 6 p.m. at Pleasant View.",
+  "cluster_label": "SPEAKER_01",
+  "is_silence": false,
+  "avg_logprob": -0.10051082,
+  "no_speech_prob": 0.0019111633
+ },
+ {
+  "seq": 148,
+  "start_s": 5013.83,
+  "end_s": 5030.35,
+  "text": "Councils, Councils, Councils, Councils, Councils, Councils,",
+  "cluster_label": "SPEAKER_01",
+  "is_silence": false,
+  "avg_logprob": -0.6118421,
+  "no_speech_prob": 0.0010557175
+ },
+ {
+  "seq": 149,
+  "start_s": 5041.11,
+  "end_s": 5064.67,
+  "text": "Councilor Pro Tem. Thank you, Madam President. The Weiland Neighborhood Association meeting is tonight at 6 p.m. at Weiland Public Library. Thomas Neighborhood Association meeting is tonight at 6 30 at Greater St. Thomas Community Church. A Sipico Family Neighborhood Association meeting is meeting Wednesday, October the 7th, 5 30 at the Sipico Plant Community Room. The next public safety meeting will be held on Tuesday, October the 13th.",
+  "cluster_label": "SPEAKER_11",
+  "is_silence": false,
+  "avg_logprob": -0.13924155,
+  "no_speech_prob": 0.005050659
+ },
+ {
+  "seq": 150,
+  "start_s": 5065.08,
+  "end_s": 5084.21,
+  "text": "1 p.m. in the council chambers. Please submit your agenda items by email in the letter that wins October 7th, which is tomorrow, by 12 noon to Gregory Stanley and Ashanta Little. I am getting geared up to partner with Councilor Gunn. We're kicking off the...",
+  "cluster_label": "SPEAKER_11",
+  "is_silence": false,
+  "avg_logprob": -0.222208,
+  "no_speech_prob": 0.0043296814
+ },
+ {
+  "seq": 151,
+  "start_s": 5085.06,
+  "end_s": 5107.8,
+  "text": "Avenue Street Market, which is going to be on October the 17th from 10 a.m. to 2 p.m. at the North Birmingham Square, located at 3012 27th Street North. So we're looking for a good time there, activating that square. And so I want to thank Councilor Gunn for his partnership, as Councilor Woods has stated, leading into their Safe Summer Series.",
+  "cluster_label": "SPEAKER_11",
+  "is_silence": false,
+  "avg_logprob": -0.11495536,
+  "no_speech_prob": 0.0015010834
+ },
+ {
+  "seq": 152,
+  "start_s": 5109.19,
+  "end_s": 5137.23,
+  "text": "We are kicking off the 205 in Park, the HBCU edition of that. So we are calling all college students, alumni, if you went to an HBCU, we would love to have you in the building. And if you didn't and you represent an HBCU, come on out to the Auditory. It's October the 23rd from 10 a.m. to 2 p.m. So it's a college edition. We'll be having discussions. Don't fumble the bag.",
+  "cluster_label": "SPEAKER_11",
+  "is_silence": false,
+  "avg_logprob": -0.15046297,
+  "no_speech_prob": 0.0016489029
+ },
+ {
+  "seq": 153,
+  "start_s": 5137.88,
+  "end_s": 5161.12,
+  "text": "Don't fumble your freedom. So, you know, the hot topic around NIL, the history, you know, the future of the HBCUs, the future of HBCUs, a lot of life in the yard, going to have some great national guests along with, you know, our college students gauging the platform as well. So, come on out and celebrate and kick off the 205 and Park.",
+  "cluster_label": "SPEAKER_11",
+  "is_silence": false,
+  "avg_logprob": -0.113939606,
+  "no_speech_prob": 0.0006117821
+ },
+ {
+  "seq": 154,
+  "start_s": 5162.34,
+  "end_s": 5189.6,
+  "text": "HBCU edition. So come out. Thank you, Madam President. Thank you so much, Madam Pro Tem. Councilor Vasa, I think you said you had one other item you'd like to mention. Thank you, Madam President. I would be remiss if I didn't give thanks to my wife for putting up for me for eight years as of today. So I want to thank her for that. And then also say happy birthday to our chief of staff of District 3 office, Toni King. Her birthday is this Sunday. Thank you, Madam President.",
+  "cluster_label": "SPEAKER_02",
+  "is_silence": false,
+  "avg_logprob": -0.098424144,
+  "no_speech_prob": 0.0011329651
+ },
+ {
+  "seq": 155,
+  "start_s": 5189.9,
+  "end_s": 5196.76,
+  "text": "Thank you very much for noting that. Happy anniversary and happy birthday to Chief of Staff King.",
+  "cluster_label": "SPEAKER_20",
+  "is_silence": false,
+  "avg_logprob": -0.13828124,
+  "no_speech_prob": 0.0012741089
+ },
+ {
+  "seq": 156,
+  "start_s": 5197.18,
+  "end_s": 5224.82,
+  "text": "These are announcements for District 7. First, I'd like to acknowledge that we had several commemorations for what is going on as we're celebrating things in the month of October. And the month of October is also National Principals Month. So I'd like to take this opportunity to thank all of our D7 principals that work hard and work diligently for our parents and our students in District 7. I sent them a letter yesterday congratulating them on",
+  "cluster_label": "SPEAKER_20",
+  "is_silence": false,
+  "avg_logprob": -0.0625,
+  "no_speech_prob": 0.0023403168
+ },
+ {
+  "seq": 157,
+  "start_s": 5226.06,
+  "end_s": 5255.0,
+  "text": "National Principals Month and also announcing to them our discretionary support this year which totaled $20,000 to our five D7 schools. So very happy for each of them and the work that they do. Also last week I think you all noticed that Councilor Woods and I left a little early and I would like to thank him. We both had an opportunity to speak during the Alabama Community College Systems Workforce Exchange. We're on a panel where we talked about how legislation",
+  "cluster_label": "SPEAKER_20",
+  "is_silence": false,
+  "avg_logprob": -0.095264666,
+  "no_speech_prob": 0.0015125275
+ },
+ {
+  "seq": 158,
+  "start_s": 5255.41,
+  "end_s": 5273.79,
+  "text": "And collaboration with local municipalities can help to fuel or boost workforce development in our area. So I thank you, Councilor Woods. He brought up some very good programs that we have in the city of Birmingham. And so I really enjoyed participating with you on that panel. So thank you very much.",
+  "cluster_label": "SPEAKER_20",
+  "is_silence": false,
+  "avg_logprob": -0.10796619,
+  "no_speech_prob": 0.0023593903
+ },
+ {
+  "seq": 159,
+  "start_s": 5274.46,
+  "end_s": 5298.76,
+  "text": "Thank you all. All right. And last, and I'm not sure if you did this one if I wasn't paying attention, but I would like to encourage attendance at the upcoming citywide framework plan implementation committee meeting that's coming up Thursday, October 8th from 5.30 to 7 p.m. You're going to be on the west side. We go into the West Police Princeton meeting room that's over in Five Points West. So please join us there.",
+  "cluster_label": "SPEAKER_20",
+  "is_silence": false,
+  "avg_logprob": -0.13651739,
+  "no_speech_prob": 0.006538391
+ },
+ {
+  "seq": 160,
+  "start_s": 5300.94,
+  "end_s": 5327.1,
+  "text": "Alabama College's free application week is being held this week from October 5th through the 9th. Why is that important to us? College applications, when you have a child that wants to attend every school that they've ever thought of, that can be kind of costly, okay? And some parents, I know when I was going to college, we kind of had to decide which ones would we want to apply for because there wasn't a lot of money for that. And so right now, and I know you're all thinking, of course, it wasn't in the...",
+  "cluster_label": "SPEAKER_20",
+  "is_silence": false,
+  "avg_logprob": -0.10222457,
+  "no_speech_prob": 0.0010318756
+ },
+ {
+  "seq": 161,
+  "start_s": 5327.44,
+  "end_s": 5347.48,
+  "text": "Oh, buggy days. It was still college's work system when I went to college. But anyway, I do want to encourage parents and students to please go out. We have this on our city website and we'll also be posting this on the D7 page. Get those applications in and again they'll be October 5th through 9th and they are free.",
+  "cluster_label": "SPEAKER_20",
+  "is_silence": false,
+  "avg_logprob": -0.1611842,
+  "no_speech_prob": 0.0021820068
+ },
+ {
+  "seq": 162,
+  "start_s": 5347.93,
+  "end_s": 5361.33,
+  "text": "So we want to encourage you to do that. This week, neighborhood meetings. We do have the Roosevelt City Neighborhood Association. We'll be meeting at 6 p.m. at the Roosevelt Rec Center. And Monday, the Powderly Neighborhood Association will meet on...",
+  "cluster_label": "SPEAKER_20",
+  "is_silence": false,
+  "avg_logprob": -0.11704799,
+  "no_speech_prob": 0.003944397
+ },
+ {
+  "seq": 163,
+  "start_s": 5361.6,
+  "end_s": 5386.6,
+  "text": "October 12th at the Henry Crompton Rec Center. I also want to make you aware that on Saturday, October 10th, the West Goldwire neighborhood will have a block party from 1130 a.m. to 130 p.m. They'd like to invite everyone to come and meet and greet your neighbors over there in West Goldwire. There'll be food, music, and fun. So bring your lawn chairs and they'll be meeting on Gold...",
+  "cluster_label": "SPEAKER_20",
+  "is_silence": false,
+  "avg_logprob": -0.10789474,
+  "no_speech_prob": 0.0017547607
+ },
+ {
+  "seq": 164,
+  "start_s": 5386.94,
+  "end_s": 5410.06,
+  "text": "Thank you for joining us today.",
+  "cluster_label": "SPEAKER_20",
+  "is_silence": false,
+  "avg_logprob": -1.3652344,
+  "no_speech_prob": 0.0037078857
+ },
+ {
+  "seq": 165,
+  "start_s": 5415.9,
+  "end_s": 5439.38,
+  "text": "Announcements. I do want to remind you, Councilors, we have a 9-1-1 commission meeting immediately following this, so we will need a quorum to conduct some business. And so with that in mind, we'll go ahead, Mr. Clerk, and turn our attention to the speaker's list. Willie Jenkins. Willie Jenkins. Hey, good morning, Mr. Jenkins.",
+  "cluster_label": "SPEAKER_20",
+  "is_silence": false,
+  "avg_logprob": -0.09475038,
+  "no_speech_prob": 0.0021324158
+ },
+ {
+  "seq": 166,
+  "start_s": 5440.41,
+  "end_s": 5449.59,
+  "text": "As you come forward, just remember you have three minutes and we've got these screens over here to my left and right. I'm going to let you know as your time is ticking down. Glad to see you this morning.",
+  "cluster_label": "SPEAKER_20",
+  "is_silence": false,
+  "avg_logprob": -0.07729389,
+  "no_speech_prob": 0.003271103
+ },
+ {
+  "seq": 167,
+  "start_s": 5449.59,
+  "end_s": 5534.57,
+  "text": "",
+  "cluster_label": null,
+  "is_silence": true,
+  "avg_logprob": null,
+  "no_speech_prob": null
+ },
+ {
+  "seq": 168,
+  "start_s": 5534.57,
+  "end_s": 5571.79,
+  "text": "We have a one night of a glass of tea.",
+  "cluster_label": "SPEAKER_10",
+  "is_silence": false,
+  "avg_logprob": -1.1106771,
+  "no_speech_prob": 0.034454346
+ },
+ {
+  "seq": 169,
+  "start_s": 5619.61,
+  "end_s": 5637.88,
+  "text": "Thank you, Mr. Jenkins. Thanks so much for bringing these announcements to us. Did you say the class of 72? That's who you graduated with? That's right. That was a good year to graduate high school. There you go. Thank you, Mr. Jenkins. Appreciate you. All right. Next.",
+  "cluster_label": "SPEAKER_20",
+  "is_silence": false,
+  "avg_logprob": -0.1139323,
+  "no_speech_prob": 0.0016355515
+ },
+ {
+  "seq": 170,
+  "start_s": 5638.49,
+  "end_s": 5674.02,
+  "text": "Speaker, please. Leroy Russell. Good morning, Mr. Russell. As you come forward, we have two speakers to my left and right. You have three minutes, and so if you give us your address, we'll go ahead and listen. Thank you. Good morning. Yes, so my name is Leroy Russell. I own the Spice of Life Jamaica restaurant across the street. I live in Atlanta, Georgia. We have business in Atlanta. We have business in Jamaica.",
+  "cluster_label": "SPEAKER_20",
+  "is_silence": false,
+  "avg_logprob": -0.10730699,
+  "no_speech_prob": 0.00970459
+ },
+ {
+  "seq": 171,
+  "start_s": 5675.51,
+  "end_s": 5698.33,
+  "text": "I spent $280,000 to open that restaurant three years ago. And ever since I opened the restaurant, we have been bombarded by a lot of things that happened within the city. I have tried to speak to Dr. O'Quinn. I've never met the gentleman, but I heard that he is over the district in which my restaurant is located.",
+  "cluster_label": "SPEAKER_22",
+  "is_silence": false,
+  "avg_logprob": -0.07056949,
+  "no_speech_prob": 0.0013113022
+ },
+ {
+  "seq": 172,
+  "start_s": 5699.11,
+  "end_s": 5724.31,
+  "text": "I called for three years now and never had anyone return my call. The other day I called again and I spoke to the lady. She said she spoke, she speak for him and the way she was talking to me was very bad. However, each time they have a function out here, they block the entrance of my restaurant and they put police right at the entrance. I've been threatened to be locked up before. I'm driving into my business place.",
+  "cluster_label": "SPEAKER_22",
+  "is_silence": false,
+  "avg_logprob": -0.08277926,
+  "no_speech_prob": 0.0035572052
+ },
+ {
+  "seq": 173,
+  "start_s": 5724.9,
+  "end_s": 5754.54,
+  "text": "And police officers threatened to lock me up because I'm trying to get to my business place. My concern is me coming here in Birmingham trying to bring commerce to the city. I have been treated extremely bad. I don't think that one should be able to block a brick and mortar business for profit. When they have their functions here that they are getting a lot of money from, my business suffers. We have to throw all that food in the garbage.",
+  "cluster_label": "SPEAKER_22",
+  "is_silence": false,
+  "avg_logprob": -0.06699429,
+  "no_speech_prob": 0.003484726
+ },
+ {
+  "seq": 174,
+  "start_s": 5755.5,
+  "end_s": 5784.37,
+  "text": "So I'm here this morning to ask you guys if we can come to some kind of consensus where they stop placing police at the entrance of my business because I'm too busy. I don't have time to go to court. But me being here in the city, I'm asking the people who are in charge to find a way so we can work amicably that my business can be successful and whosoever brings their whatever they're having out here, they also can be successful.",
+  "cluster_label": "SPEAKER_22",
+  "is_silence": false,
+  "avg_logprob": -0.07820312,
+  "no_speech_prob": 0.0021972656
+ },
+ {
+  "seq": 175,
+  "start_s": 5785.0,
+  "end_s": 5819.27,
+  "text": "We have thrown away thousands and thousands of dollars of food because no one will come inside the restaurant when police is at entrance. I don't know anybody who want to throw $280,000 in the garbage, but that's what we are about to do because it's a big hindrance. Thank you, Mr. Russell. You've made us aware of this and we do have the administration here that would be able to look into this and for further consideration. So thank you.",
+  "cluster_label": "SPEAKER_22",
+  "is_silence": false,
+  "avg_logprob": -0.12468435,
+  "no_speech_prob": 0.0013751984
+ },
+ {
+  "seq": 176,
+  "start_s": 5819.7,
+  "end_s": 5850.19,
+  "text": "All right, I have been talking, I spoke to the mayor before, and there's a gentleman that works in transportation. Mr. Fowler worked, I spoke to him. One day when they were blocking it, he was standing right there. He said there was nothing he could do. Mr. O'Quinn's secretary, whatever her position is. Chief of Staff. Chief of Staff. She told me, she was willing to give me her name. I was very surprised to know that I'm a business owner and I've been talked to the way. I don't want to declare who I am because",
+  "cluster_label": "SPEAKER_22",
+  "is_silence": false,
+  "avg_logprob": -0.1425935,
+  "no_speech_prob": 0.068359375
+ },
+ {
+  "seq": 177,
+  "start_s": 5850.68,
+  "end_s": 5875.88,
+  "text": "If you know who I am, you would never talk to me that way in terms of I am not some person who is trying to make it. You're looking at a million here. And I told the lady, you cannot talk to somebody the way you talk to someone the way you talk to me. Thank you, Mr. Russell. Again, your concerns are duly noted and we will have administration to look into because permits are given in different...",
+  "cluster_label": "SPEAKER_22",
+  "is_silence": false,
+  "avg_logprob": -0.104166664,
+  "no_speech_prob": 0.0037574768
+ },
+ {
+  "seq": 178,
+  "start_s": 5876.16,
+  "end_s": 5886.76,
+  "text": "Work is being done before we block off a street. I don't know, Chief, if you had anything or any direction. Anyone else Mr. Russell could speak with? Yes, ma'am, Madam President. Mr. Russell, so...",
+  "cluster_label": "SPEAKER_20",
+  "is_silence": false,
+  "avg_logprob": -0.16007966,
+  "no_speech_prob": 0.0018091202
+ },
+ {
+  "seq": 179,
+  "start_s": 5887.04,
+  "end_s": 5913.78,
+  "text": "He stated it. Our Department of Planning, Engineering, and Permits, our Office of Public Affairs, our Department of Transportation are working closely with him to try to make certain that there are adjustments that allow him to not have his business impeded, but also make certain that city events that have been sanctioned to go on for the public, that they can mutually occupy the space. That is an ongoing discussion that the staff will continue to have to see if we can find a meeting of the minds.",
+  "cluster_label": "SPEAKER_26",
+  "is_silence": false,
+  "avg_logprob": -0.07203584,
+  "no_speech_prob": 0.0033493042
+ },
+ {
+  "seq": 180,
+  "start_s": 5914.55,
+  "end_s": 5960.1,
+  "text": "Thank you. Thank you, Mr. Russell. Have a great day. Next speaker. Nathan Thompson. Mr. Thompson, as you come forward, we have three minutes to speak, and we do have monitors on my left and right that will indicate your time. Hold on one second. Go ahead, Mr. Russell. Nathan Thompson, 6779 Old Springville Road.",
+  "cluster_label": "SPEAKER_20",
+  "is_silence": false,
+  "avg_logprob": -0.110389605,
+  "no_speech_prob": 0.0023593903
+ },
+ {
+  "seq": 181,
+  "start_s": 5960.66,
+  "end_s": 5980.18,
+  "text": "Dear council members and mayor, thank you for the opportunity to come before you today. I've lived in Birmingham area for 51 years. You may recall me from September 22nd when you condemned a property I'd gained ownership of four days prior. The property came from my father's estate. Since acquiring the property, I've spent significant time and money cleaning the property up.",
+  "cluster_label": "SPEAKER_12",
+  "is_silence": false,
+  "avg_logprob": -0.074115954,
+  "no_speech_prob": 0.00070762634
+ },
+ {
+  "seq": 182,
+  "start_s": 5980.6,
+  "end_s": 6003.74,
+  "text": "My father always gave back to the community and I want to continue his passion. He made one of the first community gardens in Birmingham in the southeast lake area on a property the city of Birmingham had demolished and for years paid for everything that went into it and gave out everything grown throughout the community. I still remember the day Birmingham Public Works came through with a tractor and mowed all the crops over and told him he couldn't have a garden on that land because it didn't belong to him.",
+  "cluster_label": "SPEAKER_12",
+  "is_silence": false,
+  "avg_logprob": -0.035175588,
+  "no_speech_prob": 0.0016098022
+ },
+ {
+  "seq": 183,
+  "start_s": 6004.36,
+  "end_s": 6030.38,
+  "text": "I spoke with my father before his passing on the vision he had for the property at 3012 Dowell Avenue Southwest, formerly known as Powderly Church, of getting funded and opening a STEM center for the struggling school across the street. According to U.S. News & World Report, as of 2026, Jones Valley Middle School was tied at 407 out of 428 in Alabama schools for reading proficiency at 19% and tied at 422 out of 428 for math proficiency of only 1%.",
+  "cluster_label": "SPEAKER_12",
+  "is_silence": false,
+  "avg_logprob": -0.07628456,
+  "no_speech_prob": 0.0027923584
+ },
+ {
+  "seq": 184,
+  "start_s": 6030.92,
+  "end_s": 6058.36,
+  "text": "Jones Valley Middle School is ranked last in Birmingham Middle Schools. This really troubles me as someone who works with youth of all ages in my business. If I cannot get approval of working capital to form a STEM center, I would like to turn the property into a farmer's market contributing to the local economy and local farmers. We could also have a community garden on the property. Bearing the feasibility of a STEM center, the size of the structure would also make it a great venue to host local art exhibits with a food and craft farmer's market.",
+  "cluster_label": "SPEAKER_12",
+  "is_silence": false,
+  "avg_logprob": -0.05092076,
+  "no_speech_prob": 0.0005559921
+ },
+ {
+  "seq": 185,
+  "start_s": 6058.84,
+  "end_s": 6084.26,
+  "text": "I acquired the property on September 18th and gave notice I requested a hearing which was received in your office on the 18th by Mr. Jeffrey McDaniels. Three days later I was told by Artemis Willis that it would be removed from the agenda so I could have some time to resolve the issues with the properties. I came and spoke with the mayor on September 22nd and found it was still on the agenda. Per the council recording video line at 33 minutes and 3 seconds, items 20 and 21 were withdrawn.",
+  "cluster_label": "SPEAKER_12",
+  "is_silence": false,
+  "avg_logprob": -0.06680783,
+  "no_speech_prob": 0.0019607544
+ },
+ {
+  "seq": 186,
+  "start_s": 6085.07,
+  "end_s": 6111.83,
+  "text": "At 1 hour and 22 minutes and 8 seconds, Councilor O'Quinn stated, we're not going after properties that are residences and inhabited, but we have plenty of properties that were, you know, commercial structures that have just essentially been abandoned. He thanked Jefferson County and further stated, if you don't take care of these properties, we will come after you and you will no longer own those properties. Later in the meeting at 2 hours, 1 minute and 30 seconds,",
+  "cluster_label": "SPEAKER_12",
+  "is_silence": false,
+  "avg_logprob": -0.0625,
+  "no_speech_prob": 0.001036644
+ },
+ {
+  "seq": 187,
+  "start_s": 6113.49,
+  "end_s": 6145.57,
+  "text": "Councilwoman Smith stated, whenever I've driven by, I've noticed doors open and it's unsafe. When I went to the property, the doors were shut and locked on the front of the main building and the alley was blocked by a tree. The auxiliary building does have a door missing that someone has removed from the property, which may be her concern. If I'm trying to do something helpful to the community with this property, why is the city trying to steal from the future potential to the children? Thank you for your time. Appreciate that. What we're not going to do",
+  "cluster_label": "SPEAKER_12",
+  "is_silence": false,
+  "avg_logprob": -0.053768385,
+  "no_speech_prob": 0.00033473969
+ },
+ {
+  "seq": 188,
+  "start_s": 6146.06,
+  "end_s": 6175.69,
+  "text": "You can see it. You can see it. What we're not going to do, we're not going to talk about the students and the parents and the administrators at Jones Valley Middle School. Because let me tell you what they do. Just about every other day, those students, those faculty, they have to go out and they have to clean up places like the one that's been aforementioned. And so what I'm going to say, we're not going to come here and make the students",
+  "cluster_label": "SPEAKER_20",
+  "is_silence": false,
+  "avg_logprob": -0.06648284,
+  "no_speech_prob": 0.0016746521
+ },
+ {
+  "seq": 189,
+  "start_s": 6176.25,
+  "end_s": 6203.09,
+  "text": "And that middle school a part of this. Birmingham has one school left on the failing school list and they have worked diligently and we've had a lot of community partners and people to come in and they have wanted to help these schools and they've helped these students and they've helped these residents. Each year District 7 holds a Love D7 Day which is right adjacent in this area.",
+  "cluster_label": "SPEAKER_20",
+  "is_silence": false,
+  "avg_logprob": -0.08728966,
+  "no_speech_prob": 0.0007853508
+ },
+ {
+  "seq": 190,
+  "start_s": 6203.58,
+  "end_s": 6230.91,
+  "text": "I have three seniors from the Jones Valley neighborhood who go out each year and they work diligently to try to remove the debris and what they see is an eyesore in that property. So what we're going to talk about in this particular chamber is how we can work together to improve our communities and to revitalize it. But what we're not going to do is sit here and make those students",
+  "cluster_label": "SPEAKER_20",
+  "is_silence": false,
+  "avg_logprob": -0.06230469,
+  "no_speech_prob": 0.0023784637
+ },
+ {
+  "seq": 191,
+  "start_s": 6231.34,
+  "end_s": 6258.44,
+  "text": "Those parents and those families feel as if they are part of this problem. That ends our community voices. And at this time, I'd like to thank our officers on duty, Officer Pinkert, Tarrant, and Wesley, and our fire inspectors on duty, Inspector Shaw. This time, I have a motion and a second to end this. Second. All those in favor, please say aye. Aye. Thank you. This time, Councilors, as we clear the",
+  "cluster_label": "SPEAKER_20",
+  "is_silence": false,
+  "avg_logprob": -0.14244002,
+  "no_speech_prob": 0.00046920776
+ }
+]

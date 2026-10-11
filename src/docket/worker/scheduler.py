@@ -5,7 +5,7 @@ Two modes:
   python -m docket.worker.scheduler                   # daemon mode (Railway worker)
   python -m docket.worker.scheduler --run-once <task> # foreground one-shot
 
-The daemon registers all seven jobs with the timezone in $WORKER_TIMEZONE
+The daemon registers all thirteen jobs with the timezone in $WORKER_TIMEZONE
 (default America/Chicago) and calls scheduler.start(), which blocks.
 
 The one-shot mode runs a single named task in the foreground using the same
@@ -29,7 +29,7 @@ log = logging.getLogger(__name__)
 
 
 def build_scheduler(timezone: str = "America/Chicago") -> BlockingScheduler:
-    """Build a scheduler with all seven jobs registered. Does not start it."""
+    """Build a scheduler with all thirteen jobs registered. Does not start it."""
     sched = BlockingScheduler(timezone=timezone)
 
     sched.add_job(
@@ -71,6 +71,16 @@ def build_scheduler(timezone: str = "America/Chicago") -> BlockingScheduler:
         TASKS["vote_matching"],
         CronTrigger(hour=9, minute=0, timezone=timezone),
         id="vote_matching",
+        coalesce=True,
+        max_instances=1,
+    )
+    # Transcript LLM stages (speakers -> events -> comparison), after vote
+    # matching so the deterministic vote check sees today's minutes votes.
+    # Spec: docs/superpowers/specs/2026-10-05-meeting-transcripts-design.md §3
+    sched.add_job(
+        TASKS["transcript_pipeline"],
+        CronTrigger(hour=10, minute=0, timezone=timezone),
+        id="transcript_pipeline",
         coalesce=True,
         max_instances=1,
     )

@@ -77,7 +77,9 @@ Dumps and restores from a laptop use the postgresql@18 binaries (`/opt/homebrew/
 
 The worker's memory ceiling is a constraint in `GOALS.md`. Never start a second heavy Python process on the worker (`railway ssh --run-once <heavy task>` has caused out-of-memory kills). If headroom shrinks, the options are a larger tier, `LIMIT 1` per OCR tick, or a separate OCR service.
 
-Two feature flags are on in production: `IMPACT_FIRST_ENABLED=true` on `worker` (the v3 pipeline writes) and `SMART_BREVITY_UI=true` on `docket-web` (citizen rendering of v3 cards). They are read in `src/docket/config.py` and `src/docket/web/__init__.py`; Railway holds the values.
+Feature flags in production: `IMPACT_FIRST_ENABLED=true` on `worker` (the v3 pipeline writes) and `SMART_BREVITY_UI=true` on `docket-web` (citizen rendering of v3 cards) are on. `MINUTES_VS_VIDEO_UI` on `docket-web` stays unset until the transcript ship gate on `/admin/ai` reads "met" (decision `0032`). `TRANSCRIPT_PER_TICK` (default 5) bounds the worker's transcript stage advances per tick. Flags are read in `src/docket/config.py` and `src/docket/web/__init__.py`; Railway holds the values.
+
+Backfills run from a laptop against `DATABASE_PUBLIC_URL`. The archived 2023 Birmingham meetings come from `scripts/backfill_archived_meetings.py --manifest scripts/manifests/birmingham_2023_archived.json`, which caches agenda PDFs on disk and paces Wayback requests; no minutes exist online for those meetings, so they carry agendas and video only.
 
 Bulk changes on production are one targeted SQL statement. The volume size is a constraint in `GOALS.md`; the incident behind the rule is decision `0026`.
 
@@ -97,6 +99,6 @@ The desktop producer on the Legion transcribes council video and uploads through
 
 - `docs/runbooks/cron-worker.md`: Healthchecks.io setup, `--run-once` verification, alert response, the backfill.
 - `docs/runbooks/analytics.md` and `docs/analytics-queries.md`: Umami views and common queries. Query only the `v_*` views; see decision `0024`.
-- `docs/runbooks/transcripts.md`: the Legion producer.
+- `docs/runbooks/transcripts.md`: the transcript pipeline end to end, the Legion producer, worker environment, review queue, ship gate, A/B. `docs/runbooks/transcripts-pipeline-map.md`: the stage map for review.
 - `docs/runbooks/v3-cutover.md` and `docs/runbooks/smart-brevity-ui-flip.md`: the Impact-First cutover procedures.
 - `docs/SECURITY_CHECKLIST.md`: pre-launch requirements.
