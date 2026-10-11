@@ -1,6 +1,6 @@
 # tests/unit/test_aligner.py
-from docket.ai.transcripts.aligner import (MINUTED_TYPES, Event, align, details_differ, effective_consent_block,
-                                            mismatch_note, pair_group, sequence_candidates)
+from docket.ai.transcripts.aligner import (MINUTED_TYPES, Event, align, canonical_result, details_differ, effective_consent_block,
+                                            mismatch_note, pair_group, sequence_candidates, vote_outcome_candidates)
 
 _id = iter(range(1, 10_000))
 
@@ -206,3 +206,28 @@ def test_mismatch_note_names_both_sides_for_a_reviewer():
     # align() carries the note onto the candidate that becomes the row's description.
     cands = align([t], [m], consent_items=set(), votes=[])
     assert [c.note for c in cands if c.category == "vote_outcome"] == ["vote: transcript says approved 6-1; minutes say approved 7-0"]
+
+
+def test_vote_vocabulary_is_not_a_vote_outcome_discrepancy():
+    """First production run (meeting 15): 'approved' vs 'adopted 9-0' and 'passes' vs 'adopted' were raised as
+    material vote_outcome rows. They are the same outcome; the spec calls that wording at most."""
+    assert canonical_result("approved") == canonical_result("adopted") == canonical_result("That item passes.") == "pass"
+    assert canonical_result("failed") == canonical_result("This item fails.") == canonical_result("denied") == "fail"
+    assert canonical_result("motion to approve NOT adopted; resolution adopted") == "fail"     # the Birmingham denial pattern
+    assert canonical_result("") is None and canonical_result("deferred two weeks") is None
+    same = [("approved", "adopted"), ("passed", "adopted"), ("failed", "motion to approve NOT adopted; resolution adopted")]
+    for a, b in same:
+        t = ev("transcript", 1, "vote", [40], detail={"result": a})
+        m = ev("minutes", 1, "vote", [40], detail={"result": b})
+        assert details_differ(t, m) is None, (a, b)
+    t = ev("transcript", 2, "vote", [41], detail={"result": "approved"})
+    m = ev("minutes", 2, "vote", [41], detail={"result": "not adopted"})
+    assert details_differ(t, m) == "vote_outcome"
+    # Tallies still count even when the words agree.
+    t = ev("transcript", 3, "vote", [42], detail={"result": "approved", "yeas": 8, "nays": 1})
+    m = ev("minutes", 3, "vote", [42], detail={"result": "adopted", "yeas": 9, "nays": 0})
+    assert details_differ(t, m) == "vote_outcome"
+    # The OCR vote-row check uses the same vocabulary: 'approved' against a 'passed' row is not a candidate.
+    tv = ev("transcript", 4, "vote", [43], detail={"result": "approved"})
+    assert vote_outcome_candidates([tv], [{"id": 1, "item_ids": [43], "result": "passed", "yeas": None, "nays": None}]) == []
+    assert len(vote_outcome_candidates([tv], [{"id": 1, "item_ids": [43], "result": "failed", "yeas": None, "nays": None}])) == 1

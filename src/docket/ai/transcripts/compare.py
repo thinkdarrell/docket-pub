@@ -249,6 +249,12 @@ def build_rows(meeting_id: int, candidates: list[Candidate], verdicts, hunted, *
         row.update(citation_match=match, confidence=round(v.confidence * (0.5 if match == "missing" else 1.0), 3))
         rows.append(row)
 
+    # The hunter is told which candidates the aligner already raised, but it still restates a finding now and then
+    # (first production run: both the statute-ground and the vote-order discrepancies arrived twice). A hunted row
+    # that lands on the same category and the same anchor event as an aligner row is the same finding; keep the
+    # aligner's, which carries the judge's verdict.
+    taken = {(r["category"], "t", r["transcript_event_id"]) for r in rows if r["review_state"] == "proposed" and r["transcript_event_id"]} | \
+            {(r["category"], "m", r["minutes_event_id"]) for r in rows if r["review_state"] == "proposed" and r["minutes_event_id"]}
     for h in hunted:
         refs = frozenset(h.agenda_item_refs)
         if valid_item_ids is not None:
@@ -276,6 +282,9 @@ def build_rows(meeting_id: int, candidates: list[Candidate], verdicts, hunted, *
             # App-level anchor guard: migration 036 dropped the DB CHECK (re-extraction legitimately NULLs one side's
             # FK on stale rows), so no new row may be inserted without at least one event anchor.
             log.warning("hunter row dropped: no events at all to anchor it (%s)", h.title)
+            continue
+        if (t_ev is not None and (h.category, "t", t_ev.id) in taken) or (m_ev is not None and (h.category, "m", m_ev.id) in taken):
+            log.info("compare: meeting %s hunter row folded into an aligner row (%s on %s)", meeting_id, h.category, h.title[:60])
             continue
         row = base(h.category, h.severity, h.title, h.description, t_ev, m_ev, refs, "model_initiated")
         kinds = [k for k, q in ((kt, h.transcript_quote), (km, h.minutes_quote)) if q]

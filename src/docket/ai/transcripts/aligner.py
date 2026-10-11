@@ -90,10 +90,34 @@ def _jaccard(a: str | None, b: str | None) -> float:
     return len(ta & tb) / len(ta | tb) if (ta or tb) else 1.0
 
 
+_FAIL_WORDS = re.compile(r"\b(not (?:adopted|approved|carried|granted)|fail(?:s|ed)?|denied|defeated|rejected|lost)\b")
+_PASS_WORDS = re.compile(r"\b(adopted|approved?|pass(?:es|ed)?|carried|granted|prevail(?:s|ed)?|sustained)\b")
+
+
+def canonical_result(s) -> str | None:
+    """'approved', 'adopted', 'passes' are one outcome; 'failed', 'denied', 'motion to approve NOT adopted' are the
+    other (spec: 'approved' versus 'adopted' is wording, not a vote-outcome discrepancy). Negations win because a
+    Birmingham denial reads 'the motion to approve NOT adopted and the above resolution adopted'. None when the
+    text names no outcome, so the comparison is skipped rather than guessed."""
+    n = normalize(str(s or ""))
+    if not n:
+        return None
+    if _FAIL_WORDS.search(n):
+        return "fail"
+    if _PASS_WORDS.search(n):
+        return "pass"
+    return None
+
+
+def _results_differ(a, b) -> bool:
+    ca, cb = canonical_result(a), canonical_result(b)
+    return ca is not None and cb is not None and ca != cb
+
+
 def details_differ(t: Event, m: Event) -> str | None:
     td, md = t.detail, m.detail
     if t.event_type == "vote":
-        if td.get("result") and md.get("result") and normalize(td["result"]) != normalize(md["result"]):
+        if _results_differ(td.get("result"), md.get("result")):
             return "vote_outcome"
         for k in ("yeas", "nays", "abstentions"):
             if td.get(k) is not None and md.get(k) is not None and td[k] != md[k]:
@@ -201,7 +225,7 @@ def vote_outcome_candidates(t_events: list[Event], votes: list[dict], skip_event
         if v is None:
             continue
         td = ev.detail
-        differs = (td.get("result") and v.get("result") and normalize(td["result"]) != normalize(v["result"])) or any(
+        differs = _results_differ(td.get("result"), v.get("result")) or any(
             td.get(key) is not None and v.get(key) is not None and td[key] != v[key] for key in ("yeas", "nays", "abstentions"))
         if differs:
             out.append(Candidate(0, "vote_outcome", "vote_outcome", ev, None,
