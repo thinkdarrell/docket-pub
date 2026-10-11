@@ -100,6 +100,8 @@ time venv/bin/python -m pytest tests/unit tests/web tests/services -q --no-heade
 
 Expected: a summary line like `1 failed, 1554 passed, 4 xfailed in 52s`. The one failure is `tests/web/test_blog_routes.py::test_city_route_filters_to_city_and_shared`. Record the exact summary line and wall time here in this plan under the step (append a line starting `Observed:`). If the counts differ from main's, that is fine; record what you saw.
 
+Observed (2026-10-11, worktree on origin/main 3d08e5f): `5 failed, 1726 passed, 3 skipped, 4 xfailed, 2 warnings in 71.14s`; wall 1:13.80. Failures: four in `tests/web/test_blog_routes.py` (`test_city_route_filters_to_city_and_shared`, `test_post_detail_renders`, `test_post_detail_emits_twitter_card_meta`, `test_preview_token_reveals_draft`), all HTTP 500 from `BuildError: Could not build url for endpoint 'public.city_overview' with values ['slug']`; and `tests/web/test_city_overview_render.py::test_meeting_detail_source_links_below_executive_summary` (`kpi-grid section missing`). The plan's expectation of one failure came from the feature branch; main has five. D1 in Task 7 and the AGENTS.md command line in Task 9 are widened accordingly.
+
 - [ ] **Step 6: Record the venv finding in the spec**
 
 In `docs/superpowers/specs/2026-10-10-factory-cycle-design.md`, section 5 ("Isolation and branching"), after the paragraph that begins "`cycle-plan` creates branch", insert this paragraph:
@@ -632,7 +634,7 @@ How docket.pub is run today: environments, commands, deploys, and the gotchas an
 
 ## Tests
 
-<the three tiers as observed in this plan: unit+web+services (about 52 s, no database needed beyond what conftest sets), integration (about 50 s, needs local Postgres with docket_db migrated, no rollback, tests own their cleanup), live (opt-in with -m live, real Anthropic calls). Name the two known failures and point to D1 and D2 in docs/DEBT.md>
+<the three tiers as observed in this plan: unit+web+services (about 70 s, no database needed beyond what conftest sets), integration (about 50 s, needs local Postgres with docket_db migrated, no rollback, tests own their cleanup), live (opt-in with -m live, real Anthropic calls). Name the two known failures and point to D1 and D2 in docs/DEBT.md>
 
 ## Deploying
 
@@ -719,7 +721,7 @@ Expected: a number above zero. Then replace the file:
 
 | ID | Item | Where | Why deferred | Trigger to pay it down |
 | --- | --- | --- | --- | --- |
-| D1 | `test_city_route_filters_to_city_and_shared` fails: builds a URL for `public.city_overview` with a `slug` the route no longer takes | `tests/web/test_blog_routes.py` | Route signature changed under the test; not a ship blocker | Plan one, first milestone |
+| D1 | Five web tests fail on `main`: four blog route tests build a URL for `public.city_overview` with a `slug` the route no longer takes (HTTP 500), and `test_meeting_detail_source_links_below_executive_summary` finds no `kpi-grid` section | `tests/web/test_blog_routes.py`, `tests/web/test_city_overview_render.py` | Route and template changed under the tests; not ship blockers | Plan one, first milestone |
 | D2 | `test_033_up_refreshes_mv_with_filter` fails: the fixture does not capture and restore the materialised view | `tests/integration/test_033_migration.py` | Globally stateful; not a ship blocker | Plan one, first milestone |
 | D3 | Integration tests run against the developer's `docket_db` with hand-written cleanup and no rollback | `tests/integration/conftest.py` | Faster to write; one developer | Plan one builds a disposable `docket_test` rebuilt from migrations per run, dropped `WITH (FORCE)` |
 | D4 | Local Postgres 16, Railway 18.3 | local environment | Homebrew default | Plan one may point `docket_test` at the installed postgresql@18 |
@@ -880,7 +882,7 @@ docket.pub ingests, parses, and indexes Alabama municipal meeting records and pu
 
 Run from the repository root (or the worktree root) with that checkout's own `venv/`.
 
-- Verify (cheap): `venv/bin/python -m pytest tests/unit tests/web tests/services -q` (about 52 s; one known failure, `D1`). There is no aggregated verify command yet; `D5` and the `fast-verify` card track it.
+- Verify (cheap): `venv/bin/python -m pytest tests/unit tests/web tests/services -q` (about 70 s; five known failures, `D1`). There is no aggregated verify command yet; `D5` and the `fast-verify` card track it.
 - Full tests: `venv/bin/python -m pytest -q` (adds integration; needs local Postgres with `docket_db` migrated; one known failure, `D2`). Live tests: add `-m live`.
 - Migrations: `venv/bin/python -m docket.migrations.runner` (`--status`, `--down 1`).
 - Dev server: `venv/bin/flask run`.

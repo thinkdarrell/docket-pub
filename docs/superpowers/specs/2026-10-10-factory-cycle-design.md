@@ -100,6 +100,8 @@ Fixture plans under `tools/fixtures/judge/` cover each stop-rule miss: no commit
 
 `cycle-plan` creates branch `plan/<slug>` from `origin/main` and a worktree at `.claude/worktrees/<slug>`. That directory is already gitignored. The operator then starts a Claude Code session in that worktree directory and runs `cycle-run` from it. Every subagent inherits that working directory by construction, which is the only guard that does not depend on an agent remembering an instruction. The Agent tool offers no working-directory parameter, so this is the strongest isolation available. As a backstop every agent prompt still names the worktree path and says to run every shell command from it, and the preflight refuses to start anywhere else. The operator's main checkout is never touched by the factory.
 
+Each worktree gets its own Python environment. The main checkout's venv holds an editable install that pins the `docket` package to the main checkout's `src/`, so a test run from a worktree using that venv silently tests the wrong tree. `cycle-plan` therefore runs `python3.10 -m venv venv && venv/bin/pip install -e ".[dev]"` inside the new worktree after creating it, and every published command uses `venv/bin/python` relative to the worktree. The `isolated-env` capability card is where this becomes a mechanical check.
+
 One `cycle-run` at a time. All worktrees share one local Postgres, so two runs would collide in the integration tier.
 
 The PR targets `main`. After merge the operator removes the worktree with `git worktree remove`.
@@ -169,3 +171,4 @@ Steps 2 and 3 may be re-cut by the plan-author step into a different number of p
 - Whether a Workflow run tolerates a multi-hour duration without being cut off. The live trial on plan one measures this. If it does not, `cycle-run` takes a `--limit <n>` of milestones per invocation, as factory-loop's runner does, and the operator reruns to continue.
 - Whether starting the session in the worktree fully removes worktree escapes. Past sessions showed subagents inheriting the wrong working directory when the session itself sat elsewhere; with the session in the worktree that cause is gone, and the judge catches any remaining escape because no commit appears on the branch.
 - How much of the 383-line CLAUDE.md survives routing. The goal is a map under 100 lines; the bootstrap report records the actual count.
+- Whether a two-to-four-minute venv build per worktree is acceptable at the start of every `cycle-plan`, or whether a shared wheel cache (`pip install --cache-dir`) should be configured. Measured on the first real plan.
