@@ -11,11 +11,11 @@ SHIP_GATE_RATIO = 0.70
 
 
 class DiscrepancyStateError(Exception):
-    """The row is not in a state that allows this action (409)."""
+    """The row is not in a state that allows this action (the blueprint flashes it)."""
 
 
 class CitationNotFound(Exception):
-    """A reviewer-supplied excerpt could not be found in the source text (400)."""
+    """A reviewer-supplied excerpt could not be found in the source text (the blueprint flashes it)."""
 
 
 _SELECT = """
@@ -52,6 +52,7 @@ def get(discrepancy_id: int) -> dict | None:
 
 
 def approve(discrepancy_id: int, actor: str, note: str | None = None) -> None:
+    note = (note or "").strip() or None
     with db_cursor() as cur:
         cur.execute("""UPDATE minutes_discrepancies
                           SET review_state = 'approved', reviewed_at = now(), reviewed_by = %s, review_note = COALESCE(%s, review_note)
@@ -78,31 +79,42 @@ def reject(discrepancy_id: int, actor: str, reason: str) -> None:
 
 
 def _attach_citation(row: dict, transcript_excerpt: str | None, minutes_excerpt: str | None) -> tuple[str, dict]:
+    """Verify EVERY side the row cites. A reviewer-supplied excerpt wins; otherwise the stored one is
+    re-verified. Any cited side that is empty or fails the guard raises CitationNotFound."""
     from docket.ai.transcripts.compare import transcript_text, segment_at, citation_match_for
     from docket.ai.transcripts.events import load_segments_with_speakers
     from docket.ai.transcripts.guard import find_citation
     from docket.ai.transcripts.minutes import load_minutes, page_for_offset
     updates, kinds = {}, []
-    if transcript_excerpt and transcript_excerpt.strip():
+    if row.get("transcript_event_id"):
+        excerpt = (transcript_excerpt or "").strip() or (row.get("transcript_excerpt") or "").strip()
+        if not excerpt:
+            raise CitationNotFound("transcript excerpt is required: none supplied or stored")
         with db_cursor() as cur:
             cur.execute("SELECT id FROM transcripts WHERE meeting_id = %s", [row["meeting_id"]])
-            tid = cur.fetchone()["id"]
-        tt = transcript_text(load_segments_with_speakers(tid))
-        cm = find_citation(transcript_excerpt, tt.joined)
+            trow = cur.fetchone()
+        if trow is None:
+            raise CitationNotFound("no transcript for this meeting")
+        tt = transcript_text(load_segments_with_speakers(trow["id"]))
+        cm = find_citation(excerpt, tt.joined)
         if cm.kind == "missing":
             raise CitationNotFound("transcript excerpt not found in the transcript")
         seg = segment_at(tt, cm.start)
-        updates.update(transcript_excerpt=tt.joined[cm.start:cm.end], transcript_start_s=seg["start_s"] if seg else row["transcript_start_s"])
+        updates.update(transcript_excerpt=tt.joined[cm.start:cm.end],
+                       transcript_start_s=seg["start_s"] if seg else row["transcript_start_s"])
         kinds.append(cm.kind)
-    if minutes_excerpt and minutes_excerpt.strip():
+    if row.get("minutes_event_id"):
+        excerpt = (minutes_excerpt or "").strip() or (row.get("minutes_excerpt") or "").strip()
+        if not excerpt:
+            raise CitationNotFound("minutes excerpt is required: none supplied or stored")
         minutes = load_minutes(row["meeting_id"])
-        cm = find_citation(minutes_excerpt, minutes.text) if minutes else None
+        cm = find_citation(excerpt, minutes.text) if minutes else None
         if cm is None or cm.kind == "missing":
             raise CitationNotFound("minutes excerpt not found in the minutes text")
         updates.update(minutes_excerpt=minutes.text[cm.start:cm.end], minutes_page=page_for_offset(minutes.page_offsets, cm.start))
         kinds.append(cm.kind)
     if not kinds:
-        raise CitationNotFound("no excerpt supplied")
+        raise CitationNotFound("row cites neither side; nothing to verify")
     return citation_match_for(kinds), updates
 
 

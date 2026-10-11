@@ -42,7 +42,7 @@
           <input type="text" name="admin_title" value="{{ row.admin_title or row.title }}">
           <textarea name="admin_description" rows="3">{{ row.admin_description or row.description }}</textarea>
           {% if row.citation_match == 'missing' %}
-            <p class="t-meta">This row has no verified citation. Paste the exact words from each side; the guard must find them.</p>
+            <p class="t-meta">This row has no verified citation. Paste the exact words from each side this row cites; both sides must verify against the source text or the row stays unapproved.</p>
             <input type="text" name="transcript_excerpt" placeholder="Transcript excerpt (as written in the transcript)">
             <input type="text" name="minutes_excerpt" placeholder="Minutes excerpt (as written in the minutes)">
           {% endif %}

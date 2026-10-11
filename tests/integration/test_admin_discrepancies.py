@@ -179,3 +179,30 @@ def test_public_reads_return_only_approved(pilot):
     assert [r["id"] for r in rows] == [a]
     assert D.list_public_for_item(pilot.item_ids[1501])[0]["id"] == a
     assert any(r["id"] == a for r in D.list_public_recent())
+
+
+def test_one_sided_attach_cannot_launder_unverified_minutes_side(admin, pilot):
+    did = _disc(pilot, citation_match="missing", minutes_excerpt="bogus words never in the minutes")
+    r = admin.post(f"/admin/review/discrepancies/{did}/edit-approve",
+                   data={"csrf_token": TOK, "admin_title": "t", "admin_description": "d", "transcript_excerpt": "executive session"})
+    assert r.status_code in (302, 303)
+    s = _state(did)
+    assert s["review_state"] == "proposed" and s["citation_match"] == "missing"
+    assert "minutes excerpt not found" in admin.get("/admin/review/discrepancies").get_data(as_text=True)
+
+
+def test_both_sides_supplied_and_valid_is_approved(admin, pilot):
+    did = _disc(pilot, citation_match="missing", minutes_excerpt="bogus words never in the minutes")
+    admin.post(f"/admin/review/discrepancies/{did}/edit-approve",
+               data={"csrf_token": TOK, "admin_title": "t", "admin_description": "d",
+                     "transcript_excerpt": "executive session", "minutes_excerpt": "go into Executive Session"})
+    s = _state(did)
+    assert s["review_state"] == "approved" and s["citation_match"] in ("exact", "fuzzy")
+
+
+def test_transcript_only_row_needs_just_the_transcript_excerpt(admin, pilot):
+    did = _disc(pilot, citation_match="missing", minutes_event_id=None, minutes_excerpt=None, minutes_page=None)
+    admin.post(f"/admin/review/discrepancies/{did}/edit-approve",
+               data={"csrf_token": TOK, "admin_title": "t", "admin_description": "d", "transcript_excerpt": "executive session"})
+    s = _state(did)
+    assert s["review_state"] == "approved" and s["citation_match"] in ("exact", "fuzzy")

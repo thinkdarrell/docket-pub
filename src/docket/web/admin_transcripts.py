@@ -2,6 +2,8 @@
 """Admin: discrepancy review queue, held transcripts, speaker correction (Task 15)."""
 from __future__ import annotations
 
+from urllib.parse import urlsplit
+
 from flask import Blueprint, abort, flash, redirect, render_template, request, session, url_for
 
 from docket.services import discrepancies as D
@@ -21,7 +23,12 @@ def _guard():
 
 
 def _back():
-    return request.form.get("next") or request.headers.get("Referer") or url_for("admin_transcripts.review_discrepancies")
+    ref = urlsplit(request.headers.get("Referer") or "")
+    ref_local = (ref.path + (f"?{ref.query}" if ref.query else "")) if ref.netloc == request.host else None
+    for cand in (request.form.get("next"), ref_local):
+        if cand and cand.startswith("/") and not cand.startswith("//"):
+            return cand
+    return url_for("admin_transcripts.review_discrepancies")
 
 
 @bp.route("/review/discrepancies")
