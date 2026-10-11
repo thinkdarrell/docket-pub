@@ -20,11 +20,17 @@ def test_effective_consent_block_applies_pulls_and_adds():
 
 
 def test_consent_amendments_apply_in_sequence_order():
-    # Pulled, then put back before the vote: the item is in the effective block again.
-    evs = [ev("transcript", 0, "consent_amendment", scope="consent_block", detail={"action": "pulled", "items": [21]}),
-           ev("transcript", 1, "consent_amendment", scope="consent_block", detail={"action": "added", "items": [21]})]
-    assert effective_consent_block(CONSENT, evs) == CONSENT
-    assert effective_consent_block(CONSENT, list(reversed(evs))) == {20, 22}   # order matters; callers pass seq order
+    def amend(seq, action):
+        return ev("transcript", seq, "consent_amendment", scope="consent_block", detail={"action": action, "items": [21]})
+
+    # Pulled (seq 0) then added back (seq 1): item is in the effective block again.
+    back = [amend(0, "pulled"), amend(1, "added")]
+    assert effective_consent_block(CONSENT, back) == CONSENT
+    assert effective_consent_block(CONSENT, list(reversed(back))) == CONSENT   # list order is irrelevant
+    # Added (seq 0) then pulled (seq 1): item ends up pulled.
+    out = [amend(1, "pulled"), amend(0, "added")]
+    assert effective_consent_block(CONSENT, out) == {20, 22}
+    assert effective_consent_block(CONSENT, list(reversed(out))) == {20, 22}
 
 
 def test_consent_vote_satisfies_the_block_and_pulled_item_gets_its_own_group():

@@ -60,7 +60,7 @@ class Candidate:
 def effective_consent_block(published: set[int], events: list[Event]) -> set[int]:
     """Events must be in timeline order (load_events orders by seq); a pull then an add re-admits the item."""
     block = set(published)
-    for ev in events:
+    for ev in sorted(events, key=lambda e: e.seq):
         if ev.event_type != "consent_amendment":
             continue
         items = set(ev.detail.get("items") or []) or set(ev.item_refs)
