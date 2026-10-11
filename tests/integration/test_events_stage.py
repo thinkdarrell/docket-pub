@@ -136,3 +136,45 @@ def test_rerun_replaces_only_that_source(pilot, monkeypatch):
     with db_cursor() as cur:
         cur.execute("SELECT source, event_type FROM meeting_events WHERE meeting_id=%s ORDER BY source", [pilot.meeting_id])
         assert [(r["source"], r["event_type"]) for r in cur.fetchall()] == [("minutes", "adjourn"), ("transcript", "recess")]
+
+
+def _reset_segments(pilot):
+    with db_cursor() as cur:
+        cur.execute("UPDATE transcript_segments SET agenda_item_id=NULL, assignment_method=NULL WHERE transcript_id=%s", [pilot.transcript_id])
+
+
+def _assign(pilot):
+    with db_cursor() as cur:
+        cur.execute("SELECT seq, agenda_item_id, assignment_method FROM transcript_segments WHERE transcript_id=%s AND is_silence=FALSE ORDER BY seq",
+                    [pilot.transcript_id])
+        return {r["seq"]: r for r in cur.fetchall()}
+
+
+def test_multi_ref_item_opened_is_a_boundary_but_not_written(pilot):
+    _reset_segments(pilot)
+    a, b = pilot.item_ids[1501], pilot.item_ids[1501]
+    rows = [{"event_type": "item_opened", "segment_seq": 2, "agenda_item_refs": [a]},
+            {"event_type": "item_opened", "segment_seq": 6, "agenda_item_refs": [a, a + 1, a + 2]},
+            {"event_type": "item_opened", "segment_seq": 10, "agenda_item_refs": [b]}]
+    EV.reassign_segments_from_events(pilot.transcript_id, rows)
+    seg = _assign(pilot)
+    for s in (2, 3, 4, 5):
+        if s in seg:
+            assert seg[s]["assignment_method"] == "event"
+    for s in (6, 7, 8, 9):
+        if s in seg:
+            assert seg[s]["assignment_method"] is None and seg[s]["agenda_item_id"] is None
+    assert seg[10]["assignment_method"] == "event"
+
+
+def test_adjourn_caps_last_range(pilot):
+    _reset_segments(pilot)
+    a = pilot.item_ids[1501]
+    rows = [{"event_type": "item_opened", "segment_seq": 10, "agenda_item_refs": [a]},
+            {"event_type": "adjourn", "segment_seq": 20, "agenda_item_refs": []}]
+    EV.reassign_segments_from_events(pilot.transcript_id, rows)
+    seg = _assign(pilot)
+    assert seg[19]["assignment_method"] == "event"
+    for s, r in seg.items():
+        if s >= 20:
+            assert r["assignment_method"] is None

@@ -139,13 +139,22 @@ def write_events(meeting_id: int, source: str, events: list[ExtractedEvent], *, 
 
 
 def reassign_segments_from_events(transcript_id: int, transcript_rows: list[dict]) -> int:
-    opens = sorted([r for r in transcript_rows if r["event_type"] == "item_opened" and r.get("segment_seq") is not None
-                    and len(r["agenda_item_refs"]) == 1], key=lambda r: r["segment_seq"])
+    """Stamp segments between item_opened boundaries. Every item_opened (any ref
+    count) and the first adjourn end the previous range; only ranges opened by
+    a single-ref item_opened are written."""
+    bounds = sorted([r for r in transcript_rows if r["event_type"] == "item_opened" and r.get("segment_seq") is not None],
+                    key=lambda r: r["segment_seq"])
+    adjourns = [r["segment_seq"] for r in transcript_rows if r["event_type"] == "adjourn" and r.get("segment_seq") is not None]
+    adjourn_seq = min(adjourns) if adjourns else None
     n = 0
     with db_cursor() as cur:
-        for i, r in enumerate(opens):
+        for i, r in enumerate(bounds):
+            if len(r["agenda_item_refs"]) != 1:
+                continue
             lo = r["segment_seq"]
-            hi = opens[i + 1]["segment_seq"] if i + 1 < len(opens) else None
+            hi = bounds[i + 1]["segment_seq"] if i + 1 < len(bounds) else None
+            if adjourn_seq is not None and adjourn_seq > lo and (hi is None or adjourn_seq < hi):
+                hi = adjourn_seq
             cur.execute(
                 """UPDATE transcript_segments SET agenda_item_id = %s, assignment_method = 'event'
                     WHERE transcript_id = %s AND is_silence = FALSE AND seq >= %s AND (%s::int IS NULL OR seq < %s)
