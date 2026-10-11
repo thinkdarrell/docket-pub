@@ -178,3 +178,20 @@ def test_adjourn_caps_last_range(pilot):
     for s, r in seg.items():
         if s >= 20:
             assert r["assignment_method"] is None
+
+
+def test_minutes_without_a_text_layer_hold_instead_of_comparing_against_nothing(pilot, monkeypatch):
+    """A scanned PDF downloads fine and pdfplumber returns no text. That is a person's problem (OCR or a new
+    URL), not a skip that retries daily and not an empty minutes side that calls every vote an omission."""
+    with db_cursor() as cur:
+        cur.execute("DELETE FROM minutes_texts WHERE meeting_id=%s", [pilot.meeting_id])
+    monkeypatch.setattr(M, "download_minutes", lambda url, timeout=30, **kw: b"%PDF-scanned")
+    monkeypatch.setattr(M, "extract_pages", lambda pdf: ("\n\n  \n", [0, 1, 2]))
+    c = _client([_ev(event_type="adjourn", scope="meeting", segment_seq=5, quote="x")])
+    with pytest.raises(TranscriptHeld) as ei:
+        EV.run_events_stage(_claim(pilot), client=c)
+    assert ei.value.reason == "minutes_no_text"
+    assert c.call.call_count == 1                        # the transcript side ran; the minutes side never reached the model
+    with db_cursor() as cur:                             # the transcript-side events are kept for the retry
+        cur.execute("SELECT count(*) AS n FROM meeting_events WHERE meeting_id=%s AND source='transcript'", [pilot.meeting_id])
+        assert cur.fetchone()["n"] == 1

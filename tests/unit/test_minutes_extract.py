@@ -27,13 +27,35 @@ def test_page_for_offset_is_one_based_and_bisects():
     assert page_for_offset([0, 100, 250], 9999) == 3
 
 
+def _resp(content: bytes, headers: dict | None = None, chunk: int = 0):
+    r = MagicMock(status_code=200, headers=headers or {})
+    r.raise_for_status = lambda: None
+    parts = [content[i:i + chunk] for i in range(0, len(content), chunk)] if chunk else [content]
+    r.iter_content.return_value = parts
+    return r
+
+
 @patch("docket.ai.transcripts.minutes.requests.get")
 def test_download_sends_browser_user_agent_and_rejects_html(get):
-    get.return_value = MagicMock(content=b"<html>login</html>", status_code=200)
-    get.return_value.raise_for_status = lambda: None
+    get.return_value = _resp(b"<html>login</html>")
     assert download_minutes("https://bhamal.granicus.com/MinutesViewer.php?clip_id=1") is None
     assert get.call_args.kwargs["headers"]["User-Agent"].startswith("Mozilla/5.0")
-    get.return_value.content = b"%PDF-1.4 ..."
+    assert get.call_args.kwargs["stream"] is True
+    get.return_value = _resp(b"%PDF-1.4 ...")
     assert download_minutes("https://x") == b"%PDF-1.4 ..."
+    get.return_value.close.assert_called_once()
     get.side_effect = requests.ConnectionError("boom")
     assert download_minutes("https://x") is None
+
+
+@patch("docket.ai.transcripts.minutes.requests.get")
+def test_download_gives_up_past_the_byte_cap(get):
+    body = b"%PDF-" + b"x" * 100
+    get.return_value = _resp(body, headers={"Content-Length": str(len(body))})
+    assert download_minutes("https://x", max_bytes=50) is None            # declared size over the cap: no body read
+    get.return_value.iter_content.assert_not_called()
+    get.return_value = _resp(body, chunk=16)                               # no Content-Length: stops while streaming
+    assert download_minutes("https://x", max_bytes=50) is None
+    get.return_value.close.assert_called_once()
+    get.return_value = _resp(body, chunk=16)
+    assert download_minutes("https://x", max_bytes=200) == body

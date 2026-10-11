@@ -24,18 +24,39 @@ from docket.db import db_cursor
 log = logging.getLogger(__name__)
 
 
-def download_minutes(url: str, timeout: int = 30) -> bytes | None:
+MAX_MINUTES_PDF_BYTES = 40 * 1024 * 1024   # the largest Birmingham minutes seen are under 5 MB; this is a crash guard
+
+
+def download_minutes(url: str, timeout: int = 30, max_bytes: int = MAX_MINUTES_PDF_BYTES) -> bytes | None:
+    """Stream the PDF and give up past `max_bytes`, before pdfplumber ever sees it. Oversize is reported
+    like any other unavailable download: the caller records minutes_unavailable and tries again tomorrow."""
     try:
-        resp = requests.get(url, timeout=timeout, allow_redirects=True,
+        resp = requests.get(url, timeout=timeout, allow_redirects=True, stream=True,
                             headers={"User-Agent": BROWSER_USER_AGENT})
-        resp.raise_for_status()
+        try:
+            resp.raise_for_status()
+            declared = resp.headers.get("Content-Length") or ""
+            if declared.isdigit() and int(declared) > max_bytes:
+                log.warning("minutes PDF declares %s bytes, over the %d cap: %s", declared, max_bytes, url)
+                return None
+            chunks: list[bytes] = []
+            size = 0
+            for chunk in resp.iter_content(chunk_size=256 * 1024):
+                size += len(chunk)
+                if size > max_bytes:
+                    log.warning("minutes PDF exceeded the %d byte cap while streaming: %s", max_bytes, url)
+                    return None
+                chunks.append(chunk)
+        finally:
+            resp.close()
     except requests.RequestException as e:
         log.warning("minutes download failed %s: %s", url, e)
         return None
-    if not resp.content[:5] == b"%PDF-":
+    content = b"".join(chunks)
+    if content[:5] != b"%PDF-":
         log.warning("minutes URL did not return a PDF: %s", url)
         return None
-    return resp.content
+    return content
 
 
 def extract_pages(pdf_bytes: bytes) -> tuple[str, list[int]]:

@@ -26,6 +26,8 @@ from docket.services.transcripts import SPEAKER_CONFIDENCE_FLOOR, speaker_ordina
 
 log = logging.getLogger(__name__)
 
+MINUTES_MIN_WORDS = 50   # below this the PDF almost certainly has no text layer (the shortest real minutes run to pages)
+
 
 def load_segments_with_speakers(transcript_id: int) -> list[dict]:
     with db_cursor() as cur:
@@ -178,6 +180,13 @@ def extract_minutes_side(meeting_id: int, *, client) -> str:
     minutes = capture_minutes(meeting_id, meeting["minutes_url"]) or load_minutes(meeting_id)
     if minutes is None:
         return "minutes_unavailable"
+    words = len(minutes.text.split())
+    if words < MINUTES_MIN_WORDS:
+        # A scanned PDF has no text layer: pdfplumber returns nothing and a comparison against an empty
+        # minutes side would call every transcript event an omission. A person has to decide (OCR, or
+        # a different URL), so this is a hold, not a skip.
+        raise TranscriptHeld("minutes_no_text", f"minutes PDF yielded {words} words of text (floor {MINUTES_MIN_WORDS}); "
+                                                "scanned image without a text layer?")
     agenda = load_agenda(meeting_id)
     roster = roster_for_meeting(meeting_id)
     user = (f"Meeting: {meeting['title']} on {meeting['meeting_date']}\n\n{render_agenda(agenda)}\n\n"
