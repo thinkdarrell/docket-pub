@@ -10,7 +10,7 @@ Today the operator of this repository drives every plan by hand: start a fresh s
 
 ## Progress
 
-- [ ] M1: `.claude/workflows/cycle-run.js` runs preflight and the milestone loop with a limit and halts on the judge; `tools/check-workflows` guards every saved workflow inside `./tools/verify`.
+- [x] (2026-10-11 21:04Z) M1: `.claude/workflows/cycle-run.js` runs preflight and the milestone loop with a limit and halts on the judge; `tools/check-workflows` guards every saved workflow inside `./tools/verify`.
 - [ ] M2: `cycle-run` closes a finished plan: review panel, review record, retro, doc-garden, final verify, push, pull request.
 - [ ] M3: `.claude/workflows/cycle-plan.js` turns a stated goal into a committed plan on its own branch, worktree, and venv, or stops with the operator's questions.
 - [ ] M4: `AGENTS.md`, `docs/specs/operations.md`, the judge card and register, `GOALS.md`, and `docs/DEBT.md` say what the factory now does.
@@ -67,10 +67,30 @@ Today the operator of this repository drives every plan by hand: start a fresh s
 - Decision: a milestone's Progress line is ticked by changing `- [ ]` to `- [x] (YYYY-MM-DD HH:MMZ)` and changing nothing else on that line; all acceptance evidence goes to Outcomes & Retrospective, Concrete Steps, and Artifacts and Notes.
   Rationale: `tools/judge-milestone` identifies an entry by its text with dates removed (decision `0035`); appending evidence to the line, as the previous plan did before the judge keyed on the snapshot, would now read as an open entry removed and a done entry invented, and halt. The milestone brief in `cycle-run` states this rule.
   Date/Author: 2026-10-11, plan author.
+- Decision: the preflight agent's prompt opens with a variant of the two common lines ("Work only in the git worktree that is your current working directory; print it with `pwd -P` first and use that path as <worktree> below ..."), because the worktree path is what preflight discovers; every later prompt substitutes the observed path verbatim.
+  Rationale: Plan of Work says the path is not known before any agent runs. Inventing a path for the first prompt would be a planned value posing as an observed one; the variant keeps the rule (one directory, every command prefixed) without the value.
+  Date/Author: 2026-10-11, M1 session.
+- Decision: `finished_at` is computed from the last agent's observed `date +%s` (the `epoch` field already in the snapshot and judge schemas) with integer arithmetic in the script (`isoFromEpoch`, proleptic Gregorian), not from a `date -u` string added to those schemas and not with `new Date(epoch)`.
+  Rationale: Plan of Work fixes the snapshot and judge schemas and says `finished_at` "comes from the last agent's observed `date -u`"; the two were reconciled by deriving the UTC string from the epoch the agent did observe rather than widening the schemas. `new Date(epoch)` with an argument is documented as allowed, but the session cannot run the Workflow runtime to confirm the runtime's `Date` shim accepts it, and a throw there would lose the whole run's result after every milestone had landed; thirty lines of arithmetic carry no such risk. The function is exercised nowhere until the live run, which is recorded under the live half of M1's acceptance.
+  Date/Author: 2026-10-11, M1 session.
+- Decision: a `null` from any awaited agent (the agent died or was stopped) is already a halt in M1, with the rule `agent <label> returned no result`, although Plan of Work lists that rule under M2.
+  Rationale: without the guard, `pre.checks` or `snap.clean` on `null` throws a TypeError, and Plan of Work M1 requires that a halt be a returned object, not a thrown error. Applying the rule to the three agents M1 creates is the only way to meet M1's own halt shape; M2 extends it to the closing agents.
+  Date/Author: 2026-10-11, M1 session.
+- Decision: the preflight checks carry fixed names in the prompt (`worktree`, `branch`, `plan-file`, `clean-tree`, `origin`, `ls-remote`, `gh-user`, `venv-import`, `verify`, `snapshot`), and the `verify` check's detail is `<last line>; <seconds>s`, so the script can find the verify record by name for its `preflight ok` log line.
+  Rationale: Plan of Work numbers the checks but does not name them; a name chosen by the agent at run time would make the `log()` line depend on text the script cannot predict.
+  Date/Author: 2026-10-11, M1 session.
+- Decision: when `args` is an array, its second element is read as the limit; a string limit (`"1"`) is parsed as a number; anything that is not a positive integer is `Infinity`.
+  Rationale: Plan of Work covers the array form only as "first element is the plan path"; a slash-command invocation such as `/cycle-run plans/active/x.md 1` plausibly arrives as either an array or an object with a string value, and the cheapest honest handling is to accept all three without guessing at a default other than "no limit".
+  Date/Author: 2026-10-11, M1 session.
+- Decision: `tools/check-workflows` does the meta extraction in `awk` (one pass, character by character, tracking single, double, and backtick quotes with backslash escapes) and reads `name` and `description` with `grep -oE` on the flattened meta text; `node` is used only for `node --check` on the wrapped body.
+  Rationale: Plan of Work asks for POSIX sh; `awk` is POSIX and present everywhere `sh` is, so the only non-POSIX dependency stays the one the plan already accepted (`node`). The key lookup requires the key to follow `{` or `,`, so a `name:` inside a description string is not mistaken for the property.
+  Date/Author: 2026-10-11, M1 session.
 
 ## Outcomes & Retrospective
 
 Nothing has been executed. This section is filled as milestones land, one entry per milestone, and closed by the retro that `cycle-run`'s closing sequence runs after M4.
+
+M1 (2026-10-11, hand-launched milestone session; commits `094a50d` and the commit carrying this entry, on top of `c309ace`). Landed: `.claude/workflows/cycle-run.js` (313 lines: argument handling, the ten-check preflight, the snapshot / milestone / judge loop with `limit` and a hard cap of 20, the halt shape) and `tools/check-workflows` (POSIX sh plus `awk` and `node --check`), wired into `./tools/verify` as the fourth check. Static acceptance met and observed: `tools/check-workflows` printed `workflows: 1 of 1 ok` with exit 0 on the committed tree; exit 1 naming the file on the renamed meta (`meta.name "cycle-runn" does not match file cycle-run.js`) and on the appended `Date.now()`; `./tools/verify` printed `verify: workflows ... ok (0s)` as its fourth check and `verify: all 4 checks passed in 139s.` with exit 0; the script's contents are listed by line number in Artifacts and Notes. Carve-outs: none against the static half. Not observed by this session, by design (Decision Log, second entry): the live half, which is the run of this script that executes M2; in particular no agent prompt, schema, `stallMs`, or `isoFromEpoch` has been exercised by the Workflow runtime, and the first live run is where a runtime-shape mistake would show. The starting-state `./tools/verify` took 160 s and the post-change run 139 s; both within the 180 s budget `AGENTS.md` states.
 
 ## Context and Orientation
 
@@ -247,6 +267,8 @@ Before any edit, in every milestone session, observe the starting state: `./tool
 
 M1. Write `.claude/workflows/cycle-run.js` and `tools/check-workflows` as Plan of Work describes; `chmod +x tools/check-workflows`; add the `check workflows tools/check-workflows` line to `tools/verify`. Run `tools/check-workflows; echo "exit=$?"`. Expected: `workflows: .claude/workflows/cycle-run.js ... ok`, `workflows: 1 of 1 ok`, `exit=0`. Demonstrate the check fails: change `name: 'cycle-run'` to `name: 'cycle-runn'` and run it again. Expected: a line naming the file with `meta.name "cycle-runn" does not match file cycle-run.js`, exit 1. Revert. Insert `return r` at the top level without the wrapper, or temporarily add a line `const t = Date.now()`, and run again. Expected: exit 1 naming the forbidden call. Revert. Run `./tools/verify; echo "exit=$?"`. Expected: a `verify: workflows ... ok (0s)` or `(1s)` line and `verify: all 4 checks passed in <N>s.`, `exit=0`. Commit at coherent steps; every commit touches this plan.
 
+Observed in the M1 session (2026-10-11): every expectation in the M1 paragraph above held as written, with these specifics: the starting `./tools/verify` printed `all 3 checks passed in 160s.`; the renamed-meta run printed exactly `meta.name "cycle-runn" does not match file cycle-run.js`; the `Date.now()` run printed `forbidden call in body (the runtime has no clock or module loader): 309:const t = Date.now()`; the post-change `./tools/verify` printed `verify: workflows ... ok (0s)` and `all 4 checks passed in 139s.` Transcripts are in Artifacts and Notes. Two extra cases were also run: a syntax error in the body (exit 1, node's message naming the workflow file) and an empty `.claude/workflows/` (exit 1, `workflows: no scripts under .claude/workflows/`).
+
 M2. Extend `cycle-run.js` with the closing sequence. Run `tools/check-workflows` (expected `1 of 1 ok`) and `./tools/verify` (expected `all 4 checks passed`). Read the script once more against Plan of Work M2 and list in Artifacts and Notes each stage with the line numbers that implement it.
 
 M3. Write `.claude/workflows/cycle-plan.js`. Run `tools/check-workflows` (expected `workflows: 2 of 2 ok`) and `./tools/verify`. In Artifacts and Notes list each stage with its line numbers.
@@ -333,6 +355,34 @@ M1 session, `./tools/verify` after adding `check "workflows" tools/check-workflo
     verify: judge-fixtures ... ok (4s)
     verify: workflows ... ok (0s)
     verify: all 4 checks passed in 139s.
+
+M1 session, `.claude/workflows/cycle-run.js` as committed in `094a50d` (313 lines), read back with `grep -n`; the parts Plan of Work M1 requires and where they are:
+
+    1-6      meta literal: name, description, whenToUse, phases Preflight / Milestones / Closing
+    21-35    args normalised to `plan` (string) and `limit` (positive integer or Infinity); string, array, and object forms
+    37-44    refusals: no plan path; path not matching ^plans/active/<name>.md$ (result { status: 'refused', plan, reason })
+    46-48    slug, branch `plan/<slug>`, HARD_CAP = 20
+    55-60    common(worktree): the two lines every later prompt begins with
+    65-89    isoFromEpoch(epoch): finished_at from an agent-observed epoch, integer arithmetic
+    94-100   halt(rule, where, milestone): logs the four `cycle-run:` lines, returns { status: 'halt', plan, milestone, rule, where, milestones }
+    108      phase('Preflight')
+    110-125  PREFLIGHT_SCHEMA (worktree, started_at, checks[name, ok, detail])
+    127-144  preflight prompt; checks 1 to 10 on lines 133-142 (worktree, branch, plan-file, clean-tree, origin, ls-remote, gh-user, venv-import, verify with a 300000 ms timeout, snapshot); started_at from `date -u +%Y-%m-%dT%H:%M:%SZ`
+    146-156  preflight agent (effort low, label preflight); null and first failing check halt; `cycle-run: preflight ok, verify <detail>`
+    163      phase('Milestones')
+    165-178  SNAPSHOT_SCHEMA (clean, head, epoch, snapshot_exit, snapshot_path, open_entries, done_count, defect)
+    180      REPORT_SCHEMA ({ report })
+    182-194  JUDGE_SCHEMA (judge_exit, judge_output, verify_exit, verify_last_line, verify_seconds, head, epoch)
+    196-209  snapshot prompt: git status, rev-parse HEAD, date +%s, snapshot to ${TMPDIR:-/tmp}/cycle-run-<slug>-<head>.snapshot
+    211-227  milestone prompt: common lines, the blueprint brief verbatim, the three design lines, the two rules
+    229-247  judge prompt: judge <plan> <snapshot_path> <head>, verify (300000 ms), rev-parse HEAD, date +%s
+    249      while (milestones.length < limit && iteration < HARD_CAP)
+    252-272  step 1: snapshot agent (effort low, label `snapshot <n>`); halts on null, clean false (`worktree has uncommitted changes from a previous session`), exit 2 (defect line), other nonzero; loop ends on no open entries
+    274-281  step 2: milestone agent (label `milestone: <entry, 60 chars>`, stallMs 1800000, default effort and model); halt on null
+    283-293  step 3: judge agent (effort low, label `judge <n>`); halts on null, judge_exit != 0 (judge output as rule), verify_exit != 0 (`./tools/verify failed at <head>: <last line>`)
+    295-297  milestones.push({ entry, start, end, seconds, verify_last_line }); `cycle-run: advanced "<entry>" in <s>s, verify <last line>`; range for the next brief
+    300-302  hard-cap notice (logged, not silent)
+    304-313  results: { status: 'advanced' | 'complete', plan, milestones, started_at, finished_at }; the comment at 311 marks where M2's Closing phase attaches
 
 ## Interfaces and Dependencies
 
