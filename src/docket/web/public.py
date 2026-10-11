@@ -289,8 +289,15 @@ def meeting_detail(slug, meeting_id):
     from docket.services import transcripts as tsvc
     has_transcript = tsvc.get_public_transcript(meeting_id) is not None
 
+    from docket.services import discrepancies as dsvc
+    discrepancies = (
+        dsvc.list_public_for_meeting(meeting_id)
+        if current_app.config.get("MINUTES_VS_VIDEO_UI") else []
+    )
+
     return render_template(
         "meeting_detail.html",
+        discrepancies=discrepancies,
         has_transcript=has_transcript,
         municipality=municipality,
         meeting=meeting,
@@ -329,7 +336,8 @@ def meeting_transcript(slug, meeting_id):
     agenda_items = query.list_agenda_items(meeting_id)
     items_by_id = {it.id: it for it in agenda_items}
     ctx = dict(municipality=municipality, meeting=meeting, transcript=transcript,
-               turns=turns, item_anchors=anchors, items_by_id=items_by_id)
+               turns=turns, item_anchors=anchors, items_by_id=items_by_id,
+               speakers=tsvc.speaker_index(transcript.id))
     # htmx history restore re-fetches with HX-Request too but needs the full page.
     is_partial = bool(request.headers.get("HX-Request")) and not request.headers.get(
         "HX-History-Restore-Request")
@@ -337,6 +345,18 @@ def meeting_transcript(slug, meeting_id):
     resp = make_response(render_template(template, full_page=not is_partial, **ctx))
     resp.headers["Vary"] = "HX-Request"
     return resp
+
+
+@bp.route("/minutes-vs-video/")
+def minutes_vs_video_index():
+    """Every approved discrepancy, newest meeting first (spec Section 5). Behind the ship-gate flag."""
+    if not current_app.config.get("MINUTES_VS_VIDEO_UI"):
+        abort(404)
+    from docket.services import discrepancies as dsvc
+    offset = max(0, request.args.get("offset", 0, type=int))
+    rows = dsvc.list_public_recent(limit=51, offset=offset)
+    return render_template("minutes_vs_video.html", rows=rows[:50],
+                           next_offset=offset + 50 if len(rows) > 50 else None)
 
 
 @bp.route("/al/<slug>/items/<int:item_id>/")
@@ -384,6 +404,12 @@ def item_detail(slug, item_id):
     from docket.services import transcripts as tsvc
     transcript_excerpt = tsvc.excerpt_for_item(item_id)
 
+    from docket.services import discrepancies as dsvc
+    item_discrepancies = (
+        dsvc.list_public_for_item(item_id)
+        if current_app.config.get("MINUTES_VS_VIDEO_UI") else []
+    )
+
     return render_template(
         "item_detail.html",
         municipality=municipality,
@@ -396,6 +422,7 @@ def item_detail(slug, item_id):
         kpi_stats=kpi_stats,
         coverage_posts=coverage_posts,
         transcript_excerpt=transcript_excerpt,
+        item_discrepancies=item_discrepancies,
     )
 
 

@@ -331,3 +331,23 @@ def list_transcript_debt(municipality_id: int, limit: int = 50) -> list[dict]:
         else:
             r["friendly_label"] = TRANSCRIPT_DEBT_LABELS.get(r["status"], "Transcript problem")
     return rows
+
+
+def speaker_index(transcript_id: int) -> list[dict]:
+    """Resolved speakers for the 'Who spoke' list, merged by person across clusters."""
+    with db_cursor() as cur:
+        cur.execute(
+            """SELECT COALESCE(cm.name, sp.display_name) AS name, sp.council_member_id AS member_id,
+                      array_agg(DISTINCT sp.cluster_label) AS cluster_labels,
+                      count(*) AS turns, COALESCE(sum(s.end_s - s.start_s), 0) AS seconds
+                 FROM transcript_segments s
+                 JOIN transcript_speakers sp ON sp.id = s.speaker_id
+                 LEFT JOIN council_members cm ON cm.id = sp.council_member_id
+                WHERE s.transcript_id = %s AND s.is_silence = FALSE
+                  AND COALESCE(cm.name, sp.display_name) IS NOT NULL
+                  AND (sp.is_manual OR sp.confidence >= %s)
+                GROUP BY 1, 2
+                ORDER BY seconds DESC, name""",
+            [transcript_id, SPEAKER_CONFIDENCE_FLOOR],
+        )
+        return [dict(r) for r in cur.fetchall()]

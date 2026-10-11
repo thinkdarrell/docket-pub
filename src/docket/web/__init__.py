@@ -56,6 +56,12 @@ def create_app() -> Flask:
         os.environ.get("SMART_BREVITY_UI", "").strip().lower() == "true"
     )
 
+    # Spec 2026-10-05 ship gate: the public "Minutes vs. Video" block stays off until
+    # >= 70% of material candidates are approved; the operator flips this by hand.
+    app.config["MINUTES_VS_VIDEO_UI"] = (
+        os.environ.get("MINUTES_VS_VIDEO_UI", "").strip().lower() == "true"
+    )
+
     # Production cookie security
     if FLASK_ENV != "development":
         app.config["SESSION_COOKIE_SECURE"] = True

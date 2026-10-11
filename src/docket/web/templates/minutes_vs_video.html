@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Minutes vs. video — docket.pub{% endblock %}
+{% block content %}
+<section class="hero hero--detail">
+  <div class="t-eyebrow">Minutes vs. video</div>
+  <h1 class="hero-title t-display">Where the official minutes and the recording differ</h1>
+  <p class="hero-sub">Each entry was proposed by software comparing a machine transcript with the adopted minutes, then reviewed by a person. The minutes remain the official record. <a class="link" href="/about/how-we-read-minutes/">How we read meetings</a>.</p>
+</section>
+{% with discrepancies = rows, block_context = 'index' %}{% include "partials/minutes_vs_video.html" %}{% endwith %}
+{% if not rows %}<section class="feed"><p class="t-meta">Nothing approved yet.</p></section>{% endif %}
+{% if next_offset %}<nav class="queue-pager"><a class="link" href="{{ url_for('public.minutes_vs_video_index', offset=next_offset) }}">Older →</a></nav>{% endif %}
+{% endblock %}

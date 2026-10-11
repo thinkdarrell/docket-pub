@@ -240,6 +240,11 @@
 </section>
 {% endif %}
 
+{# ── Minutes vs. video (approved discrepancies; behind the ship-gate flag) ── #}
+{% if config.MINUTES_VS_VIDEO_UI and discrepancies %}
+  {% with block_context = 'meeting' %}{% include "partials/minutes_vs_video.html" %}{% endwith %}
+{% endif %}
+
 {# ── Transcript (loaded on demand via HTMX; full page at /transcript/) ── #}
 {% if has_transcript %}
 <section class="feed" id="transcript-tab" style="padding-bottom: 32px;"></section>
