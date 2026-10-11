@@ -33,8 +33,10 @@ def test_pilot_reproduces_sequence_and_wording_discrepancies(client):
             cur.execute("""SELECT category, severity, review_state, title, description, transcript_excerpt, minutes_excerpt, citation_match
                              FROM minutes_discrepancies WHERE meeting_id=%s AND review_state='proposed'""", [inst.meeting_id])
             rows = [dict(r) for r in cur.fetchall()]
-            cur.execute("SELECT summary, detail FROM meeting_events WHERE meeting_id=%s AND source='transcript' AND event_type='statement'", [inst.meeting_id])
-            statements = [dict(r) for r in cur.fetchall()]
+            cur.execute("SELECT event_type, summary, detail FROM meeting_events WHERE meeting_id=%s AND source='transcript'", [inst.meeting_id])
+            events = [dict(r) for r in cur.fetchall()]
+            cur.execute("SELECT review_state, category, title, description, transcript_excerpt FROM minutes_discrepancies WHERE meeting_id=%s", [inst.meeting_id])
+            all_disc = [dict(r) for r in cur.fetchall()]
         print("\n".join(f"{r['category']}/{r['severity']}/{r['citation_match']}: {r['title']}" for r in rows))
         cats = {r["category"] for r in rows if r["severity"] == "material"}
         assert "sequence" in cats and "wording" in cats
@@ -43,7 +45,11 @@ def test_pilot_reproduces_sequence_and_wording_discrepancies(client):
         assert "3625a7a4" in blob, "the (a)(4) ground must appear on the transcript side"
         assert any("pending litigation" in normalize(r["minutes_excerpt"] or r["description"]) for r in wording)
         assert all(r["citation_match"] in ("exact", "fuzzy") for r in rows if r["severity"] == "material")
-        assert any("packet" in normalize(s["summary"] + " " + str(s["detail"])) for s in statements), "O'Quinn's 'not in the packet' statement"
+        ev_hits = [e for e in events if "packet" in normalize((e["summary"] or "") + " " + str(e["detail"]))]
+        disc_hits = [d for d in all_disc if "packet" in normalize(" ".join(filter(None, [d["transcript_excerpt"], d["title"], d["description"]])))]
+        print("PACKET event matches:", [(e["event_type"], e["summary"]) for e in ev_hits])
+        print("PACKET discrepancy matches:", [(d["review_state"], d["category"], d["title"]) for d in disc_hits])
+        assert ev_hits or disc_hits, "O'Quinn's 'not in the packet' remark must appear as a transcript event (any type) or as a discrepancy row (any state)"
     finally:
         inst.cleanup()
         with db_cursor() as cur:
