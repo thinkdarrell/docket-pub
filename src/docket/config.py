@@ -58,6 +58,7 @@ IMPACT_FIRST_ENABLED: bool = (
 AI_TRANSCRIPT_SPEAKER_MODEL: str = os.environ.get("AI_TRANSCRIPT_SPEAKER_MODEL", "claude-sonnet-5-5")
 AI_TRANSCRIPT_EVENTS_MODEL: str = os.environ.get("AI_TRANSCRIPT_EVENTS_MODEL", "claude-sonnet-5-5")
 AI_TRANSCRIPT_COMPARE_MODEL: str = os.environ.get("AI_TRANSCRIPT_COMPARE_MODEL", "claude-opus-5-5")
+AI_TRANSCRIPT_AB_MODEL: str = os.environ.get("AI_TRANSCRIPT_AB_MODEL", "claude-haiku-4-5-20251001")
 # Guards against runaway cost from a bad input, not against long meetings:
 # a twelve-hour hearing plus a 300-page packet is about 300K tokens.
 TRANSCRIPT_TOKEN_CEILING: int = int(os.environ.get("TRANSCRIPT_TOKEN_CEILING", "500000"))

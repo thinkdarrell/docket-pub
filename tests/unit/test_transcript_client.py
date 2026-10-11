@@ -102,3 +102,11 @@ def test_pricing_has_both_new_models():
         assert set(PRICING[m]) == {"input", "output", "cache_creation", "cache_read"}
     cost = calculate_cost_usd("claude-opus-5-5", Usage(1_000_000, 0, 0, 0))
     assert abs(cost - 4.00) < 1e-9
+
+
+def test_refusal_still_emits_usage():
+    c, _ = _client_with(_message(None, stop_reason="refusal", category="cyber"))
+    with patch("docket.ai.transcripts.client.track_usage") as tu:
+        with pytest.raises(AIPermanentRowError):
+            c.call(model="claude-opus-5-5", system="S", user="U", schema=SCHEMA)
+    tu.assert_called_once()

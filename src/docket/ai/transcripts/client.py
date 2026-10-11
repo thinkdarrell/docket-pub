@@ -36,20 +36,24 @@ class StructuredResult:
 
 
 def build_request(*, model: str, system: str, user: str, schema: dict,
-                  max_tokens: int = 16000, effort: str = "medium") -> dict[str, Any]:
+                  max_tokens: int = 16000, effort: str | None = "medium") -> dict[str, Any]:
     """Parameter dict for ``messages.stream``; same shape the Batches API takes.
+
+    Haiku 4.5 rejects ``effort``; pass ``None`` for it.
 
     No ``tools``, no ``tool_choice``, no ``thinking``: the 5.5 models reject
     forced tool choice and Opus 5.5 rejects disabled thinking. Effort is set
     explicitly because Opus 5.5 defaults to ``medium``.
     """
+    output_config: dict[str, Any] = {"format": {"type": "json_schema", "schema": schema}}
+    if effort is not None:
+        output_config["effort"] = effort
     return {
         "model": model,
         "max_tokens": max_tokens,
         "system": [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
         "messages": [{"role": "user", "content": user}],
-        "output_config": {"effort": effort,
-                          "format": {"type": "json_schema", "schema": schema}},
+        "output_config": output_config,
     }
 
 
@@ -71,7 +75,7 @@ class StructuredClient:
         return int(resp.input_tokens)
 
     def call(self, *, model: str, system: str, user: str, schema: dict,
-             max_tokens: int = 16000, effort: str = "medium") -> StructuredResult:
+             max_tokens: int = 16000, effort: str | None = "medium") -> StructuredResult:
         params = build_request(model=model, system=system, user=user, schema=schema,
                                max_tokens=max_tokens, effort=effort)
 
@@ -81,6 +85,8 @@ class StructuredClient:
 
         message = _with_retries(_once)
         stop = getattr(message, "stop_reason", None) or ""
+        usage = _extract_usage(message)
+        track_usage(model, usage)   # bill refused / truncated / unparseable responses too
         if stop == "refusal":
             details = getattr(message, "stop_details", None)
             category = getattr(details, "category", None) if details is not None else None
@@ -94,8 +100,6 @@ class StructuredClient:
             data = json.loads(text)
         except json.JSONDecodeError as e:
             raise AIPermanentRowError(f"invalid JSON in structured response: {e}") from e
-        usage = _extract_usage(message)
-        track_usage(model, usage)
         return StructuredResult(data=data, usage=usage, model=model, stop_reason=stop)
 
 
