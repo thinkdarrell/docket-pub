@@ -275,6 +275,65 @@ Every milestone's edits are to new files or to documents, and each is committed 
 
 Filled by the sessions as they observe. Operator-session entries are signed `operator session` and carry the run id the Workflow tool printed.
 
+M1 session, 2026-10-11 (hand-launched milestone session). Starting state, observed before any edit, in `/Users/darrellnance/docket-pub/.claude/worktrees/factory-workflows` at `c309ace`:
+
+    ./tools/verify; echo "exit=$?"
+    ...
+    verify: test-db ... ok (3s) postgresql://docket@localhost:5432/docket_test_7da4fd23
+    verify: unit+web+services ... ok (79s)
+    verify: integration ... ok (74s)
+    verify: judge-fixtures ... ok (4s)
+    verify: all 3 checks passed in 160s.
+    exit=0
+
+    tools/judge-milestone snapshot plans/active/factory-workflows.md; echo "exit=$?"
+    OPEN	13	M1: ...	OPEN	14	M2: ...	OPEN	15	M3: ...	OPEN	16	M4: ...   (four records, one per line)
+    exit=0
+
+`.claude/` held only the `skills -> ../skills` symlink; `.claude/workflows/` did not exist. `which node` printed `/opt/homebrew/bin/node`, `node --version` printed `v26.8.2`.
+
+M1 session, `tools/check-workflows` on the written tree (before the verify line was added), observed:
+
+    tools/check-workflows; echo "exit=$?"
+    workflows: .claude/workflows/cycle-run.js ... ok
+    workflows: 1 of 1 ok
+    exit=0
+
+The failure demonstrations, each followed by restoring the file (`cmp` against a copy printed nothing; `git status` showed only the intended changes):
+
+    # name: 'cycle-run' -> name: 'cycle-runn'
+    workflows: .claude/workflows/cycle-run.js ... FAILED: meta.name "cycle-runn" does not match file cycle-run.js
+    workflows: 1 of 1 failed
+    exit=1
+    # appended: const t = Date.now()
+    workflows: .claude/workflows/cycle-run.js ... FAILED: forbidden call in body (the runtime has no clock or module loader): 309:const t = Date.now()
+    workflows: 1 of 1 failed
+    exit=1
+    # appended: const = broken(
+    workflows: .claude/workflows/cycle-run.js ... FAILED: node --check: .claude/workflows/cycle-run.js (body after the meta object, wrapped; line 1 is the wrapper):310 const = broken(       ^
+    workflows: 1 of 1 failed
+    exit=1
+    # appended a bare top-level `return 1` (the wrapper exists so this parses)
+    workflows: .claude/workflows/cycle-run.js ... ok
+    workflows: 1 of 1 ok
+    exit=0
+    # cycle-run.js moved out of the directory
+    workflows: no scripts under .claude/workflows/
+    exit=1
+
+The first run of the syntax-error case printed node's temporary path (`/private/var/folders/.../check-workflows.dkW7iw/cycle-run.wrapped.js:310`) instead of the workflow file, because macOS sets `TMPDIR` under `/var/` and node prints the resolved `/private/var/` path, so a literal `sed s|$wrapped|...|` matched nothing. The substitution now matches any path ending in `<base>.wrapped.js`; the transcript above is the second run.
+
+M1 session, `./tools/verify` after adding `check "workflows" tools/check-workflows` after the `judge-fixtures` line, observed (full log was 141 lines; the `workflows` check's own output was the two `workflows:` lines above):
+
+    ./tools/verify > /tmp/cw-verify.log 2>&1; echo "exit=$?"
+    exit=0
+    verify: test-db ... ok (1s) postgresql://docket@localhost:5432/docket_test_7da4fd23
+    verify: unit+web+services ... ok (59s)
+    verify: integration ... ok (75s)
+    verify: judge-fixtures ... ok (4s)
+    verify: workflows ... ok (0s)
+    verify: all 4 checks passed in 139s.
+
 ## Interfaces and Dependencies
 
 `.claude/workflows/cycle-run.js`: plain JavaScript for the Workflow runtime, no TypeScript syntax, no `import`, no clock. Arguments: a plan path string, or `{ plan, limit }`. Result: an object with `status` one of `refused`, `halt`, `advanced`, `complete`, and the fields named in Plan of Work. Depends on `tools/judge-milestone`, `./tools/verify`, `git`, `gh`, and `skills/plan-execute/SKILL.md`, `skills/retro/SKILL.md`, `skills/doc-garden/SKILL.md` as read by its agents.
