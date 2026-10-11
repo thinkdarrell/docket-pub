@@ -26,7 +26,7 @@ Alabama municipalities whose meeting platforms the adapters support: Granicus (B
 
 The repository is the project's only memory. Multi-file or multi-session work runs under a plan in `plans/active/` following `plans/PLANS.md`. Design specs and plans written before this convention arrived live under `docs/superpowers/` and are history, not current behaviour.
 
-The agent harness artifacts and the procedures under `skills/` come from the harness blueprint at https://github.com/bholzer/factory-loop, checked out at `/Users/darrellnance/projects/factory-loop`, whose `docs/guide/adopting.md` is the adopter guide.
+The agent harness artifacts and the procedures under `skills/` come from the harness blueprint at https://github.com/bholzer/factory-loop, checked out at /Users/darrellnance/projects/factory-loop; the adopter guide is https://github.com/bholzer/factory-loop/blob/main/docs/guide/adopting.md.
 
 Related repositories: `thinkdarrell/al-municipal-meetings` is the original Birmingham scraper and remains a research sandbox; `thinkdarrell/docket-pub-site` is the separate landing page; `thinkdarrell/docket-pub-archived` is a read-only pre-consolidation skeleton.
 
