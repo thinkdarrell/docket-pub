@@ -14,7 +14,9 @@ Plan 1: `docs/superpowers/plans/2026-10-07-transcripts-foundation.md` (PR #99).
   It claims Birmingham meetings newest-first, fetches audio from Granicus with ffmpeg,
   transcribes, diarizes, and uploads raw segments to Railway Postgres through the
   public proxy as the narrow `transcriber` role. It never calls an LLM.
-  Setup and run commands: `transcriber/README.md` (bring-up log at the end).
+  Setup and run commands: `transcriber/README.md`, which also has the desktop
+  operating notes, a "What to expect" section from the first runs, and the
+  bring-up log.
 - **Railway worker**: nothing yet. Plan 2 adds the `transcript_pipeline` cron
   (10:00 CT) that runs the LLM stages on uploaded transcripts.
 - **Web**: `/al/<slug>/meetings/<id>/transcript/` (full machine transcript with
