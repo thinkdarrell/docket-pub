@@ -25,3 +25,27 @@ def test_claim_meeting_sql_replacement_matched():
     assert "t.meeting_id = %s" in CLAIM_MEETING_SQL
     assert "interval '24 hours'" not in CLAIM_MEETING_SQL
     assert "t.stage_attempts < 3" not in CLAIM_MEETING_SQL
+
+
+def test_budget_exhaustion_still_runs_sweep_and_stall_alert(monkeypatch):
+    """I1: the sweep spends no LLM money and the stall alert must fire even on a budget-exhausted tick."""
+    import contextlib
+    from unittest.mock import MagicMock
+
+    import pytest
+
+    from docket.ai import worker as W
+    from docket.ai.transcripts import alerts as A
+    from docket.ai.transcripts import pipeline as P
+
+    sweep, stalled = MagicMock(return_value=0), MagicMock()
+    monkeypatch.setattr(P, "db", lambda: contextlib.nullcontext(None))
+    monkeypatch.setattr(P, "reset_for_versions", lambda: 0)
+    monkeypatch.setattr(P, "claim_next", lambda: (_ for _ in ()).throw(AssertionError("claimed over budget")))
+    monkeypatch.setattr(W, "_today_spend", lambda conn: 10_000.0)
+    monkeypatch.setattr(P, "sweep_minutes_changes", sweep)
+    monkeypatch.setattr(A, "alert_if_producer_stalled", stalled)
+    with pytest.raises(W.BudgetExceededError):
+        P.run_transcript_pipeline(client=MagicMock())
+    sweep.assert_called_once()
+    stalled.assert_called_once()

@@ -252,27 +252,41 @@ def run_transcript_pipeline(*, limit: int = TRANSCRIPT_PER_TICK, notes: str = "c
     reset_for_versions()
     client = client or StructuredClient()
     s = PipelineSummary()
-    for _ in range(limit):
-        with db() as conn:
-            spent = _today_spend(conn)
-        if spent >= AI_DAILY_BUDGET_USD and not force_budget:
-            if s.processed == 0:
-                raise BudgetExceededError(
-                    f"Today's AI spend ${spent:.2f} >= budget ${AI_DAILY_BUDGET_USD:.2f}; pass force_budget=True to override")
-            s.stopped_reason = "budget"
-            break
-        claim = claim_next()
-        if claim is None:
-            break
-        outcome = process_claim(claim, client=client, notes=notes)
-        s.processed += 1
-        setattr(s, outcome if outcome != "rate_limited" else "transient",
-                getattr(s, outcome if outcome != "rate_limited" else "transient") + 1)
-        if outcome == "rate_limited":
-            s.stopped_reason = "rate_limited"
-            break
-    sweep_minutes_changes()
-    alert_if_producer_stalled()
+    loop_ok = False
+    try:
+        for _ in range(limit):
+            with db() as conn:
+                spent = _today_spend(conn)
+            if spent >= AI_DAILY_BUDGET_USD and not force_budget:
+                if s.processed == 0:
+                    raise BudgetExceededError(
+                        f"Today's AI spend ${spent:.2f} >= budget ${AI_DAILY_BUDGET_USD:.2f}; pass force_budget=True to override")
+                s.stopped_reason = "budget"
+                break
+            claim = claim_next()
+            if claim is None:
+                break
+            outcome = process_claim(claim, client=client, notes=notes)
+            s.processed += 1
+            setattr(s, outcome if outcome != "rate_limited" else "transient",
+                    getattr(s, outcome if outcome != "rate_limited" else "transient") + 1)
+            if outcome == "rate_limited":
+                s.stopped_reason = "rate_limited"
+                break
+        loop_ok = True
+    finally:
+        # Every tick, budget or not: the sweep spends no LLM money and the stall alert must not go quiet.
+        # A housekeeping error never masks the loop's own exception (e.g. BudgetExceededError); on a clean
+        # loop it is re-raised so the Healthchecks ping still reports it.
+        errors = []
+        for housekeeping in (sweep_minutes_changes, alert_if_producer_stalled):
+            try:
+                housekeeping()
+            except Exception as e:
+                log.exception("transcript_pipeline: %s failed", housekeeping.__name__)
+                errors.append(e)
+        if loop_ok and errors:
+            raise errors[0]
     log.info("transcript_pipeline %s", s)
     return s
 
