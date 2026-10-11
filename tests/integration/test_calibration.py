@@ -92,6 +92,11 @@ class _Bag:
         significance_score: int | None = None,
         consent_placement_score: int | None = None,
         triggers: list | None = None,
+        # When given, written into score_overrides verbatim via json.dumps;
+        # the four scalar score keywords and with_overrides are ignored.
+        # Lets a test seed the exact shape production writes (JSON floats
+        # such as 9.0, issue #110), which the int-typed keywords cannot.
+        raw_overrides: dict | None = None,
         # When True, write a non-null score_overrides JSONB; when False
         # (the default if all four scores are None), leave it NULL.
         with_overrides: bool | None = None,
@@ -110,7 +115,9 @@ class _Bag:
             )
 
         score_overrides = None
-        if with_overrides:
+        if raw_overrides is not None:
+            score_overrides = json.dumps(raw_overrides)
+        elif with_overrides:
             score_overrides = json.dumps(
                 {
                     "original_ai_significance": original_ai_significance,
@@ -272,6 +279,20 @@ def admin_client(app):
     with c.session_transaction() as sess:
         sess["admin_user"] = "tester"
     return c
+
+
+# A score_overrides payload shaped exactly as src/docket/ai/pipeline.py
+# writes it: the scores arrive from pydantic as Python floats, so
+# json.dumps emits 9.0, not 9 (issue #110).
+FLOAT_OVERRIDES = {
+    "final_significance": 9.0,
+    "original_ai_significance": 2.0,
+    "final_consent": 3.0,
+    "original_ai_consent": 9.0,
+    "triggers": [],
+    "conflicts": [],
+    "admin_override_used": False,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -609,6 +630,119 @@ def test_query_top_false_positives_excludes_outside_7d_window(bag):
                       actor_role="admin", days_ago=10.0)
     rows = cal.query_top_false_positives()
     assert "g1_fp_old" not in {r["badge_slug"] for r in rows}
+
+
+# ---------------------------------------------------------------------------
+# Float-valued score_overrides (issue #110)
+# ---------------------------------------------------------------------------
+
+
+def test_query_a_reads_float_valued_score_overrides(bag):
+    """A production-shaped row (scores as JSON floats) is read as ints."""
+    m = bag.add_meeting()
+    iid = bag.add_item(
+        m,
+        title="G1-float-divergence",
+        action_type="contract_award",
+        raw_overrides=FLOAT_OVERRIDES,
+    )
+    rows = cal.query_a_per_item_divergence()
+    found = next((r for r in rows if r["id"] == iid), None)
+    assert found is not None
+    assert found["ai_sig"] == 2
+    assert found["final_sig"] == 9
+    assert found["sig_delta"] == 7
+
+
+def test_query_b1_counts_float_valued_boosts(bag):
+    """B1 compares float-valued scores: 9 boosted of 30 surfaces with avg 7."""
+    m = bag.add_meeting()
+    for _ in range(9):
+        bag.add_item(
+            m,
+            action_type="float_b1",
+            ai_rewrite_version=98,
+            raw_overrides=FLOAT_OVERRIDES,  # 9.0 > 2.0 is a boost
+        )
+    for _ in range(21):
+        bag.add_item(
+            m,
+            action_type="float_b1",
+            ai_rewrite_version=98,
+            processing_status="completed",
+        )
+    rows = cal.query_b1_under_scoring_impact()
+    found = next((r for r in rows if r["action_type"] == "float_b1"), None)
+    assert found is not None
+    assert found["total_items"] == 30
+    assert found["items_with_sig_boost"] == 9
+    assert float(found["avg_boost_magnitude"]) == 7.0
+
+
+def test_all_service_queries_run_with_float_valued_score_overrides(bag):
+    """None of the six dashboard queries raises when a float row exists."""
+    m = bag.add_meeting()
+    bag.add_item(
+        m,
+        title="G1-float-divergence",
+        action_type="contract_award",
+        raw_overrides=FLOAT_OVERRIDES,
+    )
+    for fn in (
+        cal.query_a_per_item_divergence,
+        cal.query_b1_under_scoring_impact,
+        cal.query_b2_over_scoring_consent,
+        cal.query_c_baseline_drift,
+        cal.query_badge_volume_calibration,
+        cal.query_top_false_positives,
+    ):
+        assert isinstance(fn(), list), fn.__name__
+
+
+def test_worker_calibration_queries_run_on_real_cursor_with_float_scores(bag):
+    """The worker's four SQL constants run on a real cursor against a float row.
+
+    This is the exact path ``_do_calibration_report`` in
+    ``src/docket/worker/tasks.py`` takes; the unit tests use a mock
+    cursor and so never executed the SQL (runbook v3-cutover item #56).
+    """
+    from docket.ai.calibration import run_calibration_queries
+    from docket.db import db_cursor
+
+    m = bag.add_meeting()
+    bag.add_item(
+        m,
+        title="G1-float-divergence",
+        action_type="contract_award",
+        raw_overrides=FLOAT_OVERRIDES,
+    )
+    with db_cursor() as cur:
+        counts = run_calibration_queries(cur)
+    for key in (
+        "divergence_count",
+        "underscoring_categories",
+        "overscoring_categories",
+        "drift_alerts",
+    ):
+        assert key in counts
+    assert counts["divergence_count"] >= 1
+
+
+def test_calibration_dashboard_renders_float_valued_item(bag, admin_client):
+    """/admin/calibration returns 200 and lists a float-scored item."""
+    m = bag.add_meeting()
+    iid = bag.add_item(
+        m,
+        title="G1-float-render",
+        action_type="contract_award",
+        raw_overrides=FLOAT_OVERRIDES,
+    )
+    rv = admin_client.get("/admin/calibration")
+    assert rv.status_code == 200
+    body = rv.get_data(as_text=True)
+    assert "G1-float-render" in body
+    assert f"#{iid}" in body
+    assert '<td class="t-tnum">7</td>' in body
 
 
 # ---------------------------------------------------------------------------

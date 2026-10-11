@@ -33,6 +33,10 @@ Nothing has been executed yet. The entries below were observed while authoring t
 - Observation (operator session, 2026-10-11 23:30Z, before any milestone ran): `main` at `728df83` (pull requests #111 and #117 merged) was merged into this branch by `git merge main` with no conflicts (merge commit `18071cb`), so the tooling the acceptance commands assume now exists here: `tools/verify`, `tools/test-db`, `tools/judge-milestone`, `tools/check-workflows`. The `tools/` fallback in Context and Orientation is therefore not needed. Every authoring count was re-checked on the merged tree and still holds: eighteen `score_overrides` `::int` casts per file, five `ai.updated_at` tokens, runbook item #56 on line 178 of `docs/runbooks/v3-cutover.md`, twenty-eight tests collected from `tests/integration/test_calibration.py`, no `docs/specs/calibration.md`. The one change `main` made to the test file was to `test_query_c_returns_weeks_of_data` (week B now seeded eight days ago instead of six and a half, issue #70's Sunday flake); it does not touch the rows M1 adds. `src/` is identical to `origin/main`.
   Evidence: `git merge main --no-edit` printed `34 files changed, 3618 insertions(+), 187 deletions(-)` with `create mode 100755 tools/verify` among the lines; `grep -c "score_overrides->>'[a-z_]*')::int" src/docket/ai/calibration.py src/docket/services/calibration.py` printed `18` and `18`; `grep -n updated_at src/docket/ai/calibration.py` printed lines 21, 47, 76, 91, 96; `pytest tests/integration/test_calibration.py --collect-only -q` printed `28 tests collected`; `git diff --stat origin/main -- src/` printed nothing.
 - Observation (operator session, 2026-10-11 23:30Z): the starting state has now been observed in this worktree. `./tools/verify` passed on the merged branch before any milestone work: `verify: test-db ... ok (1s)`, `verify: unit+web+services ... ok (70s)`, `verify: integration ... ok (88s)`, `verify: judge-fixtures ... ok (4s)`, `verify: workflows ... ok (1s)`, `verify: all 4 checks passed in 164s.` This is longer than the 150 seconds the Context section estimates; budget about 165 seconds per run.
+- Observation (M1 session, 2026-10-12 00:05Z): the M1 session's own starting-state `./tools/verify` was run in the background on the clean tree, but the five new tests were added to `tests/integration/test_calibration.py` while its unit tier was still running, so its integration tier collected the edited file. The run therefore reports `verify: integration ... FAILED (63s)` with exactly the five new tests failing and every pre-existing test passing; it is not a pre-existing failure, it is the red run the milestone asks for, observed one step early. The clean-tree baseline remains the operator session's 164-second green run above.
+  Evidence: `verify: unit+web+services ... ok (58s)` (`1858 passed, 5 skipped, 4 xfailed`), `verify: integration ... FAILED (63s)` with `5 failed, 611 passed`, the five `FAILED` lines all in `tests/integration/test_calibration.py` and all named `*float*`, `verify: judge-fixtures ... ok (3s)`, `verify: workflows ... ok (0s)`, `verify: 1 of 4 checks failed in 125s.`, `exit=1`. `venv/bin/python -c "import docket; print(docket.__file__)"` printed `.../worktrees/calibration-float-scores/src/docket/__init__.py`.
+- Observation (M1 session, 2026-10-12 00:05Z): the pre-fix run of the test file alone matched the authoring prediction exactly, including which error each path raises.
+  Evidence: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/integration/test_calibration.py -q -p no:cacheprovider` printed `5 failed, 28 passed in 4.52s`; the four service-path tests (`test_query_a_reads_float_valued_score_overrides`, `test_query_b1_counts_float_valued_boosts`, `test_all_service_queries_run_with_float_valued_score_overrides`, `test_calibration_dashboard_renders_float_valued_item`) each ended in `psycopg2.errors.InvalidTextRepresentation: invalid input syntax for type integer: "9.0"`; the worker-path test (`test_worker_calibration_queries_run_on_real_cursor_with_float_scores`) ended in `psycopg2.errors.UndefinedColumn: column ai.updated_at does not exist` / `LINE 13:   AND ai.updated_at > NOW() - INTERVAL '24 hours'`. `tools/test-db --drop` ran afterwards.
 
 ## Decision Log
 
@@ -259,6 +263,19 @@ Authoring-time evidence (2026-10-11, local PostgreSQL 16.14, worktree venv Pytho
     28 tests collected in 0.44s
 
 Milestone sessions append their observed transcripts below this line.
+
+M1 session, 2026-10-12 00:05Z, pre-fix (five new tests present, SQL unchanged):
+
+    $ DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/integration/test_calibration.py -q -p no:cacheprovider; tools/test-db --drop
+    FAILED tests/integration/test_calibration.py::test_query_a_reads_float_valued_score_overrides
+    FAILED tests/integration/test_calibration.py::test_query_b1_counts_float_valued_boosts
+    FAILED tests/integration/test_calibration.py::test_all_service_queries_run_with_float_valued_score_overrides
+    FAILED tests/integration/test_calibration.py::test_worker_calibration_queries_run_on_real_cursor_with_float_scores
+    FAILED tests/integration/test_calibration.py::test_calibration_dashboard_renders_float_valued_item
+    5 failed, 28 passed in 4.52s
+    (4 x) E  psycopg2.errors.InvalidTextRepresentation: invalid input syntax for type integer: "9.0"
+    (1 x) E  psycopg2.errors.UndefinedColumn: column ai.updated_at does not exist
+           E  LINE 13:   AND ai.updated_at > NOW() - INTERVAL '24 hours'
 
 ## Interfaces and Dependencies
 
