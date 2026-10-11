@@ -12,7 +12,7 @@ Today an agent working in this repository cannot prove its change is safe with o
 
 - [x] (2026-10-11 16:56Z) M1: the eight failing tests pass on a developer database. Acceptance run `venv/bin/python -m pytest tests/unit tests/web tests/services tests/integration -q -p no:cacheprovider` printed `2468 passed, 3 skipped, 4 xfailed, 2 warnings in 133.36s`, zero failed. Carve-outs against the stated acceptance: (1) the diff touches four test files, not three; `tests/integration/test_blog_integration.py` needed its own fix because the plan's diagnosis of that test was wrong (Decision Log). (2) The acceptance holds for the first full run after the `mv_badge_volume_monthly` repair; every run of `tests/integration` re-drifts the view through `test_migration_013.py`, and the unit tier leaves rows that break 16 calibration tests on a following run, so a second run on `docket_db` is red again for reasons outside the eight tests and outside M1's scope (Surprises & Discoveries, Decision Log). M2's disposable database is the durable condition under which the suite is green.
 - [x] (2026-10-11 17:14Z) M2: `tools/verify` and `tools/test-db` exist; every tier runs on a disposable database named from the checkout; bare `pytest` no longer collects live tests. Acceptance run `./tools/verify; echo "exit=$?"` printed `verify: all 2 checks passed in 144s.` and `exit=0` (fast tiers `1856 passed, 4 skipped, 4 xfailed` in 61 s, integration `611 passed` in 83 s); `docket_db` row counts were `votes 0`, `agenda_items 1`, `member_votes 0` immediately before and immediately after, as the reviewer's revised acceptance requires; collect-only live count `0` bare and `12` with `-m live`; the disposable database `docket_test_692415bc` was gone after the run. Carve-outs against the stated acceptance: (1) the "second checkout builds a differently named database" clause was shown by hashing the main checkout's path string (`docket_test_0a1dedec` versus this worktree's `docket_test_692415bc`), not by running `tools/test-db` in a second checkout, because this session may not touch any other directory. (2) The fast tiers report `4 skipped` on the fresh database where M1 saw `3 skipped` on `docket_db`: four data-dependent `tests/web/test_p5_translation.py` tests skip when no meetings, tagged items, search hits, or coverage rows exist (Surprises & Discoveries); nothing fails, but the fresh database tests one case fewer than the developer database did.
-- [ ] M3: `tools/judge-milestone` exists with its fixture self-test under `tools/verify`, and its card is in the register.
+- [ ] M3: `tools/judge-milestone` exists with its fixture self-test under `tools/verify`, and its card is in the register (completed: `tools/judge-milestone` and `tools/fixtures/judge/run`, `judge fixtures: 8 of 8 passed` observed 2026-10-11 17:27Z, snapshot of this plan exits 0; remaining: the card, its index row, the `tools/verify` wiring, the full verify run).
 - [ ] M4: `AGENTS.md`, `docs/specs/operations.md`, `docs/DEBT.md`, `docs/MATURITY.md`, and `docs/capabilities/index.md` reflect the new commands; debt rows D1, D2, D3, D5, D35 are closed.
 
 ## Surprises & Discoveries
@@ -39,6 +39,12 @@ Today an agent working in this repository cannot prove its change is safe with o
   Evidence: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_query_hidden_meetings.py tests/web/test_p5_translation.py -q -rs -p no:cacheprovider` printed `SKIPPED [1] tests/web/test_p5_translation.py:38: No Birmingham meetings seeded in this env`, `:64: No tagged items seeded in this env`, `:123: No search hits for 'council' in this env`, `:212: No coverage entries in DB to permalink-test`, then `34 passed, 4 skipped in 2.19s`.
 - Observation (M2): building the disposable database is effectively free; all 33 migrations applied in under one second of wall time (`verify: test-db ... ok (0s)`), so the verify budget is spent entirely in pytest: 61 s fast tiers, 83 s integration, 144 s total, within the 180 s budget the Decision Log sets.
   Evidence: the `./tools/verify` summary lines in Artifacts.
+- Observation (M3, 2026-10-11): the plan's M3 command `tools/judge-milestone snapshot plans/active/factory-tools.md | head -5; echo "exit=$?"` reports `head`'s exit status, not the judge's, so it would print `exit=0` even on a defective plan. The judge's exit was measured separately, without the pipe.
+  Evidence: `tools/judge-milestone snapshot plans/active/factory-tools.md >/dev/null; echo "snapshot exit=$?"` printed `snapshot exit=0`; the piped form also printed `exit=0`, but for the wrong reason.
+- Observation (M3): judged against the real M2 history before any M3 commit, the judge passed rules one to five and halted on the sixth. With the snapshot taken from `git show 0bc385c:plans/active/factory-tools.md` and `0bc385c` as the start, the four commits to `d6f2466` all touch the plan, exactly one entry (M2) became done and dated, and nothing reverted; the halt was `the working tree has uncommitted changes.`, caused by the untracked `tools/judge-milestone` itself. This also shows the reviewer's `d6f2466` edits to the plan did not alter the M1 or M2 entry text, since an edited done entry would have read as a revert (Decision Log).
+  Evidence: `judge: halt plans/active/factory-tools.md`, `judge: entry "(2026-10-11 17:14Z) M2: ..."`, `judge: the working tree has uncommitted changes.`, `judge: Fix the cause, commit in the worktree, and re-run.`, exit 1.
+- Observation (M3): the local git configuration points `core.hooksPath` at the main checkout's `.git/hooks`, which holds only `*.sample` files, so no hook runs on commits from this worktree; nothing was bypassed and nothing needed to be.
+  Evidence: `git config --local --list | grep -i hooks` printed `core.hookspath=/Users/darrellnance/docket-pub/.git/hooks`; `ls` of that directory listed only `.sample` files.
 
 ## Decision Log
 
@@ -101,6 +107,25 @@ Today an agent working in this repository cannot prove its change is safe with o
 - Decision: M2 is accepted. The judge rules pass (three commits, each touching the plan, one entry ticked and dated, none reverted, clean tree). The reviewer re-ran `./tools/verify` independently: `test-db ok (1s)`, `unit+web+services ok (58s)`, `integration ok (80s)`, `all 2 checks passed in 139s`, exit 0. Two leftover databases named `docket_test_umami_*` exist on the local server; they come from the analytics test fixtures in the existing suite, not from `tools/test-db`, and M4 records them as a debt row (trigger: next change to the analytics tests). The M2 session committed once with `-c core.hooksPath=/dev/null`; no hooks exist, so nothing was bypassed, but sessions should not disable hooks, and the brief for later milestones says so.
   Rationale: evidence re-observed by the reviewer, not taken from the session's report.
   Date/Author: 2026-10-11, reviewer (operator's session, Claude).
+
+- Decision: every line the judge prints begins `judge: `, and the first word after it is one of three verdicts: `advanced` (exit 0), `halt` (exit 1, the first of the four halt lines, followed by the plan path), or `defect` (exit 2). In `snapshot` mode the records go to stdout and the defect line to stderr, so `snapshot <plan> > file` leaves a usable record file even when it exits 2.
+  Rationale: the plan says the fixture runner asserts "the exit code and the first word after `judge:`", which needs one word per verdict on the first line; it does not say what the snapshot's one-line defect message looks like or where it goes, and a defect mixed into the record file would corrupt the next `judge` comparison.
+  Date/Author: 2026-10-11, M3 session (Claude).
+- Decision: `judge` reads the plan from `git show HEAD:<path>`, not from the working file; `snapshot` reads the working file it is given. The judge halts on a plan that is absent at HEAD with `judge: defect <plan> is not in the tree at HEAD`, exit 2.
+  Rationale: the plan says the judge "re-reads the plan at HEAD", and the thing being judged is landed work; an uncommitted edit to the plan is caught by the clean-tree rule rather than silently counted as progress. When the tree is clean the two readings are the same file.
+  Date/Author: 2026-10-11, M3 session (Claude).
+- Decision: the rules are checked in this order, and the first failure halts: no commit landed; a commit did not touch the plan; the plan at HEAD has a structural defect (a required living section missing or empty, which is exit 2 rather than a halt); not exactly one entry changed state; a ticked entry has no date; a done entry reverted; the tree is dirty. In `snapshot` mode a ticked entry without a date is a defect (exit 2), as it is in factory-loop; in `judge` mode any undated ticked entry at HEAD is the halt rule the plan names ("entry at line n is ticked but carries no date"), whether or not it was ticked in this session. The second line of a halt names the entry that became done when exactly one did, the offending entry for the no-date and reverted rules, and `no entry` otherwise.
+  Rationale: the plan lists six rules but not their order or what "the entry it stopped on" is for rules that have no single entry; this is the order in which each later rule's message is meaningful (counting entries on a plan missing its Progress section is not). Treating a stamp removed from an old entry as a halt costs nothing and catches a session that edited history.
+  Date/Author: 2026-10-11, M3 session (Claude).
+- Decision: an entry's key is its text lowercased with every date removed, whether in parentheses, in square brackets, or bare (`YYYY-MM-DD` with an optional `HH:MM` or `HH:MMZ` after it), and non-alphanumeric runs collapsed. A consequence carried over from factory-loop: rewriting the text of an already-done entry changes its key, which the judge reads as that entry reverting and a new one becoming done, so the count rule or the revert rule halts. Corrections to a done milestone therefore belong in Surprises & Discoveries, the Decision Log, or an appended sentence in a later entry, never in the done entry's own line.
+  Rationale: the plan's date tolerance (any `YYYY-MM-DD` anywhere on the line) has to be mirrored in the key, or ticking an entry with a bracketed or bare date would make it a new entry rather than the same one done. The revert-on-edit behaviour is the conservative reading PLANS.md already asks for ("corrections are appended, not rewritten").
+  Date/Author: 2026-10-11, M3 session (Claude).
+- Decision: the shortened text in a record is the first 72 characters followed by ASCII `...`, not the `…` factory-loop uses.
+  Rationale: the macOS `awk` (version 20200816) counts bytes, not characters, so a multibyte ellipsis would make the 72-character rule a 72-byte rule with an odd suffix; the plan says only "shortened text".
+  Date/Author: 2026-10-11, M3 session (Claude).
+- Decision: the fixture runner's temporary repositories run git with `GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1` and an identity from `GIT_AUTHOR_*`/`GIT_COMMITTER_*` environment variables; the snapshot file lives inside each fixture repository and is listed in its `.git/info/exclude`. Cases three (commit not touching the plan) and six (done entry reverted) pair the condition under test with an otherwise clean one-entry advance.
+  Rationale: a signing key, hook path, or commit template in the operator's global configuration must not change a verdict, and the repositories are the fixture's own, not this checkout's (this checkout's hooks are untouched). Without the exclusion the snapshot would dirty every tree and every case would halt on the last rule. Without the pairing, case three would halt on "no entry changed state" rather than on the untouched commit, and case six on the count rule rather than the revert rule, so the cases would pass without exercising the rules they are named for; the per-case output line prints the halt rule so a reader can see which rule fired.
+  Date/Author: 2026-10-11, M3 session (Claude).
 
 ## Outcomes & Retrospective
 
@@ -220,7 +245,7 @@ Every step can be rerun. `tools/test-db` drops before it creates, so a half-buil
 
 ## Artifacts and Notes
 
-Still to be filled by later sessions: the fixture runner's eight lines (M3); the two failing-case demonstrations (M4). (The `./tools/verify` summary and wall time from M2 are below.)
+Still to be filled by later sessions: the two failing-case demonstrations (M4). (The `./tools/verify` summary and wall time from M2, and the M3 transcripts, are below.)
 
 M1 transcripts, observed 2026-10-11 in the worktree on `plan/factory-tools`:
 
@@ -338,6 +363,40 @@ Name divergence between checkouts, computed from the path strings (this session 
     /Users/darrellnance/docket-pub/.claude/worktrees/factory-tools -> docket_test_692415bc
 
 POSIX check: `dash -n tools/test-db && dash -n tools/verify` passed; `dash tools/test-db` built the database and printed the same URL, `dash tools/test-db --drop` exited 0 and left no `docket_test_692415bc` row in `pg_database`. `shellcheck` is not installed on this machine.
+
+M3 transcripts, observed 2026-10-11 in the worktree on `plan/factory-tools` at `d6f2466`:
+
+Starting state, before any edit (17:19Z to 17:22Z), `./tools/verify`:
+
+    verify: test-db ... ok (1s) postgresql://docket@localhost:5432/docket_test_692415bc
+    verify: unit+web+services ... ok (60s)
+    verify: integration ... ok (82s)
+    verify: all 2 checks passed in 143s.
+    exit=0
+
+(fast tiers `1856 passed, 4 skipped, 4 xfailed, 1 warning in 59.66s`; integration `611 passed, 1 warning in 81.29s`.)
+
+Snapshot of this plan (17:25Z), `tools/judge-milestone snapshot plans/active/factory-tools.md`, exit 0, four records (keys elided):
+
+    DONE	13	(2026-10-11 16:56Z) M1: the eight failing tests pass on a developer data...
+    DONE	14	(2026-10-11 17:14Z) M2: `tools/verify` and `tools/test-db` exist; every ...
+    OPEN	15	M3: `tools/judge-milestone` exists with its fixture self-test under `too...
+    OPEN	16	M4: `AGENTS.md`, `docs/specs/operations.md`, `docs/DEBT.md`, `docs/MATUR...
+
+The fixture runner (17:27Z), `tools/fixtures/judge/run; echo "exit=$?"`:
+
+    judge fixture: clean-advance            ok (exit 0, advanced "(2026-10-02 11:00Z) M2: the second thing.")
+    judge fixture: no-commit                ok (exit 1, halt: no commit landed since c7f4b29.)
+    judge fixture: untouched-commit         ok (exit 1, halt: commit da4766f did not touch the plan.)
+    judge fixture: two-ticked               ok (exit 1, halt: 2 Progress entries changed state (exactly one must).)
+    judge fixture: ticked-undated           ok (exit 1, halt: entry at line 6 is ticked but carries no date.)
+    judge fixture: done-reverted            ok (exit 1, halt: entry "(2026-10-01 10:00Z) M1: the first thing." was done at the start and is no longer.)
+    judge fixture: dirty-tree               ok (exit 1, halt: the working tree has uncommitted changes.)
+    judge fixture: missing-section          ok (exit 2, defect plan.md is missing the required section `## Decision Log`)
+    judge fixtures: 8 of 8 passed
+    exit=0
+
+The count of `tmp.*` directories under `$TMPDIR` was 5 before and 5 after the run. A scratch copy of the runner with case one's expected exit changed from `0` to `1` (the M4 demonstration, rehearsed here on a copy outside the tree and not counted as it) printed `judge fixture: clean-advance            FAILED (want exit 1 word advanced; got exit 0: advanced "(2026-10-02 11:00Z) M2: the second thing.")`, seven `ok` lines, `judge fixtures: 1 of 8 failed: clean-advance`, exit 1. `dash -n tools/judge-milestone && dash -n tools/fixtures/judge/run` passed.
 
 ## Interfaces and Dependencies
 

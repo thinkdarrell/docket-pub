@@ -1,0 +1,243 @@
+#!/bin/sh
+# tools/judge-milestone: decide, from git and the plan file alone, whether a
+# session advanced exactly one milestone of an ExecPlan.
+#
+#   tools/judge-milestone snapshot <plan>
+#       Parse the plan's Progress section and living sections. Print one
+#       tab-separated record per line: KIND, line number, shortened text, key.
+#       KIND is OPEN, DONE (ticked and dated), NOSTAMP (ticked, no date),
+#       MISSING (a required section is absent; line 0), or EMPTY (present with
+#       nothing under it; line 0). Exit 0 when the record holds, 2 when it has
+#       a defect; the defect is one line on stderr beginning `judge: defect`.
+#
+#   tools/judge-milestone judge <plan> <snapshot-file> <start-sha>
+#       Re-read the plan as committed at HEAD, compare it with the snapshot
+#       taken before the session, list the commits <start-sha>..HEAD, and check
+#       the working tree. Exit 0 and print `judge: advanced "<entry>"` when
+#       exactly one Progress entry went from open to done with a date, every
+#       new commit touched the plan, no done entry reverted, and the tree is
+#       clean. Exit 1 with a four-line halt otherwise (plan path; the entry it
+#       stopped on or `no entry`; the rule that failed; what to do). Exit 2
+#       with `judge: defect ...` when the plan at HEAD has a structural defect.
+#
+# The key is the entry text lowercased, with every date (YYYY-MM-DD and any
+# time that follows it, bare or in parentheses or brackets) removed and runs of
+# non-alphanumerics collapsed to one space, so an entry keeps its identity when
+# it is ticked and stamped. A ticked entry counts as dated when any YYYY-MM-DD
+# appears anywhere on its line.
+#
+# Adapted from the read_plan, plan_defect, compare_records, and
+# untouching_commits functions of factory-loop's tools/loop-runner. Uses only
+# git, awk, sed, and printf.
+set -u
+
+usage() {
+    printf 'usage: %s snapshot <plan>\n       %s judge <plan> <snapshot-file> <start-sha>\n' "$0" "$0" >&2
+    exit 64
+}
+
+# read_plan: records for the plan text on stdin.
+read_plan() {
+    awk '
+    function trim(t) {
+        sub(/^[ \t]+/, "", t)
+        sub(/[ \t]+$/, "", t)
+        return t
+    }
+    function key(t,   k) {
+        k = tolower(t)
+        gsub(/\([0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9][^)]*\)/, " ", k)
+        gsub(/\[[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9][^]]*\]/, " ", k)
+        gsub(/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]( [0-9][0-9]:[0-9][0-9]z?)?/, " ", k)
+        gsub(/[^a-z0-9]+/, " ", k)
+        return trim(k)
+    }
+    function shorten(t) {
+        if (length(t) > 72) { return substr(t, 1, 72) "..." }
+        return t
+    }
+    BEGIN {
+        n = split("Progress|Surprises & Discoveries|Decision Log|Outcomes & Retrospective", req, "|")
+    }
+    {
+        if ($0 ~ /^[ \t]*```/) { fence = !fence; next }
+        if (fence) { next }
+        if ($0 ~ /^## /) { cur = substr($0, 4); seen[cur] = 1; next }
+        if ($0 ~ /^[ \t]*$/) { next }
+        if (cur != "") { content[cur] = 1 }
+        if (cur != "Progress") { next }
+        if ($0 ~ /^(    |\t)/) { next }
+        if ($0 ~ /^[ \t]*- \[[ ]\]/) {
+            t = $0
+            sub(/^[ \t]*- \[[ ]\][ \t]*/, "", t)
+            print "OPEN\t" FNR "\t" shorten(t) "\t" key(t)
+            next
+        }
+        if ($0 ~ /^[ \t]*- \[[xX]\]/) {
+            t = $0
+            sub(/^[ \t]*- \[[xX]\][ \t]*/, "", t)
+            kind = ($0 ~ /[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/) ? "DONE" : "NOSTAMP"
+            print kind "\t" FNR "\t" shorten(t) "\t" key(t)
+            next
+        }
+    }
+    END {
+        for (i = 1; i <= n; i++) {
+            if (!(req[i] in seen)) { print "MISSING\t0\t" req[i] "\t" }
+            else if (!(req[i] in content)) { print "EMPTY\t0\t" req[i] "\t" }
+        }
+    }
+    '
+}
+
+# plan_defect <records> [structural]: the first defect as a phrase completing
+# "<plan> ...". With a second argument, NOSTAMP is not a defect (judge mode
+# reports it as a halt rule instead). Empty output means the record holds.
+plan_defect() {
+    awk -F'\t' -v structural="${2:-}" '
+    $1 == "NOSTAMP" && structural == "" { print "has a completed Progress entry with no date at line " $2 " (\"" $3 "\")"; exit }
+    $1 == "MISSING" { print "is missing the required section `## " $3 "`"; exit }
+    $1 == "EMPTY" { print "carries the required section `## " $3 "` with nothing under it"; exit }
+    ' "$1"
+}
+
+# compare_records <before> <after>: NEWDONE lines for entries that became
+# complete, REVERTED lines for completed entries that stopped being complete.
+compare_records() {
+    awk -F'\t' '
+    FNR == NR {
+        if ($1 == "DONE" || $1 == "NOSTAMP") { before[$4] = $3 }
+        next
+    }
+    {
+        if ($1 != "DONE" && $1 != "NOSTAMP") { next }
+        after[$4] = 1
+        if (!($4 in before)) { print "NEWDONE\t" $3 "\t" ($1 == "DONE" ? "stamped" : "unstamped") }
+    }
+    END {
+        for (k in before) { if (!(k in after)) { print "REVERTED\t" before[k] "\t" } }
+    }
+    ' "$1" "$2"
+}
+
+# untouching_commits <root> <rel-plan> <start> <end>: every commit in the range
+# that changed nothing in the plan file, oldest first.
+untouching_commits() {
+    git -C "$1" log --reverse --name-only --format='C%x09%H' "$3..$4" | awk -v plan="$2" '
+    $1 == "C" && NF == 2 { c = $2; order[++k] = c; next }
+    $0 == plan { touched[c] = 1 }
+    END { for (i = 1; i <= k; i++) { if (!(order[i] in touched)) { print order[i] } } }
+    '
+}
+
+halt() {
+    # halt <plan> <entry-or-empty> <rule>
+    printf 'judge: halt %s\n' "$1"
+    if [ -n "$2" ]; then
+        printf 'judge: entry "%s"\n' "$2"
+    else
+        printf 'judge: no entry\n'
+    fi
+    printf 'judge: %s\n' "$3"
+    printf 'judge: Fix the cause, commit in the worktree, and re-run.\n'
+    exit 1
+}
+
+[ $# -ge 2 ] || usage
+mode=$1
+plan=$2
+
+TMP=$(mktemp -d) || exit 70
+trap 'rm -rf "$TMP"' EXIT
+
+case "$mode" in
+snapshot)
+    [ $# -eq 2 ] || usage
+    if [ ! -f "$plan" ]; then
+        printf 'judge: defect %s does not exist\n' "$plan" >&2
+        exit 2
+    fi
+    read_plan <"$plan" >"$TMP/records"
+    cat "$TMP/records"
+    defect=$(plan_defect "$TMP/records")
+    if [ -n "$defect" ]; then
+        printf 'judge: defect %s %s\n' "$plan" "$defect" >&2
+        exit 2
+    fi
+    exit 0
+    ;;
+judge)
+    [ $# -eq 4 ] || usage
+    before=$3
+    start=$4
+    if [ ! -f "$before" ]; then
+        printf 'judge: defect snapshot file %s does not exist\n' "$before" >&2
+        exit 2
+    fi
+    plandir=$(dirname "$plan")
+    root=$(git -C "$plandir" rev-parse --show-toplevel 2>/dev/null) || {
+        printf 'judge: defect %s is not inside a git repository\n' "$plan" >&2
+        exit 2
+    }
+    rel="$(git -C "$plandir" rev-parse --show-prefix)$(basename "$plan")"
+
+    # Rule 1: at least one commit landed.
+    if [ -z "$(git -C "$root" rev-list "$start..HEAD" 2>/dev/null)" ]; then
+        halt "$plan" "" "no commit landed since $(git -C "$root" rev-parse --short "$start" 2>/dev/null || printf '%s' "$start")."
+    fi
+
+    # The plan as committed at HEAD, and the entry that became done (if one).
+    if ! git -C "$root" show "HEAD:$rel" >"$TMP/plan" 2>/dev/null; then
+        printf 'judge: defect %s is not in the tree at HEAD\n' "$plan" >&2
+        exit 2
+    fi
+    read_plan <"$TMP/plan" >"$TMP/after"
+    compare_records "$before" "$TMP/after" >"$TMP/diff"
+    newdone=$(awk -F'\t' '$1 == "NEWDONE"' "$TMP/diff" | wc -l | tr -d ' ')
+    entry=""
+    if [ "$newdone" -eq 1 ]; then
+        entry=$(awk -F'\t' '$1 == "NEWDONE" { print $2; exit }' "$TMP/diff")
+    fi
+
+    # Rule 2: every new commit touched the plan.
+    untouched=$(untouching_commits "$root" "$rel" "$start" HEAD | head -1)
+    if [ -n "$untouched" ]; then
+        halt "$plan" "$entry" "commit $(git -C "$root" rev-parse --short "$untouched") did not touch the plan."
+    fi
+
+    # A structurally broken plan cannot be judged.
+    defect=$(plan_defect "$TMP/after" structural)
+    if [ -n "$defect" ]; then
+        printf 'judge: defect %s %s\n' "$plan" "$defect" >&2
+        exit 2
+    fi
+
+    # Rule 3: exactly one entry changed state.
+    if [ "$newdone" -ne 1 ]; then
+        halt "$plan" "" "$newdone Progress entries changed state (exactly one must)."
+    fi
+
+    # Rule 4: a ticked entry carries a date.
+    nostamp=$(awk -F'\t' '$1 == "NOSTAMP" { print $2; exit }' "$TMP/after")
+    if [ -n "$nostamp" ]; then
+        halt "$plan" "$(awk -F'\t' '$1 == "NOSTAMP" { print $3; exit }' "$TMP/after")" "entry at line $nostamp is ticked but carries no date."
+    fi
+
+    # Rule 5: no done entry reverted.
+    reverted=$(awk -F'\t' '$1 == "REVERTED" { print $2; exit }' "$TMP/diff")
+    if [ -n "$reverted" ]; then
+        halt "$plan" "$reverted" "entry \"$reverted\" was done at the start and is no longer."
+    fi
+
+    # Rule 6: the working tree is clean.
+    if [ -n "$(git -C "$root" status --porcelain)" ]; then
+        halt "$plan" "$entry" "the working tree has uncommitted changes."
+    fi
+
+    printf 'judge: advanced "%s"\n' "$entry"
+    exit 0
+    ;;
+*)
+    usage
+    ;;
+esac
