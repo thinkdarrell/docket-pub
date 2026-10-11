@@ -7,12 +7,21 @@ roll-call pairs, chair addresses, self-identification, sampled utterances.
 """
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 
+from pydantic import ValidationError
+
+from docket.ai.exceptions import TranscriptHeld
 from docket.ai.transcripts.guard import normalize
+from docket.ai.transcripts.prompts import SPEAKER_SYSTEM
+from docket.ai.transcripts.schemas import SPEAKER_SCHEMA, SpeakerAssignment, SpeakerResolution
+from docket.config import AI_TRANSCRIPT_SPEAKER_MODEL, TRANSCRIPT_TOKEN_CEILING
 from docket.db import db_cursor
+
+log = logging.getLogger(__name__)
 
 RESPONSE_WORDS = {"here", "present", "yes", "no", "aye", "nay", "yeah"}
 _TITLE_RE = re.compile(r"\b(council\s*(?:or|member|man|woman)|councilmember|councilor|president|pro\s*tem|"
@@ -231,3 +240,115 @@ def render_speaker_user(packet: SpeakerPacket, meeting: dict) -> str:
     lines += ["", f"Return exactly {len(packet.stats)} assignments, one per cluster label above, in this order: "
               + ", ".join(packet.stats)]
     return "\n".join(lines)
+
+
+# --- stage ------------------------------------------------------------------
+CONFIDENCE_CAPS = {"two_signals": 0.95, "one_signal": 0.75, "sample_inference": 0.55}
+_DB_METHOD = {"roll_call": "roll_call", "addressed_by_chair": "addressed_by_chair",
+              "self_identification": "llm_inference", "sample_inference": "llm_inference"}
+
+
+def load_speech_segments(transcript_id: int) -> list[dict]:
+    with db_cursor() as cur:
+        cur.execute("""SELECT seq, start_s, end_s, text, cluster_label, is_silence
+                         FROM transcript_segments
+                        WHERE transcript_id = %s AND is_silence = FALSE AND text <> ''
+                        ORDER BY seq""", [transcript_id])
+        return [dict(r) for r in cur.fetchall()]
+
+
+def _meeting(meeting_id: int) -> dict:
+    with db_cursor() as cur:
+        cur.execute("SELECT id, title, meeting_date::text FROM meetings WHERE id = %s", [meeting_id])
+        return dict(cur.fetchone())
+
+
+def apply_confidence_rules(a: SpeakerAssignment, cluster_texts: dict[str, str],
+                           roster_ids: set[int]) -> tuple[float, str, bool]:
+    """Spec: two independent signals -> high; one -> medium cap; content-only -> below display floor.
+
+    The model's quotes are verified against the cluster's own text. An
+    unverified primary quote drops the assignment to sample_inference.
+    """
+    text = normalize(cluster_texts.get(a.cluster_label, ""))
+    q1 = bool(a.evidence_quote.strip()) and normalize(a.evidence_quote) in text
+    q2 = bool(a.evidence_quote_2 and a.evidence_quote_2.strip()) and normalize(a.evidence_quote_2 or "") in text \
+        and normalize(a.evidence_quote_2 or "") != normalize(a.evidence_quote)
+    method = a.method
+    if method != "sample_inference" and not q1:
+        method = "sample_inference"
+    if method == "sample_inference":
+        cap = CONFIDENCE_CAPS["sample_inference"]
+    elif q1 and q2:
+        cap = CONFIDENCE_CAPS["two_signals"]
+    else:
+        cap = CONFIDENCE_CAPS["one_signal"]
+    conf = min(a.confidence, cap)
+    return round(conf, 3), _DB_METHOD[method], q1
+
+
+def write_assignments(meeting_id: int, transcript_id: int, resolved: list[tuple[SpeakerAssignment, float, str]],
+                      roster: list[RosterMember]) -> int:
+    names = {m.id: m.name for m in roster}
+    updated = 0
+    with db_cursor() as cur:
+        for a, conf, method in resolved:
+            member_id = a.council_member_id if a.council_member_id in names else None
+            display = names.get(member_id) if member_id else (a.display_name or None)
+            role = a.role if (member_id or a.role != "council") else "unknown"
+            cur.execute(
+                """UPDATE transcript_speakers
+                      SET council_member_id = %s, display_name = %s, role = %s, confidence = %s, method = %s,
+                          needs_review = %s
+                    WHERE meeting_id = %s AND cluster_label = %s AND is_manual = FALSE""",
+                [member_id, display, role, conf, method, conf < 0.6, meeting_id, a.cluster_label],
+            )
+            updated += cur.rowcount
+        # Segments uploaded before a speaker row existed, or re-uploaded, get linked here.
+        cur.execute("""UPDATE transcript_segments s SET speaker_id = sp.id
+                         FROM transcript_speakers sp
+                        WHERE s.transcript_id = %s AND sp.meeting_id = %s
+                          AND sp.cluster_label = s.cluster_label AND s.speaker_id IS DISTINCT FROM sp.id""",
+                    [transcript_id, meeting_id])
+    return updated
+
+
+def run_speaker_stage(claim: dict, *, client) -> "StageOutcome":  # noqa: F821
+    from docket.ai.transcripts.pipeline import StageOutcome
+
+    tid, mid = claim["id"], claim["meeting_id"]
+    segments = load_speech_segments(tid)
+    roster = roster_for_meeting(mid)
+    packet = build_packet(segments, roster)
+    if not packet.stats:
+        return StageOutcome("speakers_resolved", detail="no speech clusters")
+    user = render_speaker_user(packet, _meeting(mid))
+    model = AI_TRANSCRIPT_SPEAKER_MODEL
+    tokens = client.count_tokens(model=model, system=SPEAKER_SYSTEM, user=user)
+    if tokens > TRANSCRIPT_TOKEN_CEILING:
+        raise TranscriptHeld("token_ceiling", f"{tokens} tokens > ceiling {TRANSCRIPT_TOKEN_CEILING}")
+    res = client.call(model=model, system=SPEAKER_SYSTEM, user=user, schema=SPEAKER_SCHEMA,
+                      max_tokens=16000, effort="medium")
+    try:
+        parsed = SpeakerResolution.model_validate(res.data)
+    except ValidationError as e:
+        raise TranscriptHeld("schema_invalid", f"speaker response failed validation: {e}") from e
+    labels = set(packet.stats)
+    got = {a.cluster_label for a in parsed.assignments}
+    if not labels <= got:
+        raise TranscriptHeld("schema_invalid", f"missing assignments for clusters {sorted(labels - got)[:5]}")
+    cluster_texts: dict[str, str] = {}
+    for s in segments:
+        if s.get("cluster_label"):
+            cluster_texts[s["cluster_label"]] = cluster_texts.get(s["cluster_label"], "") + " " + s["text"]
+    roster_ids = {m.id for m in roster}
+    resolved = []
+    for a in parsed.assignments:
+        if a.cluster_label not in labels:
+            continue
+        conf, method, _ = apply_confidence_rules(a, cluster_texts, roster_ids)
+        resolved.append((a, conf, method))
+    n = write_assignments(mid, tid, resolved, roster)
+    log.info("speakers: meeting %s clusters=%d updated=%d roll_calls=%d addresses=%d tokens=%d",
+             mid, len(labels), n, len(packet.roll_calls), len(packet.addresses), tokens)
+    return StageOutcome("speakers_resolved", detail=f"{n} clusters")
