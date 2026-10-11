@@ -1048,7 +1048,9 @@ gh auth status 2>&1 | grep -m1 'Logged in'
 gh pr create --base main --head docs/factory-cycle-spec --title "docs: adopt the factory-loop harness and the factory cycle spec" --body-file <(sed -n '/^## Bootstrap report/,$p' docs/superpowers/plans/2026-10-11-factory-bootstrap.md; printf '\n\nSpec: docs/superpowers/specs/2026-10-10-factory-cycle-design.md\nPlan: docs/superpowers/plans/2026-10-11-factory-bootstrap.md\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n')
 ```
 
-Expected: the first line shows the `thinkdarrell` account; the second prints the PR URL. Record the URL here. If the first line shows a different account or no login, stop before `gh pr create`, report that the branch is pushed and the PR is not opened, and ask the operator to run `gh auth switch -u thinkdarrell` (or `gh auth login`) and then re-run Step 2 themselves or in a new session.
+Expected: the first line shows the `thinkdarrell` account; the second prints the PR URL. Record the URL here.
+
+Observed (2026-10-11): `thinkdarrell` active; PR https://github.com/thinkdarrell/docket-pub/pull/108 opened against `main` from `docs/factory-cycle-spec`, 23 commits. If the first line shows a different account or no login, stop before `gh pr create`, report that the branch is pushed and the PR is not opened, and ask the operator to run `gh auth switch -u thinkdarrell` (or `gh auth login`) and then re-run Step 2 themselves or in a new session.
 
 - [ ] **Step 3: Report to the operator**
 
