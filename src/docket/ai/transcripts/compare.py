@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 
 from pydantic import ValidationError
 
@@ -19,6 +20,7 @@ from docket.ai.transcripts.aligner import Candidate, Event, align, event_from_ro
 from docket.ai.transcripts.events import (extract_minutes_side, load_agenda, load_segments_with_speakers, render_minutes,
                                            render_transcript)
 from docket.ai.transcripts.guard import find_citation, window
+from docket.ai.transcripts.guard import normalize as _norm
 from docket.ai.transcripts.minutes import MinutesCapture, load_minutes, page_for_offset
 from docket.ai.transcripts.prompts import COMPARE_PROMPT_VERSION, HUNTER_SYSTEM, JUDGE_SYSTEM
 from docket.ai.transcripts.schemas import HUNTER_SCHEMA, JUDGE_SCHEMA, HunterResult, JudgeResult
@@ -296,9 +298,68 @@ def insert_rows(meeting_id: int, rows: list[dict]) -> int:
     return len(rows)
 
 
+ADDITION_MATCH_RATIO = 0.8
+
+
+def match_stale(new_row: dict, stale_rows: list[dict]) -> dict | None:
+    if new_row.get("transcript_event_id") is not None:
+        for s in stale_rows:
+            if s["category"] == new_row["category"] and s.get("transcript_event_id") == new_row["transcript_event_id"]:
+                return s
+        return None
+    best, best_ratio = None, 0.0
+    for s in stale_rows:
+        if s["category"] != new_row["category"] or s.get("agenda_item_id") != new_row.get("agenda_item_id"):
+            continue
+        r = SequenceMatcher(None, _norm(s.get("minutes_excerpt") or ""), _norm(new_row.get("minutes_excerpt") or "")).ratio()
+        if r > best_ratio:
+            best, best_ratio = s, r
+    return best if best_ratio >= ADDITION_MATCH_RATIO else None
+
+
+def reconcile(meeting_id: int, rows: list[dict]) -> dict:
+    """Spec Section 4, 'Re-comparison'. Transcript event ids are stable across a minutes-side re-run.
+
+    approved/proposed -> stale first; matched stale rows are updated in place and
+    re-proposed with previous_review_state; rejected rows that match stay rejected
+    (the reviewer already said no); old model dismissals are replaced wholesale.
+    """
+    with db_cursor() as cur:
+        cur.execute("DELETE FROM minutes_discrepancies WHERE meeting_id = %s AND review_state = 'dismissed_by_model'", [meeting_id])
+        cur.execute("""UPDATE minutes_discrepancies SET previous_review_state = review_state, review_state = 'stale'
+                        WHERE meeting_id = %s AND review_state IN ('approved', 'proposed')""", [meeting_id])
+        cur.execute("""SELECT id, category, transcript_event_id, agenda_item_id, minutes_excerpt, review_state, previous_review_state
+                         FROM minutes_discrepancies WHERE meeting_id = %s AND review_state IN ('stale', 'rejected')""", [meeting_id])
+        pool = [dict(r) for r in cur.fetchall()]
+        inserted = updated = 0
+        used: set[int] = set()
+        for r in rows:
+            match = match_stale(r, [p for p in pool if p["id"] not in used]) if r["review_state"] == "proposed" else None
+            if match is None:
+                cur.execute(f"INSERT INTO minutes_discrepancies ({', '.join(_COLS)}) VALUES ({', '.join(['%s'] * len(_COLS))})",
+                            [r[c] for c in _COLS])
+                inserted += 1
+                continue
+            used.add(match["id"])
+            new_state = "rejected" if match["review_state"] == "rejected" else "proposed"
+            cur.execute("""UPDATE minutes_discrepancies
+                              SET title = %s, description = %s, severity = %s, minutes_event_id = %s, minutes_excerpt = %s,
+                                  minutes_page = %s, transcript_excerpt = %s, transcript_start_s = %s, citation_match = %s,
+                                  confidence = %s, prompt_version = %s, review_state = %s
+                            WHERE id = %s""",
+                        [r["title"], r["description"], r["severity"], r["minutes_event_id"], r["minutes_excerpt"], r["minutes_page"],
+                         r["transcript_excerpt"], r["transcript_start_s"], r["citation_match"], r["confidence"], r["prompt_version"],
+                         new_state, match["id"]])
+            updated += 1
+        cur.execute("SELECT count(*) AS n FROM minutes_discrepancies WHERE meeting_id = %s AND review_state = 'stale'", [meeting_id])
+        stale = cur.fetchone()["n"]
+    return {"inserted": inserted, "updated": updated, "stale": stale}
+
+
 def write_rows(meeting_id: int, rows: list[dict]) -> int:
-    """Task 12 replaces this with reconcile(); until then a plain insert."""
-    return insert_rows(meeting_id, rows)
+    r = reconcile(meeting_id, rows)
+    log.info("compare: meeting %s reconcile inserted=%d updated=%d stale=%d", meeting_id, r["inserted"], r["updated"], r["stale"])
+    return r["inserted"] + r["updated"]
 
 
 # --- stage ------------------------------------------------------------------

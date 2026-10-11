@@ -18,3 +18,10 @@ def test_claim_sql_is_birmingham_newest_first_skip_locked():
 
 def test_status_stage_map():
     assert STAGE_FOR_STATUS == {"uploaded": "speakers", "speakers_resolved": "events", "events_extracted": "compare"}
+
+
+def test_claim_meeting_sql_replacement_matched():
+    from docket.ai.transcripts.pipeline import CLAIM_MEETING_SQL
+    assert "t.meeting_id = %s" in CLAIM_MEETING_SQL
+    assert "interval '24 hours'" not in CLAIM_MEETING_SQL
+    assert "t.stage_attempts < 3" not in CLAIM_MEETING_SQL

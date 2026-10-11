@@ -295,5 +295,57 @@ def reset_for_versions() -> int:
 
 
 def sweep_minutes_changes(limit: int = 10) -> int:
-    """Placeholder until Task 12 fills it: returns 0."""
-    return 0
+    """Re-download minutes for compared meetings at most once a week; a changed PDF re-runs the minutes side."""
+    from docket.ai.transcripts import minutes as _minutes
+    with db_cursor() as cur:
+        cur.execute("""SELECT t.id, t.meeting_id FROM transcripts t
+                         JOIN minutes_texts mt ON mt.meeting_id = t.meeting_id
+                         JOIN meetings m ON m.id = t.meeting_id
+                        WHERE t.status = 'compared' AND m.minutes_url IS NOT NULL
+                          AND mt.extracted_at < now() - interval '7 days'
+                        ORDER BY mt.extracted_at LIMIT %s""", [limit])
+        rows = [dict(r) for r in cur.fetchall()]
+    flagged = 0
+    for r in rows:
+        try:
+            changed = _minutes.recheck_minutes(r["meeting_id"])
+        except Exception:
+            log.exception("minutes recheck failed for meeting %s; skipping", r["meeting_id"])
+            continue
+        if changed:
+            with db_cursor() as cur:
+                cur.execute("""UPDATE transcripts SET status = 'events_extracted', compare_skipped_reason = 'minutes_changed',
+                                      stage_attempts = 0, last_attempted_at = NULL, updated_at = now() WHERE id = %s""", [r["id"]])
+            flagged += 1
+            log.info("minutes changed for meeting %s; re-comparison queued", r["meeting_id"])
+        elif changed is False:
+            with db_cursor() as cur:   # bump extracted_at so the next sweep moves on
+                cur.execute("UPDATE minutes_texts SET extracted_at = now() WHERE meeting_id = %s", [r["meeting_id"]])
+    return flagged
+
+
+CLAIM_MEETING_SQL = CLAIM_SQL.replace("AND t.stage_attempts < 3\n       AND (t.last_attempted_at IS NULL OR t.last_attempted_at < now() - interval '24 hours')",
+                                      "AND t.meeting_id = %s")
+
+
+def claim_meeting(meeting_id: int) -> dict | None:
+    assert "t.meeting_id = %s" in CLAIM_MEETING_SQL and "interval '24 hours'" not in CLAIM_MEETING_SQL
+    with db_cursor() as cur:
+        cur.execute(CLAIM_MEETING_SQL, [meeting_id])
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def run_for_meeting(meeting_id: int, *, notes: str = "cli_transcripts", client=None, until: str = "compared") -> list[str]:
+    from docket.ai.transcripts.client import StructuredClient
+    client = client or StructuredClient()
+    outcomes: list[str] = []
+    for _ in range(3):
+        claim = claim_meeting(meeting_id)
+        if claim is None or claim["status"] == until:
+            break
+        outcome = process_claim(claim, client=client, notes=notes)
+        outcomes.append(outcome)
+        if outcome not in ("advanced", "skipped"):
+            break
+    return outcomes
