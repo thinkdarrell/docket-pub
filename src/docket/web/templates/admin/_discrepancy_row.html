@@ -1,0 +1,56 @@
+<tr id="disc-{{ row.id }}">
+  <td style="max-width: 320px;">
+    <span class="chip {{ row.severity }}">{{ row.severity }}</span><span class="chip">{{ row.category }}</span>
+    {% if row.origin == 'model_initiated' %}<span class="chip">hunter</span>{% endif %}
+    {% if row.previous_review_state %}<span class="chip">re-review (was {{ row.previous_review_state }})</span>{% endif %}
+    <div><strong>{{ row.display_title }}</strong></div>
+    <div class="t-meta">{{ row.display_description }}</div>
+    <div class="t-meta" style="margin-top: 4px;">
+      <a href="/al/{{ row.municipality_slug }}/meetings/{{ row.meeting_id }}/">{{ row.meeting_title }}</a> · {{ row.meeting_date | format_date }} · <a href="{{ url_for('admin_transcripts.speaker_correction', meeting_id=row.meeting_id) }}">speakers</a>
+      {% if row.item_number %}· Item {{ row.item_number }}{% endif %}
+      · confidence {{ '%.2f' | format(row.confidence or 0) }} · citation {{ row.citation_match }} · #{{ row.id }}
+    </div>
+  </td>
+  <td style="max-width: 300px;">
+    {% if row.transcript_excerpt %}<blockquote>{{ row.transcript_excerpt }}</blockquote>{% else %}<span class="t-meta">no transcript excerpt</span>{% endif %}
+    {% if row.transcript_start_s is not none %}
+      <span class="t-mono t-meta">{{ row.transcript_start_s | format_timestamp }}</span>
+      · <a href="/al/{{ row.municipality_slug }}/meetings/{{ row.meeting_id }}/transcript/">transcript</a>
+      {% set ch = chapter_url(row.video_url, row.item_external_id) %}{% if ch %} · <a href="{{ ch }}" target="_blank" rel="noreferrer">video chapter ↗</a>{% endif %}
+    {% endif %}
+  </td>
+  <td style="max-width: 300px;">
+    {% if row.minutes_excerpt %}<blockquote>{{ row.minutes_excerpt }}</blockquote>{% else %}<span class="t-meta">no minutes excerpt</span>{% endif %}
+    {% if row.minutes_page %}<span class="t-meta">p. {{ row.minutes_page }}</span>{% endif %}
+    {% if row.minutes_url %} · <a href="{{ row.minutes_url }}" target="_blank" rel="noreferrer">minutes ↗</a>{% endif %}
+  </td>
+  <td style="min-width: 220px;">
+    {% if row.review_state == 'proposed' %}
+      <form method="post" action="{{ url_for('admin_transcripts.approve', discrepancy_id=row.id) }}" style="display:inline;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" style="font-size: 0.85rem;"{% if row.citation_match == 'missing' %} disabled title="Attach a citation first (edit below)"{% endif %}>Approve</button>
+      </form>
+      <details><summary style="font-size: 0.85rem;">Reject</summary>
+        <form method="post" action="{{ url_for('admin_transcripts.reject', discrepancy_id=row.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="text" name="reason" placeholder="Reason (required)" required>
+          <button type="submit" style="font-size: 0.85rem;">Reject</button>
+        </form></details>
+      <details><summary style="font-size: 0.85rem;">Edit, then approve</summary>
+        <form method="post" action="{{ url_for('admin_transcripts.edit_approve', discrepancy_id=row.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="text" name="admin_title" value="{{ row.admin_title or row.title }}">
+          <textarea name="admin_description" rows="3">{{ row.admin_description or row.description }}</textarea>
+          {% if row.citation_match == 'missing' %}
+            <p class="t-meta">This row has no verified citation. Paste the exact words from each side this row cites; both sides must verify against the source text or the row stays unapproved.</p>
+            <input type="text" name="transcript_excerpt" placeholder="Transcript excerpt (as written in the transcript)">
+            <input type="text" name="minutes_excerpt" placeholder="Minutes excerpt (as written in the minutes)">
+          {% endif %}
+          <p class="t-meta">This changes only what docket.pub shows. The model's title and description are kept.</p>
+          <button type="submit" style="font-size: 0.85rem;">Save and approve</button>
+        </form></details>
+    {% else %}
+      <span class="t-meta">{{ row.review_state }}{% if row.reviewed_by %} by {{ row.reviewed_by }}{% endif %}{% if row.reject_reason %}: {{ row.reject_reason }}{% endif %}</span>
+    {% endif %}
+  </td>
+</tr>

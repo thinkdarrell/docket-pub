@@ -1,0 +1,38 @@
+{# Public "Minutes vs. Video" block. Only review_state = 'approved' rows reach this template
+   (services.discrepancies.list_public_*), and only while config.MINUTES_VS_VIDEO_UI is on. #}
+{% if discrepancies %}
+<section class="feed minutes-vs-video" id="minutes-vs-video">
+  <header class="feed-head"><div>
+    <div class="t-eyebrow">Minutes vs. video</div>
+    <h2 class="feed-title t-display" style="font-size: 24px;">Where the official minutes and the recording differ</h2>
+  </div></header>
+  <p class="t-meta">docket.pub compared a machine transcript of the meeting video with the adopted minutes. Each difference below was
+     reviewed by a person before it appeared here. The minutes remain the official record; the transcript is machine-generated and can be wrong.
+     <a class="link" href="/about/how-we-read-minutes/">How we read meetings</a>.</p>
+  <ol class="mvv-list" style="list-style: none; padding: 0;">
+  {% for d in discrepancies %}
+    <li class="mvv-row" id="mvv-{{ d.id }}" style="padding: 12px 0; border-top: 1px solid var(--color-rule, #e5e5e5);">
+      <div class="t-meta"><span class="chip">{{ d.category.replace('_', ' ') }}</span> <span class="chip{% if d.severity == 'material' %} is-accent{% endif %}">{{ d.severity }}</span>
+        {% if block_context != 'meeting' %}· <a class="link" href="/al/{{ d.municipality_slug }}/meetings/{{ d.meeting_id }}/">{{ d.meeting_title }}</a> · {{ d.meeting_date | format_date }}{% endif %}
+        {% if d.item_number and block_context != 'item' %}· <a class="link" href="/al/{{ d.municipality_slug }}/items/{{ d.agenda_item_id }}/">Item {{ d.item_number }}</a>{% endif %}</div>
+      <h3 style="margin: 4px 0;">{{ d.display_title }}</h3>
+      <p>{{ d.display_description }}</p>
+      <div class="mvv-sides" style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+        <div><div class="t-eyebrow">On the video</div>
+          {% if d.transcript_excerpt %}<blockquote>{{ d.transcript_excerpt }}</blockquote>{% endif %}
+          {% if d.transcript_start_s is not none %}<a class="link t-mono" href="/al/{{ d.municipality_slug }}/meetings/{{ d.meeting_id }}/transcript/">{{ d.transcript_start_s | format_timestamp }} in the transcript</a>
+            {% set ch = chapter_url(d.video_url, d.item_external_id) %}{% if ch %} · <a class="link" href="{{ ch }}" target="_blank" rel="noreferrer">video chapter ↗</a>{% endif %}{% endif %}</div>
+        <div><div class="t-eyebrow">In the minutes</div>
+          {% if d.minutes_excerpt %}<blockquote>{{ d.minutes_excerpt }}</blockquote>{% endif %}
+          {% if d.minutes_page %}<span class="t-meta">p. {{ d.minutes_page }}</span>{% endif %}
+          {% if d.minutes_url %} · <a class="link" href="{{ d.minutes_url }}" target="_blank" rel="noreferrer">official minutes ↗</a>{% endif %}</div>
+      </div>
+    </li>
+  {% endfor %}
+  </ol>
+</section>
+<style>
+  .minutes-vs-video blockquote { margin: 4px 0; padding-left: 10px; border-left: 3px solid var(--color-rule, #ddd); }
+  @media (max-width: 640px) { .mvv-sides { grid-template-columns: 1fr !important; } }
+</style>
+{% endif %}

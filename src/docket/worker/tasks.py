@@ -389,6 +389,23 @@ def task_video_ocr() -> None:
     _safe_run("video_ocr", _do_video_ocr)
 
 
+def _do_transcript_pipeline() -> None:
+    """Spec 2026-10-05 Section 3: advance up to TRANSCRIPT_PER_TICK transcripts through the LLM stages."""
+    from docket.ai.transcripts.pipeline import run_transcript_pipeline
+
+    try:
+        s = run_transcript_pipeline(notes="cron_transcripts")
+    except BudgetExceededError as e:
+        log.info("transcript_pipeline skipped: %s", e)
+        return
+    log.info("transcript_pipeline processed=%d advanced=%d skipped=%d low_speech=%d held=%d failed=%d transient=%d stop=%s",
+             s.processed, s.advanced, s.skipped, s.low_speech, s.held, s.failed, s.transient, s.stopped_reason)
+
+
+def task_transcript_pipeline() -> None:
+    _safe_run("transcript_pipeline", _do_transcript_pipeline)
+
+
 # --- registry — used by scheduler.py and the --run-once flag -----------------
 
 TASKS: dict[str, Callable[[], None]] = {
@@ -399,6 +416,7 @@ TASKS: dict[str, Callable[[], None]] = {
     "ai_meetings": task_ai_meetings,
     "recast_post_meeting_ai": lambda: _safe_run("recast_post_meeting_ai", _do_recast_post_meeting_ai),
     "vote_matching": task_vote_matching,
+    "transcript_pipeline": task_transcript_pipeline,
     "process_badges": task_process_badges,
     "calibration_report": task_calibration_report,
     "process_batches": task_process_batches,

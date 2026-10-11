@@ -11,7 +11,8 @@
 
 <p><a href="{{ url_for('admin.list_members') }}">← Council Members</a> &middot;
    <a href="{{ url_for('admin.badges_audit') }}">Badge audit</a> &middot;
-   <a href="{{ url_for('admin.review_conflicts') }}">Conflicts</a></p>
+   <a href="{{ url_for('admin.review_conflicts') }}">Conflicts</a> &middot;
+   <a href="{{ url_for('admin_transcripts.review_discrepancies') }}">Minutes vs. video</a></p>
 
 <div class="kpi-grid" style="grid-template-columns: repeat(5, 1fr); margin-bottom: 24px;">
     <div class="kpi">
@@ -72,4 +73,27 @@
 {% else %}
 <p>No AI runs yet. Trigger a batch with <code>python -m docket.ai.cli --items</code>.</p>
 {% endif %}
+<h2>Minutes vs. video gate</h2>
+<div class="kpi-grid" style="grid-template-columns: repeat(4, 1fr); margin-bottom: 16px;">
+  <div class="kpi"><div class="kpi-label t-label">Material approved</div><div class="kpi-value t-display t-tnum">{{ gate.approved }}/{{ gate.total }}</div></div>
+  <div class="kpi"><div class="kpi-label t-label">Approval ratio</div><div class="kpi-value t-display t-tnum">{{ (gate.ratio * 100) | round | int }}%</div></div>
+  <div class="kpi"><div class="kpi-label t-label">Meetings reviewed</div><div class="kpi-value t-display t-tnum">{{ gate.meetings }}/10</div></div>
+  <div class="kpi {% if gate.gate_met %}is-accent{% endif %}"><div class="kpi-label t-label">Gate</div>
+    <div class="kpi-value t-display">{{ 'met' if gate.gate_met else ('open' if not gate.window_complete else 'not met') }} &middot; {{ 'flag on' if mvv_flag else 'flag off' }}</div></div>
+</div>
+<p class="t-meta">Rule: at least 70% of material candidates approved over the first 10 reviewed meetings or the first 30 reviewed candidates, whichever comes first. The public block is enabled by setting <code>MINUTES_VS_VIDEO_UI=true</code> on the web service; the flip is manual.
+   Citation misses above 10% over the first ten meetings mean the normalizer or prompt needs tuning before the queue is used in earnest.</p>
+<table><thead><tr><th>Prompt version</th><th>Rows</th><th>Citation missing</th><th>Rate</th></tr></thead><tbody>
+{% for r in citation_missing %}<tr><td>{{ r.prompt_version }}</td><td>{{ r.total }}</td><td>{{ r.missing }}</td><td>{{ r.rate }}%</td></tr>{% else %}<tr><td colspan="4" class="t-meta">No discrepancies yet.</td></tr>{% endfor %}
+</tbody></table>
+
+<h2>Transcript pipeline</h2>
+<table><thead><tr><th>Status</th><th>Transcripts</th></tr></thead><tbody>
+{% for r in transcript_status_counts %}<tr><td><code>{{ r.status }}</code></td><td class="t-mono">{{ r.n }}</td></tr>{% else %}<tr><td colspan="2" class="t-meta">No transcripts yet.</td></tr>{% endfor %}
+</tbody></table>
+<table style="margin-top: 12px;"><thead><tr><th>Stage (7d)</th><th>Runs</th><th>Processed</th><th>Failed</th><th>Cost</th></tr></thead><tbody>
+{% for r in transcript_stage_costs %}<tr><td><code>{{ r.stage }}</code></td><td>{{ r.runs }}</td><td>{{ r.rows_processed }}</td><td>{{ r.rows_failed }}</td><td class="t-mono">${{ "%.4f"|format(r.cost) }}</td></tr>
+{% else %}<tr><td colspan="5" class="t-meta">No transcript stage runs in the last 7 days.</td></tr>{% endfor %}
+</tbody></table>
+<p><a href="{{ url_for('admin_transcripts.review_discrepancies') }}">Open the review queue &rarr;</a></p>
 {% endblock %}

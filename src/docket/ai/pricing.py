@@ -1,7 +1,7 @@
 """Per-model pricing for the four Anthropic billing dimensions.
 
 Rates are in USD per token (not per million). Verified against
-https://www.anthropic.com/pricing on 2026-05-01. Update with PR
+https://www.anthropic.com/pricing on 2026-10-10. Update with PR
 review when Anthropic changes pricing.
 
 Also defines the cross-cutting usage-capture machinery (issue #33):
@@ -42,6 +42,18 @@ PRICING: dict[str, dict[str, float]] = {
         "output":        15.00 / 1_000_000,
         "cache_creation": 3.75 / 1_000_000,
         "cache_read":     0.30 / 1_000_000,
+    },
+    "claude-sonnet-5-5": {
+        "input":          2.00 / 1_000_000,
+        "output":        10.00 / 1_000_000,
+        "cache_creation": 2.50 / 1_000_000,
+        "cache_read":     0.20 / 1_000_000,
+    },
+    "claude-opus-5-5": {
+        "input":          4.00 / 1_000_000,
+        "output":        20.00 / 1_000_000,
+        "cache_creation": 5.00 / 1_000_000,
+        "cache_read":     0.20 / 1_000_000,
     },
 }
 

@@ -534,8 +534,31 @@ def ai_panel():
         )
         runs = [dict(row) for row in cur.fetchall()]
 
+    from docket.services import discrepancies as dsvc
+    with db_cursor() as cur:
+        cur.execute("SELECT status, count(*) AS n FROM transcripts GROUP BY status ORDER BY status")
+        transcript_status_counts = [dict(r) for r in cur.fetchall()]
+        cur.execute("""SELECT stage, count(*) AS runs, COALESCE(SUM(cost_usd), 0)::float AS cost,
+                              SUM(rows_processed) AS rows_processed, SUM(rows_failed) AS rows_failed
+                         FROM ai_runs WHERE stage LIKE 'transcript_%%' AND started_at > NOW() - INTERVAL '7 days'
+                        GROUP BY stage ORDER BY stage""")
+        transcript_stage_costs = [dict(r) for r in cur.fetchall()]
+        cur.execute("""SELECT prompt_version, count(*) AS total,
+                              count(*) FILTER (WHERE citation_match = 'missing') AS missing,
+                              round(100.0 * count(*) FILTER (WHERE citation_match = 'missing') / count(*), 1) AS rate
+                         FROM minutes_discrepancies WHERE review_state <> 'dismissed_by_model'
+                        GROUP BY prompt_version ORDER BY prompt_version""")
+        citation_missing = [dict(r) for r in cur.fetchall()]
+    gate = dsvc.approval_ratio()
+    mvv_flag = bool(current_app.config.get("MINUTES_VS_VIDEO_UI"))
+
     return render_template(
         "admin/ai_panel.html",
+        transcript_status_counts=transcript_status_counts,
+        transcript_stage_costs=transcript_stage_costs,
+        citation_missing=citation_missing,
+        gate=gate,
+        mvv_flag=mvv_flag,
         items_pending=items_pending,
         meetings_pending=meetings_pending,
         seven_day=seven_day,

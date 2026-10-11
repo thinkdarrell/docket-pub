@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Speakers — {{ meeting.title }} — Admin — docket.pub{% endblock %}
+{% block content %}
+<h1>Speakers: {{ meeting.title }} <span class="t-meta">{{ meeting.meeting_date | format_date }}</span></h1>
+<p><a href="{{ url_for('admin_transcripts.review_discrepancies') }}">← Minutes vs. video queue</a> &middot;
+   <a href="/al/{{ meeting.slug }}/meetings/{{ meeting.id }}/transcript/">Public transcript</a></p>
+<p class="t-meta">One row per diarization cluster. Assigning two clusters to the same person merges a fragmented speaker.
+   Saving locks the row (manual); the pipeline never overwrites a locked row. Release to let the next run try again.</p>
+{% with messages = get_flashed_messages() %}{% if messages %}<ul class="queue-flash">{% for m in messages %}<li>{{ m }}</li>{% endfor %}</ul>{% endif %}{% endwith %}
+<section class="cal-panel">
+<table class="queue-table">
+  <thead><tr><th>Cluster</th><th>Resolved as</th><th>Samples</th><th>Reassign</th></tr></thead>
+  <tbody>
+  {% for c in clusters %}
+  <tr>
+    <td><strong>Speaker {{ c.ordinal }}</strong><div class="t-mono t-meta">{{ c.cluster_label }} · {{ c.speaking_s | round }} s · {{ c.utterances }} turns</div></td>
+    <td>{{ c.member_name or c.display_name or '—' }}<div class="t-meta">{{ c.role or 'unknown' }} · {{ '%.2f' | format(c.confidence or 0) }} · {{ c.method or 'unresolved' }}
+        {% if c.is_manual %}· <strong>manual</strong>{% endif %}{% if c.needs_review %}· needs review{% endif %}</div></td>
+    <td style="max-width: 360px;">{% for s in c.samples %}<blockquote class="t-meta" style="margin: 2px 0;"><span class="t-mono">{{ s.start_s | format_timestamp }}</span> {{ s.text | truncate(180) }}</blockquote>{% endfor %}</td>
+    <td>
+      <form method="post" action="{{ url_for('admin_transcripts.reassign_speaker', meeting_id=meeting.id, cluster_label=c.cluster_label) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <select name="council_member_id"><option value="">— not a council member —</option>
+          {% for m in roster %}<option value="{{ m.id }}"{% if m.id == c.council_member_id %} selected{% endif %}>{{ m.name }}</option>{% endfor %}</select>
+        <input type="text" name="display_name" placeholder="or a name (City Attorney, Clerk)" value="{{ '' if c.council_member_id else (c.display_name or '') }}">
+        <select name="role">{% for r in roles %}<option value="{{ r }}"{% if r == (c.role or 'unknown') %} selected{% endif %}>{{ r }}</option>{% endfor %}</select>
+        <button type="submit" style="font-size: 0.85rem;">Save</button>
+      </form>
+      {% if c.is_manual %}
+      <form method="post" action="{{ url_for('admin_transcripts.release_speaker', meeting_id=meeting.id, cluster_label=c.cluster_label) }}" style="margin-top: 4px;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit" style="font-size: 0.85rem;">Release</button>
+      </form>
+      {% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</section>
+{% endblock %}
