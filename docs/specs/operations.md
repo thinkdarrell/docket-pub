@@ -10,7 +10,7 @@ Python 3.10 is required; `requirements.lock` is compiled for it and the Dockerfi
     venv/bin/pip install -e ".[dev]"       # reads requirements.lock via pyproject, deterministic
     cp .env.example .env
 
-Each git worktree needs its own `venv/`. The editable install pins the `docket` package to the checkout it was installed from, so a worktree that borrows the main checkout's venv tests the main checkout's code. `node` must be on `PATH` (Homebrew's `/opt/homebrew/bin/node`; any current release), because `tools/check-workflows`, the fourth check in `./tools/verify`, parses the saved workflows with `node --check` and fails without it.
+Each git worktree needs its own `venv/`. The editable install pins the `docket` package to the checkout it was installed from, so a worktree that borrows the main checkout's venv tests the main checkout's code. `node` must be on `PATH` (Homebrew's `/opt/homebrew/bin/node`; v26.8.2 is the release the scripts have been checked with), because `tools/check-workflows`, the fourth check in `./tools/verify`, parses the saved workflows with `node --check` and fails without it.
 
 `requirements.txt` holds the top-level dependencies with loose ranges; `requirements.lock` is the pinned tree. The Dockerfile and `pyproject.toml` both read the lock, so local, CI, and Railway resolve the same versions. When a dependency changes, edit `requirements.txt` and regenerate the lock in the same commit:
 
