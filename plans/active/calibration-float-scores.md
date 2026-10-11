@@ -83,7 +83,7 @@ Nothing has been executed yet. The entries below were observed while authoring t
 
 Nothing has been executed yet. When the plan completes, this section states, against the Purpose above: whether `/admin/calibration` returns 200 with a float-scored item visible, whether the worker task logs its summary line against a float-valued row, the before-and-after test counts, that the writer and the production rows were left unchanged, that `D9` remains open for the rest of the AI pipeline, and that the `QUERY_C` low-volume-filter difference between the two files is known and unresolved. It also carries the recommendation that the operator set `HEALTHCHECK_CALIBRATION_UUID` on the Railway `worker` service so the next silent failure of this task alerts.
 
-M1 outcome (2026-10-11 23:50Z): against the Purpose, the worker task now logs `calibration_report: divergence=1 underscoring=0 overscoring=0 drift_alerts=0 cache_cleanup=0` and no failure traceback on a database holding one float-valued row (observed via `--run-once`), and `/admin/calibration` returns 200 and lists a float-scored item with its `#<id>` and a `sig_delta` cell of `7` (observed via `test_calibration_dashboard_renders_float_valued_item`). Test counts in `tests/integration/test_calibration.py` went from `28 passed` (before this plan) to `5 failed, 28 passed` (tests added, SQL unchanged) to `33 passed` (SQL fixed). The writer (`rewrite_schema.py`, `pipeline.py`, `floors.py`) and the production rows are unchanged; `git diff --stat origin/main -- src/` lists only the two calibration files. `D9` remains open; the `QUERY_C` low-volume-filter difference between the two files is unchanged. The final `./tools/verify` for M1 is recorded in Artifacts and Notes. M2 (documentation) remains.
+M1 outcome (2026-10-11 23:50Z): against the Purpose, the worker task now logs `calibration_report: divergence=1 underscoring=0 overscoring=0 drift_alerts=0 cache_cleanup=0` and no failure traceback on a database holding one float-valued row (observed via `--run-once`), and `/admin/calibration` returns 200 and lists a float-scored item with its `#<id>` and a `sig_delta` cell of `7` (observed via `test_calibration_dashboard_renders_float_valued_item`). Test counts in `tests/integration/test_calibration.py` went from `28 passed` (before this plan) to `5 failed, 28 passed` (tests added, SQL unchanged) to `33 passed` (SQL fixed). The writer (`rewrite_schema.py`, `pipeline.py`, `floors.py`) and the production rows are unchanged; `git diff --stat origin/main -- src/` lists only the two calibration files. `D9` remains open; the `QUERY_C` low-volume-filter difference between the two files is unchanged. The final `./tools/verify` on the committed M1 tree printed `verify: all 4 checks passed in 124s.` and `exit=0` (integration tier `616 passed`, up from `611` plus the five new tests; transcript in Artifacts and Notes). Every M1 acceptance clause was met; no carve-out. M2 (documentation) remains.
 
 ## Context and Orientation
 
@@ -307,6 +307,17 @@ M1 session, 2026-10-11 23:47Z, post-fix:
     2026-10-11 18:47:40,387 INFO docket.worker.tasks: calibration_report: divergence=1 underscoring=0 overscoring=0 drift_alerts=0 cache_cleanup=0
     (the command's entire output was that one line; no "task=calibration_report failed" line)
     $ tools/test-db --drop
+
+M1 session, 2026-10-11 23:53Z, final verify on the committed M1 tree (76d9bc8):
+
+    $ ./tools/verify; echo "exit=$?"
+    verify: test-db ... ok (1s) postgresql://docket@localhost:5432/docket_test_2cf3596f
+    verify: unit+web+services ... ok (53s)     (1858 passed, 5 skipped, 4 xfailed)
+    verify: integration ... ok (67s)           (616 passed)
+    verify: judge-fixtures ... ok (3s)         (judge fixtures: 12 of 12 passed)
+    verify: workflows ... ok (0s)
+    verify: all 4 checks passed in 124s.
+    exit=0
 
 ## Interfaces and Dependencies
 
