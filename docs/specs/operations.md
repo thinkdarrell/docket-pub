@@ -89,7 +89,7 @@ Backfills run from a laptop against `DATABASE_PUBLIC_URL`. The archived 2023 Bir
 
 Bulk changes on production are one targeted SQL statement. The volume size is a constraint in `GOALS.md`; the incident behind the rule is decision `0026`.
 
-A second Postgres service named `Postgres-pKpA` exists in the Railway project with no known use; it is `D32` in `docs/DEBT.md`.
+The Railway project also holds a second Postgres service, `Postgres-pKpA`; `D32` in `docs/DEBT.md` is the open question of what it is for.
 
 ## Domain and headers
 
