@@ -18,7 +18,6 @@
 | D16 | OCR assumes `city="birmingham"` and `scan_interval=2` | `src/docket/analysis/ocr/rosters.py`, `src/docket/services/video_ocr.py` | One OCR city | A second city with video (issue #86) |
 | D17 | Admin force-rescan has no audit log | `POST /admin/meetings/<id>/rescan-ocr` | Parity with other admin actions left for later | Next admin audit pass (issue #85) |
 | D18 | `video_ocr` cron has no Healthchecks ping | Railway worker env `HEALTHCHECK_VIDEO_OCR_UUID` | Ping no-ops cleanly when unset | Create the check and set the variable (issue #89) |
-| D19 | Deprecated `scripts/import_video_ocr.py` still present | `scripts/` | Kept one cycle as a schema-mapping reference | Overdue: delete in the next gardening pass |
 | D20 | OCR claim window hard-coded to 60 days | `src/docket/services/video_ocr.py` | Manual laptop OCR covers older meetings | Backfilling older meetings by OCR |
 | D21 | Blog follow-ups: `extra_css` lint, sitemap, `city_blog_url()` helper, frontmatter type validation, authoring ergonomics | `src/docket/blog/`, `src/docket/web/` | v1 deliberately minimal | Next blog work (issue #92) |
 | D22 | Search has no facets or sort | `src/docket/services/query.py` `search_agenda_items` | Separate feature | When search is revisited |
