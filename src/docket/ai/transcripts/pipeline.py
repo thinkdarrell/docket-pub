@@ -141,6 +141,15 @@ def mark_needs_review(transcript_id: int, reason: str, detail: str) -> None:
                     [reason, detail[:2000], transcript_id])
 
 
+def mark_rate_limited(transcript_id: int, detail: str) -> None:
+    """A 429 is the API's problem, not the transcript's: hand the claimed attempt back so a run of
+    rate-limited days can never mark a healthy transcript `failed`. last_attempted_at is left as the
+    claim set it, so the row still waits out the 24-hour backoff before it is tried again."""
+    with db_cursor() as cur:
+        cur.execute("""UPDATE transcripts SET last_error = %s, stage_attempts = GREATEST(stage_attempts - 1, 0),
+                              updated_at = now() WHERE id = %s""", [detail[:2000], transcript_id])
+
+
 def mark_transient(transcript_id: int, detail: str) -> str:
     """Record the error; the third failed attempt becomes `failed`. Returns the status."""
     with db_cursor() as cur:
@@ -212,7 +221,7 @@ def process_claim(claim: dict, *, client, notes: str) -> str:
         post_alert("transcript_needs_review", f"Transcript for meeting {mid} held after {stage}: {e}",
                    meeting_id=mid, stage=stage, reason="permanent")
     except AIRateLimited as e:
-        mark_transient(tid, f"rate limited: {e}")
+        mark_rate_limited(tid, f"rate limited: {e}")
         summary.rows_failed = 1
         outcome = "rate_limited"
     except AITransientError as e:
@@ -248,12 +257,14 @@ def run_transcript_pipeline(*, limit: int = TRANSCRIPT_PER_TICK, notes: str = "c
     from docket.ai.transcripts.client import StructuredClient
     from docket.ai.worker import BudgetExceededError, _today_spend
 
-    _validate_models()
-    reset_for_versions()
-    client = client or StructuredClient()
     s = PipelineSummary()
     loop_ok = False
     try:
+        # Inside the try on purpose: a bad model name or a missing API key must not skip the housekeeping
+        # below, which spends no LLM money and carries the producer stall alert.
+        _validate_models()
+        reset_for_versions()
+        client = client or StructuredClient()
         for _ in range(limit):
             with db() as conn:
                 spent = _today_spend(conn)

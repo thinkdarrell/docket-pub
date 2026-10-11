@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from docket.ai.exceptions import AIPermanentRowError, AITransientError, TranscriptHeld
+from docket.ai.exceptions import AIFatalError, AIPermanentRowError, AIRateLimited, AITransientError, TranscriptHeld
 from docket.ai.transcripts import pipeline as P
 from docket.config import DATABASE_URL
 from docket.db import db_cursor
@@ -221,3 +221,32 @@ def test_reset_for_versions_is_idempotent_after_compare():
         assert _row(tid)["status"] == "compared"
     finally:
         _rm(fx)
+
+
+def test_rate_limit_hands_the_attempt_back_and_keeps_the_backoff(monkeypatch):
+    """A 429 streak must never turn a healthy transcript `failed`: the attempt the claim took is returned,
+    but last_attempted_at stays so the row is not re-claimed until tomorrow."""
+    fx = _mk()
+    def boom(claim, client): raise AIRateLimited("429")
+    monkeypatch.setattr(P, "_stage_fn", lambda stage: boom)
+    try:
+        with db_cursor() as cur:
+            cur.execute("UPDATE transcripts SET stage_attempts=2 WHERE id=%s", [fx["transcript_id"]])
+        assert P.process_claim(P.claim_next(), client=MagicMock(), notes="t") == "rate_limited"
+        row = _row(fx["transcript_id"])
+        assert row["status"] == "uploaded" and row["stage_attempts"] == 2 and "429" in row["last_error"]
+        assert row["last_attempted_at"] is not None
+        assert P.claim_next() is None            # the 24-hour backoff still applies
+    finally:
+        _rm(fx)
+
+
+def test_housekeeping_runs_even_when_model_validation_is_fatal(monkeypatch):
+    calls = []
+    monkeypatch.setitem(P.MODEL_FOR_STAGE, "speakers", "claude-not-a-model")
+    monkeypatch.setattr(P, "sweep_minutes_changes", lambda limit=10: calls.append("sweep") or 0)
+    import docket.ai.transcripts.alerts as A
+    monkeypatch.setattr(A, "alert_if_producer_stalled", lambda: calls.append("stall") or False)
+    with pytest.raises(AIFatalError):
+        P.run_transcript_pipeline(limit=1, notes="t", client=MagicMock())
+    assert calls == ["sweep", "stall"]
