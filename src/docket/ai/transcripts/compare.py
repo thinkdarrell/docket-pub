@@ -186,8 +186,10 @@ def nearest_event(events: list[Event], *, start_s: float | None = None, char_off
 # --- row assembly -----------------------------------------------------------
 
 def build_rows(meeting_id: int, candidates: list[Candidate], verdicts, hunted, *, tt: TranscriptText,
-               minutes: MinutesCapture | None, t_events: list[Event], m_events: list[Event]) -> list[dict]:
+               minutes: MinutesCapture | None, t_events: list[Event], m_events: list[Event],
+               valid_item_ids: set[int] | None = None, item_numbers: dict[int, str] | None = None) -> list[dict]:
     by_id = {c.candidate_id: c for c in candidates}
+    numbers = item_numbers or {}
     rows: list[dict] = []
 
     def base(cat, sev, title, desc, t_ev, m_ev, refs, origin):
@@ -198,17 +200,28 @@ def build_rows(meeting_id: int, candidates: list[Candidate], verdicts, hunted, *
                 "minutes_page": m_ev.page if m_ev else None, "citation_match": "missing", "confidence": None,
                 "review_state": "proposed", "reject_reason": None}
 
-    # Deterministic vote outcomes (spec J): no model involved.
+    # Deterministic vote outcomes (spec J): no model involved. Both kinds of candidate (unpaired tally check and
+    # paired-event mismatch) carry category == "vote_outcome".
     for c in candidates:
-        if c.kind != "vote_outcome":
+        if c.category != "vote_outcome":
             continue
         v = c.vote_row or {}
-        row = base("vote_outcome", "material", f"Vote tally differs from the minutes for item {sorted(c.item_refs)}",
-                   c.note, c.transcript_event, None, c.item_refs, "aligner")
-        kind, exc, start_s, _ = cite(c.transcript_event.detail.get("quote"), side="transcript", tt=tt, minutes=None)
-        row.update(transcript_excerpt=exc, transcript_start_s=start_s or row["transcript_start_s"],
-                   minutes_excerpt=(v.get("raw_text") or "")[-300:] or None, minutes_page=None,
-                   citation_match=citation_match_for([kind, "exact" if v.get("raw_text") else "missing"]), confidence=0.9)
+        label = ", ".join(str(numbers.get(i) or i) for i in sorted(c.item_refs))
+        row = base("vote_outcome", "material", f"Vote outcome differs from the minutes for item {label}",
+                   c.note, c.transcript_event, c.minutes_event, c.item_refs, "aligner")
+        t_quote = c.transcript_event.detail.get("quote") if c.transcript_event else None
+        kind, exc, start_s, _ = cite(t_quote, side="transcript", tt=tt, minutes=None)
+        kinds = [kind]
+        row.update(transcript_excerpt=exc, transcript_start_s=start_s if start_s is not None else row["transcript_start_s"])
+        if c.minutes_event is not None:
+            mk, mexc, _, page = cite(c.minutes_event.detail.get("quote"), side="minutes", tt=None, minutes=minutes)
+            kinds.append(mk)
+            row.update(minutes_excerpt=mexc, minutes_page=page if page is not None else row["minutes_page"])
+        else:
+            raw = v.get("raw_text")
+            kinds.append("exact" if raw else "missing")
+            row.update(minutes_excerpt=(raw or "")[-300:] or None, minutes_page=None)
+        row.update(citation_match=citation_match_for(kinds), confidence=0.9)
         rows.append(row)
 
     for v in verdicts:
@@ -226,31 +239,45 @@ def build_rows(meeting_id: int, candidates: list[Candidate], verdicts, hunted, *
         kinds = []
         if c.transcript_event is not None:
             k, exc, start_s, _ = cite(v.transcript_quote, side="transcript", tt=tt, minutes=None)
-            kinds.append(k); row.update(transcript_excerpt=exc, transcript_start_s=start_s or row["transcript_start_s"])
+            kinds.append(k); row.update(transcript_excerpt=exc, transcript_start_s=start_s if start_s is not None else row["transcript_start_s"])
         if c.minutes_event is not None:
             k, exc, _, page = cite(v.minutes_quote, side="minutes", tt=None, minutes=minutes)
-            kinds.append(k); row.update(minutes_excerpt=exc, minutes_page=page or row["minutes_page"])
+            kinds.append(k); row.update(minutes_excerpt=exc, minutes_page=page if page is not None else row["minutes_page"])
         match = citation_match_for(kinds)
         row.update(citation_match=match, confidence=round(v.confidence * (0.5 if match == "missing" else 1.0), 3))
         rows.append(row)
 
     for h in hunted:
         refs = frozenset(h.agenda_item_refs)
+        if valid_item_ids is not None:
+            refs = frozenset(r for r in refs if r in valid_item_ids)
         kt, t_exc, start_s, _ = cite(h.transcript_quote, side="transcript", tt=tt, minutes=None)
         km, m_exc, _, page = cite(h.minutes_quote, side="minutes", tt=None, minutes=minutes)
-        t_ev = nearest_event(t_events, start_s=start_s, item_refs=refs) if h.transcript_quote else None
+        t_ev = nearest_event(t_events, start_s=start_s, item_refs=refs) if h.transcript_quote and start_s is not None else None
         m_ev = None
         if h.minutes_quote and minutes is not None:
             cm = find_citation(h.minutes_quote, minutes.text)
-            m_ev = nearest_event(m_events, char_offset=cm.start if cm.kind != "missing" else None, item_refs=refs)
+            if cm.kind != "missing":
+                m_ev = nearest_event(m_events, char_offset=cm.start, item_refs=refs)
         if t_ev is None and m_ev is None:
-            log.warning("hunter row dropped: no event to anchor it (%s)", h.title)
+            # No positional match (quote not found): anchor to the first event on the item, else on the quoted side.
+            shared = lambda evs: next((e for e in evs if refs and e.item_refs & refs), None)
+            if h.transcript_quote:
+                t_ev = shared(t_events) or (t_events[0] if t_events else None)
+            if t_ev is None and h.minutes_quote:
+                m_ev = shared(m_events) or (m_events[0] if m_events else None)
+            if t_ev is None and m_ev is None:
+                t_ev = shared(t_events) or shared(m_events) or (t_events[0] if t_events else None)
+                if t_ev is None and m_events:
+                    m_ev = shared(m_events) or m_events[0]
+        if t_ev is None and m_ev is None:
+            log.warning("hunter row dropped: no events at all to anchor it (%s)", h.title)
             continue
         row = base(h.category, h.severity, h.title, h.description, t_ev, m_ev, refs, "model_initiated")
         kinds = [k for k, q in ((kt, h.transcript_quote), (km, h.minutes_quote)) if q]
         match = citation_match_for(kinds)
-        row.update(transcript_excerpt=t_exc, transcript_start_s=start_s or row["transcript_start_s"], minutes_excerpt=m_exc,
-                   minutes_page=page or row["minutes_page"], citation_match=match,
+        row.update(transcript_excerpt=t_exc, transcript_start_s=start_s if start_s is not None else row["transcript_start_s"],
+                   minutes_excerpt=m_exc, minutes_page=page if page is not None else row["minutes_page"], citation_match=match,
                    confidence=round(h.confidence * (0.5 if match == "missing" else 1.0), 3))
         rows.append(row)
     return rows
@@ -302,7 +329,7 @@ def run_compare_stage(claim: dict, *, client) -> "StageOutcome":
     segments = load_segments_with_speakers(tid)
     tt = transcript_text(segments)
     candidates = align(t_events, m_events, consent_items=load_consent_items(mid), votes=load_votes(mid))
-    judged = [c for c in candidates if c.kind != "vote_outcome"]
+    judged = [c for c in candidates if c.category != "vote_outcome"]
     if len(judged) > TRANSCRIPT_CANDIDATE_CAP:
         raise TranscriptHeld("candidate_cap", f"{len(judged)} candidates > cap {TRANSCRIPT_CANDIDATE_CAP}")
     verdicts = []
@@ -315,7 +342,8 @@ def run_compare_stage(claim: dict, *, client) -> "StageOutcome":
                    user=render_hunter_user(candidates, t_events, m_events, render_transcript(segments, agenda, speaker_ordinals(tid)),
                                            render_minutes(minutes.text, minutes.page_offsets) if minutes else ""),
                    schema=HUNTER_SCHEMA, model_cls=HunterResult, max_tokens=16000)
-    rows = build_rows(mid, candidates, verdicts, hunter.discrepancies, tt=tt, minutes=minutes, t_events=t_events, m_events=m_events)
+    rows = build_rows(mid, candidates, verdicts, hunter.discrepancies, tt=tt, minutes=minutes, t_events=t_events, m_events=m_events,
+                      valid_item_ids={a["id"] for a in agenda}, item_numbers={a["id"]: a.get("item_number") for a in agenda})
     n = write_rows(mid, rows)
     proposed = sum(1 for r in rows if r["review_state"] == "proposed")
     log.info("compare: meeting %s candidates=%d judged=%d rows=%d proposed=%d hunted=%d", mid, len(candidates), len(judged), n,

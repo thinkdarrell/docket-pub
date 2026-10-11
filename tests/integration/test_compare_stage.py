@@ -199,3 +199,62 @@ def test_vote_outcome_rows_are_deterministic_and_skip_the_judge(pilot):
         (row,) = cur.fetchall()
     assert row["severity"] == "material" and row["review_state"] == "proposed"
     assert "motion failed" in row["minutes_excerpt"] and row["transcript_event_id"] and row["minutes_event_id"] is None
+
+
+def _no_real(user):
+    return [{"candidate_id": cid, "is_real": False, "category": None, "severity": None, "title": None, "description": None,
+             "transcript_quote": None, "minutes_quote": None, "confidence": 0.5, "dismiss_reason": "x"} for cid in _ids_in_prompt(user)]
+
+
+def test_paired_vote_event_mismatch_is_deterministic_and_skips_the_judge(pilot):
+    import json
+    info = _seed_events(pilot)
+    with db_cursor() as cur:
+        cur.execute("""UPDATE meeting_events SET detail = detail || %s::jsonb
+                        WHERE meeting_id=%s AND source='transcript' AND event_type='vote'""",
+                    [json.dumps({"result": "passed", "yeas": 8, "nays": 0}), pilot.meeting_id])
+        cur.execute("""UPDATE meeting_events SET detail = detail || %s::jsonb
+                        WHERE meeting_id=%s AND source='minutes' AND event_type='vote'""",
+                    [json.dumps({"result": "passed", "yeas": 9, "nays": 0}), pilot.meeting_id])
+    seen = {}
+
+    def verdicts(user):
+        seen["user"] = user
+        return _no_real(user)
+    C.run_compare_stage(_claim(pilot), client=_client(verdicts))
+    assert "vote_outcome" not in seen["user"].split("Transcript timeline")[0]
+    with db_cursor() as cur:
+        cur.execute("""SELECT review_state, severity, confidence, minutes_event_id, transcript_event_id
+                         FROM minutes_discrepancies WHERE meeting_id=%s AND category='vote_outcome'""", [pilot.meeting_id])
+        (row,) = cur.fetchall()
+    assert row["review_state"] == "proposed" and row["severity"] == "material" and abs(row["confidence"] - 0.9) < 1e-6
+    assert row["minutes_event_id"] and row["transcript_event_id"]
+
+
+def _hunt(info, **kw):
+    h = {"category": "omission", "severity": "material", "title": "t", "description": "d", "agenda_item_refs": [info["item"]],
+         "transcript_quote": None, "transcript_segment_seq": None, "minutes_quote": None, "minutes_page": None, "confidence": 0.8}
+    h.update(kw)
+    return h
+
+
+def test_hunter_unknown_agenda_ref_is_nulled_not_fatal(pilot):
+    info = _seed_events(pilot)
+    hunted = [_hunt(info, agenda_item_refs=[999999999], transcript_quote=info["exec_text"])]
+    C.run_compare_stage(_claim(pilot), client=_client(_no_real, hunted))
+    with db_cursor() as cur:
+        cur.execute("SELECT agenda_item_id FROM minutes_discrepancies WHERE meeting_id=%s AND origin='model_initiated'", [pilot.meeting_id])
+        (row,) = cur.fetchall()
+    assert row["agenda_item_id"] is None
+
+
+def test_hunter_unfound_quote_keeps_row_anchored_with_missing_citation(pilot):
+    info = _seed_events(pilot)
+    hunted = [_hunt(info, transcript_quote="words nobody said at this meeting")]
+    C.run_compare_stage(_claim(pilot), client=_client(_no_real, hunted))
+    with db_cursor() as cur:
+        cur.execute("""SELECT citation_match, confidence, transcript_event_id, minutes_event_id, agenda_item_id
+                         FROM minutes_discrepancies WHERE meeting_id=%s AND origin='model_initiated'""", [pilot.meeting_id])
+        (row,) = cur.fetchall()
+    assert row["citation_match"] == "missing" and abs(row["confidence"] - 0.4) < 1e-6
+    assert (row["transcript_event_id"] or row["minutes_event_id"]) and row["agenda_item_id"] == info["item"]
