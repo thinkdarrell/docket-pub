@@ -5,7 +5,7 @@
 | ID | Item | Where | Why deferred | Trigger to pay it down |
 | --- | --- | --- | --- | --- |
 | D1 | Five web tests fail on `main`: four blog route tests build a URL for `public.city_overview` with a `slug` the route no longer takes (HTTP 500), and `test_meeting_detail_source_links_below_executive_summary` finds no `kpi-grid` section | `tests/web/test_blog_routes.py`, `tests/web/test_city_overview_render.py` | Route and template changed under the tests; not ship blockers | Plan one, first milestone |
-| D2 | `test_033_up_refreshes_mv_with_filter` fails: the fixture does not capture and restore the materialised view | `tests/integration/test_033_migration.py` | Globally stateful; not a ship blocker | Plan one, first milestone |
+| D2 | Three integration tests fail on `main`: `test_033_up_refreshes_mv_with_filter` (fixture does not capture and restore the materialised view), `test_city_page_shows_blog_rail` (same `city_overview` BuildError as D1), and `test_query_c_returns_weeks_of_data` (flakes on Sundays, issue #70) | `tests/integration/test_033_migration.py`, `tests/integration/test_blog_integration.py`, `tests/integration/test_calibration.py` | Globally stateful fixtures and a date-dependent query; not ship blockers | Plan one, first milestone |
 | D3 | Integration tests run against the developer's `docket_db` with hand-written cleanup and no rollback | `tests/integration/conftest.py` | Faster to write; one developer | Plan one builds a disposable `docket_test` rebuilt from migrations per run, dropped `WITH (FORCE)` |
 | D4 | Local Postgres 16, Railway 18.3 | local environment | Homebrew default | Plan one may point `docket_test` at the installed postgresql@18 |
 | D5 | No single cheap verify command; `AGENTS.md` publishes a pytest line instead | repository root | Nothing aggregated the tiers | Plan one creates `tools/verify`; the `fast-verify` card |
@@ -28,7 +28,7 @@
 | D22 | Search has no facets or sort | `src/docket/services/query.py` `search_agenda_items` | Separate feature | When search is revisited |
 | D23 | Editorial coverage v1.1 to v1.3 surfaces (meeting, member, badge) and v2 proposers not built | templates, coverage schema | Paired chip-plus-block ships | When v1.1 starts |
 | D24 | Granicus retraction (403) not detected; ghost rows deleted by hand | `src/docket/adapters/granicus.py` | Rare | Next ghost card |
-| D25 | Five badge INSERT paths bypass `decide_status_and_confidence` | `src/docket/ai/badges_process.py`, `src/docket/web/admin.py`, `src/docket/worker/tasks.py` | Correct today via the DB default | Any change to the badge status contract |
+| D25 | Badge INSERT statements outside `decide_status_and_confidence` in `src/docket/ai/badges_policy.py` rely on the column default for `status` | `src/docket/ai/badges_process.py`, `src/docket/ai/pipeline.py`, `src/docket/services/badges.py`, `src/docket/web/admin.py`, `src/docket/web/admin_badge_review.py` | Correct today via the DB default | Any change to the badge status contract |
 | D26 | Manual vote-link correction UI not built; `is_manual` column ready | `src/docket/web/admin.py` | No miss has needed hand-fixing yet | First matcher miss that needs a human |
 | D27 | No index on `agenda_items.dollars_amount` | migrations | Not yet slow | EXPLAIN shows a sequential scan at current scale |
 | D28 | Source reconciliation (OCR versus minutes on the same meeting) not built | `src/docket/services/` | Few meetings have both | A meeting where both sources disagree reaches a reader |
@@ -36,6 +36,10 @@
 | D30 | Test fixture `seed_item` leaves orphan meetings in the local DB | `tests/unit/test_ai_worker_writeback.py` | Cosmetic | Next touch of that test file |
 | D31 | A dozen stale `worktree-*` branches on `origin` | GitHub | Left after merges | Overdue: delete in the next gardening pass |
 | D32 | A second Postgres service `Postgres-pKpA` exists in the Railway project with no known use | Railway | Unknown origin | Next Railway bill review |
+| D33 | `src/docket/rosters/` is a tracked empty package with no importers | `src/docket/rosters/__init__.py` | Left from an early layout | Next plan touching `src/docket/analysis/ocr/rosters.py` deletes it |
+| D34 | Five modules read `os.environ` directly instead of through `src/docket/config.py` | `src/docket/ai/batches.py`, `src/docket/web/__init__.py`, `src/docket/worker/tasks.py`, `src/docket/worker/scheduler.py`, `src/docket/worker/health.py` | Added ad hoc; one of them duplicates a setting config exposes | Next plan touching each module routes the read through config |
+| D35 | Bare `pytest` collects `tests/live/`, whose fixtures skip only when no API key is set, while `tests/conftest.py` sets a dummy key | `pyproject.toml` | No `addopts` configured | Plan one adds `addopts = "-m 'not live'"` or an equivalent guard |
+| D36 | `mv_badge_volume_monthly` has no scheduled refresh after a `WITH NO DATA` rebuild; only migrations rebuild it and a manual non-concurrent REFRESH is needed | `src/docket/migrations/`, `src/docket/worker/tasks.py` | Only matters when a migration recreates the view | Any migration touching the view |
 
 ## Details
 
