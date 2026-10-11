@@ -50,8 +50,12 @@ verify than to discover post-flip.
    (`list_agenda_items()` in `services/query.py`) was tuned in commit
    `904c4a0` to keep the planner on `idx_agenda_items_meeting` and
    `idx_agenda_item_badges_item` even at 172K rows. Re-verify on a
-   production replica before flipping (synth-scale procedure documented
-   in `docs/superpowers/feedback/feedback_explain_at_scale.md`).
+   production replica before flipping (synth-scale procedure: inside one
+   transaction, insert rows to the projected count, `ANALYZE`, `EXPLAIN
+   ANALYZE` the hot queries, roll back; `scripts/transcript_scale_check.py`
+   is that procedure written for the transcript tables. The
+   `feedback_explain_at_scale.md` note this once cited is an operator
+   memory file outside the repository).
    - **DONE for current production scale** (post-Wave 0, ~57K rows).
    - **DONE for 172K-row simulation** (Phase 3 backfill projection).
 
