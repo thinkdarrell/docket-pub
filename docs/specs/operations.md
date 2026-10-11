@@ -65,7 +65,7 @@ The wrapper writes the current HEAD SHA to `./COMMIT_SHA` (gitignored) before in
     railway ssh --service docket-web "cat /app/COMMIT_SHA"
     railway ssh --service worker     "cat /app/COMMIT_SHA"
 
-A bare `railway up` still works but records the literal string `unknown`, because the Railway CLI strips `.git` from uploads. `railway up` deploys whatever is in the local working tree regardless of branch, which is why deploys happen only from `main`. Never use `railway redeploy`; it restarts the old build without new code.
+A bare `railway up` still works but records the literal string `unknown`, because the Railway CLI strips `.git` from uploads. Deploying only from a clean `main` is a constraint in `GOALS.md`, and decision `0022` records why. Never use `railway redeploy`; it restarts the old build without new code.
 
 The `web:` process runs the migrations and then gunicorn serving `docket.web:create_app()` (see `Procfile`). The worker is a separate Railway service with a custom start command; decision `0023` says why, and `scripts/deploy.sh --service worker` redeploys it.
 
