@@ -1,6 +1,6 @@
 # tests/unit/test_aligner.py
 from docket.ai.transcripts.aligner import (MINUTED_TYPES, Event, align, details_differ, effective_consent_block,
-                                            pair_group, sequence_candidates)
+                                            mismatch_note, pair_group, sequence_candidates)
 
 _id = iter(range(1, 10_000))
 
@@ -187,3 +187,22 @@ def test_paired_minutes_vote_mismatch_suppresses_row_candidate():
     m = [ev("minutes", 1, "vote", {7}, detail={"result": "passed"})]
     cands = align(t, m, consent_items=set(), votes=[_vrow(10, "passed", [7])])
     assert [c.kind for c in cands] == ["mismatch"] and cands[0].category == "vote_outcome"
+
+
+def test_mismatch_note_names_both_sides_for_a_reviewer():
+    """Vote rows never pass through the judge, so the aligner's note is the reviewer's whole description."""
+    t = ev("transcript", 3, "vote", [40], detail={"result": "approved", "yeas": 6, "nays": 1})
+    m = ev("minutes", 3, "vote", [40], detail={"result": "approved", "yeas": 7, "nays": 0})
+    assert mismatch_note(t, m, "vote_outcome") == "vote: transcript says approved 6-1; minutes say approved 7-0"
+    t2 = ev("transcript", 4, "vote", [41], detail={"result": "failed"})
+    m2 = ev("minutes", 4, "vote", [41], detail={})
+    assert mismatch_note(t2, m2, "vote_outcome") == "vote: transcript says failed; minutes say no result recorded"
+    a = ev("transcript", 5, "motion", [42], actor=1, actor_text="Smitherman")
+    b = ev("minutes", 5, "motion", [42], actor=2, actor_text="Williams")
+    assert mismatch_note(a, b, "speaker") == "motion: transcript attributes it to Smitherman; minutes to Williams"
+    x = ev("transcript", 6, "executive_session_motion", [43], detail={"statute_cite": "36-25A-7(a)(4)"})
+    y = ev("minutes", 6, "executive_session_motion", [43], detail={"statute_cite": "36-25A-7(a)(3)"})
+    assert mismatch_note(x, y, "wording").startswith("executive_session_motion: statute_cite differs; transcript: 36-25A-7(a)(4); minutes: 36-25A-7(a)(3)")
+    # align() carries the note onto the candidate that becomes the row's description.
+    cands = align([t], [m], consent_items=set(), votes=[])
+    assert [c.note for c in cands if c.category == "vote_outcome"] == ["vote: transcript says approved 6-1; minutes say approved 7-0"]

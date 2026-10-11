@@ -119,6 +119,28 @@ def details_differ(t: Event, m: Event) -> str | None:
     return None
 
 
+def _vote_phrase(ev: Event) -> str:
+    d = ev.detail
+    tally = "-".join(str(d[k]) for k in ("yeas", "nays") if d.get(k) is not None)
+    parts = [p for p in (d.get("result"), tally, f"{d['abstentions']} abstaining" if d.get("abstentions") else None) if p]
+    return " ".join(parts) or "no result recorded"
+
+
+def mismatch_note(t: Event, m: Event, cat: str) -> str:
+    """What a reviewer sees as the row's description for a deterministic mismatch, so it names both sides
+    instead of just the category. Vote rows never pass through the judge, so this is their only description."""
+    td, md = t.detail, m.detail
+    if cat == "vote_outcome":
+        return f"vote: transcript says {_vote_phrase(t)}; minutes say {_vote_phrase(m)}"
+    if cat == "speaker":
+        return (f"{t.event_type}: transcript attributes it to {t.actor_text or f'member {t.actor_member_id}'}; "
+                f"minutes to {m.actor_text or f'member {m.actor_member_id}'}")
+    for k in ("statute_cite", "stated_reason", "action", "to_date", "kind", "what_changed", "ruling", "as_stated"):
+        if td.get(k) and md.get(k) and normalize(str(td[k])) != normalize(str(md[k])):
+            return f"{t.event_type}: {k} differs; transcript: {str(td[k])[:120]}; minutes: {str(md[k])[:120]}"
+    return f"{t.event_type}: {cat} differs"
+
+
 def pair_group(t_evs: list[Event], m_evs: list[Event]):
     pairs, t_only, m_only = [], [], []
     types = {e.event_type for e in t_evs} | {e.event_type for e in m_evs}
@@ -225,7 +247,7 @@ def align(t_events: list[Event], m_events: list[Event], *, consent_items: set[in
         for a, b in pairs:
             cat = details_differ(a, b)
             if cat:
-                mism.append(Candidate(0, "mismatch", cat, a, b, f"{a.event_type}: {cat} differs", a.item_refs | b.item_refs))
+                mism.append(Candidate(0, "mismatch", cat, a, b, mismatch_note(a, b, cat), a.item_refs | b.item_refs))
         omis += [Candidate(0, "omission", "omission", e, None, f"{e.event_type} on video, not in minutes", e.item_refs)
                  for e in t_only if e.event_type in MINUTED_TYPES]
         adds += [Candidate(0, "addition", "addition", None, e, f"{e.event_type} in minutes, not on video", e.item_refs)
