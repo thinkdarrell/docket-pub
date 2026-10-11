@@ -13,7 +13,7 @@ Today the operator of this repository drives every plan by hand: start a fresh s
 - [x] (2026-10-11 21:04Z) M1: `.claude/workflows/cycle-run.js` runs preflight and the milestone loop with a limit and halts on the judge; `tools/check-workflows` guards every saved workflow inside `./tools/verify`.
 - [x] (2026-10-11 21:20Z) M2: `cycle-run` closes a finished plan: review panel, review record, retro, doc-garden, final verify, push, pull request.
 - [x] (2026-10-11 21:41Z) M3: `.claude/workflows/cycle-plan.js` turns a stated goal into a committed plan on its own branch, worktree, and venv, or stops with the operator's questions.
-- [ ] M4: `AGENTS.md`, `docs/specs/operations.md`, the judge card and register, `GOALS.md`, and `docs/DEBT.md` say what the factory now does.
+- [x] (2026-10-11 22:16Z) M4: `AGENTS.md`, `docs/specs/operations.md`, the judge card and register, `GOALS.md`, and `docs/DEBT.md` say what the factory now does.
 
 ## Surprises & Discoveries
 
@@ -25,6 +25,8 @@ Today the operator of this repository drives every plan by hand: start a fresh s
   Evidence: `printf 'export const meta = { name: "x", description: "y" }\nconst r = await agent("hi")\nreturn r\n' > /tmp/x.js; node --check /tmp/x.js` printed the error above and exited 1.
 - Observation (authoring, 2026-10-11): building this worktree's venv took 18 seconds, not the two to four minutes `GOALS.md` lists as a known unknown: `python3.10 -m venv venv && venv/bin/pip install -q -e ".[dev]"` in `.claude/worktrees/factory-workflows` printed `venv exit=0 seconds=18`. The pip cache was warm from the previous worktree's build; a cold-cache time is not measured here. M4 writes the measured number into `GOALS.md`.
   Evidence: the timing line, quoted above.
+- Observation (M4 session, 2026-10-11): `docs/specs/operations.md` Deploying says the wrapper writes `./COMMIT_SHA (gitignored)`, but `.gitignore` lines 40 to 46 say the file is intentionally not ignored, because the Railway CLI honours `.gitignore` for uploads and an ignored `COMMIT_SHA` was what stamped the first wrapper deploy `unknown`; `git check-ignore -v ./COMMIT_SHA` exits 1. The sentence predates this plan and is outside M4's boundary, so it is left for the doc-garden pass in the closing sequence; recorded here so that pass finds it.
+  Evidence: `grep -n COMMIT_SHA .gitignore` printed the three comment lines; `git check-ignore -v ./COMMIT_SHA; echo exit=$?` printed `check-ignore exit=1`.
 
 ## Decision Log
 
@@ -152,6 +154,8 @@ M1 (2026-10-11, hand-launched milestone session; commits `094a50d` and the commi
 M2 (2026-10-11, milestone session launched by `cycle-run` with `limit` 1; commits `a03e5e8` and the commit carrying this entry, on top of `f0f7b6a`). Landed: the closing sequence in `.claude/workflows/cycle-run.js` (lines 311 to 605: diffstat, three-lens review panel in `parallel()`, review record committed into the plan's Decision Log, retro, doc-garden, final verify, publish, and the `complete` result with `review` and `pr_url`), replacing M1's three placeholder lines. Static acceptance met and observed: `tools/check-workflows` printed `workflows: 1 of 1 ok` with exit 0; `./tools/verify` printed `verify: all 4 checks passed in 157s.` with exit 0; the seven stages with their lens paragraphs, schemas, and record shape are listed by line number in Artifacts and Notes. Beyond the stated acceptance, a stub runtime exercised the closing path through the complete result and three halts (Decision Log; Artifacts and Notes). Carve-outs: none against the static half. Not observed by this session, by design: the live half, which is the closing run after M4; in particular no closing prompt or schema has met the Workflow runtime, the record agent's Decision Log edit has not been parsed by `tools/judge-milestone snapshot` on a real plan, and the retro and publish agents have not run. The starting `./tools/verify` took 156 s and the post-change run is in the transcript above; both within the 180 s budget.
 
 M3 (2026-10-11, milestone session launched by `cycle-run` with `limit` 1; commits `3ebf38c` and the commit carrying this entry, on top of `4a731fd`). Landed: `.claude/workflows/cycle-plan.js` (316 lines: argument handling with the empty-goal refusal, the guard, scope, setup, plan-author, and check agents with their schemas and prompts, the `questions` stop, the slug rule, the `refused` shape with its `cleanup` string, and the `planned` result with its `next` sentence). Static acceptance met and observed: `tools/check-workflows` printed `workflows: 2 of 2 ok` with exit 0; `./tools/verify` printed `verify: all 4 checks passed in 150s.` with exit 0; the five stages with their schemas and prompts are listed by line number in Artifacts and Notes. Beyond the stated acceptance, a stub runtime exercised the script through the `planned` result, the `questions` stop, and seven refusals (Decision Log; Artifacts and Notes). Carve-outs: none against the static half. Not observed by this session, by design: the live half, which is the operator's run of `cycle-plan` from this worktree with the issue #110 goal after this milestone is judged (Validation and Acceptance); in particular no prompt or schema here has met the Workflow runtime, no scope agent has read a real issue, no `git worktree add` or venv build has been run by the setup prompt, and the plan-author prompt has not produced a plan that `tools/judge-milestone snapshot` has parsed. The starting `./tools/verify` took 156 s and the post-change run 150 s; both within the 180 s budget.
+
+M4 (2026-10-11, milestone session launched by `cycle-run` with no limit; commits `fb472fa` and the commit carrying this entry, on top of `c84c8a1`). Landed: `AGENTS.md` (the `tools/` map line gains `check-workflows`, a `.claude/workflows/` map line, a Factory line in Commands; 48 lines), `docs/specs/operations.md` (`node` in Local environment, `tools/check-workflows` as the fourth check in Tests, and a new `## Running the factory` section owning `/cycle-plan`, `/cycle-run`, the `limit`, the closing sequence, the halt shape and resume, one run at a time, `/workflows` and the transcript directory, `node`, and the closing-sequence rerun debt), `docs/capabilities/judge-milestone.md` (Enforcement point in present tense), `docs/capabilities/index.md` (`judge-milestone` row enforced at `cycle-run`), `GOALS.md` (the venv unknown rewritten around the measured 18 s warm-cache build), and `docs/DEBT.md` (`D6` deleted as paid, `D43` added). Acceptance met and observed: `wc -l AGENTS.md` printed `48`; every repository-relative path in the edited files resolves (the walk is in Concrete Steps and Artifacts and Notes); `./tools/verify` printed `verify: all 4 checks passed in 155s.` with `exit=0`; `grep -c '^| D6 ' docs/DEBT.md` printed `0` and `grep -c '^| D43 ' docs/DEBT.md` printed `1`; `grep -c planned docs/capabilities/index.md` printed `0`. Carve-outs: none against the stated acceptance. Not observed by this session, by design: the live half of this plan, which is the closing sequence this same `cycle-run` performs after the judge passes this milestone: review panel, record, retro, doc-garden, final verify, push, pull request. One finding outside the boundary is left for that pass (Surprises & Discoveries, `COMMIT_SHA`). The starting `./tools/verify` took 134 s; the post-change run's time is in the summary line above; both within the 180 s budget.
 
 ## Context and Orientation
 
@@ -341,6 +345,8 @@ Observed in the M3 session (2026-10-11, launched by `cycle-run` with `limit` 1),
 M4. Make the edits. Run `wc -l AGENTS.md` (expected: at most 100). Walk the paths: for every backticked repository-relative path in the five edited files, `ls` it. Run `./tools/verify`. Expected: `all 4 checks passed`.
 
 Observed in the M4 session (2026-10-11, launched by `cycle-run` with no limit), starting from `c84c8a1`: the starting `./tools/verify` printed `verify: all 4 checks passed in 134s.` and `exit=0` (test-db 0s, unit+web+services 59s, integration 71s, judge-fixtures 4s, workflows 0s). The six edits (Plan of Work M4 names five documents; `docs/capabilities/judge-milestone.md` and `docs/capabilities/index.md` are two files) were applied by one exact-string replacement script that exits when an anchor is not found exactly once; `git diff --stat` printed `6 files changed, 25 insertions(+), 12 deletions(-)`. `wc -l AGENTS.md` printed `48` (46 before). `grep -c '^| D6 ' docs/DEBT.md` printed `0`, `grep -c '^| D43 ' docs/DEBT.md` printed `1`, `grep -c planned docs/capabilities/index.md` printed `0`. The path walk and the post-change `./tools/verify` are recorded in the next paragraph once observed.
+
+Observed in the M4 session, continued: the mechanical path walk (Decision Log) extracted the backticked path-like tokens from the six files and `test -e` found 132 of them in the worktree; the 26 tokens it reported missing were each resolved by hand: names relative to a parent given earlier in their sentence (`fixtures/judge/run` under `tools/`; `index.md` and `operations.md` under `docs/capabilities/` and `docs/specs/`; `admin.py`, `admin_badge_review.py`, `admin_transcripts.py`, `create_admin.py`, `public.py`, `source_security.py` after `src/docket/web/auth.py`; `badges_policy.py`, `batch_ingest.py` after `src/docket/ai/pipeline.py`; `compare.py`, `events.py` after `src/docket/ai/transcripts/ab.py`; `analysis/minutes_parser.py` and `ai/`, `services/` under `src/docket/`; `cycle-plan.js`, `cycle-run.js` under `.claude/workflows/`), all of which `test -e` found at the full path; `origin/main` (a git ref, `git rev-parse --verify` resolves it); `thinkdarrell/docket-pub`, `thinkdarrell/al-municipal-meetings`, `thinkdarrell/docket-pub-site`, `thinkdarrell/docket-pub-archived` (GitHub repositories, not paths); `DATABASE_URL=postgresql://...` (an assignment); `./COMMIT_SHA` (a deploy-time scratch file, not in the tree, and not gitignored either: Surprises & Discoveries); and `.claude/worktrees/factory-workflows` (relative to the main checkout, and this session's own `pwd -P`). Eleven templated tokens (`<slug>`, `<name>`) were listed and not tested. `~/.claude-personal/projects`, the transcript location named in Running the factory, exists on this machine. The post-change `./tools/verify` on the tree committed as `fb472fa` printed `verify: all 4 checks passed in 155s.` and `exit=0` (test-db ... ok (1s) postgresql://docket@localhost:5432/docket_test_7da4fd23; unit+web+services ... ok (62s); integration ... ok (88s); judge-fixtures ... ok (4s); workflows ... ok (0s)). The tick commit is `fb472fa`'s successor.
 
 Live runs (operator's session, not a milestone session). After M1 is judged advanced by hand: with the shell in the worktree, launch `cycle-run` on this plan with `limit` 1, by name if `/reload-skills` has been run or else by path (`Workflow({scriptPath: '.claude/workflows/cycle-run.js', args: {plan: 'plans/active/factory-workflows.md', limit: 1}})`). Expected: `cycle-run: preflight ok, verify ...`, then one milestone agent, then `cycle-run: advanced "M2: ..." in <seconds>s, verify verify: all 4 checks passed in <N>s.`, result status `advanced`. Append the result to Artifacts and Notes. Repeat with `limit` 1 for M3. Then run `cycle-plan` by path from the worktree with the goal under Validation and Acceptance; append its result. Then launch `cycle-run` with no limit: expected M4 advances, then `Closing` logs the review range, the record commit, the retro and doc-garden reports, `final verify`, and a `pr_url`.
 
@@ -684,6 +690,50 @@ M3 session, self-check with the judge after commits `3ebf38c` and `c621267`, usi
     judge exit=0
 
 This is the session's own check; `cycle-run`'s judge agent runs the same command from its own snapshot after this session returns, and the commit carrying this note lands after the check, so that judge sees three commits since `4a731fd`.
+
+### M4 session transcript (2026-10-11)
+
+Starting `./tools/verify; echo "exit=$?"` on `c84c8a1`, summary lines only:
+
+    verify: test-db ... ok (0s) postgresql://docket@localhost:5432/docket_test_7da4fd23
+    verify: unit+web+services ... ok (59s)
+    verify: integration ... ok (71s)
+    verify: judge-fixtures ... ok (4s)
+    verify: workflows ... ok (0s)
+    verify: all 4 checks passed in 134s.
+    exit=0
+
+Acceptance greps after the edits:
+
+    AGENTS lines:       48
+    D6 rows: 0
+    D43 rows: 1
+    index 'planned' mentions: 0
+    judge card: no 'next plan'/'planned'
+
+Path walk: for each of the six files, backticked tokens were extracted with `grep -o '`[^`]*`'`, reduced to their first word, stripped of a trailing `:NN`, kept when they contain `/` or end in a file extension, dropped when absolute, a URL, or holding `<`, `$`, `*`, `{`, and tested with `test -e`. Result: `132` found; `26` reported missing and resolved by hand as Concrete Steps describes (every one that is a path exists at its full path; the rest are refs, repository slugs, an assignment, and two files outside the tree). The hand resolution command and its output:
+
+    ok      tools/fixtures/judge/run
+    ok      docs/capabilities/index.md
+    ok      docs/specs/operations.md
+    ok      src/docket/web/admin.py ... src/docket/web/source_security.py (six files)
+    ok      src/docket/ai/badges_policy.py, src/docket/ai/batch_ingest.py
+    ok      src/docket/ai/transcripts/compare.py, src/docket/ai/transcripts/events.py
+    ok      src/docket/analysis/minutes_parser.py, src/docket/services/, src/docket/ai/
+    ok      .claude/workflows/cycle-plan.js, .claude/workflows/cycle-run.js
+    MISSING .claude/worktrees/factory-workflows   (relative to the main checkout; `pwd -P` printed /Users/darrellnance/docket-pub/.claude/worktrees/factory-workflows)
+    ok      /Users/darrellnance/.claude-personal/projects
+    origin/main: git ref resolves
+
+Post-change `./tools/verify; echo "exit=$?"` on the tree committed as `fb472fa`, summary lines only:
+
+    verify: test-db ... ok (1s) postgresql://docket@localhost:5432/docket_test_7da4fd23
+    verify: unit+web+services ... ok (62s)
+    verify: integration ... ok (88s)
+    verify: judge-fixtures ... ok (4s)
+    verify: workflows ... ok (0s)
+    verify: all 4 checks passed in 155s.
+    exit=0
 
 ## Interfaces and Dependencies
 
