@@ -47,7 +47,7 @@ def test_chair_address_skips_interjections_and_needs_substance():
     segs = [seg(0, 3300, "Councilor O'Quinn, you are recognized.", "S0"),
             seg(1, 3304, "Thank you.", "S4", dur=1),                      # interjection, skipped
             seg(2, 3306, "Yeah, I would just like to hear a layman's summary of what is going on here.", "S7"),
-            seg(3, 3400, "as Councilor Tate said earlier", "S7"),          # mention without title/question: not an address
+            seg(3, 3400, "as Councilor Tate said earlier", "S7"),          # back-reference ("said earlier"): excluded by the reference word, not an address
             seg(4, 3405, "The budget office has eleven line items for this program this year.", "S2")]
     adds = find_chair_addresses(segs, R)
     assert [(a.member.id, a.next_cluster) for a in adds] == [(1, "S7")]
@@ -82,3 +82,15 @@ def test_render_lists_every_cluster_and_the_signals():
     assert "S0" in text and "S7" in text
     assert "Roll-call candidate pairs" in text and '"Here."' in text
     assert "seq=3" in text
+
+
+def test_roll_call_absent_member_is_not_paired_with_next_members_response():
+    roster = R + [RosterMember(5, "Pat Hall", "hall")]
+    segs = [seg(0, 900, "Councilor Tate.", "S0"), seg(1, 903, "Councilor Hall.", "S0"), seg(2, 905, "Here.", "S7", dur=1)]
+    assert [p.member.id for p in find_roll_call_pairs(segs, roster)] == [5]
+
+
+def test_sample_utterances_small_clusters_return_all():
+    for n in (2, 5):
+        segs = [seg(i, 900 + i * 10, " ".join(["word"] * 8), "S3") for i in range(n)]
+        assert [u["seq"] for u in sample_utterances(segs, per_cluster=6)["S3"]] == list(range(n))

@@ -104,10 +104,13 @@ def find_roll_call_pairs(segments: list[dict], roster: list[RosterMember], max_g
             if nxt["start_s"] - s["end_s"] > max_gap_s:
                 break
             if nxt.get("cluster_label") == s.get("cluster_label"):
+                if mentioned_members(nxt["text"], roster):
+                    break          # the reader moved on to the next name: this member did not answer
                 continue
+            # The first utterance from another cluster is the only candidate response.
             if is_short_response(nxt["text"]):
                 out.append(RollCallPair(s["seq"], s["text"], hits[0], nxt["seq"], nxt.get("cluster_label"), nxt["text"]))
-                break
+            break
     return out
 
 
@@ -180,7 +183,10 @@ def sample_utterances(segments: list[dict], per_cluster: int = 6, min_words: int
     out: dict[str, list[dict]] = {}
     for cl, utts in by.items():
         n = len(utts)
-        idxs = sorted({round(i * (n - 1) / max(1, per_cluster - 1)) for i in range(min(per_cluster, n))})
+        if n <= per_cluster:
+            idxs = list(range(n))
+        else:
+            idxs = sorted({round(i * (n - 1) / (per_cluster - 1)) for i in range(per_cluster)}) if per_cluster > 1 else [0]
         out[cl] = [{"seq": utts[i]["seq"], "start_s": utts[i]["start_s"],
                     "text": " ".join(utts[i]["text"].split()[:max_words])} for i in idxs]
     return out
