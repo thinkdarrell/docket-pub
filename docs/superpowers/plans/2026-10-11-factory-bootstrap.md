@@ -1077,3 +1077,21 @@ Verify command observed at HEAD: `venv/bin/python -m pytest tests/unit tests/web
 Deviations from the plan as written: the baseline had five failing web tests, not one (D1 widened; AGENTS.md says five); the worktree lacked a `.claude/` directory, created before the symlink; `transcriber/.env` was un-backticked because it exists only on the Legion; `docs/specs/index.md` keeps two em dashes inside upstream prose kept verbatim.
 
 Next: plan one, authored by hand following `skills/plan-author/SKILL.md`, covering `tools/verify`, `tools/judge-milestone` with its fixtures and card, D1, D2, and D3 (`docket_test`). Not started here.
+
+## Final review fix pass
+
+A fresh whole-branch reviewer (most capable model, read-only) returned one Critical and seven Important findings on 2026-10-11, each verified by command before fixing. Fixed in four commits after the PR opened:
+
+- Critical: `--down 1` was glossed as "roll back the latest one" in `docs/specs/operations.md` and `AGENTS.md`. The flag takes a migration number; `--down 1` drops the schema. Both files now say so.
+- Decision 0017 recorded a 120-character Wave 0 threshold; the code has used 60 since issue #34. Rewritten before publication, with the history in the rationale.
+- `ARCHITECTURE.md` said `src/docket/rosters/` does not exist; it is a tracked empty package. Reworded, with `D33`.
+- `ARCHITECTURE.md` stated an environment-access invariant five modules violate. Rough edge added, with `D34`.
+- `AGENTS.md` published a full-test command (`pytest -q`) that had not been run and would collect live tests under the dummy key. Replaced with the four-tier command, run here: `8 failed, 2253 passed, 3 skipped, 4 xfailed, 2 warnings in 104.43s`. The three integration failures widen `D2`; `D35` tracks the missing `-m 'not live'` guard.
+- One owner per fact: the WAL incident, transcriber table names, HSTS reason, worker service setup, memory numbers, Postgres versions, venv rule, and three GOALS constraints were each stated in two to four files. Direction chosen once: decision records own incidents and reasons, `operations.md` owns commands, `GOALS.md` Constraints own imposed numbers, `AGENTS.md` points. Applied across `AGENTS.md`, `GOALS.md`, `docs/PRINCIPLES.md`, `docs/specs/operations.md`.
+- The scoring model and dollar tiers the spec routed to `ARCHITECTURE.md` had not arrived; two sentences added under AI pipeline and Enrichment.
+- Operator facts without a home: the two production feature flags, the gunicorn web process, and the branch convention now live in `operations.md` and `AGENTS.md`.
+- `D25` named `worker/tasks.py`, which has no badge INSERT; corrected to the five files that do. `D36` added for the `mv_badge_volume_monthly` refresh gotcha from the candidate list.
+
+Deferred as minor (not fixed, listed for the operator): the absolute checkout path in GOALS.md scope; two backticked non-paths (`scripts/deploy.sh --service ...`, `src/docket/ai/pipeline.py:70`) that a future `doc-integrity` check will need allowlist keys for; the `--limit` smell in PRINCIPLES.md misfires because the CLI defaults the flag; AGENTS.md says the skills are "also reachable" via the symlink, which is unconfirmed; the Task 6 ledger range spans Task 7 and 8 commits.
+
+Debt register after the fix pass: 36 rows. AGENTS.md: 43 lines.
