@@ -1,7 +1,8 @@
 # tests/unit/test_compare_render.py
 from docket.ai.transcripts.aligner import Candidate, Event
-from docket.ai.transcripts.compare import (TranscriptText, citation_match_for, nearest_event, render_judge_user, segment_at,
-                                           transcript_text, transcript_window)
+from docket.ai.transcripts.compare import (TranscriptText, build_rows, citation_match_for, nearest_event, render_judge_user,
+                                           segment_at, transcript_text, transcript_window)
+from docket.ai.transcripts.schemas import HuntedDiscrepancy, Verdict
 
 SEGS = [{"id": 1, "seq": 0, "start_s": 3290.0, "end_s": 3295.0, "text": "executed a contract vendor CGI access", "cluster_label": "S0",
          "speaker_name": None, "speaker_confidence": None, "is_silence": False, "agenda_item_id": 1},
@@ -55,3 +56,24 @@ def test_judge_prompt_numbers_candidates_and_shows_both_windows():
     assert "Transcript window" in user and "we will go into executive session" in user
     assert "Minutes window (page 1)" in user and "pending litigation" in user
     assert "Transcript timeline" in user and "Minutes timeline" in user
+
+
+def test_hunter_restating_an_aligner_finding_is_folded_into_one_row():
+    """Meeting 15 in production: the statute-ground discrepancy arrived once from the aligner (with the judge's
+    verdict) and once from the hunter, anchored to the same transcript event. One finding, one row."""
+    tt = transcript_text(SEGS)
+    t_ev = _ev(7, "transcript", 7, "executive_session_motion", refs=(1,), start_s=3400.0)
+    m_ev = _ev(17, "minutes", 17, "executive_session_motion", refs=(1,), char_offset=0)
+    cand = Candidate(1, "mismatch", "wording", t_ev, m_ev, "executive_session_motion: statute_cite differs", frozenset({1}))
+    verdict = Verdict(candidate_id=1, is_real=True, category="wording", severity="material", title="Statutory ground differs",
+                      description="d", transcript_quote="we will go into executive session", minutes_quote=None, confidence=0.7,
+                      dismiss_reason=None)
+    dup = HuntedDiscrepancy(category="wording", severity="material", title="Executive session legal ground differs",
+                            description="same thing, said again", agenda_item_refs=[1], transcript_quote="we will go into executive session",
+                            transcript_segment_seq=2, minutes_quote=None, minutes_page=None, confidence=0.8)
+    other = HuntedDiscrepancy(category="omission", severity="material", title="Something the aligner has no event for",
+                              description="d", agenda_item_refs=[1], transcript_quote="three years between the agency and Alabama power",
+                              transcript_segment_seq=1, minutes_quote=None, minutes_page=None, confidence=0.6)
+    rows = build_rows(99, [cand], [verdict], [dup, other], tt=tt, minutes=None, t_events=[t_ev], m_events=[m_ev], valid_item_ids={1})
+    proposed = [r for r in rows if r["review_state"] == "proposed"]
+    assert [(r["category"], r["origin"]) for r in proposed] == [("wording", "aligner"), ("omission", "model_initiated")]

@@ -90,10 +90,34 @@ def _jaccard(a: str | None, b: str | None) -> float:
     return len(ta & tb) / len(ta | tb) if (ta or tb) else 1.0
 
 
+_FAIL_WORDS = re.compile(r"\b(not (?:adopted|approved|carried|granted)|fail(?:s|ed)?|denied|defeated|rejected|lost)\b")
+_PASS_WORDS = re.compile(r"\b(adopted|approved?|pass(?:es|ed)?|carried|granted|prevail(?:s|ed)?|sustained)\b")
+
+
+def canonical_result(s) -> str | None:
+    """'approved', 'adopted', 'passes' are one outcome; 'failed', 'denied', 'motion to approve NOT adopted' are the
+    other (spec: 'approved' versus 'adopted' is wording, not a vote-outcome discrepancy). Negations win because a
+    Birmingham denial reads 'the motion to approve NOT adopted and the above resolution adopted'. None when the
+    text names no outcome, so the comparison is skipped rather than guessed."""
+    n = normalize(str(s or ""))
+    if not n:
+        return None
+    if _FAIL_WORDS.search(n):
+        return "fail"
+    if _PASS_WORDS.search(n):
+        return "pass"
+    return None
+
+
+def _results_differ(a, b) -> bool:
+    ca, cb = canonical_result(a), canonical_result(b)
+    return ca is not None and cb is not None and ca != cb
+
+
 def details_differ(t: Event, m: Event) -> str | None:
     td, md = t.detail, m.detail
     if t.event_type == "vote":
-        if td.get("result") and md.get("result") and normalize(td["result"]) != normalize(md["result"]):
+        if _results_differ(td.get("result"), md.get("result")):
             return "vote_outcome"
         for k in ("yeas", "nays", "abstentions"):
             if td.get(k) is not None and md.get(k) is not None and td[k] != md[k]:
@@ -117,6 +141,28 @@ def details_differ(t: Event, m: Event) -> str | None:
         if td.get(key) and md.get(key) and _jaccard(td[key], md[key]) < 0.4:
             return "wording"
     return None
+
+
+def _vote_phrase(ev: Event) -> str:
+    d = ev.detail
+    tally = "-".join(str(d[k]) for k in ("yeas", "nays") if d.get(k) is not None)
+    parts = [p for p in (d.get("result"), tally, f"{d['abstentions']} abstaining" if d.get("abstentions") else None) if p]
+    return " ".join(parts) or "no result recorded"
+
+
+def mismatch_note(t: Event, m: Event, cat: str) -> str:
+    """What a reviewer sees as the row's description for a deterministic mismatch, so it names both sides
+    instead of just the category. Vote rows never pass through the judge, so this is their only description."""
+    td, md = t.detail, m.detail
+    if cat == "vote_outcome":
+        return f"vote: transcript says {_vote_phrase(t)}; minutes say {_vote_phrase(m)}"
+    if cat == "speaker":
+        return (f"{t.event_type}: transcript attributes it to {t.actor_text or f'member {t.actor_member_id}'}; "
+                f"minutes to {m.actor_text or f'member {m.actor_member_id}'}")
+    for k in ("statute_cite", "stated_reason", "action", "to_date", "kind", "what_changed", "ruling", "as_stated"):
+        if td.get(k) and md.get(k) and normalize(str(td[k])) != normalize(str(md[k])):
+            return f"{t.event_type}: {k} differs; transcript: {str(td[k])[:120]}; minutes: {str(md[k])[:120]}"
+    return f"{t.event_type}: {cat} differs"
 
 
 def pair_group(t_evs: list[Event], m_evs: list[Event]):
@@ -179,7 +225,7 @@ def vote_outcome_candidates(t_events: list[Event], votes: list[dict], skip_event
         if v is None:
             continue
         td = ev.detail
-        differs = (td.get("result") and v.get("result") and normalize(td["result"]) != normalize(v["result"])) or any(
+        differs = _results_differ(td.get("result"), v.get("result")) or any(
             td.get(key) is not None and v.get(key) is not None and td[key] != v[key] for key in ("yeas", "nays", "abstentions"))
         if differs:
             out.append(Candidate(0, "vote_outcome", "vote_outcome", ev, None,
@@ -225,7 +271,7 @@ def align(t_events: list[Event], m_events: list[Event], *, consent_items: set[in
         for a, b in pairs:
             cat = details_differ(a, b)
             if cat:
-                mism.append(Candidate(0, "mismatch", cat, a, b, f"{a.event_type}: {cat} differs", a.item_refs | b.item_refs))
+                mism.append(Candidate(0, "mismatch", cat, a, b, mismatch_note(a, b, cat), a.item_refs | b.item_refs))
         omis += [Candidate(0, "omission", "omission", e, None, f"{e.event_type} on video, not in minutes", e.item_refs)
                  for e in t_only if e.event_type in MINUTED_TYPES]
         adds += [Candidate(0, "addition", "addition", None, e, f"{e.event_type} in minutes, not on video", e.item_refs)
