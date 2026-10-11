@@ -11,7 +11,7 @@ Today the operator of this repository drives every plan by hand: start a fresh s
 ## Progress
 
 - [x] (2026-10-11 21:04Z) M1: `.claude/workflows/cycle-run.js` runs preflight and the milestone loop with a limit and halts on the judge; `tools/check-workflows` guards every saved workflow inside `./tools/verify`.
-- [ ] M2: `cycle-run` closes a finished plan: review panel, review record, retro, doc-garden, final verify, push, pull request.
+- [x] (2026-10-11 21:20Z) M2: `cycle-run` closes a finished plan: review panel, review record, retro, doc-garden, final verify, push, pull request.
 - [ ] M3: `.claude/workflows/cycle-plan.js` turns a stated goal into a committed plan on its own branch, worktree, and venv, or stops with the operator's questions.
 - [ ] M4: `AGENTS.md`, `docs/specs/operations.md`, the judge card and register, `GOALS.md`, and `docs/DEBT.md` say what the factory now does.
 
@@ -112,6 +112,8 @@ Today the operator of this repository drives every plan by hand: start a fresh s
 Nothing has been executed. This section is filled as milestones land, one entry per milestone, and closed by the retro that `cycle-run`'s closing sequence runs after M4.
 
 M1 (2026-10-11, hand-launched milestone session; commits `094a50d` and the commit carrying this entry, on top of `c309ace`). Landed: `.claude/workflows/cycle-run.js` (313 lines: argument handling, the ten-check preflight, the snapshot / milestone / judge loop with `limit` and a hard cap of 20, the halt shape) and `tools/check-workflows` (POSIX sh plus `awk` and `node --check`), wired into `./tools/verify` as the fourth check. Static acceptance met and observed: `tools/check-workflows` printed `workflows: 1 of 1 ok` with exit 0 on the committed tree; exit 1 naming the file on the renamed meta (`meta.name "cycle-runn" does not match file cycle-run.js`) and on the appended `Date.now()`; `./tools/verify` printed `verify: workflows ... ok (0s)` as its fourth check and `verify: all 4 checks passed in 139s.` with exit 0; the script's contents are listed by line number in Artifacts and Notes. Carve-outs: none against the static half. Not observed by this session, by design (Decision Log, second entry): the live half, which is the run of this script that executes M2; in particular no agent prompt, schema, `stallMs`, or `isoFromEpoch` has been exercised by the Workflow runtime, and the first live run is where a runtime-shape mistake would show. The starting-state `./tools/verify` took 160 s and the post-change run 139 s; both within the 180 s budget `AGENTS.md` states.
+
+M2 (2026-10-11, milestone session launched by `cycle-run` with `limit` 1; commits `a03e5e8` and the commit carrying this entry, on top of `f0f7b6a`). Landed: the closing sequence in `.claude/workflows/cycle-run.js` (lines 311 to 605: diffstat, three-lens review panel in `parallel()`, review record committed into the plan's Decision Log, retro, doc-garden, final verify, publish, and the `complete` result with `review` and `pr_url`), replacing M1's three placeholder lines. Static acceptance met and observed: `tools/check-workflows` printed `workflows: 1 of 1 ok` with exit 0; `./tools/verify` printed `verify: all 4 checks passed in 157s.` with exit 0; the seven stages with their lens paragraphs, schemas, and record shape are listed by line number in Artifacts and Notes. Beyond the stated acceptance, a stub runtime exercised the closing path through the complete result and three halts (Decision Log; Artifacts and Notes). Carve-outs: none against the static half. Not observed by this session, by design: the live half, which is the closing run after M4; in particular no closing prompt or schema has met the Workflow runtime, the record agent's Decision Log edit has not been parsed by `tools/judge-milestone snapshot` on a real plan, and the retro and publish agents have not run. The starting `./tools/verify` took 156 s and the post-change run is in the transcript above; both within the 180 s budget.
 
 ## Context and Orientation
 
@@ -292,7 +294,7 @@ Observed in the M1 session (2026-10-11): every expectation in the M1 paragraph a
 
 M2. Extend `cycle-run.js` with the closing sequence. Run `tools/check-workflows` (expected `1 of 1 ok`) and `./tools/verify` (expected `all 4 checks passed`). Read the script once more against Plan of Work M2 and list in Artifacts and Notes each stage with the line numbers that implement it.
 
-Observed in the M2 session (2026-10-11), starting from `f0f7b6a`: the starting `./tools/verify` printed `verify: all 4 checks passed in 156s.` and `exit=0` (test-db 0s, unit+web+services 61s, integration 91s, judge-fixtures 4s, workflows 0s). After the closing block replaced the three placeholder lines (311 to 313) `tools/check-workflows` printed `workflows: .claude/workflows/cycle-run.js ... ok`, `workflows: 1 of 1 ok`, `exit=0`; the file is 605 lines. The stub dry run (Decision Log) printed the expected log lines and results for all four scenarios; transcript in Artifacts and Notes. The post-change `./tools/verify` result is recorded in Artifacts and Notes when observed.
+Observed in the M2 session (2026-10-11), starting from `f0f7b6a`: the starting `./tools/verify` printed `verify: all 4 checks passed in 156s.` and `exit=0` (test-db 0s, unit+web+services 61s, integration 91s, judge-fixtures 4s, workflows 0s). After the closing block replaced the three placeholder lines (311 to 313) `tools/check-workflows` printed `workflows: .claude/workflows/cycle-run.js ... ok`, `workflows: 1 of 1 ok`, `exit=0`; the file is 605 lines. The stub dry run (Decision Log) printed the expected log lines and results for all four scenarios; transcript in Artifacts and Notes. The post-change `./tools/verify` printed `verify: all 4 checks passed in 157s.` with `exit=0`; transcript in Artifacts and Notes.
 
 M3. Write `.claude/workflows/cycle-plan.js`. Run `tools/check-workflows` (expected `workflows: 2 of 2 ok`) and `./tools/verify`. In Artifacts and Notes list each stage with its line numbers.
 
@@ -465,6 +467,49 @@ M2 session, stub dry run of the closing path (Decision Log; the stub is `dryrun.
     RESULT {"status":"halt",...,"where":"diffstat, closing stage 1 diffstat",...}
 
 The rendered `review record`, `publish`, and `review: scope` prompts were printed from the stub and read back; the substituted values (range, commit list, slug, branch, plan path after the move) appeared where intended.
+
+M2 session, `./tools/verify` on the tree committed in `a03e5e8` (script and the first batch of plan evidence), observed:
+
+    ./tools/verify > <scratch>/verify-after.log 2>&1; echo "exit=$?"
+    verify: test-db ... ok (1s) postgresql://docket@localhost:5432/docket_test_7da4fd23
+    verify: unit+web+services ... ok (64s)
+    verify: integration ... ok (88s)
+    verify: judge-fixtures ... ok (4s)
+    verify: workflows ... ok (0s)
+    verify: all 4 checks passed in 157s.
+    exit=0
+
+M2 session, `.claude/workflows/cycle-run.js` as committed in `a03e5e8` (605 lines; lines 1 to 310 are M1's and unchanged except that the three placeholder lines 311 to 313 are gone), read back with `grep -n`; the parts Plan of Work M2 requires and where they are:
+
+    311-318  closing comment: the seven stages and the contract
+    320      phase('Closing')
+    324-326  closingNull(label, stage): the `agent <label> returned no result` halt for every closing agent, milestone 'none'
+    330      lastLanded: the last entry this run landed, or null (Decision Log)
+    333-343  DIFFSTAT_SCHEMA (fetch_exit, base, head, diffstat, commits)
+    345-356  stage 1 diffstat prompt: fetch, merge-base origin/main HEAD, rev-parse HEAD, diff --stat | tail -1, log --reverse --format=%h
+    358-364  diffstat agent (effort low, label diffstat); halts on null and nonzero fetch; `cycle-run: review range <base>..<head>, <diffstat> (<n> commits)`
+    368-390  REVIEW_SCHEMA (lens, findings[severity enum severe/important/minor, title, location, claim, evidence, refutation], declined)
+    392-408  LENSES: the correctness (394), scope (399), and data-honesty (404) paragraphs
+    410-426  reviewPrompt(lens): read-only, no subagents, range and plan path, --stat and log first, `git diff <range> -- <file>` and `git show`, never the whole diff, refute before keeping, evidence and location definitions, the three severities
+    428-430  stage 2: parallel() over the three lenses, labels `review: <lens>`, phase 'Closing', default effort and model
+    431-433  a null reviewer halts naming its lens
+    434-435  pre-deduplication counts logged
+    439-448  RECORD_SCHEMA (severe, important, minor, commit)
+    450-479  recordPrompt(): the three reports as JSON, dedupe on location and claim, the entry text (Decision: review record. After ..., 463), finding lines, Declined, Rationale, Date/Author, commit alone as `plan: <slug>, review record`
+    481-487  stage 3: record agent (label `review record`); null halt; `cycle-run: review record committed as <sha>: <counts>`; severe > 0 halts with `review found <n> severe finding(s); see the review record in <plan>`
+    491-495  RETRO_SCHEMA (report, plan_path_now)
+    497-504  stage 4 retro prompt: skills/retro/SKILL.md, the lifecycle steps from plans/PLANS.md, each routed edit its own commit, move to plans/completed/<slug>.md, clean tree
+    506-509  retro agent (label retro, stallMs 1800000); null halt; planNow = plan_path_now
+    512      GARDEN_SCHEMA (report)
+    514-519  stage 5 doc-garden prompt: skills/doc-garden/SKILL.md, one fix per commit, clean tree
+    521-523  doc-garden agent (label doc-garden, stallMs 1800000); null halt
+    526-538  FINAL_SCHEMA (verify_exit, verify_last_line, verify_seconds, clean, status, head, finished_at)
+    540-550  stage 6 final verify prompt: verify (300000 ms timeout), status --porcelain, rev-parse HEAD, date -u
+    552-560  final verify agent (effort low); halts on null, nonzero verify (`./tools/verify failed at <head>: <last line>`), dirty tree
+    564-573  PUBLISH_SCHEMA (pushed, pr_url, detail, finished_at)
+    575-584  stage 7 publish prompt: GIT_TERMINAL_PROMPT=0 push -u, title from the first `# ` line cut to 70, body = Outcomes & Retrospective + review record + attribution line via sed/awk to a temp file, gh pr create --base main --body-file, existing-pull-request fallback, date -u
+    586-594  publish agent (effort low); halts on null, pushed false, empty pr_url; `cycle-run: complete; <plan> closed to <pr_url>`
+    596-605  result { status: 'complete', plan, plan_path_now, milestones, review, pr_url, started_at, finished_at }
 
 ## Interfaces and Dependencies
 
