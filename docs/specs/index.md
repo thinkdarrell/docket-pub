@@ -20,6 +20,6 @@ history lives in version control and in `plans/completed/`.
 
 | Spec | Covers |
 | --- | --- |
-| `operations.md` | How the system is run: environments, tests, deploys, Railway, domain, transcriber, runbook index |
+| `operations.md` | How the system is run: environments (including the `node` requirement), tests (`./tools/verify`, the disposable `docket_test_<hash>` database, the live-tier exclusion, the milestone judge as verify's third check, the saved-workflow shape check as its fourth), running the factory (`/cycle-plan`, `/cycle-run`, the `limit`, the closing sequence, halts and resume), deploys, Railway, domain, transcriber, runbook index |
 
-Present-tense behaviour specs for ingest, vote matching, the AI pipeline, OCR, coverage, blog, and transcripts do not exist yet; the design documents under `docs/superpowers/specs/` describe each as of the day it shipped. Tracked as `D9` in `docs/DEBT.md`.
+Present-tense behaviour specs do not exist yet for the areas `D9` in `docs/DEBT.md` lists; the design documents under `docs/superpowers/specs/` describe each as of the day it shipped.

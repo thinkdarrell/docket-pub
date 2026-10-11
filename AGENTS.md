@@ -8,11 +8,13 @@ docket.pub ingests, parses, and indexes Alabama municipal meeting records and pu
 - `ARCHITECTURE.md`: components, layer map, dependency rules, known rough edges.
 - `docs/PRINCIPLES.md`: six rules that override convenience.
 - `docs/MATURITY.md`: the autonomy ladder; this project is at L0.
-- `docs/DEBT.md`: deliberate deferrals with triggers, `D1` onward.
+- `docs/DEBT.md`: deliberate deferrals with triggers; stable ids `Dn`, closed rows are deleted and numbers are never reused.
 - `docs/decisions/`: one file per durable decision, `0001` onward.
 - `docs/specs/`: present-tense behaviour. `operations.md` is how the system is run.
 - `docs/capabilities/`: spec cards for mechanical checks, with status in `index.md`.
 - `plans/PLANS.md`: the plan convention. `plans/active/` in flight, `plans/completed/` done.
+- `tools/`: `verify` (the one check command), `test-db` (the disposable database it builds), `judge-milestone` (did a session advance exactly one milestone), `fixtures/judge/run` (the judge's self-test), `check-workflows` (every saved workflow parses and its meta names its file).
+- `.claude/workflows/`: the factory's two commands, `cycle-plan` (a stated goal becomes a committed plan on its own branch, worktree, and venv) and `cycle-run` (a plan becomes a pull request, one fresh agent per milestone, judged from git). `docs/specs/operations.md` Running the factory says how they are run.
 - `skills/`: the six procedures (`plan-author`, `plan-execute`, `doc-garden`, `retro`, `capability-build`, `harness-init`). Also reachable as `.claude/skills/`.
 - `docs/superpowers/`: design specs, plans, and reviews written before this harness. History, not current behaviour.
 - `docs/runbooks/`: operator procedures, indexed from `docs/specs/operations.md`.
@@ -22,16 +24,19 @@ docket.pub ingests, parses, and indexes Alabama municipal meeting records and pu
 
 Run from the repository root (or the worktree root) with that checkout's own `venv/`.
 
-- Verify (cheap): `venv/bin/python -m pytest tests/unit tests/web tests/services -q` (about 70 s; five known failures, `D1`). There is no aggregated verify command yet; `D5` and the `fast-verify` card track it.
-- Full tests: `venv/bin/python -m pytest tests/unit tests/web tests/services tests/integration -q` (about 105 s; needs local Postgres with `docket_db` migrated; three more known failures, `D2`). Never bare `pytest`, which also collects live tests (`D35`). Live tests: `-m live`.
+- Verify (cheap, after any edit): `./tools/verify` (about 150 seconds; budget 180 s). Builds a throwaway database from the migrations, runs every non-live tier (unit, web, services, integration) and the judge fixtures against it, then the saved-workflow shape check (`tools/check-workflows`), prints one summary line per check, drops the database, and exits zero only when every check passed. Never bare `pytest` against a database you care about: `pyproject.toml` excludes the live tier, but the unit tier deletes rows from whatever `DATABASE_URL` names (`D37`).
+- Live tests: `venv/bin/python -m pytest -m live` (real Anthropic calls; needs a real `ANTHROPIC_API_KEY`).
+- Milestone judge: `tools/judge-milestone snapshot <plan>` before a session, `tools/judge-milestone judge <plan> <snapshot-file> <start-sha>` after it; the contract is `docs/capabilities/judge-milestone.md`.
 - Migrations: `venv/bin/python -m docket.migrations.runner` (`--status`; `--down <version>` rolls back that migration number, and `--down 1` drops the schema).
 - Dev server: `venv/bin/flask run`.
 - Deploy: humans only, from a clean `main`, `scripts/deploy.sh --service docket-web` or `--service worker`.
+- Factory: `/cycle-plan <goal>` from any checkout; `/cycle-run plans/active/<slug>.md` from a session started in `.claude/worktrees/<slug>`. One run at a time.
 
 ## Working rules
 
 - Multi-file or multi-session work requires an ExecPlan per `plans/PLANS.md`.
 - Execute one milestone per session. Update every living section `plans/PLANS.md` requires, with observed evidence. Stop.
+- In a milestone session, every commit changes the plan file (decision `0037`); a Progress entry's text is never reworded once written, because the judge identifies entries by their text (`docs/capabilities/judge-milestone.md`); git hooks are never disabled or bypassed.
 - Never report a planned command as passing evidence. Run it, record what you observed.
 - Decisions with lasting effect go in the plan's Decision Log; durable ones graduate to `docs/decisions/`.
 - Nothing material lives outside the repo. If it was decided, it is written here.

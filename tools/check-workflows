@@ -1,0 +1,151 @@
+#!/bin/sh
+# tools/check-workflows: every saved workflow under .claude/workflows/ has the
+# shape the Workflow runtime requires.
+#
+# For each .claude/workflows/*.js: the first non-blank, non-comment line
+# begins `export const meta = {`; the meta object (that `{` to its matching
+# `}`, counting braces outside string literals, which is enough because the
+# meta is a pure literal) names the file (`name` equals the basename without
+# `.js`) and carries a non-empty `description`; the rest of the file, wrapped
+# in an async function so that a top-level `return` and `await` parse, passes
+# `node --check`; and the body uses none of the clock or loader calls the
+# runtime forbids. Zero scripts is a failure: an empty scope passing forever
+# is a silent failure. Requires `node` on PATH. Run it from anywhere; it works
+# in the checkout that contains it.
+set -u
+
+cd "$(dirname "$0")/.."
+
+if ! command -v node >/dev/null 2>&1; then
+    echo "workflows: node is not on PATH; install it (brew install node) to check .claude/workflows/"
+    exit 1
+fi
+
+TMP=$(mktemp -d "${TMPDIR:-/tmp}/check-workflows.XXXXXX") || exit 1
+trap 'rm -rf "$TMP"' EXIT
+
+TOTAL=0
+FAILED=0
+
+# fail <file> <reason...>: report one file's failure.
+fail() {
+    f=$1; shift
+    echo "workflows: $f ... FAILED: $*"
+    FAILED=$((FAILED + 1))
+}
+
+# split_meta <file> <meta-out> <body-out>: write the meta literal to meta-out
+# and everything after it to body-out. Exit 3 when the first code line is not
+# the meta declaration, 4 when the meta object never closes.
+split_meta() {
+    awk -v meta_out="$2" -v body_out="$3" '
+    BEGIN { state = 0; depth = 0; q = "" }
+    {
+        line = $0
+        if (state == 0) {
+            if (line ~ /^[[:space:]]*$/) next
+            if (line ~ /^[[:space:]]*\/\//) next
+            if (index(line, "export const meta = {") != 1) exit 3
+            state = 1
+        }
+        if (state == 1) {
+            n = length(line); i = 1; out = ""
+            while (i <= n) {
+                c = substr(line, i, 1)
+                if (q != "") {
+                    if (c == "\\") { out = out c substr(line, i + 1, 1); i += 2; continue }
+                    if (c == q) q = ""
+                } else if (c == "\047" || c == "\"" || c == "`") {
+                    q = c
+                } else if (c == "{") {
+                    depth++
+                } else if (c == "}") {
+                    depth--
+                    if (depth == 0) {
+                        out = out c
+                        print out > meta_out
+                        rest = substr(line, i + 1)
+                        if (rest !~ /^[[:space:]]*$/) print rest > body_out
+                        state = 2
+                        break
+                    }
+                }
+                out = out c
+                i++
+            }
+            if (state == 1) print out > meta_out
+            next
+        }
+        print line > body_out
+    }
+    END { if (state == 0) exit 3; if (state == 1) exit 4 }
+    ' "$1"
+}
+
+# meta_string <meta-file> <key>: print the quoted string value of a top-level
+# key in the meta literal, or nothing.
+meta_string() {
+    tr '\n' ' ' < "$1" \
+        | grep -oE "(^|[{,])[[:space:]]*$2:[[:space:]]*(\"[^\"]*\"|'[^']*')" \
+        | head -1 \
+        | sed -E "s/^.*$2:[[:space:]]*[\"']//; s/[\"']\$//"
+}
+
+for file in .claude/workflows/*.js; do
+    [ -e "$file" ] || continue
+    TOTAL=$((TOTAL + 1))
+    base=$(basename "$file" .js)
+    meta="$TMP/$base.meta"
+    body="$TMP/$base.body"
+    wrapped="$TMP/$base.wrapped.js"
+    : > "$meta"; : > "$body"
+
+    split_meta "$file" "$meta" "$body"
+    rc=$?
+    if [ "$rc" -eq 3 ]; then
+        fail "$file" "first non-blank, non-comment line does not begin \`export const meta = {\`"
+        continue
+    elif [ "$rc" -ne 0 ]; then
+        fail "$file" "meta object is never closed (exit $rc)"
+        continue
+    fi
+
+    name=$(meta_string "$meta" name)
+    if [ -z "$name" ]; then
+        fail "$file" "meta has no quoted name"
+        continue
+    fi
+    if [ "$name" != "$base" ]; then
+        fail "$file" "meta.name \"$name\" does not match file $base.js"
+        continue
+    fi
+    description=$(meta_string "$meta" description)
+    if [ -z "$description" ]; then
+        fail "$file" "meta.description is missing or empty"
+        continue
+    fi
+
+    if forbidden=$(grep -n -F -e 'Date.now(' -e 'Math.random(' -e 'new Date()' -e 'import(' "$body"); then
+        fail "$file" "forbidden call in body (the runtime has no clock or module loader): $(echo "$forbidden" | head -1)"
+        continue
+    fi
+
+    { printf '(async () => {\n'; cat "$body"; printf '\n})\n'; } > "$wrapped"
+    if ! err=$(node --check "$wrapped" 2>&1); then
+        fail "$file" "node --check: $(echo "$err" | grep -v '^$' | head -3 | sed -E "s|[^ ]*/$base\.wrapped\.js|$file (body after the meta object, wrapped; line 1 is the wrapper)|g" | tr '\n' ' ')"
+        continue
+    fi
+
+    echo "workflows: $file ... ok"
+done
+
+if [ "$TOTAL" -eq 0 ]; then
+    echo "workflows: no scripts under .claude/workflows/"
+    exit 1
+fi
+if [ "$FAILED" -eq 0 ]; then
+    echo "workflows: $TOTAL of $TOTAL ok"
+    exit 0
+fi
+echo "workflows: $FAILED of $TOTAL failed"
+exit 1

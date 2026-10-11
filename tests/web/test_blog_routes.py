@@ -90,6 +90,18 @@ def app(tmp_path: Path):
     def councilors_index():
         return Response("")
 
+    @public_stub.route("/al/<slug>/")
+    def city_overview(slug):
+        return Response("")
+
+    @public_stub.route("/al/<slug>/meetings/")
+    def city_meetings(slug):
+        return Response("")
+
+    @public_stub.route("/al/<slug>/council/")
+    def city_council(slug):
+        return Response("")
+
     app.register_blueprint(public_stub)
     app.register_blueprint(blog_bp)
     def _post_url(post):

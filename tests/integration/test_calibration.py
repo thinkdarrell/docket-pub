@@ -460,7 +460,8 @@ def test_query_b2_excludes_when_only_significance_overridden(bag):
 def test_query_c_returns_weeks_of_data(bag):
     """Across-week buckets surface as separate rows ordered by week DESC.
 
-    Seeds two weeks (current + 6 days ago) with >= 10 items each in
+    Seeds two weeks (current + eight days ago, so they can never share
+    a Monday-to-Sunday week) with >= 10 items each in
     the same action_type. Spec asks for 12 weeks of trend; we don't
     need to seed all twelve — we just verify the windowed grouping
     returns one row per (action_type, week) and orders within an
@@ -475,13 +476,13 @@ def test_query_c_returns_weeks_of_data(bag):
             significance_score=5, consent_placement_score=3,
             days_ago=0.0,
         )
-    # Week B — 6 days ago.
+    # Week B — eight days ago.
     for _ in range(10):
         bag.add_item(
             m, action_type="c_drift",
             ai_rewrite_version=99, processing_status="completed",
             significance_score=7, consent_placement_score=2,
-            days_ago=6.5,
+            days_ago=8.0,
         )
 
     rows = cal.query_c_baseline_drift()
