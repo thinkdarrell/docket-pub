@@ -384,6 +384,16 @@ M1 session, `.claude/workflows/cycle-run.js` as committed in `094a50d` (313 line
     300-302  hard-cap notice (logged, not silent)
     304-313  results: { status: 'advanced' | 'complete', plan, milestones, started_at, finished_at }; the comment at 311 marks where M2's Closing phase attaches
 
+M1 session, self-check with the judge after commits `094a50d` and `6beaf10`, using a snapshot taken from the plan as committed at the session's start sha (`git show c309ace:plans/active/factory-workflows.md`), observed:
+
+    tools/judge-milestone snapshot /tmp/fw-start-plan.md > /tmp/fw-start.snapshot; echo "snapshot exit=$?"
+    snapshot exit=0
+    tools/judge-milestone judge plans/active/factory-workflows.md /tmp/fw-start.snapshot c309ace; echo "judge exit=$?"
+    judge: advanced "(2026-10-11 21:04Z) M1: `.claude/workflows/cycle-run.js` runs preflight ..."
+    judge exit=0
+
+This is the session's own check, not the operator's hand judgement the trial schedule calls for; the commit carrying this note lands after it, so the operator's judge sees three commits since `c309ace`.
+
 ## Interfaces and Dependencies
 
 `.claude/workflows/cycle-run.js`: plain JavaScript for the Workflow runtime, no TypeScript syntax, no `import`, no clock. Arguments: a plan path string, or `{ plan, limit }`. Result: an object with `status` one of `refused`, `halt`, `advanced`, `complete`, and the fields named in Plan of Work. Depends on `tools/judge-milestone`, `./tools/verify`, `git`, `gh`, and `skills/plan-execute/SKILL.md`, `skills/retro/SKILL.md`, `skills/doc-garden/SKILL.md` as read by its agents.
