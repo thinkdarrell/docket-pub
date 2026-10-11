@@ -177,3 +177,47 @@ def test_each_processed_claim_writes_an_ai_run(monkeypatch):
         _rm(fx)
         with db_cursor() as cur:
             cur.execute("DELETE FROM ai_runs WHERE notes='pytest_pipeline'")
+
+
+def test_reset_for_versions_is_idempotent_after_compare():
+    """C2: unmatched stale/rejected rows keep their old prompt_version forever and must not re-trigger a compare."""
+    from docket.ai.transcripts import compare as C
+    fx = _mk(status="compared", external_id="999821")
+    mid, tid = fx["meeting_id"], fx["transcript_id"]
+    try:
+        with db_cursor() as cur:
+            cur.execute("""INSERT INTO meeting_events (meeting_id, source, seq, event_type, scope, agenda_item_refs, summary, detail,
+                                                       start_s, prompt_version)
+                           VALUES (%s, 'transcript', 0, 'motion', 'item', %s, 'm', '{}'::jsonb, 905, 200) RETURNING id""",
+                        [mid, [fx["items"][0]]])
+            ev = cur.fetchone()["id"]
+            cur.execute("""INSERT INTO minutes_discrepancies (meeting_id, agenda_item_id, category, severity, title, description,
+                                                              transcript_event_id, review_state, prompt_version)
+                           VALUES (%s, %s, 'omission', 'minor', 'old', 'd', %s, 'stale', 199),
+                                  (%s, %s, 'wording', 'minor', 'cur', 'd', %s, 'proposed', 200) RETURNING id""",
+                        [mid, fx["items"][0], ev, mid, fx["items"][0], ev])
+            stale_id, proposed_id = [r["id"] for r in cur.fetchall()]
+        assert P.reset_for_versions() == 0
+        assert _row(tid)["status"] == "compared"
+
+        with db_cursor() as cur:
+            cur.execute("UPDATE minutes_discrepancies SET prompt_version = 199 WHERE id = %s", [proposed_id])
+        assert P.reset_for_versions() == 1
+        assert _row(tid)["status"] == "events_extracted"
+
+        # A (mocked) compare re-writes the live row at the current version; the unmatched stale row stays at 199.
+        row = {"meeting_id": mid, "agenda_item_id": fx["items"][0], "category": "wording", "severity": "minor", "title": "cur v2",
+               "description": "d", "transcript_event_id": ev, "minutes_event_id": None, "transcript_excerpt": None,
+               "transcript_start_s": 905, "minutes_excerpt": None, "minutes_page": None, "citation_match": "missing",
+               "confidence": 0.4, "origin": "aligner", "review_state": "proposed", "reject_reason": None,
+               "prompt_version": C.COMPARE_PROMPT_VERSION}
+        C.write_rows(mid, [row])
+        P.advance(tid, P.StageOutcome("compared"))
+        with db_cursor() as cur:
+            cur.execute("SELECT id, review_state, prompt_version FROM minutes_discrepancies WHERE meeting_id = %s ORDER BY id", [mid])
+            states = {r["id"]: (r["review_state"], r["prompt_version"]) for r in cur.fetchall()}
+        assert states[stale_id] == ("stale", 199)
+        assert P.reset_for_versions() == 0
+        assert _row(tid)["status"] == "compared"
+    finally:
+        _rm(fx)
