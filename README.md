@@ -302,7 +302,7 @@ Full-text search is **already wired into the schema** via PostgreSQL tsvector:
 - GIN indexes on both columns for fast querying
 - Query with: `WHERE search_vector @@ to_tsquery('english', 'search terms')`
 
-A search service wrapper (`services/search.py`) has not been built yet.
+The search service functions are `search_meetings` and `search_agenda_items` in `src/docket/services/query.py` and `search_transcripts` in `src/docket/services/transcripts.py`.
 
 ---
 
