@@ -55,6 +55,6 @@ Related repositories: `thinkdarrell/al-municipal-meetings` is the original Birmi
 
 - Will Hoover (CivicPlus) or Montgomery ever publish data the adapters can read?
 - Can the 89 percent of minutes votes with no linked agenda item be linked without a language-model fallback, or is that the floor?
-- Does a factory workflow run survive a multi-hour plan without being cut off? The first real plan measures this.
+- Does a factory workflow run survive a multi-hour plan without being cut off? Not yet measured. The plan that built the factory recorded its live runs: 903 and 1008 seconds for one milestone each (about 630 of those seconds in the four `./tools/verify` runs a milestone incurs: preflight, the session's start and end, the judge), and about 17 minutes for `cycle-plan` to author one plan; the longest run so far is the one that executed that plan's last milestone and its closing sequence. The first plan with several milestones in one run measures the rest.
 - What does public launch require beyond `docs/SECURITY_CHECKLIST.md`, and when?
-- Is a two-to-four-minute venv build per worktree acceptable at the start of every plan?
+- How long does a venv build per worktree take with a cold pip cache? With a warm cache it took 18 seconds in `.claude/worktrees/factory-workflows` (and 15 seconds in `cycle-plan`'s first live run), not the two to four minutes first feared, so the warm case is a non-issue.

@@ -5,10 +5,10 @@
 # for every test tier (the unit tier deletes rows from whatever database it
 # is given, so no tier may run against the developer's docket_db), runs each
 # check in order even if an earlier one fails (the test tiers, then the
-# milestone judge's fixture self-test), prints each check's own output
-# followed by one summary line per check, then a final line, and exits
-# nonzero if any check failed. Run it from anywhere; it works in the
-# checkout that contains it.
+# milestone judge's fixture self-test, then the workflow shape check), prints
+# each check's own output followed by one summary line per check, then a
+# final line, and exits nonzero if any check failed. Run it from anywhere; it
+# works in the checkout that contains it.
 #
 # To add a check, add one `check <name> <command...>` line below.
 set -u
@@ -62,6 +62,7 @@ fi
 check "unit+web+services" $PY -m pytest tests/unit tests/web tests/services -q -p no:cacheprovider
 check "integration"       $PY -m pytest tests/integration -q -p no:cacheprovider
 check "judge-fixtures"    tools/fixtures/judge/run
+check "workflows"         tools/check-workflows
 
 ELAPSED=$(( $(date +%s) - START ))
 echo
