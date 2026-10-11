@@ -70,7 +70,7 @@ A human deploys, from a clean `main` after the pull request has merged:
     scripts/deploy.sh --service docket-web
     scripts/deploy.sh --service worker
 
-The wrapper writes the current HEAD SHA to `./COMMIT_SHA` (gitignored) before invoking `railway up --detach`, and the Dockerfile moves it to `/app/COMMIT_SHA`. To see which commit a service is running:
+The wrapper writes the current HEAD SHA to `./COMMIT_SHA` before invoking `railway up --detach` and deletes the file when it exits; the Dockerfile moves it to `/app/COMMIT_SHA`. `COMMIT_SHA` is deliberately not gitignored, and `.gitignore` carries the reason beside its rules: the Railway CLI honours `.gitignore` for uploads, so an ignored file would never reach the build. A wrapper that dies mid-deploy leaves the file behind, and `git status` shows it. To see which commit a service is running:
 
     railway ssh --service docket-web "cat /app/COMMIT_SHA"
     railway ssh --service worker     "cat /app/COMMIT_SHA"
