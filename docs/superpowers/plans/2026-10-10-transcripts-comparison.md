@@ -4419,7 +4419,7 @@ def test_pilot_candidates_become_proposed_rows_with_verified_citations(pilot):
     assert all(r["severity"] == "material" and r["citation_match"] in ("exact", "fuzzy") for r in proposed)
     assert all(r["agenda_item_id"] == info["item"] and r["prompt_version"] == 200 and r["origin"] == "aligner" for r in proposed)
     assert all(r["transcript_event_id"] and r["minutes_event_id"] for r in proposed)
-    assert all(r["transcript_start_s"] and r["minutes_page"] == 1 for r in proposed)
+    assert all(r["transcript_start_s"] and r["minutes_page"] >= 1 for r in proposed)   # page from page_offsets, not the seeded 1
     with db_cursor() as cur:
         cur.execute("SELECT status, compare_skipped_reason FROM transcripts WHERE id=%s", [pilot.transcript_id])
         assert tuple(cur.fetchone().values()) == ("compared", None)
@@ -5624,7 +5624,7 @@ def test_held_tab_lists_transcripts_and_retry_resets_them(admin, pilot):
     with db_cursor() as cur:
         cur.execute("SELECT status, stage_attempts, needs_review_reason FROM transcripts WHERE id=%s", [pilot.transcript_id])
         row = cur.fetchone()
-    assert row["status"] == "speakers_resolved" and row["stage_attempts"] == 0 and row["needs_review_reason"] is None  # no events yet -> re-run extraction
+    assert row["status"] == "uploaded" and row["stage_attempts"] == 0 and row["needs_review_reason"] is None  # no resolved speakers, no events -> start over
 
 
 def test_public_reads_return_only_approved(pilot):
@@ -6566,7 +6566,9 @@ def test_speaker_index_merges_clusters_by_person_and_links_search(app):
         with db_cursor() as cur:
             cur.execute("SELECT cluster_label FROM transcript_speakers WHERE meeting_id=%s ORDER BY cluster_label LIMIT 3", [inst.meeting_id])
             a, b, c3 = [r["cluster_label"] for r in cur.fetchall()]
-            member = next(iter(inst.member_ids.values()))
+            cur.execute("SELECT id FROM council_members WHERE id = ANY(%s) AND name NOT LIKE %s ORDER BY id LIMIT 1",
+                        [list(inst.member_ids.values()), "%''%"])      # autoescape would turn an apostrophe into &#39;
+            member = cur.fetchone()["id"]
             cur.execute("""UPDATE transcript_speakers SET council_member_id=%s, confidence=0.75, method='roll_call' WHERE meeting_id=%s AND cluster_label=%s""",
                         [member, inst.meeting_id, a])
             cur.execute("""UPDATE transcript_speakers SET council_member_id=%s, confidence=1.0, method='manual', is_manual=TRUE WHERE meeting_id=%s AND cluster_label=%s""",
