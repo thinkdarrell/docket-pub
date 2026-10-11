@@ -511,6 +511,16 @@ M2 session, `.claude/workflows/cycle-run.js` as committed in `a03e5e8` (605 line
     586-594  publish agent (effort low); halts on null, pushed false, empty pr_url; `cycle-run: complete; <plan> closed to <pr_url>`
     596-605  result { status: 'complete', plan, plan_path_now, milestones, review, pr_url, started_at, finished_at }
 
+M2 session, self-check with the judge after commits `a03e5e8` and `4c3ecf6`, using a snapshot taken from the plan as committed at the session's start sha (`git show f0f7b6a:plans/active/factory-workflows.md`), observed:
+
+    tools/judge-milestone snapshot <scratch>/fw-m2-start-plan.md > <scratch>/fw-m2-start.snapshot; echo "snapshot exit=$?"
+    snapshot exit=0
+    tools/judge-milestone judge plans/active/factory-workflows.md <scratch>/fw-m2-start.snapshot f0f7b6a; echo "judge exit=$?"
+    judge: advanced "(2026-10-11 21:20Z) M2: `cycle-run` closes a finished plan: review panel..."
+    judge exit=0
+
+This is the session's own check; `cycle-run`'s judge agent runs the same command from its own snapshot after this session returns, and the commit carrying this note lands after the check, so that judge sees three commits since `f0f7b6a`.
+
 ## Interfaces and Dependencies
 
 `.claude/workflows/cycle-run.js`: plain JavaScript for the Workflow runtime, no TypeScript syntax, no `import`, no clock. Arguments: a plan path string, or `{ plan, limit }`. Result: an object with `status` one of `refused`, `halt`, `advanced`, `complete`, and the fields named in Plan of Work. Depends on `tools/judge-milestone`, `./tools/verify`, `git`, `gh`, and `skills/plan-execute/SKILL.md`, `skills/retro/SKILL.md`, `skills/doc-garden/SKILL.md` as read by its agents.
