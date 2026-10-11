@@ -228,3 +228,60 @@ def test_fetch_caches_the_pdf_on_disk_and_reuses_it(monkeypatch, tmp_path):
     assert am.fetch_agenda_text(url, cache_dir=tmp_path) == "%PDF-1.4 cached"
     assert len(calls) == 1
     assert len(list(tmp_path.glob("*.pdf"))) == 1
+
+
+def test_skips_a_date_with_any_other_visible_meeting(muni):
+    """An upcoming placeholder (event-*) on the date would otherwise be
+    renamed in place by ingest's reconciliation and could later duplicate."""
+    with db() as conn, conn.cursor() as cur:
+        cur.execute("""INSERT INTO meetings (municipality_id, external_id, title, meeting_type, meeting_date, source_url)
+                       VALUES (%s, 'event-999', 'Regular City Council Meeting', 'council', DATE '2023-08-22', 'x')""", (muni,))
+        conn.commit()
+    calls = []
+
+    result = backfill_archived_meetings(muni, [ENTRY], fetch_agenda_text=lambda u: (calls.append(u), AGENDA_TEXT)[1])
+
+    assert _meeting(muni, "yt-mYSy3PV-BrA") is None
+    assert _meeting(muni, "event-999") is not None
+    assert calls == [] and result.inserted == [] and len(result.skipped) == 1
+
+
+def test_manifest_changes_reach_an_existing_unscraped_meeting(muni):
+    def boom(url):
+        raise OSError("down")
+    backfill_archived_meetings(muni, [ENTRY], fetch_agenda_text=boom)
+    moved = ArchivedMeeting(meeting_date=ENTRY.meeting_date, youtube_id=ENTRY.youtube_id,
+                            agenda_url="https://web.archive.org/web/20240202000000id_/https://old.example/agenda-aug-22.pdf")
+
+    backfill_archived_meetings(muni, [moved], fetch_agenda_text=lambda u: AGENDA_TEXT)
+
+    assert _meeting(muni, "yt-mYSy3PV-BrA")[5] == moved.agenda_url
+
+
+def test_fetch_paces_only_after_a_network_fetch(monkeypatch, tmp_path):
+    from docket.services import archived_meetings as am
+
+    sleeps = []
+    monkeypatch.setattr(am.requests, "get", lambda url, **kw: _Resp(200, b"%PDF-1.4 x"))
+    monkeypatch.setattr(am.time, "sleep", lambda s: sleeps.append(s))
+    monkeypatch.setattr(am, "extract_text_from_pdf", lambda b: "t")
+
+    am.fetch_agenda_text("https://x/a.pdf", cache_dir=tmp_path, pace_seconds=20)
+    am.fetch_agenda_text("https://x/a.pdf", cache_dir=tmp_path, pace_seconds=20)
+
+    assert sleeps == [20]
+
+
+def test_fetch_refetches_a_corrupt_cache_file(monkeypatch, tmp_path):
+    from docket.services import archived_meetings as am
+    import hashlib
+
+    url = "https://x/a.pdf"
+    (tmp_path / f"{hashlib.sha1(url.encode()).hexdigest()}.pdf").write_bytes(b"<html>truncated crawl")
+    calls = []
+    monkeypatch.setattr(am.requests, "get", lambda u, **kw: (calls.append(u), _Resp(200, b"%PDF-1.4 good"))[1])
+    monkeypatch.setattr(am.time, "sleep", lambda s: None)
+    monkeypatch.setattr(am, "extract_text_from_pdf", lambda b: b.decode())
+
+    assert am.fetch_agenda_text(url, cache_dir=tmp_path) == "%PDF-1.4 good"
+    assert calls == [url]

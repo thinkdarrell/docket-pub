@@ -69,21 +69,29 @@ _RETRY_BUDGET = 6
 _RETRY_BASE_SECONDS = 30.0
 
 
-def fetch_agenda_text(url: str, *, cache_dir: Path | None = None) -> str:
+def fetch_agenda_text(
+    url: str, *, cache_dir: Path | None = None, pace_seconds: float = 0.0,
+) -> str:
     """Download an agenda PDF (Wayback ``id_`` URLs serve the original bytes) and extract its text.
 
     With ``cache_dir`` the PDF bytes are kept on disk, keyed by a hash of the
     URL, and later calls never go back to the network: the Wayback Machine
     throttles sustained fetching hard, so each agenda should be pulled once.
+    A cached file that isn't a PDF (an interrupted write) is refetched.
     429 and 5xx answers are retried with growing waits (30s, 60s, … up to
     about 16 minutes in all). A 200 that isn't a PDF (a truncated crawl, an
-    error page) fails at once and is not cached.
+    error page) fails at once and is not cached. ``pace_seconds`` is slept
+    after a network fetch only, never after a cache hit.
     """
     cache_path = None
     if cache_dir is not None:
         cache_path = Path(cache_dir) / f"{hashlib.sha1(url.encode()).hexdigest()}.pdf"
         if cache_path.exists():
-            return extract_text_from_pdf(cache_path.read_bytes())
+            cached = cache_path.read_bytes()
+            if cached[:5] == b"%PDF-":
+                return extract_text_from_pdf(cached)
+            log.warning("archived_meetings: discarding corrupt cache file %s", cache_path)
+            cache_path.unlink()
 
     for attempt in range(_RETRY_BUDGET):
         resp = requests.get(url, timeout=120, headers={"User-Agent": _BROWSER_UA}, allow_redirects=True)
@@ -97,7 +105,11 @@ def fetch_agenda_text(url: str, *, cache_dir: Path | None = None) -> str:
             raise ValueError(f"not a PDF: {url} ({resp.content[:20]!r})")
         if cache_path is not None:
             cache_path.parent.mkdir(parents=True, exist_ok=True)
-            cache_path.write_bytes(resp.content)
+            tmp = cache_path.with_suffix(".part")
+            tmp.write_bytes(resp.content)
+            tmp.replace(cache_path)   # atomic: a crash never leaves a truncated .pdf behind
+        if pace_seconds:
+            time.sleep(pace_seconds)
         return extract_text_from_pdf(resp.content)
     raise AssertionError("unreachable")
 
@@ -156,10 +168,12 @@ def backfill_archived_meetings(
 ) -> BackfillResult:
     """Create the manifest's meetings and their agenda items. Idempotent.
 
-    A date Granicus already covers with a visible numeric-clip meeting is
-    skipped. A meeting that exists with its agenda scraped is skipped
-    without a fetch. A failed agenda fetch leaves the meeting row in place
-    and its agenda unscraped so the next run retries it.
+    A date that already has any other visible meeting (a Granicus clip, or an
+    ``event-*`` placeholder that ingest's reconciliation would otherwise
+    rename in place) is skipped and reported. A meeting that exists with its
+    agenda scraped is skipped without a fetch. Otherwise the row is upserted
+    from the manifest (so a corrected URL reaches it) and the agenda fetched;
+    a failed fetch leaves the agenda unscraped so the next run retries it.
     """
     result = BackfillResult()
     with db() as conn, conn.cursor() as cur:
@@ -175,10 +189,10 @@ def backfill_archived_meetings(
             cur.execute(
                 """SELECT external_id FROM meetings
                    WHERE municipality_id = %s AND meeting_date = %s AND is_hidden = FALSE
-                     AND external_id ~ '^[0-9]+$'""",
-                (municipality_id, entry.meeting_date),
+                     AND external_id <> %s""",
+                (municipality_id, entry.meeting_date, ext),
             )
-            granicus = [r[0] for r in cur.fetchall()]
+            others = [r[0] for r in cur.fetchall()]
             cur.execute(
                 """SELECT m.id, COALESCE(ps.agenda_items_scraped, FALSE)
                    FROM meetings m LEFT JOIN processing_status ps ON ps.meeting_id = m.id
@@ -186,8 +200,8 @@ def backfill_archived_meetings(
                 (municipality_id, ext),
             )
             existing = cur.fetchone()
-        if granicus:
-            result.skipped.append(f"{ext}: Granicus clip {granicus[0]} already covers {entry.meeting_date}")
+        if others:
+            result.skipped.append(f"{ext}: meeting {others[0]} already exists on {entry.meeting_date}")
             continue
         if existing and existing[1]:
             result.skipped.append(f"{ext}: already backfilled")
@@ -207,8 +221,8 @@ def backfill_archived_meetings(
             video_url=entry.video_url,
             source_url=entry.video_url or entry.agenda_url or "",
         )
+        _upsert_meetings(municipality_id, [raw])   # INSERT, or UPDATE urls/title from the manifest
         if existing is None:
-            _upsert_meetings(municipality_id, [raw])
             with db() as conn, conn.cursor() as cur:
                 cur.execute("SELECT id FROM meetings WHERE municipality_id = %s AND external_id = %s",
                             (municipality_id, ext))

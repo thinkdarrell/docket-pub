@@ -11,7 +11,6 @@ whose agenda fetch failed.
 import argparse
 import json
 import logging
-import time
 from datetime import date
 from pathlib import Path
 
@@ -24,19 +23,20 @@ from docket.services.archived_meetings import (
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", required=True, help="JSON manifest path")
     parser.add_argument("--dry-run", action="store_true", help="report only; fetch and write nothing")
-    parser.add_argument("--cache-dir", default="data/archived_agendas",
+    parser.add_argument("--cache-dir", default=str(REPO_ROOT / "data" / "archived_agendas"),
                         help="where fetched agenda PDFs are kept so each is pulled from the Wayback Machine once")
     args = parser.parse_args()
 
     def _polite_fetch(url: str) -> str:
-        text = fetch_agenda_text(url, cache_dir=Path(args.cache_dir))  # retries 429/5xx on its own
-        time.sleep(20.0)   # steady pace well under the Wayback Machine's limit (cache hits don't sleep)
-        return text
+        # Retries 429/5xx on its own; the 20 s pace applies after network fetches only.
+        return fetch_agenda_text(url, cache_dir=Path(args.cache_dir), pace_seconds=20.0)
 
     with open(args.manifest) as f:
         manifest = json.load(f)

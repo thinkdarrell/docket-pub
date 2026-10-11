@@ -391,7 +391,7 @@
         {% endif %}
         {% if meeting.video_url %}
         <a class="rail-link" href="{{ meeting.video_url }}" target="_blank" rel="noreferrer" style="flex: 1; min-width: 180px;">
-            <div><div class="rail-link-label">Watch video</div><div class="t-meta">Granicus player</div></div>
+            <div><div class="rail-link-label">Watch video</div><div class="t-meta">{% if 'youtube.com' in meeting.video_url %}YouTube (council channel){% else %}Granicus player{% endif %}</div></div>
             <span class="t-mono">↗</span>
         </a>
         {% endif %}
@@ -406,7 +406,7 @@
         {% endif %}
         {% if meeting.source_url %}
         <a class="rail-link" href="{{ meeting.source_url }}" target="_blank" rel="noreferrer" style="flex: 1; min-width: 180px;">
-            <div><div class="rail-link-label">Original source</div><div class="t-meta">city website</div></div>
+            <div><div class="rail-link-label">Original source</div><div class="t-meta">{% if 'youtube.com' in meeting.source_url %}YouTube (council channel){% elif 'web.archive.org' in meeting.source_url %}Internet Archive copy{% else %}city website{% endif %}</div></div>
             <span class="t-mono">↗</span>
         </a>
         {% endif %}
