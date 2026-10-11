@@ -321,7 +321,9 @@ Single repo: `thinkdarrell/docket-pub`. `main` is the source of truth and what R
   `scripts/sql/create_transcriber_role.sql`. It can write only
   `transcripts`, `transcript_segments`, `transcript_speakers`, and
   `producer_heartbeats`. Rotate by `ALTER ROLE transcriber PASSWORD '...'`
-  and updating `transcriber/.env` on the Legion.
+  and updating `transcriber/.env` on the Legion. Uploads are public on arrival
+  (`uploaded` is a public status). Operating notes, what to expect (stray Monday Granicus
+  clips, over-split speakers) and the bring-up log are in `transcriber/README.md`.
 - **Two scoring dimensions:** significance (0-10) + consent placement (0-10)
 - **Dollar tiers:** green <$50K, yellow $50-250K, orange $250K-1M, red >$1M
 - **Source overlap:** video OCR + official minutes coexist, flag discrepancies only

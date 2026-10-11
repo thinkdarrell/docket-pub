@@ -39,6 +39,27 @@ than six hours is reclaimed. Failed meetings are not reclaimed automatically.
 
 `--retry-failed` (env `TRANSCRIBER_RETRY_FAILED`) re-queues meetings marked failed (for example after a Granicus outage); `low_speech` meetings are terminal by design and are not retried.
 
+An upload is public immediately: `uploaded` is one of the site's public
+statuses, so the transcript page goes live at
+`/al/birmingham/meetings/<id>/transcript/` as soon as a meeting finishes, with
+speakers shown as "Speaker N" until the worker resolves names. There is no
+review step between the producer and the site; hide a bad meeting through the
+admin (`is_hidden`), which the `transcriber` role cannot do.
+
+Operating from PowerShell on the Legion:
+
+- Docker's progress lines arrive on stderr, so PowerShell wraps them as
+  `NativeCommandError`. That is noise, not a failure; check the exit code and
+  the final `done {...}` line.
+- The log is full of torchaudio deprecation warnings. They are expected with the
+  2.8 pin and harmless.
+- Check the Hugging Face token before blaming the pipeline:
+  `https://huggingface.co/api/whoami-v2` with `Authorization: Bearer <token>` must
+  return 200, and the account must have accepted both pyannote model terms.
+- `git push` from the Legion needs an interactive GitHub sign-in (Git Credential
+  Manager); a push started in the background waits on it forever. In Git Bash
+  write paths with forward slashes (`C:/docket-pub`).
+
 Task Scheduler (optional): a basic task "At log on" running
 `docker compose -f C:\path\to\transcriber\docker-compose.yml run --rm transcriber --max-hours 4`.
 
@@ -47,6 +68,30 @@ Task Scheduler (optional): a basic task "At log on" running
 - `C:\docket-archive\transcripts\<meeting_id>\transcript.json` — the upload contract (kept)
 - `C:\docket-archive\transcripts\<meeting_id>\words.json` — word timestamps (kept, never uploaded)
 - `C:\docket-archive\work\*.wav` — audio, deleted after each meeting
+
+## What to expect
+
+- **Speed.** Roughly 15x to 20x real time including the Granicus download, so a
+  three-hour meeting takes about ten minutes. A `--limit 10` batch of typical
+  meetings fits well inside `--max-hours 3`.
+- **Consent items are mostly silent.** The chair announces consent items by
+  number only, so most agenda titles never appear in the audio. Items pulled
+  from consent, roll calls, and items added at the meeting are spoken in full.
+- **Stray pre-meeting clips.** Granicus sometimes lists a short test recording,
+  dated the Monday before the Tuesday meeting, as a "Regular City Council
+  Meeting". Silent ones end as `low_speech`. A clip of continuous mic checks can
+  clear the three-minute speech floor and upload as a public transcript; hide it
+  in the admin. The lasting fix is upstream, in the meeting import. Long silent
+  clips may also show on the data-debt page as transcript problems.
+- **Speaker clusters run high.** pyannote tends to split one person across two
+  clusters, so a council meeting with public comment can show 20+ speakers.
+  Merging is the worker's speaker-resolution job.
+- **The roster prompt helps but doesn't guarantee spelling.** Whisper can still
+  misspell a councilor's name consistently (for example "Vassa" for Vasa).
+  Correction happens in speaker resolution, not here.
+- **Items added at the meeting aren't in the agenda data.** `agenda_items` holds
+  only the published agenda, so an item added from the floor exists only in
+  the transcript.
 
 ## Local development (laptop, no GPU)
 
