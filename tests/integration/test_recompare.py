@@ -39,6 +39,12 @@ def _real_all(info):
     return verdicts
 
 
+def _checked_recently(mid):
+    with db_cursor() as cur:
+        cur.execute("SELECT last_checked_at > now() - interval '1 minute' AS ok FROM minutes_texts WHERE meeting_id=%s", [mid])
+        return cur.fetchone()["ok"] is True
+
+
 def _states(mid):
     with db_cursor() as cur:
         cur.execute("SELECT id, category, review_state, previous_review_state FROM minutes_discrepancies WHERE meeting_id=%s ORDER BY id", [mid])
@@ -86,6 +92,7 @@ def test_sweep_flags_changed_minutes_for_recompare(pilot, monkeypatch):
     with db_cursor() as cur:
         cur.execute("SELECT status, compare_skipped_reason, stage_attempts FROM transcripts WHERE id=%s", [pilot.transcript_id])
         assert tuple(cur.fetchone().values()) == ("events_extracted", "minutes_changed", 0)
+    assert _checked_recently(pilot.meeting_id)
     assert P.claim_next()["id"] == pilot.transcript_id       # claimable immediately
 
 
@@ -98,6 +105,10 @@ def test_unchanged_minutes_are_left_alone(pilot, monkeypatch):
     with db_cursor() as cur:
         cur.execute("SELECT status FROM transcripts WHERE id=%s", [pilot.transcript_id])
         assert cur.fetchone()["status"] == "compared"
+        # I4: last_checked_at records the recheck; extracted_at keeps meaning "text extracted at".
+        cur.execute("SELECT extracted_at < now() - interval '9 days' AS old FROM minutes_texts WHERE meeting_id=%s", [pilot.meeting_id])
+        assert cur.fetchone()["old"] is True
+    assert _checked_recently(pilot.meeting_id)
 
 
 def test_sweep_continues_past_a_raising_recheck(pilot, monkeypatch):
@@ -132,6 +143,20 @@ def test_sweep_survives_when_the_only_recheck_raises(pilot, monkeypatch):
     with db_cursor() as cur:
         cur.execute("SELECT status FROM transcripts WHERE id=%s", [pilot.transcript_id])
         assert cur.fetchone()["status"] == "compared"
+    assert _checked_recently(pilot.meeting_id)          # a raising recheck still moves the sweep on (I4)
+
+
+def test_none_recheck_is_not_selected_again_within_a_week(pilot, monkeypatch):
+    with db_cursor() as cur:
+        cur.execute("UPDATE transcripts SET status='compared' WHERE id=%s", [pilot.transcript_id])
+        cur.execute("UPDATE minutes_texts SET extracted_at = now() - interval '10 days' WHERE meeting_id=%s", [pilot.meeting_id])
+    seen = []
+    monkeypatch.setattr(M, "recheck_minutes", lambda mid: (seen.append(mid), None)[1])
+    P.sweep_minutes_changes(limit=50)
+    assert pilot.meeting_id in seen and _checked_recently(pilot.meeting_id)
+    seen.clear()
+    P.sweep_minutes_changes(limit=50)
+    assert pilot.meeting_id not in seen
 
 
 def test_run_for_meeting_drives_stages_in_order(pilot, monkeypatch):

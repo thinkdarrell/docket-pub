@@ -314,15 +314,20 @@ def reset_for_versions() -> int:
 
 
 def sweep_minutes_changes(limit: int = 10) -> int:
-    """Re-download minutes for compared meetings at most once a week; a changed PDF re-runs the minutes side."""
+    """Re-download minutes for compared meetings at most once a week; a changed PDF re-runs the minutes side.
+
+    minutes_texts.last_checked_at (migration 036) is stamped for every meeting rechecked, whatever the
+    outcome (changed, unchanged, None, or raised), so a failing recheck waits a week instead of starving
+    the sweep. extracted_at is left alone: it means "text extracted at".
+    """
     from docket.ai.transcripts import minutes as _minutes
     with db_cursor() as cur:
         cur.execute("""SELECT t.id, t.meeting_id FROM transcripts t
                          JOIN minutes_texts mt ON mt.meeting_id = t.meeting_id
                          JOIN meetings m ON m.id = t.meeting_id
                         WHERE t.status = 'compared' AND m.minutes_url IS NOT NULL
-                          AND mt.extracted_at < now() - interval '7 days'
-                        ORDER BY mt.extracted_at LIMIT %s""", [limit])
+                          AND COALESCE(mt.last_checked_at, mt.extracted_at) < now() - interval '7 days'
+                        ORDER BY COALESCE(mt.last_checked_at, mt.extracted_at) LIMIT %s""", [limit])
         rows = [dict(r) for r in cur.fetchall()]
     flagged = 0
     for r in rows:
@@ -330,16 +335,15 @@ def sweep_minutes_changes(limit: int = 10) -> int:
             changed = _minutes.recheck_minutes(r["meeting_id"])
         except Exception:
             log.exception("minutes recheck failed for meeting %s; skipping", r["meeting_id"])
-            continue
-        if changed:
-            with db_cursor() as cur:
+            changed = None
+        with db_cursor() as cur:
+            cur.execute("UPDATE minutes_texts SET last_checked_at = now() WHERE meeting_id = %s", [r["meeting_id"]])
+            if changed:
                 cur.execute("""UPDATE transcripts SET status = 'events_extracted', compare_skipped_reason = 'minutes_changed',
                                       stage_attempts = 0, last_attempted_at = NULL, updated_at = now() WHERE id = %s""", [r["id"]])
+        if changed:
             flagged += 1
             log.info("minutes changed for meeting %s; re-comparison queued", r["meeting_id"])
-        elif changed is False:
-            with db_cursor() as cur:   # bump extracted_at so the next sweep moves on
-                cur.execute("UPDATE minutes_texts SET extracted_at = now() WHERE meeting_id = %s", [r["meeting_id"]])
     return flagged
 
 
