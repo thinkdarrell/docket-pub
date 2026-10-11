@@ -11,7 +11,7 @@ Today an agent working in this repository cannot prove its change is safe with o
 ## Progress
 
 - [x] (2026-10-11 16:56Z) M1: the eight failing tests pass on a developer database. Acceptance run `venv/bin/python -m pytest tests/unit tests/web tests/services tests/integration -q -p no:cacheprovider` printed `2468 passed, 3 skipped, 4 xfailed, 2 warnings in 133.36s`, zero failed. Carve-outs against the stated acceptance: (1) the diff touches four test files, not three; `tests/integration/test_blog_integration.py` needed its own fix because the plan's diagnosis of that test was wrong (Decision Log). (2) The acceptance holds for the first full run after the `mv_badge_volume_monthly` repair; every run of `tests/integration` re-drifts the view through `test_migration_013.py`, and the unit tier leaves rows that break 16 calibration tests on a following run, so a second run on `docket_db` is red again for reasons outside the eight tests and outside M1's scope (Surprises & Discoveries, Decision Log). M2's disposable database is the durable condition under which the suite is green.
-- [ ] M2: `tools/verify` and `tools/test-db` exist; every tier runs on a disposable database named from the checkout; bare `pytest` no longer collects live tests (completed: `tools/test-db` builds and drops `docket_test_692415bc` in this checkout, transcript in Artifacts; remaining: `pyproject.toml` `addopts`, `tools/verify`, the full acceptance run with before/after row counts).
+- [ ] M2: `tools/verify` and `tools/test-db` exist; every tier runs on a disposable database named from the checkout; bare `pytest` no longer collects live tests (completed: `tools/test-db` builds and drops `docket_test_692415bc` in this checkout, transcript in Artifacts; `pyproject.toml` `addopts` excludes the live tier, collect-only `0` bare and `12` with `-m live`; remaining: `tools/verify`, the full acceptance run with before/after row counts).
 - [ ] M3: `tools/judge-milestone` exists with its fixture self-test under `tools/verify`, and its card is in the register.
 - [ ] M4: `AGENTS.md`, `docs/specs/operations.md`, `docs/DEBT.md`, `docs/MATURITY.md`, and `docs/capabilities/index.md` reflect the new commands; debt rows D1, D2, D3, D5, D35 are closed.
 
@@ -283,6 +283,21 @@ Live-tier collection before the `addopts` change:
     All migrations applied.
 
 `printf '%s' "$(pwd -P)" | shasum | cut -c1-8` in this checkout printed `692415bc`, matching the name. `--status` on the new database counted 33 `applied`, 0 `pending`; `select count(*) from municipalities` gave `4`, `meetings` gave `0`; `pg_get_viewdef('mv_badge_volume_monthly')` contained `is_hidden` (`t`). Run from `tests/` as `../tools/test-db`, the URL printed was identical. `tools/test-db --drop` printed nothing and exited 0; `select count(*) from pg_database where datname like 'docket_test_6%'` then gave `0`; a second `--drop` also printed nothing and exited 0.
+
+Live-tier collection after adding `addopts = "-m 'not live'"` to `pyproject.toml` (17:10Z):
+
+    venv/bin/python -m pytest --collect-only -q 2>&1 | grep -c 'tests/live/'
+    0
+    venv/bin/python -m pytest --collect-only -q 2>&1 | tail -1
+    2475/2487 tests collected (12 deselected) in 1.40s
+    venv/bin/python -m pytest -m live --collect-only -q 2>&1 | grep -c 'tests/live/'
+    12
+    venv/bin/python -m pytest -m live --collect-only -q 2>&1 | tail -1
+    12/2487 tests collected (2475 deselected) in 1.33s
+    venv/bin/python -m pytest tests/unit tests/web tests/services tests/integration --collect-only -q -p no:cacheprovider 2>&1 | tail -1
+    2475 tests collected in 1.35s
+
+The last line shows the `addopts` expression deselects nothing inside the four non-live tiers, so `tools/verify`'s counts are unaffected by it.
 
 ## Interfaces and Dependencies
 
