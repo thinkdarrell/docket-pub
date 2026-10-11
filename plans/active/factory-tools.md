@@ -11,7 +11,7 @@ Today an agent working in this repository cannot prove its change is safe with o
 ## Progress
 
 - [x] (2026-10-11 16:56Z) M1: the eight failing tests pass on a developer database. Acceptance run `venv/bin/python -m pytest tests/unit tests/web tests/services tests/integration -q -p no:cacheprovider` printed `2468 passed, 3 skipped, 4 xfailed, 2 warnings in 133.36s`, zero failed. Carve-outs against the stated acceptance: (1) the diff touches four test files, not three; `tests/integration/test_blog_integration.py` needed its own fix because the plan's diagnosis of that test was wrong (Decision Log). (2) The acceptance holds for the first full run after the `mv_badge_volume_monthly` repair; every run of `tests/integration` re-drifts the view through `test_migration_013.py`, and the unit tier leaves rows that break 16 calibration tests on a following run, so a second run on `docket_db` is red again for reasons outside the eight tests and outside M1's scope (Surprises & Discoveries, Decision Log). M2's disposable database is the durable condition under which the suite is green.
-- [ ] M2: `tools/verify` and `tools/test-db` exist; the integration tier runs on a disposable database named from the checkout; bare `pytest` no longer collects live tests.
+- [ ] M2: `tools/verify` and `tools/test-db` exist; every tier runs on a disposable database named from the checkout; bare `pytest` no longer collects live tests (completed: `tools/test-db` builds and drops `docket_test_692415bc` in this checkout, transcript in Artifacts; remaining: `pyproject.toml` `addopts`, `tools/verify`, the full acceptance run with before/after row counts).
 - [ ] M3: `tools/judge-milestone` exists with its fixture self-test under `tools/verify`, and its card is in the register.
 - [ ] M4: `AGENTS.md`, `docs/specs/operations.md`, `docs/DEBT.md`, `docs/MATURITY.md`, and `docs/capabilities/index.md` reflect the new commands; debt rows D1, D2, D3, D5, D35 are closed.
 
@@ -31,6 +31,10 @@ Today an agent working in this repository cannot prove its change is safe with o
   Evidence: `select count(*) from votes` returned `0`; the row above was found by `select ... from agenda_items where score_overrides is not null and ai_generated_at > now() - interval '24 hours'`. The leftover row carries `score_overrides` with float values (`"original_ai_significance": 4.0`), and `query_a_per_item_divergence` in `src/docket/services/calibration.py` casts that text with `::int`, so on the next run `tests/integration/test_calibration.py` fails 16 tests with `psycopg2.errors.InvalidTextRepresentation: invalid input syntax for type integer: "4.0"`. Production writes the same dict from `src/docket/ai/pipeline.py` line 368, so whether the admin calibration page breaks on real data depends on whether those values are ever floats there; not investigated in M1, left as a note for the operator.
 - Observation (M1): the `mv_badge_volume_monthly` drift the plan attributed to a stale developer database is caused by a test, and recurs on every integration run. `tests/integration/test_migration_013.py::test_013_up_down_up_cycle` rolls back migrations 28 down to 21 and then 13 and calls `apply_migrations`, which re-applies only versions missing from `schema_migrations`; 033 stays recorded as applied, so its `is_hidden` rebuild of the view never re-runs and the view is left at migration 022's definition. The plan's one-time repair therefore holds only until the next run of `tests/integration`.
   Evidence: the view was rebuilt (`True`), `test_033_migration.py` passed (`4 passed`), the full suite ran, and a following `pytest tests/integration` run reported `test_033_up_refreshes_mv_with_filter` failed with the definition lacking `is_hidden`; `pg_get_viewdef` then showed `has_filter False` again. `src/docket/migrations/runner.py::apply_migrations` (line 71) skips applied versions; `rollback_migration` (line 97) deletes one version row. Within a single run on a repaired or fresh database the 033 test passes because `test_033_migration.py` collects before `test_migration_013.py`.
+- Observation (M2, 2026-10-11): the `DATABASE_URL` the tests actually use does not come from the shell or from `src/docket/config.py`'s built-in default. The shell has no `DATABASE_URL`; `config.py` calls `load_dotenv()`, which walks up from the file's directory and finds `/Users/darrellnance/docket-pub/.env` above the worktree, giving `postgresql://docket@localhost:5432/docket_db` (no password), while the code default is `postgresql://docket:docket_dev@localhost:5432/docket_db`. The plan's stated `tools/test-db` default matches the `.env` value by coincidence. `tools/test-db` therefore asks `docket.config` for the URL when the environment has none, so it builds on the server the tests would otherwise reach.
+  Evidence: `echo ${DATABASE_URL:-<unset>}` printed `<unset>`; `venv/bin/python -c "from docket.config import DATABASE_URL; print(DATABASE_URL)"` printed `postgresql://docket@localhost:5432/docket_db`; `venv/bin/python -c "from dotenv import find_dotenv; print(find_dotenv(usecwd=True))"` printed `/Users/darrellnance/docket-pub/.env`. Because `load_dotenv` does not override variables already set, exporting `DATABASE_URL` from `tools/verify` wins over the `.env`.
+- Observation (M2): the plan's `DATABASE_URL=$(tools/test-db)` idiom and its "prints the migration runner's output and ends with the URL" description conflict unless the runner's output leaves stdout; `$(...)` captures every stdout line, not the last one. Resolved by sending progress and the runner's output to stderr (Decision Log); a terminal still shows both.
+  Evidence: with stderr redirected to a file, `URL=$(tools/test-db)` gave `URL=postgresql://docket@localhost:5432/docket_test_692415bc` exactly, and the file held 68 lines (`test-db: building ...`, 33 `Applying`/`Applied` pairs, `All migrations applied.`).
 
 ## Decision Log
 
@@ -77,6 +81,12 @@ Today an agent working in this repository cannot prove its change is safe with o
 - Decision: M4 adds three debt rows from M1's findings rather than fixing them here: the `fresh_db` fixture deletes rows from the configured database (trigger: anyone runs the unit tier by hand against a database they care about; `./tools/verify` no longer does); `test_migration_013.py`'s up-down-up cycle leaves `mv_badge_volume_monthly` without migration 033's filter (trigger: a fresh database is not available and the integration tier is rerun); and `query_c_baseline_drift` casts `score_overrides` values with `::int` while `src/docket/ai/pipeline.py` writes the same dict, so a float written in production would break the calibration report (trigger: next change to either file; investigate whether production ever writes floats).
   Rationale: each is real, none is M1's to fix, and the debt register is where deliberate deferrals live.
   Date/Author: 2026-10-11, reviewer.
+- Decision: the M2 session did not run the `AGENTS.md` cheap verify (`venv/bin/python -m pytest tests/unit tests/web tests/services -q -p no:cacheprovider`) against `docket_db` as its starting-state observation. The row counts of `votes`, `agenda_items`, and `member_votes` were recorded instead, before any edit, and the fast tiers are first observed in this session inside `./tools/verify` on the disposable database.
+  Rationale: M1 established that `tests/unit/test_ai_worker_claim.py::fresh_db` runs `DELETE FROM agenda_items` (and votes, member votes, audit rows) against whatever `DATABASE_URL` names, so the published cheap verify would have changed the very counts M2's revised acceptance compares. The reviewer's re-run at `0bc385c` (`1857 passed, 3 skipped, 4 xfailed in 54.11s`, a reported claim, not observed in this session) stands as the pre-M2 fast-tier state.
+  Date/Author: 2026-10-11, M2 session (Claude).
+- Decision: `tools/test-db` resolves the base `DATABASE_URL` by asking `docket.config` when the variable is not set in the environment, falling back to `postgresql://docket@localhost:5432/docket_db` only if that import fails; it `cd`s to the repository root before computing `pwd -P`, so the database name is the same from any working directory inside the checkout; and it writes its progress line and the migration runner's output to stderr, leaving the URL as the only stdout line.
+  Rationale: the tests reach the server through `docket.config`, `.env` included (Surprises & Discoveries), so the disposable database must be created on that same server; a name that varied with the caller's subdirectory would defeat the drop-before-create idempotence; and `DATABASE_URL=$(tools/test-db)`, the idiom the plan writes for `tools/verify`, needs a single-line stdout.
+  Date/Author: 2026-10-11, M2 session (Claude).
 
 ## Outcomes & Retrospective
 
@@ -246,6 +256,33 @@ Final acceptance run, after `override_blog_state` clears `_overview_cache` and t
     2468 passed, 3 skipped, 4 xfailed, 2 warnings in 133.36s (0:02:13)
 
 Started 16:53Z, finished 16:56Z. Note the total differs from the `8 failed, 2253 passed` the plan recorded on `main`; both are observed numbers, and the plan did not record how its count was taken.
+
+M2 transcripts, observed 2026-10-11 in the worktree on `plan/factory-tools` at `0bc385c`:
+
+Row counts in `docket_db` before any M2 edit (17:02Z), through `with db_cursor() as cur: cur.execute('select count(*) from <table>')`:
+
+    votes 0
+    agenda_items 1
+    member_votes 0
+
+Live-tier collection before the `addopts` change:
+
+    venv/bin/python -m pytest --collect-only -q 2>&1 | grep -c 'tests/live/'
+    12
+    venv/bin/python -m pytest -m live --collect-only -q 2>&1 | grep -c 'tests/live/'
+    12
+
+`tools/test-db` (17:06Z), stdout captured, stderr to a file:
+
+    URL=$(tools/test-db 2>stderr.txt); echo "exit=$? URL=$URL"
+    exit=0 URL=postgresql://docket@localhost:5432/docket_test_692415bc
+    head -2 stderr.txt
+    test-db: building docket_test_692415bc on postgresql://docket@localhost:5432
+    Applying migration 1: docket.migrations.001_initial
+    tail -1 stderr.txt
+    All migrations applied.
+
+`printf '%s' "$(pwd -P)" | shasum | cut -c1-8` in this checkout printed `692415bc`, matching the name. `--status` on the new database counted 33 `applied`, 0 `pending`; `select count(*) from municipalities` gave `4`, `meetings` gave `0`; `pg_get_viewdef('mv_badge_volume_monthly')` contained `is_hidden` (`t`). Run from `tests/` as `../tools/test-db`, the URL printed was identical. `tools/test-db --drop` printed nothing and exited 0; `select count(*) from pg_database where datname like 'docket_test_6%'` then gave `0`; a second `--drop` also printed nothing and exited 0.
 
 ## Interfaces and Dependencies
 

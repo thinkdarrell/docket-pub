@@ -1,0 +1,65 @@
+#!/bin/sh
+# tools/test-db: build, or with --drop remove, a disposable PostgreSQL
+# database for this checkout, so the test suite never runs against the
+# developer's docket_db (whose rows the unit tier deletes).
+#
+# Usage, from anywhere:
+#     tools/test-db           build it; the URL is the only line on stdout
+#     tools/test-db --drop    drop it; prints nothing
+#
+# The database is named docket_test_<hash>, where <hash> is the first eight
+# hex characters of the SHA-1 of the checkout's absolute path, so two
+# worktrees can build at the same time without dropping each other's
+# database. It lives on the server DATABASE_URL names (the same resolution
+# the application uses, .env included); only the database name changes.
+# Progress and the migration runner's output go to stderr so that
+# `DATABASE_URL=$(tools/test-db)` captures just the URL.
+set -eu
+
+cd "$(dirname "$0")/.."
+ROOT=$(pwd -P)
+NAME="docket_test_$(printf '%s' "$ROOT" | shasum | cut -c1-8)"
+
+if command -v psql >/dev/null 2>&1; then
+    PSQL=psql
+elif [ -x /opt/homebrew/opt/postgresql@16/bin/psql ]; then
+    PSQL=/opt/homebrew/opt/postgresql@16/bin/psql
+else
+    echo "test-db: psql not found on PATH or at /opt/homebrew/opt/postgresql@16/bin/psql" >&2
+    exit 1
+fi
+
+# Resolve the base URL exactly as docket.config does (environment first,
+# then .env, then its built-in default), so the test database is created
+# on the server the tests would otherwise have reached.
+if [ -n "${DATABASE_URL:-}" ]; then
+    BASE_URL=$DATABASE_URL
+else
+    BASE_URL=$(venv/bin/python -c 'from docket.config import DATABASE_URL; print(DATABASE_URL)' 2>/dev/null) \
+        || BASE_URL=postgresql://docket@localhost:5432/docket_db
+fi
+
+# Split "<server>/<dbname>[?query]" into its parts; keep any query string.
+case $BASE_URL in
+    *\?*) QUERY="?${BASE_URL#*\?}"; NOQUERY=${BASE_URL%%\?*} ;;
+    *)    QUERY=""; NOQUERY=$BASE_URL ;;
+esac
+SERVER=${NOQUERY%/*}
+MAINT_URL="$SERVER/postgres$QUERY"
+TEST_URL="$SERVER/$NAME$QUERY"
+
+# Quiet the "does not exist, skipping" notice from DROP ... IF EXISTS.
+export PGOPTIONS="-c client_min_messages=warning"
+
+if [ "${1:-}" = "--drop" ]; then
+    "$PSQL" "$MAINT_URL" -q -v ON_ERROR_STOP=1 \
+        -c "DROP DATABASE IF EXISTS \"$NAME\" WITH (FORCE)"
+    exit 0
+fi
+
+echo "test-db: building $NAME on $SERVER" >&2
+"$PSQL" "$MAINT_URL" -q -v ON_ERROR_STOP=1 \
+    -c "DROP DATABASE IF EXISTS \"$NAME\" WITH (FORCE)" \
+    -c "CREATE DATABASE \"$NAME\""
+DATABASE_URL="$TEST_URL" venv/bin/python -m docket.migrations.runner >&2
+echo "$TEST_URL"
