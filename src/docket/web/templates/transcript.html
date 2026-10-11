@@ -13,7 +13,7 @@
   <div class="transcript-speakers t-meta" style="margin-top: 8px;">
     <span class="t-eyebrow">Who spoke</span>
     {% for sp in speakers %}
-      <a class="link" href="/search?city={{ municipality.slug }}&q={{ ('speaker:"' ~ sp.name ~ '"') | urlencode }}" title="{{ sp.turns }} turns, {{ sp.seconds | format_timestamp }}">{{ sp.name }}</a>{% if not loop.last %} · {% endif %}
+      <a class="link" href="/search?city={{ municipality.slug }}&amp;q={{ ('speaker:"' ~ sp.name ~ '"') | urlencode }}" title="{{ sp.turns }} turns, {{ sp.seconds | format_timestamp }}">{{ sp.name }}</a>{% if not loop.last %} · {% endif %}
     {% endfor %}
     <span class="t-meta">· names assigned by software; <a class="link" href="/about/how-we-read-minutes/">how</a></span>
   </div>
