@@ -7,7 +7,7 @@ model saw; a quote the guard cannot find keeps the row with
 citation_match = 'missing' and half the confidence, so the queue shows it
 and a reviewer must attach a citation before it can be approved.
 What a re-comparison does to rows a human already reviewed is the policy
-in reconcile(), keyed on whether the minutes changed.
+in reconcile(), keyed on whether the minutes or the transcript events changed.
 """
 from __future__ import annotations
 
@@ -268,6 +268,7 @@ def build_rows(meeting_id: int, candidates: list[Candidate], verdicts, hunted, *
     taken = {(r["category"], "t", r["transcript_event_id"]) for r in rows if r["review_state"] == "proposed" and r["transcript_event_id"]} | \
             {(r["category"], "m", r["minutes_event_id"]) for r in rows if r["review_state"] == "proposed" and r["minutes_event_id"]}
     for h in hunted:
+        raw = h.category   # the fold-in below tests this too: a restated tally mismatch must fold into the vote_outcome row
         cat = model_category(h.category, meeting_id=meeting_id, origin="model_initiated", title=h.title)
         refs = frozenset(h.agenda_item_refs)
         if valid_item_ids is not None:
@@ -296,7 +297,8 @@ def build_rows(meeting_id: int, candidates: list[Candidate], verdicts, hunted, *
             # FK on stale rows), so no new row may be inserted without at least one event anchor.
             log.warning("hunter row dropped: no events at all to anchor it (%s)", h.title)
             continue
-        if (t_ev is not None and (cat, "t", t_ev.id) in taken) or (m_ev is not None and (cat, "m", m_ev.id) in taken):
+        anchors = [(c, "t", t_ev.id) for c in (raw, cat) if t_ev is not None] + [(c, "m", m_ev.id) for c in (raw, cat) if m_ev is not None]
+        if any(a in taken for a in anchors):
             log.info("compare: meeting %s hunter row folded into an aligner row (%s on %s)", meeting_id, cat, h.title[:60])
             continue
         row = base(cat, h.severity, h.title, h.description, t_ev, m_ev, refs, "model_initiated")
@@ -346,19 +348,22 @@ def match_stale(new_row: dict, stale_rows: list[dict]) -> dict | None:
     return best if best_ratio >= ADDITION_MATCH_RATIO else None
 
 
-def reconcile(meeting_id: int, rows: list[dict], *, minutes_changed: bool = False) -> dict:
+def reconcile(meeting_id: int, rows: list[dict], *, minutes_changed: bool = False, transcript_changed: bool = False) -> dict:
     """Re-comparison policy (issue #112). Transcript event ids are stable across a minutes-side re-run.
 
     A minutes_changed pass (the weekly sweep_minutes_changes, or scripts/transcript_recompare.py
-    with --minutes-changed) stales approved and proposed rows first and re-proposes whatever comes
+    with --minutes-changed) or a transcript_changed pass (an EVENTS_PROMPT_VERSION bump, which
+    re-extracts the transcript events every row is anchored to, or the script with
+    --transcript-changed) stales approved and proposed rows first and re-proposes whatever comes
     back, matched in place with previous_review_state recording the old state. Any other pass (a
     COMPARE_PROMPT_VERSION reset, a manual rerun) stales only proposed rows: on unchanged input the
     only thing that can make a row vanish is the model deciding differently, and a human's approval
-    outranks that. A matched approved row is refreshed in place and stays approved with its reviewer;
-    a matched rejected row stays rejected (the reviewer already said no); old model dismissals are
-    replaced wholesale.
+    outranks that. A matched approved row is left untouched: the person approved specific text,
+    excerpts, and a severity, and the model's second reading replaces none of it, so the row keeps
+    its old prompt_version (counted as kept). A matched rejected row stays rejected (the reviewer
+    already said no) with its text refreshed; old model dismissals are replaced wholesale.
     """
-    states = ("approved", "proposed") if minutes_changed else ("proposed",)
+    states = ("approved", "proposed") if minutes_changed or transcript_changed else ("proposed",)
     with db_cursor() as cur:
         cur.execute("DELETE FROM minutes_discrepancies WHERE meeting_id = %s AND review_state = 'dismissed_by_model'", [meeting_id])
         cur.execute("""UPDATE minutes_discrepancies SET previous_review_state = review_state, review_state = 'stale'
@@ -368,7 +373,7 @@ def reconcile(meeting_id: int, rows: list[dict], *, minutes_changed: bool = Fals
                          FROM minutes_discrepancies WHERE meeting_id = %s AND review_state IN ('stale', 'rejected', 'approved')""",
                     [meeting_id])
         pool = [dict(r) for r in cur.fetchall()]
-        inserted = updated = 0
+        inserted = updated = kept = 0
         used: set[int] = set()
         for r in rows:
             match = match_stale(r, [p for p in pool if p["id"] not in used]) if r["review_state"] == "proposed" else None
@@ -379,13 +384,13 @@ def reconcile(meeting_id: int, rows: list[dict], *, minutes_changed: bool = Fals
                 continue
             used.add(match["id"])
             new_state = match["review_state"] if match["review_state"] in ("rejected", "approved") else "proposed"
-            if new_state == "approved" and r["citation_match"] == "missing":
-                # An approved row never carries an unverified citation: approve() enforces it on the way in,
-                # and reconcile must not undo it. Keep the verified excerpts; refresh only the text columns.
-                r = {**r, **{k: match[k] for k in ("transcript_excerpt", "transcript_start_s", "minutes_excerpt", "minutes_event_id",
-                                                   "minutes_page", "citation_match")}}
+            if new_state == "approved":
+                # The public page says a person reviewed this row. No column of it is rewritten by a model pass;
+                # the match only stops the same finding from being inserted again beside it.
+                kept += 1
+                continue
             # A re-proposed row is unreviewed again: clear who signed off on the old version (the old state
-            # survives in previous_review_state). A still-rejected or still-approved row keeps its reviewer and note.
+            # survives in previous_review_state). A still-rejected row keeps its reviewer and note.
             cur.execute("""UPDATE minutes_discrepancies
                               SET title = %s, description = %s, severity = %s, minutes_event_id = %s, minutes_excerpt = %s,
                                   minutes_page = %s, transcript_excerpt = %s, transcript_start_s = %s, citation_match = %s,
@@ -400,13 +405,14 @@ def reconcile(meeting_id: int, rows: list[dict], *, minutes_changed: bool = Fals
             updated += 1
         cur.execute("SELECT count(*) AS n FROM minutes_discrepancies WHERE meeting_id = %s AND review_state = 'stale'", [meeting_id])
         stale = cur.fetchone()["n"]
-    return {"inserted": inserted, "updated": updated, "stale": stale}
+    return {"inserted": inserted, "updated": updated, "kept": kept, "stale": stale}
 
 
-def write_rows(meeting_id: int, rows: list[dict], *, minutes_changed: bool = False) -> int:
-    r = reconcile(meeting_id, rows, minutes_changed=minutes_changed)
-    log.info("compare: meeting %s reconcile inserted=%d updated=%d stale=%d", meeting_id, r["inserted"], r["updated"], r["stale"])
-    return r["inserted"] + r["updated"]
+def write_rows(meeting_id: int, rows: list[dict], *, minutes_changed: bool = False, transcript_changed: bool = False) -> int:
+    r = reconcile(meeting_id, rows, minutes_changed=minutes_changed, transcript_changed=transcript_changed)
+    log.info("compare: meeting %s reconcile inserted=%d updated=%d kept=%d stale=%d", meeting_id, r["inserted"], r["updated"],
+             r["kept"], r["stale"])
+    return r["inserted"] + r["updated"] + r["kept"]
 
 
 # --- stage ------------------------------------------------------------------
@@ -426,7 +432,9 @@ def run_compare_stage(claim: dict, *, client) -> "StageOutcome":
     from docket.ai.transcripts.pipeline import StageOutcome
 
     tid, mid = claim["id"], claim["meeting_id"]
-    minutes_changed = claim.get("compare_skipped_reason") == "minutes_changed"
+    reason = claim.get("compare_skipped_reason")
+    minutes_changed = reason == "minutes_changed"
+    transcript_changed = reason == "transcript_changed"
     m_events = load_events(mid, "minutes")
     if not m_events or minutes_changed:
         status = extract_minutes_side(mid, client=client)
@@ -453,7 +461,7 @@ def run_compare_stage(claim: dict, *, client) -> "StageOutcome":
                    schema=HUNTER_SCHEMA, model_cls=HunterResult, max_tokens=16000)
     rows = build_rows(mid, candidates, verdicts, hunter.discrepancies, tt=tt, minutes=minutes, t_events=t_events, m_events=m_events,
                       valid_item_ids={a["id"] for a in agenda}, item_numbers={a["id"]: a.get("item_number") for a in agenda})
-    n = write_rows(mid, rows, minutes_changed=minutes_changed)
+    n = write_rows(mid, rows, minutes_changed=minutes_changed, transcript_changed=transcript_changed)
     proposed = sum(1 for r in rows if r["review_state"] == "proposed")
     log.info("compare: meeting %s candidates=%d judged=%d rows=%d proposed=%d hunted=%d", mid, len(candidates), len(judged), n,
              proposed, len(hunter.discrepancies))

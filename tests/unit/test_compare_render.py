@@ -130,3 +130,18 @@ def test_deterministic_vote_outcome_candidate_keeps_its_category():
     assert row["category"] == "vote_outcome"
     assert row["severity"] == "material"
     assert row["origin"] == "aligner"
+
+
+def test_hunter_restating_the_deterministic_tally_row_is_folded():
+    """M4: the fold-in tests the hunter's original category before the #114 remap, so a restated tally mismatch on the
+    same transcript event folds into the deterministic vote_outcome row instead of becoming a second wording row."""
+    tt = transcript_text(SEGS)
+    t_ev = _ev(7, "transcript", 7, "vote", start_s=3400.0)
+    cand = Candidate(1, "vote_outcome", "vote_outcome", t_ev, None, "transcript says failed 3-5; minutes vote row 900 says passed 8-0",
+                     frozenset({1}), vote_row={"id": 900, "result": "passed", "yeas": 8, "nays": 0, "abstentions": None,
+                                               "raw_text": "the motion passed", "item_ids": [1]})
+    h = HuntedDiscrepancy(category="vote_outcome", severity="material", title="Vote recorded as passed but failed on video",
+                          description="d", agenda_item_refs=[1], transcript_quote="three years between the agency and Alabama power",
+                          transcript_segment_seq=1, minutes_quote=None, minutes_page=None, confidence=0.8)
+    rows = build_rows(99, [cand], [], [h], tt=tt, minutes=None, t_events=[t_ev], m_events=[], valid_item_ids={1})
+    assert [(r["category"], r["origin"], r["transcript_event_id"]) for r in rows] == [("vote_outcome", "aligner", 7)]

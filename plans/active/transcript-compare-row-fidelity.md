@@ -21,7 +21,7 @@ How to see it working: `venv/bin/python -c "from docket.ai.transcripts.aligner i
 
 ## Surprises & Discoveries
 
-Nothing has been executed yet. Two things were found while authoring and shaped the plan:
+Two things were found while authoring and shaped the plan; the entries after them were found by the milestone sessions:
 
 - Observation: the issue #116 table says "the council approves the denial" reads `pass` today; on this checkout it reads `None`, because `_PASS_WORDS` has `approved?` and never matches "approves". The fix is the same either way (fail stems checked first).
   Evidence: `venv/bin/python -c "..."` as printed in Purpose above printed `pass pass pass pass None False True` on 2026-10-11 at commit `1a0d91d`.
@@ -51,7 +51,7 @@ Nothing has been executed yet. Two things were found while authoring and shaped 
 - Decision: `scripts/transcript_recompare.py` gains `--minutes-changed`; without it the script writes `compare_skipped_reason = NULL` instead of `'minutes_changed'`.
   Rationale: today the script always claims the minutes changed, which after this plan would stale approved rows on every manual rerun, the exact behaviour #112 removes. Without the flag the stage also skips re-extracting the minutes side (one fewer Sonnet call) because `run_compare_stage` re-extracts only when minutes events are absent or the reason is `'minutes_changed'`.
   Date/Author: 2026-10-11, plan author.
-- Decision: issue #114 is fixed by one helper in `compare.py`, `model_category(category, *, meeting_id, title)`, applied on the judge path and the hunter path of `build_rows`; the prompts and the pydantic `Literal` lists keep `vote_outcome`.
+- Decision: issue #114 is fixed by one helper in `compare.py`, `model_category(category, *, meeting_id, origin, title)` (the `origin` keyword was added to this record in M4; the Plan of Work and the shipped code always had it), applied on the judge path and the hunter path of `build_rows`; the prompts and the pydantic `Literal` lists keep `vote_outcome`.
   Rationale: dropping the word from the prompt text is a prompt change that rides a `COMPARE_PROMPT_VERSION` bump, and `reset_for_versions` turns a bump into a paid Opus re-compare of every compared meeting with a live row below the new version; issue #114 defers it for that reason. The remap is applied before the row's category is used for the hunter fold-in set, so a remapped hunter row folds into an aligner `wording` row on the same anchor the way any other wording row does.
   Date/Author: 2026-10-11, plan author.
 - Decision: issue #116 is fixed with a `_NONE_WORDS` pattern checked first and widened fail stems, as the issue proposes; `_PASS_WORDS` is untouched, so "approves" alone still reads `None`.
@@ -499,6 +499,50 @@ Closing `./tools/verify; echo "exit=$?"` on the M3 tree, commit `130dc35` (obser
     exit=0
 
 The tiers printed `1874 passed, 5 skipped, 4 xfailed` and `620 passed`, unchanged from the session start, as expected for a documentation-only milestone. `git status --porcelain` after the first M3 commit printed nothing.
+
+### M4 session (2026-10-12, commit `9cedfdd` at start)
+
+Starting state, observed before any edit, `./tools/verify; echo "exit=$?"`:
+
+    verify: test-db ... ok (0s) postgresql://docket@localhost:5432/docket_test_2dae8997
+    verify: unit+web+services ... ok (66s)
+    verify: integration ... ok (94s)
+    verify: judge-fixtures ... ok (3s)
+    verify: workflows ... ok (0s)
+    verify: all 4 checks passed in 163s.
+    exit=0
+
+The tiers printed `1874 passed, 5 skipped, 4 xfailed` and `620 passed`.
+
+After changing the assertions in `test_approved_rows_survive_an_unchanged_minutes_rerun` (title still `wording title`, `prompt_version` still `COMPARE_PROMPT_VERSION - 1`, six columns equal to their pre-rerun values) and before any source edit, `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/integration/test_recompare.py -q -p no:cacheprovider; tools/test-db --drop` (observed):
+
+    E       AssertionError: assert ('wording title v2' == 'wording title'
+    FAILED tests/integration/test_recompare.py::test_approved_rows_survive_an_unchanged_minutes_rerun
+    1 failed, 9 passed in 2.45s
+
+Same command after the `reconcile`, `write_rows`, and `run_compare_stage` edits in `compare.py` (observed): the changed test passed and the M2 flag test, which asserted the refresh rule, failed at its title assertion:
+
+    E           approved and 'original' == 'refreshed'
+    FAILED tests/integration/test_recompare.py::test_reconcile_minutes_changed_flag_decides_whether_approved_rows_go_stale
+    1 failed, 9 passed in 2.50s
+
+After updating that test to the freeze rule (`title == "original"`, `kept == 1`, still one non-dismissed row) and adding `test_events_bump_marks_transcript_changed_and_stales_approved_rows`, before the `pipeline.py` edit (observed):
+
+    E           AssertionError: assert ('speakers_resolved', None) == ('speakers_re...ript_changed')
+    E             At index 1 diff: None != 'transcript_changed'
+    FAILED tests/integration/test_recompare.py::test_events_bump_marks_transcript_changed_and_stales_approved_rows
+    1 failed, 10 passed in 2.78s
+
+After the `pipeline.py` edits (events reset writes `'transcript_changed'`; claim SQL accepts it; `advance()` keeps the column when a pre-compare stage reports no reason) and the script edit, `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/integration/test_recompare.py tests/integration/test_transcript_pipeline.py tests/integration/test_compare_stage.py -q -p no:cacheprovider; tools/test-db --drop` (observed): `32 passed in 4.49s`.
+
+Script banner, `COLUMNS=120 venv/bin/python scripts/transcript_recompare.py --help; echo "exit=$?"` (observed): `usage: transcript_recompare.py [-h] --meeting-id MEETING_ID [--now] [--minutes-changed | --transcript-changed]`, both flags' help lines, `exit=0`. Both flags together, `venv/bin/python scripts/transcript_recompare.py --meeting-id 1 --minutes-changed --transcript-changed; echo "exit=$?"` (observed): `error: argument --transcript-changed: not allowed with argument --minutes-changed`, `exit=2`, before any database access.
+
+Fold-in unit test added and run before the `build_rows` edit, `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_compare_render.py -q -p no:cacheprovider; tools/test-db --drop` (observed):
+
+    E       AssertionError: assert [('vote_outco...nitiated', 7)] == [('vote_outco...'aligner', 7)]
+    E         Left contains one more item: ('wording', 'model_initiated', 7)
+    FAILED tests/unit/test_compare_render.py::test_hunter_restating_the_deterministic_tally_row_is_folded
+    1 failed, 9 passed in 0.93s
 
 ## Interfaces and Dependencies
 

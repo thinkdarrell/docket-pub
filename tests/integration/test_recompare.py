@@ -279,7 +279,7 @@ def _wording_verdicts_only(info):
 def _full_rows(mid):
     with db_cursor() as cur:
         cur.execute("""SELECT id, category, review_state, previous_review_state, reviewed_by, reviewed_at, title, prompt_version,
-                              citation_match, transcript_excerpt
+                              citation_match, transcript_excerpt, severity, description, minutes_excerpt, confidence
                          FROM minutes_discrepancies WHERE meeting_id=%s ORDER BY id""", [mid])
         return [dict(r) for r in cur.fetchall()]
 
@@ -297,15 +297,19 @@ def test_approved_rows_survive_an_unchanged_minutes_rerun(pilot):
                         WHERE meeting_id=%s""", [C.COMPARE_PROMPT_VERSION - 1, pilot.meeting_id])
         cur.execute("UPDATE transcripts SET status='compared' WHERE id=%s", [pilot.transcript_id])
     approved_ids = {r["id"] for r in first}
+    approved_before = {r["id"]: r for r in _full_rows(pilot.meeting_id)}
 
     C.run_compare_stage(_claim(pilot), client=_client(_wording_verdicts_only(info)))     # reason None: minutes unchanged
     second = _full_rows(pilot.meeting_id)
     wording = next(r for r in second if r["category"] == "wording" and r["review_state"] != "dismissed_by_model")
     sequence = next(r for r in second if r["category"] == "sequence" and r["review_state"] != "dismissed_by_model")
-    assert wording["id"] == next(r["id"] for r in first if r["category"] == "wording")      # refreshed in place, no duplicate
+    assert wording["id"] == next(r["id"] for r in first if r["category"] == "wording")      # matched in place, no duplicate
     assert wording["review_state"] == "approved" and wording["reviewed_by"] == "t" and wording["reviewed_at"] is not None
     assert wording["previous_review_state"] is None
-    assert wording["title"] == "wording title v2" and wording["prompt_version"] == C.COMPARE_PROMPT_VERSION
+    # M4: a person approved this text; the model's second reading does not replace any of it (review finding, severe).
+    assert wording["title"] == "wording title" and wording["prompt_version"] == C.COMPARE_PROMPT_VERSION - 1
+    for col in ("severity", "description", "transcript_excerpt", "minutes_excerpt", "citation_match", "confidence"):
+        assert wording[col] == approved_before[wording["id"]][col], col
     assert sequence["review_state"] == "approved" and sequence["reviewed_by"] == "t"        # the model's second opinion does not outrank a human
     assert sequence["prompt_version"] == C.COMPARE_PROMPT_VERSION - 1
     assert {r["id"] for r in D.list_public_for_meeting(pilot.meeting_id)} == approved_ids    # still on the public page
@@ -320,7 +324,7 @@ def test_approved_rows_survive_an_unchanged_minutes_rerun(pilot):
 
 
 def test_reconcile_minutes_changed_flag_decides_whether_approved_rows_go_stale(pilot):
-    """Issue #112: reconcile stales approved rows only on a minutes_changed pass; a matched approved row keeps its verified citation."""
+    """Issue #112: reconcile stales approved rows only on a minutes_changed pass; a matched approved row is left untouched (M4)."""
     info = _seed_events(pilot)
     mid = pilot.meeting_id
     with db_cursor() as cur:
@@ -348,12 +352,44 @@ def test_reconcile_minutes_changed_flag_decides_whether_approved_rows_go_stale(p
                  "citation_match": "missing", "confidence": 0.4, "origin": "aligner", "review_state": "proposed", "reject_reason": None,
                  "prompt_version": C.COMPARE_PROMPT_VERSION}
     assert set(refreshed) == set(C._COLS)
-    C.reconcile(mid, [refreshed], minutes_changed=False)          # same finding came back with a quote the guard could not find
+    out = C.reconcile(mid, [refreshed], minutes_changed=False)    # same finding came back with a quote the guard could not find
+    assert (out["inserted"], out["updated"], out["kept"]) == (0, 0, 1)
     r = row()
-    assert r["review_state"] == "approved" and r["title"] == "refreshed"
-    assert r["citation_match"] == "exact" and r["transcript_excerpt"] == info["exec_text"]   # an approved row never carries an unverified citation
-    assert len([x for x in _full_rows(mid) if x["review_state"] != "dismissed_by_model"]) == 1
+    assert r["review_state"] == "approved" and r["title"] == "original" and r["prompt_version"] == C.COMPARE_PROMPT_VERSION
+    assert r["citation_match"] == "exact" and r["transcript_excerpt"] == info["exec_text"]   # nothing a person approved is rewritten
+    assert len([x for x in _full_rows(mid) if x["review_state"] != "dismissed_by_model"]) == 1   # and no duplicate beside it
 
     C.reconcile(mid, [], minutes_changed=True)                    # the minutes PDF changed: today's stale-everything policy
     r = row()
     assert (r["review_state"], r["previous_review_state"], r["reviewed_by"]) == ("stale", "approved", "t")
+
+
+def test_events_bump_marks_transcript_changed_and_stales_approved_rows(pilot, monkeypatch):
+    """M4: re-extracting the transcript side deletes the events approved rows are anchored to, so that pass stales them."""
+    from docket.ai.transcripts import prompts as PR
+
+    info = _seed_events(pilot)
+    mid, tid = pilot.meeting_id, pilot.transcript_id
+    C.run_compare_stage(_claim(pilot), client=_client(_real_all(info)))
+    with db_cursor() as cur:   # the admin approves one row
+        cur.execute("""UPDATE minutes_discrepancies SET review_state='approved', reviewed_at=now(), reviewed_by='t'
+                        WHERE meeting_id=%s AND category='wording'""", [mid])
+        cur.execute("UPDATE transcripts SET status='compared' WHERE id=%s", [tid])
+
+    monkeypatch.setattr(PR, "EVENTS_PROMPT_VERSION", PR.EVENTS_PROMPT_VERSION + 1)
+    assert P.reset_for_versions() >= 1
+    with db_cursor() as cur:
+        cur.execute("SELECT status, compare_skipped_reason FROM transcripts WHERE id=%s", [tid])
+        assert tuple(cur.fetchone().values()) == ("speakers_resolved", "transcript_changed")
+
+    # The events stage's own status write must not lose the reason on its way to the compare claim.
+    P.advance(tid, P.StageOutcome("events_extracted"))
+    with db_cursor() as cur:
+        cur.execute("SELECT status, compare_skipped_reason FROM transcripts WHERE id=%s", [tid])
+        assert tuple(cur.fetchone().values()) == ("events_extracted", "transcript_changed")
+    assert P.claim_next()["id"] == tid                                # the claim SQL accepts the reason
+
+    out = C.reconcile(mid, [], transcript_changed=True)
+    assert out["kept"] == 0
+    wording = next(r for r in _states(mid) if r["category"] == "wording" and r["review_state"] != "dismissed_by_model")
+    assert (wording["review_state"], wording["previous_review_state"], wording["reviewed_by"]) == ("stale", "approved", "t")
