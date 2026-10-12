@@ -90,7 +90,8 @@ def _jaccard(a: str | None, b: str | None) -> float:
     return len(ta & tb) / len(ta | tb) if (ta or tb) else 1.0
 
 
-_FAIL_WORDS = re.compile(r"\b(not (?:adopted|approved|carried|granted)|fail(?:s|ed)?|denied|defeated|rejected|lost)\b")
+_NONE_WORDS = re.compile(r"\b(carried (?:over|forward)|tabled|withdrawn|postponed|continued|deferred|no action)\b")
+_FAIL_WORDS = re.compile(r"\b(not (?:adopted|approved|carried|granted)|fail(?:s|ed)?|den(?:y|ies|ied|ial)|defeat(?:s|ed)?|reject(?:s|ed|ion)?|lost)\b")
 _PASS_WORDS = re.compile(r"\b(adopted|approved?|pass(?:es|ed)?|carried|granted|prevail(?:s|ed)?|sustained)\b")
 
 
@@ -98,9 +99,13 @@ def canonical_result(s) -> str | None:
     """'approved', 'adopted', 'passes' are one outcome; 'failed', 'denied', 'motion to approve NOT adopted' are the
     other (spec: 'approved' versus 'adopted' is wording, not a vote-outcome discrepancy). Negations win because a
     Birmingham denial reads 'the motion to approve NOT adopted and the above resolution adopted'. None when the
-    text names no outcome, so the comparison is skipped rather than guessed."""
+    text names no outcome, so the comparison is skipped rather than guessed. A result that names a continuation
+    (carried over, tabled, withdrawn, postponed, continued, deferred, no action) is no outcome and never pairs as pass
+    or fail, and the deny, reject, and defeat stems are fail words so 'motion to deny approved' reads fail (issue #116)."""
     n = normalize(str(s or ""))
     if not n:
+        return None
+    if _NONE_WORDS.search(n):
         return None
     if _FAIL_WORDS.search(n):
         return "fail"

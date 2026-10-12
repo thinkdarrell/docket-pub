@@ -1,6 +1,9 @@
 # tests/unit/test_aligner.py
-from docket.ai.transcripts.aligner import (MINUTED_TYPES, Event, align, canonical_result, details_differ, effective_consent_block,
-                                            mismatch_note, pair_group, sequence_candidates, vote_outcome_candidates)
+import pytest
+
+from docket.ai.transcripts.aligner import (MINUTED_TYPES, Event, _results_differ, align, canonical_result, details_differ,
+                                            effective_consent_block, mismatch_note, pair_group, sequence_candidates,
+                                            vote_outcome_candidates)
 
 _id = iter(range(1, 10_000))
 
@@ -231,3 +234,19 @@ def test_vote_vocabulary_is_not_a_vote_outcome_discrepancy():
     tv = ev("transcript", 4, "vote", [43], detail={"result": "approved"})
     assert vote_outcome_candidates([tv], [{"id": 1, "item_ids": [43], "result": "passed", "yeas": None, "nays": None}]) == []
     assert len(vote_outcome_candidates([tv], [{"id": 1, "item_ids": [43], "result": "failed", "yeas": None, "nays": None}])) == 1
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("carried over", None), ("carried forward", None), ("tabled", None), ("withdrawn", None),
+    ("motion to deny approved", "fail"), ("motion to deny carried", "fail"), ("the council approves the denial", "fail"),
+    ("application denied", "fail"), ("the motion to approve NOT adopted and the above resolution adopted", "fail"),
+    ("approved as amended", "pass"), ("passed", "pass"), ("adopted", "pass"),
+])
+def test_canonical_result_issue_116_table(text, expected):
+    """Issue #116: continued items are no outcome; a denial the body approved is a fail."""
+    assert canonical_result(text) == expected
+
+
+def test_results_differ_skips_continuations_and_reads_approved_denials_as_fail():
+    assert _results_differ("carried over", "adopted") is False        # one side is no outcome: the comparison is skipped
+    assert _results_differ("motion to deny approved", "denied") is False   # both read fail

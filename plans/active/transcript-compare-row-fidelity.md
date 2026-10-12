@@ -291,6 +291,34 @@ The last line is `_results_differ` on `("carried over", "adopted")`, `("motion t
 
 Milestone sessions append their observed red and green outputs here under a heading per milestone.
 
+### M1 session (2026-10-11, commit `ddbe174` at start)
+
+Starting state, observed before any edit, `./tools/verify; echo "exit=$?"`:
+
+    verify: test-db ... ok (1s) postgresql://docket@localhost:5432/docket_test_2dae8997
+    verify: unit+web+services ... ok (58s)
+    verify: integration ... ok (72s)
+    verify: judge-fixtures ... ok (3s)
+    verify: workflows ... ok (0s)
+    verify: all 4 checks passed in 134s.
+    exit=0
+
+Aligner tests added, run before the `aligner.py` edit, `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_aligner.py -q -p no:cacheprovider; tools/test-db --drop` (observed):
+
+    FAILED tests/unit/test_aligner.py::test_canonical_result_issue_116_table[carried over-None]
+    FAILED tests/unit/test_aligner.py::test_canonical_result_issue_116_table[carried forward-None]
+    FAILED tests/unit/test_aligner.py::test_canonical_result_issue_116_table[motion to deny approved-fail]
+    FAILED tests/unit/test_aligner.py::test_canonical_result_issue_116_table[motion to deny carried-fail]
+    FAILED tests/unit/test_aligner.py::test_canonical_result_issue_116_table[the council approves the denial-fail]
+    FAILED tests/unit/test_aligner.py::test_results_differ_skips_continuations_and_reads_approved_denials_as_fail
+    6 failed, 28 passed in 0.60s
+
+The `_results_differ` test failed on its second assertion (`assert True is False` where `True = _results_differ('motion to deny approved', 'denied')`), as the Plan of Work expected.
+
+Same command after the `aligner.py` edit (observed): `34 passed in 0.47s`.
+
+The probe from Purpose after the edit (observed): `None None fail fail fail False False`.
+
 ## Interfaces and Dependencies
 
 No new libraries. In `src/docket/ai/transcripts/aligner.py`, at module level:
