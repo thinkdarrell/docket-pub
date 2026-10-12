@@ -15,7 +15,7 @@ How to see it working: `venv/bin/python -c "from docket.ai.transcripts.aligner i
 ## Progress
 
 - [x] (2026-10-12 04:06Z) M1: `canonical_result` in `src/docket/ai/transcripts/aligner.py` reads continued-item words as no outcome and the deny, reject, and defeat stems as fail, and `build_rows` in `src/docket/ai/transcripts/compare.py` writes a model-assigned `vote_outcome` category as `wording`; the new cases in `tests/unit/test_aligner.py` and `tests/unit/test_compare_render.py` were observed red before each source edit and green after.
-- [ ] M2: `reconcile()` in `src/docket/ai/transcripts/compare.py` keeps approved rows through a pass whose claim does not carry `compare_skipped_reason = 'minutes_changed'`, `reset_for_versions()` in `src/docket/ai/transcripts/pipeline.py` no longer counts approved rows, `scripts/transcript_recompare.py` takes `--minutes-changed`, and the runbook and the script docstring state the policy; the new cases in `tests/integration/test_recompare.py` were observed red before the source edits and green after.
+- [x] (2026-10-12 04:20Z) M2: `reconcile()` in `src/docket/ai/transcripts/compare.py` keeps approved rows through a pass whose claim does not carry `compare_skipped_reason = 'minutes_changed'`, `reset_for_versions()` in `src/docket/ai/transcripts/pipeline.py` no longer counts approved rows, `scripts/transcript_recompare.py` takes `--minutes-changed`, and the runbook and the script docstring state the policy; the new cases in `tests/integration/test_recompare.py` were observed red before the source edits and green after.
 - [ ] M3: `docs/specs/transcripts.md` describes the comparison stage's reconcile policy, category remap, and vote-result vocabulary in the present tense, `docs/specs/index.md` lists it, and `docs/DEBT.md` rows `D9` and `D42` record what this plan reflected and what it deferred, and a new `DEBT` row records the deferred prompt alignment with the next `COMPARE_PROMPT_VERSION` bump as its trigger.
 
 ## Surprises & Discoveries
@@ -65,10 +65,18 @@ Nothing has been executed yet. Two things were found while authoring and shaped 
 - Decision: M3 also adds a `docs/DEBT.md` row for the deferred prompt alignment (issue #114), with the next `COMPARE_PROMPT_VERSION` bump as its trigger.
   Rationale: the #114 decision above defers removing `vote_outcome` from the prompts and the `Literal` for cost reasons but recorded that deferral only in this plan; a register row with the bump as its trigger makes the deferral fire on its own when someone next edits the prompt, instead of relying on memory. Raised by an outside review of the plan; the review's other points (regex vocabulary breadth, extracting reconcile's state transitions into a pure function, logging when pass and fail words both match) were read and left out as either already handled by the fail-first order and the widened no-outcome list or out of a three-issue PR's scope.
   Date/Author: 2026-10-12, operator (Darrell Nance, with Claude).
+- Decision: the second-pass judge function the Plan of Work said to copy into `test_approved_rows_survive_an_unchanged_minutes_rerun` is a module-level helper `_wording_verdicts_only(info)` in `tests/integration/test_recompare.py`; the existing minutes-changed test keeps its own inline copy untouched, and a second helper `_full_rows(mid)` reads the title, version, and citation columns `_states` does not.
+  Rationale: the Plan of Work said "copy it"; a named helper is the same verdicts with one definition, and leaving the existing test's inline copy in place keeps that test's diff to the two lines change (1) asks for. No behaviour differs.
+  Date/Author: 2026-10-12, M2 session.
+- Decision: the script's `--help` acceptance ("a usage line containing `[--minutes-changed]`") is read as met: argparse wraps the usage over two physical lines at the default width and prints it on one line at `COLUMNS=120`; both were run and both are in Artifacts and Notes.
+  Rationale: the content is what the acceptance names; the wrap is terminal width, not script behaviour, and it was recorded rather than hidden.
+  Date/Author: 2026-10-12, M2 session.
 
 ## Outcomes & Retrospective
 
 M1 closed 2026-10-12 (UTC; the session ran late on 2026-10-11 Central). Every M1 acceptance check was run and met: the probe prints `None None fail fail fail False False`; the two unit files print `43 passed`; the red outputs before each source edit are in Artifacts and Notes (six `FAILED` aligner lines, two `FAILED` render lines with `assert 'vote_outcome' == 'wording'`); `./tools/verify` passed in 141s with exit 0; and the source diff against `origin/main` lists only `aligner.py` and `compare.py`. No carve-out. Issues #116 and #114 are fixed in code; #112 (M2) and the spec and debt rows (M3) remain. One observation for the next session: the plan's Concrete Steps said verify took 180s while authoring; both runs this session took 134s and 141s. Nothing else diverged from the Plan of Work.
+
+M2 closed 2026-10-12 04:20Z. Every M2 acceptance check was run and met: the two integration files print `22 passed`; the red outputs are in Artifacts and Notes (both new tests `FAILED` before the source edits, the second with `unexpected keyword argument 'minutes_changed'`; the existing stale-everything test `FAILED` after the source edits and before its claim was changed); the script's `--help` shows `[--minutes-changed]` and exits 0; the runbook and script greps each print lines and the `pipeline.py` grep prints `1`; `./tools/verify` passed in 145s with exit 0 (integration tier `620 passed`, up from 618 at the start). No carve-out. Two small deviations from the Plan of Work are in the Decision Log (a shared verdicts helper instead of a copied function; the wrapped usage line). Issue #112 is fixed in code; the spec and debt rows (M3) remain. `git diff --stat origin/main -- src/ scripts/` now lists `aligner.py`, `compare.py`, `pipeline.py`, and `scripts/transcript_recompare.py`.
 
 ## Context and Orientation
 
@@ -385,6 +393,18 @@ Script banner after the `scripts/transcript_recompare.py` edit, `venv/bin/python
 The same with `COLUMNS=120` printed the usage on one line (observed): `usage: transcript_recompare.py [-h] --meeting-id MEETING_ID [--now] [--minutes-changed]`.
 
 `grep -n "minutes-changed" docs/runbooks/transcripts.md scripts/transcript_recompare.py` (observed): three lines from the runbook (73, 108, 112) and three from the script (7, 9, 27). `grep -c "IN ('proposed', 'dismissed_by_model')" src/docket/ai/transcripts/pipeline.py` (observed): `1`.
+
+Closing `./tools/verify; echo "exit=$?"` on the M2 tree (observed):
+
+    verify: test-db ... ok (1s) postgresql://docket@localhost:5432/docket_test_2dae8997
+    verify: unit+web+services ... ok (61s)
+    verify: integration ... ok (79s)
+    verify: judge-fixtures ... ok (4s)
+    verify: workflows ... ok (0s)
+    verify: all 4 checks passed in 145s.
+    exit=0
+
+The integration tier printed `620 passed` (618 at the session start plus the two new tests). `git diff --stat origin/main -- src/ scripts/` (observed): `scripts/transcript_recompare.py | 13`, `aligner.py | 9`, `compare.py | 63`, `pipeline.py | 9`; `4 files changed, 67 insertions(+), 27 deletions(-)`.
 
 ## Interfaces and Dependencies
 
