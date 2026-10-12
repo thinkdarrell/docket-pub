@@ -1,4 +1,6 @@
 # tests/unit/test_compare_render.py
+import logging
+
 from docket.ai.transcripts.aligner import Candidate, Event
 from docket.ai.transcripts.compare import (TranscriptText, build_rows, citation_match_for, nearest_event, render_judge_user,
                                            segment_at, transcript_text, transcript_window)
@@ -77,3 +79,54 @@ def test_hunter_restating_an_aligner_finding_is_folded_into_one_row():
     rows = build_rows(99, [cand], [verdict], [dup, other], tt=tt, minutes=None, t_events=[t_ev], m_events=[m_ev], valid_item_ids={1})
     proposed = [r for r in rows if r["review_state"] == "proposed"]
     assert [(r["category"], r["origin"]) for r in proposed] == [("wording", "aligner"), ("omission", "model_initiated")]
+
+
+def test_judge_assigned_vote_outcome_is_written_as_wording(caplog):
+    """Issue #114: vote_outcome is reserved for the deterministic tally check; a judge verdict that picks it is wording."""
+    tt = transcript_text(SEGS)
+    t_ev = _ev(7, "transcript", 7, "motion", start_s=3400.0)
+    m_ev = _ev(17, "minutes", 17, "motion", char_offset=0)
+    cand = Candidate(1, "mismatch", "wording", t_ev, m_ev, "note", frozenset({1}))
+    verdict = Verdict(candidate_id=1, is_real=True, category="vote_outcome", severity="minor", title="Voice vote recorded as roll call",
+                      description="d", transcript_quote="we will go into executive session", minutes_quote=None, confidence=0.7,
+                      dismiss_reason=None)
+    caplog.set_level(logging.INFO, logger="docket.ai.transcripts.compare")
+    rows = build_rows(99, [cand], [verdict], [], tt=tt, minutes=None, t_events=[t_ev], m_events=[m_ev], valid_item_ids={1})
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["category"] == "wording"
+    assert row["severity"] == "minor"
+    assert row["title"] == "Voice vote recorded as roll call"
+    assert row["origin"] == "aligner"
+    assert "remapped a model-assigned vote_outcome" in caplog.text
+
+
+def test_hunter_assigned_vote_outcome_is_written_as_wording():
+    """Issue #114, hunter path: the same remap applies to a model-initiated finding."""
+    tt = transcript_text(SEGS)
+    t_ev = _ev(7, "transcript", 7, "motion", start_s=3400.0)
+    h = HuntedDiscrepancy(category="vote_outcome", severity="minor", title="Consent agenda shown as a roll-call vote", description="d",
+                          agenda_item_refs=[1], transcript_quote="three years between the agency and Alabama power",
+                          transcript_segment_seq=1, minutes_quote=None, minutes_page=None, confidence=0.8)
+    rows = build_rows(99, [], [], [h], tt=tt, minutes=None, t_events=[t_ev], m_events=[], valid_item_ids={1})
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["category"] == "wording"
+    assert row["severity"] == "minor"
+    assert row["origin"] == "model_initiated"
+    assert row["title"] == "Consent agenda shown as a roll-call vote"
+
+
+def test_deterministic_vote_outcome_candidate_keeps_its_category():
+    """The tally check (spec decision J) is the one producer of vote_outcome rows; it is untouched by the remap."""
+    tt = transcript_text(SEGS)
+    t_ev = _ev(7, "transcript", 7, "vote", start_s=3400.0)
+    cand = Candidate(1, "vote_outcome", "vote_outcome", t_ev, None, "transcript says failed 3-5; minutes vote row 900 says passed 8-0",
+                     frozenset({1}), vote_row={"id": 900, "result": "passed", "yeas": 8, "nays": 0, "abstentions": None,
+                                               "raw_text": "the motion passed", "item_ids": [1]})
+    rows = build_rows(99, [cand], [], [], tt=tt, minutes=None, t_events=[t_ev], m_events=[], valid_item_ids={1})
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["category"] == "vote_outcome"
+    assert row["severity"] == "material"
+    assert row["origin"] == "aligner"

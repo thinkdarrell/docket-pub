@@ -14,7 +14,7 @@ How to see it working: `venv/bin/python -c "from docket.ai.transcripts.aligner i
 
 ## Progress
 
-- [ ] M1: `canonical_result` in `src/docket/ai/transcripts/aligner.py` reads continued-item words as no outcome and the deny, reject, and defeat stems as fail, and `build_rows` in `src/docket/ai/transcripts/compare.py` writes a model-assigned `vote_outcome` category as `wording`; the new cases in `tests/unit/test_aligner.py` and `tests/unit/test_compare_render.py` were observed red before each source edit and green after.
+- [x] (2026-10-12 04:06Z) M1: `canonical_result` in `src/docket/ai/transcripts/aligner.py` reads continued-item words as no outcome and the deny, reject, and defeat stems as fail, and `build_rows` in `src/docket/ai/transcripts/compare.py` writes a model-assigned `vote_outcome` category as `wording`; the new cases in `tests/unit/test_aligner.py` and `tests/unit/test_compare_render.py` were observed red before each source edit and green after.
 - [ ] M2: `reconcile()` in `src/docket/ai/transcripts/compare.py` keeps approved rows through a pass whose claim does not carry `compare_skipped_reason = 'minutes_changed'`, `reset_for_versions()` in `src/docket/ai/transcripts/pipeline.py` no longer counts approved rows, `scripts/transcript_recompare.py` takes `--minutes-changed`, and the runbook and the script docstring state the policy; the new cases in `tests/integration/test_recompare.py` were observed red before the source edits and green after.
 - [ ] M3: `docs/specs/transcripts.md` describes the comparison stage's reconcile policy, category remap, and vote-result vocabulary in the present tense, `docs/specs/index.md` lists it, and `docs/DEBT.md` rows `D9` and `D42` record what this plan reflected and what it deferred, and a new `DEBT` row records the deferred prompt alignment with the next `COMPARE_PROMPT_VERSION` bump as its trigger.
 
@@ -68,7 +68,7 @@ Nothing has been executed yet. Two things were found while authoring and shaped 
 
 ## Outcomes & Retrospective
 
-Nothing has been executed yet. This section is written when a milestone closes and again when the plan completes, comparing what landed with the Purpose above.
+M1 closed 2026-10-12 (UTC; the session ran late on 2026-10-11 Central). Every M1 acceptance check was run and met: the probe prints `None None fail fail fail False False`; the two unit files print `43 passed`; the red outputs before each source edit are in Artifacts and Notes (six `FAILED` aligner lines, two `FAILED` render lines with `assert 'vote_outcome' == 'wording'`); `./tools/verify` passed in 141s with exit 0; and the source diff against `origin/main` lists only `aligner.py` and `compare.py`. No carve-out. Issues #116 and #114 are fixed in code; #112 (M2) and the spec and debt rows (M3) remain. One observation for the next session: the plan's Concrete Steps said verify took 180s while authoring; both runs this session took 134s and 141s. Nothing else diverged from the Plan of Work.
 
 ## Context and Orientation
 
@@ -318,6 +318,28 @@ The `_results_differ` test failed on its second assertion (`assert True is False
 Same command after the `aligner.py` edit (observed): `34 passed in 0.47s`.
 
 The probe from Purpose after the edit (observed): `None None fail fail fail False False`.
+
+Render tests added, run before the `compare.py` edit, `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_compare_render.py -q -p no:cacheprovider; tools/test-db --drop` (observed):
+
+    E       AssertionError: assert 'vote_outcome' == 'wording'
+    E       AssertionError: assert 'vote_outcome' == 'wording'
+    FAILED tests/unit/test_compare_render.py::test_judge_assigned_vote_outcome_is_written_as_wording
+    FAILED tests/unit/test_compare_render.py::test_hunter_assigned_vote_outcome_is_written_as_wording
+    2 failed, 7 passed in 0.97s
+
+After the `compare.py` edit, both unit files together, `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_aligner.py tests/unit/test_compare_render.py -q -p no:cacheprovider; tools/test-db --drop` (observed): `43 passed in 0.98s`.
+
+`git diff --stat origin/main -- src/ scripts/` (observed): `src/docket/ai/transcripts/aligner.py | 9 +++++++--` and `src/docket/ai/transcripts/compare.py | 19 +++++++++++++++----`, `2 files changed, 22 insertions(+), 6 deletions(-)`; no other file listed.
+
+Closing `./tools/verify; echo "exit=$?"` on the M1 tree (observed):
+
+    verify: test-db ... ok (0s) postgresql://docket@localhost:5432/docket_test_2dae8997
+    verify: unit+web+services ... ok (59s)
+    verify: integration ... ok (78s)
+    verify: judge-fixtures ... ok (4s)
+    verify: workflows ... ok (0s)
+    verify: all 4 checks passed in 141s.
+    exit=0
 
 ## Interfaces and Dependencies
 

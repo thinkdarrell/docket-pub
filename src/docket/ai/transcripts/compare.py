@@ -187,6 +187,15 @@ def nearest_event(events: list[Event], *, start_s: float | None = None, char_off
 
 # --- row assembly -----------------------------------------------------------
 
+def model_category(category: str, *, meeting_id: int, origin: str, title: str) -> str:
+    """vote_outcome is reserved for the deterministic tally check in build_rows (issue #114). A judge
+    verdict or a hunter finding that picks it is a model's reading of a vote, which is wording."""
+    if category == "vote_outcome":
+        log.info("compare: meeting %s remapped a model-assigned vote_outcome to wording (%s, %s)", meeting_id, origin, title[:60])
+        return "wording"
+    return category
+
+
 def build_rows(meeting_id: int, candidates: list[Candidate], verdicts, hunted, *, tt: TranscriptText,
                minutes: MinutesCapture | None, t_events: list[Event], m_events: list[Event],
                valid_item_ids: set[int] | None = None, item_numbers: dict[int, str] | None = None) -> list[dict]:
@@ -236,7 +245,8 @@ def build_rows(meeting_id: int, candidates: list[Candidate], verdicts, hunted, *
             row.update(review_state="dismissed_by_model", reject_reason=v.dismiss_reason, confidence=v.confidence)
             rows.append(row)
             continue
-        row = base(v.category or c.category, v.severity or "minor", v.title or c.note[:200], v.description or c.note,
+        row = base(model_category(v.category or c.category, meeting_id=meeting_id, origin="aligner", title=v.title or c.note),
+                   v.severity or "minor", v.title or c.note[:200], v.description or c.note,
                    c.transcript_event, c.minutes_event, c.item_refs, "aligner")
         kinds = []
         if c.transcript_event is not None:
@@ -256,6 +266,7 @@ def build_rows(meeting_id: int, candidates: list[Candidate], verdicts, hunted, *
     taken = {(r["category"], "t", r["transcript_event_id"]) for r in rows if r["review_state"] == "proposed" and r["transcript_event_id"]} | \
             {(r["category"], "m", r["minutes_event_id"]) for r in rows if r["review_state"] == "proposed" and r["minutes_event_id"]}
     for h in hunted:
+        cat = model_category(h.category, meeting_id=meeting_id, origin="model_initiated", title=h.title)
         refs = frozenset(h.agenda_item_refs)
         if valid_item_ids is not None:
             refs = frozenset(r for r in refs if r in valid_item_ids)
@@ -283,10 +294,10 @@ def build_rows(meeting_id: int, candidates: list[Candidate], verdicts, hunted, *
             # FK on stale rows), so no new row may be inserted without at least one event anchor.
             log.warning("hunter row dropped: no events at all to anchor it (%s)", h.title)
             continue
-        if (t_ev is not None and (h.category, "t", t_ev.id) in taken) or (m_ev is not None and (h.category, "m", m_ev.id) in taken):
-            log.info("compare: meeting %s hunter row folded into an aligner row (%s on %s)", meeting_id, h.category, h.title[:60])
+        if (t_ev is not None and (cat, "t", t_ev.id) in taken) or (m_ev is not None and (cat, "m", m_ev.id) in taken):
+            log.info("compare: meeting %s hunter row folded into an aligner row (%s on %s)", meeting_id, cat, h.title[:60])
             continue
-        row = base(h.category, h.severity, h.title, h.description, t_ev, m_ev, refs, "model_initiated")
+        row = base(cat, h.severity, h.title, h.description, t_ev, m_ev, refs, "model_initiated")
         kinds = [k for k, q in ((kt, h.transcript_quote), (km, h.minutes_quote)) if q]
         match = citation_match_for(kinds)
         row.update(transcript_excerpt=t_exc, transcript_start_s=start_s if start_s is not None else row["transcript_start_s"],
