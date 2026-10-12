@@ -16,7 +16,7 @@ How to see it working: `venv/bin/python -c "from docket.ai.transcripts.aligner i
 
 - [x] (2026-10-12 04:06Z) M1: `canonical_result` in `src/docket/ai/transcripts/aligner.py` reads continued-item words as no outcome and the deny, reject, and defeat stems as fail, and `build_rows` in `src/docket/ai/transcripts/compare.py` writes a model-assigned `vote_outcome` category as `wording`; the new cases in `tests/unit/test_aligner.py` and `tests/unit/test_compare_render.py` were observed red before each source edit and green after.
 - [x] (2026-10-12 04:20Z) M2: `reconcile()` in `src/docket/ai/transcripts/compare.py` keeps approved rows through a pass whose claim does not carry `compare_skipped_reason = 'minutes_changed'`, `reset_for_versions()` in `src/docket/ai/transcripts/pipeline.py` no longer counts approved rows, `scripts/transcript_recompare.py` takes `--minutes-changed`, and the runbook and the script docstring state the policy; the new cases in `tests/integration/test_recompare.py` were observed red before the source edits and green after.
-- [ ] M3: `docs/specs/transcripts.md` describes the comparison stage's reconcile policy, category remap, and vote-result vocabulary in the present tense, `docs/specs/index.md` lists it, and `docs/DEBT.md` rows `D9` and `D42` record what this plan reflected and what it deferred, and a new `DEBT` row records the deferred prompt alignment with the next `COMPARE_PROMPT_VERSION` bump as its trigger.
+- [x] (2026-10-12 04:41Z) M3: `docs/specs/transcripts.md` describes the comparison stage's reconcile policy, category remap, and vote-result vocabulary in the present tense, `docs/specs/index.md` lists it, and `docs/DEBT.md` rows `D9` and `D42` record what this plan reflected and what it deferred, and a new `DEBT` row records the deferred prompt alignment with the next `COMPARE_PROMPT_VERSION` bump as its trigger.
 
 ## Surprises & Discoveries
 
@@ -87,6 +87,10 @@ Nothing has been executed yet. Two things were found while authoring and shaped 
 M1 closed 2026-10-12 (UTC; the session ran late on 2026-10-11 Central). Every M1 acceptance check was run and met: the probe prints `None None fail fail fail False False`; the two unit files print `43 passed`; the red outputs before each source edit are in Artifacts and Notes (six `FAILED` aligner lines, two `FAILED` render lines with `assert 'vote_outcome' == 'wording'`); `./tools/verify` passed in 141s with exit 0; and the source diff against `origin/main` lists only `aligner.py` and `compare.py`. No carve-out. Issues #116 and #114 are fixed in code; #112 (M2) and the spec and debt rows (M3) remain. One observation for the next session: the plan's Concrete Steps said verify took 180s while authoring; both runs this session took 134s and 141s. Nothing else diverged from the Plan of Work.
 
 M2 closed 2026-10-12 04:20Z. Every M2 acceptance check was run and met: the two integration files print `22 passed`; the red outputs are in Artifacts and Notes (both new tests `FAILED` before the source edits, the second with `unexpected keyword argument 'minutes_changed'`; the existing stale-everything test `FAILED` after the source edits and before its claim was changed); the script's `--help` shows `[--minutes-changed]` and exits 0; the runbook and script greps each print lines and the `pipeline.py` grep prints `1`; `./tools/verify` passed in 145s with exit 0 (integration tier `620 passed`, up from 618 at the start). No carve-out. Two small deviations from the Plan of Work are in the Decision Log (a shared verdicts helper instead of a copied function; the wrapped usage line). Issue #112 is fixed in code; the spec and debt rows (M3) remain. `git diff --stat origin/main -- src/ scripts/` now lists `aligner.py`, `compare.py`, `pipeline.py`, and `scripts/transcript_recompare.py`.
+
+M3 closed 2026-10-12 04:41Z. Every M3 acceptance check was run and met: the index row and closing paragraph grep as lines 25 and 27; the spec's first line is `# Transcript comparison`; `minutes_changed` is on 2 lines (after one paragraph edit, the first draft printed `1`; Surprises and the Decision Log hold why); `canonical_result`, `model_category`, and the runbook path each print `1`; the `D42` and `D50` rows carry the plan's slug, `D9` names the spec, and the trigger grep prints `1`; `./tools/verify` passed with exit 0 (168s, inside the 180-second budget but the slowest run of the three sessions; the integration tier took 104s against 78s at the start, on the same code, so the difference is the machine, not the tree); the tree was clean after the first commit. No carve-out.
+
+Plan as a whole, against its Purpose: the three things it promised are true on this branch. An unchanged-minutes re-compare keeps approved rows as approved with their reviewer (`reconcile`, M2, integration-tested); a model-assigned `vote_outcome` is written as `wording` (`model_category`, M1, unit-tested); the vote vocabulary reads continuations as no outcome and approved denials as fail (`canonical_result`, M1, unit-tested; the probe prints `None None fail fail fail False False`). The behaviour is reflected in `docs/specs/transcripts.md` and the runbook; the deferrals are `D42` (re-armed) and `D50` (fires on the next `COMPARE_PROMPT_VERSION` bump). What remains is outside the milestones: the pull request `cycle-run` opens from this branch must carry `Closes #112`, `Closes #114`, and `Closes #116`; the retro moves this file to `plans/completed/`. Lessons: a prose-only spec and a `grep -c` acceptance can disagree on counting, so an acceptance written as "at least N" should say lines or occurrences; and the verify budget held in every session but with less margin on the last run than the first.
 
 ## Context and Orientation
 
@@ -441,6 +445,18 @@ After writing `docs/specs/transcripts.md` (25 lines, no code fences: `grep -c '\
     grep -n 'transcript-compare-row-fidelity' docs/DEBT.md   -> lines 40 (D42) and 48 (D50)
     grep -n 'docs/specs/transcripts.md' docs/DEBT.md         -> line 10 (D9)
     grep -c 'COMPARE_PROMPT_VERSION. bump removes' docs/DEBT.md -> 1
+
+Closing `./tools/verify; echo "exit=$?"` on the M3 tree, commit `130dc35` (observed; an earlier run of the same tree through a pipe printed `all 4 checks passed in 151s.` but lost the exit code to a zsh spelling, so it was run again as the acceptance states):
+
+    verify: test-db ... ok (0s) postgresql://docket@localhost:5432/docket_test_2dae8997
+    verify: unit+web+services ... ok (61s)
+    verify: integration ... ok (104s)
+    verify: judge-fixtures ... ok (3s)
+    verify: workflows ... ok (0s)
+    verify: all 4 checks passed in 168s.
+    exit=0
+
+The tiers printed `1874 passed, 5 skipped, 4 xfailed` and `620 passed`, unchanged from the session start, as expected for a documentation-only milestone. `git status --porcelain` after the first M3 commit printed nothing.
 
 ## Interfaces and Dependencies
 
