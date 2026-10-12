@@ -17,7 +17,7 @@ How to see it working: `venv/bin/python -c "from docket.ai.transcripts.aligner i
 - [x] (2026-10-12 04:06Z) M1: `canonical_result` in `src/docket/ai/transcripts/aligner.py` reads continued-item words as no outcome and the deny, reject, and defeat stems as fail, and `build_rows` in `src/docket/ai/transcripts/compare.py` writes a model-assigned `vote_outcome` category as `wording`; the new cases in `tests/unit/test_aligner.py` and `tests/unit/test_compare_render.py` were observed red before each source edit and green after.
 - [x] (2026-10-12 04:20Z) M2: `reconcile()` in `src/docket/ai/transcripts/compare.py` keeps approved rows through a pass whose claim does not carry `compare_skipped_reason = 'minutes_changed'`, `reset_for_versions()` in `src/docket/ai/transcripts/pipeline.py` no longer counts approved rows, `scripts/transcript_recompare.py` takes `--minutes-changed`, and the runbook and the script docstring state the policy; the new cases in `tests/integration/test_recompare.py` were observed red before the source edits and green after.
 - [x] (2026-10-12 04:41Z) M3: `docs/specs/transcripts.md` describes the comparison stage's reconcile policy, category remap, and vote-result vocabulary in the present tense, `docs/specs/index.md` lists it, and `docs/DEBT.md` rows `D9` and `D42` record what this plan reflected and what it deferred, and a new `DEBT` row records the deferred prompt alignment with the next `COMPARE_PROMPT_VERSION` bump as its trigger.
-- [ ] M4: `reconcile()` leaves a matched approved row untouched on a pass that did not change the minutes or the transcript events, `reset_for_versions()` marks an events re-extraction as `transcript_changed` and `reconcile()` stales approved rows on that pass, `build_rows` folds a hunter restatement by its original category before the remap, and the spec, runbook, and script state all three; the new cases in `tests/integration/test_recompare.py` and `tests/unit/test_compare_render.py` were observed red before each source edit and green after.
+- [x] (2026-10-12 05:01Z) M4: `reconcile()` leaves a matched approved row untouched on a pass that did not change the minutes or the transcript events, `reset_for_versions()` marks an events re-extraction as `transcript_changed` and `reconcile()` stales approved rows on that pass, `build_rows` folds a hunter restatement by its original category before the remap, and the spec, runbook, and script state all three; the new cases in `tests/integration/test_recompare.py` and `tests/unit/test_compare_render.py` were observed red before each source edit and green after.
 
 ## Surprises & Discoveries
 
@@ -30,6 +30,13 @@ Two things were found while authoring and shaped the plan; the entries after the
 
 - Observation: `grep -c` counts matching lines, not matches, so a spec written as the plan asked (prose paragraphs, no lists) can say `minutes_changed` three times and still print `1` for the M3 acceptance grep.
   Evidence: `grep -c 'minutes_changed' docs/specs/transcripts.md` printed `1` and `grep -o 'minutes_changed' docs/specs/transcripts.md | wc -l` printed `3` on the first draft (2026-10-12, M3 session); after naming the keyword in the second Re-comparison paragraph the counts are `2` and `3`.
+
+- Observation: the phrase the M4 acceptance greps for, `Nothing has been executed yet`, is quoted by three other lines of this plan (the review record's minor, the M4 Plan of Work paragraph, and the M4 acceptance clause itself), so after fixing the Surprises opening sentence `grep -c` prints `3`, not `0`; those lines are history and acceptance text and were not rewritten.
+  Evidence: `grep -n 'Nothing has been executed yet' plans/active/transcript-compare-row-fidelity.md` printed lines 89, 209, and 275 after the edit (2026-10-12, M4 session); line 24 no longer matches.
+- Observation: `advance()` in `pipeline.py` writes `compare_skipped_reason = outcome.skipped_reason` for every stage, so the events stage's own status write (`StageOutcome("events_extracted", skipped_reason=None)` when the minutes side is fine) would have cleared the `'transcript_changed'` marker before the compare claim read it. The carry-through is in `advance()`: a stage whose outcome carries no reason and whose next status is not `compared` leaves the column alone. The events stage can still overwrite the marker with `no_minutes` or `minutes_unavailable` when its minutes check fails; that retry then runs as an unchanged pass against rows whose transcript anchors are already NULL. It is the same pre-existing marker-loss shape the review declined for `minutes_changed`, and it is left as is.
+  Evidence: `sed -n 117,128p src/docket/ai/transcripts/pipeline.py` and `sed -n 214,218p src/docket/ai/transcripts/events.py`, read 2026-10-12 before the edit; the new integration test asserts the reason survives `P.advance(tid, P.StageOutcome("events_extracted"))` and that `P.claim_next()` then returns the transcript.
+- Observation: the M4 acceptance's `56 passed` assumed three new tests, but its item (1) changes the assertions of an existing test rather than adding one; two tests were added (the events-bump integration test and the fold-in unit test), so the three files print `55 passed`.
+  Evidence: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/integration/test_recompare.py tests/unit/test_aligner.py tests/unit/test_compare_render.py -q -p no:cacheprovider` printed `55 passed in 2.70s` (2026-10-12, M4 session); the review commit printed `53 passed`.
 
 ## Decision Log
 
@@ -96,6 +103,22 @@ Two things were found while authoring and shaped the plan; the entries after the
   Rationale: the review's claim was checked against `compare.py` lines 372 to 401, the two templates, and the committed test, which asserted the overwrite; freezing the approved row is the smallest change that makes the public promise true and makes the citation special case unnecessary. Re-anchoring approved rows to re-extracted events was considered and rejected: the kept excerpt could no longer be guaranteed to match the new event. Production rows are unaffected until the next compare pass; their counts were not read for this decision.
   Date/Author: 2026-10-12, operator (Darrell Nance, with Claude).
 
+- Decision: `write_rows()` returns `inserted + updated + kept`, and the compare stage's `rows=%d` log and "N proposed of M rows" detail count kept rows.
+  Rationale: the count means "model rows accounted for"; a kept row is a model row that matched an approved one, and excluding it would let `proposed` exceed the total in the detail string.
+  Date/Author: 2026-10-12, M4 session.
+- Decision: the carry-through the Plan of Work asked for lives in `advance()` as a SQL `CASE` (keep the column when the outcome carries no reason and the next status is not `compared`), not in the events stage; a completed compare still clears the column and a skip still writes its reason.
+  Rationale: `advance()` is the single write the Plan of Work named; a read-then-write in the events stage would duplicate the rule in a second place. The existing compare-stage test that asserts `("compared", None)` after `advance()` still passes.
+  Date/Author: 2026-10-12, M4 session.
+- Decision: `test_reconcile_minutes_changed_flag_decides_whether_approved_rows_go_stale` (M2) is updated to the freeze rule: the matched approved row keeps `title == "original"` and its `prompt_version`, and `reconcile()` returns `kept == 1`. The Plan of Work's M4 test list did not name this test, but it asserted the refresh rule M4 reverses and failed after the `reconcile` edit; it is inside the milestone's boundary.
+  Rationale: the alternative, leaving it red, fails the `no failed` acceptance; deleting it loses the only direct test of the flag. The red output before the change is in Artifacts and Notes.
+  Date/Author: 2026-10-12, M4 session.
+- Decision: the events-bump integration test also asserts that `advance()` carries `'transcript_changed'` through to `events_extracted` and that `claim_next()` then claims the transcript, beyond what the Plan of Work listed.
+  Rationale: those are the two plumbing steps M4 relies on between the reset and the compare claim; without them the stale-on-events-bump behaviour is unreachable in production, and the plan asked this session to confirm the reason survives.
+  Date/Author: 2026-10-12, M4 session.
+- Decision: two acceptance clauses are read against what was observed and named as carve-outs rather than met: `grep -c 'Nothing has been executed yet'` prints `3` (the review record, the Plan of Work, and the acceptance clause quote the phrase, and plan history is not rewritten), and the three test files print `55 passed` (two tests were added, not three).
+  Rationale: `skills/plan-execute/SKILL.md` says to name the shortfall against the specific clause rather than tidy history or pad a test count.
+  Date/Author: 2026-10-12, M4 session.
+
 ## Outcomes & Retrospective
 
 M1 closed 2026-10-12 (UTC; the session ran late on 2026-10-11 Central). Every M1 acceptance check was run and met: the probe prints `None None fail fail fail False False`; the two unit files print `43 passed`; the red outputs before each source edit are in Artifacts and Notes (six `FAILED` aligner lines, two `FAILED` render lines with `assert 'vote_outcome' == 'wording'`); `./tools/verify` passed in 141s with exit 0; and the source diff against `origin/main` lists only `aligner.py` and `compare.py`. No carve-out. Issues #116 and #114 are fixed in code; #112 (M2) and the spec and debt rows (M3) remain. One observation for the next session: the plan's Concrete Steps said verify took 180s while authoring; both runs this session took 134s and 141s. Nothing else diverged from the Plan of Work.
@@ -104,7 +127,11 @@ M2 closed 2026-10-12 04:20Z. Every M2 acceptance check was run and met: the two 
 
 M3 closed 2026-10-12 04:41Z. Every M3 acceptance check was run and met: the index row and closing paragraph grep as lines 25 and 27; the spec's first line is `# Transcript comparison`; `minutes_changed` is on 2 lines (after one paragraph edit, the first draft printed `1`; Surprises and the Decision Log hold why); `canonical_result`, `model_category`, and the runbook path each print `1`; the `D42` and `D50` rows carry the plan's slug, `D9` names the spec, and the trigger grep prints `1`; `./tools/verify` passed with exit 0 (168s, inside the 180-second budget but the slowest run of the three sessions; the integration tier took 104s against 78s at the start, on the same code, so the difference is the machine, not the tree); the tree was clean after the first commit. No carve-out.
 
-Plan as a whole, against its Purpose: the three things it promised are true on this branch. An unchanged-minutes re-compare keeps approved rows as approved with their reviewer (`reconcile`, M2, integration-tested); a model-assigned `vote_outcome` is written as `wording` (`model_category`, M1, unit-tested); the vote vocabulary reads continuations as no outcome and approved denials as fail (`canonical_result`, M1, unit-tested; the probe prints `None None fail fail fail False False`). The behaviour is reflected in `docs/specs/transcripts.md` and the runbook; the deferrals are `D42` (re-armed) and `D50` (fires on the next `COMPARE_PROMPT_VERSION` bump). What remains is outside the milestones: the pull request `cycle-run` opens from this branch must carry `Closes #112`, `Closes #114`, and `Closes #116`; the retro moves this file to `plans/completed/`. Lessons: a prose-only spec and a `grep -c` acceptance can disagree on counting, so an acceptance written as "at least N" should say lines or occurrences; and the verify budget held in every session but with less margin on the last run than the first.
+M4 closed 2026-10-12 05:01Z. Every M4 acceptance check was run; two are named as carve-outs rather than met. Met: the source greps (`kept=` 1; `transcript_changed` 7, 4, 1 across `compare.py`, `pipeline.py`, and the script; the missing-citation special case 0); the doc greps (`transcript_changed` 2 and 1; `refreshed in place` 0); the source diff-stat lists exactly `aligner.py`, `compare.py`, `pipeline.py`, and `transcript_recompare.py`; `./tools/verify` passed with exit 0 in 175s; the tree was clean after the first M4 commit; every red output is in Artifacts and Notes (the changed assertions, the M2 flag test after the `reconcile` edit, the events-bump test before the `pipeline.py` edit, the fold-in test before the `build_rows` edit). Carve-outs: the three test files print `55 passed`, not `56`, because M4 added two tests and changed one; and `grep -c 'Nothing has been executed yet'` on this plan prints `3`, not `0`, because the review record, the M4 Plan of Work paragraph, and the acceptance clause itself quote the phrase and plan history is not rewritten; the Surprises opening sentence, the only line the minor was about, no longer carries it. One addition beyond the Plan of Work, logged: `advance()` carries the `'transcript_changed'` marker through the events stage, which the plan asked this session to confirm and which was found not to hold without the edit. One edge left as is and recorded in Surprises: an events stage whose minutes check fails overwrites the marker with its own reason.
+
+Plan as a whole, superseding the paragraph below (written at M3, before the review): the three things the Purpose promised are true on this branch, and the review's severe finding is closed. An unchanged-input re-compare now leaves an approved row exactly as the person approved it, text and `prompt_version` included, so the public page's "reviewed by a person" claim holds after any prompt bump or manual rerun (`reconcile`, M2 then M4, integration-tested); an `EVENTS_PROMPT_VERSION` bump stales approvals through `compare_skipped_reason = 'transcript_changed'` the way the runbook always said (M4, integration-tested through reset, advance, and claim); a hunter restating the tally mismatch folds into the deterministic row again (M4, unit-tested); a model-assigned `vote_outcome` is written as `wording` (M1); and the vote vocabulary reads continuations as no outcome and approved denials as fail (M1). The spec and runbook describe all of it in the present tense. What remains is outside the milestones: the pull request must carry `Closes #112`, `Closes #114`, and `Closes #116`, and the retro moves this file to `plans/completed/`. Lessons added by M4: an acceptance that counts "new tests" should count test functions, not test edits; an acceptance grep over the plan file itself will match the plan's own quotation of the phrase, so such a clause should name the line it means; and a marker column written by one stage and read by a later one needs the intermediate stage's write checked, which the plan did ask for and which turned out to matter.
+
+Plan as a whole, against its Purpose (written at M3): the three things it promised are true on this branch. An unchanged-minutes re-compare keeps approved rows as approved with their reviewer (`reconcile`, M2, integration-tested); a model-assigned `vote_outcome` is written as `wording` (`model_category`, M1, unit-tested); the vote vocabulary reads continuations as no outcome and approved denials as fail (`canonical_result`, M1, unit-tested; the probe prints `None None fail fail fail False False`). The behaviour is reflected in `docs/specs/transcripts.md` and the runbook; the deferrals are `D42` (re-armed) and `D50` (fires on the next `COMPARE_PROMPT_VERSION` bump). What remains is outside the milestones: the pull request `cycle-run` opens from this branch must carry `Closes #112`, `Closes #114`, and `Closes #116`; the retro moves this file to `plans/completed/`. Lessons: a prose-only spec and a `grep -c` acceptance can disagree on counting, so an acceptance written as "at least N" should say lines or occurrences; and the verify budget held in every session but with less margin on the last run than the first.
 
 ## Context and Orientation
 
@@ -315,6 +342,12 @@ M2, the script banner:
 Observed today: `usage: transcript_recompare.py [-h] --meeting-id MEETING_ID [--now]` and `exit=0`. Expected after: `usage: transcript_recompare.py [-h] --meeting-id MEETING_ID [--now] [--minutes-changed]`.
 
 M3: the grep lines under Milestone 3 acceptance.
+
+M4, the three acceptance files together (run after each red step and at the end; observed outputs are in Artifacts and Notes under the M4 session):
+
+    DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/integration/test_recompare.py tests/unit/test_aligner.py tests/unit/test_compare_render.py -q -p no:cacheprovider; tools/test-db --drop
+
+Observed at the end of M4: `55 passed in 2.70s`. The script banner with `COLUMNS=120` observed: `usage: transcript_recompare.py [-h] --meeting-id MEETING_ID [--now] [--minutes-changed | --transcript-changed]`.
 
 Commits: `git add <files> plans/active/transcript-compare-row-fidelity.md && git commit -m "<message>"`, never with `--no-verify`. Commit messages begin `plan: transcript-compare-row-fidelity M<n>, ...` and end with the attribution line the session's instructions give.
 
@@ -544,6 +577,32 @@ Fold-in unit test added and run before the `build_rows` edit, `DATABASE_URL=$(to
     FAILED tests/unit/test_compare_render.py::test_hunter_restating_the_deterministic_tally_row_is_folded
     1 failed, 9 passed in 0.93s
 
+After the `build_rows` edit and the spec and runbook edits, the three acceptance files, `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_compare_render.py tests/unit/test_aligner.py tests/integration/test_recompare.py -q -p no:cacheprovider; tools/test-db --drop` (observed): `55 passed in 2.70s`.
+
+M4 acceptance greps on commit `3789398` (observed):
+
+    grep -c "kept=" src/docket/ai/transcripts/compare.py                              -> 1
+    grep -c "transcript_changed" compare.py pipeline.py scripts/transcript_recompare.py -> 7, 4, 1
+    grep -c 'citation_match\] == "missing"' src/docket/ai/transcripts/compare.py       -> 0
+    grep -c 'transcript_changed' docs/specs/transcripts.md docs/runbooks/transcripts.md -> 2, 1
+    grep -c 'refreshed in place' docs/runbooks/transcripts.md                           -> 0
+    grep -c 'Nothing has been executed yet' plans/active/transcript-compare-row-fidelity.md -> 3 (lines 89, 209, 275; see Surprises)
+    git diff --stat origin/main -- src/ scripts/  -> transcript_recompare.py | 19, aligner.py | 9, compare.py | 81, pipeline.py | 33; 4 files changed
+
+`git status --porcelain` after commit `3789398` printed nothing.
+
+Closing `./tools/verify; echo "exit=$?"` on commit `3789398` (observed):
+
+    verify: test-db ... ok (0s) postgresql://docket@localhost:5432/docket_test_2dae8997
+    verify: unit+web+services ... ok (67s)
+    verify: integration ... ok (105s)
+    verify: judge-fixtures ... ok (3s)
+    verify: workflows ... ok (0s)
+    verify: all 4 checks passed in 175s.
+    exit=0
+
+The tiers printed `1875 passed, 5 skipped, 4 xfailed` and `621 passed`, one more than at the session start in each tier (the fold-in unit test and the events-bump integration test). 175s is inside the 180-second budget with five seconds to spare; the integration tier took 105s against 94s at the start on a tree that adds one test, so the margin is the machine.
+
 ## Interfaces and Dependencies
 
 No new libraries. In `src/docket/ai/transcripts/aligner.py`, at module level:
@@ -556,11 +615,13 @@ No new libraries. In `src/docket/ai/transcripts/aligner.py`, at module level:
 In `src/docket/ai/transcripts/compare.py`:
 
     def model_category(category: str, *, meeting_id: int, origin: str, title: str) -> str
-    def reconcile(meeting_id: int, rows: list[dict], *, minutes_changed: bool = False) -> dict   # {"inserted", "updated", "stale"}
-    def write_rows(meeting_id: int, rows: list[dict], *, minutes_changed: bool = False) -> int
+    def reconcile(meeting_id: int, rows: list[dict], *, minutes_changed: bool = False, transcript_changed: bool = False) -> dict   # {"inserted", "updated", "kept", "stale"}
+    def write_rows(meeting_id: int, rows: list[dict], *, minutes_changed: bool = False, transcript_changed: bool = False) -> int   # inserted + updated + kept
 
-`run_compare_stage(claim, *, client)` keeps its signature and derives `minutes_changed` from `claim["compare_skipped_reason"]`. `reset_for_versions()` in `pipeline.py` keeps its signature and return value (count of transcripts moved). `scripts/transcript_recompare.py` accepts `--meeting-id N [--now] [--minutes-changed]`. The `minutes_discrepancies` schema, `prompts.py`, and `schemas.py` are unchanged.
+`run_compare_stage(claim, *, client)` keeps its signature and derives `minutes_changed` and `transcript_changed` from `claim["compare_skipped_reason"]` (`'minutes_changed'` and `'transcript_changed'`). `reset_for_versions()` in `pipeline.py` keeps its signature and return value (count of transcripts moved); its events branch writes `compare_skipped_reason = 'transcript_changed'`, `CLAIM_SQL` accepts that value, and `advance(transcript_id, outcome)` keeps the column when `outcome.skipped_reason` is `None` and `outcome.next_status` is not `'compared'`. `scripts/transcript_recompare.py` accepts `--meeting-id N [--now] [--minutes-changed | --transcript-changed]`. The `minutes_discrepancies` schema, `prompts.py`, and `schemas.py` are unchanged.
 
 ## Revision notes
 
 2026-10-11, authored. The scope brief's out-of-scope items are deliberately left out: paying `D42` (four files, against the one-small-PR ask; trigger re-armed); dropping `vote_outcome` from the judge and hunter category lists and the `Literal` types (a prompt change rides a paid `COMPARE_PROMPT_VERSION` bump); widening `_PASS_WORDS` (not needed for any goal case); #112 option B (migration plus UI); issues #113 and #115 (audits, not fixes); the historical design document (history per `AGENTS.md`); `tests/unit/test_pipeline_reset.py` (does not exist; `reset_for_versions` is covered in `tests/integration/test_transcript_pipeline.py`). Added beyond the brief, for reasons the Decision Log gives: `reset_for_versions` stops counting approved rows, and a matched approved row keeps its verified citation.
+
+2026-10-12, M4 session. Revised for the milestone the operator added after the review: Progress line M4 ticked; Surprises gains three entries (the plan's own quotations of the acceptance phrase, the `advance()` carry-through and the marker-loss edge it leaves, the test-count arithmetic); the Decision Log gains five M4 entries; Outcomes gains the M4 entry and a superseding plan-completion paragraph above the M3 one, which stays; Interfaces and Dependencies shows the `transcript_changed` keyword, the `kept` key, the `advance()` rule, and the script's exclusive flags; Concrete Steps gains the M4 command block; Artifacts and Notes gains the M4 session. The two review minors on this plan's text were fixed as the M4 Plan of Work asked.
