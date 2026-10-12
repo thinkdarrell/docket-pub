@@ -163,6 +163,8 @@ Discarded, each with the materiality question it failed. The grep-count conflict
 
 Undecided, left to the operator. Whether the pull request from `plan/calibration-float-scores` is opened by the factory's publish stage or by hand, since the cycle-run halted at the review and `D43` says a rerun past the retro's move is refused.
 
+Observed after the routed edits and the closing section were committed (HEAD `10633af`, before this file moved): `./tools/verify` printed `verify: test-db ... ok (0s)`, `verify: unit+web+services ... ok (58s)` (`1858 passed, 5 skipped, 4 xfailed`), `verify: integration ... ok (84s)` (`618 passed`), `verify: judge-fixtures ... ok (4s)` (`12 of 12 passed`), `verify: workflows ... ok (0s)`, `verify: all 4 checks passed in 146s.`, exit 0, started 02:21Z and finished 02:24Z; `git status --porcelain` printed nothing. This file then moved to `plans/completed/calibration-float-scores.md`; the `plans/active/calibration-float-scores.md` paths in the entries above are the record of where it lived while in flight.
+
 ## Context and Orientation
 
 docket.pub is a Python 3.10 application: a Flask web app in `src/docket/web/`, an APScheduler worker in `src/docket/worker/`, services in `src/docket/services/` that own every database transaction, and an AI pipeline in `src/docket/ai/`. One PostgreSQL database holds everything. `AGENTS.md` at the repository root is the map and names the commands. Run every command from the worktree root with that checkout's own `venv/` (`venv/bin/python`); `venv/bin/python -c "import docket; print(docket.__file__)"` must print a path inside this worktree.
