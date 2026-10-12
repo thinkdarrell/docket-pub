@@ -40,8 +40,12 @@ that shows it was corrected, before starting work.
 ## Execute
 
 Observe the starting state before editing: run the cheap verification command
-from `AGENTS.md` first. A failure that was already there is a finding to
-record, and it is not this milestone's job to quietly absorb it.
+from `AGENTS.md` first, and make no edit until it has printed its exit line.
+A run whose test tier collects a file edited after it started measures
+neither the starting state nor the finished one, and the session then owes a
+Decision Log entry explaining a result it cannot stand behind. A failure that
+was already there is a finding to record, and it is not this milestone's job
+to quietly absorb it.
 
 Do this milestone's work and nothing adjacent to it. Improvements you notice
 in passing go to `docs/DEBT.md`, or into the plan as a later milestone, or
