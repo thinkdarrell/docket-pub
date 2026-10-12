@@ -16,7 +16,7 @@ How to see it working: `venv/bin/python -c "from docket.ai.transcripts.aligner i
 
 - [ ] M1: `canonical_result` in `src/docket/ai/transcripts/aligner.py` reads continued-item words as no outcome and the deny, reject, and defeat stems as fail, and `build_rows` in `src/docket/ai/transcripts/compare.py` writes a model-assigned `vote_outcome` category as `wording`; the new cases in `tests/unit/test_aligner.py` and `tests/unit/test_compare_render.py` were observed red before each source edit and green after.
 - [ ] M2: `reconcile()` in `src/docket/ai/transcripts/compare.py` keeps approved rows through a pass whose claim does not carry `compare_skipped_reason = 'minutes_changed'`, `reset_for_versions()` in `src/docket/ai/transcripts/pipeline.py` no longer counts approved rows, `scripts/transcript_recompare.py` takes `--minutes-changed`, and the runbook and the script docstring state the policy; the new cases in `tests/integration/test_recompare.py` were observed red before the source edits and green after.
-- [ ] M3: `docs/specs/transcripts.md` describes the comparison stage's reconcile policy, category remap, and vote-result vocabulary in the present tense, `docs/specs/index.md` lists it, and `docs/DEBT.md` rows `D9` and `D42` record what this plan reflected and what it deferred.
+- [ ] M3: `docs/specs/transcripts.md` describes the comparison stage's reconcile policy, category remap, and vote-result vocabulary in the present tense, `docs/specs/index.md` lists it, and `docs/DEBT.md` rows `D9` and `D42` record what this plan reflected and what it deferred, and a new `DEBT` row records the deferred prompt alignment with the next `COMPARE_PROMPT_VERSION` bump as its trigger.
 
 ## Surprises & Discoveries
 
@@ -62,6 +62,9 @@ Nothing has been executed yet. Two things were found while authoring and shaped 
 - Decision: the scope brief's out-of-scope items are left out of this plan: paying `D42`; dropping `vote_outcome` from the judge and hunter category lists in `prompts.py` and the `Literal` in `schemas.py`; widening `_PASS_WORDS`; option B of #112; issues #113 and #115; editing the historical design document under `docs/superpowers/specs/`; a new `tests/unit/test_pipeline_reset.py`.
   Rationale: each is either a prompt-version cost, a migration, an audit rather than a fix, or history rather than current behaviour. See the revision note at the end.
   Date/Author: 2026-10-11, plan author.
+- Decision: M3 also adds a `docs/DEBT.md` row for the deferred prompt alignment (issue #114), with the next `COMPARE_PROMPT_VERSION` bump as its trigger.
+  Rationale: the #114 decision above defers removing `vote_outcome` from the prompts and the `Literal` for cost reasons but recorded that deferral only in this plan; a register row with the bump as its trigger makes the deferral fire on its own when someone next edits the prompt, instead of relying on memory. Raised by an outside review of the plan; the review's other points (regex vocabulary breadth, extracting reconcile's state transitions into a pure function, logging when pass and fail words both match) were read and left out as either already handled by the fail-first order and the widened no-outcome list or out of a three-issue PR's scope.
+  Date/Author: 2026-10-12, operator (Darrell Nance, with Claude).
 
 ## Outcomes & Retrospective
 
@@ -157,7 +160,7 @@ M3, new file `docs/specs/transcripts.md`, present tense, about thirty lines, no 
 
 M3, `docs/specs/index.md`: add one table row after the `calibration.md` row, first cell `` `transcripts.md` ``, second cell: The transcript comparison stage: which categories a model may assign, how a vote result is read, and what a re-comparison does to reviewed rows. Change the closing paragraph so it says the areas `D9` lists have no spec yet except the transcript comparison stage, which `transcripts.md` covers.
 
-M3, `docs/DEBT.md`: in row `D9`, change the Item cell to end "transcripts (except the comparison stage's reconcile policy, category remap, and vote-result vocabulary, in `docs/specs/transcripts.md`)". In row `D42`, append to the "Why deferred" cell: "; the plan `transcript-compare-row-fidelity` (2026-10) changed `compare.py` and deferred it again to keep that PR small". The trigger cell is unchanged.
+M3, `docs/DEBT.md`: in row `D9`, change the Item cell to end "transcripts (except the comparison stage's reconcile policy, category remap, and vote-result vocabulary, in `docs/specs/transcripts.md`)". In row `D42`, append to the "Why deferred" cell: "; the plan `transcript-compare-row-fidelity` (2026-10) changed `compare.py` and deferred it again to keep that PR small". The trigger cell is unchanged. Add one new row at the end of the register, numbered one above the highest existing ID: Item "Judge and hunter prompts still list `vote_outcome` as an assignable category; `model_category` in `compare.py` remaps it to `wording` after the fact"; Where `src/docket/ai/transcripts/prompts.py` (judge and hunter category lists), `src/docket/ai/transcripts/schemas.py` (the `Literal`), `src/docket/ai/transcripts/compare.py` (`model_category`); Why deferred "Dropping the word from the prompt is a prompt change that rides a `COMPARE_PROMPT_VERSION` bump, which `reset_for_versions` turns into a paid Opus re-compare of every compared meeting (issue #114, plan `transcript-compare-row-fidelity`, 2026-10)"; Trigger "The next `COMPARE_PROMPT_VERSION` bump removes `vote_outcome` from both prompt category lists and the `Literal`, and `model_category` then becomes a guard that logs instead of a remap".
 
 ## Milestones
 
@@ -207,7 +210,7 @@ Acceptance, from the worktree root:
 
 `grep -n 'transcripts.md' docs/specs/index.md` prints one table row naming the file. `head -1 docs/specs/transcripts.md` prints `# Transcript comparison`. `grep -c 'minutes_changed' docs/specs/transcripts.md` prints at least `2`; `grep -c 'canonical_result' docs/specs/transcripts.md` and `grep -c 'model_category' docs/specs/transcripts.md` each print at least `1`; `grep -c 'docs/runbooks/transcripts.md' docs/specs/transcripts.md` prints at least `1`.
 
-`grep -n 'transcript-compare-row-fidelity' docs/DEBT.md` prints the `D42` row; `grep -n 'docs/specs/transcripts.md' docs/DEBT.md` prints the `D9` row.
+`grep -n 'transcript-compare-row-fidelity' docs/DEBT.md` prints the `D42` row and the new prompt-alignment row; `grep -n 'docs/specs/transcripts.md' docs/DEBT.md` prints the `D9` row; `grep -c 'COMPARE_PROMPT_VERSION. bump removes' docs/DEBT.md` prints `1`.
 
 `./tools/verify; echo "exit=$?"` prints `verify: all 4 checks passed in <n>s.` and `exit=0`, and `git status --porcelain` prints nothing.
 
