@@ -341,6 +341,28 @@ Closing `./tools/verify; echo "exit=$?"` on the M1 tree (observed):
     verify: all 4 checks passed in 141s.
     exit=0
 
+### M2 session (2026-10-12, commit `ad31cd1` at start)
+
+Starting state, observed before any edit, `./tools/verify; echo "exit=$?"`:
+
+    verify: test-db ... ok (1s) postgresql://docket@localhost:5432/docket_test_2dae8997
+    verify: unit+web+services ... ok (56s)
+    verify: integration ... ok (78s)
+    verify: judge-fixtures ... ok (4s)
+    verify: workflows ... ok (0s)
+    verify: all 4 checks passed in 139s.
+    exit=0
+
+Recompare tests added, run before the `compare.py` and `pipeline.py` edits, `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/integration/test_recompare.py -q -p no:cacheprovider; tools/test-db --drop` (observed):
+
+    E       AssertionError: assert ('proposed' == 'approved'
+    E       TypeError: reconcile() got an unexpected keyword argument 'minutes_changed'
+    FAILED tests/integration/test_recompare.py::test_approved_rows_survive_an_unchanged_minutes_rerun
+    FAILED tests/integration/test_recompare.py::test_reconcile_minutes_changed_flag_decides_whether_approved_rows_go_stale
+    2 failed, 8 passed in 2.75s
+
+The first failure is at the wording row's `review_state` assertion, the second at the first `reconcile(..., minutes_changed=False)` call, as the Plan of Work expected.
+
 ## Interfaces and Dependencies
 
 No new libraries. In `src/docket/ai/transcripts/aligner.py`, at module level:
