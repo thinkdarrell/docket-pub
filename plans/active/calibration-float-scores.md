@@ -13,7 +13,7 @@ After this plan, an operator who opens `/admin/calibration` while a scored item 
 ## Progress
 
 - [x] (2026-10-11 23:50Z) M1: both calibration query files read `score_overrides` scores through `::numeric::int` and filter on `ai.ai_generated_at`; `tests/integration/test_calibration.py` seeds float-valued scores and runs every calibration query on a real database; the `calibration_report` task completes against a database holding a float-valued row.
-- [ ] M2: `docs/specs/calibration.md` describes the calibration report and dashboard in the present tense, `docs/specs/index.md` lists it, and `docs/runbooks/v3-cutover.md` item #56 says the task is fixed and by which change.
+- [x] (2026-10-12 00:00Z) M2: `docs/specs/calibration.md` describes the calibration report and dashboard in the present tense, `docs/specs/index.md` lists it, and `docs/runbooks/v3-cutover.md` item #56 says the task is fixed and by which change.
 
 ## Surprises & Discoveries
 
@@ -95,6 +95,10 @@ Nothing has been executed yet. The entries below were observed while authoring t
 Nothing has been executed yet. When the plan completes, this section states, against the Purpose above: whether `/admin/calibration` returns 200 with a float-scored item visible, whether the worker task logs its summary line against a float-valued row, the before-and-after test counts, that the writer and the production rows were left unchanged, that `D9` remains open for the rest of the AI pipeline, and that the `QUERY_C` low-volume-filter difference between the two files is known and unresolved. It also carries the recommendation that the operator set `HEALTHCHECK_CALIBRATION_UUID` on the Railway `worker` service so the next silent failure of this task alerts.
 
 M1 outcome (2026-10-11 23:50Z): against the Purpose, the worker task now logs `calibration_report: divergence=1 underscoring=0 overscoring=0 drift_alerts=0 cache_cleanup=0` and no failure traceback on a database holding one float-valued row (observed via `--run-once`), and `/admin/calibration` returns 200 and lists a float-scored item with its `#<id>` and a `sig_delta` cell of `7` (observed via `test_calibration_dashboard_renders_float_valued_item`). Test counts in `tests/integration/test_calibration.py` went from `28 passed` (before this plan) to `5 failed, 28 passed` (tests added, SQL unchanged) to `33 passed` (SQL fixed). The writer (`rewrite_schema.py`, `pipeline.py`, `floors.py`) and the production rows are unchanged; `git diff --stat origin/main -- src/` lists only the two calibration files. `D9` remains open; the `QUERY_C` low-volume-filter difference between the two files is unchanged. The final `./tools/verify` on the committed M1 tree printed `verify: all 4 checks passed in 124s.` and `exit=0` (integration tier `616 passed`, up from `611` plus the five new tests; transcript in Artifacts and Notes). Every M1 acceptance clause was met; no carve-out. M2 (documentation) remains.
+
+M2 outcome (2026-10-12 00:00Z): `docs/specs/calibration.md` (29 lines, present tense) describes what calibration compares, where `score_overrides` lives and that its scores are JSON floats, the worker's one log line with the meaning of its five counters, the six dashboard panels with their windows and thresholds, the two reading rules (`::numeric::int`, `ai_generated_at`), the silent-by-design Healthchecks ping, and the Query C low-volume-filter difference. `docs/specs/index.md` lists it on the row after `operations.md`; `docs/runbooks/v3-cutover.md` line 178 begins `- **#56 (FIXED)** —` and ends with the branch-and-issue reference (`gh pr list` printed `[]`). Every M2 acceptance grep printed the expected value, the final `./tools/verify` on b7c5021 printed `verify: all 4 checks passed in 143s.` and `exit=0`, and `git status --porcelain` printed nothing. No carve-out.
+
+Plan completion (2026-10-12 00:00Z), against the Purpose. An operator who opens `/admin/calibration` with a float-scored item in the last 24 hours now gets HTTP 200 with the item in the per-item divergence panel (observed through Flask's test client in `test_calibration_dashboard_renders_float_valued_item`); the `calibration_report` task logs `calibration_report: divergence=1 underscoring=0 overscoring=0 drift_alerts=0 cache_cleanup=0` and no `task=calibration_report failed` line against a database holding one production-shaped float row (observed via `--run-once`); and `tests/integration/test_calibration.py` went from 28 tests to 33, the five new ones red on the old SQL and green on the new, running every calibration query in both files on a real cursor. The writer (`rewrite_schema.py`, `pipeline.py`, `floors.py`) and the 39,236 production rows are unchanged; `src/` differs from `origin/main` only in the two calibration files. What remains outside this plan: `D9` stays open for the rest of the AI pipeline (only the calibration sliver is reflected into `docs/specs/`); the two readers' Query C low-volume filters still differ and are now written down in the spec; the production fix arrives only when a human deploys `main` after the pull request merges, at which point the next 11:00 America/Chicago run should log its summary line. Recommendation to the operator: set `HEALTHCHECK_CALIBRATION_UUID` on the Railway `worker` service so the next silent failure of this task alerts; this task crashed daily for five months without anyone being told. Lessons: a mock-cursor test that checks SQL by identity proves nothing about the SQL, and a seed helper that serialises `int` could never reproduce a bug caused by the writer serialising `float`; both were in place and both passed the whole time. Timestamps in evidence must be read from the clock, not estimated, which cost M1 a correction commit.
 
 ## Context and Orientation
 
@@ -357,6 +361,19 @@ M2 session, 2026-10-11 23:55Z, documentation edits and their checks:
     1
     1
 
+M2 session, 2026-10-11 23:59Z, final verify on the committed M2 tree (b7c5021), started 23:57Z:
+
+    $ ./tools/verify; echo "exit=$?"
+    verify: test-db ... ok (0s) postgresql://docket@localhost:5432/docket_test_2cf3596f
+    verify: unit+web+services ... ok (58s)     (1858 passed, 5 skipped, 4 xfailed)
+    verify: integration ... ok (82s)           (616 passed)
+    verify: judge-fixtures ... ok (3s)         (judge fixtures: 12 of 12 passed)
+    verify: workflows ... ok (0s)
+    verify: all 4 checks passed in 143s.
+    exit=0
+    $ git status --porcelain
+    (nothing)
+
 ## Interfaces and Dependencies
 
 No new module, function, or dependency. The interfaces that must hold at the end:
@@ -375,3 +392,4 @@ Libraries: psycopg2 (already pinned in `requirements.lock`) for the cursor; pyte
 
 - 2026-10-11, authored. The plan folds in the read-only scope brief for issue #110 and corrects two of its counts from observation (zero non-`score_overrides` `::int` casts, not seven; five `ai.updated_at` tokens, not four). Deliberately left out, as the brief's out-of-scope list and the Decision Log record: changing the writer so `score_overrides` stores integers; backfilling the 39,236 float-valued production rows; consolidating `src/docket/ai/calibration.py` onto the service functions (which would touch `src/docket/worker/tasks.py` and its mock-cursor tests, and is where the two files' differing `QUERY_C` low-volume filters would be reconciled); setting `HEALTHCHECK_CALIBRATION_UUID` on Railway; and the `::float` casts, which divide integer counts. Also left out: a full AI-pipeline spec for `D9`; this plan reflects only the calibration sliver.
 - 2026-10-11 23:50Z, M1 session. Living sections updated with observed evidence for M1. Two Surprises entries and one Artifacts heading from commit ff1a4db carried a guessed timestamp of 2026-10-12 00:05Z; the clock actually read 2026-10-11 23:46Z, and the entries now say so with the correction visible. The docstring sentences describe the cast in words rather than quoting `::numeric::int`, so the grep acceptance stays meaningful (Decision Log).
+- 2026-10-12 00:00Z, M2 session. Living sections updated with observed evidence for M2 and a plan-completion entry in Outcomes & Retrospective. The spec names the `drift_alerts` counting rule, which the Plan of Work did not enumerate (Decision Log). The move to `plans/completed/` is left to the factory's closing sequence (`docs/specs/operations.md`, Running the factory), which this session does not operate.
