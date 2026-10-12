@@ -8,7 +8,7 @@
 > FINAL-2 sections below are no longer actionable — see the Rollback
 > Procedure for the operationally-relevant portion. Several outstanding
 > follow-ups referenced here (#54 usage threading, #57 self-deadlock)
-> have since shipped; see `~/docket-pub/CLAUDE.md` for current state.
+> have since shipped; see `AGENTS.md` and `docs/DEBT.md` for current state.
 
 The Impact-First Refactor Phase 2 ships the v3 AI pipeline (Stage 1 extraction → Stage 2 Smart Brevity rewrite → Stage 2.5 floors → reconcile → atomic commit with badges) behind the `IMPACT_FIRST_ENABLED` env-var flag. The flag defaults to **false** — deploying the code does NOT change production behavior. Flipping the flag at **FINAL-3** is the cutover.
 
