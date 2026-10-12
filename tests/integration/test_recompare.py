@@ -52,7 +52,8 @@ def _states(mid):
         return [dict(r) for r in cur.fetchall()]
 
 
-def test_recompare_updates_matched_rows_in_place_and_leaves_others_stale(pilot):
+def test_recompare_updates_matched_rows_in_place_and_leaves_others_stale(pilot, monkeypatch):
+    """The minutes-changed case: approved rows go stale first and a candidate that comes back is re-proposed in place."""
     info = _seed_events(pilot)
     C.run_compare_stage(_claim(pilot), client=_client(_real_all(info)))
     first = _states(pilot.meeting_id)
@@ -71,7 +72,8 @@ def test_recompare_updates_matched_rows_in_place_and_leaves_others_stale(pilot):
                         "transcript_quote": info["exec_text"] if real else None, "minutes_quote": "go into Executive Session" if real else None,
                         "confidence": 0.9, "dismiss_reason": None if real else "now matches"})
         return out
-    C.run_compare_stage(_claim(pilot), client=_client(verdicts))
+    monkeypatch.setattr(C, "extract_minutes_side", lambda mid, *, client: "ok")   # the stage re-extracts the minutes side on this reason
+    C.run_compare_stage(_claim(pilot, reason="minutes_changed"), client=_client(verdicts))
     second = _states(pilot.meeting_id)
     wording = next(r for r in second if r["category"] == "wording" and r["review_state"] != "dismissed_by_model")
     sequence = next(r for r in second if r["category"] == "sequence" and r["review_state"] != "dismissed_by_model")

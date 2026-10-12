@@ -363,6 +363,16 @@ Recompare tests added, run before the `compare.py` and `pipeline.py` edits, `DAT
 
 The first failure is at the wording row's `review_state` assertion, the second at the first `reconcile(..., minutes_changed=False)` call, as the Plan of Work expected.
 
+Same command after the `compare.py` and `pipeline.py` edits and before the existing test's claim was changed (observed):
+
+    E       AssertionError: assert ('approved', None) == ('proposed', 'approved')
+    FAILED tests/integration/test_recompare.py::test_recompare_updates_matched_rows_in_place_and_leaves_others_stale
+    1 failed, 9 passed in 2.72s
+
+The existing test still sent `compare_skipped_reason = None`, so its approved wording row now survives as approved, which is the new policy; it fails at its `("proposed", "approved")` assertion as the Plan of Work expected.
+
+After change (1) to that test (monkeypatched `extract_minutes_side`, claim `reason="minutes_changed"`) and the one-line assertion in `tests/integration/test_transcript_pipeline.py`, both files together, `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/integration/test_recompare.py tests/integration/test_transcript_pipeline.py -q -p no:cacheprovider; tools/test-db --drop` (observed): `22 passed in 3.17s`.
+
 ## Interfaces and Dependencies
 
 No new libraries. In `src/docket/ai/transcripts/aligner.py`, at module level:

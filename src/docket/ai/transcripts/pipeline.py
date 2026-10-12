@@ -305,8 +305,11 @@ def run_transcript_pipeline(*, limit: int = TRANSCRIPT_PER_TICK, notes: str = "c
 def reset_for_versions() -> int:
     """Bumping a prompt version resets that stage and later ones only (spec: re-runs are per stage).
 
-    The compare reset looks only at live rows: reconcile never re-stamps unmatched stale/rejected rows,
-    so counting them would re-compare the meeting on every tick after a COMPARE_PROMPT_VERSION bump.
+    The compare reset counts only rows the next pass will rewrite (proposed and dismissed_by_model).
+    Approved rows survive an unchanged-minutes pass at their old prompt_version (compare.reconcile,
+    issue #112), and rejected and stale rows are never re-stamped, so counting any of them would
+    re-compare the meeting on every tick after a COMPARE_PROMPT_VERSION bump. A meeting whose live
+    rows are all approved is re-compared by hand with scripts/transcript_recompare.py.
     """
     from docket.ai.transcripts.prompts import COMPARE_PROMPT_VERSION, EVENTS_PROMPT_VERSION
     with db_cursor() as cur:
@@ -319,7 +322,7 @@ def reset_for_versions() -> int:
         cur.execute("""UPDATE transcripts t SET status = 'events_extracted', stage_attempts = 0
                         WHERE t.status = 'compared'
                           AND EXISTS (SELECT 1 FROM minutes_discrepancies d WHERE d.meeting_id = t.meeting_id
-                                         AND d.review_state IN ('proposed', 'approved', 'dismissed_by_model')
+                                         AND d.review_state IN ('proposed', 'dismissed_by_model')
                                          AND d.prompt_version < %s)""", [COMPARE_PROMPT_VERSION])
         return n + cur.rowcount
 
