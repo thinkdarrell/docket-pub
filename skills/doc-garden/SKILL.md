@@ -63,11 +63,9 @@ nothing as well.
 
 1. **References.** Every repository-relative path written in backticks or
    used as a link target resolves to something that exists. Four classes of
-   miss are legitimate and get left alone: a sibling filename cited from
-   inside the directory that owns it, an illustrative filename inside a
-   format document, a path inside a fenced or indented block, which is
-   transcript rather than citation, and a deliberate mention of a file that
-   does not or must not exist. Everything else is a defect.
+   miss are legitimate and get left alone; `docs/capabilities/doc-integrity.md`
+   defines them (sibling, illustrative, quoted, deliberate) and this sweep
+   does not restate them. Everything else is a defect.
 2. **Leftover scaffolding.** No artifact still carries a fill slot or an
    authoring-guidance comment block from the skeleton it was filled from.
    These are self-describing where they survive — an unfilled skeleton's own

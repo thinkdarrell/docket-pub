@@ -212,6 +212,7 @@ def _load_item(item_id: int) -> dict:
                    ai.significance_score, ai.consent_placement_score,
                    ai.score_overrides,
                    ai.ai_extraction_version, ai.ai_rewrite_version,
+                   ai.ai_generated_at,
                    m.municipality_id AS city_id,
                    muni.name AS city_name
               FROM agenda_items ai
@@ -456,6 +457,53 @@ def test_process_item_happy_path_completes_and_writes_badges(bag, monkeypatch):
     # Refactor #2: process badges always write status='applied'.
     by_slug = {b[0]: b for b in badges}
     assert by_slug["legal_settlement"][5] == "applied"
+
+
+def test_process_item_stamps_ai_generated_at(bag, monkeypatch):
+    """A processed item carries ``ai_generated_at`` afterwards.
+
+    Both calibration readers (``src/docket/ai/calibration.py`` and
+    ``src/docket/services/calibration.py``) filter on this column; the v3
+    Phase C UPDATE had never written it, so every v3-scored item was
+    invisible to them (issue #110).
+    """
+    from docket.ai import pipeline
+
+    monkeypatch.setattr(
+        "docket.ai.pipeline.evaluate_data_quality",
+        lambda item: ("ok", "normal"),
+    )
+    monkeypatch.setattr(
+        "docket.ai.pipeline.is_procedural",
+        lambda title: False,
+    )
+    settlement_facts = StructuredFacts.model_validate(
+        {**SAMPLE_FACTS_DICT, "action_type": "settlement"}
+    )
+    monkeypatch.setattr(
+        "docket.ai.pipeline.extract_facts_for_item",
+        lambda *a, **kw: (settlement_facts, "claude-haiku-4-5-20251001"),
+    )
+    monkeypatch.setattr(
+        "docket.ai.pipeline.rewrite_item",
+        lambda *a, **kw: (_substantive_rewrite(), "claude-haiku-4-5-20251001"),
+    )
+
+    m = bag.add_meeting()
+    iid = bag.add_pending_item(
+        m,
+        title="Authorize $250K settlement to claimant",
+        dollars_amount=250_000,
+    )
+    assert _load_item(iid)["ai_generated_at"] is None
+    item = _ItemView(_load_item(iid))
+
+    status = pipeline.process_item(item)
+    assert status == "completed"
+
+    final = _load_item(iid)
+    assert final["processing_status"] == "completed"
+    assert final["ai_generated_at"] is not None
 
 
 def test_pipeline_writes_status_flagged_for_llm_only_policy_badge(bag, monkeypatch):

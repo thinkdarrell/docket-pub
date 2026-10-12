@@ -56,7 +56,13 @@ constrains:
 2. Research until every unknown is either settled in the plan or named as
    unknown. Where feasibility itself is in doubt, the first milestone is a
    prototype whose acceptance is a measurement, and the plan says what result
-   promotes it and what result abandons it.
+   promotes it and what result abandons it. When the work changes what a
+   query reads or which rows it selects, the research reads the rows it will
+   run on: for every column the new predicate or cast touches, a count of
+   the real distribution, taken read-only from production when the local
+   database holds no rows of that shape, recorded in the plan. A row the
+   plan seeds by hand proves the seed, not the writer; a fix verified only
+   on such rows can pass every test while production reports nothing.
 3. Write each candidate milestone's acceptance before its narrative.
    Acceptance is a small number of checks a different person can run or read
    and agree on: a command together with the output it prints, or a named

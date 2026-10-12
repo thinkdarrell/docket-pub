@@ -1,6 +1,10 @@
 """Calibration report queries — daily AI scoring drift detection.
 
 Spec: docs/superpowers/specs/2026-05-05-impact-first-refactor-design.md §3.5.
+The scores in ``score_overrides`` are JSON floats (``9.0``) and are read
+by casting to ``numeric`` and then to ``int``; freshness is
+``ai_generated_at`` because ``agenda_items`` has no ``updated_at``
+column (issue #110).
 Decision #91 cleanup runs alongside (in the worker task, not here).
 """
 from __future__ import annotations
@@ -9,19 +13,19 @@ from __future__ import annotations
 QUERY_A_DIVERGENCE = """
 SELECT
   ai.id, m.municipality_id AS city_id, ai.title,
-  (ai.score_overrides->>'original_ai_significance')::int AS ai_sig,
-  (ai.score_overrides->>'final_significance')::int AS final_sig,
-  (ai.score_overrides->>'final_significance')::int
-    - (ai.score_overrides->>'original_ai_significance')::int AS sig_delta,
+  (ai.score_overrides->>'original_ai_significance')::numeric::int AS ai_sig,
+  (ai.score_overrides->>'final_significance')::numeric::int AS final_sig,
+  (ai.score_overrides->>'final_significance')::numeric::int
+    - (ai.score_overrides->>'original_ai_significance')::numeric::int AS sig_delta,
   ai.extracted_facts->>'action_type' AS action_type,
   ai.score_overrides->'triggers' AS triggers_fired
 FROM agenda_items ai
 JOIN meetings m ON m.id = ai.meeting_id
 WHERE ai.score_overrides IS NOT NULL
-  AND ai.updated_at > NOW() - INTERVAL '24 hours'
+  AND ai.ai_generated_at > NOW() - INTERVAL '24 hours'
   AND ABS(
-      COALESCE((ai.score_overrides->>'final_significance')::int, 0)
-      - COALESCE((ai.score_overrides->>'original_ai_significance')::int, 0)
+      COALESCE((ai.score_overrides->>'final_significance')::numeric::int, 0)
+      - COALESCE((ai.score_overrides->>'original_ai_significance')::numeric::int, 0)
   ) > 3
 ORDER BY sig_delta DESC;
 """
@@ -33,18 +37,18 @@ WITH category_stats AS (
     ai.ai_rewrite_version AS prompt_version,
     COUNT(*) AS total_items,
     COUNT(*) FILTER (
-      WHERE (ai.score_overrides->>'final_significance')::int
-            > (ai.score_overrides->>'original_ai_significance')::int
+      WHERE (ai.score_overrides->>'final_significance')::numeric::int
+            > (ai.score_overrides->>'original_ai_significance')::numeric::int
     ) AS items_with_sig_boost,
     AVG(CASE
-          WHEN (ai.score_overrides->>'final_significance')::int
-               > (ai.score_overrides->>'original_ai_significance')::int
-          THEN (ai.score_overrides->>'final_significance')::int
-               - (ai.score_overrides->>'original_ai_significance')::int
+          WHEN (ai.score_overrides->>'final_significance')::numeric::int
+               > (ai.score_overrides->>'original_ai_significance')::numeric::int
+          THEN (ai.score_overrides->>'final_significance')::numeric::int
+               - (ai.score_overrides->>'original_ai_significance')::numeric::int
         END) AS avg_boost_magnitude
   FROM agenda_items ai
   WHERE ai.processing_status = 'completed'
-    AND ai.updated_at > NOW() - INTERVAL '7 days'
+    AND ai.ai_generated_at > NOW() - INTERVAL '7 days'
   GROUP BY action_type, prompt_version
 )
 SELECT *,
@@ -62,18 +66,18 @@ WITH category_stats AS (
     ai.ai_rewrite_version AS prompt_version,
     COUNT(*) AS total_items,
     COUNT(*) FILTER (
-      WHERE (ai.score_overrides->>'final_consent')::int
-            < (ai.score_overrides->>'original_ai_consent')::int
+      WHERE (ai.score_overrides->>'final_consent')::numeric::int
+            < (ai.score_overrides->>'original_ai_consent')::numeric::int
     ) AS items_with_consent_reduction,
     AVG(CASE
-          WHEN (ai.score_overrides->>'final_consent')::int
-               < (ai.score_overrides->>'original_ai_consent')::int
-          THEN (ai.score_overrides->>'original_ai_consent')::int
-               - (ai.score_overrides->>'final_consent')::int
+          WHEN (ai.score_overrides->>'final_consent')::numeric::int
+               < (ai.score_overrides->>'original_ai_consent')::numeric::int
+          THEN (ai.score_overrides->>'original_ai_consent')::numeric::int
+               - (ai.score_overrides->>'final_consent')::numeric::int
         END) AS avg_reduction_magnitude
   FROM agenda_items ai
   WHERE ai.processing_status = 'completed'
-    AND ai.updated_at > NOW() - INTERVAL '7 days'
+    AND ai.ai_generated_at > NOW() - INTERVAL '7 days'
   GROUP BY action_type, prompt_version
 )
 SELECT *,
@@ -88,12 +92,12 @@ QUERY_C_DRIFT = """
 WITH weekly_baselines AS (
   SELECT
     ai.extracted_facts->>'action_type' AS action_type,
-    DATE_TRUNC('week', ai.updated_at)::date AS week,
+    DATE_TRUNC('week', ai.ai_generated_at)::date AS week,
     AVG(ai.significance_score) AS avg_sig,
     AVG(ai.consent_placement_score) AS avg_consent,
     COUNT(*) AS n
   FROM agenda_items ai
-  WHERE ai.updated_at > NOW() - INTERVAL '12 weeks'
+  WHERE ai.ai_generated_at > NOW() - INTERVAL '12 weeks'
     AND ai.processing_status = 'completed'
     AND ai.significance_score IS NOT NULL
   GROUP BY action_type, week

@@ -395,6 +395,8 @@ def finalize_from_rewrite(
         # Voice selection mirrors rewrite_item's prompt pick so what we
         # write back to the row matches the prompt that actually ran.
         _sys_unused, voice, written_version = select_item_voice(item)
+        # ai_generated_at is what both calibration readers filter on
+        # (issue #110); the v3 path had never written it.
         cur.execute(
             """
             UPDATE agenda_items
@@ -406,6 +408,7 @@ def finalize_from_rewrite(
                    ai_rewrite_version      = %s,
                    ai_rewrite_voice        = %s,
                    score_overrides         = %s::jsonb,
+                   ai_generated_at         = NOW(),
                    processing_status       = %s::processing_status_enum
              WHERE id = %s
                AND (%s::text IS NULL OR processing_status = %s::processing_status_enum)

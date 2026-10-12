@@ -40,7 +40,11 @@ written by the AI worker on every successful Stage 2 / 2.5 run, which
 is exactly the moment ``score_overrides`` is populated. Using
 ``ai_generated_at`` keeps the queries' intent ("was this score
 recently produced?") intact. If/when an ``updated_at`` is added in a
-future migration, swap it in here.
+future migration, swap it in here. The scores inside ``score_overrides``
+are JSON floats (the pipeline ``json.dumps`` pydantic floats, so ``9.0``
+not ``9``), and every cast of one goes through ``numeric`` before
+``int``, because PostgreSQL rejects the text ``9.0`` as an integer
+(issue #110).
 
 The dashboard is admin-only, so the per-row dicts may carry internal
 vocabulary (``action_type``, ``prompt_version``, ``triggers_fired``)
@@ -75,10 +79,10 @@ def query_a_per_item_divergence() -> list[dict[str, Any]]:
               ai.id,
               m.municipality_id                              AS city_id,
               ai.title,
-              (ai.score_overrides->>'original_ai_significance')::int AS ai_sig,
-              (ai.score_overrides->>'final_significance')::int       AS final_sig,
-              (ai.score_overrides->>'final_significance')::int
-                - (ai.score_overrides->>'original_ai_significance')::int
+              (ai.score_overrides->>'original_ai_significance')::numeric::int AS ai_sig,
+              (ai.score_overrides->>'final_significance')::numeric::int       AS final_sig,
+              (ai.score_overrides->>'final_significance')::numeric::int
+                - (ai.score_overrides->>'original_ai_significance')::numeric::int
                                                               AS sig_delta,
               ai.extracted_facts->>'action_type'              AS action_type,
               ai.score_overrides->'triggers'                  AS triggers_fired
@@ -87,9 +91,9 @@ def query_a_per_item_divergence() -> list[dict[str, Any]]:
              WHERE ai.score_overrides IS NOT NULL
                AND ai.ai_generated_at > NOW() - INTERVAL '24 hours'
                AND ABS(
-                   COALESCE((ai.score_overrides->>'final_significance')::int, 0)
+                   COALESCE((ai.score_overrides->>'final_significance')::numeric::int, 0)
                    - COALESCE(
-                       (ai.score_overrides->>'original_ai_significance')::int, 0
+                       (ai.score_overrides->>'original_ai_significance')::numeric::int, 0
                      )
                ) > 3
              ORDER BY sig_delta DESC
@@ -135,14 +139,14 @@ def query_b1_under_scoring_impact() -> list[dict[str, Any]]:
                 ai.ai_rewrite_version               AS prompt_version,
                 COUNT(*)                            AS total_items,
                 COUNT(*) FILTER (
-                  WHERE (ai.score_overrides->>'final_significance')::int
-                        > (ai.score_overrides->>'original_ai_significance')::int
+                  WHERE (ai.score_overrides->>'final_significance')::numeric::int
+                        > (ai.score_overrides->>'original_ai_significance')::numeric::int
                 )                                   AS items_with_sig_boost,
                 AVG(CASE
-                      WHEN (ai.score_overrides->>'final_significance')::int
-                           > (ai.score_overrides->>'original_ai_significance')::int
-                      THEN (ai.score_overrides->>'final_significance')::int
-                           - (ai.score_overrides->>'original_ai_significance')::int
+                      WHEN (ai.score_overrides->>'final_significance')::numeric::int
+                           > (ai.score_overrides->>'original_ai_significance')::numeric::int
+                      THEN (ai.score_overrides->>'final_significance')::numeric::int
+                           - (ai.score_overrides->>'original_ai_significance')::numeric::int
                     END)                            AS avg_boost_magnitude
                 FROM agenda_items ai
                WHERE ai.processing_status = 'completed'
@@ -201,14 +205,14 @@ def query_b2_over_scoring_consent() -> list[dict[str, Any]]:
                 ai.ai_rewrite_version               AS prompt_version,
                 COUNT(*)                            AS total_items,
                 COUNT(*) FILTER (
-                  WHERE (ai.score_overrides->>'final_consent')::int
-                        < (ai.score_overrides->>'original_ai_consent')::int
+                  WHERE (ai.score_overrides->>'final_consent')::numeric::int
+                        < (ai.score_overrides->>'original_ai_consent')::numeric::int
                 )                                   AS items_with_consent_reduction,
                 AVG(CASE
-                      WHEN (ai.score_overrides->>'final_consent')::int
-                           < (ai.score_overrides->>'original_ai_consent')::int
-                      THEN (ai.score_overrides->>'original_ai_consent')::int
-                           - (ai.score_overrides->>'final_consent')::int
+                      WHEN (ai.score_overrides->>'final_consent')::numeric::int
+                           < (ai.score_overrides->>'original_ai_consent')::numeric::int
+                      THEN (ai.score_overrides->>'original_ai_consent')::numeric::int
+                           - (ai.score_overrides->>'final_consent')::numeric::int
                     END)                            AS avg_reduction_magnitude
                 FROM agenda_items ai
                WHERE ai.processing_status = 'completed'

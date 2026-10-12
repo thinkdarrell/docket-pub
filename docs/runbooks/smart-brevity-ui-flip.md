@@ -12,12 +12,10 @@ This is a rendering-only flag — no migrations, no data writes. Flipping it
 takes ~30 seconds (one Railway container restart). Rolling back is the same
 operation in reverse.
 
-> **Status: HISTORICAL — flag flipped in production on 2026-05-12.**
-> `SMART_BREVITY_UI=true` is the live state on `docket-web`. This runbook
-> is preserved as the audit record of the pre-flip checklist and as the
-> rollback procedure if v3 rendering ever needs to be disabled. The
-> pre-flip checklist (sections below) is no longer actionable — see the
-> Rollback section for the operationally-relevant procedure.
+> **Status: HISTORICAL.** The flip date and the live flag values are
+> recorded once, in the banner of `docs/runbooks/v3-cutover.md`. What
+> remains current here is the Rollback section; the pre-flip checklist
+> (sections below) is no longer actionable.
 
 ## Pre-flip checklist
 
