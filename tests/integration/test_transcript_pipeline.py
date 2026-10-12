@@ -204,6 +204,7 @@ def test_reset_for_versions_is_idempotent_after_compare():
             cur.execute("UPDATE minutes_discrepancies SET prompt_version = 199 WHERE id = %s", [proposed_id])
         assert P.reset_for_versions() == 1
         assert _row(tid)["status"] == "events_extracted"
+        assert _row(tid)["compare_skipped_reason"] is None   # the compare reset is an unchanged-minutes pass (issue #112)
 
         # A (mocked) compare re-writes the live row at the current version; the unmatched stale row stays at 199.
         row = {"meeting_id": mid, "agenda_item_id": fx["items"][0], "category": "wording", "severity": "minor", "title": "cur v2",

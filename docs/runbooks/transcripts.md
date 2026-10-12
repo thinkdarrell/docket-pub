@@ -69,7 +69,8 @@ A transcript that was uploaded stays public through `failed`/`needs_review`.
 Every call writes `ai_runs` (stages `transcript_speakers`, `transcript_events`,
 `transcript_compare`, `transcript_ab`) so `AI_DAILY_BUDGET_USD` applies.
 Manual run: `railway ssh --service worker` then `python -m docket.worker.scheduler --run-once transcript_pipeline`.
-One meeting: `venv/bin/python scripts/transcript_recompare.py --meeting-id N --now` (laptop, public DB URL, API key).
+One meeting: `venv/bin/python scripts/transcript_recompare.py --meeting-id N --now` (laptop, public DB URL, API key);
+add `--minutes-changed` when the minutes PDF changed, or `--transcript-changed` after re-extracting the transcript events (see Re-comparison).
 
 ## Worker environment
 
@@ -103,11 +104,21 @@ redeploy. The flip is manual and reversible.
 ## Re-comparison
 
 Corrected minutes: the daily tick re-downloads each compared meeting's minutes at most
-weekly; a changed PDF re-extracts the minutes side and re-runs the comparison. Approved
-rows go `stale`, and a candidate that comes back is re-proposed in place (badged
-"re-review") instead of duplicated. Unmatched approvals stay `stale` and visible under
-the stale tab. Bumping `EVENTS_PROMPT_VERSION` re-extracts the transcript side, which
-changes transcript event ids and strands approvals as `stale`; keep that rare.
+weekly; a changed PDF re-extracts the minutes side and re-runs the comparison as a
+minutes-changed pass. On that pass approved rows go `stale`, a candidate that comes
+back is re-proposed in place (badged "re-review") instead of duplicated, and unmatched
+approvals stay `stale` and visible under the stale tab. Every other re-comparison (a
+`COMPARE_PROMPT_VERSION` bump, `scripts/transcript_recompare.py` without
+`--minutes-changed`) is an unchanged-minutes pass: approved rows are left untouched, a
+matched one is kept exactly as the person approved it (its text, excerpts, and
+`prompt_version` included) and only stops a duplicate, and only unreviewed proposals go
+`stale` (`compare.reconcile`, issue #112). A prompt bump re-queues only meetings with a
+proposed or model-dismissed row below the new version, so a meeting whose rows are all
+approved is re-run by hand with the script. Bumping `EVENTS_PROMPT_VERSION` re-extracts
+the transcript side, which deletes the transcript events approvals are anchored to; the
+reset marks the transcript `transcript_changed`, and that pass stales approvals the same
+way a minutes-changed pass does (the script's `--transcript-changed` flag runs the same
+pass by hand); keep that rare.
 
 ## Alerts
 

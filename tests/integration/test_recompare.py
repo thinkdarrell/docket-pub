@@ -52,7 +52,8 @@ def _states(mid):
         return [dict(r) for r in cur.fetchall()]
 
 
-def test_recompare_updates_matched_rows_in_place_and_leaves_others_stale(pilot):
+def test_recompare_updates_matched_rows_in_place_and_leaves_others_stale(pilot, monkeypatch):
+    """The minutes-changed case: approved rows go stale first and a candidate that comes back is re-proposed in place."""
     info = _seed_events(pilot)
     C.run_compare_stage(_claim(pilot), client=_client(_real_all(info)))
     first = _states(pilot.meeting_id)
@@ -71,7 +72,8 @@ def test_recompare_updates_matched_rows_in_place_and_leaves_others_stale(pilot):
                         "transcript_quote": info["exec_text"] if real else None, "minutes_quote": "go into Executive Session" if real else None,
                         "confidence": 0.9, "dismiss_reason": None if real else "now matches"})
         return out
-    C.run_compare_stage(_claim(pilot), client=_client(verdicts))
+    monkeypatch.setattr(C, "extract_minutes_side", lambda mid, *, client: "ok")   # the stage re-extracts the minutes side on this reason
+    C.run_compare_stage(_claim(pilot, reason="minutes_changed"), client=_client(verdicts))
     second = _states(pilot.meeting_id)
     wording = next(r for r in second if r["category"] == "wording" and r["review_state"] != "dismissed_by_model")
     sequence = next(r for r in second if r["category"] == "sequence" and r["review_state"] != "dismissed_by_model")
@@ -257,3 +259,137 @@ def test_minutes_changed_rerun_survives_one_sided_rows(pilot, monkeypatch):
     add_after = after[addition["id"]]
     assert add_after["minutes_event_id"] is None or add_after["minutes_event_id"] in new_minutes_ids
     assert after[omission["id"]]["transcript_event_id"] == omission["transcript_event_id"]
+
+
+def _wording_verdicts_only(info):
+    """Second-pass judge: only the wording candidate is still real (same shape as the minutes-changed test above)."""
+    def verdicts(user):
+        out = []
+        for cid in _ids_in_prompt(user):
+            head = user.split(f"### Candidate {cid}")[1].split("\n")[0]
+            real = "wording" in head
+            out.append({"candidate_id": cid, "is_real": real, "category": "wording" if real else None, "severity": "material" if real else None,
+                        "title": "wording title v2" if real else None, "description": "desc v2" if real else None,
+                        "transcript_quote": info["exec_text"] if real else None, "minutes_quote": "go into Executive Session" if real else None,
+                        "confidence": 0.9, "dismiss_reason": None if real else "now matches"})
+        return out
+    return verdicts
+
+
+def _full_rows(mid):
+    with db_cursor() as cur:
+        cur.execute("""SELECT id, category, review_state, previous_review_state, reviewed_by, reviewed_at, title, prompt_version,
+                              citation_match, transcript_excerpt, severity, description, minutes_excerpt, confidence
+                         FROM minutes_discrepancies WHERE meeting_id=%s ORDER BY id""", [mid])
+        return [dict(r) for r in cur.fetchall()]
+
+
+def test_approved_rows_survive_an_unchanged_minutes_rerun(pilot):
+    """Issue #112: a pass whose claim does not say minutes_changed (prompt bump, manual rerun) keeps every approved row."""
+    from docket.services import discrepancies as D
+
+    info = _seed_events(pilot)
+    C.run_compare_stage(_claim(pilot), client=_client(_real_all(info)))
+    first = _states(pilot.meeting_id)
+    assert sorted(r["category"] for r in first) == ["sequence", "wording"]
+    with db_cursor() as cur:   # the admin approves both; then a COMPARE_PROMPT_VERSION bump happens
+        cur.execute("""UPDATE minutes_discrepancies SET review_state='approved', reviewed_at=now(), reviewed_by='t', prompt_version=%s
+                        WHERE meeting_id=%s""", [C.COMPARE_PROMPT_VERSION - 1, pilot.meeting_id])
+        cur.execute("UPDATE transcripts SET status='compared' WHERE id=%s", [pilot.transcript_id])
+    approved_ids = {r["id"] for r in first}
+    approved_before = {r["id"]: r for r in _full_rows(pilot.meeting_id)}
+
+    C.run_compare_stage(_claim(pilot), client=_client(_wording_verdicts_only(info)))     # reason None: minutes unchanged
+    second = _full_rows(pilot.meeting_id)
+    wording = next(r for r in second if r["category"] == "wording" and r["review_state"] != "dismissed_by_model")
+    sequence = next(r for r in second if r["category"] == "sequence" and r["review_state"] != "dismissed_by_model")
+    assert wording["id"] == next(r["id"] for r in first if r["category"] == "wording")      # matched in place, no duplicate
+    assert wording["review_state"] == "approved" and wording["reviewed_by"] == "t" and wording["reviewed_at"] is not None
+    assert wording["previous_review_state"] is None
+    # M4: a person approved this text; the model's second reading does not replace any of it (review finding, severe).
+    assert wording["title"] == "wording title" and wording["prompt_version"] == C.COMPARE_PROMPT_VERSION - 1
+    for col in ("severity", "description", "transcript_excerpt", "minutes_excerpt", "citation_match", "confidence"):
+        assert wording[col] == approved_before[wording["id"]][col], col
+    assert sequence["review_state"] == "approved" and sequence["reviewed_by"] == "t"        # the model's second opinion does not outrank a human
+    assert sequence["prompt_version"] == C.COMPARE_PROMPT_VERSION - 1
+    assert {r["id"] for r in D.list_public_for_meeting(pilot.meeting_id)} == approved_ids    # still on the public page
+    assert not [r for r in second if r["review_state"] == "stale"]
+
+    # The surviving approved row at the old version must not re-queue the meeting on every tick after the bump.
+    P.advance(pilot.transcript_id, P.StageOutcome("compared"))
+    assert P.reset_for_versions() == 0
+    with db_cursor() as cur:
+        cur.execute("SELECT status FROM transcripts WHERE id=%s", [pilot.transcript_id])
+        assert cur.fetchone()["status"] == "compared"
+
+
+def test_reconcile_minutes_changed_flag_decides_whether_approved_rows_go_stale(pilot):
+    """Issue #112: reconcile stales approved rows only on a minutes_changed pass; a matched approved row is left untouched (M4)."""
+    info = _seed_events(pilot)
+    mid = pilot.meeting_id
+    with db_cursor() as cur:
+        cur.execute("SELECT id, source, start_s FROM meeting_events WHERE meeting_id=%s AND event_type='executive_session_motion'", [mid])
+        evs = {r["source"]: dict(r) for r in cur.fetchall()}
+        t_ev, m_ev = evs["transcript"]["id"], evs["minutes"]["id"]
+        cur.execute("""INSERT INTO minutes_discrepancies (meeting_id, agenda_item_id, category, severity, title, description,
+                                                          transcript_event_id, minutes_event_id, transcript_excerpt, transcript_start_s,
+                                                          citation_match, confidence, origin, review_state, reviewed_by, reviewed_at,
+                                                          prompt_version)
+                       VALUES (%s, %s, 'wording', 'material', 'original', 'd', %s, %s, %s, %s, 'exact', 0.9, 'aligner', 'approved', 't',
+                               now(), %s) RETURNING id""",
+                    [mid, info["item"], t_ev, m_ev, info["exec_text"], evs["transcript"]["start_s"], C.COMPARE_PROMPT_VERSION])
+        rid = cur.fetchone()["id"]
+
+    def row():
+        return next(r for r in _full_rows(mid) if r["id"] == rid)
+
+    C.reconcile(mid, [], minutes_changed=False)                   # unchanged minutes, nothing came back: approval stands
+    assert row()["review_state"] == "approved" and row()["reviewed_by"] == "t"
+
+    refreshed = {"meeting_id": mid, "agenda_item_id": info["item"], "category": "wording", "severity": "material", "title": "refreshed",
+                 "description": "d2", "transcript_event_id": t_ev, "minutes_event_id": m_ev, "transcript_excerpt": "words nobody said",
+                 "transcript_start_s": evs["transcript"]["start_s"], "minutes_excerpt": None, "minutes_page": None,
+                 "citation_match": "missing", "confidence": 0.4, "origin": "aligner", "review_state": "proposed", "reject_reason": None,
+                 "prompt_version": C.COMPARE_PROMPT_VERSION}
+    assert set(refreshed) == set(C._COLS)
+    out = C.reconcile(mid, [refreshed], minutes_changed=False)    # same finding came back with a quote the guard could not find
+    assert (out["inserted"], out["updated"], out["kept"]) == (0, 0, 1)
+    r = row()
+    assert r["review_state"] == "approved" and r["title"] == "original" and r["prompt_version"] == C.COMPARE_PROMPT_VERSION
+    assert r["citation_match"] == "exact" and r["transcript_excerpt"] == info["exec_text"]   # nothing a person approved is rewritten
+    assert len([x for x in _full_rows(mid) if x["review_state"] != "dismissed_by_model"]) == 1   # and no duplicate beside it
+
+    C.reconcile(mid, [], minutes_changed=True)                    # the minutes PDF changed: today's stale-everything policy
+    r = row()
+    assert (r["review_state"], r["previous_review_state"], r["reviewed_by"]) == ("stale", "approved", "t")
+
+
+def test_events_bump_marks_transcript_changed_and_stales_approved_rows(pilot, monkeypatch):
+    """M4: re-extracting the transcript side deletes the events approved rows are anchored to, so that pass stales them."""
+    from docket.ai.transcripts import prompts as PR
+
+    info = _seed_events(pilot)
+    mid, tid = pilot.meeting_id, pilot.transcript_id
+    C.run_compare_stage(_claim(pilot), client=_client(_real_all(info)))
+    with db_cursor() as cur:   # the admin approves one row
+        cur.execute("""UPDATE minutes_discrepancies SET review_state='approved', reviewed_at=now(), reviewed_by='t'
+                        WHERE meeting_id=%s AND category='wording'""", [mid])
+        cur.execute("UPDATE transcripts SET status='compared' WHERE id=%s", [tid])
+
+    monkeypatch.setattr(PR, "EVENTS_PROMPT_VERSION", PR.EVENTS_PROMPT_VERSION + 1)
+    assert P.reset_for_versions() >= 1
+    with db_cursor() as cur:
+        cur.execute("SELECT status, compare_skipped_reason FROM transcripts WHERE id=%s", [tid])
+        assert tuple(cur.fetchone().values()) == ("speakers_resolved", "transcript_changed")
+
+    # The events stage's own status write must not lose the reason on its way to the compare claim.
+    P.advance(tid, P.StageOutcome("events_extracted"))
+    with db_cursor() as cur:
+        cur.execute("SELECT status, compare_skipped_reason FROM transcripts WHERE id=%s", [tid])
+        assert tuple(cur.fetchone().values()) == ("events_extracted", "transcript_changed")
+    assert P.claim_next()["id"] == tid                                # the claim SQL accepts the reason
+
+    out = C.reconcile(mid, [], transcript_changed=True)
+    assert out["kept"] == 0
+    wording = next(r for r in _states(mid) if r["category"] == "wording" and r["review_state"] != "dismissed_by_model")
+    assert (wording["review_state"], wording["previous_review_state"], wording["reviewed_by"]) == ("stale", "approved", "t")

@@ -38,7 +38,7 @@ WITH candidate AS (
        AND t.status IN ('uploaded', 'speakers_resolved', 'events_extracted')
        AND (t.status <> 'events_extracted'
             OR t.compare_skipped_reason IS NULL
-            OR t.compare_skipped_reason = 'minutes_changed'
+            OR t.compare_skipped_reason IN ('minutes_changed', 'transcript_changed')
             OR (t.compare_skipped_reason IN ('no_minutes', 'minutes_unavailable')
                 AND m.minutes_url IS NOT NULL))
        AND t.stage_attempts < 3
@@ -115,13 +115,22 @@ def assign_index_points(transcript_id: int, meeting_id: int) -> int:
 
 
 def advance(transcript_id: int, outcome: StageOutcome) -> None:
+    """Move a transcript to the stage outcome's next status.
+
+    compare_skipped_reason is the compare stage's column: a completed compare clears it and a skip
+    writes its reason. A stage before compare that reports no reason leaves the column alone, so the
+    'transcript_changed' marker reset_for_versions writes on an EVENTS_PROMPT_VERSION bump survives
+    the events stage's own write and reaches the compare claim (compare.reconcile stales approved
+    rows on that pass).
+    """
     with db_cursor() as cur:
         cur.execute(
             """UPDATE transcripts
                   SET status = %s, stage_attempts = 0, last_error = NULL, needs_review_reason = NULL,
-                      compare_skipped_reason = %s, updated_at = now()
+                      compare_skipped_reason = CASE WHEN %s IS NULL AND %s <> 'compared' THEN compare_skipped_reason ELSE %s END,
+                      updated_at = now()
                 WHERE id = %s""",
-            [outcome.next_status, outcome.skipped_reason, transcript_id],
+            [outcome.next_status, outcome.skipped_reason, outcome.next_status, outcome.skipped_reason, transcript_id],
         )
         if outcome.skipped_reason in ("no_minutes", "minutes_unavailable"):
             # Retry daily without burning the three-attempt cap (Review Focus 1).
@@ -305,12 +314,22 @@ def run_transcript_pipeline(*, limit: int = TRANSCRIPT_PER_TICK, notes: str = "c
 def reset_for_versions() -> int:
     """Bumping a prompt version resets that stage and later ones only (spec: re-runs are per stage).
 
-    The compare reset looks only at live rows: reconcile never re-stamps unmatched stale/rejected rows,
-    so counting them would re-compare the meeting on every tick after a COMPARE_PROMPT_VERSION bump.
+    An EVENTS_PROMPT_VERSION bump re-extracts the transcript events, which deletes the events every
+    approved discrepancy row is anchored to (ON DELETE SET NULL), so those approvals must go stale
+    rather than survive with no anchor. The events reset writes compare_skipped_reason =
+    'transcript_changed'; advance() carries it through the events stage, the claim SQL accepts it,
+    and compare.reconcile stales approved rows on that pass.
+
+    The compare reset counts only rows the next pass will rewrite (proposed and dismissed_by_model).
+    Approved rows survive an unchanged-minutes pass at their old prompt_version (compare.reconcile,
+    issue #112), and rejected and stale rows are never re-stamped, so counting any of them would
+    re-compare the meeting on every tick after a COMPARE_PROMPT_VERSION bump. A meeting whose live
+    rows are all approved is re-compared by hand with scripts/transcript_recompare.py.
     """
     from docket.ai.transcripts.prompts import COMPARE_PROMPT_VERSION, EVENTS_PROMPT_VERSION
     with db_cursor() as cur:
-        cur.execute("""UPDATE transcripts t SET status = 'speakers_resolved', stage_attempts = 0, compare_skipped_reason = NULL
+        cur.execute("""UPDATE transcripts t SET status = 'speakers_resolved', stage_attempts = 0,
+                              compare_skipped_reason = 'transcript_changed'
                         WHERE t.status IN ('events_extracted', 'compared')
                           AND EXISTS (SELECT 1 FROM meeting_events e WHERE e.meeting_id = t.meeting_id
                                          AND e.source = 'transcript' AND e.prompt_version < %s)""",
@@ -319,7 +338,7 @@ def reset_for_versions() -> int:
         cur.execute("""UPDATE transcripts t SET status = 'events_extracted', stage_attempts = 0
                         WHERE t.status = 'compared'
                           AND EXISTS (SELECT 1 FROM minutes_discrepancies d WHERE d.meeting_id = t.meeting_id
-                                         AND d.review_state IN ('proposed', 'approved', 'dismissed_by_model')
+                                         AND d.review_state IN ('proposed', 'dismissed_by_model')
                                          AND d.prompt_version < %s)""", [COMPARE_PROMPT_VERSION])
         return n + cur.rowcount
 
