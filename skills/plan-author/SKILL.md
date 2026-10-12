@@ -66,7 +66,11 @@ constrains:
 3. Write each candidate milestone's acceptance before its narrative.
    Acceptance is a small number of checks a different person can run or read
    and agree on: a command together with the output it prints, or a named
-   artifact with a property that is true or false on inspection. Take the
+   artifact with a property that is true or false on inspection. A check that
+   counts says what it counts: `grep -c` counts lines, not occurrences; a
+   pytest total is the baseline plus the test functions added, not the tests
+   touched; and no check greps the plan file itself, since the plan's own
+   later sections quote the phrase the check looks for. Take the
    acceptance-first order seriously — it is the only reliable sizing test, and
    writing the story first produces milestones whose acceptance is invented
    afterwards to fit.
