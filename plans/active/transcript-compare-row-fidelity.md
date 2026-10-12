@@ -373,6 +373,19 @@ The existing test still sent `compare_skipped_reason = None`, so its approved wo
 
 After change (1) to that test (monkeypatched `extract_minutes_side`, claim `reason="minutes_changed"`) and the one-line assertion in `tests/integration/test_transcript_pipeline.py`, both files together, `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/integration/test_recompare.py tests/integration/test_transcript_pipeline.py -q -p no:cacheprovider; tools/test-db --drop` (observed): `22 passed in 3.17s`.
 
+Script banner after the `scripts/transcript_recompare.py` edit, `venv/bin/python scripts/transcript_recompare.py --help; echo "exit=$?"` (observed; argparse wrapped the usage over two physical lines at the default width):
+
+    usage: transcript_recompare.py [-h] --meeting-id MEETING_ID [--now]
+                                   [--minutes-changed]
+    ...
+      --minutes-changed     the minutes PDF changed: re-extract the minutes side
+                            and stale approved rows that do not come back
+    exit=0
+
+The same with `COLUMNS=120` printed the usage on one line (observed): `usage: transcript_recompare.py [-h] --meeting-id MEETING_ID [--now] [--minutes-changed]`.
+
+`grep -n "minutes-changed" docs/runbooks/transcripts.md scripts/transcript_recompare.py` (observed): three lines from the runbook (73, 108, 112) and three from the script (7, 9, 27). `grep -c "IN ('proposed', 'dismissed_by_model')" src/docket/ai/transcripts/pipeline.py` (observed): `1`.
+
 ## Interfaces and Dependencies
 
 No new libraries. In `src/docket/ai/transcripts/aligner.py`, at module level:
