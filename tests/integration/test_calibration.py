@@ -102,6 +102,10 @@ class _Bag:
         with_overrides: bool | None = None,
         # Backdate ai_generated_at for window-edge tests.
         days_ago: float = 0.0,
+        # When False, write NULL for ai_generated_at: the shape of every
+        # row the v3 pipeline scored before it stamped the column
+        # (issue #110), which no calibration window can see.
+        stamped: bool = True,
     ) -> int:
         if with_overrides is None:
             with_overrides = any(
@@ -142,7 +146,8 @@ class _Bag:
                             %s::processing_status_enum,
                             %s::jsonb, %s::jsonb,
                             %s,
-                            NOW() - (%s || ' days')::interval,
+                            CASE WHEN %s THEN NOW() - (%s || ' days')::interval
+                                 ELSE NULL END,
                             %s, %s)
                     RETURNING id
                     """,
@@ -150,7 +155,7 @@ class _Bag:
                         meeting_id, title,
                         processing_status,
                         extracted_facts, score_overrides,
-                        ai_rewrite_version, str(days_ago),
+                        ai_rewrite_version, stamped, str(days_ago),
                         significance_score, consent_placement_score,
                     ),
                 )
@@ -743,6 +748,31 @@ def test_calibration_dashboard_renders_float_valued_item(bag, admin_client):
     assert "G1-float-render" in body
     assert f"#{iid}" in body
     assert '<td class="t-tnum">7</td>' in body
+
+
+def test_unstamped_float_row_is_outside_every_window(bag):
+    """A float row with ai_generated_at NULL is invisible to every reader.
+
+    This is the shape of every row the v3 pipeline scored before the
+    Phase C UPDATE stamped ``ai_generated_at`` (about 36,000 production
+    rows, issue #110). It passes before and after the writer change; it
+    states in code what happens to the historical rows.
+    """
+    from docket.ai.calibration import run_calibration_queries
+    from docket.db import db_cursor
+
+    m = bag.add_meeting()
+    iid = bag.add_item(
+        m,
+        title="G1-float-unstamped",
+        action_type="contract_award",
+        raw_overrides=FLOAT_OVERRIDES,
+        stamped=False,
+    )
+    assert all(r["id"] != iid for r in cal.query_a_per_item_divergence())
+    with db_cursor() as cur:
+        counts = run_calibration_queries(cur)
+    assert counts["divergence_count"] == 0
 
 
 # ---------------------------------------------------------------------------

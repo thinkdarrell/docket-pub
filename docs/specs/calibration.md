@@ -8,7 +8,7 @@ Every substantive agenda item is scored twice by the language model (Stage 2): a
 
 ## Where the data lives
 
-`agenda_items.score_overrides` is a JSONB column written by `src/docket/ai/pipeline.py` on every successful Stage 2 / 2.5 run. Its keys are `original_ai_significance`, `final_significance`, `original_ai_consent`, `final_consent`, `triggers` (a list), `conflicts` (a list), and `admin_override_used` (a boolean). The four scores are stored as JSON floats (`9.0`, not `9`), because the pipeline serialises pydantic float fields. The row's `ai_generated_at` timestamp is written at the same moment and is the only freshness column `agenda_items` has; there is no `updated_at` on that table.
+`agenda_items.score_overrides` is a JSONB column written by `src/docket/ai/pipeline.py` on every successful Stage 2 / 2.5 run. Its keys are `original_ai_significance`, `final_significance`, `original_ai_consent`, `final_consent`, `triggers` (a list), `conflicts` (a list), and `admin_override_used` (a boolean). The four scores are stored as JSON floats (`9.0`, not `9`), because the pipeline serialises pydantic float fields. The same Phase C UPDATE stamps `ai_generated_at = NOW()` since 2026-10 (issue #110); before that change the v3 pipeline never wrote the column. Rows scored by the v3 pipeline before that change, about 36,000 in production, have `ai_generated_at` NULL and fall outside every window below, so the dashboard and the report describe scoring since the change. `agenda_items` has `created_at` but no `updated_at`.
 
 ## The two readers
 
@@ -22,7 +22,7 @@ The admin page `/admin/calibration` (`src/docket/web/admin.py`, queries in `src/
 
 ## Rules every calibration query follows
 
-Every score read from `score_overrides` is cast as `(ai.score_overrides->>'<key>')::numeric::int`, never `::int` directly, because PostgreSQL rejects the text `9.0` as an integer; `numeric` accepts both `9.0` and `9`, and `NULL` passes through as `NULL`. Every freshness filter and week bucket uses `ai.ai_generated_at`. `tests/integration/test_calibration.py` seeds a float-valued row shaped as production writes it and runs every query in both files against a real database, so either rule cannot regress silently.
+Every score read from `score_overrides` is cast as `(ai.score_overrides->>'<key>')::numeric::int`, never `::int` directly, because PostgreSQL rejects the text `9.0` as an integer; `numeric` accepts both `9.0` and `9`, and `NULL` passes through as `NULL`. Every freshness filter and week bucket over `agenda_items` uses `ai.ai_generated_at`; the badge-volume and false-positive panels read badge tables instead and bucket on `aib.detected_at` and `aiba.occurred_at` respectively. `tests/integration/test_calibration.py` seeds a float-valued row shaped as production writes it and runs every query in both files against a real database, so either rule cannot regress silently.
 
 ## Known difference between the readers
 
