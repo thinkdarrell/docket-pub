@@ -27,6 +27,9 @@ Nothing has been executed yet. Two things were found while authoring and shaped 
 - Observation: making approved rows survive an unchanged-minutes pass would, on its own, make `reset_for_versions()` re-queue the meeting on every cron tick after a `COMPARE_PROMPT_VERSION` bump, because that function counts `approved` rows whose `prompt_version` is below the current one and a surviving approved row keeps its old version forever. The existing test `test_reset_for_versions_is_idempotent_after_compare` in `tests/integration/test_transcript_pipeline.py` guards the same trap for stale and rejected rows. M2 therefore also removes `approved` from the compare-reset count (Decision Log).
   Evidence: `src/docket/ai/transcripts/pipeline.py` lines 319 to 323, read 2026-10-11: `d.review_state IN ('proposed', 'approved', 'dismissed_by_model') AND d.prompt_version < %s`.
 
+- Observation: `grep -c` counts matching lines, not matches, so a spec written as the plan asked (prose paragraphs, no lists) can say `minutes_changed` three times and still print `1` for the M3 acceptance grep.
+  Evidence: `grep -c 'minutes_changed' docs/specs/transcripts.md` printed `1` and `grep -o 'minutes_changed' docs/specs/transcripts.md | wc -l` printed `3` on the first draft (2026-10-12, M3 session); after naming the keyword in the second Re-comparison paragraph the counts are `2` and `3`.
+
 ## Decision Log
 
 - Decision: three milestones, one pull request. M1 holds the two pure-unit fixes (#116 and #114), M2 the database-backed policy change (#112) with the runbook and script docstring, M3 the behaviour spec and the debt rows.
@@ -71,6 +74,13 @@ Nothing has been executed yet. Two things were found while authoring and shaped 
 - Decision: the script's `--help` acceptance ("a usage line containing `[--minutes-changed]`") is read as met: argparse wraps the usage over two physical lines at the default width and prints it on one line at `COLUMNS=120`; both were run and both are in Artifacts and Notes.
   Rationale: the content is what the acceptance names; the wrap is terminal width, not script behaviour, and it was recorded rather than hidden.
   Date/Author: 2026-10-12, M2 session.
+
+- Decision: the M3 acceptance clause "`grep -c 'minutes_changed' docs/specs/transcripts.md` prints at least `2`" is read as what `grep -c` measures, lines, and the spec names the `reconcile()` keyword `minutes_changed` in its second Re-comparison paragraph so the word sits on two lines; the first draft said it three times on one line and the grep printed `1`.
+  Rationale: the acceptance counts lines, not occurrences; the paragraph describes the pass `reconcile()` runs with `minutes_changed` set, so naming the keyword there is a true claim and not padding. The first grep result is kept in Artifacts and Notes.
+  Date/Author: 2026-10-12, M3 session.
+- Decision: the new `docs/DEBT.md` row is `D50`; the highest existing ID at the start of the session was `D49`.
+  Rationale: the Plan of Work says "one above the highest existing ID"; `AGENTS.md` says numbers are never reused.
+  Date/Author: 2026-10-12, M3 session.
 
 ## Outcomes & Retrospective
 
@@ -405,6 +415,32 @@ Closing `./tools/verify; echo "exit=$?"` on the M2 tree (observed):
     exit=0
 
 The integration tier printed `620 passed` (618 at the session start plus the two new tests). `git diff --stat origin/main -- src/ scripts/` (observed): `scripts/transcript_recompare.py | 13`, `aligner.py | 9`, `compare.py | 63`, `pipeline.py | 9`; `4 files changed, 67 insertions(+), 27 deletions(-)`.
+
+### M3 session (2026-10-12, commit `12cea23` at start)
+
+Starting state, observed before any edit, `./tools/verify; echo "exit=$?"`:
+
+    verify: test-db ... ok (1s) postgresql://docket@localhost:5432/docket_test_2dae8997
+    verify: unit+web+services ... ok (59s)
+    verify: integration ... ok (78s)
+    verify: judge-fixtures ... ok (3s)
+    verify: workflows ... ok (0s)
+    verify: all 4 checks passed in 141s.
+    exit=0
+
+The integration tier printed `620 passed`, the unit tier `1874 passed, 5 skipped, 4 xfailed`.
+
+After writing `docs/specs/transcripts.md` (25 lines, no code fences: `grep -c '\`\`\`' docs/specs/transcripts.md` printed `0`) and editing `docs/specs/index.md` and `docs/DEBT.md`, the M3 acceptance greps (observed):
+
+    grep -n 'transcripts.md' docs/specs/index.md            -> line 25 (the table row) and line 27 (the closing paragraph)
+    head -1 docs/specs/transcripts.md                        -> # Transcript comparison
+    grep -c 'minutes_changed' docs/specs/transcripts.md      -> 1 (first draft; see Surprises), then 2 after the paragraph edit
+    grep -c 'canonical_result' docs/specs/transcripts.md     -> 1
+    grep -c 'model_category' docs/specs/transcripts.md       -> 1
+    grep -c 'docs/runbooks/transcripts.md' docs/specs/transcripts.md -> 1
+    grep -n 'transcript-compare-row-fidelity' docs/DEBT.md   -> lines 40 (D42) and 48 (D50)
+    grep -n 'docs/specs/transcripts.md' docs/DEBT.md         -> line 10 (D9)
+    grep -c 'COMPARE_PROMPT_VERSION. bump removes' docs/DEBT.md -> 1
 
 ## Interfaces and Dependencies
 
