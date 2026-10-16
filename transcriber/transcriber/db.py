@@ -108,9 +108,9 @@ _MEETING_SQL = """
 class MeetingBusy(Exception):
     """The worker's claim stamped this transcript's row within the last 30 minutes (a stage may
     be in flight; its `advance()` would overwrite our claim and a finishing compare would clear
-    the `transcript_changed` marker). `last_attempted_at` is written by the worker's `CLAIM_SQL`
-    alone; the producer's `mark_status()` never writes it, so a re-run right after a failed one
-    is not refused."""
+    the `transcript_changed` marker). The worker's `CLAIM_SQL` is the only writer of a timestamp
+    into `last_attempted_at` (every other writer resets it to NULL); the producer's `mark_status()`
+    never writes it, so a re-run right after a failed one is not refused."""
 
     def __init__(self, meeting_id: int, touched_at):
         super().__init__(f"meeting {meeting_id} was touched at {touched_at}")

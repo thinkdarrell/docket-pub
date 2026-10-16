@@ -181,8 +181,9 @@ Before the run:
   (10:00 America/Chicago, `src/docket/worker/scheduler.py`). The producer refuses
   a row whose `last_attempted_at` is within the last 30 minutes (`meeting N was
   touched at ...; wait 30 minutes`, exit 1); the worker's claim is the only
-  writer of that column (the producer's own status writes never stamp it), and
-  a stage in flight would otherwise overwrite the claim.
+  writer that stamps that column (the producer's own status writes never stamp
+  it; the other writers reset it to NULL), and a stage in flight would
+  otherwise overwrite the claim.
 - Manual speaker rows (`is_manual`) are kept as they are and stay attached to
   whatever new cluster reuses their `cluster_label`; the remap is unbuilt
   (`docs/DEBT.md` `D54`). List them first and expect to redo them in
