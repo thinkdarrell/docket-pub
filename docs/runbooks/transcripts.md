@@ -178,9 +178,11 @@ Before the run:
 
 - Do not start it inside the worker's daily `transcript_pipeline` window
   (10:00 America/Chicago, `src/docket/worker/scheduler.py`). The producer refuses
-  a row the worker touched in the last 30 minutes (`meeting N was touched at ...;
-  wait 30 minutes`, exit 1); a stage in flight would otherwise overwrite the
-  claim.
+  a row whose `last_attempted_at` is within the last 30 minutes (`meeting N was
+  touched at ...; wait 30 minutes`, exit 1); the worker's claim stamps that
+  column, and a stage in flight would otherwise overwrite the claim. The
+  producer's own status writes stamp it too, so a re-run right after a failed
+  one waits the same 30 minutes.
 - Manual speaker rows (`is_manual`) are kept as they are and stay attached to
   whatever new cluster reuses their `cluster_label`; the remap is unbuilt
   (`docs/DEBT.md` `D54`). List them first and expect to redo them in
@@ -216,7 +218,8 @@ After the run, from the laptop (`URL` and `PSQL` as in "Checking progress"):
       where t.meeting_id = 2543 and not s.is_silence;"
     # expect well under 26.8 (the version-1 median)
 
-The public page shows the new turns at once. The worker's 10:00 CT tick does the
+The public page shows the new turns at once (it is a 404 from the claim until the
+upload lands; `docs/DEBT.md` `D55`). The worker's 10:00 CT tick does the
 rest. If the transcript lands in the admin held tab and is retried from there,
 `retry_transcript()` nulls the `transcript_changed` marker (`docs/DEBT.md`
 `D52`); once it reaches `events_extracted`, run
