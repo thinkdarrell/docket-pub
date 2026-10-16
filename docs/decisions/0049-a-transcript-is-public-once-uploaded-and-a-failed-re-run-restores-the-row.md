@@ -12,7 +12,7 @@ The trap this record guards against is the agent who "tidies" `_end_without_uplo
 
 ## Date
 
-2026-10-16, the plan author of `plans/active/rerun-keeps-transcript-public.md`, from the closing review of `plans/completed/transcriber-clean-speaker-segments.md` (`D55`).
+2026-10-16, the plan author of `plans/completed/rerun-keeps-transcript-public.md`, from the closing review of `plans/completed/transcriber-clean-speaker-segments.md` (`D55`).
 
 ## Status
 
