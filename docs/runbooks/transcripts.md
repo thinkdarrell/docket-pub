@@ -35,12 +35,12 @@ Plan 1: `docs/superpowers/plans/2026-10-07-transcripts-foundation.md` (PR #99).
 
 | Status | Set by | Meaning |
 |---|---|---|
-| `claimed` | producer | Row inserted; audio not fetched yet. Stale after 6 h and reclaimable. |
+| `claimed` | producer | Row inserted, or re-claimed by `--meeting-id` (a re-claimed row keeps its old transcript public until the new upload lands); audio not fetched yet. Stale after 6 h and reclaimable. |
 | `audio_fetched` | producer | ffmpeg wrote the WAV. Stale after 6 h. |
 | `transcribed` | producer | JSON written to the Legion archive, upload pending. Only the same host may resume it until it is stale. |
 | `uploaded` | producer | Segments are in Postgres. Public page renders. The worker picks up here. The producer's `--meeting-id` can return a row at any later status to it (the re-run section below). |
-| `low_speech` | producer | Under the speech floor (for example a Granicus test stream). Terminal; never retried. |
-| `failed` | producer | ffmpeg 403 or timeout, upload error, and so on. `last_error` has the reason. Retried only with `--retry-failed`. |
+| `low_speech` | producer | Under the speech floor (for example a Granicus test stream). Terminal; never retried. A `--meeting-id` re-run of an uploaded meeting never writes it; the row is restored instead. |
+| `failed` | producer | ffmpeg 403 or timeout, upload error, and so on. `last_error` has the reason. Retried only with `--retry-failed`. A `--meeting-id` re-run of an uploaded meeting never writes it either; the row is restored instead. |
 | `speakers_resolved` | worker | Speaker names resolved per cluster; event extraction is next. |
 | `events_extracted` | worker | Event timelines extracted (transcript side always, minutes side when the PDF downloads); comparison is next. |
 | `compared` | worker | Aligner, judge, hunter, and vote check done; discrepancies are in the review queue. |
@@ -180,10 +180,9 @@ Before the run:
 - Do not start it inside the worker's daily `transcript_pipeline` window
   (10:00 America/Chicago, `src/docket/worker/scheduler.py`). The producer refuses
   a row whose `last_attempted_at` is within the last 30 minutes (`meeting N was
-  touched at ...; wait 30 minutes`, exit 1); the worker's claim stamps that
-  column, and a stage in flight would otherwise overwrite the claim. The
-  producer's own status writes stamp it too, so a re-run right after a failed
-  one waits the same 30 minutes.
+  touched at ...; wait 30 minutes`, exit 1); the worker's claim is the only
+  writer of that column (the producer's own status writes never stamp it), and
+  a stage in flight would otherwise overwrite the claim.
 - Manual speaker rows (`is_manual`) are kept as they are and stay attached to
   whatever new cluster reuses their `cluster_label`; the remap is unbuilt
   (`docs/DEBT.md` `D54`). List them first and expect to redo them in
@@ -201,8 +200,14 @@ On the Legion, in Git Bash from `C:/docket-pub`: `git pull`, `cd transcriber`,
     docker compose run --rm transcriber --meeting-id 2543
 
 Expect the log to end `done {'uploaded': 1, 'failed': 0, 'low_speech': 0} oom_fallbacks=0`.
-A `done {'uploaded': 0, ...}` with exit 1 means the id was not an eligible Birmingham
-meeting (hidden, no video, non-numeric external id) or the busy refusal above.
+The run exits 1 whenever `uploaded` is 0: the id was not an eligible Birmingham
+meeting (hidden, no video, non-numeric external id), the busy refusal above, or a run
+that ended `failed` or `low_speech`. In the last two cases the `transcripts` row is
+put back exactly as it was before the claim, the old transcript stays on the site, the
+held tab does not list it, and the reason is in the log line `meeting N re-run ended
+failed (...)`; fix the cause and run it again, there is no 30-minute wait. A producer
+that died mid-run (power loss) is the one case that leaves the row at a producer
+status with the old transcript still public; run `--meeting-id N` again.
 
 After the run, from the laptop (`URL` and `PSQL` as in "Checking progress"):
 
@@ -219,10 +224,9 @@ After the run, from the laptop (`URL` and `PSQL` as in "Checking progress"):
       where t.meeting_id = 2543 and not s.is_silence;"
     # expect well under 26.8 (the version-1 median)
 
-The public page shows the new turns at once (it is a 404 from the claim until the
-upload lands; `docs/DEBT.md` `D55`). The worker's 10:00 CT tick does the
-rest. If the transcript lands in the admin held tab and is retried from there,
-`retry_transcript()` nulls the `transcript_changed` marker (`docs/DEBT.md`
+The public page serves the old turns until the upload lands and the new turns
+from then on. The worker's 10:00 CT tick does the rest. If the transcript lands
+in the admin held tab and is retried from there, `retry_transcript()` nulls the `transcript_changed` marker (`docs/DEBT.md`
 `D52`); once it reaches `events_extracted`, run
 `venv/bin/python scripts/transcript_recompare.py --meeting-id 2543 --now --transcript-changed`
 instead of relying on the tick's compare.
