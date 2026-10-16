@@ -16,7 +16,7 @@ After this plan, a transcript produced by the new code has one segment per speak
 
 - [x] (2026-10-16 16:51Z) M1: `clean_segments` in `transcriber/transcriber/engine.py` drops hallucinated short low-confidence segments and segments that reproduce the initial prompt, `build_initial_prompt` in `transcriber/transcriber/prompt.py` renders the vocabulary as prose sentences with no `Terms:` list, `build_output` and the producer loop in `transcriber/transcriber/cli.py` apply the cleaning, `./tools/verify` runs `transcriber/tests` as its fifth check, and `AGENTS.md` and `docs/specs/operations.md` say so
 - [x] (2026-10-16 16:58Z) M2: `split_by_speaker` in `transcriber/transcriber/engine.py` assigns a diarization cluster to every word from the word timestamps and cuts each ASR chunk at the speaker changes, `FasterWhisperEngine._transcribe` carries the words on each `RawSegment`, and a synthetic roll call inside one chunk comes out of `build_output` as name and response segments that `find_roll_call_pairs` in `src/docket/ai/transcripts/speakers.py` pairs
-- [ ] M3: `claim_meeting` in `transcriber/transcriber/db.py` and `--meeting-id` in `transcriber/transcriber/cli.py` re-claim one meeting for re-transcription and mark a previously uploaded transcript `transcript_changed`, `upload` clears the model's speaker resolutions on a re-upload, the producer writes `transcripts.version = 2` as `__version__` 0.2.0, and `transcriber/README.md` and `docs/runbooks/transcripts.md` tell the operator how to re-run meeting 2543
+- [x] (2026-10-16 17:07Z) M3: `claim_meeting` in `transcriber/transcriber/db.py` and `--meeting-id` in `transcriber/transcriber/cli.py` re-claim one meeting for re-transcription and mark a previously uploaded transcript `transcript_changed`, `upload` clears the model's speaker resolutions on a re-upload, the producer writes `transcripts.version = 2` as `__version__` 0.2.0, and `transcriber/README.md` and `docs/runbooks/transcripts.md` tell the operator how to re-run meeting 2543
 - [ ] M4: `docs/specs/transcripts.md` describes the producer's cleaning, splitting, versioning, and re-claim behaviour in the present tense, `docs/specs/index.md` lists it, and `docs/DEBT.md` amends `D9`, `D51`, and `D52` and adds the rows for diarization clustering tuning and the unbuilt manual-speaker remap
 
 ## Surprises & Discoveries
@@ -43,6 +43,12 @@ Four things were found while authoring and shaped the plan; M1's observations fo
   Evidence: a scratch script over 20,000 random words and 3,000 random turns (24 labels, gaps up to 0.8 s) printed `words=20000 turns=3000 seconds=0.014 unlabelled=0` on 2026-10-16 (M2 session).
 - Observation (M2): the roll call at two-second spacing spans 36 s, so it cannot be one of the "twenty 27-second chunks" Validation describes for `test_fixture_shaped_transcript_through_build_output` as written; the test's roll-call chunk uses 1.5-second spacing (27.0 s, asserted) and the dedicated roll-call test keeps two seconds. The split cut the fixture-shaped synthetic transcript into 54 speech segments from 20 chunks, dropped the four fillers and the prompt echo, and `find_roll_call_pairs` found nine pairs.
   Evidence: the test's assertions (`len(speech) > 20`, no `Thank you for joining us`, no eight-word prompt substring, `len(pairs) == 9`, `validate()`) pass; `assert chunk.end_s - chunk.start_s == pytest.approx(27.0)` holds (2026-10-16, M2 session).
+- Observation (M3): the five new tests were red on the M2 commit f9b4bd6, and so were every existing `test_cli_loop.py` test that uses `_wire`, because `_wire` now monkeypatches `cli.tdb.claim_meeting`, which did not exist yet; after the code edit the suite printed exactly the M3 counts with and without the database.
+  Evidence: `venv/bin/python -m pytest transcriber/tests -q -p no:cacheprovider` printed `10 failed, 39 passed, 14 skipped in 0.40s`; against the throwaway database `test_db.py` printed `AttributeError: module 'transcriber.db' has no attribute 'claim_meeting'` (twice), `... no attribute 'MeetingBusy'`, and `4 failed, 10 passed in 0.19s`; after the edit, `49 passed, 13 skipped in 0.37s` and, with `DATABASE_URL=$(tools/test-db)`, `62 passed in 0.53s` (2026-10-16, M3 session).
+- Observation (M3): Validation's `test_claim_meeting_marks_uploaded_transcript_changed_and_resets_attempts` sets `last_attempted_at = now()` by SQL and then expects a `Claim`, which the 30-minute busy guard (operator Decision Log entry of 2026-10-16) forbids; the two clauses were written before and after the review and cannot both hold. The test sets `last_attempted_at = now() - interval '1 hour'`, which still proves the reset to NULL.
+  Evidence: the guard's own test `test_claim_meeting_refuses_recent_worker_touch` raises `MeetingBusy` on exactly that `now()` state and passes (2026-10-16, M3 session).
+- Observation (M3): `grep -c 'Re-transcribing one meeting' docs/runbooks/transcripts.md` first printed `2`, because the Status machine note on `uploaded` named the new section verbatim; the note now says "the re-run section below" and the grep prints `1`.
+  Evidence: the two grep runs on 2026-10-16 (M3 session).
 
 ## Decision Log
 
@@ -121,12 +127,29 @@ Four things were found while authoring and shaped the plan; M1's observations fo
 - Decision: M2 lands in two commits, the tests, the engine code, and the plan's evidence first, then the Progress tick's final verify evidence.
   Rationale: `skills/plan-execute/SKILL.md` asks for a commit at each coherent step; the Progress line is ticked in the first commit because the acceptance count was observed before it, and the second commit carries only the `./tools/verify` transcript, which depends on the first being complete.
   Date/Author: 2026-10-16, M2 session.
+- Decision: in `test_claim_meeting_marks_uploaded_transcript_changed_and_resets_attempts` the worker's touch is `last_attempted_at = now() - interval '1 hour'`, not `now()`; Validation's text is not reworded, this entry and the Surprises entry record the divergence. The "second `claim_meeting` on a meeting that has no transcript row" clause is exercised by deleting the same meeting's `transcripts` row by SQL and claiming again, and the test also asserts `claim_meeting(conn, meeting_id=-1, ...)` returns `None`.
+  Rationale: `now()` would trip the busy guard the operator review added after the test was specified, and the guard is the newer decision; deleting the row avoids a second meeting fixture; the `None` assert covers the CLI's "not an eligible Birmingham meeting" branch at the database level without a sixth test, which would move the acceptance counts.
+  Date/Author: 2026-10-16, M3 session.
+- Decision: `MeetingBusy` carries `meeting_id` and `touched_at` as attributes, and `_MEETING_SQL` computes `(t.last_attempted_at > now() - interval '30 minutes') AS busy` in SQL rather than comparing timestamps in Python; `claim_meeting` raises before any write, so the caller's `rollback()` only releases the advisory lock.
+  Rationale: the CLI's log line needs the timestamp, and comparing in SQL keeps the clock and the timezone the database's own.
+  Date/Author: 2026-10-16, M3 session.
+- Decision: with `--meeting-id` the loop runs `range(1)` and takes its claim from `claim_meeting`; on `MeetingBusy` it rolls back, logs at ERROR, and breaks; `main` returns 1 when `--meeting-id` was given and every count is zero, which covers both the `None` and the `MeetingBusy` case without changing `run_loop`'s return type.
+  Rationale: Interfaces keeps `run_loop`'s signature and dict return; an empty count is the one observable both failure branches share, and a `--meeting-id` run that uploaded nothing is a failure whatever the reason.
+  Date/Author: 2026-10-16, M3 session.
+- Decision: `FakeDB` in `test_cli_loop.py` serves `claim_meeting` from the same `claims` list as `claim_next` and records the keyword arguments it was called with in `meeting_claims`; `_wire` patches `claim_meeting` alongside the other five names.
+  Rationale: the two `--meeting-id` tests assert both the claim's arguments and that `claim_next` never ran; one list keeps the fake small.
+  Date/Author: 2026-10-16, M3 session.
+- Decision: M3 lands in two commits, the code, tests, documents, and the plan's evidence (with the Progress tick) first, then the closing `./tools/verify` transcript.
+  Rationale: as for M2; the acceptance counts and greps were observed before the first commit, and the verify transcript depends on it.
+  Date/Author: 2026-10-16, M3 session.
 
 ## Outcomes & Retrospective
 
 M1 (2026-10-16): the two filters, the prose prompt, the loop wiring, and the fifth verify check landed; the fixture preview matched the plan's prediction row for row (seven hallucinations, one prompt leak, seqs 30, 38, 63, 75, 117, 124, 126, 164). One divergence from Validation, recorded in Surprises and the Decision Log: the echo test's kept variant needed a second word changed because the plan's variant was a genuine leak. The split (M2), the re-claim and version bump (M3), and the spec and debt rows (M4) remain.
 
 M2 (2026-10-16): `Word`, the `words` field on `RawSegment`, `assign_word_clusters`, and `split_by_speaker` landed in `transcriber/transcriber/engine.py`, `build_output` now splits instead of assigning whole chunks, and `_transcribe` carries the words on each chunk; the synthetic roll call inside one chunk comes out as eighteen segments that `find_roll_call_pairs` pairs nine times where the old path paired none. Two test-geometry adjustments against Validation are in the Decision Log (the ten-word chunk's timings and the roll-call spacing inside the fixture-shaped test); the rules themselves are as planned. The split is proven on synthetic word timings only, as the Decision Log says it must be until the operator's re-run. The re-claim and version bump (M3) and the spec and debt rows (M4) remain.
+
+M3 (2026-10-16): `claim_meeting`, `MeetingBusy`, and `_MEETING_SQL` landed in `transcriber/transcriber/db.py` with the ghost-row delete and the speaker-column clearing in `upload()`; `--meeting-id` in `transcriber/transcriber/cli.py` claims one meeting and stops; `TRANSCRIPT_VERSION = 2` is what both `build_output` calls pass and `__version__` is `0.2.0`; the README and the runbook carry the re-run procedure. One divergence from Validation, in Surprises and the Decision Log: the reset test's worker touch is an hour old rather than `now()`, because the busy guard forbids the latter. The spec and debt rows (M4) remain, and the operator's re-run of meeting 2543 is after the pull request merges.
 
 ## Context and Orientation
 
@@ -301,6 +324,45 @@ After commit 0c96c5d (M2's code, tests, and plan evidence):
     verify: workflows ... ok (0s)
     verify: transcriber ... ok (1s)
     verify: all 5 checks passed in 95s.
+
+Observed on 2026-10-16 in the M3 session, from the worktree root, before any edit (starting state, commit f9b4bd6):
+
+    $ ./tools/verify
+    ...
+    57 passed in 0.43s
+    verify: test-db ... ok (1s) postgresql://thinkdarrell@/docket_test_ba3bb5e1
+    verify: unit+web+services ... ok (47s)
+    verify: integration ... ok (50s)
+    verify: judge-fixtures ... ok (0s)
+    verify: workflows ... ok (0s)
+    verify: transcriber ... ok (1s)
+    verify: all 5 checks passed in 99s.
+
+After the five M3 tests were appended and before the code edit:
+
+    $ venv/bin/python -m pytest transcriber/tests -q -p no:cacheprovider
+    FAILED transcriber/tests/test_cli_loop.py::test_meeting_id_claims_one_meeting_and_uploads_version_2
+    FAILED transcriber/tests/test_cli_loop.py::test_meeting_id_not_eligible_uploads_nothing
+    10 failed, 39 passed, 14 skipped in 0.40s
+    $ DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest transcriber/tests/test_db.py -q -p no:cacheprovider
+    E       AttributeError: module 'transcriber.db' has no attribute 'claim_meeting'
+    E       AttributeError: module 'transcriber.db' has no attribute 'MeetingBusy'
+    4 failed, 10 passed in 0.19s
+
+After the code edit:
+
+    $ venv/bin/python -m pytest transcriber/tests -q -p no:cacheprovider
+    ........................sssssssssssss.........................           [100%]
+    49 passed, 13 skipped in 0.37s
+    $ DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest transcriber/tests -q -p no:cacheprovider; tools/test-db --drop
+    62 passed in 0.53s
+    $ (cd transcriber && ../venv/bin/python -m transcriber.cli --help | grep -n "meeting-id")
+    4:              [--retry-failed] [--meeting-id MEETING_ID] [--model MODEL]
+    17:  --meeting-id MEETING_ID
+    $ grep -c 'meeting-id' transcriber/README.md; grep -c 'Re-transcribing one meeting' docs/runbooks/transcripts.md; grep -c '"0.2.0"' transcriber/transcriber/__init__.py
+    1
+    1
+    1
 
 The ten vocabulary sentences, with their character counts (545 in all; with the nine-name roster the prompt trims to the first seven, about 554 characters):
 

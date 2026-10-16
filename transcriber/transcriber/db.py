@@ -87,6 +87,70 @@ def claim_next(conn, *, since: date, host: str, stale_after_hours: int = 6,
                  row["meeting_date"], t["status"])
 
 
+_MEETING_SQL = """
+    SELECT m.id AS meeting_id, m.external_id, m.title, m.meeting_date,
+           t.id AS transcript_id, t.status, t.uploaded_at, t.last_attempted_at,
+           (t.last_attempted_at > now() - interval '30 minutes') AS busy
+      FROM meetings m
+      JOIN municipalities mu ON mu.id = m.municipality_id
+      LEFT JOIN transcripts t ON t.meeting_id = m.id
+     WHERE m.id = %(meeting_id)s
+       AND mu.slug = 'birmingham'
+       AND m.video_url IS NOT NULL
+       AND m.is_hidden = FALSE
+       AND m.external_id ~ '^[0-9]+$'
+"""
+
+
+class MeetingBusy(Exception):
+    """The worker touched this transcript's row within the last 30 minutes (a stage may be in
+    flight; its `advance()` would overwrite our claim and a finishing compare would clear the
+    `transcript_changed` marker)."""
+
+    def __init__(self, meeting_id: int, touched_at):
+        super().__init__(f"meeting {meeting_id} was touched at {touched_at}")
+        self.meeting_id = meeting_id
+        self.touched_at = touched_at
+
+
+def claim_meeting(conn, *, meeting_id: int, host: str) -> Claim | None:
+    """Re-claim one meeting whatever its status (the `--meeting-id` re-run path).
+
+    Returns None when the meeting is not an eligible Birmingham meeting. A row that was
+    uploaded before is marked `compare_skipped_reason = 'transcript_changed'` so the worker's
+    compare stage treats the re-upload as changed input (decision 0045); a never-uploaded row
+    keeps its stored reason. Stage counters and errors are reset so the worker starts clean.
+    """
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("SELECT pg_advisory_xact_lock(hashtext('transcriber_claim'))")
+        cur.execute(_MEETING_SQL, {"meeting_id": meeting_id})
+        row = cur.fetchone()
+        if row is None:
+            return None
+        if row["busy"]:
+            raise MeetingBusy(meeting_id, row["last_attempted_at"])
+        if row["transcript_id"] is None:
+            cur.execute(
+                """INSERT INTO transcripts (meeting_id, status, producer_host, claimed_at)
+                   VALUES (%s, 'claimed', %s, now()) RETURNING id, status""",
+                [row["meeting_id"], host],
+            )
+        else:
+            cur.execute(
+                """UPDATE transcripts
+                      SET status = 'claimed', producer_host = %s, claimed_at = now(), updated_at = now(),
+                          stage_attempts = 0, last_attempted_at = NULL, needs_review_reason = NULL,
+                          last_error = NULL,
+                          compare_skipped_reason = CASE WHEN uploaded_at IS NOT NULL THEN 'transcript_changed'
+                                                        ELSE compare_skipped_reason END
+                    WHERE id = %s RETURNING id, status""",
+                [host, row["transcript_id"]],
+            )
+        t = cur.fetchone()
+    return Claim(t["id"], row["meeting_id"], row["external_id"], row["title"],
+                 row["meeting_date"], t["status"])
+
+
 def mark_status(conn, transcript_id: int, status: str, *, error: str | None = None, **fields) -> None:
     bad = set(fields) - _UPDATABLE
     if bad:
@@ -161,6 +225,22 @@ def upload(conn, out: TranscriptOutput) -> int:
                 [out.meeting_id, sp.cluster_label, sp.embedding],
             )
             speaker_ids[sp.cluster_label] = cur.fetchone()[0]
+
+        # A re-run: drop the model's rows for clusters this output no longer has (ghost rows),
+        # then clear the model's resolution on the rest so the page never shows an old cluster's
+        # name on a new cluster that reuses its label. Manual rows are left alone (D54).
+        cur.execute(
+            """DELETE FROM transcript_speakers
+                WHERE meeting_id = %s AND is_manual = FALSE AND NOT (cluster_label = ANY(%s))""",
+            [out.meeting_id, [sp.cluster_label for sp in out.speakers]],
+        )
+        cur.execute(
+            """UPDATE transcript_speakers
+                  SET council_member_id = NULL, display_name = NULL, role = NULL, confidence = NULL,
+                      method = NULL, needs_review = FALSE
+                WHERE meeting_id = %s AND is_manual = FALSE""",
+            [out.meeting_id],
+        )
 
         buf = io.StringIO()
         for s in out.segments:

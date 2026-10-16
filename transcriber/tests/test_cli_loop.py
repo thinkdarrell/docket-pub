@@ -27,7 +27,11 @@ class FakeDB:
     """Stands in for transcriber.db functions via monkeypatch."""
     def __init__(self, claims):
         self.claims = list(claims); self.status = []; self.uploaded = []; self.beats = []
+        self.versions = []; self.meeting_claims = []
     def claim_next(self, conn, **kw):
+        return self.claims.pop(0) if self.claims else None
+    def claim_meeting(self, conn, **kw):
+        self.meeting_claims.append(kw)
         return self.claims.pop(0) if self.claims else None
     def mark_status(self, conn, tid, status, **kw):
         self.status.append((tid, status, kw.get("error")))
@@ -36,7 +40,8 @@ class FakeDB:
     def roster_for_meeting(self, conn, mid):
         return ["Darrell O'Quinn"]
     def upload(self, conn, out: TranscriptOutput):
-        self.uploaded.append(out.meeting_id); return len(out.segments)
+        self.uploaded.append(out.meeting_id); self.versions.append(out.version)
+        return len(out.segments)
 
 
 @pytest.fixture
@@ -47,7 +52,8 @@ def cfg(tmp_path):
 
 
 def _wire(monkeypatch, fakedb, *, fetch_ok=True):
-    for name in ("claim_next", "mark_status", "heartbeat", "roster_for_meeting", "upload"):
+    for name in ("claim_next", "claim_meeting", "mark_status", "heartbeat", "roster_for_meeting",
+                 "upload"):
         monkeypatch.setattr(cli.tdb, name, getattr(fakedb, name))
     def fake_fetch(source, out_wav, **kw):
         if not fetch_ok:
@@ -69,6 +75,7 @@ def test_happy_path_uploads_and_archives_json(monkeypatch, cfg):
     counts = cli.run_loop(FakeConn(), FakeEngine(), cfg)
     assert counts == {"uploaded": 1, "failed": 0, "low_speech": 0}
     assert fdb.uploaded == [101]
+    assert fdb.versions == [2]                            # TRANSCRIPT_VERSION
     assert any(p.suffix == ".json" for p in cfg.archive_dir.rglob("*"))
     assert not list(cfg.work_dir.rglob("*.wav"))          # audio deleted after upload
     assert [s for _, s, _ in fdb.status][:2] == ["audio_fetched", "transcribed"]
@@ -165,3 +172,27 @@ def test_loop_drops_hallucinations_and_prompt_leaks_before_upload(monkeypatch, c
     counts = cli.run_loop(FakeConn(), Leaky(), cfg)
     assert counts == {"uploaded": 1, "failed": 0, "low_speech": 0}
     assert sizes == [1]
+
+
+def test_meeting_id_claims_one_meeting_and_uploads_version_2(monkeypatch, cfg):
+    cfg.meeting_id = 2543
+    claim = Claim(9, 2543, "2016", "Regular City Council Meeting", date(2026, 10, 6), "claimed")
+    fdb = FakeDB([claim]); _wire(monkeypatch, fdb)
+    def no_claim_next(conn, **kw):
+        raise AssertionError("claim_next must not run with --meeting-id")
+    monkeypatch.setattr(cli.tdb, "claim_next", no_claim_next)
+    counts = cli.run_loop(FakeConn(), FakeEngine(), cfg)
+    assert counts == {"uploaded": 1, "failed": 0, "low_speech": 0}
+    assert fdb.meeting_claims == [{"meeting_id": 2543, "host": "test"}]
+    assert fdb.uploaded == [2543] and fdb.versions == [2]
+    assert fdb.beats[-1] == "exited"
+
+
+def test_meeting_id_not_eligible_uploads_nothing(monkeypatch, cfg):
+    cfg.meeting_id = 2543
+    fdb = FakeDB([]); _wire(monkeypatch, fdb)
+    counts = cli.run_loop(FakeConn(), FakeEngine(), cfg)
+    assert counts == {"uploaded": 0, "failed": 0, "low_speech": 0}
+    assert fdb.meeting_claims == [{"meeting_id": 2543, "host": "test"}]
+    assert fdb.uploaded == []
+    assert fdb.beats[-1] == "exited"

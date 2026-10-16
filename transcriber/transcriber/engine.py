@@ -18,6 +18,10 @@ log = logging.getLogger(__name__)
 
 LOW_SPEECH_FLOOR_S = 180.0
 
+# transcripts.version. 2 = per-word speaker split, hallucination and prompt-leak filters, prose prompt
+# (1 = whole-chunk clusters, no cleaning). Bump it when the output changes shape or content again.
+TRANSCRIPT_VERSION = 2
+
 
 @dataclass
 class Word:
