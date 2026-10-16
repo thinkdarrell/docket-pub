@@ -17,7 +17,7 @@ After this plan, a transcript produced by the new code has one segment per speak
 - [x] (2026-10-16 16:51Z) M1: `clean_segments` in `transcriber/transcriber/engine.py` drops hallucinated short low-confidence segments and segments that reproduce the initial prompt, `build_initial_prompt` in `transcriber/transcriber/prompt.py` renders the vocabulary as prose sentences with no `Terms:` list, `build_output` and the producer loop in `transcriber/transcriber/cli.py` apply the cleaning, `./tools/verify` runs `transcriber/tests` as its fifth check, and `AGENTS.md` and `docs/specs/operations.md` say so
 - [x] (2026-10-16 16:58Z) M2: `split_by_speaker` in `transcriber/transcriber/engine.py` assigns a diarization cluster to every word from the word timestamps and cuts each ASR chunk at the speaker changes, `FasterWhisperEngine._transcribe` carries the words on each `RawSegment`, and a synthetic roll call inside one chunk comes out of `build_output` as name and response segments that `find_roll_call_pairs` in `src/docket/ai/transcripts/speakers.py` pairs
 - [x] (2026-10-16 17:07Z) M3: `claim_meeting` in `transcriber/transcriber/db.py` and `--meeting-id` in `transcriber/transcriber/cli.py` re-claim one meeting for re-transcription and mark a previously uploaded transcript `transcript_changed`, `upload` clears the model's speaker resolutions on a re-upload, the producer writes `transcripts.version = 2` as `__version__` 0.2.0, and `transcriber/README.md` and `docs/runbooks/transcripts.md` tell the operator how to re-run meeting 2543
-- [ ] M4: `docs/specs/transcripts.md` describes the producer's cleaning, splitting, versioning, and re-claim behaviour in the present tense, `docs/specs/index.md` lists it, and `docs/DEBT.md` amends `D9`, `D51`, and `D52` and adds the rows for diarization clustering tuning and the unbuilt manual-speaker remap
+- [x] (2026-10-16 17:15Z) M4: `docs/specs/transcripts.md` describes the producer's cleaning, splitting, versioning, and re-claim behaviour in the present tense, `docs/specs/index.md` lists it, and `docs/DEBT.md` amends `D9`, `D51`, and `D52` and adds the rows for diarization clustering tuning and the unbuilt manual-speaker remap
 
 ## Surprises & Discoveries
 
@@ -49,6 +49,8 @@ Four things were found while authoring and shaped the plan; M1's observations fo
   Evidence: the guard's own test `test_claim_meeting_refuses_recent_worker_touch` raises `MeetingBusy` on exactly that `now()` state and passes (2026-10-16, M3 session).
 - Observation (M3): `grep -c 'Re-transcribing one meeting' docs/runbooks/transcripts.md` first printed `2`, because the Status machine note on `uploaded` named the new section verbatim; the note now says "the re-run section below" and the grep prints `1`.
   Evidence: the two grep runs on 2026-10-16 (M3 session).
+- Observation (M4): the seven acceptance greps all printed their expected counts on the first run after the three edits; `grep -c 'meeting-id' docs/DEBT.md` prints `3`, not the `2` Validation describes as the `D51` and `D52` amendments, because the new `D54` row also names the flag. Nothing else about the milestone was surprising.
+  Evidence: `grep -c 'What the producer uploads' docs/specs/transcripts.md` `1`; `grep -o 'TRANSCRIPT_VERSION' docs/specs/transcripts.md | wc -l` `1`; `grep -c 'HALLUCINATION_LOGPROB' docs/specs/transcripts.md` `1`; `grep -c '^| D53 |' docs/DEBT.md` `1`; `grep -c '^| D54 |' docs/DEBT.md` `1`; `grep -c 'producer' docs/specs/index.md` `2`; `grep -c 'meeting-id' docs/DEBT.md` `3` (2026-10-16, M4 session).
 
 ## Decision Log
 
@@ -142,6 +144,15 @@ Four things were found while authoring and shaped the plan; M1's observations fo
 - Decision: M3 lands in two commits, the code, tests, documents, and the plan's evidence (with the Progress tick) first, then the closing `./tools/verify` transcript.
   Rationale: as for M2; the acceptance counts and greps were observed before the first commit, and the verify transcript depends on it.
   Date/Author: 2026-10-16, M3 session.
+- Decision: the `D53` and `D54` rows carry Where cells Plan of Work did not spell out: `D53` names `FasterWhisperEngine.diarize` and `assign_word_clusters` in `transcriber/transcriber/engine.py` and `src/docket/ai/transcripts/speakers.py`, and `D54` names `upload` in `transcriber/transcriber/db.py` and the `remapped_from_version` column in `src/docket/migrations/035_transcripts.py`; `D54` also cites the design document that defines the remap, `docs/superpowers/specs/2026-10-05-meeting-transcripts-design.md`, and its Why deferred says the first re-run (meeting 2543) has no manual rows to carry.
+  Rationale: the register's columns are Where and Why deferred as well as Item and Trigger, and a row with an empty Where cannot be paid down from the row alone; the design document is where the quoted item name comes from (its line 114), and `grep` found no other copy of it under `docs/`.
+  Date/Author: 2026-10-16, M4 session.
+- Decision: the spec's producer section also states the fixture counts the two filters yield (seven hallucinations and one prompt leak on the 190 speech rows, the eight seq numbers), the prompt length under the 2026 roster (551 characters), and that `__version__` is `0.2.0`, none of which Plan of Work lists.
+  Rationale: all three are observed in this plan's Surprises and Artifacts and are the kind of fact a reader of the spec would otherwise have to re-derive; they are facts about the present code and fixture, not history, so they belong in a present-tense spec.
+  Date/Author: 2026-10-16, M4 session.
+- Decision: M4 lands in two commits, the three documents and the plan's evidence (with the Progress tick) first, then the closing `./tools/verify` transcript; the plan file stays under `plans/active/` because moving it to `plans/completed/` with its `Outcomes & Retrospective` is the closing sequence `docs/specs/operations.md` gives to `cycle-run`, not to a milestone session.
+  Rationale: as for M3; and `skills/plan-execute/SKILL.md` says a session executes one milestone and stops, so the lifecycle step after the last milestone is the loop's, not this session's.
+  Date/Author: 2026-10-16, M4 session.
 
 ## Outcomes & Retrospective
 
@@ -150,6 +161,8 @@ M1 (2026-10-16): the two filters, the prose prompt, the loop wiring, and the fif
 M2 (2026-10-16): `Word`, the `words` field on `RawSegment`, `assign_word_clusters`, and `split_by_speaker` landed in `transcriber/transcriber/engine.py`, `build_output` now splits instead of assigning whole chunks, and `_transcribe` carries the words on each chunk; the synthetic roll call inside one chunk comes out as eighteen segments that `find_roll_call_pairs` pairs nine times where the old path paired none. Two test-geometry adjustments against Validation are in the Decision Log (the ten-word chunk's timings and the roll-call spacing inside the fixture-shaped test); the rules themselves are as planned. The split is proven on synthetic word timings only, as the Decision Log says it must be until the operator's re-run. The re-claim and version bump (M3) and the spec and debt rows (M4) remain.
 
 M3 (2026-10-16): `claim_meeting`, `MeetingBusy`, and `_MEETING_SQL` landed in `transcriber/transcriber/db.py` with the ghost-row delete and the speaker-column clearing in `upload()`; `--meeting-id` in `transcriber/transcriber/cli.py` claims one meeting and stops; `TRANSCRIPT_VERSION = 2` is what both `build_output` calls pass and `__version__` is `0.2.0`; the README and the runbook carry the re-run procedure. One divergence from Validation, in Surprises and the Decision Log: the reset test's worker touch is an hour old rather than `now()`, because the busy guard forbids the latter. The spec and debt rows (M4) remain, and the operator's re-run of meeting 2543 is after the pull request merges.
+
+M4 (2026-10-16): `docs/specs/transcripts.md` opens by saying it covers the producer's output rules and the comparison stage and carries the section "What the producer uploads" (the two filters with their constants and the phrase list's location, the prose prompt and its trimming, the per-word split with the snap window, the no-smoothing rule and the no-words fallback, `words.json` written from the pre-cleaning words, `TRANSCRIPT_VERSION` 1 and 2, the `--meeting-id` re-claim's marker and busy guard, and the ghost-row delete and speaker-column clearing in `upload()`); `docs/specs/index.md` lists it; `docs/DEBT.md` amends `D9`, `D51`, and `D52` and adds `D53` (diarization over-splitting) and `D54` (the unbuilt manual-speaker remap). No divergence from Validation. With this the plan's four milestones are done: a transcript produced by the new code has one segment per speaker turn, carries no hallucinated filler and no copy of the prompt, is marked `version = 2`, and the producer can be pointed at one meeting with `--meeting-id`; the producer suite grew from `31 passed, 10 skipped` to `49 passed, 13 skipped` (`62 passed` under verify) rather than the `47 passed, 12 skipped` the Purpose predicted, because the operator review added tests after the Purpose was written. What remains is outside the sessions: the closing sequence (pull request, moving this file to `plans/completed/`) and the operator's re-run of meeting 2543 on the Legion, which is the first and only check of the split on real audio. Lesson: three of the four milestones diverged from Validation's test text in geometry or fixture state (the echo variant, the roll-call spacing, the busy-guard touch), each because a later review changed a rule after the test was specified; a plan revised after review should re-read its Validation section against the new rules.
 
 ## Context and Orientation
 
@@ -376,6 +389,35 @@ After commit 1246814 (M3's code, tests, documents, and plan evidence):
     verify: workflows ... ok (0s)
     verify: transcriber ... ok (1s)
     verify: all 5 checks passed in 97s.
+
+Observed on 2026-10-16 in the M4 session, from the worktree root, before any edit (starting state, commit 2cf93b6):
+
+    $ ./tools/verify
+    ...
+    62 passed in 0.44s
+    verify: test-db ... ok (1s) postgresql://thinkdarrell@/docket_test_ba3bb5e1
+    verify: unit+web+services ... ok (44s)
+    verify: integration ... ok (46s)
+    verify: judge-fixtures ... ok (1s)
+    verify: workflows ... ok (0s)
+    verify: transcriber ... ok (1s)
+    verify: all 5 checks passed in 93s.
+
+After the three document edits:
+
+    $ grep -c 'What the producer uploads' docs/specs/transcripts.md; grep -o 'TRANSCRIPT_VERSION' docs/specs/transcripts.md | wc -l; grep -c 'HALLUCINATION_LOGPROB' docs/specs/transcripts.md
+    1
+    1
+    1
+    $ grep -c '^| D53 |' docs/DEBT.md; grep -c '^| D54 |' docs/DEBT.md; grep -c 'producer' docs/specs/index.md; grep -c 'meeting-id' docs/DEBT.md
+    1
+    1
+    2
+    3
+    $ git diff --stat
+     docs/DEBT.md              |  8 +++++---
+     docs/specs/index.md       |  4 ++--
+     docs/specs/transcripts.md | 22 +++++++++++++++++++++-
 
 The ten vocabulary sentences, with their character counts (545 in all; with the nine-name roster the prompt trims to the first seven, about 554 characters):
 

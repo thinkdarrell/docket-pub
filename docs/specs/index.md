@@ -22,6 +22,6 @@ history lives in version control and in `plans/completed/`.
 | --- | --- |
 | `operations.md` | How the system is run: environments (including the `node` requirement), tests (`./tools/verify`, the disposable `docket_test_<hash>` database, the live-tier exclusion, the milestone judge as verify's third check, the saved-workflow shape check as its fourth), running the factory (`/cycle-plan`, `/cycle-run`, the `limit`, the closing sequence, halts and resume), deploys, Railway, domain, transcriber, runbook index |
 | `calibration.md` | The daily calibration report and the `/admin/calibration` dashboard: what they compare, their windows and thresholds, how scores are read |
-| `transcripts.md` | The transcript comparison stage: which categories a model may assign, how a vote result is read, and what a re-comparison does to reviewed rows |
+| `transcripts.md` | What the producer uploads (the hallucination and prompt-leak filters, the prose prompt, the per-word speaker split, `TRANSCRIPT_VERSION`, the `--meeting-id` re-claim and what a re-upload clears) and the transcript comparison stage: which categories a model may assign, how a vote result is read, and what a re-comparison does to reviewed rows |
 
-Present-tense behaviour specs do not exist yet for the areas `D9` in `docs/DEBT.md` lists, except the transcript comparison stage, which `transcripts.md` covers; the design documents under `docs/superpowers/specs/` describe each as of the day it shipped.
+Present-tense behaviour specs do not exist yet for the areas `D9` in `docs/DEBT.md` lists, except the transcript comparison stage and the producer's output rules, which `transcripts.md` covers; the design documents under `docs/superpowers/specs/` describe each as of the day it shipped.
