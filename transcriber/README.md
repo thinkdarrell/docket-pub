@@ -50,18 +50,24 @@ overwrites `transcript.json` and `words.json` under that meeting's folder in
 `C:\docket-archive\transcripts\`, replaces the meeting's segments in Postgres,
 clears the worker's speaker names on the non-manual clusters, and marks the
 row `transcript_changed` so the worker treats the re-upload as changed input
-and re-runs its stages (speakers, events, comparison). The producer refuses a
-meeting the worker touched in the last 30 minutes (exit 1; wait and retry), and
-exits 1 when the id is not an eligible Birmingham meeting. The operator
-procedure, with the checks to run first, is in `docs/runbooks/transcripts.md`
-under "Re-transcribing one meeting".
+and re-runs its stages (speakers, events, comparison). The old transcript stays
+public until the new upload lands. The run exits 1 whenever nothing was
+uploaded: the id is not an eligible Birmingham meeting; the worker's claim
+stamped the row in the last 30 minutes (`meeting N was touched at T; wait 30
+minutes`; the producer's own writes never stamp it, so a re-run right after a
+failed one is not refused); or the run ended `failed` or `low_speech`, in which
+case the row is put back exactly as it was before the claim and the reason is
+in the log line `meeting N re-run ended ...`. The operator procedure, with the
+checks to run first, is in `docs/runbooks/transcripts.md` under
+"Re-transcribing one meeting".
 
-An upload is public immediately: `uploaded` is one of the site's public
-statuses, so the transcript page goes live at
-`/al/birmingham/meetings/<id>/transcript/` as soon as a meeting finishes, with
-speakers shown as "Speaker N" until the worker resolves names. There is no
-review step between the producer and the site; hide a bad meeting through the
-admin (`is_hidden`), which the `transcriber` role cannot do.
+An upload is public immediately: a transcript is public once uploaded, whatever
+status the worker later gives it (`low_speech` excepted), so the transcript
+page goes live at `/al/birmingham/meetings/<id>/transcript/` as soon as a
+meeting finishes, with speakers shown as "Speaker N" until the worker resolves
+names. There is no review step between the producer and the site; hide a bad
+meeting through the admin (`is_hidden`), which the `transcriber` role cannot
+do.
 
 Operating from PowerShell on the Legion:
 

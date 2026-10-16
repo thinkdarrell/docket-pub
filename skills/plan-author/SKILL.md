@@ -63,24 +63,38 @@ constrains:
    database holds no rows of that shape, recorded in the plan. A row the
    plan seeds by hand proves the seed, not the writer; a fix verified only
    on such rows can pass every test while production reports nothing.
+   When no production connection is reachable from the authoring checkout
+   (a factory worktree has none), the plan records the exact read-only
+   query, the result the design assumes, and who runs it before merge; a
+   result that breaks the assumption is a Surprises entry and a decision,
+   not a silent fix.
    When the work changes the values a column may hold, or the transitions
    a status column makes, the research lists every reader of that column
    (a search for its name across the services, routes, templates, and any
    out-of-tree producer) and states in Context what each one does with the
    new value or the new transition. Two consecutive plans shipped a row
    state its readers were written to exclude, and both times the closing
-   review, not the plan, found it.
+   review, not the plan, found it. The transition is traced from every
+   value the column can hold before it, the values the readers hide
+   included: a third plan in a row shipped a row state its readers were
+   written to exclude, a worker `low_speech` row that a re-claim moved to
+   `claimed` and so made public for the run, because the research reasoned
+   about that value only as an end state.
 3. Write each candidate milestone's acceptance before its narrative.
    Acceptance is a small number of checks a different person can run or read
    and agree on: a command together with the output it prints, or a named
    artifact with a property that is true or false on inspection. A check that
    counts says what it counts: `grep -c` counts lines, not occurrences; a
    pytest total is the baseline plus the test functions added, not the tests
-   touched; and no check greps the plan file itself, since the plan's own
-   later sections quote the phrase the check looks for. Take the
-   acceptance-first order seriously — it is the only reliable sizing test, and
-   writing the story first produces milestones whose acceptance is invented
-   afterwards to fit.
+   touched; no check greps the plan file itself, since the plan's own
+   later sections quote the phrase the check looks for; and a check that
+   compares against the branch's base names `origin/main` or the base
+   commit, never bare `main`, because a factory worktree is cut from
+   `origin/main` and nothing moves the local `main` ref (one plan's
+   `git diff --stat main` clause reported nineteen new lines where the base
+   held one changed). Take the acceptance-first order seriously — it is the
+   only reliable sizing test, and writing the story first produces
+   milestones whose acceptance is invented afterwards to fit.
 4. Size each milestone to one session, counting the whole session: reading the
    plan and the files, editing, running the checks, and writing the evidence
    back. Half a session of work with no room left to record it is an oversized

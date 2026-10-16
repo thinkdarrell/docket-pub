@@ -27,7 +27,7 @@ class FakeDB:
     """Stands in for transcriber.db functions via monkeypatch."""
     def __init__(self, claims):
         self.claims = list(claims); self.status = []; self.uploaded = []; self.beats = []
-        self.versions = []; self.meeting_claims = []
+        self.versions = []; self.meeting_claims = []; self.restored = []
     def claim_next(self, conn, **kw):
         return self.claims.pop(0) if self.claims else None
     def claim_meeting(self, conn, **kw):
@@ -35,6 +35,8 @@ class FakeDB:
         return self.claims.pop(0) if self.claims else None
     def mark_status(self, conn, tid, status, **kw):
         self.status.append((tid, status, kw.get("error")))
+    def restore_row(self, conn, tid, prior):
+        self.restored.append((tid, prior))
     def heartbeat(self, conn, host, status, mid, ver):
         self.beats.append(status)
     def roster_for_meeting(self, conn, mid):
@@ -53,7 +55,7 @@ def cfg(tmp_path):
 
 def _wire(monkeypatch, fakedb, *, fetch_ok=True):
     for name in ("claim_next", "claim_meeting", "mark_status", "heartbeat", "roster_for_meeting",
-                 "upload"):
+                 "upload", "restore_row"):
         monkeypatch.setattr(cli.tdb, name, getattr(fakedb, name))
     def fake_fetch(source, out_wav, **kw):
         if not fetch_ok:
@@ -196,3 +198,40 @@ def test_meeting_id_not_eligible_uploads_nothing(monkeypatch, cfg):
     assert fdb.meeting_claims == [{"meeting_id": 2543, "host": "test"}]
     assert fdb.uploaded == []
     assert fdb.beats[-1] == "exited"
+
+
+def _rerun_claim():
+    return Claim(9, 2543, "2016", "Regular City Council Meeting", date(2026, 10, 6), "claimed",
+                 prior={"status": "compared", "stage_attempts": 0})
+
+
+def test_meeting_id_failed_rerun_restores_the_row_instead_of_marking_failed(monkeypatch, cfg):
+    cfg.meeting_id = 2543
+    claim = _rerun_claim()
+    fdb = FakeDB([claim]); _wire(monkeypatch, fdb, fetch_ok=False)
+    counts = cli.run_loop(FakeConn(), FakeEngine(), cfg)
+    assert counts == {"uploaded": 0, "failed": 1, "low_speech": 0}
+    assert fdb.restored == [(9, claim.prior)]
+    assert not any(s == "failed" for _, s, _ in fdb.status)
+    assert fdb.beats[-1] == "exited"
+
+
+def test_meeting_id_low_speech_rerun_restores_the_row(monkeypatch, cfg):
+    class Quiet(FakeEngine):
+        def transcribe(self, wav, p): return [RawSegment(0.0, 30.0, "quorum?", None, None)]
+    cfg.meeting_id = 2543
+    claim = _rerun_claim()
+    fdb = FakeDB([claim]); _wire(monkeypatch, fdb)
+    counts = cli.run_loop(FakeConn(), Quiet(), cfg)
+    assert counts["low_speech"] == 1
+    assert fdb.restored == [(9, claim.prior)]
+    assert fdb.uploaded == []
+    assert not any(s == "low_speech" for _, s, _ in fdb.status)
+
+
+def test_exit_code_is_one_whenever_a_meeting_id_run_uploaded_nothing():
+    assert cli.exit_code({"uploaded": 0, "failed": 1, "low_speech": 0}, 2543) == 1
+    assert cli.exit_code({"uploaded": 0, "failed": 0, "low_speech": 1}, 2543) == 1
+    assert cli.exit_code({"uploaded": 0, "failed": 0, "low_speech": 0}, 2543) == 1
+    assert cli.exit_code({"uploaded": 1, "failed": 0, "low_speech": 0}, 2543) == 0
+    assert cli.exit_code({"uploaded": 0, "failed": 0, "low_speech": 0}, None) == 0

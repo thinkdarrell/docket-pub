@@ -6,6 +6,7 @@ import os
 from datetime import date
 import pytest
 import psycopg2
+import psycopg2.extras
 
 from transcriber.contract import Segment, Speaker, TranscriptOutput
 from transcriber import db as tdb
@@ -268,3 +269,76 @@ def test_upload_clears_model_speaker_resolution_but_keeps_manual(conn, bham_meet
     assert row[4] is True and row[5] is True
     assert _speaker_row(conn, bham_meeting, "SPEAKER_77") is None
     assert _speaker_row(conn, bham_meeting, "SPEAKER_78") == (None, "ghost", None, None, False, True)
+
+
+def _whole_row(conn, transcript_id):
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("SELECT * FROM transcripts WHERE id = %s", [transcript_id])
+        return dict(cur.fetchone())
+
+
+def _status_attempted_uploaded(conn, transcript_id):
+    with conn.cursor() as cur:
+        cur.execute("SELECT status, last_attempted_at, uploaded_at, stage_attempts FROM transcripts WHERE id = %s",
+                    [transcript_id])
+        return cur.fetchone()
+
+
+def test_failed_rerun_restores_the_pre_claim_row(conn, bham_meeting):
+    c = tdb.claim_next(conn, since=SINCE, host="legion")
+    tdb.upload(conn, _output(bham_meeting))
+    with conn.cursor() as cur:
+        cur.execute("""UPDATE transcripts SET status = 'compared', stage_attempts = 2,
+                              last_attempted_at = now() - interval '1 hour', needs_review_reason = 'x',
+                              last_error = 'y', updated_at = now() - interval '1 hour'
+                        WHERE id = %s""", [c.transcript_id])
+    conn.commit()
+    before = _whole_row(conn, c.transcript_id)
+    c2 = tdb.claim_meeting(conn, meeting_id=bham_meeting, host="legion")
+    conn.commit()
+    assert c2.prior == before and c2.status == "claimed"
+    tdb.mark_status(conn, c2.transcript_id, "audio_fetched", audio_sha256="cd" * 32, audio_duration_s=5.0)
+    conn.commit()
+    status, last_at, _, _ = _status_attempted_uploaded(conn, c.transcript_id)
+    assert status == "audio_fetched" and last_at is None          # the producer no longer stamps it
+    tdb.restore_row(conn, c2.transcript_id, c2.prior)
+    conn.commit()
+    after = _whole_row(conn, c.transcript_id)
+    assert after == before
+    c3 = tdb.claim_meeting(conn, meeting_id=bham_meeting, host="legion")   # no busy refusal
+    conn.commit()
+    assert c3 is not None and c3.status == "claimed"
+
+
+def test_claim_meeting_of_a_never_uploaded_row_has_no_prior(conn, bham_meeting):
+    c = tdb.claim_next(conn, since=SINCE, host="legion")
+    tdb.mark_status(conn, c.transcript_id, "failed", error="ffmpeg could not read: 403 Forbidden")
+    conn.commit()
+    c2 = tdb.claim_meeting(conn, meeting_id=bham_meeting, host="legion")
+    conn.commit()
+    assert c2 is not None and c2.prior is None
+    tdb.mark_status(conn, c2.transcript_id, "failed", error="ffmpeg could not read: 403 Forbidden")
+    conn.commit()
+    status, last_at, uploaded_at, attempts = _status_attempted_uploaded(conn, c.transcript_id)
+    assert status == "failed" and attempts == 1 and last_at is None and uploaded_at is None
+
+
+def test_claim_meeting_after_a_crashed_rerun_has_no_prior(conn, bham_meeting):
+    c = tdb.claim_next(conn, since=SINCE, host="legion")
+    tdb.upload(conn, _output(bham_meeting))
+    conn.commit()
+    c2 = tdb.claim_meeting(conn, meeting_id=bham_meeting, host="legion")
+    conn.commit()
+    assert c2.prior is not None
+    tdb.mark_status(conn, c2.transcript_id, "audio_fetched", audio_sha256="cd" * 32, audio_duration_s=5.0)
+    conn.commit()
+    # The run died here: no restore. The next claim takes no snapshot of the crashed state.
+    c3 = tdb.claim_meeting(conn, meeting_id=bham_meeting, host="legion")
+    conn.commit()
+    assert c3.prior is None and c3.status == "claimed"
+    status, _, uploaded_at, _ = _status_attempted_uploaded(conn, c.transcript_id)
+    assert status == "claimed" and uploaded_at is not None
+    tdb.mark_status(conn, c3.transcript_id, "failed", error="CUDA out of memory")
+    conn.commit()
+    status, _, uploaded_at, _ = _status_attempted_uploaded(conn, c.transcript_id)
+    assert status == "failed" and uploaded_at is not None       # the one path that still makes this row

@@ -164,6 +164,25 @@ def test_failed_without_upload_is_still_not_public():
         _rm(fx)
 
 
+def test_uploaded_row_stays_public_while_the_producer_re_claims_it():
+    """A --meeting-id re-run parks the row at a producer status with uploaded_at set and the old
+    segments in place; the page must keep serving them. The gate is uploaded_at, not the status."""
+    fx = _mk(status="compared")
+    try:
+        for status in ("claimed", "audio_fetched", "transcribed"):
+            with db_cursor() as cur:
+                cur.execute("UPDATE transcripts SET status=%s WHERE id=%s", [status, fx["transcript_id"]])
+            assert tsvc.get_public_transcript(fx["meeting_id"]) is not None, status
+        with db_cursor() as cur:
+            cur.execute("UPDATE transcripts SET status='low_speech' WHERE id=%s", [fx["transcript_id"]])
+        assert tsvc.get_public_transcript(fx["meeting_id"]) is None
+        with db_cursor() as cur:
+            cur.execute("UPDATE transcripts SET status='uploaded', uploaded_at=NULL WHERE id=%s", [fx["transcript_id"]])
+        assert tsvc.get_public_transcript(fx["meeting_id"]) is None
+    finally:
+        _rm(fx)
+
+
 def test_each_processed_claim_writes_an_ai_run(monkeypatch):
     fx = _mk()
     monkeypatch.setattr(P, "_stage_fn", lambda stage: (lambda claim, client: P.StageOutcome("speakers_resolved")))

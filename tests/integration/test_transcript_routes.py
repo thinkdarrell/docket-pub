@@ -62,6 +62,20 @@ def test_404_while_not_public(client, meeting_with_transcript):
     assert "/transcript/" not in page
 
 
+def test_transcript_stays_up_while_the_producer_re_claims_it(client, meeting_with_transcript):
+    fx = meeting_with_transcript; _publish(fx["transcript_id"])
+    mid = fx["meeting_id"]
+    with db_cursor() as cur:
+        cur.execute("UPDATE transcripts SET status='claimed' WHERE id=%s", [fx["transcript_id"]])
+    r = client.get(f"/al/birmingham/meetings/{mid}/transcript/")
+    assert r.status_code == 200 and "Item fifteen." in r.get_data(as_text=True)
+    assert "/transcript/" in client.get(f"/al/birmingham/meetings/{mid}/").get_data(as_text=True)
+    assert "From the video" in client.get(f"/al/birmingham/items/{fx['item_id']}/").get_data(as_text=True)
+    with db_cursor() as cur:
+        cur.execute("UPDATE transcripts SET status='low_speech' WHERE id=%s", [fx["transcript_id"]])
+    assert client.get(f"/al/birmingham/meetings/{mid}/transcript/").status_code == 404
+
+
 def test_full_page_renders_label_turns_and_anchors(client, meeting_with_transcript):
     fx = meeting_with_transcript; _publish(fx["transcript_id"])
     r = client.get(f"/al/birmingham/meetings/{fx['meeting_id']}/transcript/")

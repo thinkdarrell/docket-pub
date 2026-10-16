@@ -15,14 +15,15 @@ from markupsafe import Markup, escape
 from docket.config import TRANSCRIPT_BACKFILL_SINCE, TRANSCRIPT_MIN_WORDS
 from docket.db import db_cursor
 
-PUBLIC_STATUSES = ("uploaded", "speakers_resolved", "events_extracted", "compared")
 SPEAKER_CONFIDENCE_FLOOR = 0.6
 
-# A worker-stage failure after upload (speaker resolution, extraction,
-# comparison) must not take a readable transcript off the site. Producer
-# failures never set uploaded_at, so they stay hidden.
-_PUBLIC_PREDICATE = ("({a}.status = ANY(%s) OR ({a}.status IN ('failed', 'needs_review') "
-                     "AND {a}.uploaded_at IS NOT NULL))")
+# A transcript is public once uploaded, whatever the producer or a worker
+# stage does to its status afterwards (a re-claim for re-transcription, a
+# worker-stage failure, a hold), except low_speech, which both writers use
+# to mean there is no usable transcript. uploaded_at is written only by the
+# producer's upload() in the transaction that publishes the segments, and a
+# producer failure on a never-uploaded row leaves it NULL.
+_PUBLIC_PREDICATE = "({a}.uploaded_at IS NOT NULL AND {a}.status <> 'low_speech')"
 
 
 def public_predicate(alias: str) -> str:
@@ -67,7 +68,7 @@ def get_public_transcript(meeting_id: int) -> Transcript | None:
                       t.audio_duration_s, t.word_count, t.uploaded_at
                  FROM transcripts t
                 WHERE t.meeting_id = %s AND {public_predicate('t')}""",
-            [meeting_id, list(PUBLIC_STATUSES)],
+            [meeting_id],
         )
         row = cur.fetchone()
         return Transcript(**row) if row else None
@@ -170,7 +171,7 @@ def excerpt_for_item(item_id: int, max_turns: int = 4) -> dict | None:
                  FROM agenda_items ai
                  JOIN transcripts t ON t.meeting_id = ai.meeting_id
                 WHERE ai.id = %s AND {public_predicate('t')}""",
-            [item_id, list(PUBLIC_STATUSES)],
+            [item_id],
         )
         head = cur.fetchone()
         if head is None:
@@ -220,7 +221,7 @@ _PRE_ESCAPED_TEXT = "replace(replace(replace(s.text, '&', '&amp;'), '<', '&lt;')
 def search_transcripts(q: str, *, municipality_slug: str | None, speaker: str | None,
                        limit: int = 10, offset: int = 0) -> list[dict]:
     where = ["mu.active = TRUE", "m.is_hidden = FALSE", public_predicate("t"), "s.is_silence = FALSE"]
-    params: list = [list(PUBLIC_STATUSES)]
+    params: list = []
     if municipality_slug:
         where.append("mu.slug = %s"); params.append(municipality_slug)
     if speaker:
