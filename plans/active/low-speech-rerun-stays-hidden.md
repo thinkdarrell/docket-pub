@@ -1,0 +1,372 @@
+# Keep a worker `low_speech` transcript hidden through a `--meeting-id` re-run
+
+This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
+
+This document must be maintained in accordance with `plans/PLANS.md`.
+
+## Purpose / Big Picture
+
+docket.pub publishes machine transcripts of Birmingham City Council meetings at `/al/birmingham/meetings/<id>/transcript/`. A desktop program called the producer (the `transcriber/` package, run on a GPU machine the operator calls the Legion) transcribes the video and uploads the segments; the Railway worker then resolves speaker names, extracts events, and compares the transcript against the minutes. Since 2026-10 a transcript is public once it has been uploaded, whatever its status, except `low_speech` (decision `0049`), so the operator's `python -m transcriber.cli --meeting-id N` re-run no longer takes the page down for the hour it takes. The closing review of the plan that made that rule (`plans/completed/rerun-keeps-transcript-public.md`, pull request 122) found the one case it missed, recorded as `D58` in `docs/DEBT.md`: a row the worker's fitness gate had moved to `low_speech` after its upload keeps `uploaded_at` and its segments, the site hides it by its status alone, and the re-run's claim overwrites that status with `claimed`, so a transcript the site hides at rest (a mic check, a recording under the 300-word floor) is public from the claim until the new upload or the restore. This plan pays `D58`.
+
+After this work, a `--meeting-id N` re-run of such a meeting leaves its transcript hidden for the whole run: the transcript page is a 404, the meeting page has no `/transcript/` link, the item page has no "From the video" excerpt, and search returns none of its segments at `claimed`, `audio_fetched`, and `transcribed`, exactly as at rest; a re-run that ends without an upload puts the row back as it was, `low_speech` with `uploaded_at` set, and a successful upload publishes the new transcript as any upload is published. The mechanism is one clause: `claim_meeting()` in `transcriber/transcriber/db.py` clears `uploaded_at` in the same UPDATE that sets `claimed` when the row it re-claims rests at `low_speech`; the `prior` snapshot it already reads before that UPDATE keeps the original value, so the existing `restore_row()` puts it back and the existing `upload()` sets it anew. The public predicate does not change.
+
+How to see it working, on a disposable database (every command in this plan runs from the worktree root, `/home/thinkdarrell/docket-pub/.claude/worktrees/low-speech-rerun-stays-hidden`, with that checkout's own `venv/`): the probe in Artifacts and Notes walks one row through `claim_next`, `upload`, the worker's `low_speech` write, `claim_meeting`, `audio_fetched`, `transcribed`, `restore_row`, a second `claim_meeting`, and a second `upload`, printing whether the public predicate returns the row at each step. On 2026-10-16, before any work, it printed `public=('claimed',)`, `('audio_fetched',)`, and `('transcribed',)` between the claim and the restore; after M1 it prints `public=None` at every step from the worker's write to the second claim and `('uploaded',)` only after the second upload. A new integration test that starts from a worker `low_speech` row, calls `claim_meeting()`, and reads the predicate at `claimed` fails on the base commit and passes after M1 (the trigger text of `D58`). The test counts move from `623 passed` to `624 passed` in the integration tier and from `68 passed` to `70 passed` in the producer suite, and `./tools/verify` ends `verify: all 5 checks passed` at every milestone (it printed `verify: all 5 checks passed in 99s.` on this branch before any work).
+
+## Progress
+
+- [ ] M1: `claim_meeting()` in `transcriber/transcriber/db.py` clears `uploaded_at` when the row it re-claims rests at `low_speech`, its docstring and the comment above `_PUBLIC_PREDICATE` say so, `__version__` is `0.2.2`, `docs/specs/transcripts.md` carries the exception and the version, and three tests pass (one in the integration tier that starts from a worker `low_speech` row and reads the predicate at `claimed`, which fails before the change, and two in the producer suite)
+- [ ] M2: the `D58` row is deleted from `docs/DEBT.md`, decision `0050` extends `0049`, `docs/runbooks/transcripts.md` (the `claimed` row, the re-run section, History) and `transcriber/README.md` say the one exception, and `./tools/verify` passes
+
+## Surprises & Discoveries
+
+The authoring research found four things worth recording before any milestone ran; observations from milestone sessions follow them.
+
+- Observation: this worktree had no `.env`, the state `D57` describes, under which `tools/test-db` fails with `permission denied to create database` and no tier of `./tools/verify` runs. The author wrote the gitignored one-line file before running anything, so the failure itself was not observed here; with it present the first `./tools/verify` passed.
+  Evidence: `ls -la .env` printed `No such file or directory`; `grep -n "^\.env$" .gitignore` printed `8:.env`; after `printf 'DATABASE_URL=postgresql://thinkdarrell@/docket_db\n' > .env`, `git status --short` printed nothing and `./tools/verify` printed `verify: test-db ... ok (1s) postgresql://thinkdarrell@/docket_test_a01580f1` and `verify: all 5 checks passed in 99s.`
+- Observation: the probe reproduces `D58` on the unchanged code, and the `prior` snapshot already carries the original `uploaded_at`, which is what lets the restore and the upload close the loop without a new column.
+  Evidence: with `DATABASE_URL` at `docket_test_a01580f1`, `venv/bin/python <scratchpad>/low_speech_probe.py` printed the ten lines recorded under Artifacts and Notes, among them `after claim_meeting: status=claimed uploaded=True public=('claimed',) segments=1`, `prior status: low_speech; prior uploaded_at set: True`, and `after restore_row: status=low_speech uploaded=True public=None segments=1`; exit 0.
+- Observation: from the repository root the name `transcriber` resolves to the outer `transcriber/` directory as a namespace package, not to the producer package `transcriber/transcriber/`, so an integration test under `tests/` cannot import `claim_meeting()` without a `sys.path` entry; `sys.path.append(<root>/transcriber)` resolves it correctly (a regular package beats a namespace portion wherever it sits on the path), while `sys.path.insert(0, ...)` makes `tests` resolve to `transcriber/tests`, the producer suite's own package of that name, and breaks the root suite.
+  Evidence: `venv/bin/python -c 'from transcriber import db'` printed `ImportError: cannot import name 'db' from 'transcriber' (unknown location)`; with `sys.path.append(os.path.abspath('transcriber'))` the same import printed `.../transcriber/transcriber/db.py` and `import tests.integration` printed `.../tests/integration/__init__.py` in either import order; with `sys.path.insert(0, ...)` and `transcriber` imported first, `import tests.integration` printed `ModuleNotFoundError: No module named 'tests.integration'`.
+- Observation: the local `docket_db` holds no `transcripts` rows, so the distribution of `low_speech` rows against `uploaded_at` that the new clause reads could not be counted locally, and no production connection is reachable from this worktree. Context and Orientation records the read-only production query the operator runs before merge and the shapes the design expects.
+  Evidence: `psql postgresql://thinkdarrell@/docket_db -At -c "select status, uploaded_at is not null as uploaded, count(*) from transcripts group by 1,2 order by 1,2"` printed nothing and `select count(*) from transcript_segments` printed `0` (2026-10-16).
+
+## Decision Log
+
+- Decision: the fact "this transcript is hidden" travels with the row by `claim_meeting()` clearing `uploaded_at` when the row it re-claims rests at `low_speech`; the public predicate (`uploaded_at IS NOT NULL AND status <> 'low_speech'`) does not change.
+  Rationale: the predicate reads only the row, so whatever marks the transcript hidden has to be in the row through the producer statuses, and `uploaded_at` is the column the predicate already keys on. The alternatives the brief weighed each cost more: a new status needs a migration altering the CHECK in `src/docket/migrations/035_transcripts.py` and a change at every reader of `status`, the reason decision `0049` rejected one; a new column (migration 037) is a second owner of the public fact; a predicate clause on `word_count` makes the row public at `transcribed`, when `mark_status()` writes the new count while the old segments are still in the table, and couples the predicate to `TRANSCRIPT_MIN_WORDS`; deleting the segments at the claim hides the row but `restore_row()` could not bring them back. The `prior` snapshot is read before the UPDATE (`transcriber/transcriber/db.py` lines 143 to 147 today), so `restore_row()` writes the original `uploaded_at` back with every other column and `upload()` sets `uploaded_at = now()` as it always has; neither function changes.
+  Date/Author: 2026-10-16, plan author.
+- Decision: the claim's `compare_skipped_reason` CASE is left as it is. It reads the pre-update `uploaded_at` (every expression in a SET list reads the old row), so a worker `low_speech` row, whose `uploaded_at` is set until this same statement clears it, is still marked `transcript_changed`.
+  Rationale: the marker only matters at the compare stage, and a worker `low_speech` row was never compared: `mark_low_speech()` runs in the speakers stage, before events and compare, so no discrepancy row exists for the marker to stale. Writing it or not is harmless either way, and not writing it would need a second CASE keyed on the same status for no observable difference.
+  Date/Author: 2026-10-16, plan author.
+- Decision: the test that proves the trigger text of `D58` lives in `tests/integration/test_transcript_pipeline.py`, which gains a `sys.path.append` of the `transcriber/` directory and `from transcriber import db as tdb`; two further tests of the row itself live in `transcriber/tests/test_db.py`; `transcriber/tests/test_cli_loop.py` needs no change.
+  Rationale: the trigger asks for one test that starts from a worker `low_speech` row, calls `claim_meeting()`, and reads `public_predicate()` at `claimed`, which needs both the worker's `mark_low_speech()` path (`docket.ai.transcripts.pipeline`) and the producer's `claim_meeting()` in one test. The producer suite runs on the Legion with plain `pytest` (`transcriber/README.md` line 121), where `docket` is not importable, so that test cannot live there; the root suite runs only under this repository's `venv/`, where the producer package is one `sys.path` entry away (`append`, not `insert(0)`, for the reason in Surprises). The row-level facts (`uploaded_at` NULL at `claimed`, back after `restore_row()`, set again after `upload()`, and the crash shape) belong beside the producer's other `claim_meeting()` tests, where the `bham_meeting` fixture and the `_whole_row()` helper already exist. The loop tests in `test_cli_loop.py` stand in for every `db` function with `FakeDB`, so a change inside `claim_meeting()` is invisible to them.
+  Date/Author: 2026-10-16, plan author.
+- Decision: two milestones, the mechanism with its tests and the spec first, the bookkeeping second.
+  Rationale: M1 is one SET clause, one docstring, one comment, one version string, three tests, and three sentence replacements in `docs/specs/transcripts.md`, and it stands alone (after it the behaviour is in the code and in the present-tense spec, and `D58` still describes a defect that is now fixed, which is a stale debt row, not a false one). M2 is the debt row, the decision record, the runbook, and the README, small on purpose so the closing verify and the retrospective have room. The spec goes with the code rather than with the documents because `plans/PLANS.md` makes the spec the living description of current behaviour, and M1 changes that behaviour.
+  Date/Author: 2026-10-16, plan author.
+- Decision: a new record `0050` states the rule and names `0049` as the record it extends; `0049` is not edited, and its Rationale's sentence that `uploaded_at` "is never cleared" stays as the dated reasoning it was.
+  Rationale: `docs/decisions/DECISION_FORMAT.md` makes records append-only and allows in-place edits only to a citation that stopped resolving; `0049` cites `D55`, which `plans/completed/transcriber-clean-speaker-segments.md` records, and not `D58`, so nothing in it stops resolving when M2 deletes the `D58` row. `0049`'s Decision (public once uploaded except `low_speech`, restore on a failed re-run, `last_attempted_at` the worker's column) still binds, so its Status stays `accepted`; `0050` extends it the way `0049` extended `0048`.
+  Date/Author: 2026-10-16, plan author.
+- Decision: the producer `__version__` moves from `0.2.1` to `0.2.2`; `TRANSCRIPT_VERSION` in `transcriber/transcriber/engine.py` stays `2` and `CONTRACT_VERSION` in `contract.py` stays `1`.
+  Rationale: a change to `claim_meeting()` is a producer behaviour change the heartbeat table should show, and the uploaded output is unchanged, which is the rule the spec's version sentence already states for `0.2.1`.
+  Date/Author: 2026-10-16, plan author.
+- Decision: the author wrote the gitignored `.env` in this worktree (`DATABASE_URL=postgresql://thinkdarrell@/docket_db`, the line `D57` records) so that `./tools/verify` runs here; it is not part of any milestone and not in any commit.
+  Rationale: `cycle-run`'s preflight runs `./tools/verify` before the first session starts, and without the file the database build fails and no tier runs. `D57` says every worktree on this machine needs the hand-written file; writing it now saves a halted run. `.gitignore` line 8 lists `.env`, and `git status --short` printed nothing after it was written.
+  Date/Author: 2026-10-16, plan author.
+- Decision: the production distribution of `low_speech` rows against `uploaded_at` is recorded as a read-only query for the operator to run before merge, not measured by this plan.
+  Rationale: the plan-author procedure asks for a count of the real distribution for every column a new clause touches; the local database holds no `transcripts` rows and no production credential is reachable from a factory worktree. The design holds whatever the count is (the clause fires only on a `low_speech` row, and a `low_speech` row with `uploaded_at` NULL is unchanged by it), so the query is there to tell the operator how many rows it can affect and to catch a row shape neither writer produces; a result outside the expected shapes is a Surprises entry and a decision, not a silent fix.
+  Date/Author: 2026-10-16, plan author.
+- Decision: the `low_speech` row of the runbook's status table, `docs/runbooks/transcripts-pipeline-map.md`, `docs/specs/index.md`, and `tests/integration/test_transcript_routes.py` are read and left alone.
+  Rationale: the `low_speech` table row says what a re-run of an uploaded meeting never writes, which stays true; the pipeline map's two predicate lines (109 and 491) say `uploaded_at` is the producer's column and that a worker failure never hides an uploaded transcript, both still true, and the map is a dated orientation document; the `transcripts.md` row of the spec index already names "what stays public during a re-run", which covers the exception; the route tests already show the page staying up through a re-claim of a public row and going dark at `low_speech`, and the new integration test reads the same `get_public_transcript()` the routes call, so a route-level duplicate would prove nothing more.
+  Date/Author: 2026-10-16, plan author.
+
+## Outcomes & Retrospective
+
+Nothing has been executed yet. Both milestones are open; no evidence exists beyond the authoring observations recorded in Surprises & Discoveries and Concrete Steps. This section is written at completion.
+
+## Context and Orientation
+
+The repository is a Python 3.10 Flask application with a PostgreSQL database. Three things in it matter here.
+
+The producer is the package under `transcriber/` (its own `pytest.ini` with `pythonpath = .`, its own tests under `transcriber/tests/`, run by `./tools/verify` as its fifth check with the root `venv/bin/python`). It connects to Postgres as the `transcriber` role, which may `SELECT, INSERT, UPDATE, DELETE` on `transcripts`, `transcript_segments`, `transcript_speakers`, and `producer_heartbeats` and read four reference tables (`scripts/sql/create_transcriber_role.sql`); it cannot add a column, which is one reason the fix lives in an existing one. `transcriber/transcriber/db.py` holds its database layer. `claim_next()` picks the newest eligible meeting under an advisory lock and inserts or re-claims a `transcripts` row at `claimed`. `claim_meeting()` serves `--meeting-id N`: after refusing with `MeetingBusy` a row whose `last_attempted_at` is within 30 minutes, it reads the row whole as `prior` when `uploaded_at` is set and the status is not `claimed`, `audio_fetched`, or `transcribed` (lines 143 to 147), then runs one UPDATE (lines 155 to 164) that sets `status = 'claimed'`, `producer_host`, `claimed_at`, `updated_at`, `stage_attempts = 0`, `last_attempted_at = NULL`, `needs_review_reason = NULL`, `last_error = NULL`, and `compare_skipped_reason = CASE WHEN uploaded_at IS NOT NULL THEN 'transcript_changed' ELSE compare_skipped_reason END`, and returns a `Claim` (a frozen dataclass of seven fields: `transcript_id`, `meeting_id`, `external_id`, `title`, `meeting_date`, `status`, `prior`). `restore_row()` writes a `prior` snapshot back, every column except `id` and `meeting_id`. `mark_status()` writes a status plus optional columns from `_UPDATABLE`. `upload()` deletes the meeting's segments, upserts speakers, copies the new segments in, and sets `status = 'uploaded', uploaded_at = now()`, all in the caller's one transaction. `transcriber/transcriber/cli.py` holds the loop: `_end_without_upload()` hands `claim.prior` to `restore_row()` when a re-run ends `failed` or `low_speech`, and `mark_status()` otherwise; `exit_code()` returns 1 whenever `--meeting-id` uploaded nothing. `transcriber/transcriber/__init__.py` is two lines, the second `__version__ = "0.2.1"`, which the heartbeat carries.
+
+The Railway side's public readers are in `src/docket/services/transcripts.py`. `_PUBLIC_PREDICATE` (line 26) is `({a}.uploaded_at IS NOT NULL AND {a}.status <> 'low_speech')`, formatted by `public_predicate(alias)` and used by `get_public_transcript()` (the transcript page and the meeting page's `has_transcript` link in `src/docket/web/public.py`), `excerpt_for_item()` (the item page's "From the video" block), and `search_transcripts()` (the search page's transcript hits). The comment above it (lines 20 to 25) says a transcript is public once uploaded except `low_speech`, and that "uploaded_at is written only by the producer's upload()", which M1 makes false and rewrites. The worker's fitness gate is `fitness_reason()` and `mark_low_speech()` in `src/docket/ai/transcripts/pipeline.py` (lines 77 and 140): when a row claimed at `uploaded` has `word_count` under `TRANSCRIPT_MIN_WORDS` (300), `process_claim()` writes `status = 'low_speech', last_error = <reason>, stage_attempts = 0, updated_at = now()` and nothing else, so `uploaded_at` stays set and the segments stay in `transcript_segments`; the worker's `CLAIM_SQL` (line 29) had just stamped `last_attempted_at = now()` on that row, so a `--meeting-id` within 30 minutes of the gate is refused as busy, unchanged by this plan. The producer's own gate, `is_low_speech()` in `transcriber/transcriber/engine.py`, writes `low_speech` through `_end_without_upload()` on a row that was never uploaded, with `uploaded_at` NULL from the start; such a row is hidden by `uploaded_at` already and is unchanged by this plan.
+
+The transition this plan changes, traced from every value `transcripts.status` can hold before a `--meeting-id` claim: a row at `uploaded`, `speakers_resolved`, `events_extracted`, `compared`, `needs_review`, or worker `failed` has `uploaded_at` set, is public, and stays public through the claim (decision `0049`; the CASE this plan adds does not fire). A row at `claimed`, `audio_fetched`, or `transcribed` is a crashed re-run, takes no `prior`, and keeps whatever `uploaded_at` it has. A row at producer `failed` or producer `low_speech` has `uploaded_at` NULL, is hidden, and stays hidden. A row at worker `low_speech` has `uploaded_at` set and is hidden by status alone; today the claim makes it public, and after M1 the claim clears `uploaded_at` so it stays hidden. Every reader of the row and what the new transition means to it, found by `grep -rn "FROM transcripts\|JOIN transcripts\|UPDATE transcripts" src scripts` on 2026-10-16: `list_transcript_debt()` in `src/docket/services/transcripts.py` (line 305) lists `failed`, `needs_review`, and some `low_speech` rows on the data-debt page; a row in flight is at a producer status and not listed, as for every re-run (decision `0049`), and a restored row reads as it did before. `held_transcripts()` and `retry_transcript()` in `src/docket/services/discrepancies.py` (lines 140 and 150) take `needs_review` and `failed` rows with `uploaded_at IS NOT NULL`; a row in flight is at a producer status, and a `failed` row with `uploaded_at` NULL (the crash case below) is not listed, as a producer-failed first run is not. The worker's `CLAIM_SQL` takes `uploaded`, `speakers_resolved`, and `events_extracted` rows whatever their `uploaded_at`; a fresh upload sets it anyway. `advance()`, `mark_low_speech()`, `mark_needs_review()`, `mark_rate_limited()`, `mark_transient()`, `reset_for_versions()`, and `sweep_minutes_changes()` in `pipeline.py` touch only worker statuses and never read `uploaded_at`. `src/docket/web/admin.py` line 539 counts rows by status for the admin AI panel. `producer_stalled()` in `src/docket/ai/transcripts/alerts.py` looks only for meetings with no row. `scripts/transcript_recompare.py` moves a `compared` row to `events_extracted`. The producer's `_CANDIDATE_SQL` re-claims a `claimed` or `audio_fetched` row older than six hours and a `transcribed` row by its own host, and `claim_next()` writes only `status`, `producer_host`, `claimed_at`, `updated_at`, so a crashed re-run of a `low_speech` row is picked up with `uploaded_at` still NULL. The `Transcript` dataclass in the service file carries `uploaded_at` to the page, which only a public row reaches.
+
+The crash case, which the spec names rather than closes: a producer that dies mid-run of a `low_speech` row (power loss) leaves the row at a producer status with `uploaded_at` NULL and the old segments in the table, hidden; the in-memory `prior` died with it, the next claim (by `claim_next()` after six hours, or by `--meeting-id`) takes no `prior` because `uploaded_at` is NULL, and that run ends as a first run would: an upload replaces the segments and sets `uploaded_at` (public), and a failure writes `failed` with `uploaded_at` NULL, hidden, absent from the held tab, and listed on the data-debt page as "Transcription failed" instead of "Too short to analyze"; the recovery is `--meeting-id N` again, or `--retry-failed`. This is the accepted cost of carrying the fact in `uploaded_at` and decision `0050` says so.
+
+Production rows: the design expects every production `low_speech` row to be one of two shapes, `uploaded_at` set with `word_count` under 300 (the worker's gate) or `uploaded_at` NULL with `word_count` NULL (the producer's gate). Before merge the operator runs, read-only against the Railway public URL as `docs/runbooks/transcripts.md` "Checking progress from the laptop" sets `URL` and `PSQL`:
+
+    $PSQL "$URL" -At -c "select status, uploaded_at is not null as uploaded, word_count, audio_duration_s, last_attempted_at is not null as attempted from transcripts where status = 'low_speech' order by 2, 3"
+
+and records the output in this plan's Surprises. The rows with `uploaded = t` are the ones this plan's clause can touch, one at a time, when the operator re-runs them; a row with `uploaded = t` and `word_count` NULL or 300 or more is a shape neither writer produces and must be explained before merge. A count of zero rows with `uploaded = t` means the fix has no production row to act on today and is still the right rule for the next one.
+
+Tests that touch this: `tests/integration/test_transcript_pipeline.py` (12 test functions, one parametrized twice, 13 tests; `_mk()` inserts a Birmingham meeting with two agenda items, a `transcripts` row with `uploaded_at = now()` at the status and `word_count` it is given, and three segments; `_rm()` deletes the meeting, cascading; `_row()` reads `SELECT *` as a dict; `test_fitness_gate_moves_mic_check_to_low_speech_without_llm` drives `P.claim_next()` and `P.process_claim()` with `_stage_fn` monkeypatched to assert no stage runs, and asserts the row is hidden; `test_uploaded_row_stays_public_while_the_producer_re_claims_it` asserts a `compared` row stays public at the three producer statuses); `tests/integration/test_transcript_routes.py` (16 tests; `test_transcript_stays_up_while_the_producer_re_claims_it` holds the page, the link, and the excerpt up through a re-claim of a public row and asserts the 404 at `low_speech`); `transcriber/tests/test_db.py` (16 tests against the database; the `conn` fixture rolls back and closes, `bham_meeting` inserts one Birmingham meeting and deletes it afterwards, cascading to its transcript; `_output()` builds a three-segment `TranscriptOutput`; `_whole_row()` reads `SELECT *` as a dict through a `RealDictCursor`; `_status_attempted_uploaded()` returns `(status, last_attempted_at, uploaded_at, stage_attempts)`; `test_failed_rerun_restores_the_pre_claim_row` and `test_claim_meeting_after_a_crashed_rerun_has_no_prior` are the templates for the two new tests); `transcriber/tests/test_cli_loop.py` (14 tests; `FakeDB` stands in for every `db` function). Baselines observed on this branch on 2026-10-16 under `./tools/verify`: `1875 passed, 5 skipped, 4 xfailed` (unit, web, services), `623 passed` (integration), `judge fixtures: 12 of 12 passed`, `68 passed` (producer suite), `verify: all 5 checks passed in 99s.`; on a disposable database the two transcript integration files alone print `29 passed` and the producer suite `68 passed`.
+
+Documents this plan edits: `docs/specs/transcripts.md` (present-tense behaviour; three sentences in its "What the producer uploads" section, each quoted in Artifacts and Notes with its replacement), `docs/runbooks/transcripts.md` (the operator procedure: the `claimed` row of the "Status machine" table at line 38, two paragraphs of "Re-transcribing one meeting", and History), `transcriber/README.md` (one sentence of the `--meeting-id` paragraph), `docs/DEBT.md` (`D58`, line 54, the table's last row; numbers are never reused), and a new `docs/decisions/0050-a-re-claim-of-a-low-speech-row-clears-uploaded-at-for-the-run.md` in the four-field format of `docs/decisions/DECISION_FORMAT.md`. The README and the runbook are hard-wrapped at about 80 columns, so a replaced sentence is matched by its words across line breaks and the paragraph is re-wrapped afterwards; each acceptance grep below names a phrase short enough to sit on one line and says so.
+
+Terms: the "public predicate" is the SQL fragment `public_predicate()` returns, the one rule deciding whether a transcript row is visible to readers. A "producer status" is one of `claimed`, `audio_fetched`, `transcribed`, `low_speech`, `failed` as written by the producer; a "worker status" is `speakers_resolved`, `events_extracted`, `compared`, `needs_review`, `failed`, or `low_speech` as written by the worker, and a "worker `low_speech` row" is one the worker's fitness gate wrote, with `uploaded_at` set and segments in the table. The "busy guard" is the 30-minute refusal in `claim_meeting()`. The "held tab" is the admin review queue's list of `needs_review` and `failed` transcripts with `uploaded_at` set. The "disposable database" is what `tools/test-db` builds from the migrations on the server `DATABASE_URL` names; `./tools/verify` builds one, runs every check against it, and drops it; its name is derived from the checkout path, so only one may exist per worktree at a time, and a probe or a test run by hand must drop it (`tools/test-db --drop`) before `./tools/verify` runs.
+
+Environment: this worktree's `venv/` is its own (`venv/bin/python -c 'import docket; print(docket.__file__)'` prints `/home/thinkdarrell/docket-pub/.claude/worktrees/low-speech-rerun-stays-hidden/src/docket/__init__.py`). The gitignored `.env` holding `DATABASE_URL=postgresql://thinkdarrell@/docket_db` is required on this machine (`D57`) and was written by the author; if it is missing, write that one line before anything else. The branch is `plan/low-speech-rerun-stays-hidden`, cut from `origin/main` at `438b7b6`; a check that compares against the base names `origin/main`, never bare `main`. `./tools/verify` takes about 100 seconds here and the budget is 180.
+
+## Plan of Work
+
+M1, the mechanism. In `transcriber/transcriber/db.py`, in `claim_meeting()`'s UPDATE (the `else` branch, lines 155 to 164 today), add one SET clause between `last_error = NULL,` and the `compare_skipped_reason` CASE:
+
+    uploaded_at = CASE WHEN status = 'low_speech' THEN NULL ELSE uploaded_at END,
+
+Every expression in the SET list reads the pre-update row, so `status` here is the status the row rested at, and the `compare_skipped_reason` CASE that follows still reads the old `uploaded_at` (the second Decision Log entry). Nothing else in the statement, in `restore_row()`, in `mark_status()`, or in `upload()` changes; the `prior` SELECT already runs before this UPDATE and so keeps the original `uploaded_at`. Extend the `claim_meeting()` docstring with one sentence after "...that crashed state is never taken as `prior`.": "A row resting at `low_speech` is re-claimed with `uploaded_at` NULL: the worker's fitness gate leaves `uploaded_at` and the segments on such a row and the public predicate hides it by status alone, so the claim's `status = 'claimed'` would otherwise publish it for the run; `prior` keeps the original value for `restore_row()`, and `upload()` sets it anew (decision 0050)." Set `__version__ = "0.2.2"` in `transcriber/transcriber/__init__.py`. In `src/docket/services/transcripts.py` replace the six-line comment above `_PUBLIC_PREDICATE` with the ten-line comment in Artifacts and Notes (the predicate line itself is unchanged). Then the tests. In `tests/integration/test_transcript_pipeline.py`, after the existing imports, add
+
+    import sys
+    from pathlib import Path
+
+    sys.path.append(str(Path(__file__).resolve().parents[2] / "transcriber"))   # the producer package is not installed in the venv
+    from transcriber import db as tdb  # noqa: E402  (append, not insert(0): transcriber/tests is also a package named tests)
+
+(`parents[2]` of `tests/integration/test_transcript_pipeline.py` is the repository root), extend the module docstring to end "public predicate, and the producer's re-claim of a worker low_speech row.", and add `test_low_speech_row_stays_hidden_through_a_meeting_id_re_claim(monkeypatch)` as given in Artifacts and Notes; write and run it before the `db.py` change and record its failure line (Validation says what to expect). In `transcriber/tests/test_db.py`, after `test_claim_meeting_after_a_crashed_rerun_has_no_prior`, add the helper `_worker_low_speech(conn, transcript_id)` and the two tests `test_claim_meeting_of_a_low_speech_row_clears_uploaded_at_until_the_upload` and `test_claim_meeting_after_a_crashed_low_speech_rerun_stays_hidden`, all three given in Artifacts and Notes. In `docs/specs/transcripts.md` make the three sentence replacements given in Artifacts and Notes (the version sentence, the claim clause, and the two sentences of the public paragraph), by a script that asserts each old text occurs exactly once before replacing it.
+
+M2, the bookkeeping. Delete the `D58` row from `docs/DEBT.md` (line 54 today, the only line starting `| D58 |`; the table then ends at `| D57 |`). Create `docs/decisions/0050-a-re-claim-of-a-low-speech-row-clears-uploaded-at-for-the-run.md` with the text in Artifacts and Notes. In `docs/runbooks/transcripts.md`: replace the `claimed` row of the status table (line 38) with the row in Artifacts and Notes; in "Re-transcribing one meeting", replace the sentence "A producer that died mid-run (power loss) is the one case that leaves the row at a producer status with the old transcript still public; run `--meeting-id N` again." with "A producer that died mid-run (power loss) is the one case that leaves the row at a producer status with the old transcript still public (still hidden, when the row started from `low_speech`); run `--meeting-id N` again.", and after the sentence "The public page serves the old turns until the upload lands and the new turns from then on." insert "A row the worker's fitness gate had sent to `low_speech` (a data-debt row labelled \"Too short to analyze (N words)\") is the exception: `claim_meeting()` clears its `uploaded_at` for the run, so its page stays a 404 and the meeting page has no transcript link until the new upload lands, as before the run; a re-run that ends without an upload puts `uploaded_at` back with the rest of the row."; append to History "- 2026-10: a `--meeting-id` re-run of a row resting at `low_speech` keeps it hidden until the new upload lands (`claim_meeting()` clears `uploaded_at` for the run; plan `low-speech-rerun-stays-hidden`, decision `0050`)." In `transcriber/README.md` replace "The old transcript stays public until the new upload lands." (lines 53 and 54, across the line break) with "The old transcript stays public until the new upload lands (a meeting the worker had marked `low_speech` stays hidden instead, as it was before the run)." and re-wrap the paragraph, keeping `stays hidden instead` on one line. Run `./tools/verify` and record its last line.
+
+## Concrete Steps
+
+Every command runs from `/home/thinkdarrell/docket-pub/.claude/worktrees/low-speech-rerun-stays-hidden`. A session starts with `./tools/verify` (expected `verify: all 5 checks passed in NNs.`; if `test-db` fails with `permission denied`, write the `.env` line from Context and Orientation first) and ends with it after its edits. Every commit in a milestone session changes this plan file (decision `0037`), and a Progress line is ticked by changing `- [ ]` to `- [x] (YYYY-MM-DD HH:MMZ)` and nothing else on the line.
+
+To run the transcript test files against a disposable database without `./tools/verify` (drop it before the closing verify):
+
+    export DATABASE_URL=$(tools/test-db)
+    venv/bin/python -m pytest tests/integration/test_transcript_routes.py tests/integration/test_transcript_pipeline.py -q -p no:cacheprovider
+    venv/bin/python -m pytest transcriber/tests -q -p no:cacheprovider
+    tools/test-db --drop
+
+On 2026-10-16, before any work, the first pytest printed `29 passed in 1.93s` and the second `68 passed in 0.54s`; `tools/test-db` printed its migration log and the URL `postgresql://thinkdarrell@/docket_test_a01580f1`, and `tools/test-db --drop` exited 0.
+
+To run the probe in Artifacts and Notes, save it to the scratchpad directory as `low_speech_probe.py` and run `venv/bin/python <path>/low_speech_probe.py` with the same `DATABASE_URL` exported; it opens one transaction and rolls it back. The `--help` smoke test is `(cd transcriber && ../venv/bin/python -m transcriber.cli --help | grep -c "meeting-id")`, which printed `2` on 2026-10-16 (the usage line and the option line).
+
+M1 session: run the starting verify; add the integration test and run the two-file pytest once against the unchanged `db.py`, recording the failure line; make the four code edits (`db.py` clause and docstring, `__init__.py`, the predicate comment); add the two producer tests and the helper; run the two-file pytest and the producer suite; run the probe and compare it with the expected transcript; make the three spec replacements; run the greps in Validation; drop the disposable database; commit with the plan; run the closing verify; record everything observed in this file; commit.
+
+M2 session: run the starting verify; make the document edits in the order Plan of Work lists them; run the greps in Validation; run the closing verify; record; commit.
+
+## Validation and Acceptance
+
+M1 acceptance. With the disposable database exported, `venv/bin/python -m pytest tests/integration/test_transcript_routes.py tests/integration/test_transcript_pipeline.py -q -p no:cacheprovider` prints `30 passed` (29 plus the new test); `test_fitness_gate_moves_mic_check_to_low_speech_without_llm`, `test_uploaded_row_stays_public_while_the_producer_re_claims_it`, `test_failed_without_upload_is_still_not_public`, and `test_transcript_stays_up_while_the_producer_re_claims_it` are among them and still pass. The new integration test, run once before the `db.py` change, fails at its first predicate read after the claim: pytest's failure block ends `AssertionError: claimed` with an `assert Transcript(...) is None` line; after the change the same command passes, and the session records both. `venv/bin/python -m pytest transcriber/tests -q -p no:cacheprovider` prints `70 passed` (68 plus two); `test_failed_rerun_restores_the_pre_claim_row`, `test_claim_meeting_after_a_crashed_rerun_has_no_prior`, and `test_claim_meeting_refuses_recent_worker_touch` still pass. The probe prints the M1 expected transcript in Artifacts and Notes, character for character. Greps: `grep -c "uploaded_at = CASE WHEN status = 'low_speech' THEN NULL ELSE uploaded_at END" transcriber/transcriber/db.py` prints `1` (it printed `0` on 2026-10-16); `grep -c "decision 0050" transcriber/transcriber/db.py` prints `1` (`0` before); `grep -c '"0.2.2"' transcriber/transcriber/__init__.py` prints `1`; `grep -c "decision 0050" src/docket/services/transcripts.py` prints `1` (`0` before) and `grep -c "is written only by the" src/docket/services/transcripts.py` prints `0` (`1` before); `grep -c "none of the three changed the output" docs/specs/transcripts.md`, `grep -c "when the row rested at" docs/specs/transcripts.md`, `grep -c "The one exception is a row" docs/specs/transcripts.md`, and `grep -c "still hidden, with .uploaded_at. NULL" docs/specs/transcripts.md` each print `1` (each `0` before), and `grep -c "0.2.2" docs/specs/transcripts.md` prints `1` (`0` before); `grep -c "def test_low_speech_row_stays_hidden_through_a_meeting_id_re_claim" tests/integration/test_transcript_pipeline.py` prints `1`; `grep -c "sys.path.append" tests/integration/test_transcript_pipeline.py` prints `1` and `grep -c "sys.path.insert" tests/integration/test_transcript_pipeline.py` prints `0`; the `--help` smoke test prints `2`. `./tools/verify` ends `verify: all 5 checks passed` with the integration line reading `624 passed` and the transcriber line `70 passed`.
+
+M2 acceptance. `grep -c "D58" docs/DEBT.md` prints `0` (`1` before) and `grep -rln "D58" docs src transcriber scripts tools skills AGENTS.md ARCHITECTURE.md GOALS.md README.md` prints nothing (on 2026-10-16 it printed only `docs/DEBT.md`; `plans/` is history and is not searched). `ls docs/decisions/0050-a-re-claim-of-a-low-speech-row-clears-uploaded-at-for-the-run.md` prints that path, `grep -c "This record extends decision" docs/decisions/0050-a-re-claim-of-a-low-speech-row-clears-uploaded-at-for-the-run.md` prints `1`, and `git diff --stat origin/main -- docs/decisions/0049-a-transcript-is-public-once-uploaded-and-a-failed-re-run-restores-the-row.md` prints nothing (`0049` is not edited). `grep -c "cleared for the run" docs/runbooks/transcripts.md` prints `1` (the `claimed` row; `0` before), `grep -c "still hidden, when the row started" docs/runbooks/transcripts.md` prints `1` (`0` before; keep the phrase on one line when re-wrapping), `grep -c "stays a 404" docs/runbooks/transcripts.md` prints `1` (`0` before; one line), and `grep -c "low-speech-rerun-stays-hidden" docs/runbooks/transcripts.md` prints `1` (`0` before). `grep -c "stays hidden instead" transcriber/README.md` prints `1` (`0` before; one line). `./tools/verify` ends `verify: all 5 checks passed`.
+
+## Idempotence and Recovery
+
+Every edit is to a tracked text file and is re-runnable; `git diff` shows what a half-finished session left. The tests insert their own rows and delete them (`bham_meeting` and `_rm()` delete the meeting, cascading to the transcript and its segments), and the disposable database is dropped by `tools/test-db --drop` or by `./tools/verify` on every exit path; a `./tools/verify` started while a hand-built disposable database exists fails at `test-db`, so drop it first. The probe rolls back. No migration, no production write, no deploy: production rows change only when the operator pulls on the Legion and runs the producer, which is after the pull request merges and outside this plan. If the spec replacement script finds an old sentence zero or more than one times, the session stops, records the count in Surprises, and fixes the anchor rather than editing around it.
+
+## Artifacts and Notes
+
+The probe (the closing review's sequence, extended with a second claim and a second upload). Save as `low_speech_probe.py` in the scratchpad directory and run from the worktree root with `DATABASE_URL` exported at a disposable database:
+
+    """One rolled-back transaction: a worker low_speech row through a --meeting-id re-run, printing the public predicate."""
+    import os, sys
+    from datetime import date
+    sys.path.insert(0, os.path.join(os.getcwd(), "transcriber"))
+    import psycopg2
+    from transcriber import db as tdb
+    from transcriber.contract import Segment, Speaker, TranscriptOutput
+    from docket.services import transcripts as tsvc
+
+    conn = psycopg2.connect(os.environ["DATABASE_URL"])
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM municipalities WHERE slug='birmingham'")
+    muni = cur.fetchone()[0]
+    cur.execute("""INSERT INTO meetings (municipality_id, title, meeting_date, external_id, video_url, is_hidden)
+                   VALUES (%s, 'probe', %s, '999909', 'https://bhamal.granicus.com/MediaPlayer.php?view_id=2&clip_id=999909', FALSE)
+                   RETURNING id""", [muni, date(2027, 3, 1)])
+    mid = cur.fetchone()[0]
+
+    def show(label):
+        cur.execute("SELECT status, uploaded_at IS NOT NULL FROM transcripts WHERE meeting_id=%s", [mid])
+        status, uploaded = cur.fetchone()
+        cur.execute(f"SELECT t.status FROM transcripts t WHERE t.meeting_id=%s AND {tsvc.public_predicate('t')}", [mid])
+        cur2 = conn.cursor(); cur2.execute("SELECT count(*) FROM transcript_segments s JOIN transcripts t ON t.id=s.transcript_id WHERE t.meeting_id=%s", [mid])
+        print(f"after {label}: status={status} uploaded={uploaded} public={cur.fetchone()} segments={cur2.fetchone()[0]}")
+
+    tdb.claim_next(conn, since=date(2027, 3, 1), host="probe"); show("claim_next")
+    out = TranscriptOutput(meeting_id=mid, version=1, engine="faster-whisper", asr_model="large-v3",
+                           diarization_model="pyannote/speaker-diarization-3.1", audio_duration_s=100.0,
+                           speech_seconds=80.0, audio_sha256="ab" * 32,
+                           segments=[Segment(0, 0.0, 3.0, "Mic check one two.", "SPEAKER_00", -0.1, 0.01)],
+                           speakers=[Speaker("SPEAKER_00", [0.1, 0.2])])
+    tdb.upload(conn, out); show("upload")
+    cur.execute("UPDATE transcripts SET status='low_speech', last_error='under TRANSCRIPT_MIN_WORDS', stage_attempts=0, updated_at=now() WHERE meeting_id=%s", [mid]); show("worker mark_low_speech")
+    c2 = tdb.claim_meeting(conn, meeting_id=mid, host="probe"); show("claim_meeting")
+    print(f"prior status: {c2.prior['status'] if c2.prior else None}; prior uploaded_at set: {bool(c2.prior and c2.prior['uploaded_at'])}")
+    tdb.mark_status(conn, c2.transcript_id, "audio_fetched", audio_sha256="cd" * 32, audio_duration_s=100.0); show("audio_fetched")
+    tdb.mark_status(conn, c2.transcript_id, "transcribed", raw_output_path="/x.json"); show("transcribed")
+    tdb.restore_row(conn, c2.transcript_id, c2.prior); show("restore_row")
+    c3 = tdb.claim_meeting(conn, meeting_id=mid, host="probe"); show("second claim_meeting")
+    tdb.upload(conn, out); show("upload again")
+    conn.rollback(); conn.close()
+
+(The probe uses `insert(0)` because it is a script run from the root, where nothing named `tests` is imported; the integration test uses `append`, see Surprises.) Observed on 2026-10-16, before any work, against `docket_test_a01580f1`, exit 0:
+
+    after claim_next: status=claimed uploaded=False public=None segments=0
+    after upload: status=uploaded uploaded=True public=('uploaded',) segments=1
+    after worker mark_low_speech: status=low_speech uploaded=True public=None segments=1
+    after claim_meeting: status=claimed uploaded=True public=('claimed',) segments=1
+    prior status: low_speech; prior uploaded_at set: True
+    after audio_fetched: status=audio_fetched uploaded=True public=('audio_fetched',) segments=1
+    after transcribed: status=transcribed uploaded=True public=('transcribed',) segments=1
+    after restore_row: status=low_speech uploaded=True public=None segments=1
+    after second claim_meeting: status=claimed uploaded=True public=('claimed',) segments=1
+    after upload again: status=uploaded uploaded=True public=('uploaded',) segments=1
+
+Expected after M1 (labelled expected when authored; the M1 session records what it observed):
+
+    after claim_next: status=claimed uploaded=False public=None segments=0
+    after upload: status=uploaded uploaded=True public=('uploaded',) segments=1
+    after worker mark_low_speech: status=low_speech uploaded=True public=None segments=1
+    after claim_meeting: status=claimed uploaded=False public=None segments=1
+    prior status: low_speech; prior uploaded_at set: True
+    after audio_fetched: status=audio_fetched uploaded=False public=None segments=1
+    after transcribed: status=transcribed uploaded=False public=None segments=1
+    after restore_row: status=low_speech uploaded=True public=None segments=1
+    after second claim_meeting: status=claimed uploaded=False public=None segments=1
+    after upload again: status=uploaded uploaded=True public=('uploaded',) segments=1
+
+The M1 comment above `_PUBLIC_PREDICATE` in `src/docket/services/transcripts.py` (replacing lines 20 to 25; the predicate line stays):
+
+    # A transcript is public once uploaded, whatever the producer or a worker
+    # stage does to its status afterwards (a re-claim for re-transcription, a
+    # worker-stage failure, a hold), except low_speech, which both writers use
+    # to mean there is no usable transcript. uploaded_at is set only by the
+    # producer's upload() in the transaction that publishes the segments, and a
+    # producer failure on a never-uploaded row leaves it NULL. The one row this
+    # predicate hides by status alone, a worker low_speech row with uploaded_at
+    # set, would become public when the producer re-claims it to 'claimed', so
+    # claim_meeting() in transcriber/transcriber/db.py clears its uploaded_at
+    # for the run and restore_row() or upload() sets it again (decision 0050).
+
+The M1 integration test, appended to `tests/integration/test_transcript_pipeline.py` after `test_uploaded_row_stays_public_while_the_producer_re_claims_it` (`_mk`, `_rm`, `_row`, `P`, `tsvc`, `db_cursor`, `DATABASE_URL`, and `MagicMock` are already imported there):
+
+    def test_low_speech_row_stays_hidden_through_a_meeting_id_re_claim(monkeypatch):
+        """D58: a row the worker's fitness gate sent to low_speech keeps uploaded_at and its segments, and the
+        predicate hides it by status alone; the producer's --meeting-id re-claim must not publish it for the run."""
+        fx = _mk(word_count=24)
+        monkeypatch.setattr(P, "_stage_fn", lambda stage: (_ for _ in ()).throw(AssertionError("stage ran")))
+        conn = tdb.connect(DATABASE_URL)
+        try:
+            assert P.process_claim(P.claim_next(), client=MagicMock(), notes="t") == "low_speech"
+            assert _row(fx["transcript_id"])["uploaded_at"] is not None
+            assert tsvc.get_public_transcript(fx["meeting_id"]) is None
+            with db_cursor() as cur:   # the worker's claim stamped last_attempted_at = now(); age it past the busy guard
+                cur.execute("UPDATE transcripts SET last_attempted_at = now() - interval '1 hour' WHERE id=%s", [fx["transcript_id"]])
+            claim = tdb.claim_meeting(conn, meeting_id=fx["meeting_id"], host="test"); conn.commit()
+            assert claim.status == "claimed" and claim.prior["status"] == "low_speech" and claim.prior["uploaded_at"] is not None
+            assert tsvc.get_public_transcript(fx["meeting_id"]) is None, "claimed"
+            for status in ("audio_fetched", "transcribed"):
+                tdb.mark_status(conn, claim.transcript_id, status); conn.commit()
+                assert tsvc.get_public_transcript(fx["meeting_id"]) is None, status
+            tdb.restore_row(conn, claim.transcript_id, claim.prior); conn.commit()
+            row = _row(fx["transcript_id"])
+            assert row["status"] == "low_speech" and row["uploaded_at"] == claim.prior["uploaded_at"]
+            assert tsvc.get_public_transcript(fx["meeting_id"]) is None
+            with db_cursor() as cur:
+                cur.execute("SELECT count(*) AS n FROM transcript_segments WHERE transcript_id=%s", [fx["transcript_id"]])
+                assert cur.fetchone()["n"] == 3      # hidden, not deleted
+        finally:
+            conn.close()
+            _rm(fx)
+
+The producer's functions take a plain `psycopg2` connection (`upload()` reads `cur.fetchone()[0]`, which a dict-row connection would break), so the test opens its own through `tdb.connect()` and commits after each producer call so that `get_public_transcript()`, which opens its own connection through `db_cursor()`, sees the writes.
+
+The M1 producer-suite helper and tests, appended to `transcriber/tests/test_db.py` after `test_claim_meeting_after_a_crashed_rerun_has_no_prior`:
+
+    def _worker_low_speech(conn, transcript_id):
+        """What mark_low_speech() in src/docket/ai/transcripts/pipeline.py writes on an uploaded row (uploaded_at
+        and the segments stay); the worker's claim stamp is aged past the 30-minute busy guard."""
+        with conn.cursor() as cur:
+            cur.execute("""UPDATE transcripts SET status = 'low_speech', last_error = 'below floor', stage_attempts = 0,
+                                  last_attempted_at = now() - interval '1 hour', updated_at = now()
+                            WHERE id = %s""", [transcript_id])
+        conn.commit()
+
+
+    def test_claim_meeting_of_a_low_speech_row_clears_uploaded_at_until_the_upload(conn, bham_meeting):
+        c = tdb.claim_next(conn, since=SINCE, host="legion")
+        tdb.upload(conn, _output(bham_meeting))
+        _worker_low_speech(conn, c.transcript_id)
+        before = _whole_row(conn, c.transcript_id)
+        assert before["status"] == "low_speech" and before["uploaded_at"] is not None
+        c2 = tdb.claim_meeting(conn, meeting_id=bham_meeting, host="legion")
+        conn.commit()
+        assert c2.status == "claimed" and c2.prior == before
+        status, _, uploaded_at, _ = _status_attempted_uploaded(conn, c.transcript_id)
+        assert status == "claimed" and uploaded_at is None            # hidden for the run
+        tdb.mark_status(conn, c2.transcript_id, "audio_fetched", audio_sha256="cd" * 32, audio_duration_s=5.0)
+        conn.commit()
+        assert _status_attempted_uploaded(conn, c.transcript_id)[2] is None
+        tdb.restore_row(conn, c2.transcript_id, c2.prior)
+        conn.commit()
+        assert _whole_row(conn, c.transcript_id) == before            # uploaded_at is back with the rest
+        c3 = tdb.claim_meeting(conn, meeting_id=bham_meeting, host="legion")
+        conn.commit()
+        assert c3.prior == before and _status_attempted_uploaded(conn, c.transcript_id)[2] is None
+        tdb.upload(conn, _output(bham_meeting))
+        conn.commit()
+        status, _, uploaded_at, _ = _status_attempted_uploaded(conn, c.transcript_id)
+        assert status == "uploaded" and uploaded_at is not None       # the new transcript is public as any upload
+
+
+    def test_claim_meeting_after_a_crashed_low_speech_rerun_stays_hidden(conn, bham_meeting):
+        c = tdb.claim_next(conn, since=SINCE, host="legion")
+        tdb.upload(conn, _output(bham_meeting))
+        _worker_low_speech(conn, c.transcript_id)
+        c2 = tdb.claim_meeting(conn, meeting_id=bham_meeting, host="legion")
+        conn.commit()
+        tdb.mark_status(conn, c2.transcript_id, "audio_fetched", audio_sha256="cd" * 32, audio_duration_s=5.0)
+        conn.commit()
+        # The run died here: no restore. The next claim takes no prior, and the row stays hidden.
+        c3 = tdb.claim_meeting(conn, meeting_id=bham_meeting, host="legion")
+        conn.commit()
+        assert c3.prior is None and c3.status == "claimed"
+        tdb.mark_status(conn, c3.transcript_id, "failed", error="CUDA out of memory")
+        conn.commit()
+        status, _, uploaded_at, _ = _status_attempted_uploaded(conn, c.transcript_id)
+        assert status == "failed" and uploaded_at is None             # hidden; the held tab needs uploaded_at
+
+The three M1 replacements in `docs/specs/transcripts.md`, each old text occurring exactly once on 2026-10-16. First, the version sentence (line 19):
+
+    old: The producer package `__version__` is `0.2.1`: `0.2.0` from the same change, `0.2.1` from the re-run fixes (the old transcript stays public through a re-run, a failed re-run restores the row, the exit code, the busy guard's single writer), which left the output unchanged.
+    new: The producer package `__version__` is `0.2.2`: `0.2.0` from the same change, `0.2.1` from the re-run fixes (the old transcript stays public through a re-run, a failed re-run restores the row, the exit code, the busy guard's single writer), and `0.2.2` from the re-claim of a `low_speech` row clearing `uploaded_at` for the run; none of the three changed the output.
+
+Second, the claim clause in the `--meeting-id` paragraph (line 21):
+
+    old: then set to `claimed` with `stage_attempts = 0` and `last_attempted_at`, `needs_review_reason`, and `last_error` NULL, and with `compare_skipped_reason = 'transcript_changed'` only when `uploaded_at IS NOT NULL`, because a never-uploaded row was never compared and its stored reason is then the honest one.
+    new: then set to `claimed` with `stage_attempts = 0` and `last_attempted_at`, `needs_review_reason`, and `last_error` NULL, with `compare_skipped_reason = 'transcript_changed'` only when `uploaded_at IS NOT NULL`, because a never-uploaded row was never compared and its stored reason is then the honest one, and with `uploaded_at` NULL when the row rested at `low_speech`, the one status the public predicate hides with `uploaded_at` set (the next paragraph says why; the `prior` snapshot, read before the claim, keeps the original value).
+
+Third, two sentences of the public paragraph (line 23). The in-flight sentence:
+
+    old: While a re-run is in flight the row sits at a producer status (`claimed`, `audio_fetched`, `transcribed`) with `uploaded_at` set and the old segments still in `transcript_segments`, and the public transcript page, the meeting page's transcript link, the item excerpt, and search keep serving the old transcript until `upload()` replaces the segments in one transaction.
+    new: While a re-run is in flight the row sits at a producer status (`claimed`, `audio_fetched`, `transcribed`) with `uploaded_at` set and the old segments still in `transcript_segments`, and the public transcript page, the meeting page's transcript link, the item excerpt, and search keep serving the old transcript until `upload()` replaces the segments in one transaction. The one exception is a row the worker's fitness gate had moved to `low_speech` after its upload (`mark_low_speech()` in `src/docket/ai/transcripts/pipeline.py` keeps `uploaded_at` and the segments, and the predicate hides the row by its status alone): because the predicate reads only the row, `claim_meeting()` clears that row's `uploaded_at` in the same UPDATE that sets `claimed`, so the transcript page is a 404, the meeting page has no transcript link, the item page has no excerpt, and search returns none of its segments at `claimed`, `audio_fetched`, and `transcribed`, exactly as at rest; `restore_row()` puts `uploaded_at` back with the rest of the row when the re-run ends without an upload, and `upload()` sets it anew, so the new transcript is public as any upload is (decision `0050`).
+
+and the crash sentence:
+
+    old: A producer that dies mid-run leaves the row at a producer status with the old transcript still public; the snapshot died with it and `claim_meeting()` takes none from a row resting at a producer status, so the next run of that meeting, by `claim_next()` after six hours or by `--meeting-id`, ends as a first run would, and a failure then writes `failed` with `uploaded_at` set, the one path that still produces that row; the recovery is `--meeting-id N` again.
+    new: A producer that dies mid-run leaves the row at a producer status with the old transcript still public (still hidden, with `uploaded_at` NULL, when the run started from `low_speech`); the snapshot died with it and `claim_meeting()` takes none from a row resting at a producer status or holding `uploaded_at` NULL, so the next run of that meeting, by `claim_next()` after six hours or by `--meeting-id`, ends as a first run would, and a failure then writes `failed` with `uploaded_at` set, the one path that still produces that row, or with `uploaded_at` NULL after a run that started from `low_speech`, which is hidden, absent from the admin held tab (`held_transcripts()` requires `uploaded_at IS NOT NULL`), and listed on the data-debt page as a failed transcript; the recovery is `--meeting-id N` again.
+
+The M2 `claimed` row of the status table in `docs/runbooks/transcripts.md` (line 38, one line):
+
+    | `claimed` | producer | Row inserted, or re-claimed by `--meeting-id` (a re-claimed row keeps its old transcript public until the new upload lands; one re-claimed from `low_speech` stays hidden, its `uploaded_at` cleared for the run); audio not fetched yet. Stale after 6 h and reclaimable. |
+
+The M2 decision record, `docs/decisions/0050-a-re-claim-of-a-low-speech-row-clears-uploaded-at-for-the-run.md`:
+
+    # 0050 — The producer re-claims a `low_speech` row with `uploaded_at` NULL, so the one transcript the predicate hides by status alone stays hidden through a re-run
+
+    ## Decision
+
+    `claim_meeting()` in `transcriber/transcriber/db.py` sets `uploaded_at` to NULL in the same UPDATE that sets `status = 'claimed'` when the row it re-claims rests at `low_speech`, after reading the row whole as `prior`, so `restore_row()` puts the original `uploaded_at` back when the re-run ends without an upload and `upload()` sets it anew. The public predicate of decision `0049`, `uploaded_at IS NOT NULL AND status <> 'low_speech'`, does not change, and no status, column, or `word_count` clause is added to it.
+
+    ## Rationale
+
+    This record extends decision `0049`, whose Rationale says `uploaded_at` "is never cleared"; this is the one clearing. `0049` made a transcript public once uploaded so that a `--meeting-id` re-run no longer takes the page down, and excluded `low_speech` because both writers of that status mean there is no usable transcript. The worker's fitness gate (`mark_low_speech()` in `src/docket/ai/transcripts/pipeline.py`) writes `low_speech` on a row that has been uploaded and keeps `uploaded_at` and the segments, so the predicate hides such a row by its status alone, and `claim_meeting()` overwrites that status with `claimed`: from the claim until the upload or the restore, a transcript the site hides at rest was public (`D58`, found by the closing review of `plans/completed/rerun-keeps-transcript-public.md`). The predicate reads only the row, so the fact that this transcript is hidden has to travel in the row through the producer statuses, and `uploaded_at` is the column the predicate already keys on. The alternatives each cost more. A new status needs a migration altering the CHECK in `src/docket/migrations/035_transcripts.py` and a change at every reader of `status`, the reason `0049` rejected one. A new column (migration 037) is a second owner of the public fact beside `uploaded_at`. A predicate clause on `word_count` makes the row public at `transcribed`, when `mark_status()` writes the new count while the old segments are still in the table, and couples the predicate to the config value `TRANSCRIPT_MIN_WORDS`. Deleting the segments at the claim hides the row, but `restore_row()` could not bring them back. The accepted cost is the crash case: a producer that dies mid-run of such a row leaves `uploaded_at` NULL, the next run takes no `prior`, and a failure then writes `failed` with `uploaded_at` NULL, hidden and absent from the admin held tab, which `docs/specs/transcripts.md` names with its recovery.
+
+    The trap this record guards against is the agent who reads the comment above `_PUBLIC_PREDICATE` or `0049`, takes "`uploaded_at` is set only by `upload()`" as a rule, and removes the CASE from `claim_meeting()` as an anomaly; or who, seeing that `restore_row()` writes `uploaded_at` back, has the claim keep the timestamp and adds `status <> 'claimed'` or a `word_count` test to the predicate instead, which re-opens the hour of exposure or publishes the row at `transcribed`.
+
+    ## Date
+
+    2026-10-16, the plan author of `plans/active/low-speech-rerun-stays-hidden.md`, from the closing review of `plans/completed/rerun-keeps-transcript-public.md` (`D58`).
+
+    ## Status
+
+    accepted
+
+## Interfaces and Dependencies
+
+No new library. In `transcriber/transcriber/db.py` at the end of M1, `claim_meeting(conn, *, meeting_id: int, host: str) -> Claim | None` is unchanged in signature and in what it returns; its UPDATE's SET list gains, in this position:
+
+    last_error = NULL,
+    uploaded_at = CASE WHEN status = 'low_speech' THEN NULL ELSE uploaded_at END,
+    compare_skipped_reason = CASE WHEN uploaded_at IS NOT NULL THEN 'transcript_changed'
+                                  ELSE compare_skipped_reason END
+
+`Claim`, `restore_row()`, `mark_status()`, and `upload()` are unchanged. `transcriber/transcriber/__init__.py`: `__version__ = "0.2.2"`. `TRANSCRIPT_VERSION` in `transcriber/transcriber/engine.py` stays `2` and `CONTRACT_VERSION` in `contract.py` stays `1`. In `src/docket/services/transcripts.py`, `_PUBLIC_PREDICATE` and `public_predicate(alias: str) -> str` are unchanged; only the comment moves. In `tests/integration/test_transcript_pipeline.py`, the module-level name `tdb` is `transcriber.db`, reached through `sys.path.append(str(Path(__file__).resolve().parents[2] / "transcriber"))`. In `transcriber/tests/test_db.py`, `_worker_low_speech(conn, transcript_id) -> None` commits.
+
+## Revision notes
+
+2026-10-16, authored. The scope brief's deliberate exclusions are this plan's too: `D52` and issue #120 (`retry_transcript()` nulling the `transcript_changed` marker, and an events-stage minutes failure overwriting it: worker-side writers on a different row state); `D51` (`match_stale` on a `transcript_changed` pass: the compare stage is untouched, and staying out of `src/docket/ai/transcripts/compare.py` and `events.py` keeps the triggers of `D42` and `D51` from firing); `D54` (manual speaker rows across a re-run) and `D56` (the operator's re-run of meeting 2543 on the Legion: the Legion is unreachable from a factory worktree, and 2543 is not a `low_speech` row); a production re-run of a `low_speech` row to observe the fix live (none is scheduled; the operator runs one after merge if ever); the data-debt page and the admin held tab not listing a row for the hour a run takes (the absence decision `0049` accepted for every re-run); producer-gated `low_speech` rows (`uploaded_at` NULL from the start, already hidden, unchanged); `transcriber/README.md` line 40 (`low_speech` meetings are not retried by `--retry-failed`, still true: `--meeting-id` is the only route onto this path); and the `low_speech` row of the runbook's status table, the pipeline map, the spec index, and the route tests, which the last Decision Log entry says why. The slug check `git branch -a --list 'plan/low-speech-rerun-stays-hidden'` printed nothing before the worktree was cut, so the first candidate stands.
