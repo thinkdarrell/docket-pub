@@ -14,7 +14,7 @@ After this plan, a transcript produced by the new code has one segment per speak
 
 ## Progress
 
-- [ ] M1: `clean_segments` in `transcriber/transcriber/engine.py` drops hallucinated short low-confidence segments and segments that reproduce the initial prompt, `build_initial_prompt` in `transcriber/transcriber/prompt.py` renders the vocabulary as prose sentences with no `Terms:` list, `build_output` and the producer loop in `transcriber/transcriber/cli.py` apply the cleaning, `./tools/verify` runs `transcriber/tests` as its fifth check, and `AGENTS.md` and `docs/specs/operations.md` say so
+- [x] (2026-10-16 16:51Z) M1: `clean_segments` in `transcriber/transcriber/engine.py` drops hallucinated short low-confidence segments and segments that reproduce the initial prompt, `build_initial_prompt` in `transcriber/transcriber/prompt.py` renders the vocabulary as prose sentences with no `Terms:` list, `build_output` and the producer loop in `transcriber/transcriber/cli.py` apply the cleaning, `./tools/verify` runs `transcriber/tests` as its fifth check, and `AGENTS.md` and `docs/specs/operations.md` say so
 - [ ] M2: `split_by_speaker` in `transcriber/transcriber/engine.py` assigns a diarization cluster to every word from the word timestamps and cuts each ASR chunk at the speaker changes, `FasterWhisperEngine._transcribe` carries the words on each `RawSegment`, and a synthetic roll call inside one chunk comes out of `build_output` as name and response segments that `find_roll_call_pairs` in `src/docket/ai/transcripts/speakers.py` pairs
 - [ ] M3: `claim_meeting` in `transcriber/transcriber/db.py` and `--meeting-id` in `transcriber/transcriber/cli.py` re-claim one meeting for re-transcription and mark a previously uploaded transcript `transcript_changed`, `upload` clears the model's speaker resolutions on a re-upload, the producer writes `transcripts.version = 2` as `__version__` 0.2.0, and `transcriber/README.md` and `docs/runbooks/transcripts.md` tell the operator how to re-run meeting 2543
 - [ ] M4: `docs/specs/transcripts.md` describes the producer's cleaning, splitting, versioning, and re-claim behaviour in the present tense, `docs/specs/index.md` lists it, and `docs/DEBT.md` amends `D9`, `D51`, and `D52` and adds the rows for diarization clustering tuning and the unbuilt manual-speaker remap
@@ -99,6 +99,9 @@ Four things were found while authoring and shaped the plan; M1's observations fo
   Date/Author: 2026-10-16, M1 session.
 - Decision: M1 lands in two commits, the tests and the code with the plan's evidence first, then the verify wiring, the three documents, the Progress tick, and the final verify evidence.
   Rationale: `skills/plan-execute/SKILL.md` asks for a commit at each coherent step so a session that dies leaves landed work; the second commit carries the only evidence that depends on the first being complete.
+  Date/Author: 2026-10-16, M1 session.
+- Decision: correction to the entry above: the first commit (525efdd) carried the verify wiring and the three documents as well as the code and tests; the second commit carries only the Progress tick and the final verify evidence.
+  Rationale: the edits were all in the tree and passing when the first commit was made, and splitting them after the fact would have rewritten history; the entry above is left as written so the record shows what was planned and what happened.
   Date/Author: 2026-10-16, M1 session.
 
 ## Outcomes & Retrospective
@@ -226,6 +229,19 @@ After the M1 code and tests:
     $ grep -c 'check "transcriber"' tools/verify; grep -c 'transcriber/tests' AGENTS.md
     1
     1
+
+After commit 525efdd (M1's code, tests, verify wiring, and documents):
+
+    $ ./tools/verify
+    ...
+    52 passed in 0.20s
+    verify: test-db ... ok (1s) postgresql://thinkdarrell@/docket_test_ba3bb5e1
+    verify: unit+web+services ... ok (45s)
+    verify: integration ... ok (48s)
+    verify: judge-fixtures ... ok (1s)
+    verify: workflows ... ok (0s)
+    verify: transcriber ... ok (0s)
+    verify: all 5 checks passed in 95s.
 
 The ten vocabulary sentences, with their character counts (545 in all; with the nine-name roster the prompt trims to the first seven, about 554 characters):
 
