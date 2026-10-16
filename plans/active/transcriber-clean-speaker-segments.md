@@ -21,7 +21,7 @@ After this plan, a transcript produced by the new code has one segment per speak
 
 ## Surprises & Discoveries
 
-Nothing has been executed yet. Four things were found while authoring and shaped the plan:
+Four things were found while authoring and shaped the plan; M1's observations follow them.
 
 - Observation: the fixture has no bare "Thank you." rows and no short genuine responses at all; every one of its eight rows with `avg_logprob` at or below -0.8 is filler or nonsense, and seven of them have eight words or fewer. The batched pipeline merges genuine short utterances into the surrounding 28-second chunk, so a short standalone raw segment is almost always a hallucination over silence, which is what makes a word-count cap safe before the split.
   Evidence: a read of `tests/fixtures/transcript_2543/segments.json` on 2026-10-16 (190 speech rows, median duration 26.8 s, 152 over 20 s, 24 clusters, median `avg_logprob` -0.108) listed the rows at or below -0.8 as seq 164 (-1.37, 6 words, "Thank you for joining us today."), 63 (-1.22, 6, "Thank you. Thank you very much."), 126 (-1.22, 6, "Thank you. Thank you so much."), 117 (-1.22, 5, "Thank you for joining us."), 124 (-1.20, 8, "All right. Thank you very much. Thank you."), 168 (-1.11, 10, "We have a one night of a glass of tea."), 30 (-1.07, 5, "Thank you for joining us."), 75 (-1.05, 5, "Thank you for joining us."); seq 46 (-0.04, 28.9 s) is a genuine "Thank you for joining us in this work..." sentence and must be kept; the prompt-leak row seq 38 has `avg_logprob` -0.36 and 18.2 s, so no confidence threshold catches it and only a text match can.
@@ -31,6 +31,12 @@ Nothing has been executed yet. Four things were found while authoring and shaped
   Evidence: `DATABASE_URL=$(tools/test-db) ...` printed `ERROR:  permission denied to create database` and ran the suite with an empty `DATABASE_URL` (31 passed, 10 skipped); `psql postgresql://docket:docket_dev@localhost:5432/docket_db -Atc "select rolname, rolcreatedb, rolsuper from pg_roles ..."` printed `docket|f|f` and `thinkdarrell|f|t`; `DATABASE_URL=postgresql://thinkdarrell@/docket_db tools/test-db` built `docket_test_ba3bb5e1` in 0 s and the suite against it printed `41 passed in 0.13s` (2026-10-16).
 - Observation: `docket` is importable from the worktree's `venv/` from any directory (the editable install), so a test under `transcriber/tests` can import `docket.ai.transcripts.speakers` directly and guard it with `pytest.importorskip`, which skips it inside the Legion's Docker image where `docket` is not installed.
   Evidence: `cd transcriber && ../venv/bin/python -c "import docket; print(docket.__file__)"` printed `.../transcriber-clean-speaker-segments/src/docket/__init__.py` on 2026-10-16.
+- Observation (M1): the kept variant Validation specified for `test_prompt_leak_drops_echo_with_filler_attached` (the echo text with `reported` replaced by `spoke`) is itself a prompt leak under the plan's own rule, because its second sentence, `Alabama Power and ALDOT spoke at the BJCC.`, is exactly eight words and is the second vocabulary sentence verbatim. The test's kept variant therefore also replaces `BJCC` with `stadium`, which leaves no eight-word window intact; the rule is unchanged.
+  Evidence: `is_prompt_leak("Thank you. ALEA, CJI, and APC spoke. Alabama Power and ALDOT spoke at the BJCC.", build_initial_prompt([]))` printed `True` on 2026-10-16 (M1 session); with `stadium` the test's kept assertion passes.
+- Observation (M1): the eleven new tests were red on the starting commit 4936dd8 exactly as Validation predicts: `test_engine_postprocess.py` and `test_prompt.py` failed at collection and `test_cli_loop.py`'s new test failed on its assertion.
+  Evidence: `venv/bin/python -m pytest transcriber/tests/test_engine_postprocess.py transcriber/tests/test_prompt.py transcriber/tests/test_cli_loop.py -q -p no:cacheprovider` printed `ImportError: cannot import name 'clean_segments' from 'transcriber.engine'`, `ImportError: cannot import name 'VOCABULARY_SENTENCES' from 'transcriber.prompt'`, and `2 errors in 0.09s`; `venv/bin/python -m pytest transcriber/tests/test_cli_loop.py -q -p no:cacheprovider` alone printed `assert [3] == [1]` and `1 failed, 8 passed in 0.03s` (2026-10-16).
+- Observation (M1): with the nine-name 2026 roster the prose prompt is 551 characters and keeps the first seven sentences, as the Decision Log estimated (about 554).
+  Evidence: `len(build_initial_prompt([...nine fixture names...]))` printed `551` on 2026-10-16.
 
 ## Decision Log
 
@@ -85,10 +91,19 @@ Nothing has been executed yet. Four things were found while authoring and shaped
 - Decision: `process_claim` cleans before the low-speech gate and `build_output` cleans again; the second pass drops nothing and logs nothing in the loop, and is there for `dry_run` and tests. `words.json` is written from `last_words` before cleaning and so still holds the dropped segments' words; M4's spec section says so.
   Rationale: both are review notes on wording; the behaviour was already as described and the plan now states it.
   Date/Author: 2026-10-16, operator session.
+- Decision: `is_prompt_leak` matches the eight-word window on word boundaries (the window and the normalized prompt are both padded with one space before the substring test), and `is_hallucination` counts the normalized tokens, not `text.split()`.
+  Rationale: a plain substring test would let a window match across a word boundary in the prompt (`...s at the` inside `...sat the`), which is not the prompt being read back; padding costs nothing and only ever matches less. Counting normalized tokens means a punctuation-only token such as `-` does not count as a word, which is the same unit the phrase test uses.
+  Date/Author: 2026-10-16, M1 session.
+- Decision: the kept variant in `test_prompt_leak_drops_echo_with_filler_attached` replaces `BJCC` with `stadium` as well as `reported` with `spoke`; Validation's text is not reworded, this entry and the Surprises entry record the divergence.
+  Rationale: the variant as specified is an eight-word copy of the second vocabulary sentence and the rule drops it correctly (Surprises); loosening the rule to pass the test as written would be the wrong fix.
+  Date/Author: 2026-10-16, M1 session.
+- Decision: M1 lands in two commits, the tests and the code with the plan's evidence first, then the verify wiring, the three documents, the Progress tick, and the final verify evidence.
+  Rationale: `skills/plan-execute/SKILL.md` asks for a commit at each coherent step so a session that dies leaves landed work; the second commit carries the only evidence that depends on the first being complete.
+  Date/Author: 2026-10-16, M1 session.
 
 ## Outcomes & Retrospective
 
-Nothing has been executed yet; this section is written when a milestone completes and at the end of the plan.
+M1 (2026-10-16): the two filters, the prose prompt, the loop wiring, and the fifth verify check landed; the fixture preview matched the plan's prediction row for row (seven hallucinations, one prompt leak, seqs 30, 38, 63, 75, 117, 124, 126, 164). One divergence from Validation, recorded in Surprises and the Decision Log: the echo test's kept variant needed a second word changed because the plan's variant was a genuine leak. The split (M2), the re-claim and version bump (M3), and the spec and debt rows (M4) remain.
 
 ## Context and Orientation
 
@@ -118,7 +133,7 @@ M4 (spec and debt). In `docs/specs/transcripts.md` change the opening paragraph 
 
 ## Concrete Steps
 
-Every command runs from the worktree root `/home/thinkdarrell/docket-pub/.claude/worktrees/transcriber-clean-speaker-segments` with its own `venv/`. The worktree has no `.env`, so before `./tools/verify` or any `tools/test-db` export a server URL whose role can create databases; on 2026-10-16 this worked:
+Every command runs from the worktree root `/home/thinkdarrell/docket-pub/.claude/worktrees/transcriber-clean-speaker-segments` with its own `venv/`. The worktree carries a gitignored `.env` naming a server URL whose role can create databases (Decision Log, 2026-10-15); if it is missing, export one before `./tools/verify` or any `tools/test-db`; on 2026-10-16 this worked:
 
     export DATABASE_URL=postgresql://thinkdarrell@/docket_db
 
@@ -152,7 +167,7 @@ The M1 before-and-after count on the fixture, run from `transcriber/` so the pac
     print(sorted(s["seq"] for s in rows if not s["is_silence"] and s["text"] not in {k.text for k in kept}))
     EOF
 
-Expected after M1 (not yet observed): `raw 190`, `kept 182 dropped {'hallucination': 7, 'prompt_leak': 1}`, and `[30, 38, 63, 75, 117, 124, 126, 164]`.
+Expected after M1 (not yet observed): `raw 190`, `kept 182 dropped {'hallucination': 7, 'prompt_leak': 1}`, and `[30, 38, 63, 75, 117, 124, 126, 164]`. Observed on 2026-10-16 after M1's code landed: the script printed exactly `raw 190`, `kept 182 dropped {'hallucination': 7, 'prompt_leak': 1}`, and `[30, 38, 63, 75, 117, 124, 126, 164]`.
 
 The M3 session's database tests run under the throwaway database command above. The operator's re-run of meeting 2543 happens after the pull request merges and is not a milestone; it goes, on the Legion in Git Bash from `C:/docket-pub`: `git pull`, `cd transcriber`, `docker compose build`, then from the laptop (read-only; `URL` and `PSQL` as the runbook's "Checking progress" section defines them) `$PSQL "$URL" -c "select cluster_label, display_name, council_member_id from transcript_speakers where meeting_id = 2543 and is_manual;"` (note any rows; `D54`), optionally copy `C:\docket-archive\transcripts\2543\` aside, then `docker compose run --rm transcriber --meeting-id 2543`, expect the log to end `done {'uploaded': 1, 'failed': 0, 'low_speech': 0} oom_fallbacks=0`, then `$PSQL "$URL" -c "select version, status, compare_skipped_reason, word_count from transcripts where meeting_id = 2543;"` (expect `2 | uploaded | transcript_changed | ...`), `$PSQL "$URL" -c "select count(*) from transcript_segments s join transcripts t on t.id = s.transcript_id where t.meeting_id = 2543 and (s.text ilike '%ALEA, CJI, APC%' or s.text ilike 'Thank you for joining us%');"` (expect `0`), and `$PSQL "$URL" -c "select percentile_cont(0.5) within group (order by s.end_s - s.start_s) from transcript_segments s join transcripts t on t.id = s.transcript_id where t.meeting_id = 2543 and not s.is_silence;"` (expect well under 26.8). The public page shows the new turns at once; the worker's 10:00 CT tick re-resolves speakers, re-extracts events, and runs the compare as a changed-input pass. If that transcript lands in the admin held tab and is retried from there, `retry_transcript()` nulls the marker (`D52`) and the operator runs `venv/bin/python scripts/transcript_recompare.py --meeting-id 2543 --now --transcript-changed` once it reaches `events_extracted` instead.
 
@@ -191,6 +206,26 @@ Observed on 2026-10-16 while authoring, from the worktree root:
 
     fixture read: speech 190, median dur 26.8, over20 152 (80%), clusters 24, pairs today: 0, addresses: 11
     leak row: seq 38, 18.2 s, avg_logprob -0.36122534, "ALEA, CJI, APC, Alabama Power, BJCC, Woodlawn, Ensley, Avondale, Pratt City, Norwood, Smithfield,"
+
+Observed on 2026-10-16 in the M1 session, from the worktree root, before any edit (starting state, commit 4936dd8):
+
+    $ ./tools/verify
+    verify: test-db ... ok (0s) postgresql://thinkdarrell@/docket_test_ba3bb5e1
+    verify: unit+web+services ... ok (44s)
+    verify: integration ... ok (49s)
+    verify: judge-fixtures ... ok (0s)
+    verify: workflows ... ok (0s)
+    verify: all 4 checks passed in 93s.
+
+After the M1 code and tests:
+
+    $ venv/bin/python -m pytest transcriber/tests -q -p no:cacheprovider
+    ......................ssssssssss....................                     [100%]
+    42 passed, 10 skipped in 0.04s
+
+    $ grep -c 'check "transcriber"' tools/verify; grep -c 'transcriber/tests' AGENTS.md
+    1
+    1
 
 The ten vocabulary sentences, with their character counts (545 in all; with the nine-name roster the prompt trims to the first seven, about 554 characters):
 

@@ -229,6 +229,9 @@ single pytest invocation fails collection:
     pytest tests                 # root suite; integration tests need a local DATABASE_URL
     pytest transcriber/tests     # producer suite; GPU tests skip without CUDA
 
+`./tools/verify` runs both suites, the producer suite as its fifth check against the
+throwaway database it builds (`docs/specs/operations.md`).
+
 ## History
 
 - 2026-10-08: PR #99 merged (plan 1); deployed, migration 035 applied.

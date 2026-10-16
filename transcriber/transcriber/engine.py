@@ -6,6 +6,7 @@ lazily, so unit tests run on a laptop with no GPU libraries installed.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -78,10 +79,94 @@ def insert_silence_markers(segments: list[Segment], audio_duration_s: float,
     return result
 
 
+# Cleaning runs on the raw chunks before any splitting. The batched pipeline
+# merges genuine short utterances into the surrounding ~28 s chunk, so a short
+# standalone low-confidence chunk is almost always Whisper filling applause or
+# silence ("Thank you for joining us."); after a per-word split a genuine
+# one-word "Here." would look the same, which is why the order matters.
+HALLUCINATION_LOGPROB = -0.9
+HALLUCINATION_MAX_WORDS = 8
+HALLUCINATION_PHRASES: tuple[str, ...] = (
+    "thank you", "thanks", "thank you very much", "thank you so much",
+    "thank you for joining us", "thank you for joining us today", "thanks for watching",
+    "bye", "you", "all right", "okay", "thank you all",
+)
+PROMPT_LEAK_MIN_WORDS = 8
+
+_NOT_ALNUM_OR_SPACE = re.compile(r"[^a-z0-9\s]+")
+
+
+def normalize_text(text: str) -> str:
+    """Lowercase, letters and digits only, single spaces."""
+    return " ".join(_NOT_ALNUM_OR_SPACE.sub("", text.lower()).split())
+
+
+def is_phrase_only(text: str) -> bool:
+    """True when the normalized text is a sequence of stock phrases and nothing else.
+
+    Tokens are consumed from the left, always taking the longest phrase that
+    matches at the current position; an empty text counts as phrase-only.
+    """
+    tokens = normalize_text(text).split()
+    phrases = sorted((p.split() for p in HALLUCINATION_PHRASES), key=len, reverse=True)
+    i = 0
+    while i < len(tokens):
+        for ph in phrases:
+            if tokens[i:i + len(ph)] == ph:
+                i += len(ph)
+                break
+        else:
+            return False
+    return True
+
+
+def is_hallucination(r: RawSegment) -> bool:
+    norm = normalize_text(r.text)
+    if norm == "":
+        return True
+    if r.avg_logprob is None or r.avg_logprob > HALLUCINATION_LOGPROB:
+        return False
+    return len(norm.split()) <= HALLUCINATION_MAX_WORDS or is_phrase_only(r.text)
+
+
+def is_prompt_leak(text: str, initial_prompt: str) -> bool:
+    """True when any PROMPT_LEAK_MIN_WORDS consecutive normalized words of the text occur,
+    in order and on word boundaries, in the normalized prompt. An empty prompt never matches."""
+    prompt = normalize_text(initial_prompt)
+    if not prompt:
+        return False
+    words = normalize_text(text).split()
+    if len(words) < PROMPT_LEAK_MIN_WORDS:
+        return False
+    haystack = f" {prompt} "
+    for i in range(len(words) - PROMPT_LEAK_MIN_WORDS + 1):
+        window = " ".join(words[i:i + PROMPT_LEAK_MIN_WORDS])
+        if f" {window} " in haystack:
+            return True
+    return False
+
+
+def clean_segments(raw: list[RawSegment], initial_prompt: str) -> tuple[list[RawSegment], dict[str, int]]:
+    """Drop hallucinated and prompt-leaked chunks; each dropped chunk is counted once."""
+    kept: list[RawSegment] = []
+    counts = {"hallucination": 0, "prompt_leak": 0}
+    for r in raw:
+        if is_hallucination(r):
+            counts["hallucination"] += 1
+        elif is_prompt_leak(r.text, initial_prompt):
+            counts["prompt_leak"] += 1
+        else:
+            kept.append(r)
+    return kept, counts
+
+
 def build_output(meeting_id: int, version: int, engine: Engine, raw: list[RawSegment],
                  turns: list[DiarTurn], embeddings: dict[str, list[float]],
                  audio_duration_s: float, audio_sha256: str,
-                 words_path: str | None) -> TranscriptOutput:
+                 words_path: str | None, initial_prompt: str = "") -> TranscriptOutput:
+    raw, dropped = clean_segments(raw, initial_prompt)
+    if any(dropped.values()):
+        log.info("meeting %s: dropped %s", meeting_id, dropped)
     labels = assign_clusters(raw, turns)
     segs = [Segment(i, r.start_s, r.end_s, r.text.strip(), lab, r.avg_logprob, r.no_speech_prob)
             for i, (r, lab) in enumerate(zip(raw, labels))]

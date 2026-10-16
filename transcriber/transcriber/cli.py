@@ -26,7 +26,7 @@ from . import __version__
 from . import db as tdb
 from .audio import AudioFetchError, download_url_for, fetch_audio, probe_duration, sha256_file
 from .contract import TranscriptOutput
-from .engine import Engine, build_output, is_low_speech, speech_seconds
+from .engine import Engine, build_output, clean_segments, is_low_speech, speech_seconds
 from .prompt import PromptBudgetError, build_initial_prompt
 
 log = logging.getLogger("transcriber")
@@ -104,6 +104,8 @@ def process_claim(conn, engine: Engine, claim: tdb.Claim, cfg: Config) -> str:
             log.warning("prompt budget: %s; using vocabulary only", e)
             prompt = build_initial_prompt([])
         raw = engine.transcribe(wav, prompt)
+        raw, dropped = clean_segments(raw, prompt)
+        log.info("meeting %s: dropped %s", claim.meeting_id, dropped)
         sp_s = speech_seconds(raw)
         if is_low_speech(sp_s):
             tdb.mark_status(conn, claim.transcript_id, "low_speech",
@@ -118,7 +120,8 @@ def process_claim(conn, engine: Engine, claim: tdb.Claim, cfg: Config) -> str:
             wp.parent.mkdir(parents=True, exist_ok=True)
             wp.write_text(json.dumps(engine.last_words))
             words_path = str(wp)
-        out = build_output(claim.meeting_id, 1, engine, raw, turns, emb, duration, sha, words_path)
+        out = build_output(claim.meeting_id, 1, engine, raw, turns, emb, duration, sha, words_path,
+                           initial_prompt=prompt)
         json_path.parent.mkdir(parents=True, exist_ok=True)
         json_path.write_text(out.to_json())
         tdb.mark_status(conn, claim.transcript_id, "transcribed", raw_output_path=str(json_path),
@@ -177,9 +180,11 @@ def dry_run(engine: Engine, source: str, cfg: Config) -> Path:
     wav = cfg.work_dir / "dry_run.wav"
     fetch_audio(source, wav)
     duration = probe_duration(str(wav))
-    raw = engine.transcribe(wav, build_initial_prompt([]))
+    prompt = build_initial_prompt([])
+    raw = engine.transcribe(wav, prompt)
     turns, emb = engine.diarize(wav)
-    out = build_output(0, 1, engine, raw, turns, emb, duration, sha256_file(wav), None)
+    out = build_output(0, 1, engine, raw, turns, emb, duration, sha256_file(wav), None,
+                       initial_prompt=prompt)
     path = cfg.archive_dir / "dry_run" / (Path(source).stem + ".json")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(out.to_json())

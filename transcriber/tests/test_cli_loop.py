@@ -147,3 +147,21 @@ def test_run_loop_passes_retry_failed_to_claim(monkeypatch, cfg):
     cfg.retry_failed = True
     cli.run_loop(_Conn(), None, cfg, stop_flag=_NoStop())
     assert seen["retry_failed"] is True
+
+
+def test_loop_drops_hallucinations_and_prompt_leaks_before_upload(monkeypatch, cfg):
+    class Leaky(FakeEngine):
+        def transcribe(self, wav, initial_prompt):
+            leak = " ".join(initial_prompt.split()[-12:])
+            return [RawSegment(0.0, 200.0, "Item 15 passes.", -0.1, 0.0),
+                    RawSegment(205.0, 206.0, "Thank you for joining us.", -1.1, 0.002),
+                    RawSegment(207.0, 215.0, leak, -0.3, 0.01)]
+    fdb = FakeDB([_claim(1)]); _wire(monkeypatch, fdb)
+    sizes = []
+    def counting_upload(conn, out):
+        sizes.append(len([s for s in out.segments if not s.is_silence]))
+        fdb.uploaded.append(out.meeting_id); return len(out.segments)
+    monkeypatch.setattr(cli.tdb, "upload", counting_upload)
+    counts = cli.run_loop(FakeConn(), Leaky(), cfg)
+    assert counts == {"uploaded": 1, "failed": 0, "low_speech": 0}
+    assert sizes == [1]
