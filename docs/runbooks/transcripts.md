@@ -315,3 +315,4 @@ throwaway database it builds (`docs/specs/operations.md`).
 - 2026-10: plan 2 (worker stages, review queue, public block behind flag).
 - 2026-10: migration 036: dropped the has_event CHECK; added minutes_texts.last_checked_at.
   Deploy: migrations run at container start; 036 applies.
+- 2026-10: a `--meeting-id` re-run keeps the old transcript public until the new upload lands, a re-run that ends `failed` or `low_speech` restores the row, and the busy guard reads the worker's stamp alone (plan `rerun-keeps-transcript-public`).
