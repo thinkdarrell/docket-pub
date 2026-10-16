@@ -120,6 +120,15 @@ When milestones are re-cut mid-flight, the state of partially finished work
 stays visible in the plan rather than being absorbed into a new milestone
 boundary, and the re-cut is itself a logged decision.
 
+A Validation clause is run in the author's head before it is written and
+again after any revision that changes a rule it depends on: the numbers it
+states (timings, spacings, word counts, lengths) are computed, not sketched,
+and a revision note that changes a rule names the Validation tests it re-read
+against the new rule. One plan left four test clauses that no session could
+satisfy as written, two because a review changed the rule after the test was
+specified and two because the stated geometry did not add up; each cost the
+executing session a divergence it had to log instead of a check it could run.
+
 When a plan is audited against a convention that changed under it, record the
 audit's outcome in the plan even if nothing needed to change — an audit that
 leaves no trace has to be redone by the next person who wonders. What triggers
