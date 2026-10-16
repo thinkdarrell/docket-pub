@@ -227,8 +227,9 @@ After the run, from the laptop (`URL` and `PSQL` as in "Checking progress"):
 
 The public page serves the old turns until the upload lands and the new turns
 from then on. The worker's 10:00 CT tick does the rest. If the transcript lands
-in the admin held tab and is retried from there, `retry_transcript()` nulls the `transcript_changed` marker (`docs/DEBT.md`
-`D52`); once it reaches `events_extracted`, run
+in the admin held tab and is retried from there, `retry_transcript()` nulls the
+`transcript_changed` marker (`docs/DEBT.md` `D52`); once it reaches
+`events_extracted`, run
 `venv/bin/python scripts/transcript_recompare.py --meeting-id 2543 --now --transcript-changed`
 instead of relying on the tick's compare.
 
