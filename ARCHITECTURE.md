@@ -76,7 +76,7 @@ docket.pub is a Python application with three runtime processes sharing one Post
 
 - Lives in: `transcriber/`
 - Owns: the desktop producer that transcribes council video and uploads through the `transcriber` database role, which can write only the transcript tables and its heartbeat.
-- Does not: read or write any other table.
+- Does not: write any other table; it reads `meetings`, `municipalities`, `council_members`, and `agenda_items` to find work, and `scripts/sql/create_transcriber_role.sql` holds the grants.
 
 ## Layer map and dependency rules
 
