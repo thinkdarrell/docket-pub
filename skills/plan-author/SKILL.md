@@ -86,11 +86,15 @@ constrains:
    artifact with a property that is true or false on inspection. A check that
    counts says what it counts: `grep -c` counts lines, not occurrences; a
    pytest total is the baseline plus the test functions added, not the tests
-   touched; and no check greps the plan file itself, since the plan's own
-   later sections quote the phrase the check looks for. Take the
-   acceptance-first order seriously — it is the only reliable sizing test, and
-   writing the story first produces milestones whose acceptance is invented
-   afterwards to fit.
+   touched; no check greps the plan file itself, since the plan's own
+   later sections quote the phrase the check looks for; and a check that
+   compares against the branch's base names `origin/main` or the base
+   commit, never bare `main`, because a factory worktree is cut from
+   `origin/main` and nothing moves the local `main` ref (one plan's
+   `git diff --stat main` clause reported nineteen new lines where the base
+   held one changed). Take the acceptance-first order seriously — it is the
+   only reliable sizing test, and writing the story first produces
+   milestones whose acceptance is invented afterwards to fit.
 4. Size each milestone to one session, counting the whole session: reading the
    plan and the files, editing, running the checks, and writing the evidence
    back. Half a session of work with no room left to record it is an oversized
