@@ -61,6 +61,9 @@ Nothing has been executed yet. Four things were found while authoring and shaped
 - Decision: the before-and-after comparison on real rows that `docs/PRINCIPLES.md` asks for is run on the in-repo fixture `tests/fixtures/transcript_2543/segments.json` for the two filters (M1 acceptance), and the split is proven on synthetic word timings only, because the fixture carries no words and the 48 archived transcripts are on the Legion outside this worktree.
   Rationale: the harness confines the sessions to this worktree; the fixture is a real production export of the same meeting the operator will re-run, so the filter counts it yields are the honest preview; the split cannot be previewed on real rows until the operator's re-run, and the plan says so rather than pretending.
   Date/Author: 2026-10-16, plan author.
+- Decision: the worktree carries a gitignored `.env` with `DATABASE_URL=postgresql://thinkdarrell@/docket_db`, written by the operator session on 2026-10-15, so `tools/test-db` and `./tools/verify` run in every session of this plan without an export; the `export DATABASE_URL=...` line in Concrete Steps is then redundant but harmless.
+  Rationale: on this machine the `docket` role has no CREATEDB (`tools/test-db` fails in the main checkout too, `ERROR:  permission denied to create database`), and `cycle-run`'s preflight and judge agents run `./tools/verify` without reading the plan's Concrete Steps first. With the `.env` in place `./tools/verify` passed all 4 checks in 94 s on the plan commit fd4fb67. Granting CREATEDB to the `docket` role (`ALTER ROLE docket CREATEDB` as the superuser) is the cleaner fix and is left to the operator.
+  Date/Author: 2026-10-15, operator session.
 
 ## Outcomes & Retrospective
 
