@@ -6,7 +6,9 @@ lazily, so unit tests run on a laptop with no GPU libraries installed.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+import re
+from bisect import bisect_left, bisect_right
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
@@ -16,6 +18,20 @@ log = logging.getLogger(__name__)
 
 LOW_SPEECH_FLOOR_S = 180.0
 
+# transcripts.version. 2 = per-word speaker split, hallucination and prompt-leak filters, prose prompt
+# (1 = whole-chunk clusters, no cleaning). Bump it when the output changes shape or content again.
+TRANSCRIPT_VERSION = 2
+
+
+@dataclass
+class Word:
+    """One word-level timestamp from faster-whisper. ``text`` keeps the leading space
+    faster-whisper puts on most words; an apostrophe or hyphen piece carries none."""
+    start_s: float
+    end_s: float
+    text: str
+    probability: float | None = None
+
 
 @dataclass
 class RawSegment:
@@ -24,6 +40,7 @@ class RawSegment:
     text: str
     avg_logprob: float | None
     no_speech_prob: float | None
+    words: list[Word] = field(default_factory=list)
 
 
 @dataclass
@@ -78,13 +95,187 @@ def insert_silence_markers(segments: list[Segment], audio_duration_s: float,
     return result
 
 
+# Cleaning runs on the raw chunks before any splitting. The batched pipeline
+# merges genuine short utterances into the surrounding ~28 s chunk, so a short
+# standalone low-confidence chunk is almost always Whisper filling applause or
+# silence ("Thank you for joining us."); after a per-word split a genuine
+# one-word "Here." would look the same, which is why the order matters.
+HALLUCINATION_LOGPROB = -0.9
+HALLUCINATION_MAX_WORDS = 8
+HALLUCINATION_PHRASES: tuple[str, ...] = (
+    "thank you", "thanks", "thank you very much", "thank you so much",
+    "thank you for joining us", "thank you for joining us today", "thanks for watching",
+    "bye", "you", "all right", "okay", "thank you all",
+)
+PROMPT_LEAK_MIN_WORDS = 8
+
+_NOT_ALNUM_OR_SPACE = re.compile(r"[^a-z0-9\s]+")
+
+
+def normalize_text(text: str) -> str:
+    """Lowercase, letters and digits only, single spaces."""
+    return " ".join(_NOT_ALNUM_OR_SPACE.sub("", text.lower()).split())
+
+
+def is_phrase_only(text: str) -> bool:
+    """True when the normalized text is a sequence of stock phrases and nothing else.
+
+    Tokens are consumed from the left, always taking the longest phrase that
+    matches at the current position; an empty text counts as phrase-only.
+    """
+    tokens = normalize_text(text).split()
+    phrases = sorted((p.split() for p in HALLUCINATION_PHRASES), key=len, reverse=True)
+    i = 0
+    while i < len(tokens):
+        for ph in phrases:
+            if tokens[i:i + len(ph)] == ph:
+                i += len(ph)
+                break
+        else:
+            return False
+    return True
+
+
+def is_hallucination(r: RawSegment) -> bool:
+    norm = normalize_text(r.text)
+    if norm == "":
+        return True
+    if r.avg_logprob is None or r.avg_logprob > HALLUCINATION_LOGPROB:
+        return False
+    return len(norm.split()) <= HALLUCINATION_MAX_WORDS or is_phrase_only(r.text)
+
+
+def is_prompt_leak(text: str, initial_prompt: str) -> bool:
+    """True when any PROMPT_LEAK_MIN_WORDS consecutive normalized words of the text occur,
+    in order and on word boundaries, in the normalized prompt. An empty prompt never matches."""
+    prompt = normalize_text(initial_prompt)
+    if not prompt:
+        return False
+    words = normalize_text(text).split()
+    if len(words) < PROMPT_LEAK_MIN_WORDS:
+        return False
+    haystack = f" {prompt} "
+    for i in range(len(words) - PROMPT_LEAK_MIN_WORDS + 1):
+        window = " ".join(words[i:i + PROMPT_LEAK_MIN_WORDS])
+        if f" {window} " in haystack:
+            return True
+    return False
+
+
+def clean_segments(raw: list[RawSegment], initial_prompt: str) -> tuple[list[RawSegment], dict[str, int]]:
+    """Drop hallucinated and prompt-leaked chunks; each dropped chunk is counted once."""
+    kept: list[RawSegment] = []
+    counts = {"hallucination": 0, "prompt_leak": 0}
+    for r in raw:
+        if is_hallucination(r):
+            counts["hallucination"] += 1
+        elif is_prompt_leak(r.text, initial_prompt):
+            counts["prompt_leak"] += 1
+        else:
+            kept.append(r)
+    return kept, counts
+
+
+# The batched pipeline emits ~28 s chunks and a speaker change inside one is lost
+# when the whole chunk takes one cluster: the roll call (nine names, nine "here"s)
+# sits in one segment on 40 of 48 uploads. So every word takes a cluster from the
+# word timestamps and a chunk is cut wherever the cluster changes.
+WORD_SNAP_S = 1.0
+
+
+def assign_word_clusters(words: list[Word], turns: list[DiarTurn]) -> list[str | None]:
+    """The cluster of the turn each word overlaps most; a word overlapping no turn
+    takes the nearest turn's cluster when that edge is within WORD_SNAP_S, else the
+    previous word's label; a leading unlabelled run takes the first label found.
+
+    Candidate turns are bounded with two bisects (turns sorted by start, plus a
+    running maximum of end), so the cost is proportional to words plus turns.
+    No smoothing of short runs: a one-word run ("Here.") is a legitimate turn.
+    """
+    if not words:
+        return []
+    ts = sorted(turns, key=lambda t: t.start_s)
+    starts = [t.start_s for t in ts]
+    max_end: list[float] = []
+    running = float("-inf")
+    for t in ts:
+        running = max(running, t.end_s)
+        max_end.append(running)
+    labels: list[str | None] = []
+    for w in words:
+        lo = bisect_left(max_end, w.start_s - WORD_SNAP_S)
+        hi = bisect_right(starts, w.end_s + WORD_SNAP_S)
+        overlap: dict[str, float] = {}
+        nearest: tuple[float, str] | None = None
+        for t in ts[lo:hi]:
+            o = min(w.end_s, t.end_s) - max(w.start_s, t.start_s)
+            if o > 0:
+                overlap[t.label] = overlap.get(t.label, 0.0) + o
+            else:
+                gap = max(t.start_s - w.end_s, w.start_s - t.end_s)
+                if gap <= WORD_SNAP_S and (nearest is None or gap < nearest[0]):
+                    nearest = (gap, t.label)
+        if overlap:
+            labels.append(max(overlap, key=overlap.get))
+        elif nearest is not None:
+            labels.append(nearest[1])
+        else:
+            labels.append(None)
+    for i in range(1, len(labels)):
+        if labels[i] is None:
+            labels[i] = labels[i - 1]
+    first = next((lab for lab in labels if lab is not None), None)
+    for i, lab in enumerate(labels):
+        if lab is not None:
+            break
+        labels[i] = first
+    return labels
+
+
+def split_by_speaker(raw: list[RawSegment], turns: list[DiarTurn]) -> list[Segment]:
+    """One Segment per run of same-cluster words in each chunk.
+
+    A chunk with no words keeps today's whole-chunk assignment. The first run starts
+    at the chunk's start_s and the last ends at its end_s; interior boundaries come
+    from the word timestamps. Children inherit the chunk's avg_logprob and
+    no_speech_prob (Whisper statistics of the chunk; there is no honest per-child
+    value). A run's text concatenates the raw word pieces and collapses whitespace,
+    which keeps "O'Quinn" together; a run whose text is empty is skipped. A label may
+    be None, exactly as assign_clusters leaves an unmatched chunk.
+    """
+    segs: list[Segment] = []
+    for r in raw:
+        if not r.words:
+            lab = assign_clusters([r], turns)[0]
+            segs.append(Segment(len(segs), r.start_s, r.end_s, r.text.strip(), lab,
+                                r.avg_logprob, r.no_speech_prob))
+            continue
+        words = sorted(r.words, key=lambda w: w.start_s)
+        labels = assign_word_clusters(words, turns)
+        runs: list[tuple[str | None, list[Word]]] = []
+        for w, lab in zip(words, labels):
+            if runs and runs[-1][0] == lab:
+                runs[-1][1].append(w)
+            else:
+                runs.append((lab, [w]))
+        runs = [(lab, run, " ".join("".join(w.text for w in run).split())) for lab, run in runs]
+        runs = [x for x in runs if x[2]]
+        for i, (lab, run, text) in enumerate(runs):
+            start = r.start_s if i == 0 else run[0].start_s
+            end = r.end_s if i == len(runs) - 1 else run[-1].end_s
+            end = max(start, end)
+            segs.append(Segment(len(segs), start, end, text, lab, r.avg_logprob, r.no_speech_prob))
+    return segs
+
+
 def build_output(meeting_id: int, version: int, engine: Engine, raw: list[RawSegment],
                  turns: list[DiarTurn], embeddings: dict[str, list[float]],
                  audio_duration_s: float, audio_sha256: str,
-                 words_path: str | None) -> TranscriptOutput:
-    labels = assign_clusters(raw, turns)
-    segs = [Segment(i, r.start_s, r.end_s, r.text.strip(), lab, r.avg_logprob, r.no_speech_prob)
-            for i, (r, lab) in enumerate(zip(raw, labels))]
+                 words_path: str | None, initial_prompt: str = "") -> TranscriptOutput:
+    raw, dropped = clean_segments(raw, initial_prompt)
+    if any(dropped.values()):
+        log.info("meeting %s: dropped %s", meeting_id, dropped)
+    segs = split_by_speaker(raw, turns)
     segs = insert_silence_markers(segs, audio_duration_s)
     used = {s.cluster_label for s in segs if s.cluster_label}
     speakers = [Speaker(lab, embeddings.get(lab)) for lab in sorted(used)]
@@ -156,7 +347,9 @@ class FasterWhisperEngine:
         words: list[dict] = []
         for s in segments:
             raw.append(RawSegment(float(s.start), float(s.end), s.text,
-                                  getattr(s, "avg_logprob", None), getattr(s, "no_speech_prob", None)))
+                                  getattr(s, "avg_logprob", None), getattr(s, "no_speech_prob", None),
+                                  words=[Word(float(w.start), float(w.end), w.word, float(w.probability))
+                                         for w in (s.words or [])]))
             for w in (s.words or []):
                 words.append({"s": float(w.start), "e": float(w.end), "w": w.word, "p": float(w.probability)})
         self.last_words = words

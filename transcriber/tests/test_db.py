@@ -177,3 +177,94 @@ def test_failed_row_is_claimable_only_with_retry_failed(conn, bham_meeting):
     c2 = tdb.claim_next(conn, since=SINCE, host="legion-2", retry_failed=True)
     conn.commit()
     assert c2 is not None and c2.transcript_id == c.transcript_id and c2.status == "claimed"
+
+
+def _transcript_row(conn, transcript_id):
+    with conn.cursor() as cur:
+        cur.execute("""SELECT status, compare_skipped_reason, stage_attempts, last_attempted_at,
+                              needs_review_reason FROM transcripts WHERE id = %s""", [transcript_id])
+        return cur.fetchone()
+
+
+def test_claim_meeting_marks_uploaded_transcript_changed_and_resets_attempts(conn, bham_meeting):
+    c = tdb.claim_next(conn, since=SINCE, host="legion")
+    tdb.upload(conn, _output(bham_meeting))
+    with conn.cursor() as cur:
+        # The worker touched it an hour ago (now() would trip the 30-minute busy guard).
+        cur.execute("""UPDATE transcripts SET status = 'compared', stage_attempts = 2,
+                              last_attempted_at = now() - interval '1 hour', needs_review_reason = 'x'
+                        WHERE id = %s""", [c.transcript_id])
+    conn.commit()
+    c2 = tdb.claim_meeting(conn, meeting_id=bham_meeting, host="legion")
+    conn.commit()
+    assert c2 is not None and c2.transcript_id == c.transcript_id and c2.status == "claimed"
+    assert c2.meeting_id == bham_meeting and c2.external_id == "999901"
+    status, reason, attempts, last_at, review = _transcript_row(conn, c.transcript_id)
+    assert status == "claimed" and reason == "transcript_changed"
+    assert attempts == 0 and last_at is None and review is None
+    # A meeting with no transcripts row gets a fresh claimed row with no marker.
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM transcripts WHERE id = %s", [c.transcript_id])
+    conn.commit()
+    c3 = tdb.claim_meeting(conn, meeting_id=bham_meeting, host="legion")
+    conn.commit()
+    assert c3 is not None and c3.transcript_id != c.transcript_id and c3.status == "claimed"
+    status, reason, attempts, last_at, review = _transcript_row(conn, c3.transcript_id)
+    assert status == "claimed" and reason is None and attempts == 0
+    assert tdb.claim_meeting(conn, meeting_id=-1, host="legion") is None     # not a Birmingham meeting
+
+
+def test_claim_meeting_refuses_recent_worker_touch(conn, bham_meeting):
+    c = tdb.claim_next(conn, since=SINCE, host="legion")
+    tdb.upload(conn, _output(bham_meeting))
+    with conn.cursor() as cur:
+        cur.execute("UPDATE transcripts SET last_attempted_at = now() WHERE id = %s", [c.transcript_id])
+    conn.commit()
+    with pytest.raises(tdb.MeetingBusy):
+        tdb.claim_meeting(conn, meeting_id=bham_meeting, host="legion")
+    conn.rollback()
+    status, reason, *_ = _transcript_row(conn, c.transcript_id)
+    assert status == "uploaded" and reason is None
+    with conn.cursor() as cur:
+        cur.execute("UPDATE transcripts SET last_attempted_at = now() - interval '1 hour' WHERE id = %s",
+                    [c.transcript_id])
+    conn.commit()
+    c2 = tdb.claim_meeting(conn, meeting_id=bham_meeting, host="legion")
+    conn.commit()
+    assert c2 is not None and c2.status == "claimed"
+
+
+def _speaker_row(conn, meeting_id, label):
+    with conn.cursor() as cur:
+        cur.execute("""SELECT council_member_id, display_name, method, confidence, needs_review, is_manual
+                         FROM transcript_speakers WHERE meeting_id = %s AND cluster_label = %s""",
+                    [meeting_id, label])
+        return cur.fetchone()
+
+
+def test_upload_clears_model_speaker_resolution_but_keeps_manual(conn, bham_meeting):
+    tdb.claim_next(conn, since=SINCE, host="legion")
+    out = _output(bham_meeting)
+    tdb.upload(conn, out)
+    with conn.cursor() as cur:
+        cur.execute("""SELECT cm.id FROM council_members cm JOIN municipalities mu ON mu.id = cm.municipality_id
+                        WHERE mu.slug = 'birmingham' ORDER BY cm.id LIMIT 1""")
+        member = cur.fetchone()[0]
+        for label, manual in (("SPEAKER_00", False), ("SPEAKER_01", True)):
+            cur.execute("""UPDATE transcript_speakers
+                              SET council_member_id = %s, display_name = 'X', method = 'roll_call',
+                                  confidence = 0.9, needs_review = TRUE, is_manual = %s
+                            WHERE meeting_id = %s AND cluster_label = %s""",
+                        [member, manual, bham_meeting, label])
+        for label, manual in (("SPEAKER_77", False), ("SPEAKER_78", True)):
+            cur.execute("""INSERT INTO transcript_speakers (meeting_id, cluster_label, display_name, is_manual)
+                           VALUES (%s, %s, 'ghost', %s)""", [bham_meeting, label, manual])
+    conn.commit()
+    tdb.upload(conn, out)
+    conn.commit()
+    assert _speaker_row(conn, bham_meeting, "SPEAKER_00") == (None, None, None, None, False, False)
+    row = _speaker_row(conn, bham_meeting, "SPEAKER_01")
+    assert row[:3] == (member, "X", "roll_call") and row[3] == pytest.approx(0.9)
+    assert row[4] is True and row[5] is True
+    assert _speaker_row(conn, bham_meeting, "SPEAKER_77") is None
+    assert _speaker_row(conn, bham_meeting, "SPEAKER_78") == (None, "ghost", None, None, False, True)

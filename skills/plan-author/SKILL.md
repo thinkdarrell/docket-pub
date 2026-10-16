@@ -63,6 +63,13 @@ constrains:
    database holds no rows of that shape, recorded in the plan. A row the
    plan seeds by hand proves the seed, not the writer; a fix verified only
    on such rows can pass every test while production reports nothing.
+   When the work changes the values a column may hold, or the transitions
+   a status column makes, the research lists every reader of that column
+   (a search for its name across the services, routes, templates, and any
+   out-of-tree producer) and states in Context what each one does with the
+   new value or the new transition. Two consecutive plans shipped a row
+   state its readers were written to exclude, and both times the closing
+   review, not the plan, found it.
 3. Write each candidate milestone's acceptance before its narrative.
    Acceptance is a small number of checks a different person can run or read
    and agree on: a command together with the output it prints, or a named
@@ -112,6 +119,15 @@ never happened destroys the only evidence that the alternative was tried.
 When milestones are re-cut mid-flight, the state of partially finished work
 stays visible in the plan rather than being absorbed into a new milestone
 boundary, and the re-cut is itself a logged decision.
+
+A Validation clause is run in the author's head before it is written and
+again after any revision that changes a rule it depends on: the numbers it
+states (timings, spacings, word counts, lengths) are computed, not sketched,
+and a revision note that changes a rule names the Validation tests it re-read
+against the new rule. One plan left four test clauses that no session could
+satisfy as written, two because a review changed the rule after the test was
+specified and two because the stated geometry did not add up; each cost the
+executing session a divergence it had to log instead of a check it could run.
 
 When a plan is audited against a convention that changed under it, record the
 audit's outcome in the plan even if nothing needed to change — an audit that

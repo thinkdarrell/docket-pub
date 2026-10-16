@@ -2,6 +2,7 @@
 
     python -m transcriber.cli --since 2025-10-28 --limit 5 --max-hours 3
     python -m transcriber.cli --dry-run /archive/clips/item15.mp4   # no DB, CPU ok
+    python -m transcriber.cli --meeting-id 2543                     # re-run one meeting
 
 Per meeting: claim -> fetch audio -> transcribe -> diarize -> write JSON
 (status transcribed) -> upload (status uploaded) -> delete audio. Ctrl-C
@@ -26,7 +27,8 @@ from . import __version__
 from . import db as tdb
 from .audio import AudioFetchError, download_url_for, fetch_audio, probe_duration, sha256_file
 from .contract import TranscriptOutput
-from .engine import Engine, build_output, is_low_speech, speech_seconds
+from .engine import (TRANSCRIPT_VERSION, Engine, build_output, clean_segments, is_low_speech,
+                     speech_seconds)
 from .prompt import PromptBudgetError, build_initial_prompt
 
 log = logging.getLogger("transcriber")
@@ -44,6 +46,7 @@ class Config:
     version: str
     max_consecutive_failures: int = 5
     retry_failed: bool = False
+    meeting_id: int | None = None       # --meeting-id: re-transcribe this one meeting and stop
 
 
 class _Stop:
@@ -104,6 +107,8 @@ def process_claim(conn, engine: Engine, claim: tdb.Claim, cfg: Config) -> str:
             log.warning("prompt budget: %s; using vocabulary only", e)
             prompt = build_initial_prompt([])
         raw = engine.transcribe(wav, prompt)
+        raw, dropped = clean_segments(raw, prompt)
+        log.info("meeting %s: dropped %s", claim.meeting_id, dropped)
         sp_s = speech_seconds(raw)
         if is_low_speech(sp_s):
             tdb.mark_status(conn, claim.transcript_id, "low_speech",
@@ -118,7 +123,8 @@ def process_claim(conn, engine: Engine, claim: tdb.Claim, cfg: Config) -> str:
             wp.parent.mkdir(parents=True, exist_ok=True)
             wp.write_text(json.dumps(engine.last_words))
             words_path = str(wp)
-        out = build_output(claim.meeting_id, 1, engine, raw, turns, emb, duration, sha, words_path)
+        out = build_output(claim.meeting_id, TRANSCRIPT_VERSION, engine, raw, turns, emb, duration, sha,
+                           words_path, initial_prompt=prompt)
         json_path.parent.mkdir(parents=True, exist_ok=True)
         json_path.write_text(out.to_json())
         tdb.mark_status(conn, claim.transcript_id, "transcribed", raw_output_path=str(json_path),
@@ -145,17 +151,29 @@ def run_loop(conn, engine: Engine, cfg: Config, *, clock=time.monotonic, stop_fl
     stop = stop_flag or _Stop()
     tdb.heartbeat(conn, cfg.host, "started", None, cfg.version)
     conn.commit()
-    for _ in range(cfg.limit):
+    for _ in range(1 if cfg.meeting_id is not None else cfg.limit):
         if stop.requested:
             break
         if cfg.max_hours is not None and (clock() - started) > cfg.max_hours * 3600:
             log.info("max-hours reached; stopping")
             break
-        claim = tdb.claim_next(conn, since=cfg.since, host=cfg.host, retry_failed=cfg.retry_failed)
-        conn.commit()
-        if claim is None:
-            log.info("nothing to claim")
-            break
+        if cfg.meeting_id is not None:
+            try:
+                claim = tdb.claim_meeting(conn, meeting_id=cfg.meeting_id, host=cfg.host)
+            except tdb.MeetingBusy as e:
+                conn.rollback()
+                log.error("meeting %s was touched at %s; wait 30 minutes", e.meeting_id, e.touched_at)
+                break
+            conn.commit()
+            if claim is None:
+                log.error("meeting %s is not an eligible Birmingham meeting", cfg.meeting_id)
+                break
+        else:
+            claim = tdb.claim_next(conn, since=cfg.since, host=cfg.host, retry_failed=cfg.retry_failed)
+            conn.commit()
+            if claim is None:
+                log.info("nothing to claim")
+                break
         tdb.heartbeat(conn, cfg.host, "processing", claim.meeting_id, cfg.version)
         conn.commit()
         log.info("meeting %s (%s) %s", claim.meeting_id, claim.meeting_date, claim.title)
@@ -177,9 +195,11 @@ def dry_run(engine: Engine, source: str, cfg: Config) -> Path:
     wav = cfg.work_dir / "dry_run.wav"
     fetch_audio(source, wav)
     duration = probe_duration(str(wav))
-    raw = engine.transcribe(wav, build_initial_prompt([]))
+    prompt = build_initial_prompt([])
+    raw = engine.transcribe(wav, prompt)
     turns, emb = engine.diarize(wav)
-    out = build_output(0, 1, engine, raw, turns, emb, duration, sha256_file(wav), None)
+    out = build_output(0, TRANSCRIPT_VERSION, engine, raw, turns, emb, duration, sha256_file(wav), None,
+                       initial_prompt=prompt)
     path = cfg.archive_dir / "dry_run" / (Path(source).stem + ".json")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(out.to_json())
@@ -199,6 +219,8 @@ def main(argv=None) -> int:
     ap.add_argument("--retry-failed", action="store_true",
                     default=os.environ.get("TRANSCRIBER_RETRY_FAILED", "").lower() in ("1", "true", "yes"),
                     help="re-queue meetings marked failed")
+    ap.add_argument("--meeting-id", type=int, default=None,
+                    help="re-transcribe this one meeting, whatever its status; ignores --since and --limit")
     ap.add_argument("--model", default=os.environ.get("TRANSCRIBER_MODEL", "large-v3"))
     ap.add_argument("--device", default=os.environ.get("TRANSCRIBER_DEVICE", "cuda"))
     ap.add_argument("--compute-type", default=os.environ.get("TRANSCRIBER_COMPUTE", "float16"))
@@ -212,7 +234,7 @@ def main(argv=None) -> int:
         archive_dir=Path(os.environ.get("TRANSCRIBER_ARCHIVE_DIR", "/archive/transcripts")),
         dry_run_file=args.dry_run, version=__version__,
         max_consecutive_failures=args.max_consecutive_failures,
-        retry_failed=args.retry_failed,
+        retry_failed=args.retry_failed, meeting_id=args.meeting_id,
     )
     cfg.work_dir.mkdir(parents=True, exist_ok=True)
 
@@ -238,6 +260,8 @@ def main(argv=None) -> int:
     finally:
         conn.close()
     log.info("done %s oom_fallbacks=%s", counts, getattr(engine, "oom_fallbacks", 0))
+    if args.meeting_id is not None and not any(counts.values()):
+        return 1            # not eligible, or MeetingBusy: nothing was claimed
     return 0
 
 

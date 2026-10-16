@@ -1,5 +1,5 @@
 import pytest
-from transcriber.prompt import LOCAL_VOCABULARY, PromptBudgetError, build_initial_prompt
+from transcriber.prompt import VOCABULARY_SENTENCES, PromptBudgetError, build_initial_prompt
 
 ROSTER = ["Darrell O'Quinn", "Valerie Abbott", "Hunter Williams", "Carol Clarke",
           "LaTonya Tate", "Crystal Smitherman", "Wardine Alexander", "Clinton Woods",
@@ -8,15 +8,24 @@ ROSTER = ["Darrell O'Quinn", "Valerie Abbott", "Hunter Williams", "Carol Clarke"
 
 def test_roster_names_come_first_then_vocabulary():
     p = build_initial_prompt(ROSTER)
-    assert p.startswith("Birmingham City Council. Councilors: Darrell O'Quinn, Valerie Abbott")
+    assert p.startswith("Birmingham City Council. Councilors present are Darrell O'Quinn, Valerie Abbott")
     assert "ALEA" in p and "Woodlawn" in p
     assert p.index("O'Quinn") < p.index("ALEA")
 
 
 def test_empty_roster_omits_councilors_clause():
     p = build_initial_prompt([])
-    assert p.startswith("Birmingham City Council. Terms:")
+    assert p.startswith("Birmingham City Council. ")
+    assert "ALEA" in p
     assert "Councilors" not in p
+
+
+def test_prompt_has_no_labelled_list():
+    p = build_initial_prompt(ROSTER)
+    assert "Terms:" not in p and "Councilors:" not in p
+    assert "ALEA, CJI, APC, Alabama Power" not in p
+    assert "ALEA" in p and "O'Quinn" in p
+    assert p.index("O'Quinn") < p.index("ALEA")
 
 
 def test_within_budget():
@@ -36,5 +45,9 @@ def test_refuses_when_roster_alone_overflows():
         build_initial_prompt(huge, max_chars=600)
 
 
-def test_vocabulary_has_no_duplicates():
-    assert len(LOCAL_VOCABULARY) == len(set(LOCAL_VOCABULARY))
+def test_vocabulary_sentences_are_prose():
+    assert len(VOCABULARY_SENTENCES) == len(set(VOCABULARY_SENTENCES))
+    for s in VOCABULARY_SENTENCES:
+        assert s.endswith("."), s
+        assert s.count(",") <= 3, s
+        assert "Terms" not in s, s

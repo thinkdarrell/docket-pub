@@ -39,6 +39,23 @@ than six hours is reclaimed. Failed meetings are not reclaimed automatically.
 
 `--retry-failed` (env `TRANSCRIBER_RETRY_FAILED`) re-queues meetings marked failed (for example after a Granicus outage); `low_speech` meetings are terminal by design and are not retried.
 
+To re-transcribe one meeting whatever its status (for example after a producer
+change), rebuild the image first (`docker compose build`, since the Dockerfile
+copies the package) and run
+
+    docker compose run --rm transcriber --meeting-id 2543
+
+It ignores `--since` and `--limit`, claims that one meeting, and stops. The run
+overwrites `transcript.json` and `words.json` under that meeting's folder in
+`C:\docket-archive\transcripts\`, replaces the meeting's segments in Postgres,
+clears the worker's speaker names on the non-manual clusters, and marks the
+row `transcript_changed` so the worker treats the re-upload as changed input
+and re-runs its stages (speakers, events, comparison). The producer refuses a
+meeting the worker touched in the last 30 minutes (exit 1; wait and retry), and
+exits 1 when the id is not an eligible Birmingham meeting. The operator
+procedure, with the checks to run first, is in `docs/runbooks/transcripts.md`
+under "Re-transcribing one meeting".
+
 An upload is public immediately: `uploaded` is one of the site's public
 statuses, so the transcript page goes live at
 `/al/birmingham/meetings/<id>/transcript/` as soon as a meeting finishes, with

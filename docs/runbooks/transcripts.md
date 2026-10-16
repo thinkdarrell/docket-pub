@@ -38,7 +38,7 @@ Plan 1: `docs/superpowers/plans/2026-10-07-transcripts-foundation.md` (PR #99).
 | `claimed` | producer | Row inserted; audio not fetched yet. Stale after 6 h and reclaimable. |
 | `audio_fetched` | producer | ffmpeg wrote the WAV. Stale after 6 h. |
 | `transcribed` | producer | JSON written to the Legion archive, upload pending. Only the same host may resume it until it is stale. |
-| `uploaded` | producer | Segments are in Postgres. Public page renders. The worker picks up here. |
+| `uploaded` | producer | Segments are in Postgres. Public page renders. The worker picks up here. The producer's `--meeting-id` can return a row at any later status to it (the re-run section below). |
 | `low_speech` | producer | Under the speech floor (for example a Granicus test stream). Terminal; never retried. |
 | `failed` | producer | ffmpeg 403 or timeout, upload error, and so on. `last_error` has the reason. Retried only with `--retry-failed`. |
 | `speakers_resolved` | worker | Speaker names resolved per cluster; event extraction is next. |
@@ -159,6 +159,74 @@ meeting 2543 fixture; seq 191 holds a real motion and vote, so 166-191 correctly
 - The producer skips meetings with `is_hidden = TRUE`, so hiding a junk meeting
   also stops the GPU spending time on it.
 
+## Re-transcribing one meeting
+
+The producer's `--meeting-id N` re-claims one Birmingham meeting whatever its
+status and replaces its transcript. Use it after a producer change (the first
+case is meeting 2543 after the 2026-10 cleaning and speaker-split change, which
+bumped `transcripts.version` to 2; the 48 earlier uploads stay at version 1).
+A re-run deletes the meeting's segments, drops the non-manual
+`transcript_speakers` rows whose cluster label the new output no longer has,
+clears the worker's resolution (`council_member_id`, `display_name`, `role`,
+`confidence`, `method`, `needs_review`) on the non-manual rows that remain, and
+writes `compare_skipped_reason = 'transcript_changed'` when the row had been
+uploaded before, so the worker's next tick re-resolves speakers, re-extracts
+events, and runs the comparison as a changed-input pass (approved discrepancies
+go `stale` and are re-proposed; see Re-comparison). `docs/specs/transcripts.md`
+states those rules and the busy guard below; this section is the procedure.
+
+Before the run:
+
+- Do not start it inside the worker's daily `transcript_pipeline` window
+  (10:00 America/Chicago, `src/docket/worker/scheduler.py`). The producer refuses
+  a row whose `last_attempted_at` is within the last 30 minutes (`meeting N was
+  touched at ...; wait 30 minutes`, exit 1); the worker's claim stamps that
+  column, and a stage in flight would otherwise overwrite the claim. The
+  producer's own status writes stamp it too, so a re-run right after a failed
+  one waits the same 30 minutes.
+- Manual speaker rows (`is_manual`) are kept as they are and stay attached to
+  whatever new cluster reuses their `cluster_label`; the remap is unbuilt
+  (`docs/DEBT.md` `D54`). List them first and expect to redo them in
+  `/admin/transcripts/<meeting_id>/speakers` after the run:
+
+      $PSQL "$URL" -c "select cluster_label, display_name, council_member_id
+        from transcript_speakers where meeting_id = 2543 and is_manual;"
+
+- Optionally copy `C:\docket-archive\transcripts\2543\` aside; the run overwrites
+  `transcript.json` and `words.json` there.
+
+On the Legion, in Git Bash from `C:/docket-pub`: `git pull`, `cd transcriber`,
+`docker compose build` (the image copies the package), then
+
+    docker compose run --rm transcriber --meeting-id 2543
+
+Expect the log to end `done {'uploaded': 1, 'failed': 0, 'low_speech': 0} oom_fallbacks=0`.
+A `done {'uploaded': 0, ...}` with exit 1 means the id was not an eligible Birmingham
+meeting (hidden, no video, non-numeric external id) or the busy refusal above.
+
+After the run, from the laptop (`URL` and `PSQL` as in "Checking progress"):
+
+    $PSQL "$URL" -c "select version, status, compare_skipped_reason, word_count
+      from transcripts where meeting_id = 2543;"
+    # expect: 2 | uploaded | transcript_changed | ...
+
+    $PSQL "$URL" -c "select count(*) from transcript_segments s join transcripts t on t.id = s.transcript_id
+      where t.meeting_id = 2543 and (s.text ilike '%ALEA, CJI, APC%' or s.text ilike 'Thank you for joining us%');"
+    # expect: 0
+
+    $PSQL "$URL" -c "select percentile_cont(0.5) within group (order by s.end_s - s.start_s)
+      from transcript_segments s join transcripts t on t.id = s.transcript_id
+      where t.meeting_id = 2543 and not s.is_silence;"
+    # expect well under 26.8 (the version-1 median)
+
+The public page shows the new turns at once (it is a 404 from the claim until the
+upload lands; `docs/DEBT.md` `D55`). The worker's 10:00 CT tick does the
+rest. If the transcript lands in the admin held tab and is retried from there,
+`retry_transcript()` nulls the `transcript_changed` marker (`docs/DEBT.md`
+`D52`); once it reaches `events_extracted`, run
+`venv/bin/python scripts/transcript_recompare.py --meeting-id 2543 --now --transcript-changed`
+instead of relying on the tick's compare.
+
 ## Checking progress from the laptop
 
 All read-only. The URL is the app's public proxy URL from Railway.
@@ -228,6 +296,9 @@ single pytest invocation fails collection:
 
     pytest tests                 # root suite; integration tests need a local DATABASE_URL
     pytest transcriber/tests     # producer suite; GPU tests skip without CUDA
+
+`./tools/verify` runs both suites, the producer suite as its fifth check against the
+throwaway database it builds (`docs/specs/operations.md`).
 
 ## History
 

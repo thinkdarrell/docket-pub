@@ -5,7 +5,8 @@
 # for every test tier (the unit tier deletes rows from whatever database it
 # is given, so no tier may run against the developer's docket_db), runs each
 # check in order even if an earlier one fails (the test tiers, then the
-# milestone judge's fixture self-test, then the workflow shape check), prints
+# milestone judge's fixture self-test, then the workflow shape check, then the
+# producer suite under transcriber/tests), prints
 # each check's own output followed by one summary line per check, then a
 # final line, and exits nonzero if any check failed. Run it from anywhere; it
 # works in the checkout that contains it.
@@ -63,6 +64,7 @@ check "unit+web+services" $PY -m pytest tests/unit tests/web tests/services -q -
 check "integration"       $PY -m pytest tests/integration -q -p no:cacheprovider
 check "judge-fixtures"    tools/fixtures/judge/run
 check "workflows"         tools/check-workflows
+check "transcriber"       $PY -m pytest transcriber/tests -q -p no:cacheprovider
 
 ELAPSED=$(( $(date +%s) - START ))
 echo
