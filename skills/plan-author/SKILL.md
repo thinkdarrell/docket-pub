@@ -63,6 +63,11 @@ constrains:
    database holds no rows of that shape, recorded in the plan. A row the
    plan seeds by hand proves the seed, not the writer; a fix verified only
    on such rows can pass every test while production reports nothing.
+   When no production connection is reachable from the authoring checkout
+   (a factory worktree has none), the plan records the exact read-only
+   query, the result the design assumes, and who runs it before merge; a
+   result that breaks the assumption is a Surprises entry and a decision,
+   not a silent fix.
    When the work changes the values a column may hold, or the transitions
    a status column makes, the research lists every reader of that column
    (a search for its name across the services, routes, templates, and any
