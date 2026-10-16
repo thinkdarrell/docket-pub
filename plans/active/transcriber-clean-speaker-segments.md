@@ -364,6 +364,19 @@ After the code edit:
     1
     1
 
+After commit 1246814 (M3's code, tests, documents, and plan evidence):
+
+    $ ./tools/verify
+    ...
+    62 passed in 0.44s
+    verify: test-db ... ok (0s) postgresql://thinkdarrell@/docket_test_ba3bb5e1
+    verify: unit+web+services ... ok (47s)
+    verify: integration ... ok (48s)
+    verify: judge-fixtures ... ok (1s)
+    verify: workflows ... ok (0s)
+    verify: transcriber ... ok (1s)
+    verify: all 5 checks passed in 97s.
+
 The ten vocabulary sentences, with their character counts (545 in all; with the nine-name roster the prompt trims to the first seven, about 554 characters):
 
     ALEA, CJI, and APC reported. (28)
