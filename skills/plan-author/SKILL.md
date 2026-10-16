@@ -63,6 +63,13 @@ constrains:
    database holds no rows of that shape, recorded in the plan. A row the
    plan seeds by hand proves the seed, not the writer; a fix verified only
    on such rows can pass every test while production reports nothing.
+   When the work changes the values a column may hold, or the transitions
+   a status column makes, the research lists every reader of that column
+   (a search for its name across the services, routes, templates, and any
+   out-of-tree producer) and states in Context what each one does with the
+   new value or the new transition. Two consecutive plans shipped a row
+   state its readers were written to exclude, and both times the closing
+   review, not the plan, found it.
 3. Write each candidate milestone's acceptance before its narrative.
    Acceptance is a small number of checks a different person can run or read
    and agree on: a command together with the output it prints, or a named
