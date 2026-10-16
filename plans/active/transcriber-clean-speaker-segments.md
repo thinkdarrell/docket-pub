@@ -15,7 +15,7 @@ After this plan, a transcript produced by the new code has one segment per speak
 ## Progress
 
 - [x] (2026-10-16 16:51Z) M1: `clean_segments` in `transcriber/transcriber/engine.py` drops hallucinated short low-confidence segments and segments that reproduce the initial prompt, `build_initial_prompt` in `transcriber/transcriber/prompt.py` renders the vocabulary as prose sentences with no `Terms:` list, `build_output` and the producer loop in `transcriber/transcriber/cli.py` apply the cleaning, `./tools/verify` runs `transcriber/tests` as its fifth check, and `AGENTS.md` and `docs/specs/operations.md` say so
-- [ ] M2: `split_by_speaker` in `transcriber/transcriber/engine.py` assigns a diarization cluster to every word from the word timestamps and cuts each ASR chunk at the speaker changes, `FasterWhisperEngine._transcribe` carries the words on each `RawSegment`, and a synthetic roll call inside one chunk comes out of `build_output` as name and response segments that `find_roll_call_pairs` in `src/docket/ai/transcripts/speakers.py` pairs
+- [x] (2026-10-16 16:58Z) M2: `split_by_speaker` in `transcriber/transcriber/engine.py` assigns a diarization cluster to every word from the word timestamps and cuts each ASR chunk at the speaker changes, `FasterWhisperEngine._transcribe` carries the words on each `RawSegment`, and a synthetic roll call inside one chunk comes out of `build_output` as name and response segments that `find_roll_call_pairs` in `src/docket/ai/transcripts/speakers.py` pairs
 - [ ] M3: `claim_meeting` in `transcriber/transcriber/db.py` and `--meeting-id` in `transcriber/transcriber/cli.py` re-claim one meeting for re-transcription and mark a previously uploaded transcript `transcript_changed`, `upload` clears the model's speaker resolutions on a re-upload, the producer writes `transcripts.version = 2` as `__version__` 0.2.0, and `transcriber/README.md` and `docs/runbooks/transcripts.md` tell the operator how to re-run meeting 2543
 - [ ] M4: `docs/specs/transcripts.md` describes the producer's cleaning, splitting, versioning, and re-claim behaviour in the present tense, `docs/specs/index.md` lists it, and `docs/DEBT.md` amends `D9`, `D51`, and `D52` and adds the rows for diarization clustering tuning and the unbuilt manual-speaker remap
 
@@ -37,6 +37,12 @@ Four things were found while authoring and shaped the plan; M1's observations fo
   Evidence: `venv/bin/python -m pytest transcriber/tests/test_engine_postprocess.py transcriber/tests/test_prompt.py transcriber/tests/test_cli_loop.py -q -p no:cacheprovider` printed `ImportError: cannot import name 'clean_segments' from 'transcriber.engine'`, `ImportError: cannot import name 'VOCABULARY_SENTENCES' from 'transcriber.prompt'`, and `2 errors in 0.09s`; `venv/bin/python -m pytest transcriber/tests/test_cli_loop.py -q -p no:cacheprovider` alone printed `assert [3] == [1]` and `1 failed, 8 passed in 0.03s` (2026-10-16).
 - Observation (M1): with the nine-name 2026 roster the prose prompt is 551 characters and keeps the first seven sentences, as the Decision Log estimated (about 554).
   Evidence: `len(build_initial_prompt([...nine fixture names...]))` printed `551` on 2026-10-16.
+- Observation (M2): the five new tests were red on the M1 commit c2f4c78 at collection, as Validation predicts, and green with no further change after the engine edit; the suite then printed exactly the M2 count.
+  Evidence: `venv/bin/python -m pytest transcriber/tests/test_engine_postprocess.py -q -p no:cacheprovider` printed `ImportError: cannot import name 'Word' from 'transcriber.engine'` and `1 error in 0.07s`; after the edit `venv/bin/python -m pytest transcriber/tests -q -p no:cacheprovider` printed `47 passed, 10 skipped in 0.30s` (2026-10-16, M2 session).
+- Observation (M2): the bisect bound in `assign_word_clusters` labels a meeting-sized input in well under a second, so the Decision Log's cost argument holds.
+  Evidence: a scratch script over 20,000 random words and 3,000 random turns (24 labels, gaps up to 0.8 s) printed `words=20000 turns=3000 seconds=0.014 unlabelled=0` on 2026-10-16 (M2 session).
+- Observation (M2): the roll call at two-second spacing spans 36 s, so it cannot be one of the "twenty 27-second chunks" Validation describes for `test_fixture_shaped_transcript_through_build_output` as written; the test's roll-call chunk uses 1.5-second spacing (27.0 s, asserted) and the dedicated roll-call test keeps two seconds. The split cut the fixture-shaped synthetic transcript into 54 speech segments from 20 chunks, dropped the four fillers and the prompt echo, and `find_roll_call_pairs` found nine pairs.
+  Evidence: the test's assertions (`len(speech) > 20`, no `Thank you for joining us`, no eight-word prompt substring, `len(pairs) == 9`, `validate()`) pass; `assert chunk.end_s - chunk.start_s == pytest.approx(27.0)` holds (2026-10-16, M2 session).
 
 ## Decision Log
 
@@ -103,10 +109,24 @@ Four things were found while authoring and shaped the plan; M1's observations fo
 - Decision: correction to the entry above: the first commit (525efdd) carried the verify wiring and the three documents as well as the code and tests; the second commit carries only the Progress tick and the final verify evidence.
   Rationale: the edits were all in the tree and passing when the first commit was made, and splitting them after the fact would have rewritten history; the entry above is left as written so the record shows what was planned and what happened.
   Date/Author: 2026-10-16, M1 session.
+- Decision: `split_by_speaker` drops empty-text runs before choosing which run takes the chunk's `start_s` and which its `end_s`, so the first and last emitted children always carry the chunk's edges even when a whitespace-only run sat at either end.
+  Rationale: Plan of Work says the first run starts at `r.start_s`, the last ends at `r.end_s`, and an empty run is skipped; applying the skip first is the only order under which both statements stay true at once.
+  Date/Author: 2026-10-16, M2 session.
+- Decision: in `test_split_by_speaker_cuts_chunk_at_speaker_change` the ten words start at 0.5 s with 2.5 s spacing and last one second each (the sixth ends at 14.0 inside turn `A`, the seventh starts at 15.5 inside `B`), and the "0.05 s past the chunk" clause is tested twice: the tenth word's `end_s` is stretched to 28.05 (the last child still ends at the chunk's 28.0), and a second chunk `RawSegment(0.0, 10.0)` with a final one-word run starting at 10.02 shows the clamp (`end_s == start_s == 10.02`) and passes `validate()` through `build_output`.
+  Rationale: Validation's geometry (ten words at 2.5 s spacing, six in `A` 0 to 15, four in `B` 15 to 28, last word past 28.0) cannot all hold with uniform word lengths, and a word that only ends past the chunk never exercises the clamp because the last run takes `r.end_s`; the second chunk is the case the clamp exists for.
+  Date/Author: 2026-10-16, M2 session.
+- Decision: `test_fixture_shaped_transcript_through_build_output` builds nineteen 27-second chunks of twenty words at 30-second starts, each with turns `P` and `Q` meeting at the chunk midpoint, the roll-call chunk at 570 s with 1.5-second spacing (27.0 s), four `Thank you for joining us.` rows at -1.1 in the gaps after chunks 1, 3, 5, 7, and the prompt echo at 600 s; the roster is the nine fixture names as literals, built into `RosterMember(id, name, surname(name))`.
+  Rationale: twenty chunks of 27 s with the roll call among them needs the roll call to fit 27 s (Surprises); the fixture names are copied as literals so the test does not read `tests/fixtures/` from `transcriber/tests`, whose `pytest.ini` roots at `transcriber/`.
+  Date/Author: 2026-10-16, M2 session.
+- Decision: M2 lands in two commits, the tests, the engine code, and the plan's evidence first, then the Progress tick's final verify evidence.
+  Rationale: `skills/plan-execute/SKILL.md` asks for a commit at each coherent step; the Progress line is ticked in the first commit because the acceptance count was observed before it, and the second commit carries only the `./tools/verify` transcript, which depends on the first being complete.
+  Date/Author: 2026-10-16, M2 session.
 
 ## Outcomes & Retrospective
 
 M1 (2026-10-16): the two filters, the prose prompt, the loop wiring, and the fifth verify check landed; the fixture preview matched the plan's prediction row for row (seven hallucinations, one prompt leak, seqs 30, 38, 63, 75, 117, 124, 126, 164). One divergence from Validation, recorded in Surprises and the Decision Log: the echo test's kept variant needed a second word changed because the plan's variant was a genuine leak. The split (M2), the re-claim and version bump (M3), and the spec and debt rows (M4) remain.
+
+M2 (2026-10-16): `Word`, the `words` field on `RawSegment`, `assign_word_clusters`, and `split_by_speaker` landed in `transcriber/transcriber/engine.py`, `build_output` now splits instead of assigning whole chunks, and `_transcribe` carries the words on each chunk; the synthetic roll call inside one chunk comes out as eighteen segments that `find_roll_call_pairs` pairs nine times where the old path paired none. Two test-geometry adjustments against Validation are in the Decision Log (the ten-word chunk's timings and the roll-call spacing inside the fixture-shaped test); the rules themselves are as planned. The split is proven on synthetic word timings only, as the Decision Log says it must be until the operator's re-run. The re-claim and version bump (M3) and the spec and debt rows (M4) remain.
 
 ## Context and Orientation
 
@@ -242,6 +262,32 @@ After commit 525efdd (M1's code, tests, verify wiring, and documents):
     verify: workflows ... ok (0s)
     verify: transcriber ... ok (0s)
     verify: all 5 checks passed in 95s.
+
+Observed on 2026-10-16 in the M2 session, from the worktree root, before any edit (starting state, commit c2f4c78):
+
+    $ ./tools/verify
+    ...
+    52 passed in 0.14s
+    verify: test-db ... ok (0s) postgresql://thinkdarrell@/docket_test_ba3bb5e1
+    verify: unit+web+services ... ok (45s)
+    verify: integration ... ok (47s)
+    verify: judge-fixtures ... ok (1s)
+    verify: workflows ... ok (0s)
+    verify: transcriber ... ok (0s)
+    verify: all 5 checks passed in 93s.
+
+After the five M2 tests were appended and before the engine edit:
+
+    $ venv/bin/python -m pytest transcriber/tests/test_engine_postprocess.py -q -p no:cacheprovider
+    E   ImportError: cannot import name 'Word' from 'transcriber.engine' (.../transcriber/transcriber/engine.py)
+    ERROR transcriber/tests/test_engine_postprocess.py
+    1 error in 0.07s
+
+After the engine edit:
+
+    $ venv/bin/python -m pytest transcriber/tests -q -p no:cacheprovider
+    ......................ssssssssss.........................                [100%]
+    47 passed, 10 skipped in 0.30s
 
 The ten vocabulary sentences, with their character counts (545 in all; with the nine-name roster the prompt trims to the first seven, about 554 characters):
 
