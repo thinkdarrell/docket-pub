@@ -69,7 +69,12 @@ constrains:
    out-of-tree producer) and states in Context what each one does with the
    new value or the new transition. Two consecutive plans shipped a row
    state its readers were written to exclude, and both times the closing
-   review, not the plan, found it.
+   review, not the plan, found it. The transition is traced from every
+   value the column can hold before it, the values the readers hide
+   included: a third plan in a row shipped a row state its readers were
+   written to exclude, a worker `low_speech` row that a re-claim moved to
+   `claimed` and so made public for the run, because the research reasoned
+   about that value only as an end state.
 3. Write each candidate milestone's acceptance before its narrative.
    Acceptance is a small number of checks a different person can run or read
    and agree on: a command together with the output it prints, or a named
