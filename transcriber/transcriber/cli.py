@@ -64,6 +64,20 @@ def _archive_path(cfg: Config, meeting_id: int) -> Path:
     return cfg.archive_dir / str(meeting_id) / "transcript.json"
 
 
+def _end_without_upload(conn, claim: tdb.Claim, status: str, *, error: str | None = None, **fields) -> str:
+    """A failed or low_speech end. A re-run of an uploaded meeting (claim.prior set) puts the
+    row back as it was before the claim, so the old transcript stays public and the Railway
+    side never sees a producer failure with uploaded_at set; the reason goes to the log."""
+    if claim.prior is not None:
+        tdb.restore_row(conn, claim.transcript_id, claim.prior)
+        log.warning("meeting %s re-run ended %s (%s); transcripts row restored to its pre-claim values",
+                    claim.meeting_id, status, error)
+    else:
+        tdb.mark_status(conn, claim.transcript_id, status, error=error, **fields)
+    conn.commit()
+    return status
+
+
 def _upload_or_fail(conn, claim: tdb.Claim, out: TranscriptOutput) -> str:
     try:
         tdb.upload(conn, out)
@@ -71,9 +85,7 @@ def _upload_or_fail(conn, claim: tdb.Claim, out: TranscriptOutput) -> str:
     except Exception as e:  # noqa: BLE001 — an upload error is a per-meeting failure
         log.exception("upload failed for meeting %s", claim.meeting_id)
         conn.rollback()
-        tdb.mark_status(conn, claim.transcript_id, "failed", error=f"upload: {type(e).__name__}: {e}")
-        conn.commit()
-        return "failed"
+        return _end_without_upload(conn, claim, "failed", error=f"upload: {type(e).__name__}: {e}")
     return "uploaded"
 
 
@@ -94,8 +106,7 @@ def process_claim(conn, engine: Engine, claim: tdb.Claim, cfg: Config) -> str:
         conn.commit()
     except (AudioFetchError, subprocess.TimeoutExpired) as e:
         conn.rollback()
-        tdb.mark_status(conn, claim.transcript_id, "failed", error=str(e))
-        conn.commit()
+        _end_without_upload(conn, claim, "failed", error=str(e))
         wav.unlink(missing_ok=True)
         return "failed"
 
@@ -111,10 +122,8 @@ def process_claim(conn, engine: Engine, claim: tdb.Claim, cfg: Config) -> str:
         log.info("meeting %s: dropped %s", claim.meeting_id, dropped)
         sp_s = speech_seconds(raw)
         if is_low_speech(sp_s):
-            tdb.mark_status(conn, claim.transcript_id, "low_speech",
-                            error=f"{sp_s:.0f}s of speech detected", speech_ratio=sp_s / max(duration, 1))
-            conn.commit()
-            return "low_speech"
+            return _end_without_upload(conn, claim, "low_speech", error=f"{sp_s:.0f}s of speech detected",
+                                       speech_ratio=sp_s / max(duration, 1))
         turns, emb = engine.diarize(wav)
         words_path = None
         if getattr(engine, "last_words", None):
@@ -135,9 +144,7 @@ def process_claim(conn, engine: Engine, claim: tdb.Claim, cfg: Config) -> str:
     except Exception as e:  # noqa: BLE001 — any GPU/model failure is a per-meeting failure
         conn.rollback()
         log.exception("meeting %s failed", claim.meeting_id)
-        tdb.mark_status(conn, claim.transcript_id, "failed", error=f"{type(e).__name__}: {e}")
-        conn.commit()
-        return "failed"
+        return _end_without_upload(conn, claim, "failed", error=f"{type(e).__name__}: {e}")
     finally:
         wav.unlink(missing_ok=True)
 
@@ -207,6 +214,11 @@ def dry_run(engine: Engine, source: str, cfg: Config) -> Path:
     return path
 
 
+def exit_code(counts: dict, meeting_id: int | None) -> int:
+    """--meeting-id promises one upload; anything else, not eligible, busy, failed, or low_speech, is exit 1."""
+    return 1 if meeting_id is not None and counts["uploaded"] == 0 else 0
+
+
 def main(argv=None) -> int:
     load_dotenv()
     ap = argparse.ArgumentParser(description="docket.pub transcript producer")
@@ -260,9 +272,7 @@ def main(argv=None) -> int:
     finally:
         conn.close()
     log.info("done %s oom_fallbacks=%s", counts, getattr(engine, "oom_fallbacks", 0))
-    if args.meeting_id is not None and not any(counts.values()):
-        return 1            # not eligible, or MeetingBusy: nothing was claimed
-    return 0
+    return exit_code(counts, args.meeting_id)
 
 
 if __name__ == "__main__":

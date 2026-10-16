@@ -28,6 +28,9 @@ class Claim:
     title: str
     meeting_date: date
     status: str
+    prior: dict | None = None      # the whole pre-claim row when claim_meeting re-claimed an uploaded
+                                   # meeting resting at uploaded or a worker status (never a producer
+                                   # status: that is a crashed re-run); restore_row() writes it back
 
 
 def connect(url: str):
@@ -103,9 +106,11 @@ _MEETING_SQL = """
 
 
 class MeetingBusy(Exception):
-    """The worker touched this transcript's row within the last 30 minutes (a stage may be in
-    flight; its `advance()` would overwrite our claim and a finishing compare would clear the
-    `transcript_changed` marker)."""
+    """The worker's claim stamped this transcript's row within the last 30 minutes (a stage may
+    be in flight; its `advance()` would overwrite our claim and a finishing compare would clear
+    the `transcript_changed` marker). `last_attempted_at` is written by the worker's `CLAIM_SQL`
+    alone; the producer's `mark_status()` never writes it, so a re-run right after a failed one
+    is not refused."""
 
     def __init__(self, meeting_id: int, touched_at):
         super().__init__(f"meeting {meeting_id} was touched at {touched_at}")
@@ -117,9 +122,15 @@ def claim_meeting(conn, *, meeting_id: int, host: str) -> Claim | None:
     """Re-claim one meeting whatever its status (the `--meeting-id` re-run path).
 
     Returns None when the meeting is not an eligible Birmingham meeting. A row that was
-    uploaded before is marked `compare_skipped_reason = 'transcript_changed'` so the worker's
-    compare stage treats the re-upload as changed input (decision 0045); a never-uploaded row
-    keeps its stored reason. Stage counters and errors are reset so the worker starts clean.
+    uploaded before (`uploaded_at` set) and rests at `uploaded` or a worker status is first
+    read whole and carried on the returned `Claim` as `prior`, so that a re-run ending
+    `failed` or `low_speech` can hand it to `restore_row()` and leave the row exactly as it
+    was before the claim; a row resting at a producer status (`claimed`, `audio_fetched`,
+    `transcribed`) is one a previous re-run died on, and that crashed state is never taken as
+    `prior`. Such a row is marked `compare_skipped_reason = 'transcript_changed'` so the
+    worker's compare stage treats the re-upload as changed input (decision 0045); a
+    never-uploaded row keeps its stored reason and has no `prior`. Stage counters and errors
+    are reset so the worker starts clean.
     """
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("SELECT pg_advisory_xact_lock(hashtext('transcriber_claim'))")
@@ -129,6 +140,11 @@ def claim_meeting(conn, *, meeting_id: int, host: str) -> Claim | None:
             return None
         if row["busy"]:
             raise MeetingBusy(meeting_id, row["last_attempted_at"])
+        prior = None
+        if (row["transcript_id"] is not None and row["uploaded_at"] is not None
+                and row["status"] not in ("claimed", "audio_fetched", "transcribed")):
+            cur.execute("SELECT * FROM transcripts WHERE id = %s", [row["transcript_id"]])
+            prior = dict(cur.fetchone())
         if row["transcript_id"] is None:
             cur.execute(
                 """INSERT INTO transcripts (meeting_id, status, producer_host, claimed_at)
@@ -148,14 +164,23 @@ def claim_meeting(conn, *, meeting_id: int, host: str) -> Claim | None:
             )
         t = cur.fetchone()
     return Claim(t["id"], row["meeting_id"], row["external_id"], row["title"],
-                 row["meeting_date"], t["status"])
+                 row["meeting_date"], t["status"], prior=prior)
+
+
+def restore_row(conn, transcript_id: int, prior: dict) -> None:
+    """Write a `Claim.prior` snapshot back, every column except id and meeting_id, so a
+    re-run that ends without an upload leaves the row exactly as it was before the claim."""
+    cols = [c for c in prior if c not in ("id", "meeting_id")]
+    with conn.cursor() as cur:
+        cur.execute(f"UPDATE transcripts SET {', '.join(f'{c} = %s' for c in cols)} WHERE id = %s",
+                    [prior[c] for c in cols] + [transcript_id])
 
 
 def mark_status(conn, transcript_id: int, status: str, *, error: str | None = None, **fields) -> None:
     bad = set(fields) - _UPDATABLE
     if bad:
         raise ValueError(f"not updatable: {sorted(bad)}")
-    sets = ["status = %s", "updated_at = now()", "last_attempted_at = now()"]
+    sets = ["status = %s", "updated_at = now()"]
     params: list = [status]
     if error is not None:
         sets.append("last_error = %s")
