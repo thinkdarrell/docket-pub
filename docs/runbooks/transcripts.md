@@ -172,7 +172,8 @@ clears the worker's resolution (`council_member_id`, `display_name`, `role`,
 writes `compare_skipped_reason = 'transcript_changed'` when the row had been
 uploaded before, so the worker's next tick re-resolves speakers, re-extracts
 events, and runs the comparison as a changed-input pass (approved discrepancies
-go `stale` and are re-proposed; see Re-comparison).
+go `stale` and are re-proposed; see Re-comparison). `docs/specs/transcripts.md`
+states those rules and the busy guard below; this section is the procedure.
 
 Before the run:
 
