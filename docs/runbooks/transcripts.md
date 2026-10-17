@@ -39,7 +39,7 @@ Plan 1: `docs/superpowers/plans/2026-10-07-transcripts-foundation.md` (PR #99).
 | `audio_fetched` | producer | ffmpeg wrote the WAV. Stale after 6 h. |
 | `transcribed` | producer | JSON written to the Legion archive, upload pending. Only the same host may resume it until it is stale. |
 | `uploaded` | producer | Segments are in Postgres. Public page renders. The worker picks up here. The producer's `--meeting-id` can return a row at any later status to it (the re-run section below). |
-| `low_speech` | producer | Under the speech floor (for example a Granicus test stream). Terminal; never retried. A `--meeting-id` re-run of an uploaded meeting never writes it; the row is restored instead. |
+| `low_speech` | producer; worker (fitness gate) | Under the producer's speech floor (for example a Granicus test stream), or under the worker's word floor (`TRANSCRIPT_MIN_WORDS`) after an upload, in which case the row keeps `uploaded_at` and its segments and the predicate hides it by status. Terminal; never retried. A `--meeting-id` re-run of an uploaded meeting never writes it; the row is restored instead. |
 | `failed` | producer | ffmpeg 403 or timeout, upload error, and so on. `last_error` has the reason. Retried only with `--retry-failed`. A `--meeting-id` re-run of an uploaded meeting never writes it either; the row is restored instead. |
 | `speakers_resolved` | worker | Speaker names resolved per cluster; event extraction is next. |
 | `events_extracted` | worker | Event timelines extracted (transcript side always, minutes side when the PDF downloads); comparison is next. |
