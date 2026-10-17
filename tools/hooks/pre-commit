@@ -1,0 +1,6 @@
+#!/bin/sh
+# tools/hooks/pre-commit: refuse a commit that stages an active plan missing a
+# living section or ticking a Progress entry without a date. Installed once
+# per clone with `git config core.hooksPath tools/hooks` (applies to every
+# linked worktree). The work is tools/check-plans --staged.
+cd "$(git rev-parse --show-toplevel)" && exec tools/check-plans --staged

@@ -26,10 +26,13 @@ there are no active plans and exits zero.
 
 ## Enforcement point
 
-The cheap verification command named under Commands in `AGENTS.md`, and the
-same command in continuous integration. Where the project uses a pre-commit
-hook, it also runs on any commit that touches `plans/active/`, because that is
-the moment the record is cheapest to fix.
+`tools/check-plans`, the sixth check in `./tools/verify` (the cheap
+verification command named under Commands in `AGENTS.md`), over every file in
+`plans/active/`. The same script with `--staged` is `tools/hooks/pre-commit`,
+which runs on any commit that stages a file under `plans/active/` in a clone
+where `core.hooksPath` is set to `tools/hooks` (`docs/specs/operations.md`
+Local environment), because that is the moment the record is cheapest to fix.
+Both decide each plan with `tools/judge-milestone snapshot`.
 
 ## Acceptance
 
@@ -47,19 +50,21 @@ passes the second one blind.
 
 ## Remediation message
 
-    evidence-check: plans/active/add-search.md — Progress entry
-    "M2: index writer" is marked complete but carries no timestamp.
-    Completed entries record when the work was observed:
-      - [x] (2026-04-08 11:20Z) M2: index writer
-    Use the time you observed, not an estimate.
+As built, for an undated tick (the defect line is the judge's; the two lines
+under it are the check's own, each printed as one line):
 
-and, for a missing section:
+    plans: plans/active/add-search.md ... FAILED
+      judge: defect plans/active/add-search.md has a completed Progress entry with no date at line 15 ("M2: index writer")
+      Completed entries record when the work was observed: - [x] (YYYY-MM-DD HH:MMZ) <entry>. Use the time you observed, not an estimate.
+    plans: 1 of 1 failed
 
-    evidence-check: plans/active/add-search.md is missing the required
-    section `## Decision Log`.
-    plans/PLANS.md requires Progress, Surprises & Discoveries, Decision Log,
-    and Outcomes & Retrospective in every plan. Add the heading and the
-    entries the work produced; an empty section is also a failure.
+and, for a missing section (an empty section prints the judge's `carries the
+required section ... with nothing under it` and the same guidance):
+
+    plans: plans/active/add-search.md ... FAILED
+      judge: defect plans/active/add-search.md is missing the required section `## Decision Log`
+      plans/PLANS.md requires Progress, Surprises & Discoveries, Decision Log, and Outcomes & Retrospective in every plan. Add the heading and the entries the work produced; an empty section is also a failure.
+    plans: 1 of 1 failed
 
 ## Per-stack hints
 

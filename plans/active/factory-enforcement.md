@@ -21,6 +21,10 @@ After this plan, an outside reader sees four things they cannot see now. A pull 
 
 - Observation (authoring, 2026-10-17): nothing has been executed yet. The authoring research found one surprise worth recording before any milestone runs: `gh run list --workflow verify.yml` fails with `HTTP 404: workflow verify.yml not found on the default branch` until the workflow file is on `main`, so M3 lists runs by branch, never by workflow name.
   Evidence: the command printed exactly that line in the main checkout on 2026-10-17 with no `.github/` directory in the repository.
+- Observation (M1, 2026-10-17): the authoring estimate of verify's wall time (85 s) was low for this worktree; the starting run took 96 s (fast tiers 45 s, integration 49 s), still inside the 180 s budget `AGENTS.md` states.
+  Evidence: `verify: all 5 checks passed in 96s.` in Artifacts and Notes.
+- Observation (M1, 2026-10-17): the judge's `snapshot` mode prints the plan's parsed records to stdout on every exit, so `tools/check-plans` must discard stdout and read only stderr, or the hook would print one record line per Progress entry on every commit.
+  Evidence: `tools/judge-milestone` lines 187 to 188 (`read_plan <"$plan" >"$TMP/records"; cat "$TMP/records"`); with stdout discarded the hook's passing path printed only the `plans:` lines recorded in Artifacts and Notes.
 
 ## Decision Log
 
@@ -54,6 +58,15 @@ After this plan, an outside reader sees four things they cannot see now. A pull 
 - Decision: the database-name guard lives in `tests/conftest.py`, keys on the pytest marker expression, and has no environment-variable escape hatch.
   Rationale: the root conftest is the one file every tier under `tests/` loads, so the guard runs before any fixture of any tier. The live tier legitimately reads a real database, and `pyproject.toml` already makes `-m live` the one way to select it, so the exact expression `live` is the exemption; an environment variable would re-introduce the judgment the guard exists to remove. The producer suite under `transcriber/tests` deletes only rows it inserted, by id, so it is left alone.
   Date/Author: 2026-10-17, plan author.
+- Decision (M1): `tools/check-plans` treats any judge exit other than 0 as a failure of that file, and prints the judge's own defect line for exit 2 whatever the defect (the three structural defects the judge names, and a file that does not exist); the `no date` branch selects the dated-tick guidance and every other exit-2 line gets the `plans/PLANS.md requires` guidance, so the judge's `carries the required section ... with nothing under it` (an empty section) and `does not exist` fall under the section guidance.
+  Rationale: the Plan of Work names only the two guidance lines and says "otherwise" for the second, so inventing a third line for the empty-section or missing-file cases would be scope the plan did not state; the judge's defect line already says exactly what is wrong, and the guidance line's last clause ("an empty section is also a failure") covers the empty case.
+  Date/Author: 2026-10-17, M1 session.
+- Decision (M1): `core.hooksPath` was set by running `git config core.hooksPath tools/hooks` from inside the worktree, not from the main checkout.
+  Rationale: a linked worktree's `git config` (without `--worktree`) writes the shared repository configuration, and `git config --show-origin` confirmed the value landed in `/home/thinkdarrell/docket-pub/.git/config`, which is exactly what the Decision above says the operator's command in the main checkout would do; the session may not touch any other directory, and the effect is identical.
+  Date/Author: 2026-10-17, M1 session.
+- Decision (M1): the `docs/specs/operations.md` Tests paragraph's closing-line quote was not changed, because it already reads `verify: all M checks passed in Ss.` with `M` as a placeholder rather than `all 5 checks`; the fifth-check clause gained the sixth and the judge paragraph gained a description of `tools/check-plans` and the hook instead.
+  Rationale: the Plan of Work said to change the count "where that paragraph quotes verify's closing line"; it quotes it with a placeholder, so there was no count to change, and recording that here saves the next reader a search.
+  Date/Author: 2026-10-17, M1 session.
 
 ## Outcomes & Retrospective
 
@@ -179,7 +192,7 @@ The pull request that closes this plan is itself the first merge the protection 
 
 Every milestone session works in `/home/thinkdarrell/docket-pub/.claude/worktrees/factory-enforcement` on branch `plan/factory-enforcement`, with that worktree's own `venv/` and its gitignored `.env` (`DATABASE_URL=postgresql://thinkdarrell@/docket_db`, needed on this machine per `D57`). Each session begins and ends with `./tools/verify` (about 85 seconds here; budget 180 s) and records both closing lines. Commands below are expected transcripts labelled as such; the executing session replaces them with what it observed.
 
-M1, in order: run `./tools/verify` (expect `verify: all 5 checks passed in Ss.`); write `tools/check-plans` and `tools/hooks/pre-commit`, `chmod +x` both; run `tools/check-plans` (expect one `ok` line for `plans/active/factory-enforcement.md` and `plans: 1 of 1 ok`); demonstrate both failing halves on copies (commands under Validation and Acceptance); set `git config core.hooksPath tools/hooks` now, before the first commit, so every commit this milestone makes exercises the hook's passing path; add the verify line; edit the documents; commit the work so far together with the plan's evidence so far (several commits per milestone are normal; each must change the plan, decision 0037, and the hook will check the plan each time); demonstrate the hook's refusal (clause (e) under Validation and Acceptance, which breaks the committed plan, sees the commit refused, and restores it from `HEAD`); run `./tools/verify` (expect `verify: plans ... ok (0s)` and `verify: all 6 checks passed in Ss.`); write the remaining evidence, tick M1, and commit.
+M1, in order (executed 2026-10-17; the observed transcripts are in Artifacts and Notes): run `./tools/verify` (expect `verify: all 5 checks passed in Ss.`; observed `verify: all 5 checks passed in 96s.`); write `tools/check-plans` and `tools/hooks/pre-commit`, `chmod +x` both; run `tools/check-plans` (expect one `ok` line for `plans/active/factory-enforcement.md` and `plans: 1 of 1 ok`); demonstrate both failing halves on copies (commands under Validation and Acceptance); set `git config core.hooksPath tools/hooks` now, before the first commit, so every commit this milestone makes exercises the hook's passing path; add the verify line; edit the documents; commit the work so far together with the plan's evidence so far (several commits per milestone are normal; each must change the plan, decision 0037, and the hook will check the plan each time); demonstrate the hook's refusal (clause (e) under Validation and Acceptance, which breaks the committed plan, sees the commit refused, and restores it from `HEAD`); run `./tools/verify` (expect `verify: plans ... ok (0s)` and `verify: all 6 checks passed in Ss.`); write the remaining evidence, tick M1, and commit.
 
 M2, in order: verify; add the guard to `tests/conftest.py`; run the refusal command (expect exit 2 and the message, no tests collected); run the live-collection command (expect a collection count, not a refusal); write `.claude/settings.json`; validate it with `venv/bin/python -m json.tool .claude/settings.json > /dev/null; echo "exit=$?"` (expect `exit=0`); attempt `git -c core.hooksPath=/dev/null status` from the session's own Bash tool and record whether the tool refused it (a session started before the file existed may not see the new rule; say so if the call ran, and the operator confirms the denial in a fresh session before merge); edit `scripts/deploy.sh`; with a clean tree run `scripts/deploy.sh --service docket-web; echo "exit=$?"` (expect the branch refusal and `exit=3`; the worktree is on `plan/factory-enforcement`, so `railway` is never reached), then `touch COMMIT_SHA; scripts/deploy.sh --service docket-web; echo "exit=$?"; rm COMMIT_SHA` (expect the dirty-tree refusal and `exit=3`); edit the documents; verify (expect 6 checks passed; the exported `docket_test_` URL passes the guard); write the evidence and tick M2.
 
@@ -214,6 +227,40 @@ Authoring (2026-10-17): `./tools/verify` in the main checkout with `DATABASE_URL
     verify: all 5 checks passed in 85s.
 
 Without the variable the same command printed `ERROR:  permission denied to create database` and `verify: 5 of 5 checks failed in 0s.` (`D57`). The hooks-path experiment printed `config seen in worktree: tools/hooks`, `hook ran in <worktree path>`, `commit exit=1`, then `exit=0` for both `--no-verify` and `-c core.hooksPath=/dev/null`. The pytest probe printed `markexpr= 'not live'`. `gh run list --workflow verify.yml --limit 1` printed `HTTP 404: workflow verify.yml not found on the default branch`. Milestone sessions append their transcripts below this paragraph.
+
+M1 (2026-10-17, observed): starting state, `./tools/verify` in the worktree on a clean tree at 5935f0b, before any edit:
+
+    verify: test-db ... ok (0s) postgresql://thinkdarrell@/docket_test_a485ea18
+    verify: unit+web+services ... ok (45s)
+    verify: integration ... ok (49s)
+    verify: judge-fixtures ... ok (1s)
+    verify: workflows ... ok (0s)
+    verify: transcriber ... ok (1s)
+    verify: all 5 checks passed in 96s.
+
+`git config core.hooksPath` printed nothing (exit 1) and `tools/hooks` did not exist. After writing `tools/check-plans` and `tools/hooks/pre-commit`, clause (b), `tools/check-plans` with no argument:
+
+    plans: plans/active/factory-enforcement.md ... ok (Progress, Surprises & Discoveries, Decision Log, Outcomes & Retrospective)
+    plans: 1 of 1 ok
+    exit=0
+
+Clause (c), `T=$(mktemp -d); cp plans/active/factory-enforcement.md "$T/a.md"; sed -i '/^## Decision Log$/d' "$T/a.md"; tools/check-plans "$T/a.md"; echo "exit=$?"`:
+
+    plans: /tmp/tmp.2s6px3T0Hc/a.md ... FAILED
+      judge: defect /tmp/tmp.2s6px3T0Hc/a.md is missing the required section `## Decision Log`
+      plans/PLANS.md requires Progress, Surprises & Discoveries, Decision Log, and Outcomes & Retrospective in every plan. Add the heading and the entries the work produced; an empty section is also a failure.
+    plans: 1 of 1 failed
+    exit=1
+
+Clause (d), `cp plans/active/factory-enforcement.md "$T/b.md"; sed -i '0,/^- \[ \] /s//- [x] /' "$T/b.md"; tools/check-plans "$T/b.md"; echo "exit=$?"`:
+
+    plans: /tmp/tmp.2s6px3T0Hc/b.md ... FAILED
+      judge: defect /tmp/tmp.2s6px3T0Hc/b.md has a completed Progress entry with no date at line 15 ("M1: `tools/check-plans` decides evidence-check for every active plan, ru...")
+      Completed entries record when the work was observed: - [x] (YYYY-MM-DD HH:MMZ) <entry>. Use the time you observed, not an estimate.
+    plans: 1 of 1 failed
+    exit=1
+
+Also observed in the same run: `tools/check-plans --staged` with nothing staged printed `plans: no staged plans` and `exit=0`; a path that does not exist printed `plans: <path> ... FAILED`, the judge's `judge: defect <path> does not exist`, the `plans/PLANS.md requires` guidance, `plans: 1 of 1 failed`, `exit=1`. `git config core.hooksPath tools/hooks` run from the worktree wrote `tools/hooks` to `file:/home/thinkdarrell/docket-pub/.git/config` (`git config --show-origin --get core.hooksPath`), the repository configuration shared with the main checkout.
 
 ## Interfaces and Dependencies
 
