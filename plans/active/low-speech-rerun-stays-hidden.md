@@ -14,7 +14,7 @@ How to see it working, on a disposable database (every command in this plan runs
 
 ## Progress
 
-- [ ] M1: `claim_meeting()` in `transcriber/transcriber/db.py` clears `uploaded_at` when the row it re-claims rests at `low_speech`, its docstring and the comment above `_PUBLIC_PREDICATE` say so, `__version__` is `0.2.2`, `docs/specs/transcripts.md` carries the exception and the version, and three tests pass (one in the integration tier that starts from a worker `low_speech` row and reads the predicate at `claimed`, which fails before the change, and two in the producer suite)
+- [x] (2026-10-17 01:55Z) M1: `claim_meeting()` in `transcriber/transcriber/db.py` clears `uploaded_at` when the row it re-claims rests at `low_speech`, its docstring and the comment above `_PUBLIC_PREDICATE` say so, `__version__` is `0.2.2`, `docs/specs/transcripts.md` carries the exception and the version, and three tests pass (one in the integration tier that starts from a worker `low_speech` row and reads the predicate at `claimed`, which fails before the change, and two in the producer suite)
 - [ ] M2: the `D58` row is deleted from `docs/DEBT.md`, decision `0050` extends `0049`, `docs/runbooks/transcripts.md` (the `claimed` row, the re-run section, History) and `transcriber/README.md` say the one exception, and `./tools/verify` passes
 
 ## Surprises & Discoveries
@@ -73,7 +73,7 @@ The authoring research found four things worth recording before any milestone ra
 
 ## Outcomes & Retrospective
 
-Nothing has been executed yet. Both milestones are open; no evidence exists beyond the authoring observations recorded in Surprises & Discoveries and Concrete Steps. This section is written at completion.
+M1 (2026-10-17, one session, commits `9457439` and the one carrying this entry): the mechanism landed as planned with no carve-out against its acceptance. `claim_meeting()` clears `uploaded_at` in the same UPDATE that sets `claimed` when the row rested at `low_speech`, the `prior` SELECT is `FOR UPDATE`, the docstring and the predicate comment say so, the producer is `0.2.2`, `docs/specs/transcripts.md` carries the exception and the version, and three tests exist: the integration test failed before the `db.py` edit (`1 failed, 29 passed`) and passed after (`30 passed`), and the producer suite went from `68 passed` to `70 passed`. The closing `./tools/verify` printed `1875 passed, 5 skipped, 4 xfailed`, `624 passed`, `judge fixtures: 12 of 12 passed`, `70 passed`, and `verify: all 5 checks passed in 98s.` The probe printed the expected M1 transcript exactly. Nothing about the plan needed repair: every anchor occurred once, every grep printed its expected value, and the one thing worth noting (the pre-change failure message showing the exposed row) is in Surprises. M2, the bookkeeping, is open; the pre-merge production query in Context and Orientation is still for the operator to run. The full retrospective is written when M2 closes.
 
 ## Context and Orientation
 
