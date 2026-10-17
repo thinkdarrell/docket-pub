@@ -87,7 +87,13 @@ constrains:
    counts says what it counts: `grep -c` counts lines, not occurrences; a
    pytest total is the baseline plus the test functions added, not the tests
    touched; no check greps the plan file itself, since the plan's own
-   later sections quote the phrase the check looks for; and a check that
+   later sections quote the phrase the check looks for; a check that greps
+   a directory the plan's own prescribed texts will land in is run against
+   those texts, not only against the tree as it stood at authoring (one
+   plan's clause that a paid debt id appear nowhere under `docs/` was
+   failed by the decision record the same plan gave verbatim, which cited
+   the id as its provenance; a dated record cites the row it paid, so the
+   clause was wrong, not the record); and a check that
    compares against the branch's base names `origin/main` or the base
    commit, never bare `main`, because a factory worktree is cut from
    `origin/main` and nothing moves the local `main` ref (one plan's
