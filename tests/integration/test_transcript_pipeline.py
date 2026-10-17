@@ -1,4 +1,5 @@
-"""Claim order, fitness gate, index points, advance/hold/fail mapping, public predicate."""
+"""Claim order, fitness gate, index points, advance/hold/fail mapping, public predicate, and the producer's
+re-claim of a worker low_speech row."""
 from datetime import date
 from unittest.mock import MagicMock
 
@@ -9,6 +10,12 @@ from docket.ai.transcripts import pipeline as P
 from docket.config import DATABASE_URL
 from docket.db import db_cursor
 from docket.services import transcripts as tsvc
+
+import sys
+from pathlib import Path
+
+sys.path.append(str(Path(__file__).resolve().parents[2] / "transcriber"))   # the producer package is not installed in the venv
+from transcriber import db as tdb  # noqa: E402  (append, not insert(0): transcriber/tests is also a package named tests)
 
 pytestmark = pytest.mark.skipif(
     any(h in DATABASE_URL for h in ("railway.internal", "railway.app", "rlwy.net")),
@@ -180,6 +187,36 @@ def test_uploaded_row_stays_public_while_the_producer_re_claims_it():
             cur.execute("UPDATE transcripts SET status='uploaded', uploaded_at=NULL WHERE id=%s", [fx["transcript_id"]])
         assert tsvc.get_public_transcript(fx["meeting_id"]) is None
     finally:
+        _rm(fx)
+
+
+def test_low_speech_row_stays_hidden_through_a_meeting_id_re_claim(monkeypatch):
+    """D58: a row the worker's fitness gate sent to low_speech keeps uploaded_at and its segments, and the
+    predicate hides it by status alone; the producer's --meeting-id re-claim must not publish it for the run."""
+    fx = _mk(word_count=24)
+    monkeypatch.setattr(P, "_stage_fn", lambda stage: (_ for _ in ()).throw(AssertionError("stage ran")))
+    conn = tdb.connect(DATABASE_URL)
+    try:
+        assert P.process_claim(P.claim_next(), client=MagicMock(), notes="t") == "low_speech"
+        assert _row(fx["transcript_id"])["uploaded_at"] is not None
+        assert tsvc.get_public_transcript(fx["meeting_id"]) is None
+        with db_cursor() as cur:   # the worker's claim stamped last_attempted_at = now(); age it past the busy guard
+            cur.execute("UPDATE transcripts SET last_attempted_at = now() - interval '1 hour' WHERE id=%s", [fx["transcript_id"]])
+        claim = tdb.claim_meeting(conn, meeting_id=fx["meeting_id"], host="test"); conn.commit()
+        assert claim.status == "claimed" and claim.prior["status"] == "low_speech" and claim.prior["uploaded_at"] is not None
+        assert tsvc.get_public_transcript(fx["meeting_id"]) is None, "claimed"
+        for status in ("audio_fetched", "transcribed"):
+            tdb.mark_status(conn, claim.transcript_id, status); conn.commit()
+            assert tsvc.get_public_transcript(fx["meeting_id"]) is None, status
+        tdb.restore_row(conn, claim.transcript_id, claim.prior); conn.commit()
+        row = _row(fx["transcript_id"])
+        assert row["status"] == "low_speech" and row["uploaded_at"] == claim.prior["uploaded_at"]
+        assert tsvc.get_public_transcript(fx["meeting_id"]) is None
+        with db_cursor() as cur:
+            cur.execute("SELECT count(*) AS n FROM transcript_segments WHERE transcript_id=%s", [fx["transcript_id"]])
+            assert cur.fetchone()["n"] == 3      # hidden, not deleted
+    finally:
+        conn.close()
         _rm(fx)
 
 

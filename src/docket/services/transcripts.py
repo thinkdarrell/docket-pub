@@ -20,9 +20,13 @@ SPEAKER_CONFIDENCE_FLOOR = 0.6
 # A transcript is public once uploaded, whatever the producer or a worker
 # stage does to its status afterwards (a re-claim for re-transcription, a
 # worker-stage failure, a hold), except low_speech, which both writers use
-# to mean there is no usable transcript. uploaded_at is written only by the
+# to mean there is no usable transcript. uploaded_at is set only by the
 # producer's upload() in the transaction that publishes the segments, and a
-# producer failure on a never-uploaded row leaves it NULL.
+# producer failure on a never-uploaded row leaves it NULL. The one row this
+# predicate hides by status alone, a worker low_speech row with uploaded_at
+# set, would become public when the producer re-claims it to 'claimed', so
+# claim_meeting() in transcriber/transcriber/db.py clears its uploaded_at
+# for the run and restore_row() or upload() sets it again (decision 0050).
 _PUBLIC_PREDICATE = "({a}.uploaded_at IS NOT NULL AND {a}.status <> 'low_speech')"
 
 

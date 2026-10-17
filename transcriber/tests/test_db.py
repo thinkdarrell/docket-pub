@@ -342,3 +342,57 @@ def test_claim_meeting_after_a_crashed_rerun_has_no_prior(conn, bham_meeting):
     conn.commit()
     status, _, uploaded_at, _ = _status_attempted_uploaded(conn, c.transcript_id)
     assert status == "failed" and uploaded_at is not None       # the one path that still makes this row
+
+
+def _worker_low_speech(conn, transcript_id):
+    """What mark_low_speech() in src/docket/ai/transcripts/pipeline.py writes on an uploaded row (uploaded_at
+    and the segments stay); the worker's claim stamp is aged past the 30-minute busy guard."""
+    with conn.cursor() as cur:
+        cur.execute("""UPDATE transcripts SET status = 'low_speech', last_error = 'below floor', stage_attempts = 0,
+                              last_attempted_at = now() - interval '1 hour', updated_at = now()
+                        WHERE id = %s""", [transcript_id])
+    conn.commit()
+
+
+def test_claim_meeting_of_a_low_speech_row_clears_uploaded_at_until_the_upload(conn, bham_meeting):
+    c = tdb.claim_next(conn, since=SINCE, host="legion")
+    tdb.upload(conn, _output(bham_meeting))
+    _worker_low_speech(conn, c.transcript_id)
+    before = _whole_row(conn, c.transcript_id)
+    assert before["status"] == "low_speech" and before["uploaded_at"] is not None
+    c2 = tdb.claim_meeting(conn, meeting_id=bham_meeting, host="legion")
+    conn.commit()
+    assert c2.status == "claimed" and c2.prior == before
+    status, _, uploaded_at, _ = _status_attempted_uploaded(conn, c.transcript_id)
+    assert status == "claimed" and uploaded_at is None            # hidden for the run
+    tdb.mark_status(conn, c2.transcript_id, "audio_fetched", audio_sha256="cd" * 32, audio_duration_s=5.0)
+    conn.commit()
+    assert _status_attempted_uploaded(conn, c.transcript_id)[2] is None
+    tdb.restore_row(conn, c2.transcript_id, c2.prior)
+    conn.commit()
+    assert _whole_row(conn, c.transcript_id) == before            # uploaded_at is back with the rest
+    c3 = tdb.claim_meeting(conn, meeting_id=bham_meeting, host="legion")
+    conn.commit()
+    assert c3.prior == before and _status_attempted_uploaded(conn, c.transcript_id)[2] is None
+    tdb.upload(conn, _output(bham_meeting))
+    conn.commit()
+    status, _, uploaded_at, _ = _status_attempted_uploaded(conn, c.transcript_id)
+    assert status == "uploaded" and uploaded_at is not None       # the new transcript is public as any upload
+
+
+def test_claim_meeting_after_a_crashed_low_speech_rerun_stays_hidden(conn, bham_meeting):
+    c = tdb.claim_next(conn, since=SINCE, host="legion")
+    tdb.upload(conn, _output(bham_meeting))
+    _worker_low_speech(conn, c.transcript_id)
+    c2 = tdb.claim_meeting(conn, meeting_id=bham_meeting, host="legion")
+    conn.commit()
+    tdb.mark_status(conn, c2.transcript_id, "audio_fetched", audio_sha256="cd" * 32, audio_duration_s=5.0)
+    conn.commit()
+    # The run died here: no restore. The next claim takes no prior, and the row stays hidden.
+    c3 = tdb.claim_meeting(conn, meeting_id=bham_meeting, host="legion")
+    conn.commit()
+    assert c3.prior is None and c3.status == "claimed"
+    tdb.mark_status(conn, c3.transcript_id, "failed", error="CUDA out of memory")
+    conn.commit()
+    status, _, uploaded_at, _ = _status_attempted_uploaded(conn, c.transcript_id)
+    assert status == "failed" and uploaded_at is None             # hidden; the held tab needs uploaded_at
