@@ -12,7 +12,7 @@ The trap this record guards against is the agent who reads the comment above `_P
 
 ## Date
 
-2026-10-16, the plan author of `plans/active/low-speech-rerun-stays-hidden.md`, from the closing review of `plans/completed/rerun-keeps-transcript-public.md` (`D58`).
+2026-10-16, the plan author of `plans/completed/low-speech-rerun-stays-hidden.md`, from the closing review of `plans/completed/rerun-keeps-transcript-public.md` (`D58`).
 
 ## Status
 
