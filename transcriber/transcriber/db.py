@@ -127,7 +127,11 @@ def claim_meeting(conn, *, meeting_id: int, host: str) -> Claim | None:
     `failed` or `low_speech` can hand it to `restore_row()` and leave the row exactly as it
     was before the claim; a row resting at a producer status (`claimed`, `audio_fetched`,
     `transcribed`) is one a previous re-run died on, and that crashed state is never taken as
-    `prior`. Such a row is marked `compare_skipped_reason = 'transcript_changed'` so the
+    `prior`. A row resting at `low_speech` is re-claimed with `uploaded_at` NULL: the worker's
+    fitness gate leaves `uploaded_at` and the segments on such a row and the public predicate
+    hides it by status alone, so the claim's `status = 'claimed'` would otherwise publish it for
+    the run; `prior` keeps the original value for `restore_row()`, and `upload()` sets it anew
+    (decision 0050). Such a row is marked `compare_skipped_reason = 'transcript_changed'` so the
     worker's compare stage treats the re-upload as changed input (decision 0045); a
     never-uploaded row keeps its stored reason and has no `prior`. Stage counters and errors
     are reset so the worker starts clean.
@@ -143,7 +147,9 @@ def claim_meeting(conn, *, meeting_id: int, host: str) -> Claim | None:
         prior = None
         if (row["transcript_id"] is not None and row["uploaded_at"] is not None
                 and row["status"] not in ("claimed", "audio_fetched", "transcribed")):
-            cur.execute("SELECT * FROM transcripts WHERE id = %s", [row["transcript_id"]])
+            # The row lock keeps a worker write from landing between this snapshot and the UPDATE
+            # below, which must read the same row version (decision 0051).
+            cur.execute("SELECT * FROM transcripts WHERE id = %s FOR UPDATE", [row["transcript_id"]])
             prior = dict(cur.fetchone())
         if row["transcript_id"] is None:
             cur.execute(
@@ -157,6 +163,7 @@ def claim_meeting(conn, *, meeting_id: int, host: str) -> Claim | None:
                       SET status = 'claimed', producer_host = %s, claimed_at = now(), updated_at = now(),
                           stage_attempts = 0, last_attempted_at = NULL, needs_review_reason = NULL,
                           last_error = NULL,
+                          uploaded_at = CASE WHEN status = 'low_speech' THEN NULL ELSE uploaded_at END,
                           compare_skipped_reason = CASE WHEN uploaded_at IS NOT NULL THEN 'transcript_changed'
                                                         ELSE compare_skipped_reason END
                     WHERE id = %s RETURNING id, status""",

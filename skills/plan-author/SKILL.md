@@ -80,6 +80,13 @@ constrains:
    written to exclude, a worker `low_speech` row that a re-claim moved to
    `claimed` and so made public for the run, because the research reasoned
    about that value only as an end state.
+   When the work changes a rule that prose states, the research greps the
+   words the old rule is stated with (`stays public`, `is never cleared`)
+   across code and documents alike, docstrings and comments included, and
+   Context lists each hit as an edit or a leave-alone. Two consecutive
+   plans left a sentence of the old rule standing, four prose sites in one
+   and a producer docstring in the next, and each was found after the
+   milestones closed, by the retro and by the closing review.
 3. Write each candidate milestone's acceptance before its narrative.
    Acceptance is a small number of checks a different person can run or read
    and agree on: a command together with the output it prints, or a named
@@ -87,7 +94,13 @@ constrains:
    counts says what it counts: `grep -c` counts lines, not occurrences; a
    pytest total is the baseline plus the test functions added, not the tests
    touched; no check greps the plan file itself, since the plan's own
-   later sections quote the phrase the check looks for; and a check that
+   later sections quote the phrase the check looks for; a check that greps
+   a directory the plan's own prescribed texts will land in is run against
+   those texts, not only against the tree as it stood at authoring (one
+   plan's clause that a paid debt id appear nowhere under `docs/` was
+   failed by the decision record the same plan gave verbatim, which cited
+   the id as its provenance; a dated record cites the row it paid, so the
+   clause was wrong, not the record); and a check that
    compares against the branch's base names `origin/main` or the base
    commit, never bare `main`, because a factory worktree is cut from
    `origin/main` and nothing moves the local `main` ref (one plan's

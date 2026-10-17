@@ -66,8 +66,9 @@ def _archive_path(cfg: Config, meeting_id: int) -> Path:
 
 def _end_without_upload(conn, claim: tdb.Claim, status: str, *, error: str | None = None, **fields) -> str:
     """A failed or low_speech end. A re-run of an uploaded meeting (claim.prior set) puts the
-    row back as it was before the claim, so the old transcript stays public and the Railway
-    side never sees a producer failure with uploaded_at set; the reason goes to the log."""
+    row back as it was before the claim, so the old transcript is as visible as it was (public,
+    or hidden when the row rested at low_speech, decision 0050) and the Railway side never sees
+    a producer failure with uploaded_at set; the reason goes to the log."""
     if claim.prior is not None:
         tdb.restore_row(conn, claim.transcript_id, claim.prior)
         log.warning("meeting %s re-run ended %s (%s); transcripts row restored to its pre-claim values",
