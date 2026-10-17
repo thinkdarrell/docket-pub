@@ -147,6 +147,8 @@ def claim_meeting(conn, *, meeting_id: int, host: str) -> Claim | None:
         prior = None
         if (row["transcript_id"] is not None and row["uploaded_at"] is not None
                 and row["status"] not in ("claimed", "audio_fetched", "transcribed")):
+            # The row lock keeps a worker write from landing between this snapshot and the UPDATE
+            # below, which must read the same row version (decision 0051).
             cur.execute("SELECT * FROM transcripts WHERE id = %s FOR UPDATE", [row["transcript_id"]])
             prior = dict(cur.fetchone())
         if row["transcript_id"] is None:
