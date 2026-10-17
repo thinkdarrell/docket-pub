@@ -35,7 +35,7 @@ Plan 1: `docs/superpowers/plans/2026-10-07-transcripts-foundation.md` (PR #99).
 
 | Status | Set by | Meaning |
 |---|---|---|
-| `claimed` | producer | Row inserted, or re-claimed by `--meeting-id` (a re-claimed row keeps its old transcript public until the new upload lands); audio not fetched yet. Stale after 6 h and reclaimable. |
+| `claimed` | producer | Row inserted, or re-claimed by `--meeting-id` (a re-claimed row keeps its old transcript public until the new upload lands; one re-claimed from `low_speech` stays hidden, its `uploaded_at` cleared for the run); audio not fetched yet. Stale after 6 h and reclaimable. |
 | `audio_fetched` | producer | ffmpeg wrote the WAV. Stale after 6 h. |
 | `transcribed` | producer | JSON written to the Legion archive, upload pending. Only the same host may resume it until it is stale. |
 | `uploaded` | producer | Segments are in Postgres. Public page renders. The worker picks up here. The producer's `--meeting-id` can return a row at any later status to it (the re-run section below). |
@@ -208,7 +208,8 @@ put back exactly as it was before the claim, the old transcript stays on the sit
 held tab does not list it, and the reason is in the log line `meeting N re-run ended
 failed (...)`; fix the cause and run it again, there is no 30-minute wait. A producer
 that died mid-run (power loss) is the one case that leaves the row at a producer
-status with the old transcript still public; run `--meeting-id N` again.
+status with the old transcript still public (still hidden, when the row started from
+`low_speech`); run `--meeting-id N` again.
 
 After the run, from the laptop (`URL` and `PSQL` as in "Checking progress"):
 
@@ -226,10 +227,14 @@ After the run, from the laptop (`URL` and `PSQL` as in "Checking progress"):
     # expect well under 26.8 (the version-1 median)
 
 The public page serves the old turns until the upload lands and the new turns
-from then on. The worker's 10:00 CT tick does the rest. If the transcript lands
-in the admin held tab and is retried from there, `retry_transcript()` nulls the
-`transcript_changed` marker (`docs/DEBT.md` `D52`); once it reaches
-`events_extracted`, run
+from then on. A row the worker's fitness gate had sent to `low_speech` (a data-debt
+row labelled "Too short to analyze (N words)") is the exception: `claim_meeting()`
+clears its `uploaded_at` for the run, so its page stays a 404 and the meeting page
+has no transcript link until the new upload lands, as before the run; a re-run that
+ends without an upload puts `uploaded_at` back with the rest of the row. The worker's
+10:00 CT tick does the rest. If the transcript lands in the admin held tab and is
+retried from there, `retry_transcript()` nulls the `transcript_changed` marker
+(`docs/DEBT.md` `D52`); once it reaches `events_extracted`, run
 `venv/bin/python scripts/transcript_recompare.py --meeting-id 2543 --now --transcript-changed`
 instead of relying on the tick's compare.
 
@@ -318,3 +323,4 @@ throwaway database it builds (`docs/specs/operations.md`).
 - 2026-10: migration 036: dropped the has_event CHECK; added minutes_texts.last_checked_at.
   Deploy: migrations run at container start; 036 applies.
 - 2026-10: a `--meeting-id` re-run keeps the old transcript public until the new upload lands, a re-run that ends `failed` or `low_speech` restores the row, and the busy guard reads the worker's stamp alone (plan `rerun-keeps-transcript-public`).
+- 2026-10: a `--meeting-id` re-run of a row resting at `low_speech` keeps it hidden until the new upload lands (`claim_meeting()` clears `uploaded_at` for the run; plan `low-speech-rerun-stays-hidden`, decision `0050`).

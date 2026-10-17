@@ -51,10 +51,11 @@ overwrites `transcript.json` and `words.json` under that meeting's folder in
 clears the worker's speaker names on the non-manual clusters, and marks the
 row `transcript_changed` so the worker treats the re-upload as changed input
 and re-runs its stages (speakers, events, comparison). The old transcript stays
-public until the new upload lands. The run exits 1 whenever nothing was
-uploaded: the id is not an eligible Birmingham meeting; the worker's claim
-stamped the row in the last 30 minutes (`meeting N was touched at T; wait 30
-minutes`; the producer's own writes never stamp it, so a re-run right after a
+public until the new upload lands (a meeting the worker had marked `low_speech`
+stays hidden instead, as it was before the run). The run exits 1 whenever
+nothing was uploaded: the id is not an eligible Birmingham meeting; the worker's
+claim stamped the row in the last 30 minutes (`meeting N was touched at T; wait
+30 minutes`; the producer's own writes never stamp it, so a re-run right after a
 failed one is not refused); or the run ended `failed` or `low_speech`, in which
 case the row is put back exactly as it was before the claim and the reason is
 in the log line `meeting N re-run ended ...`. The operator procedure, with the
