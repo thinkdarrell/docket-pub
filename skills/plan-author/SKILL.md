@@ -80,6 +80,13 @@ constrains:
    written to exclude, a worker `low_speech` row that a re-claim moved to
    `claimed` and so made public for the run, because the research reasoned
    about that value only as an end state.
+   When the work changes a rule that prose states, the research greps the
+   words the old rule is stated with (`stays public`, `is never cleared`)
+   across code and documents alike, docstrings and comments included, and
+   Context lists each hit as an edit or a leave-alone. Two consecutive
+   plans left a sentence of the old rule standing, four prose sites in one
+   and a producer docstring in the next, and each was found after the
+   milestones closed, by the retro and by the closing review.
 3. Write each candidate milestone's acceptance before its narrative.
    Acceptance is a small number of checks a different person can run or read
    and agree on: a command together with the output it prints, or a named
