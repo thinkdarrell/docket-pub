@@ -12,7 +12,7 @@ After this plan, an outside reader sees four things they cannot see now. A pull 
 
 ## Progress
 
-- [ ] M1: `tools/check-plans` decides evidence-check for every active plan, runs as verify's sixth check and as the pre-commit hook in `tools/hooks/`, and the card is `built`.
+- [x] (2026-10-17 23:58Z) M1: `tools/check-plans` decides evidence-check for every active plan, runs as verify's sixth check and as the pre-commit hook in `tools/hooks/`, and the card is `built`.
 - [ ] M2: the test suite refuses a database not named `docket_test_*` outside the live tier, the project `.claude/settings.json` denies the hook-bypass and deploy commands, and `scripts/deploy.sh` refuses a non-main branch or a dirty tree.
 - [ ] M3: `.github/workflows/verify.yml` runs `./tools/verify` on every push and on pull requests to main, and one run on this branch has completed green.
 - [ ] M4: `main` requires the `verify` check to merge, `fast-verify` and `evidence-check` are `enforced`, decision 0052 is written, D15 is paid, and MATURITY.md says what is enforced.
@@ -25,6 +25,8 @@ After this plan, an outside reader sees four things they cannot see now. A pull 
   Evidence: `verify: all 5 checks passed in 96s.` in Artifacts and Notes.
 - Observation (M1, 2026-10-17): the judge's `snapshot` mode prints the plan's parsed records to stdout on every exit, so `tools/check-plans` must discard stdout and read only stderr, or the hook would print one record line per Progress entry on every commit.
   Evidence: `tools/judge-milestone` lines 187 to 188 (`read_plan <"$plan" >"$TMP/records"; cat "$TMP/records"`); with stdout discarded the hook's passing path printed only the `plans:` lines recorded in Artifacts and Notes.
+- Observation (M1, 2026-10-17): the restore step the plan wrote for clause (e), `git checkout -- <plan>`, does not undo the probe, because the probe stages the broken plan before the refused commit and `git checkout -- <path>` copies the index to the working tree; the file stayed broken and staged, and the verify run that followed failed its sixth check. `git checkout HEAD -- <plan>` is the restore that works. Validation and Acceptance clause (e) and Idempotence and Recovery are corrected below to say so.
+  Evidence: after the plan's command, `git status --porcelain` printed `M  plans/active/factory-enforcement.md` and `./tools/verify` printed `verify: plans ... FAILED (0s)` and `verify: 1 of 6 checks failed in 97s.`; after `git checkout HEAD -- plans/active/factory-enforcement.md` it printed nothing and verify printed `verify: all 6 checks passed in 96s.` (both transcripts in Artifacts and Notes).
 
 ## Decision Log
 
@@ -70,7 +72,7 @@ After this plan, an outside reader sees four things they cannot see now. A pull 
 
 ## Outcomes & Retrospective
 
-Nothing has been executed yet. The authoring session cut the branch `plan/factory-enforcement` and the worktree `.claude/worktrees/factory-enforcement` from `origin/main` at 79084a2, built its venv in 21 seconds, and wrote the worktree's gitignored `.env` with `DATABASE_URL=postgresql://thinkdarrell@/docket_db` because `D57` applies on this machine. This section is written at completion.
+M1 (2026-10-17): complete, acceptance (a) through (f) met as observed in Artifacts and Notes; the one carve-out is procedural, not against acceptance: the restore command clause (e) prescribed did not restore (it left the broken plan staged), so the session restored from `HEAD` instead and corrected the clause, and one `./tools/verify` run in between failed its sixth check on the still-broken plan, which is recorded as the check doing its job rather than as a regression. Remaining: M2 through M4. The authoring session cut the branch `plan/factory-enforcement` and the worktree `.claude/worktrees/factory-enforcement` from `origin/main` at 79084a2, built its venv in 21 seconds, and wrote the worktree's gitignored `.env` with `DATABASE_URL=postgresql://thinkdarrell@/docket_db` because `D57` applies on this machine. This section is written at completion.
 
 ## Context and Orientation
 
@@ -202,7 +204,7 @@ M4, in order: verify; run the `gh api --method PUT` command (expect a JSON body 
 
 ## Validation and Acceptance
 
-M1 is accepted when: (a) `./tools/verify` prints a line `verify: plans ... ok (Ns)` and the closing line `verify: all 6 checks passed in Ss.`, exit 0; (b) `tools/check-plans` with no argument prints `plans: plans/active/factory-enforcement.md ... ok (Progress, Surprises & Discoveries, Decision Log, Outcomes & Retrospective)` and `plans: 1 of 1 ok`, exit 0; (c) on a copy with the Decision Log heading removed, made with `T=$(mktemp -d); cp plans/active/factory-enforcement.md "$T/a.md"; sed -i '/^## Decision Log$/d' "$T/a.md"; tools/check-plans "$T/a.md"; echo "exit=$?"`, the output names `$T/a.md`, contains `missing the required section` and the `plans/PLANS.md requires` guidance line, and ends `plans: 1 of 1 failed` and `exit=1`; (d) on a copy where the first `- [ ] ` in Progress is changed to `- [x] ` with no date (`sed -i '0,/^- \[ \] /s//- [x] /' "$T/b.md"` after copying), the output contains `no date` and the `Completed entries record when the work was observed` guidance line, exit 1; (e) with everything committed and `git config core.hooksPath tools/hooks` set, breaking the real plan the same way as (c), staging it, and running `git commit -m probe; echo "exit=$?"` prints `plans: plans/active/factory-enforcement.md ... FAILED` and `exit=1`, after which `git checkout -- plans/active/factory-enforcement.md` restores it and `git status --porcelain` prints nothing; (f) `docs/capabilities/index.md` shows `evidence-check` as `built`. The session records (c), (d), and (e) verbatim in Artifacts and Notes: they are the card's promotion evidence.
+M1 is accepted when: (a) `./tools/verify` prints a line `verify: plans ... ok (Ns)` and the closing line `verify: all 6 checks passed in Ss.`, exit 0; (b) `tools/check-plans` with no argument prints `plans: plans/active/factory-enforcement.md ... ok (Progress, Surprises & Discoveries, Decision Log, Outcomes & Retrospective)` and `plans: 1 of 1 ok`, exit 0; (c) on a copy with the Decision Log heading removed, made with `T=$(mktemp -d); cp plans/active/factory-enforcement.md "$T/a.md"; sed -i '/^## Decision Log$/d' "$T/a.md"; tools/check-plans "$T/a.md"; echo "exit=$?"`, the output names `$T/a.md`, contains `missing the required section` and the `plans/PLANS.md requires` guidance line, and ends `plans: 1 of 1 failed` and `exit=1`; (d) on a copy where the first `- [ ] ` in Progress is changed to `- [x] ` with no date (`sed -i '0,/^- \[ \] /s//- [x] /' "$T/b.md"` after copying), the output contains `no date` and the `Completed entries record when the work was observed` guidance line, exit 1; (e) with everything committed and `git config core.hooksPath tools/hooks` set, breaking the real plan the same way as (c), staging it, and running `git commit -m probe; echo "exit=$?"` prints `plans: plans/active/factory-enforcement.md ... FAILED` and `exit=1`, after which `git checkout HEAD -- plans/active/factory-enforcement.md` (corrected by the M1 session from `git checkout -- ...`, which restores from the index where the broken plan is staged; see Surprises & Discoveries) restores it and `git status --porcelain` prints nothing; (f) `docs/capabilities/index.md` shows `evidence-check` as `built`. The session records (c), (d), and (e) verbatim in Artifacts and Notes: they are the card's promotion evidence.
 
 M2 is accepted when: (a) `DATABASE_URL=postgresql://thinkdarrell@/docket_db venv/bin/python -m pytest tests/unit -q -p no:cacheprovider; echo "exit=$?"` prints the `tests: refusing to run against database 'docket_db'` message, collects no tests, and prints `exit=2`; (b) `venv/bin/python -m pytest -m live --collect-only -q tests/live 2>&1 | tail -1` prints a line ending `tests collected` (or `test collected`) rather than the refusal (collection needs no API key; `tests/conftest.py` sets a dummy); (c) `./tools/verify` prints `verify: all 6 checks passed in Ss.`; (d) `venv/bin/python -m json.tool .claude/settings.json > /dev/null; echo "exit=$?"` prints `exit=0` and `grep -c '"Bash(' .claude/settings.json` prints `8`; (e) with a clean tree, `scripts/deploy.sh --service docket-web; echo "exit=$?"` on this branch prints the branch refusal to stderr and `exit=3`, and `ls COMMIT_SHA` prints `No such file or directory`; (e2) after `touch COMMIT_SHA`, the same command prints the dirty-tree refusal and `exit=3`, and `rm COMMIT_SHA` leaves `git status --porcelain` empty; (f) the session's own attempt to run `git -c core.hooksPath=/dev/null status` through its Bash tool is recorded as refused, or recorded as not refused with the note that the operator confirms it in a fresh session before merge.
 
@@ -212,7 +214,7 @@ M4 is accepted when: (a) `gh api repos/thinkdarrell/docket-pub/branches/main/pro
 
 ## Idempotence and Recovery
 
-`tools/check-plans` reads files and writes nothing but its temporary directory, which it removes on exit. The hook refuses or allows and changes nothing; `git checkout -- <plan>` undoes the probe edit in M1 (e), which is run only after the real plan is committed. Setting `core.hooksPath` is one `git config` line and is undone with `git config --unset core.hooksPath`; it lives in the repository's configuration, so it applies to the main checkout and every worktree on this machine at once. The database guard changes no state; the refusal command in M2 (a) runs against `docket_db` deliberately and is safe because it exits before collection. `scripts/deploy.sh` under M2 refuses before writing `COMMIT_SHA` or invoking `railway`, so running it from the plan branch deploys nothing. The CI workflow is idempotent: every push runs it again. Branch protection is one PUT; a wrong body is corrected by another PUT, and `gh api --method DELETE repos/thinkdarrell/docket-pub/branches/main/protection` removes it entirely. A milestone halted by the judge or by verify is resumed as `docs/specs/operations.md` Running the factory says: fix the cause in the worktree, commit, re-run `/cycle-run` with the same arguments.
+`tools/check-plans` reads files and writes nothing but its temporary directory, which it removes on exit. The hook refuses or allows and changes nothing; `git checkout HEAD -- <plan>` undoes the probe edit in M1 (e) (the staged copy as well as the working tree; `git checkout -- <plan>` alone would leave the staged, broken copy in place), which is run only after the real plan is committed. Setting `core.hooksPath` is one `git config` line and is undone with `git config --unset core.hooksPath`; it lives in the repository's configuration, so it applies to the main checkout and every worktree on this machine at once. The database guard changes no state; the refusal command in M2 (a) runs against `docket_db` deliberately and is safe because it exits before collection. `scripts/deploy.sh` under M2 refuses before writing `COMMIT_SHA` or invoking `railway`, so running it from the plan branch deploys nothing. The CI workflow is idempotent: every push runs it again. Branch protection is one PUT; a wrong body is corrected by another PUT, and `gh api --method DELETE repos/thinkdarrell/docket-pub/branches/main/protection` removes it entirely. A milestone halted by the judge or by verify is resumed as `docs/specs/operations.md` Running the factory says: fix the cause in the worktree, commit, re-run `/cycle-run` with the same arguments.
 
 ## Artifacts and Notes
 
@@ -262,6 +264,44 @@ Clause (d), `cp plans/active/factory-enforcement.md "$T/b.md"; sed -i '0,/^- \[ 
 
 Also observed in the same run: `tools/check-plans --staged` with nothing staged printed `plans: no staged plans` and `exit=0`; a path that does not exist printed `plans: <path> ... FAILED`, the judge's `judge: defect <path> does not exist`, the `plans/PLANS.md requires` guidance, `plans: 1 of 1 failed`, `exit=1`. `git config core.hooksPath tools/hooks` run from the worktree wrote `tools/hooks` to `file:/home/thinkdarrell/docket-pub/.git/config` (`git config --show-origin --get core.hooksPath`), the repository configuration shared with the main checkout.
 
+The first commit of the milestone (b67201d) ran the hook on its passing path and printed, before the commit was accepted:
+
+    plans: plans/active/factory-enforcement.md ... ok (Progress, Surprises & Discoveries, Decision Log, Outcomes & Retrospective)
+    plans: 1 of 1 ok
+
+Clause (e), with everything committed at b67201d and `core.hooksPath` set: `sed -i '/^## Decision Log$/d' plans/active/factory-enforcement.md && git add plans/active/factory-enforcement.md && git commit -m probe; echo "exit=$?"`:
+
+    plans: plans/active/factory-enforcement.md ... FAILED
+      judge: defect plans/active/factory-enforcement.md is missing the required section `## Decision Log`
+      plans/PLANS.md requires Progress, Surprises & Discoveries, Decision Log, and Outcomes & Retrospective in every plan. Add the heading and the entries the work produced; an empty section is also a failure.
+    plans: 1 of 1 failed
+    exit=1
+
+`git log --oneline -1` still printed b67201d, so no commit was made. The clause's restore step, `git checkout -- plans/active/factory-enforcement.md`, exited 0 but `git status --porcelain` then printed `M  plans/active/factory-enforcement.md` (staged, not clean): that command restores the working tree from the index, and the index held the broken plan. The `./tools/verify` run started in the same command therefore saw the broken plan and printed:
+
+    verify: test-db ... ok (0s) postgresql://thinkdarrell@/docket_test_a485ea18
+    verify: unit+web+services ... ok (46s)
+    verify: integration ... ok (49s)
+    verify: judge-fixtures ... ok (1s)
+    verify: workflows ... ok (0s)
+    verify: transcriber ... ok (1s)
+    verify: plans ... FAILED (0s)
+    verify: 1 of 6 checks failed in 97s. Each failing check's output is above its summary line; re-run one with:
+        DATABASE_URL=$(tools/test-db) tools/check-plans; tools/test-db --drop
+
+which is the sixth check failing for real inside verify, an observation the plan did not ask for but which the card's enforcement point is about. `git checkout HEAD -- plans/active/factory-enforcement.md` then exited 0, `git status --porcelain` printed nothing, `grep -c '^## Decision Log$'` printed `1`, and `tools/check-plans` printed the clause (b) output again with `exit=0`. Clause (a), `./tools/verify` on the restored tree:
+
+    verify: test-db ... ok (0s) postgresql://thinkdarrell@/docket_test_a485ea18
+    verify: unit+web+services ... ok (46s)
+    verify: integration ... ok (49s)
+    verify: judge-fixtures ... ok (1s)
+    verify: workflows ... ok (0s)
+    verify: transcriber ... ok (0s)
+    verify: plans ... ok (0s)
+    verify: all 6 checks passed in 96s.
+
+exit 0, at 2026-10-17 23:56Z.
+
 ## Interfaces and Dependencies
 
 `tools/check-plans [--staged | <file>...]`: POSIX sh; depends on `tools/judge-milestone` (its `snapshot` mode and exit codes 0 and 2), `git` (for `--staged` only), `mktemp`, `sed`, `grep`. Output lines begin `plans: `. Exit 0 when every checked file holds or nothing was checked, 1 when any file failed. It is verify's sixth check and the body of `tools/hooks/pre-commit`.
@@ -281,5 +321,7 @@ Branch protection on `main`: `required_status_checks.contexts == ["verify"]`, `s
 Identifiers spent by this plan: decision number `0052`; verify check name `plans`; no new `docs/DEBT.md` rows (`D15` is deleted, `D37` edited; the next free row number is `D59`, which this plan does not use).
 
 ## Revision notes
+
+- 2026-10-17, M1 session: Validation and Acceptance clause (e) and Idempotence and Recovery now say `git checkout HEAD -- <plan>` where they said `git checkout -- <plan>`, because the latter was run as written and left the staged, broken plan in place (Surprises & Discoveries); the Concrete Steps M1 line notes it was executed and points to the transcripts. No Progress line text, acceptance number, or identifier changed.
 
 - 2026-10-17, after the operator reviewed the authored plan and pasted a ten-point review: Plan of Work M1 gained the empty-glob guard and the `sed` delimiter note; M2 gained the environment-first guard, the dirty-tree-first order in `scripts/deploy.sh`, and the exact-expression sentence for the spec; M4 gained the two-check-runs sentence; Concrete Steps M1 now sets `core.hooksPath` before the first commit and says several commits per milestone are expected; Concrete Steps and Validation M2 gained the `COMMIT_SHA` probe (clause (e2)); Context gained the facts that refute the review's two showstoppers (the judge fixtures and verify's count; the lock as the editable install's source; the producer tests' independence from the heavy packages) and the import-safety facts for `docket.config`. The Decision Log entry dated the same day records what was adopted, what did not apply, and what was declined. No Progress line, acceptance number, or identifier changed; Validation clauses (a) through (f) of each milestone were re-read against the revised rules and hold as written, with M2 (e) now explicitly a clean-tree clause beside the new (e2).
