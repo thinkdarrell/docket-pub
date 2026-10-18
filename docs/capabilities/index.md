@@ -4,7 +4,7 @@
 
 | Card | Status | Enforced at |
 | --- | --- | --- |
-| `fast-verify` | built | `./tools/verify` |
+| `fast-verify` | built | `./tools/verify`; `.github/workflows/verify.yml` (the `verify` job, on every push and on pull requests to `main`) |
 | `evidence-check` | built | `./tools/verify` (sixth check, `tools/check-plans`); `tools/hooks/pre-commit` where `core.hooksPath` is set |
 | `doc-integrity` | specced | — |
 | `boundary-lint` | specced | — |

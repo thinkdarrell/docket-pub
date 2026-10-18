@@ -14,7 +14,7 @@ After this plan, an outside reader sees four things they cannot see now. A pull 
 
 - [x] (2026-10-17 23:58Z) M1: `tools/check-plans` decides evidence-check for every active plan, runs as verify's sixth check and as the pre-commit hook in `tools/hooks/`, and the card is `built`.
 - [x] (2026-10-18 00:06Z) M2: the test suite refuses a database not named `docket_test_*` outside the live tier, the project `.claude/settings.json` denies the hook-bypass and deploy commands, and `scripts/deploy.sh` refuses a non-main branch or a dirty tree.
-- [ ] M3: `.github/workflows/verify.yml` runs `./tools/verify` on every push and on pull requests to main, and one run on this branch has completed green.
+- [x] (2026-10-18 00:23Z) M3: `.github/workflows/verify.yml` runs `./tools/verify` on every push and on pull requests to main, and one run on this branch has completed green.
 - [ ] M4: `main` requires the `verify` check to merge, `fast-verify` and `evidence-check` are `enforced`, decision 0052 is written, D15 is paid, and MATURITY.md says what is enforced.
 
 ## Surprises & Discoveries
@@ -90,6 +90,8 @@ After this plan, an outside reader sees four things they cannot see now. A pull 
   Date/Author: 2026-10-18, M3 session.
 
 ## Outcomes & Retrospective
+
+M3 (2026-10-18): complete, acceptance (a) through (e) met as observed in Artifacts and Notes, with no carve-out. The one deviation from the Plan of Work is the workflow's extra step: the file as committed has `sudo apt-get update -q && sudo apt-get install -y -q tesseract-ocr` before the venv step, because the first run (39081836305) failed sixteen OCR tests for want of `tesseract`, which the plan's Context had said was not needed; the Decision Log records why the step, and not a skip in the tests, was the fix, and the plan's own remedy for a missing runner tool was followed. The first green run is 39082127893 at 3778fb3 (`verify: all 6 checks passed in 176s.`, 4 min 14 s end to end). Pull request #124 already exists for this branch, so every push runs the job twice, which M4's two-check-runs sentence already describes. Remaining: M4.
 
 M2 (2026-10-18): complete with one carve-out. Acceptance (a), (b), (c), (d), and (f) met as observed in Artifacts and Notes, with (f) observed as a refusal; (e) and (e2) unmet in this session: the deny rule the milestone installed refused the session's invocation of `scripts/deploy.sh`, so the branch refusal and the dirty-tree refusal were not observed by an agent and the operator runs, from a clean tree in this worktree, `scripts/deploy.sh --service docket-web; echo "exit=$?"; ls COMMIT_SHA` (expect the branch refusal on stderr, `exit=3`, `No such file or directory`) and then `touch COMMIT_SHA; scripts/deploy.sh --service docket-web; echo "exit=$?"; rm COMMIT_SHA; git status --porcelain` (expect the dirty-tree refusal, `exit=3`, nothing from porcelain), and records the output under Artifacts and Notes before merge. The script was syntax-checked (`bash -n`) and nothing else about it was observed. Remaining: M3 and M4.
 
@@ -219,7 +221,7 @@ M1, in order (executed 2026-10-17; the observed transcripts are in Artifacts and
 
 M2, in order (executed 2026-10-18; the observed transcripts are in Artifacts and Notes; (e) and (e2) were refused by the session's own deny rule and fall to the operator): verify; add the guard to `tests/conftest.py`; run the refusal command (expect exit 2 and the message, no tests collected); run the live-collection command (expect a collection count, not a refusal); write `.claude/settings.json`; validate it with `venv/bin/python -m json.tool .claude/settings.json > /dev/null; echo "exit=$?"` (expect `exit=0`); attempt `git -c core.hooksPath=/dev/null status` from the session's own Bash tool and record whether the tool refused it (a session started before the file existed may not see the new rule; say so if the call ran, and the operator confirms the denial in a fresh session before merge); edit `scripts/deploy.sh`; with a clean tree run `scripts/deploy.sh --service docket-web; echo "exit=$?"` (expect the branch refusal and `exit=3`; the worktree is on `plan/factory-enforcement`, so `railway` is never reached), then `touch COMMIT_SHA; scripts/deploy.sh --service docket-web; echo "exit=$?"; rm COMMIT_SHA` (expect the dirty-tree refusal and `exit=3`); edit the documents; verify (expect 6 checks passed; the exported `docket_test_` URL passes the guard); write the evidence and tick M2.
 
-M3, in order: verify; write `.github/workflows/verify.yml`; commit it with the plan's edits; `git push -u origin plan/factory-enforcement`; `gh run list --branch plan/factory-enforcement --limit 1 --json databaseId,name,status,conclusion,url,createdAt,updatedAt` (expect one row named `verify`); `gh run watch <databaseId> --exit-status; echo "exit=$?"` (expect `exit=0`; give the Bash call a timeout of at least 900000 milliseconds); `gh run view <databaseId> --json conclusion,jobs --jq '.conclusion, (.jobs[] | .name + " " + .conclusion)'` (expect `success` and `verify success`); edit the documents with the observed wall time; verify locally; commit, push again (this triggers a second run; it need not be awaited, but its result is recorded if seen); write the evidence and tick M3.
+M3, in order (executed 2026-10-18; the observed transcripts are in Artifacts and Notes; the first run failed for want of `tesseract` and the workflow gained an `apt-get install tesseract-ocr` step before the second, green run): verify; write `.github/workflows/verify.yml`; commit it with the plan's edits; `git push -u origin plan/factory-enforcement`; `gh run list --branch plan/factory-enforcement --limit 1 --json databaseId,name,status,conclusion,url,createdAt,updatedAt` (expect one row named `verify`); `gh run watch <databaseId> --exit-status; echo "exit=$?"` (expect `exit=0`; give the Bash call a timeout of at least 900000 milliseconds); `gh run view <databaseId> --json conclusion,jobs --jq '.conclusion, (.jobs[] | .name + " " + .conclusion)'` (expect `success` and `verify success`); edit the documents with the observed wall time; verify locally; commit, push again (this triggers a second run; it need not be awaited, but its result is recorded if seen); write the evidence and tick M3.
 
 M4, in order: verify; run the `gh api --method PUT` command (expect a JSON body naming the `verify` context); read it back (expect `["verify"]` and `true`); write decision 0052; edit `docs/capabilities/index.md`, `docs/DEBT.md`, `docs/MATURITY.md`, `docs/specs/operations.md`; run the acceptance greps; verify; write the evidence and tick M4.
 
@@ -387,6 +389,32 @@ Commit afe344b (the workflow and the paragraph above) was pushed at 00:11:16Z (`
 
 with the fast tiers' summary `16 failed, 1859 passed, 5 skipped, 4 xfailed, 2 warnings in 61.19s`, every failure in `tests/unit/ocr/test_header.py`, `test_layout.py`, or `test_ocr.py` ending `pytesseract.pytesseract.TesseractNotFoundError: tesseract is not installed or it's not in your PATH`; integration `624 passed, 1 warning in 73.90s`; `judge fixtures: 12 of 12 passed`; transcriber `70 passed in 0.83s`. (GitHub masks the service password in the test-db line as `***`.) The runner also printed a notice that `ubuntu-latest` migrates to Ubuntu 26 from 2026-10-19. The `tesseract-ocr` install step was added (Decision Log) and the branch pushed again for the second run, below.
 
+Commit 3778fb3 (the `tesseract-ocr` step and the evidence above) was pushed at 00:15:57Z; `gh run list` printed two new rows at that SHA, 39082127893 (`push`, created 00:15:58Z) and 39082132169 (`pull_request`, 00:16:02Z). `gh run watch 39082127893 --exit-status` returned exit 0 at 00:20:28Z. `gh run view 39082127893 --json conclusion,jobs` printed `success` and `verify success 2026-10-18T00:16:01Z 2026-10-18T00:20:15Z` (4 min 14 s end to end; steps: Initialize containers 17 s, checkout 2 s, setup-python 1 s, `apt-get ... tesseract-ocr` 20 s, venv and `pip install -e ".[dev]"` 29 s, `./tools/verify` 2 min 56 s). From `gh run view 39082127893 --log`:
+
+    verify: test-db ... ok (1s) ***localhost:5432/docket_test_6ad42875
+    verify: unit+web+services ... ok (77s)
+    verify: integration ... ok (93s)
+    verify: judge-fixtures ... ok (0s)
+    verify: workflows ... ok (3s)
+    verify: transcriber ... ok (2s)
+    verify: plans ... ok (0s)
+    verify: all 6 checks passed in 176s.
+
+with the fast tiers `1875 passed, 5 skipped, 4 xfailed, 2 warnings in 76.04s`, integration `624 passed, 1 warning in 91.43s`, `judge fixtures: 12 of 12 passed`, transcriber `70 passed in 2.38s`. The pull-request run 39082132169 at the same SHA completed `success` too (`gh run watch` printed `has already completed with 'success'` at 00:21:08Z) with `verify: all 6 checks passed in 215s.`, slower because the two runs shared the window. Acceptance: (a) `gh run list --branch plan/factory-enforcement --limit 1 --json name,status,conclusion` printed `[{"conclusion":"success","name":"verify","status":"completed"}]` (run at 00:21:08Z, once both runs had finished; while the pull-request run was still going the same command printed `"status":"in_progress"`, since it lists the newest run); (b) `gh run view 39082127893 --json jobs --jq '.jobs[].name'` printed `verify`; (c) `gh run view 39082127893 --log | grep 'verify: all'` printed `verify: all 6 checks passed in 176s.`; (e) `docs/specs/operations.md` Tests gained the `Continuous integration` paragraph with those times (`grep -c '176s' docs/specs/operations.md` printed `1`). Clause (d), the local `./tools/verify` after the document edits, is recorded below.
+
+Clause (d), `./tools/verify` in the worktree after the document edits, with the workflow at 3778fb3 and `docs/specs/operations.md`, `docs/specs/index.md`, `docs/capabilities/index.md`, and the plan modified but not yet committed, finished at 00:23Z, exit 0:
+
+    verify: test-db ... ok (0s) postgresql://thinkdarrell@/docket_test_a485ea18
+    verify: unit+web+services ... ok (47s)
+    verify: integration ... ok (49s)
+    verify: judge-fixtures ... ok (1s)
+    verify: workflows ... ok (0s)
+    verify: transcriber ... ok (1s)
+    verify: plans ... ok (0s)
+    verify: all 6 checks passed in 98s.
+
+The commit that ticks M3 is pushed after this run; the push triggers a third pair of runs, whose result is not awaited (Concrete Steps M3 says it need not be) and is recorded here only if it was seen before the session ended.
+
 ## Interfaces and Dependencies
 
 `tools/check-plans [--staged | <file>...]`: POSIX sh; depends on `tools/judge-milestone` (its `snapshot` mode and exit codes 0 and 2), `git` (for `--staged` only), `mktemp`, `sed`, `grep`. Output lines begin `plans: `. Exit 0 when every checked file holds or nothing was checked, 1 when any file failed. It is verify's sixth check and the body of `tools/hooks/pre-commit`.
@@ -399,13 +427,15 @@ with the fast tiers' summary `16 failed, 1859 passed, 5 skipped, 4 xfailed, 2 wa
 
 `scripts/deploy.sh`: exit 2 on bad usage (unchanged), exit 3 on a branch other than `main` or a non-empty `git status --porcelain`, before `COMMIT_SHA` is written or `railway` is invoked.
 
-`.github/workflows/verify.yml`: workflow `verify`, job id and name `verify`, triggers `push` (all branches) and `pull_request` (base `main`); runs `./tools/verify` with `DATABASE_URL=postgresql://docket:docket_dev@localhost:5432/docket_db` against a `postgres:16` service. The status-check context is `verify`.
+`.github/workflows/verify.yml`: workflow `verify`, job id and name `verify`, triggers `push` (all branches) and `pull_request` (base `main`); runs `./tools/verify` with `DATABASE_URL=postgresql://docket:docket_dev@localhost:5432/docket_db` against a `postgres:16` service. As built, one step installs `tesseract-ocr` with `apt-get` before the venv is created; the OCR tests need the binary. The status-check context is `verify`.
 
 Branch protection on `main`: `required_status_checks.contexts == ["verify"]`, `strict` false, `enforce_admins` true, no required reviews, no restrictions, force pushes and deletion disallowed. Recorded in decision `0052`.
 
 Identifiers spent by this plan: decision number `0052`; verify check name `plans`; no new `docs/DEBT.md` rows (`D15` is deleted, `D37` edited; the next free row number is `D59`, which this plan does not use).
 
 ## Revision notes
+
+- 2026-10-18, M3 session: Plan of Work M3's workflow listing stands as written, and the as-built file differs from it by one added step (`sudo apt-get update -q && sudo apt-get install -y -q tesseract-ocr` before the venv step), recorded in Surprises & Discoveries, the Decision Log, and Interfaces and Dependencies rather than by rewriting the listing. The Context sentence claiming no apt package is needed is refuted by the first run and left in place as the authoring belief it was. No Progress line text, acceptance number, or identifier changed.
 
 - 2026-10-18, M2 session: no rule, acceptance number, or identifier changed. Validation and Acceptance M2 (e) and (e2) stand as written but are recorded as unrunnable by an agent session once `.claude/settings.json` exists (Surprises & Discoveries); Outcomes & Retrospective gives the operator the two commands. A later revision may move those two clauses to an explicit operator step; this session did not, because widening or rewording acceptance is the plan author's call.
 
