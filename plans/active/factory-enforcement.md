@@ -354,6 +354,19 @@ so clause (f) is met by observation and clauses (e) and (e2) are the operator's 
 
 exit 0; the exported `docket_test_a485ea18` URL passed the new guard in every pytest tier, transcriber included.
 
+M3 (2026-10-18, observed): starting state, `./tools/verify` in the worktree on a clean tree at 6472bac, before any edit, finished at 00:10Z:
+
+    verify: test-db ... ok (0s) postgresql://thinkdarrell@/docket_test_a485ea18
+    verify: unit+web+services ... ok (47s)
+    verify: integration ... ok (49s)
+    verify: judge-fixtures ... ok (0s)
+    verify: workflows ... ok (0s)
+    verify: transcriber ... ok (1s)
+    verify: plans ... ok (0s)
+    verify: all 6 checks passed in 97s.
+
+(the session's shell is zsh, so its `PIPESTATUS` capture of the exit status printed nothing; the closing line is the one verify prints only when every check passed). `.github/` did not exist; `git config --get core.hooksPath` printed `tools/hooks`; `gh auth status` printed `Logged in to github.com account thinkdarrell`. `.github/workflows/verify.yml` was written with the content Plan of Work M3 states and parsed by `yaml.safe_load` as workflow `verify` with one job `verify` named `verify`.
+
 ## Interfaces and Dependencies
 
 `tools/check-plans [--staged | <file>...]`: POSIX sh; depends on `tools/judge-milestone` (its `snapshot` mode and exit codes 0 and 2), `git` (for `--staged` only), `mktemp`, `sed`, `grep`. Output lines begin `plans: `. Exit 0 when every checked file holds or nothing was checked, 1 when any file failed. It is verify's sixth check and the body of `tools/hooks/pre-commit`.
