@@ -12,7 +12,7 @@ The live tier reads a real database by design, and `pyproject.toml` already make
 
 ## Date
 
-2026-10-17, the plan author (Claude, in the operator's session) in `plans/active/factory-enforcement.md`; graduated from the plan's Decision Log at its retrospective on 2026-10-18.
+2026-10-17, the plan author (Claude, in the operator's session) in `plans/completed/factory-enforcement.md`; graduated from the plan's Decision Log at its retrospective on 2026-10-18.
 
 ## Status
 

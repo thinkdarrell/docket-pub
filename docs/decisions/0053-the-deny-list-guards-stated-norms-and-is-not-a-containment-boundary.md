@@ -14,7 +14,7 @@ One consequence binds plan authors: the deny list reaches the very session that 
 
 ## Date
 
-2026-10-17, the plan author (Claude, in the operator's session) in `plans/active/factory-enforcement.md`; graduated from the plan's Decision Log at its retrospective on 2026-10-18.
+2026-10-17, the plan author (Claude, in the operator's session) in `plans/completed/factory-enforcement.md`; graduated from the plan's Decision Log at its retrospective on 2026-10-18.
 
 ## Status
 

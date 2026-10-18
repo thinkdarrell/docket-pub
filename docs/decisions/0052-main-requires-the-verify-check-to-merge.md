@@ -20,7 +20,7 @@ and read back with `gh api repos/thinkdarrell/docket-pub/branches/main/protectio
 
 ## Date
 
-2026-10-18, M4 session of plans/active/factory-enforcement.md, on the operator's instruction in that plan; the protection was set and read back by the operator the same day (UTC)
+2026-10-18, M4 session of plans/completed/factory-enforcement.md, on the operator's instruction in that plan; the protection was set and read back by the operator the same day (UTC)
 
 ## Status
 
