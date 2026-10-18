@@ -259,3 +259,51 @@ def test_fixture_shaped_transcript_through_build_output():
     pairs = speakers.find_roll_call_pairs([dataclasses.asdict(s) for s in out.segments], roster)
     assert len(pairs) == 9
     out.validate()
+
+
+# --- version 3: signature phrases, same-speaker merge ---
+
+from transcriber.engine import (  # noqa: E402
+    MERGE_MAX_S, SIGNATURE_LOGPROB, TRANSCRIPT_VERSION, is_hallucination,
+    merge_same_speaker,
+)
+
+
+def test_signature_phrase_dropped_at_looser_logprob():
+    # 2543 at 91:47: 12 s, -0.78, above HALLUCINATION_LOGPROB
+    assert is_hallucination(RawSegment(5507.0, 5519.0, " Thank you for watching.", -0.78, 0.1))
+    assert is_hallucination(RawSegment(0.0, 9.0, " Thank you. Please subscribe.", -0.6, 0.1))
+    assert is_hallucination(RawSegment(0.0, 9.0, " Thanks for watching!", -0.95, 0.1))
+
+
+def test_signature_rule_keeps_confident_or_ordinary_phrases():
+    # plausibly real: ordinary stock phrase above HALLUCINATION_LOGPROB (2543 at 87:35)
+    assert not is_hallucination(RawSegment(5255.0, 5273.0, " Thank you very much.", -0.74, 0.1))
+    # confident signature phrase is kept
+    assert not is_hallucination(RawSegment(0.0, 3.0, " Thank you for watching.", SIGNATURE_LOGPROB + 0.1, 0.1))
+    # a signature phrase inside real speech is not phrase-only
+    assert not is_hallucination(RawSegment(0.0, 9.0, " Thank you for watching the budget hearing online.", -0.7, 0.1))
+
+
+def test_merge_same_speaker_joins_back_to_back_turns_under_cap():
+    segs = [Segment(0, 0.0, 2.0, "morning.", "S07", -0.2, 0.01),
+            Segment(1, 2.3, 5.0, "Council, President Alexander.", "S07", -0.4, 0.05),
+            Segment(2, 5.0, 6.0, "Here.", "S03", -0.1, 0.0)]
+    out = merge_same_speaker(segs)
+    assert [(s.seq, s.cluster_label, s.text) for s in out] == [
+        (0, "S07", "morning. Council, President Alexander."), (1, "S03", "Here.")]
+    assert out[0].start_s == 0.0 and out[0].end_s == 5.0
+    assert out[0].avg_logprob == pytest.approx((-0.2 * 2.0 - 0.4 * 2.7) / 4.7)
+    assert out[0].no_speech_prob == 0.05
+    # gap too long, span over the cap, or unlabelled: not joined
+    far = [Segment(0, 0.0, 2.0, "a", "S1", None, None), Segment(1, 4.0, 5.0, "b", "S1", None, None)]
+    assert len(merge_same_speaker(far)) == 2
+    long = [Segment(0, 0.0, MERGE_MAX_S - 1, "a", "S1", None, None),
+            Segment(1, MERGE_MAX_S - 1, MERGE_MAX_S + 1, "b", "S1", None, None)]
+    assert len(merge_same_speaker(long)) == 2
+    unl = [Segment(0, 0.0, 1.0, "a", None, None, None), Segment(1, 1.0, 2.0, "b", None, None, None)]
+    assert len(merge_same_speaker(unl)) == 2
+
+
+def test_transcript_version_is_3():
+    assert TRANSCRIPT_VERSION == 3

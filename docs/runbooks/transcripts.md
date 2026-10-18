@@ -164,7 +164,8 @@ meeting 2543 fixture; seq 191 holds a real motion and vote, so 166-191 correctly
 The producer's `--meeting-id N` re-claims one Birmingham meeting whatever its
 status and replaces its transcript. Use it after a producer change (the first
 case is meeting 2543 after the 2026-10 cleaning and speaker-split change, which
-bumped `transcripts.version` to 2; the 48 earlier uploads stay at version 1).
+bumped `transcripts.version` to 2; the 48 earlier uploads stay at version 1; the
+2026-10-17 signature-phrase and same-speaker merge change bumped it to 3).
 A re-run deletes the meeting's segments, drops the non-manual
 `transcript_speakers` rows whose cluster label the new output no longer has,
 clears the worker's resolution (`council_member_id`, `display_name`, `role`,
@@ -215,10 +216,12 @@ After the run, from the laptop (`URL` and `PSQL` as in "Checking progress"):
 
     $PSQL "$URL" -c "select version, status, compare_skipped_reason, word_count
       from transcripts where meeting_id = 2543;"
-    # expect: 2 | uploaded | transcript_changed | ...
+    # expect: 3 | uploaded | transcript_changed | ...
 
     $PSQL "$URL" -c "select count(*) from transcript_segments s join transcripts t on t.id = s.transcript_id
-      where t.meeting_id = 2543 and (s.text ilike '%ALEA, CJI, APC%' or s.text ilike 'Thank you for joining us%');"
+      where t.meeting_id = 2543 and (s.text ilike '%ALEA, CJI, APC%'
+        or s.text ~* '^thank(s| you) for watching'
+        or (s.text ilike 'Thank you for joining us%' and s.avg_logprob <= -0.9 and length(s.text) < 60));"
     # expect: 0
 
     $PSQL "$URL" -c "select percentile_cont(0.5) within group (order by s.end_s - s.start_s)
