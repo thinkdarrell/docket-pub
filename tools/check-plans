@@ -14,7 +14,8 @@
 # FAILED` followed by the defect and the card's remediation, then `plans: N of
 # N ok` (exit 0) or `plans: K of N failed` (exit 1). Nothing to check passes:
 # an empty plans/active/ is a passing state by the card. Run it from anywhere;
-# it works in the checkout that contains it.
+# it changes to the root of the checkout that contains it, so a file argument
+# is absolute or relative to that root.
 set -u
 
 cd "$(dirname "$0")/.."

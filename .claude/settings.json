@@ -3,6 +3,10 @@
     "deny": [
       "Bash(git * --no-verify)",
       "Bash(git * --no-verify *)",
+      "Bash(git commit -n)",
+      "Bash(git commit -n *)",
+      "Bash(git commit * -n)",
+      "Bash(git commit * -n *)",
       "Bash(git -c core.hooksPath=*)",
       "Bash(git * -c core.hooksPath=*)",
       "Bash(railway up *)",
