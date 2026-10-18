@@ -70,6 +70,16 @@ After this plan, an outside reader sees four things they cannot see now. A pull 
   Rationale: the Plan of Work said to change the count "where that paragraph quotes verify's closing line"; it quotes it with a placeholder, so there was no count to change, and recording that here saves the next reader a search.
   Date/Author: 2026-10-17, M1 session.
 
+- Decision (M2): the `docs/DEBT.md` `D37` trigger's first clause ("Anyone runs the unit tier by hand against a database they care about") was replaced by a parenthetical saying that case is now refused, and the second clause (scope the deletes or move the tests) stands as the remaining work.
+  Rationale: Plan of Work M2 says to append the refusal to Why deferred and "leave the trigger's second clause ... as the remaining work", and Context says M2 "edits its trigger"; a trigger whose first clause can no longer fire would mislead the next reader into thinking the row is still live on that ground, so the clause was retired in place rather than deleted, which keeps the row's history legible.
+  Date/Author: 2026-10-18, M2 session.
+- Decision (M2): the guard in `tests/conftest.py` treats a `markexpr` of `None` (pytest received no `-m`, which cannot happen here because `pyproject.toml` always supplies one, but is the documented default) as "not live" and goes on to check the database name.
+  Rationale: the Plan of Work says the default is "`None` or the string pytest received"; only the exact string `live` is the exemption, so `None` must fall through to the check or an unconfigured pytest would reach `docket_db`.
+  Date/Author: 2026-10-18, M2 session.
+- Decision (M2): clause (e) was run after the milestone's first commit, not before any edit, because the clause requires a clean tree and the deploy script under test is itself one of the milestone's edits; the first commit therefore carries the conftest guard, the settings file, the deploy script, the document edits, and the evidence for clauses (a), (b), (d), and (f), and the second commit carries (e), (e2), (c), and the tick.
+  Rationale: with the dirty-tree test first (adopted from the operator's review), an uncommitted `scripts/deploy.sh` would trip its own dirty-tree refusal and the branch refusal could not be observed; committing first is the only order in which both paths are observable from this branch.
+  Date/Author: 2026-10-18, M2 session.
+
 ## Outcomes & Retrospective
 
 M1 (2026-10-17): complete, acceptance (a) through (f) met as observed in Artifacts and Notes; the one carve-out is procedural, not against acceptance: the restore command clause (e) prescribed did not restore (it left the broken plan staged), so the session restored from `HEAD` instead and corrected the clause, and one `./tools/verify` run in between failed its sixth check on the still-broken plan, which is recorded as the check doing its job rather than as a regression. Remaining: M2 through M4. The authoring session cut the branch `plan/factory-enforcement` and the worktree `.claude/worktrees/factory-enforcement` from `origin/main` at 79084a2, built its venv in 21 seconds, and wrote the worktree's gitignored `.env` with `DATABASE_URL=postgresql://thinkdarrell@/docket_db` because `D57` applies on this machine. This section is written at completion.
@@ -301,6 +311,25 @@ which is the sixth check failing for real inside verify, an observation the plan
     verify: all 6 checks passed in 96s.
 
 exit 0, at 2026-10-17 23:56Z.
+
+M2 (2026-10-18, observed): starting state, `./tools/verify` in the worktree on a clean tree at 4a6ddda, before any edit, finished at 00:01Z:
+
+    verify: test-db ... ok (0s) postgresql://thinkdarrell@/docket_test_a485ea18
+    verify: unit+web+services ... ok (47s)
+    verify: integration ... ok (49s)
+    verify: judge-fixtures ... ok (0s)
+    verify: workflows ... ok (0s)
+    verify: transcriber ... ok (1s)
+    verify: plans ... ok (0s)
+    verify: all 6 checks passed in 97s.
+
+exit 0. After adding `pytest_sessionstart` to `tests/conftest.py`, clause (a), `DATABASE_URL=postgresql://thinkdarrell@/docket_db venv/bin/python -m pytest tests/unit -q -p no:cacheprovider; echo "exit=$?"`:
+
+    Exit: tests: refusing to run against database 'docket_db': the unit tier deletes rows from whatever DATABASE_URL names (docs/DEBT.md D37). Run ./tools/verify, or one tier with DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest <tier> -q -p no:cacheprovider; tools/test-db --drop (docs/specs/operations.md Tests). The live tier (-m live) is exempt.
+    ! _pytest.outcomes.Exit: tests: refusing to run against database 'docket_db': ... The live tier (-m live) is exempt. !
+    exit=2
+
+No `collected` line was printed: the exit happened before collection. Clause (b), `venv/bin/python -m pytest -m live --collect-only -q tests/live 2>&1 | tail -1` printed `12 tests collected in 0.42s`. Two probes the plan did not ask for: with `DATABASE_URL` removed from the shell (`env -u DATABASE_URL ...`, so the guard imported `docket.config` and read the worktree's `.env`) the same refusal for `docket_db` was printed; with `DATABASE_URL=postgresql://thinkdarrell@/docket_test_probe` and `--collect-only`, `tests/unit` printed `1676 tests collected in 1.14s`, so a `docket_test_` name passes the guard without a server round trip. Clause (d): `venv/bin/python -m json.tool .claude/settings.json > /dev/null; echo "exit=$?"` printed `exit=0` and `grep -c '"Bash(' .claude/settings.json` printed `8`. Clause (f): this session ran `git -c core.hooksPath=/dev/null status --short | head -3; echo "exit=$?"` through its own Bash tool after writing `.claude/settings.json`; the call was not refused and printed the three changed paths and `exit=0`, as the plan anticipated for a session started before the file existed. The operator confirms the denial in a fresh session before merge; that confirmation is not recorded here because it was not observed here.
 
 ## Interfaces and Dependencies
 
