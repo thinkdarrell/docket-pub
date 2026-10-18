@@ -16,7 +16,7 @@ The protection is recreated, from any checkout with a `gh` token that has the `r
     {"required_status_checks":{"strict":false,"contexts":["verify"]},"enforce_admins":true,"required_pull_request_reviews":null,"restrictions":null,"allow_force_pushes":false,"allow_deletions":false}
     EOF
 
-and read back with `gh api repos/thinkdarrell/docket-pub/branches/main/protection --jq '.required_status_checks.contexts, .enforce_admins.enabled'`, which prints `["verify"]` and `true`. The operator set it and read it back on 2026-10-18 (plans/completed/factory-enforcement.md, Artifacts and Notes). Because the workflow runs on both the `push` and the `pull_request` event, a pull request shows two check runs named `verify`; a successful run of either name satisfies the required context.
+and read back with `gh api repos/thinkdarrell/docket-pub/branches/main/protection --jq '.required_status_checks.contexts, .enforce_admins.enabled'`, which prints `["verify"]` and `true`. The operator set it and read it back on 2026-10-18 (plans/completed/factory-enforcement.md, Artifacts and Notes). Because the workflow runs on both the `push` and the `pull_request` event, a pull request shows two check runs named `verify`; `docs/specs/operations.md` Deploying records what has been observed of how the required context treats them.
 
 ## Date
 
