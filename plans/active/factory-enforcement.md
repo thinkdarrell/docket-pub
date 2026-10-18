@@ -29,6 +29,10 @@ After this plan, an outside reader sees four things they cannot see now. A pull 
   Evidence: after the plan's command, `git status --porcelain` printed `M  plans/active/factory-enforcement.md` and `./tools/verify` printed `verify: plans ... FAILED (0s)` and `verify: 1 of 6 checks failed in 97s.`; after `git checkout HEAD -- plans/active/factory-enforcement.md` it printed nothing and verify printed `verify: all 6 checks passed in 96s.` (both transcripts in Artifacts and Notes).
 - Observation (M2, 2026-10-18): the deny rules in `.claude/settings.json` reached the very session that wrote the file, after a short delay. The first attempt at clause (f), in the same response that wrote the file, ran; the next Bash call, `scripts/deploy.sh --service docket-web` for clause (e), was refused by the permission system (`Permission to use Bash with command ... scripts/deploy.sh --service docket-web ... has been denied.`), and a retry of clause (f) was refused the same way. Two consequences. First, clause (f) is observed in the positive, not merely noted for the operator. Second, acceptance clauses (e) and (e2) as authored cannot be executed by an agent session once this milestone's own `Bash(scripts/deploy.sh *)` rule exists, and this session did not reword the invocation (`bash scripts/deploy.sh`, a copy under another name) to get past a denial the permission system had just issued, so (e) and (e2) are unmet here and are run by the operator by hand; the acceptance clause has a defect the plan author did not foresee, recorded in Revision notes rather than repaired, because repairing it means either weakening the deny list (a Decision this plan made) or moving the probe to the operator, which is what this entry does.
   Evidence: the three permission lines quoted in Artifacts and Notes; `bash -n scripts/deploy.sh` printed nothing and exited 0, which is the only check of the script this session could run.
+- Observation (M3, 2026-10-18): the first CI run failed in the fast tiers because the runner has no `tesseract` binary, which refutes the Context sentence "the tests that mention `ffmpeg`, `ffprobe`, or `tesseract` mock `subprocess.run` or skip, so no apt packages are needed": sixteen tests under `tests/unit/ocr/` (`test_header.py`, `test_layout.py`, `test_ocr.py`) call `pytesseract` against the sample frames and need the real program (`src/docket/analysis/ocr/ocr.py`, `header.py`, `layout.py` call `image_to_string` and `image_to_data` with the default `eng` language). Everything else passed on the runner on the first try: integration `624 passed` in 74 s, judge fixtures `12 of 12`, workflows ok, transcriber `70 passed`, plans ok, so Node, `psql`, `shasum`, and the `postgres:16` service all worked as Context predicted.
+  Evidence: run 39081836305, `16 failed, 1859 passed, 5 skipped, 4 xfailed` and `verify: 1 of 6 checks failed in 142s.`; each failure's last line `pytesseract.pytesseract.TesseractNotFoundError: tesseract is not installed or it's not in your PATH` (transcript in Artifacts and Notes).
+- Observation (M3, 2026-10-18): the push produced two runs, not one, because pull request #124 (the authored plan, opened 2026-10-17 23:11Z against `main`) was already open for this branch; the second run carries `event: pull_request`. The plan anticipated two runs per push for a pull-request branch in M4, not in M3, where the authoring session had not yet opened the pull request.
+  Evidence: `gh run list --branch plan/factory-enforcement` printed rows 39081836305 (`push`) and 39081836702 (`pull_request`), both created 00:11:21Z; `gh pr list --head plan/factory-enforcement --state all` printed number 124, state OPEN.
 
 ## Decision Log
 
@@ -81,6 +85,9 @@ After this plan, an outside reader sees four things they cannot see now. A pull 
 - Decision (M2): clause (e) was run after the milestone's first commit, not before any edit, because the clause requires a clean tree and the deploy script under test is itself one of the milestone's edits; the first commit therefore carries the conftest guard, the settings file, the deploy script, the document edits, and the evidence for clauses (a), (b), (d), and (f), and the second commit carries (e), (e2), (c), and the tick.
   Rationale: with the dirty-tree test first (adopted from the operator's review), an uncommitted `scripts/deploy.sh` would trip its own dirty-tree refusal and the branch refusal could not be observed; committing first is the only order in which both paths are observable from this branch.
   Date/Author: 2026-10-18, M2 session.
+- Decision (M3): the workflow gained one step before the venv step, `sudo apt-get update -q && sudo apt-get install -y -q tesseract-ocr`, after the first run failed for want of `tesseract`; the OCR tests were not changed to skip without it.
+  Rationale: Plan of Work M3 prescribes exactly this remedy for the analogous `psql` and `node` misses (add the step, record the failure, run again), and `./tools/verify` is still the only command the job runs, which is the identity property the fast-verify card asks for. Making the sixteen OCR tests skip when `tesseract` is absent would be a change to the test suite outside this milestone's scope and would let CI pass without exercising the OCR adapters, which the local verify exercises. `apt-get update` is included because the runner image's package lists can be stale; it costs seconds.
+  Date/Author: 2026-10-18, M3 session.
 
 ## Outcomes & Retrospective
 
@@ -366,6 +373,19 @@ M3 (2026-10-18, observed): starting state, `./tools/verify` in the worktree on a
     verify: all 6 checks passed in 97s.
 
 (the session's shell is zsh, so its `PIPESTATUS` capture of the exit status printed nothing; the closing line is the one verify prints only when every check passed). `.github/` did not exist; `git config --get core.hooksPath` printed `tools/hooks`; `gh auth status` printed `Logged in to github.com account thinkdarrell`. `.github/workflows/verify.yml` was written with the content Plan of Work M3 states and parsed by `yaml.safe_load` as workflow `verify` with one job `verify` named `verify`.
+
+Commit afe344b (the workflow and the paragraph above) was pushed at 00:11:16Z (`git push -u origin plan/factory-enforcement`, exit 0). `gh run list --branch plan/factory-enforcement --limit 3 --json databaseId,name,status,conclusion,url,createdAt,event` ten seconds later printed two rows: `{"databaseId":39081836305,"event":"push","name":"verify","status":"in_progress",...}` and `{"databaseId":39081836702,"event":"pull_request","name":"verify","status":"in_progress",...}`, both `createdAt 2026-10-18T00:11:21Z`. `gh run watch 39081836305 --exit-status` returned exit 1 at 00:14:45Z. `gh run view 39081836305 --json conclusion,jobs` printed `failure`, `verify failure`, and per step: checkout, setup-python, and the venv step `success`, `Run ./tools/verify failure`. From `gh run view 39081836305 --log` (saved in the session's scratchpad, 5280 lines; `pip cache is not found` on the first run):
+
+    verify: test-db ... ok (1s) ***localhost:5432/docket_test_6ad42875
+    verify: unit+web+services ... FAILED (62s)
+    verify: integration ... ok (75s)
+    verify: judge-fixtures ... ok (1s)
+    verify: workflows ... ok (2s)
+    verify: transcriber ... ok (1s)
+    verify: plans ... ok (0s)
+    verify: 1 of 6 checks failed in 142s. Each failing check's output is above its summary line; re-run one with:
+
+with the fast tiers' summary `16 failed, 1859 passed, 5 skipped, 4 xfailed, 2 warnings in 61.19s`, every failure in `tests/unit/ocr/test_header.py`, `test_layout.py`, or `test_ocr.py` ending `pytesseract.pytesseract.TesseractNotFoundError: tesseract is not installed or it's not in your PATH`; integration `624 passed, 1 warning in 73.90s`; `judge fixtures: 12 of 12 passed`; transcriber `70 passed in 0.83s`. (GitHub masks the service password in the test-db line as `***`.) The runner also printed a notice that `ubuntu-latest` migrates to Ubuntu 26 from 2026-10-19. The `tesseract-ocr` install step was added (Decision Log) and the branch pushed again for the second run, below.
 
 ## Interfaces and Dependencies
 
