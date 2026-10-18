@@ -79,7 +79,7 @@ The wrapper writes the current HEAD SHA to `./COMMIT_SHA` before invoking `railw
     railway ssh --service docket-web "cat /app/COMMIT_SHA"
     railway ssh --service worker     "cat /app/COMMIT_SHA"
 
-A bare `railway up` still works but records the literal string `unknown`, because the Railway CLI strips `.git` from uploads. Deploying only from a clean `main` is a constraint in `GOALS.md`, and decision `0022` records why. Never use `railway redeploy`; it restarts the old build without new code.
+A bare `railway up` still works but records the literal string `unknown`, because the Railway CLI strips `.git` from uploads. Deploying only from a clean `main` is a constraint in `GOALS.md`, and decision `0022` records why. GitHub refuses a direct push to `main` and a merge whose `verify` status check (the `verify` job of `.github/workflows/verify.yml`) is not green, administrators included; decision `0052` records why and holds the `gh api` command that recreates the protection. Because the workflow runs on both the push and the pull-request event, a pull request shows two check runs named `verify`; either satisfies the required context, and GitHub waits for the newest check suite before the merge button enables. Never use `railway redeploy`; it restarts the old build without new code.
 
 The `web:` process runs the migrations and then gunicorn serving `docket.web:create_app()` (see `Procfile`). The worker is a separate Railway service with a custom start command; decision `0023` says why, and `scripts/deploy.sh --service worker` redeploys it.
 

@@ -13,7 +13,6 @@
 | D12 | About 7,500 consent items sit in `data_quality_skipped` as `no_agenda_text`; the body is in the minutes PDF | `src/docket/ai/wave0.py`, `votes.raw_text` | Needs its own brainstorm; two recovery paths unevaluated | Before the next backfill wave |
 | D13 | About 89 withdrawn-family rows use marker shapes Wave 0 does not match | `src/docket/ai/wave0.py` | Shape B landed in PR #22; the rest were listed, not fixed | Next Wave 0 change |
 | D14 | No CSRF protection on the admin POST routes in `admin.py` and `admin_badge_review.py`; `src/docket/web/csrf.py` covers only `admin_transcripts.py` | `src/docket/web/admin.py`, `src/docket/web/admin_badge_review.py` | Single trusted admin | Before any second admin user or public launch (issue #83) |
-| D15 | Branch protection on `main` not enabled; deploy-from-main is discipline | GitHub settings | GitHub Pro required for private repo protection | GitHub Pro or a second committer (issue #37) |
 | D16 | OCR assumes `city="birmingham"` and `scan_interval=2` | `src/docket/analysis/ocr/rosters.py`, `src/docket/services/video_ocr.py` | One OCR city | A second city with video (issue #86) |
 | D17 | Admin force-rescan has no audit log | `POST /admin/meetings/<id>/rescan-ocr` | Parity with other admin actions left for later | Next admin audit pass (issue #85) |
 | D18 | `video_ocr` cron has no Healthchecks ping | Railway worker env `HEALTHCHECK_VIDEO_OCR_UUID` | Ping no-ops cleanly when unset | Create the check and set the variable (issue #89) |
