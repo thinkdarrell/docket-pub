@@ -28,6 +28,8 @@ A further item from the same review, Mr. Jenkins' three-minute public comment at
 - Observation: in the "Good" | "morning." fragments, the one-word row is the member's correct label, and the member's second word is given to the clerk; the diarizer gives most of the members' answers to the clerk.
   Evidence: offline re-assembly from the saved inputs (`variants.py` over `2543_v3_inputs.pkl`), rows 18:42–19:03. Without absorption: `S07 Good morning, sir. Council Member O'Quinn. Good morning. Council Member Smith is absent...`, `S08 Good`, `S07 morning. Council Member Williams...`, `S20 Good`, `S07 morning.`. With absorption and merge, everything from 18:42 to 19:03 becomes one `SPEAKER_07` row.
 - Observation: the final run's log said `dropped {'hallucination': 3, 'prompt_leak': 0}`, while `clean_segments()` on the pickled inputs of the same run returns 2 (80:13 "There's two ways to...", -0.94; 89:46 "Thank you for watching.", -0.97). Not explained; both listed drops are correct.
+- Correction (2026-10-18, appended): the count of 3 was right. The pickle check ran as `python -c` with the source mounted on `PYTHONPATH`, and `-c` puts the working directory `/app` first on `sys.path`, so it imported the image's version-2 `engine.py`, which lacks the signature rule. The third drop is 91:47 "Thank you for watching." at -0.78, the one this plan added the rule for.
+  Evidence: `raw.json` of meeting 2543 captured 2026-10-18 by `--capture-inputs`, filtered with the version-3 `is_hallucination()`: 4813 s "There's two ways to..." -0.94; 5387 s "Thank you for watching." -0.97; 5507 s "Thank you for watching." -0.78.
 
 ## Decision Log
 

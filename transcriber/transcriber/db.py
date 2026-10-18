@@ -105,6 +105,25 @@ _MEETING_SQL = """
 """
 
 
+def meeting_source(conn, meeting_id: int) -> str | None:
+    """The Granicus clip id of an eligible Birmingham meeting (the same filter as
+    _MEETING_SQL), or None. Read-only: the cache and capture passes never claim."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """SELECT m.external_id
+                 FROM meetings m
+                 JOIN municipalities mu ON mu.id = m.municipality_id
+                WHERE m.id = %s
+                  AND mu.slug = 'birmingham'
+                  AND m.video_url IS NOT NULL
+                  AND m.is_hidden = FALSE
+                  AND m.external_id ~ '^[0-9]+$'""",
+            [meeting_id],
+        )
+        row = cur.fetchone()
+        return row[0] if row else None
+
+
 class MeetingBusy(Exception):
     """The worker's claim stamped this transcript's row within the last 30 minutes (a stage may
     be in flight; its `advance()` would overwrite our claim and a finishing compare would clear

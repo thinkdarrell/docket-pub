@@ -3,9 +3,13 @@
     python -m transcriber.cli --since 2025-10-28 --limit 5 --max-hours 3
     python -m transcriber.cli --dry-run /archive/clips/item15.mp4   # no DB, CPU ok
     python -m transcriber.cli --meeting-id 2543                     # re-run one meeting
+    python -m transcriber.cli --cache-audio 2543 1 2                # keep audio.flac, no GPU
+    python -m transcriber.cli --capture-inputs 2543                 # raw.json + diarization.json, no DB writes
+    python -m transcriber.cli --replay 2543                         # replay.json from saved inputs, CPU only
 
-Per meeting: claim -> fetch audio -> transcribe -> diarize -> write JSON
-(status transcribed) -> upload (status uploaded) -> delete audio. Ctrl-C
+Per meeting: claim -> fetch audio (or decode the archive's audio.flac, keeping a
+copy when fetched) -> transcribe (raw.json) -> diarize (diarization.json) -> write
+JSON (status transcribed) -> upload (status uploaded) -> delete the work WAV. Ctrl-C
 finishes the current meeting and exits.
 """
 from __future__ import annotations
@@ -25,6 +29,8 @@ from dotenv import load_dotenv
 
 from . import __version__
 from . import db as tdb
+from . import inputs
+from .inputs import get_audio
 from .audio import AudioFetchError, download_url_for, fetch_audio, probe_duration, sha256_file
 from .contract import TranscriptOutput
 from .engine import (TRANSCRIPT_VERSION, Engine, build_output, clean_segments, is_low_speech,
@@ -99,7 +105,8 @@ def process_claim(conn, engine: Engine, claim: tdb.Claim, cfg: Config) -> str:
     wav = cfg.work_dir / f"{claim.meeting_id}.wav"
     source = download_url_for(claim.external_id)
     try:
-        fetch_audio(source, wav)
+        if get_audio(source, wav, inputs.audio_path(cfg.archive_dir, claim.meeting_id), fetch=fetch_audio):
+            log.info("meeting %s: audio from the archive's audio.flac", claim.meeting_id)
         duration = probe_duration(str(wav))
         sha = sha256_file(wav)
         tdb.mark_status(conn, claim.transcript_id, "audio_fetched",
@@ -119,6 +126,8 @@ def process_claim(conn, engine: Engine, claim: tdb.Claim, cfg: Config) -> str:
             log.warning("prompt budget: %s; using vocabulary only", e)
             prompt = build_initial_prompt([])
         raw = engine.transcribe(wav, prompt)
+        inputs.write_raw(inputs.raw_path(cfg.archive_dir, claim.meeting_id), raw, meeting_id=claim.meeting_id,
+                         initial_prompt=prompt, audio_duration_s=duration, audio_sha256=sha, engine=engine)
         raw, dropped = clean_segments(raw, prompt)
         log.info("meeting %s: dropped %s", claim.meeting_id, dropped)
         sp_s = speech_seconds(raw)
@@ -126,6 +135,7 @@ def process_claim(conn, engine: Engine, claim: tdb.Claim, cfg: Config) -> str:
             return _end_without_upload(conn, claim, "low_speech", error=f"{sp_s:.0f}s of speech detected",
                                        speech_ratio=sp_s / max(duration, 1))
         turns, emb = engine.diarize(wav)
+        inputs.write_diarization(inputs.diarization_path(cfg.archive_dir, claim.meeting_id), turns, emb)
         words_path = None
         if getattr(engine, "last_words", None):
             import json
@@ -215,6 +225,71 @@ def dry_run(engine: Engine, source: str, cfg: Config) -> Path:
     return path
 
 
+def cache_audio(conn, cfg: Config, meeting_id: int) -> str:
+    """Download one meeting's audio into the archive as audio.flac. No GPU, no database write."""
+    flac = inputs.audio_path(cfg.archive_dir, meeting_id)
+    if flac.exists():
+        return "cached"
+    external_id = tdb.meeting_source(conn, meeting_id)
+    if external_id is None:
+        log.error("meeting %s is not an eligible Birmingham meeting", meeting_id)
+        return "ineligible"
+    wav = cfg.work_dir / f"{meeting_id}.wav"
+    try:
+        fetch_audio(download_url_for(external_id), wav)
+        inputs.store_flac(wav, flac)
+    except (AudioFetchError, OSError, subprocess.TimeoutExpired) as e:
+        log.error("meeting %s: %s", meeting_id, e)
+        return "failed"
+    finally:
+        wav.unlink(missing_ok=True)
+    return "fetched"
+
+
+def capture_inputs(conn, engine: Engine, cfg: Config, meeting_id: int) -> str:
+    """Run speech recognition and diarization on one meeting and write raw.json and
+    diarization.json to its archive folder, without claiming, uploading, or writing to the
+    database. Audio comes from audio.flac when present (fetched and kept otherwise)."""
+    external_id = tdb.meeting_source(conn, meeting_id)
+    if external_id is None:
+        log.error("meeting %s is not an eligible Birmingham meeting", meeting_id)
+        return "ineligible"
+    wav = cfg.work_dir / f"{meeting_id}.wav"
+    try:
+        get_audio(download_url_for(external_id), wav, inputs.audio_path(cfg.archive_dir, meeting_id),
+                  fetch=fetch_audio)
+        duration = probe_duration(str(wav))
+        sha = sha256_file(wav)
+        try:
+            prompt = build_initial_prompt(tdb.roster_for_meeting(conn, meeting_id))
+        except PromptBudgetError:
+            prompt = build_initial_prompt([])
+        conn.rollback()  # read-only; end the transaction before the long GPU work
+        raw = engine.transcribe(wav, prompt)
+        inputs.write_raw(inputs.raw_path(cfg.archive_dir, meeting_id), raw, meeting_id=meeting_id,
+                         initial_prompt=prompt, audio_duration_s=duration, audio_sha256=sha, engine=engine)
+        turns, emb = engine.diarize(wav)
+        inputs.write_diarization(inputs.diarization_path(cfg.archive_dir, meeting_id), turns, emb)
+    except Exception:  # noqa: BLE001 — one meeting's failure does not stop the pass
+        log.exception("meeting %s capture failed", meeting_id)
+        return "failed"
+    finally:
+        wav.unlink(missing_ok=True)
+    return "captured"
+
+
+def replay_meeting(cfg: Config, meeting_id: int) -> Path:
+    """build_output() over the archived raw.json and diarization.json; writes replay.json beside
+    transcript.json (never over it). CPU only; no audio, model, or database."""
+    out = inputs.replay(cfg.archive_dir, meeting_id, TRANSCRIPT_VERSION)
+    path = cfg.archive_dir / str(meeting_id) / "replay.json"
+    path.write_text(out.to_json())
+    speech = [s for s in out.segments if not s.is_silence]
+    log.info("meeting %s: replayed %d segments, %d speakers -> %s",
+             meeting_id, len(speech), len(out.speakers), path)
+    return path
+
+
 def exit_code(counts: dict, meeting_id: int | None) -> int:
     """--meeting-id promises one upload; anything else, not eligible, busy, failed, or low_speech, is exit 1."""
     return 1 if meeting_id is not None and counts["uploaded"] == 0 else 0
@@ -234,6 +309,13 @@ def main(argv=None) -> int:
                     help="re-queue meetings marked failed")
     ap.add_argument("--meeting-id", type=int, default=None,
                     help="re-transcribe this one meeting, whatever its status; ignores --since and --limit")
+    modes = ap.add_mutually_exclusive_group()
+    modes.add_argument("--cache-audio", type=int, nargs="+", metavar="MEETING_ID",
+                       help="download these meetings' audio into the archive as audio.flac; no GPU, no DB writes")
+    modes.add_argument("--capture-inputs", type=int, nargs="+", metavar="MEETING_ID",
+                       help="write raw.json and diarization.json for these meetings; no claim, upload, or DB writes")
+    modes.add_argument("--replay", type=int, nargs="+", metavar="MEETING_ID",
+                       help="rebuild replay.json from the archived inputs on the CPU; no audio, GPU, or DB")
     ap.add_argument("--model", default=os.environ.get("TRANSCRIBER_MODEL", "large-v3"))
     ap.add_argument("--device", default=os.environ.get("TRANSCRIBER_DEVICE", "cuda"))
     ap.add_argument("--compute-type", default=os.environ.get("TRANSCRIBER_COMPUTE", "float16"))
@@ -251,12 +333,32 @@ def main(argv=None) -> int:
     )
     cfg.work_dir.mkdir(parents=True, exist_ok=True)
 
+    if args.replay:
+        failed = 0
+        for mid in args.replay:
+            try:
+                replay_meeting(cfg, mid)
+            except (OSError, KeyError, ValueError) as e:
+                log.error("meeting %s: cannot replay (%s)", mid, e)
+                failed += 1
+        log.info("replay done: %d ok, %d failed", len(args.replay) - failed, failed)
+        return 1 if failed else 0
+
     url = os.environ.get("TRANSCRIBER_DATABASE_URL")
     if not args.dry_run:
         if not url:
             ap.error("TRANSCRIBER_DATABASE_URL is not set")
         if "sslmode=require" not in url:
             ap.error("TRANSCRIBER_DATABASE_URL must include sslmode=require")
+
+    if args.cache_audio:
+        conn = tdb.connect(url)
+        try:
+            results = {mid: cache_audio(conn, cfg, mid) for mid in args.cache_audio}
+        finally:
+            conn.close()
+        log.info("cache-audio done %s", results)
+        return 1 if any(r in ("failed", "ineligible") for r in results.values()) else 0
 
     from .engine import FasterWhisperEngine
     engine = FasterWhisperEngine(model_size=args.model, device=args.device,
@@ -266,6 +368,15 @@ def main(argv=None) -> int:
     if args.dry_run:
         print(dry_run(engine, args.dry_run, cfg))
         return 0
+
+    if args.capture_inputs:
+        conn = tdb.connect(url)
+        try:
+            results = {mid: capture_inputs(conn, engine, cfg, mid) for mid in args.capture_inputs}
+        finally:
+            conn.close()
+        log.info("capture-inputs done %s oom_fallbacks=%s", results, getattr(engine, "oom_fallbacks", 0))
+        return 1 if any(r != "captured" for r in results.values()) else 0
 
     conn = tdb.connect(url)
     try:

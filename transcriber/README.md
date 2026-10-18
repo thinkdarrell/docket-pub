@@ -91,7 +91,20 @@ Task Scheduler (optional): a basic task "At log on" running
 
 - `C:\docket-archive\transcripts\<meeting_id>\transcript.json` — the upload contract (kept)
 - `C:\docket-archive\transcripts\<meeting_id>\words.json` — word timestamps (kept, never uploaded)
-- `C:\docket-archive\work\*.wav` — audio, deleted after each meeting
+- `C:\docket-archive\transcripts\<meeting_id>\audio.flac` — the meeting's audio, lossless (kept; a re-run decodes it instead of downloading)
+- `C:\docket-archive\transcripts\<meeting_id>\raw.json` — Whisper's chunks before cleaning, with the prompt (kept, never uploaded)
+- `C:\docket-archive\transcripts\<meeting_id>\diarization.json` — pyannote's turns and embeddings (kept, never uploaded)
+- `C:\docket-archive\transcripts\<meeting_id>\replay.json` — written by `--replay`, never over `transcript.json`
+- `C:\docket-archive\work\*.wav` — the decoded work copy, deleted after each meeting
+
+`raw.json` and `diarization.json` are everything `build_output()` takes, so a change to the
+post-processing in `engine.py` can be checked on every archived meeting in seconds, on the CPU:
+
+    docker compose run --rm transcriber --replay 2543 1 2      # writes replay.json, no DB, no GPU
+
+`--cache-audio ID...` downloads audio only (no GPU, no database write) and `--capture-inputs ID...`
+runs speech recognition and diarization to write the two files without claiming or uploading.
+About 63 MB of FLAC per hour of meeting.
 
 ## What to expect
 
