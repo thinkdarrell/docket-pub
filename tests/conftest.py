@@ -24,6 +24,18 @@ Two env-var hygiene fixes for the local test environment:
 Both use ``os.environ.setdefault`` so an operator can override from
 the shell (e.g. ``PGTZ=America/Chicago pytest …`` to reproduce a
 local-only bug).
+
+Third, a refusal. ``pytest_sessionstart`` below stops the session, with
+exit status 2 and before any test is collected, when ``DATABASE_URL``
+names a database that is not ``docket_test_*``. The unit-tier fixture
+``fresh_db`` runs ``DELETE FROM`` on seven tables against whatever
+``DATABASE_URL`` names (``docs/DEBT.md`` ``D37``), so a bare ``pytest``
+against a developer ``docket_db`` destroys its votes; ``./tools/verify``
+exports a throwaway ``docket_test_<hash>`` URL, and that is the only
+kind of database the suite may touch. The one exemption is the exact
+marker expression ``live`` (``-m live``), because the live tier
+legitimately reads a real database. There is no environment-variable
+escape hatch: the guard exists to remove that judgment, not to move it.
 """
 
 from __future__ import annotations
@@ -40,3 +52,29 @@ os.environ.setdefault("PGTZ", "UTC")
 os.environ.setdefault("TZ", "UTC")
 import time  # noqa: E402 — apply TZ immediately so tests see UTC dates
 time.tzset()
+
+
+def pytest_sessionstart(session):
+    """Refuse any database not named ``docket_test_*`` outside the live tier."""
+    markexpr = getattr(session.config.option, "markexpr", None)
+    if markexpr is not None and markexpr.strip() == "live":
+        return
+    url = os.environ.get("DATABASE_URL")
+    if not url:
+        # Only when the shell did not export it: docket.config also reads .env.
+        from docket.config import DATABASE_URL as url  # noqa: N811
+    from urllib.parse import urlsplit
+
+    import pytest
+
+    name = urlsplit(url).path.lstrip("/")
+    if not name.startswith("docket_test_"):
+        pytest.exit(
+            f"tests: refusing to run against database '{name}': the unit tier "
+            "deletes rows from whatever DATABASE_URL names (docs/DEBT.md D37). "
+            "Run ./tools/verify, or one tier with "
+            "DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest <tier> -q "
+            "-p no:cacheprovider; tools/test-db --drop "
+            "(docs/specs/operations.md Tests). The live tier (-m live) is exempt.",
+            returncode=2,
+        )

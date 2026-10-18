@@ -133,6 +133,21 @@ constrains:
    argument parsing, authentication, a version banner — and the point it
    reached is recorded beside it. A line composed from individually correct
    flags is not a line anyone has run.
+   A command the executing session will be forbidden to run is given to
+   the operator at authoring, not discovered mid-milestone: a write to a
+   remote service (`gh api --method PUT`, a Railway variable) is refused by
+   the harness's permission system in a factory session, where an
+   interactive session would merely be asked, and a command the plan itself
+   adds to `.claude/settings.json` is refused by the very session that
+   writes the rule (decision `0053`). The clause names the operator as its
+   executor and where the observation is recorded, and a milestone whose
+   documents describe the state that command produces is ordered after the
+   operator's step, so a present-tense spec is written about a state
+   someone has observed. One plan carved out three clauses across two
+   milestones this way, two deploy probes under its own deny rule and one
+   branch-protection write, each found by the session that could not run
+   it, and its specs stated a protection as fact for an hour before the
+   operator set it, which the closing review halted on as severe.
 9. Commit the plan by itself, and report: its path, the milestone count, what
    the first milestone is, and what you deliberately left out of the plan.
 

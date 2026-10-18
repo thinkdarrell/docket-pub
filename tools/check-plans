@@ -1,0 +1,94 @@
+#!/bin/sh
+# tools/check-plans: every active plan carries its living sections and dates
+# its completed Progress entries (docs/capabilities/evidence-check.md).
+#
+# With no argument, checks every plans/active/*.md. With --staged, checks the
+# index version of every staged, added-or-modified plans/active/*.md, so a
+# pre-commit hook judges what will be committed rather than the working tree.
+# With one or more file paths, checks those files (how the failing case is
+# demonstrated on a copy without touching a real plan). Each file is decided
+# by `tools/judge-milestone snapshot`, which exits 0 when the record holds and
+# 2 with one `judge: defect ...` line on stderr when it does not; the judge
+# reads only the file's contents, so a temporary copy judges identically.
+# Prints `plans: <path> ... ok (<the four sections>)` or `plans: <path> ...
+# FAILED` followed by the defect and the card's remediation, then `plans: N of
+# N ok` (exit 0) or `plans: K of N failed` (exit 1). Nothing to check passes:
+# an empty plans/active/ is a passing state by the card. Run it from anywhere;
+# it changes to the root of the checkout that contains it, so a file argument
+# is absolute or relative to that root.
+set -u
+
+cd "$(dirname "$0")/.."
+
+TMP=$(mktemp -d "${TMPDIR:-/tmp}/check-plans.XXXXXX") || exit 1
+trap 'rm -rf "$TMP"' EXIT
+
+SECTIONS="Progress, Surprises & Discoveries, Decision Log, Outcomes & Retrospective"
+TOTAL=0
+FAILED=0
+
+# check_file <display-path> <file-to-read>: judge one file, print its line(s).
+check_file() {
+    shown=$1
+    file=$2
+    TOTAL=$((TOTAL + 1))
+    err="$TMP/err"
+    tools/judge-milestone snapshot "$file" >/dev/null 2>"$err"
+    rc=$?
+    if [ "$rc" -eq 0 ]; then
+        echo "plans: $shown ... ok ($SECTIONS)"
+        return
+    fi
+    FAILED=$((FAILED + 1))
+    echo "plans: $shown ... FAILED"
+    if [ "$rc" -eq 2 ]; then
+        defect=$(sed "s|$file|$shown|g" "$err")
+        echo "  $defect"
+        case "$defect" in
+        *"no date"*)
+            echo "  Completed entries record when the work was observed: - [x] (YYYY-MM-DD HH:MMZ) <entry>. Use the time you observed, not an estimate."
+            ;;
+        *)
+            echo "  plans/PLANS.md requires Progress, Surprises & Discoveries, Decision Log, and Outcomes & Retrospective in every plan. Add the heading and the entries the work produced; an empty section is also a failure."
+            ;;
+        esac
+    else
+        echo "  tools/judge-milestone snapshot exited $rc"
+    fi
+}
+
+if [ $# -eq 0 ]; then
+    for f in plans/active/*.md; do
+        [ -e "$f" ] || continue
+        check_file "$f" "$f"
+    done
+    if [ "$TOTAL" -eq 0 ]; then
+        echo "plans: no active plans"
+        exit 0
+    fi
+elif [ "$1" = "--staged" ]; then
+    n=0
+    git diff --cached --name-only --diff-filter=AM -- 'plans/active/*.md' >"$TMP/staged" || exit 1
+    while IFS= read -r path; do
+        [ -n "$path" ] || continue
+        n=$((n + 1))
+        copy="$TMP/staged-$n.md"
+        git show ":$path" >"$copy" || exit 1
+        check_file "$path" "$copy"
+    done <"$TMP/staged"
+    if [ "$TOTAL" -eq 0 ]; then
+        echo "plans: no staged plans"
+        exit 0
+    fi
+else
+    for f in "$@"; do
+        check_file "$f" "$f"
+    done
+fi
+
+if [ "$FAILED" -eq 0 ]; then
+    echo "plans: $TOTAL of $TOTAL ok"
+    exit 0
+fi
+echo "plans: $FAILED of $TOTAL failed"
+exit 1
