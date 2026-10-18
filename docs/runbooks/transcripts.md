@@ -241,6 +241,24 @@ retried from there, `retry_transcript()` nulls the `transcript_changed` marker
 `venv/bin/python scripts/transcript_recompare.py --meeting-id 2543 --now --transcript-changed`
 instead of relying on the tick's compare.
 
+## Archived inputs: cache, capture, replay
+
+Every run keeps `audio.flac`, `raw.json`, and `diarization.json` in the meeting's archive folder
+(`docs/specs/transcripts.md` says what each holds). A re-run of a meeting with `audio.flac`
+decodes it instead of downloading (the log says `audio from the archive's audio.flac`).
+From `C:/docket-pub/transcriber` on the Legion:
+
+    docker compose run --rm transcriber --cache-audio 2543 1 2       # download only; no GPU, no DB writes
+    docker compose run --rm transcriber --capture-inputs 2543 1 2    # GPU; writes raw.json + diarization.json, no DB writes
+    docker compose run --rm transcriber --replay 2543 1 2            # CPU; writes replay.json, never transcript.json
+
+Each prints one `... done {id: result}` line and exits 1 when any meeting did not succeed;
+a hidden or otherwise ineligible meeting is `ineligible`. Replay is for checking a change to
+`engine.py` before a backlog re-run: run it over every folder, compare `replay.json` with
+`transcript.json`, and only then re-run with `--meeting-id` to upload. A capture is a fresh
+GPU pass, so its inputs can in principle differ slightly from the ones behind the uploaded
+transcript (on 2543 they did not: the replay matched the upload row for row).
+
 ## Checking progress from the laptop
 
 All read-only. The URL is the app's public proxy URL from Railway.
