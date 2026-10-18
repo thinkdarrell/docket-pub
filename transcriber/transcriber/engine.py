@@ -18,9 +18,9 @@ log = logging.getLogger(__name__)
 
 LOW_SPEECH_FLOOR_S = 180.0
 
-# transcripts.version. 2 = per-word speaker split, hallucination and prompt-leak filters, prose prompt
-# (1 = whole-chunk clusters, no cleaning). Bump it when the output changes shape or content again.
-TRANSCRIPT_VERSION = 2
+# transcripts.version. 3 = signature-phrase filter, same-speaker merge; 2 = per-word speaker split,
+# hallucination and prompt-leak filters, prose prompt; 1 = whole-chunk clusters, no cleaning. Bump it when the output changes shape or content again.
+TRANSCRIPT_VERSION = 3
 
 
 @dataclass
@@ -104,8 +104,19 @@ HALLUCINATION_LOGPROB = -0.9
 HALLUCINATION_MAX_WORDS = 8
 HALLUCINATION_PHRASES: tuple[str, ...] = (
     "thank you", "thanks", "thank you very much", "thank you so much",
-    "thank you for joining us", "thank you for joining us today", "thanks for watching",
+    "thank you for joining us", "thank you for joining us today",
     "bye", "you", "all right", "okay", "thank you all",
+)
+# Phrases from Whisper's caption training data that nobody says at a council
+# meeting. A chunk made only of stock phrases that includes one of these is
+# dropped at the looser SIGNATURE_LOGPROB whatever its length (2543 at 91:47:
+# "Thank you for watching.", 12 s, -0.78), while "Thank you very much." at -0.74
+# is plausibly real and keeps the stricter HALLUCINATION_LOGPROB.
+SIGNATURE_LOGPROB = -0.5
+SIGNATURE_PHRASES: tuple[str, ...] = (
+    "thank you for watching", "thanks for watching", "thank you so much for watching",
+    "please subscribe", "like and subscribe", "subscribe to my channel",
+    "subtitles by the amaraorg community",
 )
 PROMPT_LEAK_MIN_WORDS = 8
 
@@ -118,13 +129,14 @@ def normalize_text(text: str) -> str:
 
 
 def is_phrase_only(text: str) -> bool:
-    """True when the normalized text is a sequence of stock phrases and nothing else.
+    """True when the normalized text is a sequence of stock phrases (HALLUCINATION_PHRASES
+    and SIGNATURE_PHRASES) and nothing else.
 
     Tokens are consumed from the left, always taking the longest phrase that
     matches at the current position; an empty text counts as phrase-only.
     """
     tokens = normalize_text(text).split()
-    phrases = sorted((p.split() for p in HALLUCINATION_PHRASES), key=len, reverse=True)
+    phrases = sorted((p.split() for p in HALLUCINATION_PHRASES + SIGNATURE_PHRASES), key=len, reverse=True)
     i = 0
     while i < len(tokens):
         for ph in phrases:
@@ -136,11 +148,21 @@ def is_phrase_only(text: str) -> bool:
     return True
 
 
+def has_signature_phrase(norm: str) -> bool:
+    """True when normalized text contains one of SIGNATURE_PHRASES on word boundaries."""
+    padded = f" {norm} "
+    return any(f" {p} " in padded for p in SIGNATURE_PHRASES)
+
+
 def is_hallucination(r: RawSegment) -> bool:
     norm = normalize_text(r.text)
     if norm == "":
         return True
-    if r.avg_logprob is None or r.avg_logprob > HALLUCINATION_LOGPROB:
+    if r.avg_logprob is None:
+        return False
+    if r.avg_logprob <= SIGNATURE_LOGPROB and has_signature_phrase(norm) and is_phrase_only(r.text):
+        return True
+    if r.avg_logprob > HALLUCINATION_LOGPROB:
         return False
     return len(norm.split()) <= HALLUCINATION_MAX_WORDS or is_phrase_only(r.text)
 
@@ -232,6 +254,43 @@ def assign_word_clusters(words: list[Word], turns: list[DiarTurn]) -> list[str |
     return labels
 
 
+# Back-to-back segments from one cluster are joined when the gap between them is
+# short and the result stays readable; MERGE_MAX_S keeps a long speech from
+# collapsing back into multi-minute rows (v2's median segment is 12.4 s).
+MERGE_MAX_GAP_S = 1.0
+MERGE_MAX_S = 30.0
+
+
+def merge_same_speaker(segs: list[Segment]) -> list[Segment]:
+    """Join consecutive segments with the same non-None cluster when the gap is at most
+    MERGE_MAX_GAP_S and the joined span at most MERGE_MAX_S. The joined avg_logprob is
+    the duration-weighted mean and no_speech_prob the larger (None when either is None);
+    seq is renumbered."""
+    out: list[Segment] = []
+    for s in segs:
+        p = out[-1] if out else None
+        if (p is not None and s.cluster_label is not None and p.cluster_label == s.cluster_label
+                and s.start_s - p.end_s <= MERGE_MAX_GAP_S and s.end_s - p.start_s <= MERGE_MAX_S):
+            dp, ds = p.end_s - p.start_s, s.end_s - s.start_s
+            if p.avg_logprob is None or s.avg_logprob is None:
+                lp = None
+            elif dp + ds > 0:
+                lp = (p.avg_logprob * dp + s.avg_logprob * ds) / (dp + ds)
+            else:
+                lp = p.avg_logprob
+            if p.no_speech_prob is None or s.no_speech_prob is None:
+                nsp = None
+            else:
+                nsp = max(p.no_speech_prob, s.no_speech_prob)
+            out[-1] = Segment(p.seq, p.start_s, max(p.end_s, s.end_s), f"{p.text} {s.text}".strip(),
+                              p.cluster_label, lp, nsp)
+        else:
+            out.append(s)
+    for i, s in enumerate(out):
+        s.seq = i
+    return out
+
+
 def split_by_speaker(raw: list[RawSegment], turns: list[DiarTurn]) -> list[Segment]:
     """One Segment per run of same-cluster words in each chunk.
 
@@ -275,7 +334,7 @@ def build_output(meeting_id: int, version: int, engine: Engine, raw: list[RawSeg
     raw, dropped = clean_segments(raw, initial_prompt)
     if any(dropped.values()):
         log.info("meeting %s: dropped %s", meeting_id, dropped)
-    segs = split_by_speaker(raw, turns)
+    segs = merge_same_speaker(split_by_speaker(raw, turns))
     segs = insert_silence_markers(segs, audio_duration_s)
     used = {s.cluster_label for s in segs if s.cluster_label}
     speakers = [Speaker(lab, embeddings.get(lab)) for lab in sorted(used)]

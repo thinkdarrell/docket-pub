@@ -77,7 +77,7 @@ def test_happy_path_uploads_and_archives_json(monkeypatch, cfg):
     counts = cli.run_loop(FakeConn(), FakeEngine(), cfg)
     assert counts == {"uploaded": 1, "failed": 0, "low_speech": 0}
     assert fdb.uploaded == [101]
-    assert fdb.versions == [2]                            # TRANSCRIPT_VERSION
+    assert fdb.versions == [3]                            # TRANSCRIPT_VERSION
     assert any(p.suffix == ".json" for p in cfg.archive_dir.rglob("*"))
     assert not list(cfg.work_dir.rglob("*.wav"))          # audio deleted after upload
     assert [s for _, s, _ in fdb.status][:2] == ["audio_fetched", "transcribed"]
@@ -176,7 +176,7 @@ def test_loop_drops_hallucinations_and_prompt_leaks_before_upload(monkeypatch, c
     assert sizes == [1]
 
 
-def test_meeting_id_claims_one_meeting_and_uploads_version_2(monkeypatch, cfg):
+def test_meeting_id_claims_one_meeting_and_uploads_current_version(monkeypatch, cfg):
     cfg.meeting_id = 2543
     claim = Claim(9, 2543, "2016", "Regular City Council Meeting", date(2026, 10, 6), "claimed")
     fdb = FakeDB([claim]); _wire(monkeypatch, fdb)
@@ -186,7 +186,7 @@ def test_meeting_id_claims_one_meeting_and_uploads_version_2(monkeypatch, cfg):
     counts = cli.run_loop(FakeConn(), FakeEngine(), cfg)
     assert counts == {"uploaded": 1, "failed": 0, "low_speech": 0}
     assert fdb.meeting_claims == [{"meeting_id": 2543, "host": "test"}]
-    assert fdb.uploaded == [2543] and fdb.versions == [2]
+    assert fdb.uploaded == [2543] and fdb.versions == [3]
     assert fdb.beats[-1] == "exited"
 
 

@@ -16,4 +16,4 @@ The trap this record guards against is the agent who sees filler surviving insid
 
 ## Status
 
-accepted
+accepted; `0052` adds a same-cluster merge after the split and records a tried and rejected fragment-absorption rule; the no-smoothing clause stands
