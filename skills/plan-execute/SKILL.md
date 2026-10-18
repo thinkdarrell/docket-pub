@@ -64,7 +64,12 @@ than a dirty tree.
 Prove acceptance by running it. Every acceptance check the milestone states
 gets executed, and what it printed is what you record. An acceptance check you
 could not run is an unmet acceptance, and the milestone is complete only with
-that gap named.
+that gap named. A command the permission system refused is such a check:
+record the refusal verbatim, name the operator as its executor, and do not
+re-spell the command (`bash scripts/deploy.sh` for a denied
+`scripts/deploy.sh`, a copy under another name) to get past the denial. The
+denial is a rule the repository or the harness set, and an observation
+obtained around it records the bypass, not the behaviour.
 
 ## Write the evidence back
 
