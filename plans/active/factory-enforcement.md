@@ -15,7 +15,7 @@ After this plan, an outside reader sees four things they cannot see now. A pull 
 - [x] (2026-10-17 23:58Z) M1: `tools/check-plans` decides evidence-check for every active plan, runs as verify's sixth check and as the pre-commit hook in `tools/hooks/`, and the card is `built`.
 - [x] (2026-10-18 00:06Z) M2: the test suite refuses a database not named `docket_test_*` outside the live tier, the project `.claude/settings.json` denies the hook-bypass and deploy commands, and `scripts/deploy.sh` refuses a non-main branch or a dirty tree.
 - [x] (2026-10-18 00:23Z) M3: `.github/workflows/verify.yml` runs `./tools/verify` on every push and on pull requests to main, and one run on this branch has completed green.
-- [ ] M4: `main` requires the `verify` check to merge, `fast-verify` and `evidence-check` are `enforced`, decision 0052 is written, D15 is paid, and MATURITY.md says what is enforced.
+- [x] (2026-10-18 00:32Z) M4: `main` requires the `verify` check to merge, `fast-verify` and `evidence-check` are `enforced`, decision 0052 is written, D15 is paid, and MATURITY.md says what is enforced.
 
 ## Surprises & Discoveries
 
@@ -441,7 +441,18 @@ Before the PUT: `gh auth status` printed `Logged in to github.com account thinkd
 
     Permission for this action was denied by the Claude Code auto mode classifier. Reason: [Permission Grant].
 
-Clause (a) is therefore unmet here (Outcomes & Retrospective says what the operator runs). After writing `docs/decisions/0052-main-requires-the-verify-check-to-merge.md` and editing the four documents, the acceptance greps in one call: (b) `grep -c '^| D15 ' docs/DEBT.md` printed `0`; (c) `grep -cE '^\| .(fast-verify|evidence-check). \| enforced ' docs/capabilities/index.md` printed `2`; (d) `ls docs/decisions/0052-*.md` printed `docs/decisions/0052-main-requires-the-verify-check-to-merge.md`; (e) `grep -c 'enforced. yet' docs/MATURITY.md` printed `0`. `git status --porcelain` then listed `docs/DEBT.md`, `docs/MATURITY.md`, `docs/capabilities/index.md`, `docs/specs/operations.md` modified and the decision file untracked. Clause (f), the closing `./tools/verify`, is recorded below once run.
+Clause (a) is therefore unmet here (Outcomes & Retrospective says what the operator runs). After writing `docs/decisions/0052-main-requires-the-verify-check-to-merge.md` and editing the four documents, the acceptance greps in one call: (b) `grep -c '^| D15 ' docs/DEBT.md` printed `0`; (c) `grep -cE '^\| .(fast-verify|evidence-check). \| enforced ' docs/capabilities/index.md` printed `2`; (d) `ls docs/decisions/0052-*.md` printed `docs/decisions/0052-main-requires-the-verify-check-to-merge.md`; (e) `grep -c 'enforced. yet' docs/MATURITY.md` printed `0`. `git status --porcelain` then listed `docs/DEBT.md`, `docs/MATURITY.md`, `docs/capabilities/index.md`, `docs/specs/operations.md` modified and the decision file untracked. Clause (f), `./tools/verify` in the worktree after the first M4 commit (4a2dc43, which carries the decision, the four document edits, and the evidence above), started 00:30Z and finished at 00:32Z, exit 0:
+
+    verify: test-db ... ok (0s) postgresql://thinkdarrell@/docket_test_a485ea18
+    verify: unit+web+services ... ok (46s)
+    verify: integration ... ok (48s)
+    verify: judge-fixtures ... ok (1s)
+    verify: workflows ... ok (0s)
+    verify: transcriber ... ok (0s)
+    verify: plans ... ok (0s)
+    verify: all 6 checks passed in 95s.
+
+The commit that ticks M4 follows this run; the branch is not pushed by this session (Concrete Steps M4 does not ask for it), so the operator's push or the closing sequence triggers the next pair of CI runs.
 
 
 ## Interfaces and Dependencies
