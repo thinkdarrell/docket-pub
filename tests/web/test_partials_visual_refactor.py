@@ -551,21 +551,24 @@ def test_card_v2_fallback_legislation_idiom_structure(render_partial):
 
 
 def test_council_card_renders_attendance_alignment_when_provided(render_partial):
-    """Optional stats render when both attendance_pct and alignment_pct
-    are provided on the member dict."""
+    """The stats block renders when the member dict carries ``briefing``
+    (plan birmingham-city-briefing, M4): the two twelve-month lines, the
+    second a link to the dated Dissent view when the count is not zero."""
     m = {
-        'id': 7, 'name': 'Jane Doe', 'district_name': 'District 3',
-        'attendance_pct': 92, 'alignment_pct': 78, 'photo_url': None,
+        'id': 7, 'name': 'Jane Doe', 'district_name': 'District 3', 'district_number': 3,
+        'briefing': {'roll_calls': 40, 'attended': 37, 'against': 4, 'since_iso': '2025-10-19',
+                     'dissent_href': '/al/birmingham/council/7/?filter=dissent&since=2025-10-19'},
     }
     municipality = {'slug': 'birmingham'}
     html = render_partial("partials/council_card.html", m=m, municipality=municipality)
     assert 'cc-stats' in html
-    assert '92' in html and '%' in html
-    assert '78' in html
+    assert 'Attended 37 of 40 roll calls in the last 12 months' in html
+    assert '<a class="cc-dissent" href="/al/birmingham/council/7/?filter=dissent&amp;since=2025-10-19">Voted against the outcome 4 times</a>' in html
+    assert html.index('District 3') < html.index('Jane Doe'), "the district comes first"
 
 
 def test_council_card_omits_attendance_alignment_when_missing(render_partial):
-    """No stats block renders when fields are absent — current P2b consumer path."""
+    """No stats block renders without ``briefing`` — the council page's path."""
     m = {'id': 7, 'name': 'Jane Doe', 'district_name': 'District 3', 'photo_url': None}
     municipality = {'slug': 'birmingham'}
     html = render_partial("partials/council_card.html", m=m, municipality=municipality)
@@ -573,19 +576,23 @@ def test_council_card_omits_attendance_alignment_when_missing(render_partial):
     # Card body still renders core fields
     assert 'Jane Doe' in html
     assert 'District 3' in html
+    assert 'photo · placeholder' not in html
+    assert html.count('View record') == 1
 
 
 def test_council_card_is_anchor_to_member_detail(render_partial):
-    """P4-2: council_card.html became an anchor to /al/<slug>/council/<id>/.
+    """P4-2: the card navigates to /al/<slug>/council/<id>/.
 
-    Replaces the P2b/P3 contract (button with type='button' because no nav
-    target existed yet). With member_detail in P4-2, the card navigates.
+    Since M4 of plan birmingham-city-briefing the card is an ``<article
+    class="cc">`` whose name link (``cc-link``, stretched over the card by
+    CSS) carries the member record's URL, so the dissent link inside the
+    card is not nested in another anchor; no button remains.
     """
     m = {'id': 7, 'name': 'Jane Doe', 'district_name': 'District 3', 'photo_url': None}
     municipality = {'slug': 'birmingham'}
     html = render_partial("partials/council_card.html", m=m, municipality=municipality)
-    assert '<a class="cc"' in html
-    assert '/al/birmingham/council/7/' in html
+    assert '<article class="cc"' in html
+    assert '<a class="cc-name cc-link" href="/al/birmingham/council/7/">Jane Doe</a>' in html
     assert 'type="button"' not in html
 
 

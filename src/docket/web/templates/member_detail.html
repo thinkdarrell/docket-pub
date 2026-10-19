@@ -52,15 +52,19 @@
 </section>
 
 {# ── Filter chips ─────────────────────────────────── #}
+{% set since_iso = since.isoformat() if since else none %}
 <section class="member-filters">
   <div class="filter-chips t-mono">
     <a class="filter-chip {{ 'is-active' if filter_mode == 'all' else '' }}"
-       href="{{ url_for('public.member_detail', slug=municipality.slug, member_id=member.id) }}">All votes</a>
+       href="{{ url_for('public.member_detail', slug=municipality.slug, member_id=member.id, since=since_iso) }}">All votes</a>
     <a class="filter-chip {{ 'is-active' if filter_mode == 'dissent' else '' }}"
-       href="{{ url_for('public.member_detail', slug=municipality.slug, member_id=member.id, filter='dissent') }}">Dissent</a>
+       href="{{ url_for('public.member_detail', slug=municipality.slug, member_id=member.id, filter='dissent', since=since_iso) }}">Dissent</a>
     <a class="filter-chip {{ 'is-active' if filter_mode == 'sponsored' else '' }}"
        href="{{ url_for('public.member_detail', slug=municipality.slug, member_id=member.id, filter='sponsored') }}">Sponsored items</a>
   </div>
+  {% if since and filter_mode != 'sponsored' %}
+  <p class="t-meta member-since">Showing votes since {{ since.strftime('%B ') ~ since.day ~ ', ' ~ since.year }}, one source per meeting.</p>
+  {% endif %}
 </section>
 
 {# ── History table ────────────────────────────────── #}
@@ -117,7 +121,7 @@
 
     {% if history.next_cursor %}
     <div class="member-history-more">
-      <a class="link t-mono" href="{{ url_for('public.member_detail', slug=municipality.slug, member_id=member.id, filter=filter_mode, cursor=history.next_cursor) }}">More →</a>
+      <a class="link t-mono" href="{{ url_for('public.member_detail', slug=municipality.slug, member_id=member.id, filter=filter_mode, cursor=history.next_cursor, since=(since_iso if filter_mode != 'sponsored' else none)) }}">More →</a>
     </div>
     {% endif %}
   {% else %}

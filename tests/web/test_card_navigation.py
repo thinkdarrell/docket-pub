@@ -95,7 +95,9 @@ def test_council_card_navigates_to_member_detail():
     navigate. P4-2 introduces member_detail; this test pins the new shape.
     """
     src = _template_text("partials/council_card.html")
-    assert '<a class="cc"' in src, "council_card.html must use anchor element"
+    # Since plan birmingham-city-briefing M4 the card is an <article class="cc">
+    # whose name link (cc-link, stretched over the card) carries the record's URL.
+    assert '<a class="cc-name cc-link"' in src, "council_card.html must link the name to the record"
     assert "public.member_detail" in src, (
         "council_card.html must url_for('public.member_detail')"
     )

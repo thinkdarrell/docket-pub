@@ -8,9 +8,25 @@
 {% if opener %}{% include 'partials/briefing/opener.html' %}{% endif %}
 {% include 'partials/briefing/search.html' %}
 
-{# ── The doors (plan birmingham-city-briefing, M3): each renders only when its data exists ── #}
+{# ── The doors (plan birmingham-city-briefing, M3, M4): each renders only when its data exists ── #}
 {% include 'partials/briefing/door_money.html' %}
 {% include 'partials/briefing/door_disagreed.html' %}
+
+{# ── The council: the roster by district with the twelve-month counts (M4) ── #}
+{% if members %}
+<section class="council brf-council" aria-labelledby="brf-council-h">
+    <header class="brf-head">
+        <h2 id="brf-council-h" class="brf-h2">The council</h2>
+    </header>
+    <div class="council-grid">
+        {% for m in members %}
+        {% include "partials/council_card.html" %}
+        {% endfor %}
+    </div>
+</section>
+{% endif %}
+
+{% include 'partials/briefing/door_topics.html' %}
 
 {# ── Browse by Priority (F4, spec §6.7) ─────────────── #}
 {# Two grids:
@@ -71,47 +87,8 @@
 </section>
 {% endif %}
 
-{# ── Browse by Topic ──────────────────────────────── #}
-{% if topics %}
-<section class="topics">
-    <div class="topics-head">
-        <span class="t-eyebrow">Browse by topic</span>
-        <span class="t-meta dim t-mono">tags inferred from title + description</span>
-    </div>
-    <div class="topic-row">
-        {% for t in topics %}
-        <a href="{{ url_for('public.topic_detail', topic=t.topic, city=municipality.slug) }}"
-           class="topic-chip">
-            <span class="topic-dot" style="background: var(--accent)"></span>
-            <span>{{ t.topic | topic_name }}</span>
-            <span class="t-mono topic-count">{{ t.count }}</span>
-        </a>
-        {% endfor %}
-    </div>
-</section>
-{% endif %}
-
 {# ── Recent meetings (one list; replaces the two strips and the table) ── #}
 {% include 'partials/briefing/meetings.html' %}
-
-{# ── Council Members ─────────────────────────────── #}
-{% if members %}
-<section class="council">
-    <header class="feed-head">
-        <div>
-            <div class="t-eyebrow">Council members</div>
-            <h2 class="feed-title t-display">{{ municipality.name }} Council</h2>
-        </div>
-        <div class="t-mono t-meta">{{ members | length }} members</div>
-    </header>
-
-    <div class="council-grid">
-        {% for m in members %}
-        {% include "partials/council_card.html" %}
-        {% endfor %}
-    </div>
-</section>
-{% endif %}
 
 {# ── From the blog ───────────────────────────────── #}
 {% if blog_posts_for_city %}

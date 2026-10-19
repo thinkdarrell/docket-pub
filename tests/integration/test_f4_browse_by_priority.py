@@ -421,15 +421,31 @@ def test_city_homepage_has_browse_by_priority_section(client):
     assert "Browse by priority" in body
 
 
-def test_city_homepage_renders_four_policy_tiles(client):
+def test_city_page_links_four_priorities_under_topics_door(bag, client):
+    """The four BHM policy badges are the "Tracked in Birmingham" lines of
+    the "What they keep dealing with" door (plan birmingham-city-briefing,
+    M4), each a link to its category landing with one example item. A
+    priority with no qualifying item ever has no line, so each gets one.
+    """
+    m = bag.add_meeting(date.today().isoformat())
+    slugs = ("blight_accountability", "housing_stability",
+             "property_recovery", "public_safety_tech_privacy")
+    for slug in slugs:
+        iid = bag.add_item(m, title=f"Priority-{slug}", significance_score=5)
+        bag.add_badge(iid, slug, confidence=1.0)
+
     rv = client.get("/al/birmingham/")
     body = rv.get_data(as_text=True)
-    # Each BHM policy badge should have a link tile.
-    for slug in ("blight_accountability", "housing_stability",
-                 "property_recovery", "public_safety_tech_privacy"):
-        assert f"/al/birmingham/{slug}/" in body, (
-            f"policy tile link for {slug} missing"
+    assert "What they keep dealing with" in body
+    door = body[body.index('<section class="brf-door brf-door-topics"'):]
+    door = door[: door.index("</section>")]
+    assert "Tracked in Birmingham" in door
+    for slug in slugs:
+        assert f'href="/al/birmingham/{slug}/"' in door, (
+            f"priority link for {slug} missing from the topics door"
         )
+        assert f"Priority-{slug}" in door
+    assert door.count("1 item since") >= 4
 
 
 def test_city_homepage_renders_seven_process_tiles(client):

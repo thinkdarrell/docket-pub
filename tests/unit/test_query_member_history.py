@@ -128,3 +128,78 @@ def test_count_sponsored_items_empty_for_unknown_name():
 
 def test_count_sponsored_items_handles_empty_name():
     assert count_sponsored_items_for_member("") == 0
+
+
+@pytest.fixture
+def member_with_two_sources():
+    """One member, three meetings, with votes from more than one source.
+
+    A (2099-01-01): a minutes vote, failed, yea — a dissent.
+    B (2099-02-01): a minutes vote, passed, yea (aligned) and a video vote,
+      failed, yea (a dissent the source rule hides, since the minutes win).
+    C (2099-03-01): a video vote, failed, yea (a dissent the rule keeps: no
+      minutes vote on the meeting) and a review-flagged minutes vote, failed,
+      yea (excluded, and it does not make the minutes the chosen source).
+    """
+    _cleanup()
+    with db() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT id FROM municipalities ORDER BY id LIMIT 1")
+            muni_id = cur.fetchone()["id"]
+            cur.execute(
+                """INSERT INTO council_members (municipality_id, name, active)
+                   VALUES (%s, 'TEST_MH_Sam', TRUE) RETURNING id""",
+                (muni_id,),
+            )
+            mid = cur.fetchone()["id"]
+            meetings = {}
+            for label, mdate in (("A", "2099-01-01"), ("B", "2099-02-01"), ("C", "2099-03-01")):
+                cur.execute(
+                    """INSERT INTO meetings (municipality_id, title, meeting_date, meeting_type)
+                       VALUES (%s, %s, %s, 'council') RETURNING id""",
+                    (muni_id, f"TEST_MH_{label}", mdate),
+                )
+                meetings[label] = cur.fetchone()["id"]
+            for label, source, result, review in (
+                ("A", "minutes_text", "failed", False),
+                ("B", "minutes_text", "passed", False),
+                ("B", "video_ocr", "failed", False),
+                ("C", "video_ocr", "failed", False),
+                ("C", "minutes_text", "failed", True),
+            ):
+                cur.execute(
+                    """INSERT INTO votes (meeting_id, source, result, yeas, nays, abstentions,
+                                           confidence, needs_review)
+                       VALUES (%s, %s, %s, 5, 0, 0, 'high', %s) RETURNING id""",
+                    (meetings[label], source, result, review),
+                )
+                vote_id = cur.fetchone()["id"]
+                cur.execute(
+                    """INSERT INTO member_votes (vote_id, council_member_id, member_name, position)
+                       VALUES (%s, %s, 'TEST_MH_Sam', 'yea')""",
+                    (vote_id, mid),
+                )
+        conn.commit()
+    yield mid
+    _cleanup()
+
+
+def test_voting_history_since_filters_and_applies_source_rule(member_with_two_sources):
+    mid = member_with_two_sources
+    # Without ``since``: every vote, as the page always behaved (four dissents).
+    page = list_member_voting_history(mid, limit=10, filter_mode="dissent")
+    assert len(page["rows"]) == 4
+    # With ``since``: the date filter drops A; the source rule keeps only B's
+    # minutes vote (aligned, so not a dissent) and C's video vote, and drops
+    # the review-flagged vote.
+    page = list_member_voting_history(mid, limit=10, filter_mode="dissent", since=date(2099, 1, 15))
+    assert [(r["meeting_title"], r["source"]) for r in page["rows"]] == [("TEST_MH_C", "video_ocr")]
+    page = list_member_voting_history(mid, limit=10, since=date(2099, 1, 15))
+    assert [(r["meeting_title"], r["source"]) for r in page["rows"]] == [
+        ("TEST_MH_C", "video_ocr"), ("TEST_MH_B", "minutes_text"),
+    ]
+    # A ``since`` before every meeting keeps the date filter out of the way
+    # and still applies the rule: A, B's minutes vote, C's video vote.
+    page = list_member_voting_history(mid, limit=10, since=date(2098, 1, 1))
+    assert [r["meeting_title"] for r in page["rows"]] == ["TEST_MH_C", "TEST_MH_B", "TEST_MH_A"]
+    assert page["next_cursor"] is None

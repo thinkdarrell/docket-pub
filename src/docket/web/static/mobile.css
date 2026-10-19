@@ -138,7 +138,6 @@
   }
 
   /* ── 6. Topic chips — horizontal scroll row ───────────────────────────────── */
-  .topics { padding: 18px 0 6px; }
   .topic-row {
     flex-wrap: nowrap;
     overflow-x: auto;
@@ -180,7 +179,6 @@
     aspect-ratio: 1;
     border-radius: 0;
   }
-  .cc-portrait-tag { display: none; }
   .cc-initials { font-size: 28px; text-shadow: 0 1px 4px rgba(0,0,0,0.18); }
   .cc-body {
     flex: 0 0 auto;
@@ -194,6 +192,7 @@
     align-items: flex-start;
     gap: 1px;
   }
+  .cc-district-num { font-size: 16px; }
   .cc-name {
     font-size: 12px;
     line-height: 1.2;
@@ -204,7 +203,9 @@
     overflow: hidden;
   }
   .cc-district { font-size: 9px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .cc-term, .cc-stats, .cc-foot { display: none; }
+  /* The two twelve-month numbers stay visible at phone width (M4); only the foot goes. */
+  .cc-stats { font-size: 11px; line-height: 1.3; }
+  .cc-foot { display: none; }
 
   /* ── 9. Feed (meetings list) — flex row, keep most cells inline ───────────── */
   .feed { padding: 24px 0 28px; }

@@ -47,6 +47,7 @@ ITEMS = {
         "dollars_amount": 10_100_000,
         "is_consent": False,
         "topic": "public_works",
+        "significance_score": 5,   # above the policy badges' default gate of 3
     },
     "B": {
         "item_number": "2",
@@ -93,6 +94,7 @@ OLD_ITEM = {
     "dollars_amount": 2_000_000,
     "is_consent": False,
     "topic": "public_safety",
+    "significance_score": 4,
 }
 
 
@@ -135,14 +137,18 @@ def _insert_meeting(cur, municipality_id, *, external_id, title, meeting_date, s
 
 
 def _insert_item(cur, meeting_id: int, spec: dict, *, dollars: bool = True) -> int:
+    """Insert one item as the pipeline leaves a finished one: ``processing_status``
+    ``completed`` (the badge counts and the category pages show only those) and
+    the spec's ``significance_score`` when it has one (the policy badges' gate)."""
     cur.execute(
         """INSERT INTO agenda_items (meeting_id, external_id, item_number, title, description,
-                                     headline, dollars_amount, is_consent, topic)
-           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+                                     headline, dollars_amount, is_consent, topic,
+                                     processing_status, significance_score)
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'completed', %s) RETURNING id""",
         (meeting_id, f"{PREFIX}{meeting_id}-{spec['item_number']}", spec["item_number"],
          spec["title"], spec.get("description"), spec.get("headline"),
          spec.get("dollars_amount") if dollars else None, bool(spec.get("is_consent")),
-         spec.get("topic")),
+         spec.get("topic"), spec.get("significance_score")),
     )
     return cur.fetchone()["id"]
 

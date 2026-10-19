@@ -62,11 +62,6 @@
 .tw-card.tw-empty .tw-title { font-style: italic; color: var(--ink-3); }
 
 /* ── Topic row ─────────────────────────────────────── */
-.topics { padding: 28px 0 8px; }
-.topics-head {
-  display: flex; justify-content: space-between; align-items: baseline;
-  margin-bottom: 10px;
-}
 .topic-row { display: flex; flex-wrap: wrap; gap: 8px; }
 .topic-chip {
   display: inline-flex; align-items: center; gap: 8px;
@@ -79,11 +74,6 @@
 }
 .topic-chip:hover { border-color: var(--ink-3); }
 .topic-chip.is-active { background: var(--ink); color: var(--paper); border-color: var(--ink); }
-.topic-chip.is-active .topic-count { color: color-mix(in oklab, var(--paper) 70%, transparent); }
-.topic-dot { width: 8px; height: 8px; border-radius: 50%; }
-.topic-count {
-  font-size: 10px; color: var(--ink-3); font-feature-settings: "tnum" 1;
-}
 
 /* status pills (Councilmatic-style) */
 .status-pill {

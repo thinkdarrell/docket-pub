@@ -399,3 +399,160 @@ def test_search_order_amount_skips_item_failing_dollar_check(client, seeded):
     assert f'id="item-{seeded["items"]["B"]}"' not in html
     a = html.index(f'id="item-{seeded["items"]["A"]}"')
     assert a < html.index(f'id="item-{sidewalk}"') < html.index(f'id="item-{roof}"')
+
+
+# --- the council door (M4) ---------------------------------------------------
+
+
+def _council(html: str) -> str | None:
+    marker = '<section class="council brf-council"'
+    if marker not in html:
+        return None
+    start = html.index(marker)
+    return html[start: html.index("</section>", start)]
+
+
+def test_council_door_nine_cards_in_district_order_with_numbers(client, facts):
+    html = _page(client)
+    section = _council(html)
+    assert section is not None
+    assert "The council" in section
+    assert section.count('class="cc-district-num') == 9
+    numbers = re.findall(r'cc-district-num t-display">District (\d)<', section)
+    assert numbers == [str(n) for n in range(1, 10)], "cards must be in district order"
+    assert "members</div>" not in section, "the old member-count header must be gone"
+    # Two chosen-source roll calls on the past meeting (the review-flagged
+    # video vote is excluded): Hunter Williams voted no once; Clinton P.
+    # Woods was absent once.
+    assert section.count("Attended 2 of 2 roll calls in the last 12 months") == 8
+    assert "Attended 1 of 2 roll calls in the last 12 months" in section
+    assert section.count("Voted against the outcome 1 time<") == 1
+    assert section.count("Voted against the outcome 0 times") == 8
+    assert "photo · placeholder" not in section
+    assert section.count("View record →") == 9
+
+
+def test_council_door_numbers_omitted_without_facts_row(client, seeded):
+    section = _council(_page(client))
+    assert section is not None
+    assert section.count('class="cc-district-num') == 9
+    assert "roll calls" not in section
+    assert "cc-stats" not in section
+    assert "Voted against" not in section
+
+
+def test_council_card_links_dissent_since_and_member_page_matches_count(client, facts):
+    section = _council(_page(client))
+    assert section is not None
+    since = (briefing.get_city_facts(facts["municipality_id"])["member_counts"]["payload"]["since"])
+    href = f'/al/birmingham/council/{facts["nay_member_id"]}/?filter=dissent&amp;since={since}'
+    assert f'<a class="cc-dissent" href="{href}">Voted against the outcome 1 time</a>' in section
+    # A zero is not a door: the other eight members' second line has no link.
+    assert section.count('class="cc-dissent"') == 1
+
+    resp = client.get(href.replace("&amp;", "&"))
+    assert resp.status_code == 200
+    page = resp.get_data(as_text=True)
+    assert page.count('class="member-history-row vote-row"') == 1
+    assert f"#vote-{facts['votes']['split']}" in page
+    assert "Showing votes since" in page and "one source per meeting" in page
+
+    # A member who dissented only on the review-flagged video vote: the dated
+    # view counts none, as the card said.
+    names = list(facts["members"])
+    other = facts["members"][names[3]]
+    resp = client.get(f"/al/birmingham/council/{other}/?filter=dissent&since={since}")
+    assert resp.status_code == 200
+    assert 'class="member-history-row vote-row"' not in resp.get_data(as_text=True)
+    # Without ``since`` the member page behaves as it always did: every vote.
+    resp = client.get(f"/al/birmingham/council/{other}/?filter=dissent")
+    assert resp.status_code == 200
+    assert resp.get_data(as_text=True).count('class="member-history-row vote-row"') == 1
+
+
+def test_council_door_absent_without_roster(client):
+    # Every seeded city has a roster (migration 005), so the state is made
+    # by marking Homewood's members inactive for the test's duration.
+    with db() as conn:
+        with briefing_seed._cur(conn) as cur:
+            cur.execute(
+                """UPDATE council_members SET active = FALSE
+                    WHERE active = TRUE AND municipality_id = (SELECT id FROM municipalities WHERE slug = 'homewood')
+                RETURNING id"""
+            )
+            ids = [r["id"] for r in cur.fetchall()]
+        conn.commit()
+    briefing_seed.clear_caches()
+    try:
+        html = _page(client, "homewood")
+    finally:
+        with db() as conn:
+            with briefing_seed._cur(conn) as cur:
+                cur.execute("UPDATE council_members SET active = TRUE WHERE id = ANY(%s)", (ids,))
+            conn.commit()
+        briefing_seed.clear_caches()
+    assert _council(html) is None
+    assert "The council" not in html
+    assert "cc-district-num" not in html
+
+
+# --- the topics door (M4) ----------------------------------------------------
+
+
+def test_topics_door_priorities_and_busiest_excluding_routine(client, seeded):
+    door = _section(_page(client), "brf-door-topics")
+    assert door is not None
+    assert "What they keep dealing with" in door
+    assert "Tracked in Birmingham" in door
+    # Item A carries blight_accountability (confidence 0.9, significance 5).
+    assert 'href="/al/birmingham/blight_accountability/"' in door
+    assert "Blight Accountability" in door
+    assert "1 item since" in door
+    assert f'href="/al/birmingham/items/{seeded["items"]["A"]}/"' in door
+    # The other three priorities have no qualifying item ever, so no line.
+    for slug in ("housing_stability", "property_recovery", "public_safety_tech_privacy"):
+        assert f"/al/birmingham/{slug}/" not in door
+    assert "last item" not in door
+    # The busiest topics: the past meeting's three non-routine topics and the
+    # upcoming agenda's two, each with its newest item; routine is excluded.
+    for slug, name in (("public_works", "Public Works"), ("contracts", "Contracts &amp; Procurement"),
+                       ("grants", "Grants &amp; Federal Funding"), ("budget", "Budget &amp; Finance"),
+                       ("zoning", "Zoning &amp; Land Use")):
+        assert f'href="/topics/{slug}/?city=birmingham"' in door, slug
+        assert name in door
+    assert "/topics/routine/" not in door
+    assert "Routine" not in door
+    assert door.count('<li class="brf-door-line">') == 6
+    assert f'href="/al/birmingham/items/{seeded["items"]["C"]}/"' in door
+
+
+@pytest.mark.parametrize("seeded", [{"old_split": True}], indirect=True)
+def test_topics_door_quiet_priority_shows_last_item(client, seeded):
+    # housing_stability's only item is E, on the meeting 200 days back:
+    # nothing in the window, so the line says when it last came up.
+    with db() as conn:
+        with briefing_seed._cur(conn) as cur:
+            briefing_seed._insert_badge(
+                cur, seeded["items"]["E"], seeded["municipality_id"],
+                "housing_stability", "policy", "llm", 0.9,
+            )
+        conn.commit()
+    briefing_seed.clear_caches()
+    door = _section(_page(client), "brf-door-topics")
+    assert door is not None
+    old = seeded["old_meeting_date"]
+    line = door[door.index('href="/al/birmingham/housing_stability/"'):]
+    line = line[: line.index("</li>")]
+    assert "Housing Stability" in line
+    assert f"last item {old.strftime('%B')} {old.day}, {old.year}" in line
+    assert f'href="/al/birmingham/items/{seeded["items"]["E"]}/"' in line
+    assert "since" not in line
+    # The window's priority is unchanged beside it.
+    assert "1 item since" in door
+
+
+def test_topics_door_absent_without_items(client):
+    briefing_seed.clear_caches()
+    html = _page(client, "homewood")
+    assert _section(html, "brf-door-topics") is None
+    assert "What they keep dealing with" not in html

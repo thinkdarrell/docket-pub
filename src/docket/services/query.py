@@ -6,7 +6,7 @@ Every read operation goes through this module. Returns dataclasses or dicts.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from datetime import datetime
+from datetime import date, datetime
 from typing import Iterable, Sequence
 
 from docket.db import db_cursor
@@ -746,6 +746,7 @@ def list_member_voting_history(
     cursor: str | None = None,
     limit: int = 20,
     filter_mode: str = "all",
+    since: date | None = None,
 ) -> dict:
     """Cursor-paginated voting history for a member.
 
@@ -754,6 +755,11 @@ def list_member_voting_history(
         limit:  rows per page.
         filter_mode: ``"all"`` or ``"dissent"`` (dissent = position was in the
                      minority for the vote, i.e. *not* aligned with result).
+        since: when given, only votes in meetings dated on or after it, and
+               only the meeting's chosen source (``briefing.chosen_source_cte``:
+               minutes over manual over api over video) with ``needs_review``
+               votes excluded, so the dated view counts what the city page's
+               council card counts. Without it the history is as it always was.
 
     Returns ``{rows: list[dict], next_cursor: str | None}``. Each row:
         vote_id, meeting_id, meeting_date, meeting_title, position, result,
@@ -769,7 +775,31 @@ def list_member_voting_history(
           )
         """
 
-    params: list = [member_id]
+    params: list = []
+    with_clause = ""
+    source_join = ""
+    where_since = ""
+    if since is not None:
+        # Imported here: briefing imports this module at import time.
+        from docket.services.briefing import chosen_source_cte
+
+        with_clause = "WITH " + chosen_source_cte(
+            "v.meeting_id IN (SELECT m2.id FROM meetings m2"
+            " JOIN votes v2 ON v2.meeting_id = m2.id"
+            " JOIN member_votes mv2 ON mv2.vote_id = v2.id"
+            " WHERE mv2.council_member_id = %s AND m2.meeting_date >= %s AND m2.is_hidden = FALSE)"
+        )
+        params.extend([member_id, since])
+        source_join = """
+            JOIN meeting_vote_source s
+              ON s.meeting_id = v.meeting_id
+             AND s.chosen_source = v.source
+             AND v.needs_review = FALSE
+        """
+        where_since = "AND m.meeting_date >= %s"
+    params.append(member_id)
+    if since is not None:
+        params.append(since)
     where_cursor = ""
     decoded = _decode_cursor(cursor) if cursor else None
     if decoded is not None:
@@ -780,6 +810,7 @@ def list_member_voting_history(
     with db_cursor() as cur:
         cur.execute(
             f"""
+            {with_clause}
             SELECT v.id AS vote_id, v.result, v.source, v.yeas, v.nays,
                    CASE WHEN mv.position IN ('yea','yes') THEN 'yea'
                         WHEN mv.position IN ('nay','no')  THEN 'nay'
@@ -787,9 +818,11 @@ def list_member_voting_history(
                    m.id AS meeting_id, m.meeting_date, m.title AS meeting_title
             FROM member_votes mv
             JOIN votes v    ON mv.vote_id = v.id
+            {source_join}
             JOIN meetings m ON v.meeting_id = m.id
             WHERE mv.council_member_id = %s
               AND m.is_hidden = FALSE
+              {where_since}
               {where_cursor}
               {where_filter}
             ORDER BY m.meeting_date DESC, v.id DESC

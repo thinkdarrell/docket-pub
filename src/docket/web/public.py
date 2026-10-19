@@ -124,8 +124,12 @@ def _city_overview_render(slug, municipality, now_ts):
     money = briefing.money_items(mid)
     disagreed = briefing.disagreement(facts, municipality)
     meeting_count = query.count_meetings_lifetime(mid)
-    topics = query.topic_counts(municipality_slug=slug)
-    members = query.list_council_members(slug)
+    # The council door and the topics door (M4): the roster carries each
+    # member's twelve-month counts from the same precomputed row; the
+    # topics door is the city's tracked priorities and busiest topics of
+    # the last 90 days, each with one example.
+    members = briefing.council_cards(query.list_council_members(slug), facts, municipality)
+    topics_door = briefing.topics_door(municipality)
 
     # F4 Browse-by-Priority (spec §6.7): two grids passed as
     # pre-decorated dicts — counts are zipped on here in the route, NOT
@@ -177,7 +181,7 @@ def _city_overview_render(slug, municipality, now_ts):
         money=money,
         disagreed=disagreed,
         meeting_count=meeting_count,
-        topics=topics,
+        topics_door=topics_door,
         members=members,
         city_policy_badges=city_policy_badges,
         process_badges=process_badges,
@@ -914,22 +918,33 @@ def member_detail(slug, member_id):
     filter_mode = request.args.get("filter", "all")
     if filter_mode not in ("all", "dissent", "sponsored"):
         filter_mode = "all"
+    # ``since=YYYY-MM-DD`` (plan birmingham-city-briefing, M4) restricts the
+    # voting history to meetings on or after that date under the city page's
+    # source-per-meeting rule; the council card links here with the date its
+    # count was taken from. A malformed value is ignored.
+    since = None
+    since_raw = request.args.get("since")
+    if since_raw:
+        try:
+            since = date.fromisoformat(since_raw)
+        except ValueError:
+            since = None
 
     # Cache only the no-cursor first-page render (common case). Paginated
     # follow-up requests re-execute the query — cheap enough at member-page
     # traffic and avoids cursor key explosion.
-    cache_key = (slug, member_id, filter_mode)
+    cache_key = (slug, member_id, filter_mode, since)
     if cursor is None:
         cached = _member_cache.get(cache_key)
         if cached and (time.time() - cached[0]) < _CACHE_TTL:
             return cached[1]
 
     return _member_detail_render(
-        slug, municipality, member, filter_mode, cursor
+        slug, municipality, member, filter_mode, cursor, since
     )
 
 
-def _member_detail_render(slug, municipality, member, filter_mode, cursor):
+def _member_detail_render(slug, municipality, member, filter_mode, cursor, since=None):
     stats = query.get_member_stats(member["id"])
     sponsorship_count = query.count_sponsored_items_for_member(member["name"])
 
@@ -946,6 +961,7 @@ def _member_detail_render(slug, municipality, member, filter_mode, cursor):
             cursor=cursor,
             limit=20,
             filter_mode=filter_mode,
+            since=since,
         )
 
     rendered = render_template(
@@ -956,11 +972,12 @@ def _member_detail_render(slug, municipality, member, filter_mode, cursor):
         sponsorship_count=sponsorship_count,
         history=history,
         filter_mode=filter_mode,
+        since=since,
     )
 
     if cursor is None:
         with _member_lock:
-            _member_cache[(slug, member["id"], filter_mode)] = (time.time(), rendered)
+            _member_cache[(slug, member["id"], filter_mode, since)] = (time.time(), rendered)
     return rendered
 
 

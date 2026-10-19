@@ -925,3 +925,184 @@ def disagreement(facts: dict | None, municipality: dict | None = None) -> dict |
         "last_split": shaped_last,
         "votes_in_window": votes_in_window,
     }
+
+
+# ---------------------------------------------------------------------------
+# The council door (M4): the roster with the precomputed twelve-month counts
+# ---------------------------------------------------------------------------
+
+
+def council_cards(members: list[dict], facts: dict | None, municipality: dict | None = None) -> list[dict]:
+    """Each roster row with a ``briefing`` key: the member's twelve-month
+    counts from the ``member_counts`` payload, or None.
+
+    ``briefing`` is ``{"roll_calls", "attended", "against", "since" (date),
+    "since_iso", "dissent_href"}``; ``dissent_href`` is the member page's
+    Dissent filter from the payload's ``since`` date, which counts the same
+    votes under the same source rule, and it is None when ``against`` is
+    zero (no door onto a zero). A member with no chosen-source roll call in
+    the window has no entry in the payload and gets ``briefing = None``.
+    """
+    payload = ((facts or {}).get("member_counts") or {}).get("payload") or {}
+    counts = payload.get("members") or {}
+    since = _as_date(payload["since"]) if payload.get("since") else None
+    slug = (municipality or {}).get("slug") or ""
+    out = []
+    for m in members:
+        row = dict(m)
+        c = counts.get(str(m["id"])) if since else None
+        if c and int(c.get("roll_calls") or 0) > 0:
+            against = int(c.get("against") or 0)
+            row["briefing"] = {
+                "roll_calls": int(c["roll_calls"]),
+                "attended": int(c.get("attended") or 0),
+                "against": against,
+                "since": since,
+                "since_iso": since.isoformat(),
+                "dissent_href": (
+                    f"/al/{slug}/council/{m['id']}/?filter=dissent&since={since.isoformat()}"
+                    if against > 0 else None
+                ),
+            }
+        else:
+            row["briefing"] = None
+        out.append(row)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# The topics door (M4): the tracked priorities and the busiest topics
+# ---------------------------------------------------------------------------
+
+TOPICS_WINDOW_DAYS = 90
+TOPICS_LINES = 5
+
+# The newest item carrying a policy badge, under the gates
+# ``query.badge_volume_recent`` counts with (applied, confidence, completed,
+# the city's significance threshold), so the example and the count agree.
+_PRIORITY_LATEST_SQL = """
+    SELECT ai.id, COALESCE(ai.headline, ai.title) AS label, mt.meeting_date
+      FROM agenda_item_badges aib
+      JOIN agenda_items ai ON ai.id = aib.agenda_item_id
+      JOIN meetings mt ON mt.id = ai.meeting_id
+     WHERE aib.city_id = %s
+       AND aib.badge_slug = %s
+       AND aib.confidence >= 0.6
+       AND aib.status = 'applied'
+       AND ai.processing_status = 'completed'
+       AND mt.is_hidden = FALSE
+       {significance}
+     ORDER BY mt.meeting_date DESC, ai.id DESC
+     LIMIT 1
+"""
+
+_BUSIEST_TOPICS_SQL = """
+    WITH counted AS (
+        SELECT ai.topic, count(*) AS count
+          FROM agenda_items ai
+          JOIN meetings mt ON mt.id = ai.meeting_id
+         WHERE mt.municipality_id = %s
+           AND mt.is_hidden = FALSE
+           AND mt.meeting_date >= %s
+           AND ai.topic IS NOT NULL
+           AND ai.topic <> 'routine'
+           AND ai.processing_status::text <> 'withdrawn'
+         GROUP BY ai.topic
+         ORDER BY count DESC, ai.topic ASC
+         LIMIT %s
+    )
+    SELECT c.topic, c.count, ex.id AS item_id, ex.label, ex.meeting_date
+      FROM counted c
+      LEFT JOIN LATERAL (
+          SELECT ai.id, COALESCE(ai.headline, ai.title) AS label, mt.meeting_date
+            FROM agenda_items ai
+            JOIN meetings mt ON mt.id = ai.meeting_id
+           WHERE mt.municipality_id = %s
+             AND mt.is_hidden = FALSE
+             AND mt.meeting_date >= %s
+             AND ai.topic = c.topic
+             AND ai.processing_status::text <> 'withdrawn'
+           ORDER BY mt.meeting_date DESC, ai.id DESC
+           LIMIT 1
+      ) ex ON TRUE
+     ORDER BY c.count DESC, c.topic ASC
+"""
+
+
+def _example(row: dict | None) -> dict | None:
+    """One item row (``id`` or ``item_id``, ``label``, ``meeting_date``) as a door line's example."""
+    item_id = (row or {}).get("item_id", (row or {}).get("id"))
+    if item_id is None:
+        return None
+    meeting_date = _as_date(row["meeting_date"])
+    return {
+        "item_id": item_id,
+        "headline": row["label"] or "",
+        "meeting_date": meeting_date,
+        "date_text": _short_date(meeting_date),
+        "date_long": _short_date(meeting_date) + f", {meeting_date.year}",
+    }
+
+
+def topics_door(municipality: dict, days: int = TOPICS_WINDOW_DAYS) -> dict:
+    """``{"priorities", "topics", "since", "since_text"}`` for
+    ``partials/briefing/door_topics.html``.
+
+    ``priorities`` is the city's policy badges (``query.list_city_policy_badges``)
+    with ``count`` from ``query.badge_volume_recent`` over the window and
+    ``example`` (the newest counted item) when the count is positive, else
+    ``latest`` (the newest item ever under the same gates); a priority with
+    no qualifying item ever is left out, since its landing page would be
+    empty. ``topics`` is the five topics with the most items in non-hidden
+    meetings dated in the window, ``routine`` and NULL excluded, each with
+    its newest item as ``example``. Both lists are empty for a city with no
+    items, and the section renders only when one is not.
+    """
+    from docket.enrichment.topics import get_topic_display_name
+    from docket.services import query
+
+    mid = municipality["id"]
+    since = date.today() - timedelta(days=days)
+    priorities = []
+    for badge in query.list_city_policy_badges(mid):
+        count = query.badge_volume_recent(mid, badge["slug"], days=days)
+        threshold = query.resolve_significance_threshold(mid, badge["slug"])
+        params: list = [mid, badge["slug"]]
+        significance = ""
+        if threshold is not None:
+            significance = "AND ai.significance_score >= %s"
+            params.append(threshold)
+        with db_cursor() as cur:
+            cur.execute(_PRIORITY_LATEST_SQL.format(significance=significance), params)
+            row = cur.fetchone()
+        newest = _example(dict(row)) if row else None
+        if newest is None:
+            continue
+        priorities.append({
+            "slug": badge["slug"],
+            "name": badge["name"],
+            "count": count,
+            "since": since,
+            "example": newest if count > 0 else None,
+            "latest": None if count > 0 else newest,
+        })
+
+    topics = []
+    with db_cursor() as cur:
+        cur.execute(_BUSIEST_TOPICS_SQL, (mid, since, TOPICS_LINES, mid, since))
+        rows = [dict(r) for r in cur.fetchall()]
+    for r in rows:
+        topics.append({
+            "slug": r["topic"],
+            "name": get_topic_display_name(r["topic"]) or r["topic"],
+            "count": int(r["count"]),
+            "since": since,
+            "example": _example(r),
+        })
+
+    return {
+        "priorities": priorities,
+        "topics": topics,
+        "since": since,
+        "since_text": _short_date(since),
+    }
