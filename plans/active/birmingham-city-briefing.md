@@ -17,7 +17,7 @@ The design's own anti-goals bind every milestone: no sentence whose number, name
 - [x] (2026-10-19 17:45Z) M1: the briefing flag, the `city_briefing_facts` table, the `briefing_facts` worker task, and the seeded test city
 - [x] (2026-10-19 18:00Z) M2: the opener, the Birmingham search field, and the one meetings list replace the KPI strip, the two strips, and the meetings table
 - [x] (2026-10-19 18:14Z) M3: the money door and the disagreement door replace the notable-items grid and the switched-off vote sections; search gains order=amount; public.py loses its last direct SQL
-- [ ] M4: the council door and the topics door replace the council grid and the topic chips; the member route gains since
+- [x] (2026-10-19 18:31Z) M4: the council door and the topics door replace the council grid and the topic chips; the member route gains since
 - [ ] M5: the signals list replaces the priority tile grids; the source panel, the footer, and the skip link
 - [ ] M6: said at the meeting, the accessibility checks, and the present-tense spec docs/specs/city-page.md
 
@@ -68,6 +68,8 @@ The design's own anti-goals bind every milestone: no sentence whose number, name
   Evidence: `src/docket/web/templates/partials/council_card.html` and `layout.css` lines 391 to 436 after the change.
 - Observation (M4 session): the old card's attendance/alignment stat block and its `photo · placeholder` tag had no producer (no route set `attendance_pct`; `council.html` renders the roster plain), and only two P2b partial tests exercised the block with a hand-built dict; those tests now exercise the `briefing` contract instead.
   Evidence: `grep -rn attendance_pct src/docket/web` printed only the partial before the change.
+- Observation (M4 session): the local `docket_db`'s Birmingham roster has eleven active members (`psql` printed `11|30` for active and total), the nine districts plus two At-Large rows the ingest added, so the acceptance grep `cc-district-num` printed `11` there, not the `9` the plan states; the throwaway database (migrations only) has the nine the test asserts. The cards render "At-Large" for the two, as the plan prescribes for a member without a district, and sort first (`d.number NULLS FIRST`). On the same database no Birmingham item sits in the last 90 days (`psql` printed `0`), so the topics door is absent locally and the seeded tests are its only render here, as with M3's doors.
+  Evidence: `curl -s localhost:5059/al/birmingham/ | grep -c 'cc-district-num'` printed `11`; `grep -o 'cc-district-num t-display">[^<]*'` listed `At-Large|At-Large|District 1|...|District 9`; `grep -c brf-door-topics` printed `0`.
 
 ## Decision Log
 
@@ -219,6 +221,8 @@ M1 (2026-10-19 17:45Z): landed in commits `0337283` and the one carrying this en
 M2 (2026-10-19 18:00Z): landed in commit `c75b01e` and the one carrying this entry. `/al/birmingham/` now opens with the lead, the two-beat opener (for the flagged city only), the city-scoped search field, the remaining old sections, one "Recent meetings" list of up to six rows with the feed line, the council grid, and the blog rail; the KPI strip, the "On the agenda" and "Last week" strips, the dead "Recent votes" table, and the meetings table are gone, and the opener's text is the page's meta description. Every acceptance clause was run: `./tools/verify` ended `all 6 checks passed in 101s.` with the fast tiers at `1902 passed, 5 skipped, 4 xfailed, 1 warning in 48.98s` (the plan predicted 1895; the Decision Log entry on the test count says why 1902) and integration at `626 passed, 1 warning in 49.46s`; `curl -s localhost:5057/al/birmingham/ | grep -c 'brf-opener'` printed `1` and the same for `/al/mobile/` printed `0` (the server started with `--app docket.web:create_app`, see Surprises); `grep -c 'kpi_strip\|tw-upcoming-section\|feed-table' src/docket/web/templates/city.html` printed `0`. One divergence against the stated work, not the acceptance: the opener's copy lives in `briefing.opener_beats` rather than in the template (Decision Log). Two things the next session should know: `opener_facts` returns `beats` alongside `last` and `next`, and the dead "Recent votes" section is already gone, so M3 removes only "Contested votes", `notable`, and `coverage_counts`. Next: M3.
 
 M3 (2026-10-19 18:14Z): landed in commit `40b6fd7` and the one carrying this entry. `/al/birmingham/` now shows, after the search field, "Where the money went" (up to three linked lines, each an item whose own text backs its amount, "More →" to `/search?city=birmingham&order=amount`) and "Where they disagreed" (the precomputed split votes with their dissenters linked to member records, or the unanimity sentence with the last split, "More →" to `/al/birmingham/split_vote/`), each only when its data exists; the notable-items grid, the tier legend, and the contested-votes section are gone with `notable`, `contested_votes`, and `coverage_counts`; `/search?city=<slug>&order=amount` lists a city's items of the last 90 days by amount through the same dollar check; `coverage_permalink` calls `query.get_published_note` and `public.py` runs no SQL (`D7` lists six modules; `D22` names the one sort). Every acceptance clause was run and met: `./tools/verify` ended `all 6 checks passed in 100s.` with the fast tiers at `1913 passed, 5 skipped, 4 xfailed, 1 warning in 48.59s` (the M2 total 1902 plus the eleven named tests, as predicted) and integration at `626 passed, 1 warning in 48.45s`; `grep -c 'db_cursor\|db()' src/docket/web/public.py` printed `0`; `curl -s 'localhost:5058/search?city=birmingham&order=amount'` returned 200 containing "Where the money went" (one match); `grep -c 'Notable items\|tier-key\|Contested votes\|Recent votes' src/docket/web/templates/city.html` printed `0`. One divergence against the stated work, not the acceptance: `disagreement` takes the municipality as an optional second argument and shapes the hrefs itself, and it renders a third state (votes in the window, no split ever) the plan did not name (Decision Log). Three things the next session should know: on the local `docket_db` both doors are absent (no item with an amount in the window; an empty facts row), so only the seeded tests render them here; the `facts` fixture in `tests/web/test_city_briefing.py` is how a web test gets a precomputed row; and the page's remaining old sections are now the priority grids, the topic chips, and the council grid, in that order after the two doors. Next: M4.
+
+M4 (2026-10-19 18:31Z): landed in commit `f5af8a1` and the one carrying this entry. `/al/birmingham/` now shows, after the disagreement door, "The council" (the roster by district, the district as each card's first and largest text, "Attended <a> of <r> roll calls in the last 12 months" and "Voted against the outcome <n> times" from the precomputed `member_counts` row, the second a link to `/al/birmingham/council/<id>/?filter=dissent&since=<since>` when it is not zero) and "What they keep dealing with" (the tracked priorities with one example each or their last item when the window is empty, then the five busiest topics of the last 90 days), each only when its data exists; the council grid's "<n> members" header, the "photo · placeholder" tag, the second "View record" arrow, and the topic chips are gone with `topic_counts` and `topics`; the member page honours `since` under the source-per-meeting rule and says so in one sentence. Every acceptance clause was run: `./tools/verify` ended `all 6 checks passed in 104s.` with the fast tiers at `1921 passed, 5 skipped, 4 xfailed, 1 warning in 51.52s` (the M3 total 1913 plus the eight named tests, as predicted) and integration at `626 passed, 1 warning in 48.29s` (one F4 test rewritten in place); `grep -c 'topic-chip\|photo · placeholder'` printed `0` for both templates; `curl -s -o /dev/null -w '%{http_code}' 'localhost:5059/al/birmingham/council/2/?filter=dissent&since=2025-10-19'` printed `200` (and `200` for a malformed `since`); the three other city pages returned 200. One carve-out against the stated acceptance: `curl -s localhost:5059/al/birmingham/ | grep -c 'cc-district-num'` printed `11`, not `9`, because the local database's roster has two At-Large members beside the nine districts (Surprises); the test `test_council_door_nine_cards_in_district_order_with_numbers` asserts nine on the throwaway database, where the roster is the migrations' nine. Divergences against the stated work, not the acceptance, are in the Decision Log: `council_cards` in the service owns the decoration and the zero-count line is unlinked; the card is an `<article>` with a stretched name link, which changed four existing tests' assertions; a priority with no qualifying item ever is left out; the seed's items are now `completed` with a significance score. Three things the next session should know: `city.html`'s remaining old section is the browse-by-priority grids (`city_policy_badges`, `process_badges`), between the search field's doors and the meetings list, which M5 replaces with the signals list; the crawler test's `len(seen) >= 7` floor still passes only because those grids remain, so M5 must drop it as the Decision Log says; and `briefing_seed._insert_item` now sets `processing_status = 'completed'`, which M5's signals test depends on. Next: M5.
 
 ## Context and Orientation
 
@@ -590,6 +594,40 @@ M3 session, `./tools/verify` after the milestone's edits (2026-10-19 18:14Z; the
 
 The fast tiers gained 11 tests over the M2 total (ten in `tests/web/test_city_briefing.py`, one in `tests/unit/test_query_coverage_note.py`); integration is unchanged at 626.
 
+M4 session, the acceptance commands against the local `docket_db` (`venv/bin/flask --app docket.web:create_app run --port 5059`, 2026-10-19 18:28Z; the server was stopped afterwards by process id, since a `pkill -f` on its command line matches the shell running it, as M3 found):
+
+    cc-district-num=11
+    grep=src/docket/web/templates/partials/council_card.html:0 src/docket/web/templates/city.html:0
+    member_id=2
+    dissent_since=200
+    malformed_since=200
+    topics_door=0 council=2 h2s: The council|What's on the docket|Recent meetings|From the blog|Birmingham, AL|
+    mobile=200
+    homewood=200
+    vestavia_hills=200
+
+(`council=2` counts `brf-council` in the section's class and its `aria-labelledby` target; `What's on the docket` and the page-sources `Birmingham, AL` h2 are M5's.) The roster and item counts behind the first and sixth lines:
+
+    psql: 11|30          (active, total Birmingham council_members)
+    psql: 0              (Birmingham agenda_items in meetings dated within 90 days)
+
+M4 session, `./tools/verify` before any edit (2026-10-19, the starting state) printed `1913 passed, 5 skipped, 4 xfailed, 1 warning in 48.27s`, `626 passed, 1 warning in 47.53s`, `84 passed in 0.76s`, and `verify: all 6 checks passed in 99s.`; the touched test files were then run by hand against a throwaway database (`DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/web/test_city_briefing.py tests/integration/test_f4_browse_by_priority.py -q -p no:cacheprovider` printed `67 passed in 11.57s`, after a first run whose `test_council_door_absent_without_roster` failed against `/al/mobile/`). `./tools/verify` after the milestone's edits (2026-10-19 18:30Z; the Surprises and Decision Log entries were committed in `f5af8a1` before it ran, and the Progress tick, this transcript, and the Outcomes entry were added after it exited):
+
+    1921 passed, 5 skipped, 4 xfailed, 1 warning in 51.52s
+    626 passed, 1 warning in 48.29s
+    judge fixtures: 12 of 12 passed
+    84 passed in 0.91s
+    verify: test-db ... ok (1s) postgresql://thinkdarrell@/docket_test_29cd1d5f
+    verify: unit+web+services ... ok (52s)
+    verify: integration ... ok (49s)
+    verify: judge-fixtures ... ok (0s)
+    verify: workflows ... ok (0s)
+    verify: transcriber ... ok (2s)
+    verify: plans ... ok (0s)
+    verify: all 6 checks passed in 104s.
+
+The fast tiers gained 8 tests over the M3 total (seven in `tests/web/test_city_briefing.py`, one in `tests/unit/test_query_member_history.py`); integration is unchanged at 626 (one F4 test rewritten in place).
+
 ## Interfaces and Dependencies
 
 Identifiers spent by this plan: migration `037_city_briefing_facts`; table `city_briefing_facts` with `fact_set` values `split_votes` and `member_counts`; task `briefing_facts`; environment variable `HEALTHCHECK_BRIEFING_FACTS_UUID`; Healthchecks check `docket-briefing-facts`; metadata key `briefing`; module `src/docket/services/briefing.py`; partials under `src/docket/web/templates/partials/briefing/` named `opener.html`, `search.html`, `door_money.html`, `door_disagreed.html`, `door_topics.html`, `door_said.html`, `signals.html`, `meetings.html`; CSS class prefix `brf-` and the card class `cc-district-num`; Jinja global `city_provenance`; query parameters `since` (member route) and `order=amount` (search); test files `tests/support/briefing_seed.py`, `tests/services/test_briefing_facts.py`, `tests/web/test_city_briefing.py`, `tests/web/test_city_briefing_a11y.py`, `tests/integration/test_037_migration.py`, `tests/unit/test_query_coverage_note.py`; seed title prefix `BRIEFING_TEST_`; spec `docs/specs/city-page.md`.
@@ -613,7 +651,8 @@ In `src/docket/services/briefing.py` (imports: `docket.db.db_cursor`, `docket.an
     def list_briefing_meetings(slug: str, limit: int = 6) -> list[dict]   # rows also carry total_dollars_text, date_text (M2)
     def money_items(municipality_id: int, days: int = 90, limit: int = 3) -> list[dict]
     def disagreement(facts: dict) -> dict | None
-    def topics_door(municipality: dict, days: int = 90) -> dict
+    def council_cards(members: list[dict], facts: dict | None, municipality: dict | None = None) -> list[dict]   # rows gain briefing (M4)
+    def topics_door(municipality: dict, days: int = 90) -> dict   # {priorities, topics, since, since_text} (M4)
     def signals(municipality_id: int, days: int = 30) -> list[dict]
     def said_at_the_meeting(municipality_id: int) -> dict | None
     def city_provenance(municipality_id: int) -> dict
@@ -631,3 +670,5 @@ Revision note, 2026-10-19 (before any milestone): the operator pasted an externa
 Revision note, 2026-10-19 18:00Z (M2 session): Progress ticked for M2; five Surprises entries, seven Decision Log entries, and the M2 Outcomes entry added; transcripts appended to Artifacts and Notes. No milestone text was changed; where the session resolved an ambiguity in M2's prose (the opener's owner, the action-link anchor, the headline's leading amount, the no-upcoming and no-votes sentences, the dead Recent votes section, the kept colophon test), the Decision Log records the resolution and M3 to M6 read as written.
 
 Revision note, 2026-10-19 18:14Z (M3 session): Progress ticked for M3; four Surprises entries, six Decision Log entries, and the M3 Outcomes entry added; transcripts appended to Artifacts and Notes. No milestone text was changed; where the session resolved an ambiguity in M3's prose (the disagreement door's third state and its href owner, the money line's headline, the `order=amount` paging, the doors' position, the CSS deletions, the test arithmetic), the Decision Log records the resolution and M4 to M6 read as written.
+
+Revision note, 2026-10-19 18:31Z (M4 session): Progress ticked for M4; five Surprises entries, six Decision Log entries, and the M4 Outcomes entry added; transcripts appended to Artifacts and Notes; `council_cards` added to the Interfaces list beside `topics_door`. No milestone text was changed; where the session resolved an ambiguity in M4's prose (the decoration's owner and the zero-count line, the card's element and the nested-anchor problem, the priority gates and the empty priority, the chips carrying `since`, the no-roster and quiet-priority test states, the seed's `processing_status`), the Decision Log records the resolution and M5 and M6 read as written. One acceptance carve-out is named in the Outcomes entry (the local roster's eleven cards).
