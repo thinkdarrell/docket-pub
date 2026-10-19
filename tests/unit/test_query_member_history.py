@@ -203,3 +203,46 @@ def test_voting_history_since_filters_and_applies_source_rule(member_with_two_so
     page = list_member_voting_history(mid, limit=10, since=date(2098, 1, 1))
     assert [r["meeting_title"] for r in page["rows"]] == ["TEST_MH_C", "TEST_MH_B", "TEST_MH_A"]
     assert page["next_cursor"] is None
+
+
+def test_voting_history_since_dissent_excludes_abstentions_and_tabled(member_with_two_sources):
+    """The dated Dissent filter is ``AGAINST_OUTCOME_PREDICATE``: a yea on a
+    tabled motion and an abstention are not votes against an outcome. The
+    undated filter keeps its older definition (``D58``)."""
+    mid = member_with_two_sources
+    with db() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT municipality_id FROM meetings WHERE title = 'TEST_MH_A'")
+            muni_id = cur.fetchone()["municipality_id"]
+            cur.execute(
+                """INSERT INTO meetings (municipality_id, title, meeting_date, meeting_type)
+                   VALUES (%s, 'TEST_MH_D', '2099-04-01', 'council') RETURNING id""",
+                (muni_id,),
+            )
+            d = cur.fetchone()["id"]
+            for result, yeas, nays, abstentions, position in (
+                ("tabled", 5, 0, 0, "yea"),
+                ("passed", 4, 0, 1, "abstain"),
+            ):
+                cur.execute(
+                    """INSERT INTO votes (meeting_id, source, result, yeas, nays, abstentions,
+                                           confidence, needs_review)
+                       VALUES (%s, 'minutes_text', %s, %s, %s, %s, 'high', FALSE) RETURNING id""",
+                    (d, result, yeas, nays, abstentions),
+                )
+                vote_id = cur.fetchone()["id"]
+                cur.execute(
+                    """INSERT INTO member_votes (vote_id, council_member_id, member_name, position)
+                       VALUES (%s, %s, 'TEST_MH_Sam', %s)""",
+                    (vote_id, mid, position),
+                )
+        conn.commit()
+    # Dated and filtered: D's two votes are not against any outcome, so the rows are as before.
+    page = list_member_voting_history(mid, limit=10, filter_mode="dissent", since=date(2099, 1, 15))
+    assert [(r["meeting_title"], r["source"]) for r in page["rows"]] == [("TEST_MH_C", "video_ocr")]
+    # Dated and unfiltered: D's two votes are in the history (they are roll calls attended).
+    page = list_member_voting_history(mid, limit=10, since=date(2099, 1, 15))
+    assert [r["meeting_title"] for r in page["rows"]] == ["TEST_MH_D", "TEST_MH_D", "TEST_MH_C", "TEST_MH_B"]
+    # Undated Dissent: the older filter lists both of D's votes as dissent (D58).
+    page = list_member_voting_history(mid, limit=10, filter_mode="dissent")
+    assert len(page["rows"]) == 6

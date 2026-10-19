@@ -291,3 +291,105 @@ def test_chosen_source_cte_scopes_and_prefers_minutes(seeded):
             (upcoming,),
         )
     assert _chosen("v.meeting_id = %s", (upcoming,)) == {}
+
+
+# --- M7: against the outcome, and the opener's three pure cases --------------
+
+
+def _add_tabled_and_abstention_votes(seeded) -> str:
+    """Two more minutes votes on the past meeting: a 9 to 0 motion the council
+    tabled (every member yea) and an 8 to 0 that passed with one abstention.
+
+    Returns the abstainer's name: the first roster member who is neither the
+    seed's dissenter nor its absentee, so their other votes are aligned yeas.
+    """
+    roster = seeded["members"]
+    abstainer = next(n for n in roster if n not in (briefing_seed.MEMBER_NAY, briefing_seed.MEMBER_ABSENT))
+    with db() as conn:
+        with briefing_seed._cur(conn) as cur:
+            briefing_seed._insert_vote(cur, seeded["past_meeting_id"], result="tabled", yeas=9, nays=0,
+                                       roster=roster)
+            briefing_seed._insert_vote(cur, seeded["past_meeting_id"], result="passed", yeas=8, nays=0,
+                                       abstentions=1, roster=roster, positions={abstainer: "abstain"})
+        conn.commit()
+    return abstainer
+
+
+def test_member_counts_against_excludes_abstentions_and_tabled(seeded):
+    abstainer = _add_tabled_and_abstention_votes(seeded)
+    members = briefing.recompute_city_facts(seeded["municipality_id"])["member_counts"]["members"]
+    roster = seeded["members"]
+    nay, absent = str(roster[briefing_seed.MEMBER_NAY]), str(roster[briefing_seed.MEMBER_ABSENT])
+    # Four chosen-source roll calls now: the split, the unanimous, the tabled, the abstention.
+    assert members[nay] == {"roll_calls": 4, "attended": 4, "against": 1}
+    # An abstention is a roll call attended, not a vote against anything.
+    assert members[str(roster[abstainer])] == {"roll_calls": 4, "attended": 4, "against": 0}
+    # A yea on a tabled motion is not against an outcome the motion never had.
+    assert members[absent] == {"roll_calls": 4, "attended": 3, "against": 0}
+    assert all(m["against"] == 0 for k, m in members.items() if k != nay)
+
+
+# The reviewer's crafted facts (plan Surprises, revision after the review):
+# 38 items, a 14-word headline, a split on an item whose label holds an
+# abbreviation, and a 40-item next meeting. No database.
+MUNI = {"id": 1, "slug": "birmingham", "name": "Birmingham"}
+SPLIT_LABEL = ("Agreement with St. Vincent's Hospital for emergency medical services "
+               "at the downtown clinic")
+BIGGEST_HEADLINE = ("$4.2 million contract for curb ramps, crosswalk markings, "
+                    "and neighborhood sidewalk reconstruction")
+
+
+def _crafted_facts(dissenters: list[dict], next_items: int = 40) -> dict:
+    split = {
+        "vote_id": 9, "meeting_id": 1, "meeting_date": date(2026, 10, 14),
+        "source": "minutes_text", "result": "passed", "yeas": 8, "nays": 1, "abstentions": 0,
+        "item": {"id": 5, "label": SPLIT_LABEL}, "linked_item_count": 1,
+        "dissenters": dissenters,
+    }
+    return {
+        "last": {
+            "meeting_id": 1, "meeting_date": date(2026, 10, 14), "item_count": 38, "stale": False,
+            "biggest": {"item_id": 3, "amount": 4_200_000, "headline": BIGGEST_HEADLINE},
+            "splits": {"count": 1, "first": split}, "vote_count": 6, "source_label": "",
+        },
+        "next": {"meeting_id": 2, "meeting_date": date(2026, 10, 21), "item_count": next_items},
+    }
+
+
+def _beat_text(beat: list[dict]) -> str:
+    return "".join(s["text"] for s in beat if s["kind"] != "action")
+
+
+def test_opener_one_unresolved_dissenter_is_singular():
+    facts = _crafted_facts([{"member_name": "J. Doe", "council_member_id": None, "position": "nay"}])
+    beats = briefing.opener_beats(facts, MUNI)
+    text = _beat_text(beats[0])
+    assert "passed 8 to 1, with one member voting no." in text
+    assert "members" not in text
+    phrase = [s for s in beats[0] if s["text"].startswith("with one member")]
+    assert len(phrase) == 1
+    assert phrase[0]["href"] == "/al/birmingham/meetings/1/#vote-9"
+
+
+def test_opener_tally_only_split_drops_dissenter_phrase():
+    facts = _crafted_facts([])
+    beats = briefing.opener_beats(facts, MUNI)
+    text = _beat_text(beats[0])
+    assert "passed 8 to 1." in text
+    assert "with " not in text[text.index("8 to 1"):]
+    action = [s for s in beats[0] if s["kind"] == "action"]
+    assert len(action) == 1
+    assert action[0]["href"].endswith("#vote-9")
+
+
+def test_opener_text_cuts_at_sentence_boundary_not_inside_label():
+    facts = _crafted_facts([
+        {"member_name": "J. Doe", "council_member_id": None, "position": "nay"},
+        {"member_name": "R. Roe", "council_member_id": None, "position": "nay"},
+    ])
+    joined = " ".join(_beat_text(b).strip() for b in briefing.opener_beats(facts, MUNI))
+    assert len(joined) > briefing.OPENER_TEXT_MAX, "the case must need a cut"
+    text = briefing.opener_text(facts, MUNI)
+    assert len(text) <= briefing.OPENER_TEXT_MAX
+    assert text.endswith("sidewalk reconstruction.")
+    assert "St." not in text

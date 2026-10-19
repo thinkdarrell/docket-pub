@@ -831,6 +831,23 @@ M6 session, `./tools/verify` before any edit (2026-10-19 18:55Z, the starting st
 
 The fast tiers gained 11 tests over the M5 total (eight in `tests/web/test_city_briefing_a11y.py`, three in `tests/web/test_city_briefing.py`); integration is unchanged, both as the milestone's acceptance predicted.
 
+M7 session, `./tools/verify` before any edit (2026-10-19 22:14Z, the starting state; `.env` supplying `DATABASE_URL`):
+
+    1939 passed, 5 skipped, 4 xfailed, 1 warning in 52.55s
+    625 passed, 1 warning in 46.91s
+    judge fixtures: 12 of 12 passed
+    84 passed in 0.71s
+    verify: test-db ... ok (0s) postgresql://thinkdarrell@/docket_test_29cd1d5f
+    verify: unit+web+services ... ok (54s)
+    verify: integration ... ok (47s)
+    verify: judge-fixtures ... ok (1s)
+    verify: workflows ... ok (0s)
+    verify: transcriber ... ok (1s)
+    verify: plans ... ok (0s)
+    verify: all 6 checks passed in 103s.
+
+M7 session, the acceptance's pre-edit collection check (`DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/services/test_briefing_facts.py -q -p no:cacheprovider -k "unresolved_dissenter or tally_only or sentence_boundary"`, before the tests were written) printed `14 deselected in 0.02s`; the probe from the Surprises entry, rerun against the unchanged code with the crafted facts the tests now hold (38 items, a 14-word headline ending "sidewalk reconstruction", the St. Vincent's split, a 40-item next meeting), printed `with one members voting no.`, `with some members voting no.`, a joined length of 412, and `opener_text` of 230 characters ending `One vote split: Agreement with St.`. After the eight tests were written and before any code change, the same command with `-k "unresolved_dissenter or tally_only or sentence_boundary or excludes_upcoming or abstention_and_tabled or excludes_abstentions"` over the three files printed `8 failed, 64 deselected in 0.88s`, the failures quoting `{'against': 2} != {'against': 1}`, `with one members voting no.`, `with some members voting no.`, `...One vote split: Agreement with St.'.endswith`, `assert 2 == 1` on the money door's `brf-door-line` count, `'id="item-20"' not in` the `order=amount` page, and `[('TEST_MH_D'... 'video_ocr')] == [('TEST_MH_C', 'video_ocr')]` for the dated Dissent filter.
+
 ## Interfaces and Dependencies
 
 Identifiers spent by this plan: migration `037_city_briefing_facts`; table `city_briefing_facts` with `fact_set` values `split_votes` and `member_counts`; task `briefing_facts`; environment variable `HEALTHCHECK_BRIEFING_FACTS_UUID`; Healthchecks check `docket-briefing-facts`; metadata key `briefing`; module `src/docket/services/briefing.py`; partials under `src/docket/web/templates/partials/briefing/` named `opener.html`, `search.html`, `door_money.html`, `door_disagreed.html`, `door_topics.html`, `door_said.html`, `signals.html`, `meetings.html`; CSS class prefix `brf-` and the card class `cc-district-num`; Jinja global `city_provenance`; query parameters `since` (member route) and `order=amount` (search); test files `tests/support/briefing_seed.py`, `tests/services/test_briefing_facts.py`, `tests/web/test_city_briefing.py`, `tests/web/test_city_briefing_a11y.py`, `tests/integration/test_037_migration.py`, `tests/unit/test_query_coverage_note.py`; seed title prefix `BRIEFING_TEST_`; spec `docs/specs/city-page.md`; from the revision after the review: debt row `D58`, the constant `AGAINST_OUTCOME_PREDICATE` in `query.py`, the seed options `past_days`, `undocumented`, `votes="tally_only"`, `votes="video"`, `transcript="low_speech"`, and the test names Milestones 7 and 8 give.

@@ -699,3 +699,107 @@ def test_said_absent_without_transcript(client, seeded):
     html = _page(client)
     assert _section(html, "brf-door-said") is None
     assert "Said at the meeting" not in html
+
+
+# --- M7: the money window's upper bound and the against-the-outcome count ---
+
+
+UPCOMING_MONEY_ITEM = {
+    "item_number": "3", "title": briefing_seed.PREFIX + "Sidewalk repair program",
+    "description": "Sidewalk repair program in the amount of $3,000,000.",
+    "headline": "$3 million sidewalk repair program", "dollars_amount": 3_000_000,
+    "is_consent": True, "topic": "public_works",
+}
+
+
+def _add_upcoming_money_item(seeded) -> int:
+    """A consent item with an amount on the seeded upcoming meeting (cleaned with the meeting)."""
+    with db() as conn:
+        with briefing_seed._cur(conn) as cur:
+            item_id = briefing_seed._insert_item(cur, seeded["upcoming_meeting_id"], UPCOMING_MONEY_ITEM)
+        conn.commit()
+    briefing_seed.clear_caches()
+    return item_id
+
+
+def _meeting_row(html: str, meeting_id: int) -> str:
+    """The ``<li class="brf-meeting">`` whose date links to ``meeting_id``."""
+    section = html[html.index("brf-meetings-section"):]
+    rows = section.split('<li class="brf-meeting">')[1:]
+    href = f'href="/al/birmingham/meetings/{meeting_id}/"'
+    matches = [r[: r.index("</li>")] for r in rows if href in r]
+    assert len(matches) == 1, f"expected one row for meeting {meeting_id}, found {len(matches)}"
+    return matches[0]
+
+
+def test_money_door_excludes_upcoming_meeting_items(client, seeded):
+    new = _add_upcoming_money_item(seeded)
+    html = _page(client)
+    door = _section(html, "brf-door-money")
+    assert door is not None
+    assert door.count('<li class="brf-door-line">') == 1
+    assert f'href="/al/birmingham/items/{seeded["items"]["A"]}/"' in door
+    assert f'href="/al/birmingham/items/{new}/"' not in door
+    assert "$3 million" not in door
+    assert "passed on the consent agenda" not in door, "no outcome before the meeting"
+    row = _meeting_row(html, seeded["upcoming_meeting_id"])
+    assert "<span>upcoming</span>" in row
+    assert "3 items" in row
+
+
+def test_search_order_amount_excludes_upcoming_meeting_items(client, seeded):
+    new = _add_upcoming_money_item(seeded)
+    html = client.get("/search?city=birmingham&order=amount").get_data(as_text=True)
+    assert f'id="item-{new}"' not in html
+    assert f'id="item-{seeded["items"]["A"]}"' in html
+
+
+def _add_tabled_and_abstention_votes(seeded) -> str:
+    """Two more minutes votes on the past meeting: a 9 to 0 motion the council
+    tabled (every member yea) and an 8 to 0 that passed with one abstention;
+    returns the abstainer's name (a member whose other votes are aligned yeas)."""
+    roster = seeded["members"]
+    abstainer = next(n for n in roster if n not in (briefing_seed.MEMBER_NAY, briefing_seed.MEMBER_ABSENT))
+    with db() as conn:
+        with briefing_seed._cur(conn) as cur:
+            briefing_seed._insert_vote(cur, seeded["past_meeting_id"], result="tabled", yeas=9, nays=0,
+                                       roster=roster)
+            briefing_seed._insert_vote(cur, seeded["past_meeting_id"], result="passed", yeas=8, nays=0,
+                                       abstentions=1, roster=roster, positions={abstainer: "abstain"})
+        conn.commit()
+    return abstainer
+
+
+def _card(section: str, name: str) -> str:
+    cards = [c for c in section.split('<article class="cc">')[1:] if f">{name}</a>" in c]
+    assert len(cards) == 1, f"expected one card for {name}, found {len(cards)}"
+    return cards[0]
+
+
+def _dissent_rows(client, member_id: int, since: str | None) -> int:
+    url = f"/al/birmingham/council/{member_id}/?filter=dissent"
+    if since:
+        url += f"&since={since}"
+    resp = client.get(url)
+    assert resp.status_code == 200
+    return resp.get_data(as_text=True).count('class="member-history-row vote-row"')
+
+
+def test_council_card_count_matches_dated_dissent_view_with_abstention_and_tabled(client, facts):
+    abstainer = _add_tabled_and_abstention_votes(facts)
+    briefing.recompute_city_facts(facts["municipality_id"])
+    briefing_seed.clear_caches()
+    section = _council(_page(client))
+    assert section is not None
+    assert section.count("Voted against the outcome 1 time<") == 1
+    assert section.count("Voted against the outcome 0 times") == 8
+    assert "Attended 4 of 4 roll calls in the last 12 months" in _card(section, abstainer)
+    assert section.count('class="cc-dissent"') == 1
+    since = briefing.get_city_facts(facts["municipality_id"])["member_counts"]["payload"]["since"]
+    # The card's one against-the-outcome vote is the one row of the dated Dissent view.
+    assert _dissent_rows(client, facts["nay_member_id"], since) == 1
+    # The abstainer's dated view counts none, as the card said ...
+    abstainer_id = facts["members"][abstainer]
+    assert _dissent_rows(client, abstainer_id, since) == 0
+    # ... while the undated view keeps its older filter: the abstention and the tabled yea (D58).
+    assert _dissent_rows(client, abstainer_id, None) == 2
