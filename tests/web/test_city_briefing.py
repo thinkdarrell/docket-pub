@@ -15,6 +15,7 @@ milestones add their doors here.
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from html.parser import HTMLParser
 
 import pytest
@@ -556,3 +557,98 @@ def test_topics_door_absent_without_items(client):
     html = _page(client, "homewood")
     assert _section(html, "brf-door-topics") is None
     assert "What they keep dealing with" not in html
+
+
+# ---------------------------------------------------------------------------
+# M5: the signals list, the source panel, the footer, and the skip link
+# ---------------------------------------------------------------------------
+
+
+def _aside(html: str) -> str:
+    start = html.index('<aside class="page-sources"')
+    return html[start: html.index("</aside>", start)]
+
+
+def _colophon(html: str) -> str:
+    start = html.index("footnote-colophon")
+    return html[start: html.index("footnote-bottom", start)]
+
+
+def test_signals_only_nonzero_in_plain_words(client, seeded):
+    # The seed badges item C ``hidden_on_consent`` on a meeting seven days
+    # back; no other process badge exists, so the list is that one line.
+    html = _page(client)
+    section = _section(html, "brf-signals")
+    assert section is not None
+    assert "Signals in the last 30 days" in section
+    lines = re.findall(r'<li class="brf-door-line">\s*<a href="([^"]+)">([^<]+)</a>', section)
+    assert lines == [("/al/birmingham/hidden_on_consent/",
+                      "Passed without discussion, on the consent agenda — 1 item")]
+    assert "Legal settlements" not in section
+    assert "hidden_on_consent —" not in section  # the slug never shows; the label does
+
+
+@pytest.mark.parametrize("seeded", [{"badges": False}], indirect=True)
+def test_signals_absent_when_all_zero(client, seeded):
+    html = _page(client)
+    assert _section(html, "brf-signals") is None
+    assert "Signals in the last 30 days" not in html
+
+
+def test_page_sources_names_host_count_and_date(client, seeded):
+    # Three non-hidden seeded meetings (past, upcoming, ghost), created now,
+    # the newest dated one (upcoming) carrying no source_url and the past
+    # meeting the Granicus one.
+    html = _page(client)
+    aside = _aside(html)
+    assert "Where these records come from" in aside
+    assert ('The records on this page come from <a class="page-sources-host" '
+            'href="https://birminghamal.granicus.com/ViewPublisher.php?view_id=1" '
+            'rel="external noopener">birminghamal.granicus.com</a>.') in aside
+    assert "docket.pub has indexed 3 Birmingham meetings" in aside
+    today = datetime.now().strftime("%B %-d, %Y")
+    assert f"; the last was added {today}." in aside
+    assert 'href="/al/birmingham/source-health/"' in aside or "source-health" in aside or "source_health" in aside
+    assert ">Source health</a>" in aside
+    assert ">How we read minutes</a>" in aside
+
+
+def test_page_sources_has_no_adapter_or_schema_rows_and_no_h2(client, unseeded):
+    html = _page(client)
+    aside = _aside(html)
+    assert "<h2" not in aside
+    for word in ("adapter_class", "GranicusAdapter", "Adapter", "Platform", "Schema",
+                 "SOURCE OF TRUTH", "tsvector", "src/docket"):
+        assert word not in aside, word
+    # Without an ingest the date clause is dropped, never defaulted.
+    assert "docket.pub has indexed 0 Birmingham meetings." in aside
+    assert "the last was added" not in aside
+
+
+def test_footer_updated_equals_chip_date(client, seeded):
+    html = _page(client)
+    chip = re.search(r"synced ([A-Z][a-z]{2} \d{2})", html)
+    assert chip, "freshness chip shows no synced date"
+    updated = re.search(r"Updated</span><div>([A-Z][a-z]{2} \d{2}), \d{4}</div>", _colophon(html))
+    assert updated, "footer grid shows no Updated date"
+    assert chip.group(1) == updated.group(1)
+    colophon = _colophon(html)
+    assert "Schema</span>" not in colophon
+    assert "Source</span><div>birminghamal.granicus.com · public domain</div>" in colophon
+
+
+def test_footer_grid_absent_without_municipality(client):
+    resp = client.get("/")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    assert "footnote-grid" not in html
+    assert "Updated</span>" not in html
+    assert 'class="page-sources"' not in html
+
+
+def test_base_has_skip_link_to_main(client, unseeded):
+    html = _page(client)
+    body = html[html.index("<body>") + len("<body>"):]
+    assert body.lstrip().startswith('<a class="skip-link" href="#main">Skip to main content</a>')
+    assert html.count('id="main"') == 1
+    assert '<main class="app-main" id="main">' in html

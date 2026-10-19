@@ -70,6 +70,27 @@ def index():
     )
 
 
+@bp.app_template_global("city_provenance")
+def city_provenance(municipality):
+    """The page's provenance for the freshness chip, the source panel, and
+    the footer (plan birmingham-city-briefing, M5): one owner of the last
+    ingest time, the indexed meeting count, and the source website, read
+    from ``briefing.city_provenance`` (cached per city for five minutes).
+    Accepts the municipality dict the routes pass or any object with an
+    ``id``; without one (a partial rendered with a stand-in) it returns
+    the empty shape without touching the database."""
+    empty = {"last_ingest_at": None, "meeting_count": 0, "source_host": None, "source_url": None}
+    if not municipality:
+        return empty
+    if isinstance(municipality, dict):
+        mid = municipality.get("id")
+    else:
+        mid = getattr(municipality, "id", None)
+    if mid is None:
+        return empty
+    return briefing.city_provenance(mid)
+
+
 _overview_cache: dict[str, tuple] = {}
 _CACHE_TTL = 300  # 5 minutes
 # F5 fix-up (R1 + D4 / Override 2): symmetric thread safety. Module-level
@@ -104,14 +125,10 @@ def city_overview(slug):
 
 def _city_overview_render(slug, municipality, now_ts):
     """Render and cache the city overview page. Caller holds ``_overview_lock``."""
-    from datetime import datetime
-
     mid = municipality["id"]
     # The briefing (plan birmingham-city-briefing, M2): the opener runs only
     # where the municipality's metadata carries "briefing": true; the
-    # meetings list and the search field render for every city. The
-    # lifetime count feeds the source panel until M5 moves it into
-    # ``city_provenance``.
+    # meetings list and the search field render for every city.
     opener = briefing.opener_facts(municipality) if briefing.is_briefing_city(municipality) else None
     opener_text = briefing.opener_text(opener, municipality) if opener else ""
     briefing_meetings = briefing.list_briefing_meetings(slug)
@@ -123,44 +140,19 @@ def _city_overview_render(slug, municipality, now_ts):
     facts = briefing.get_city_facts(mid)
     money = briefing.money_items(mid)
     disagreed = briefing.disagreement(facts, municipality)
-    meeting_count = query.count_meetings_lifetime(mid)
     # The council door and the topics door (M4): the roster carries each
     # member's twelve-month counts from the same precomputed row; the
     # topics door is the city's tracked priorities and busiest topics of
     # the last 90 days, each with one example.
     members = briefing.council_cards(query.list_council_members(slug), facts, municipality)
     topics_door = briefing.topics_door(municipality)
-
-    # F4 Browse-by-Priority (spec §6.7): two grids passed as
-    # pre-decorated dicts — counts are zipped on here in the route, NOT
-    # computed via Jinja globals (route-side pre-compute pattern set by
-    # F2). Counts are gated identically to ``list_items_by_badge`` /
-    # ``category_kpis`` so a tile reading "12 this year" matches what
-    # the citizen will see when they click into the category page.
-    #
-    # Cost: each grid does one count query per badge, all light
-    # (covered by ``idx_agenda_item_badges_city_slug_conf``). 4 + 7 = 11
-    # SELECT COUNT queries per cold city homepage render, then cached
-    # for 5 min by the existing ``_overview_cache``. If this turns out
-    # to be a hot-path tax post-deploy, the natural follow-up is a
-    # single GROUP BY query rolled into ``list_*_badges``.
-    current_year = date.today().year
-    city_policy_badges = [
-        {**b,
-         "count": query.badge_volume_year(
-             municipality["id"], b["slug"], year=current_year
-         )}
-        for b in query.list_city_policy_badges(municipality["id"])
-    ]
-    process_badges = [
-        {**b,
-         "count": query.badge_volume_recent(
-             municipality["id"], b["slug"], days=30
-         )}
-        for b in query.list_process_badges()
-    ]
-
-    freshness = query._freshness_state(query.most_recent_ingest_at(mid))
+    # The signals list (M5): the process badges with a nonzero count in
+    # the last 30 days, in plain words; the four policy badges reach the
+    # page through ``topics_door``. The freshness chip, the source panel,
+    # and the footer all read ``briefing.city_provenance`` (the Jinja
+    # global ``city_provenance`` below), so they cannot disagree.
+    signals = briefing.signals(mid)
+    freshness = query._freshness_state(briefing.city_provenance(mid)["last_ingest_at"])
 
     blog_state = current_app.config.get("BLOG_STATE")
     blog_posts_for_city = []
@@ -180,12 +172,9 @@ def _city_overview_render(slug, municipality, now_ts):
         briefing_meetings=briefing_meetings,
         money=money,
         disagreed=disagreed,
-        meeting_count=meeting_count,
         topics_door=topics_door,
         members=members,
-        city_policy_badges=city_policy_badges,
-        process_badges=process_badges,
-        now=datetime.now(),
+        signals=signals,
         freshness=freshness,
         blog_posts_for_city=blog_posts_for_city,
     )

@@ -26,7 +26,6 @@ def test_render_partial_fixture_works(render_partial):
             name='Birmingham',
             adapter_class='GranicusAdapter',
         ),
-        now=datetime(2026, 5, 14),
     )
     assert 'docket.pub' in html
 

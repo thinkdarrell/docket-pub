@@ -413,12 +413,29 @@ def test_dropdown_has_blank_default_option(bag, client):
 # ---------------------------------------------------------------------------
 
 
-def test_city_homepage_has_browse_by_priority_section(client):
+def test_city_page_signals_section_renders_only_with_nonzero_count(bag, client):
+    """The "Signals in the last 30 days" list (plan birmingham-city-briefing,
+    M5) replaces the Browse-by-Priority grids: it is absent while every
+    process badge counts zero and appears once one item carries a badge
+    dated inside the window.
+    """
     rv = client.get("/al/birmingham/")
     assert rv.status_code == 200
     body = rv.get_data(as_text=True)
-    assert "browse-by-priority" in body
-    assert "Browse by priority" in body
+    assert "browse-by-priority" not in body
+    assert "Signals in the last 30 days" not in body
+    assert 'class="brf-door brf-signals"' not in body
+
+    m = bag.add_meeting(date.today().isoformat())
+    iid = bag.add_item(m, title="Signal-consent", significance_score=5)
+    bag.add_badge(iid, "hidden_on_consent", confidence=1.0)
+    public_module._overview_cache.clear()
+
+    rv = client.get("/al/birmingham/")
+    body = rv.get_data(as_text=True)
+    assert "Signals in the last 30 days" in body
+    assert 'class="brf-door brf-signals"' in body
+    assert 'href="/al/birmingham/hidden_on_consent/"' in body
 
 
 def test_city_page_links_four_priorities_under_topics_door(bag, client):
@@ -448,47 +465,26 @@ def test_city_page_links_four_priorities_under_topics_door(bag, client):
     assert door.count("1 item since") >= 4
 
 
-def test_city_homepage_renders_seven_process_tiles(client):
+def test_city_page_lists_no_zero_count_signal(client):
+    """A process badge with a zero count has no line (and no link), so on
+    an unbadged Birmingham none of the seven process slugs is linked from
+    the page and the section itself is absent.
+    """
     rv = client.get("/al/birmingham/")
     body = rv.get_data(as_text=True)
+    assert 'class="brf-door brf-signals"' not in body
     for slug in ("hidden_on_consent", "legal_settlement", "contested",
                  "sole_source", "emergency_action", "split_vote",
                  "amends_prior_contract"):
-        assert f"/al/birmingham/{slug}/" in body, (
-            f"process tile link for {slug} missing"
+        assert f'href="/al/birmingham/{slug}/"' not in body, (
+            f"zero-count signal {slug} is linked from the page"
         )
 
 
-def test_city_homepage_policy_tile_shows_count_with_year_label(bag, client):
-    """F4 review fix-up (S7): assert the integer count renders, not just
-    the surrounding "this year" label. A regression that drops the
-    count to 0 or hides it would otherwise pass the label-only check.
-    """
-    yr = date.today().year
-    m = bag.add_meeting(f"{yr}-04-15")
-    # Insert THREE items so we can pin a non-default count and avoid
-    # collision with "1 this year" elsewhere on the page.
-    for i in range(3):
-        iid = bag.add_item(m, title=f"Counted-policy-{i}", significance_score=5)
-        bag.add_badge(iid, "blight_accountability", confidence=1.0)
-
-    rv = client.get("/al/birmingham/")
-    body = rv.get_data(as_text=True)
-    # The "this year" label is the marker that this is the policy grid.
-    assert "this year" in body
-    # The integer count must render adjacent to the label — the tile
-    # renders ``{{ b.count }} this year``. Whitespace-tolerant check
-    # for "3 this year" so a stray newline in the template doesn't
-    # break the assertion.
-    import re
-    assert re.search(r"\b3\s+this year\b", body), (
-        "expected '3 this year' on a policy tile"
-    )
-
-
-def test_city_homepage_process_tile_shows_count_with_30day_label(bag, client):
-    """F4 review fix-up (S7): assert the integer count renders, not just
-    the surrounding "last 30 days" label.
+def test_city_page_signal_line_shows_count(bag, client):
+    """The signal line is the plain-words label, a dash, and the count:
+    two consent items in the window read "2 items" beside the label, and
+    the line links to the category landing page.
     """
     today = date.today()
     m1 = bag.add_meeting((today - timedelta(days=5)).isoformat())
@@ -499,11 +495,16 @@ def test_city_homepage_process_tile_shows_count_with_30day_label(bag, client):
 
     rv = client.get("/al/birmingham/")
     body = rv.get_data(as_text=True)
-    assert "last 30 days" in body
+    section = body[body.index('<section class="brf-door brf-signals"'):]
+    section = section[: section.index("</section>")]
     import re
-    assert re.search(r"\b2\s+last 30 days\b", body), (
-        "expected '2 last 30 days' on the hidden_on_consent tile"
-    )
+    assert re.search(
+        r'<a href="/al/birmingham/hidden_on_consent/">'
+        r'Passed without discussion, on the consent agenda — 2 items</a>',
+        section,
+    ), section
+    assert "this year" not in section
+    assert "last 30 days" not in section.replace("Signals in the last 30 days", "")
 
 
 # ---------------------------------------------------------------------------
@@ -516,9 +517,10 @@ def test_city_homepage_process_tile_shows_count_with_30day_label(bag, client):
 
 def test_city_homepage_has_badge_legend(client):
     """P3: badge legend (id=badge-legend) was removed with the hero section.
-    The page still renders (200) and the Browse by Priority section still
-    surfaces process/policy vocabulary — the per-tile layout replaces the
-    inline legend paragraph."""
+    The page still renders (200). The Browse by Priority grids that once
+    carried the process/policy vocabulary are gone too (plan
+    birmingham-city-briefing, M5): the signals list names each badge in
+    plain words, which ``test_city_page_signal_line_shows_count`` asserts."""
     rv = client.get("/al/birmingham/")
     body = rv.get_data(as_text=True)
     assert rv.status_code == 200
@@ -526,18 +528,18 @@ def test_city_homepage_has_badge_legend(client):
     assert 'id="badge-legend"' not in body, (
         "P3: badge-legend paragraph should have been removed with the hero"
     )
-    # Browse-by-priority section still provides process/policy vocabulary
-    assert "process" in body.lower()
 
 
 def test_badge_legend_explains_process_and_policy(client):
-    """P3: badge legend removed from hero; process/policy vocabulary still
-    reachable via Browse by Priority tiles."""
+    """P3 moved the process/policy vocabulary into the Browse by Priority
+    tiles; M5 of plan birmingham-city-briefing removed the tiles with their
+    headings, so none of the old section's words may come back."""
     rv = client.get("/al/birmingham/")
     body = rv.get_data(as_text=True)
-    # Both kinds named in citizen vocabulary via Browse by Priority tiles.
-    assert "process" in body.lower()
-    assert "policy" in body.lower()
+    for phrase in ("Browse by priority", "Process transparency",
+                   "Oversight signals", "What's on the docket",
+                   "browse-by-priority", "priority-tile"):
+        assert phrase not in body, f"removed Browse-by-Priority text {phrase!r} is back"
 
 
 def test_badge_legend_has_no_internal_jargon(client):
@@ -770,9 +772,7 @@ def test_link_crawler_homepage_links_resolve_to_200(client):
                 f"link {full_path} from /al/{city}/ returned {sub.status_code}"
             )
 
-        # Sanity: we should have crawled at least one badge URL on each
-        # city — process tiles always render, so 7 process slugs
-        # minimum on every city after R1.
-        assert len(seen) >= 7, (
-            f"/al/{city}/ crawler found only {len(seen)} category links: {seen}"
-        )
+        # No floor on ``seen``: the signals list and the topics door show
+        # only nonzero badges (plan birmingham-city-briefing, M5), so a
+        # city with none has no category link to crawl; the 200 check on
+        # every link that does render is what catches a dead door.

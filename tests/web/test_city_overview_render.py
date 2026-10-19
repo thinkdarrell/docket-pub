@@ -111,22 +111,32 @@ def test_overview_renders_city_lead(client):
 
 
 def test_footer_colophon_no_adapter_tile(client):
-    """P3: footer colophon drops the per-city Adapter tile —
-    page_sources.html owns per-city Adapter info."""
-    resp = client.get("/al/birmingham/")
-    html = resp.data.decode()
+    """P3: footer colophon drops the per-city Adapter tile; M5 of plan
+    birmingham-city-briefing drops the Schema tile too, and the grid reads
+    the last ingest from ``city_provenance``, so it renders only once a
+    Birmingham meeting exists (the seed supplies one)."""
+    with db() as conn:
+        briefing_seed.seed(conn)
+    briefing_seed.clear_caches()
+    try:
+        resp = client.get("/al/birmingham/")
+        html = resp.data.decode()
+    finally:
+        with db() as conn:
+            briefing_seed.cleanup(conn)
+        briefing_seed.clear_caches()
+
     # Find the colophon section + scope the search to it
     start = html.find("footnote-colophon")
-    end = html.find("footnote-bottom", start)
+    end = html.find("footnote-bottom")
     assert start > -1 and end > -1, "footer colophon not found"
     colophon = html[start:end]
-    # Adapter tile was a <span class="t-label">Adapter</span> inside
-    # footnote-grid — must be gone from the colophon
+
     assert "Adapter</span>" not in colophon, (
         "footer colophon still has Adapter tile"
     )
-    # Other tiles should still be present
-    assert "Schema</span>" in colophon
+    assert "Schema</span>" not in colophon
+    assert "tsvector" not in colophon
     assert "Source</span>" in colophon
     assert "Updated</span>" in colophon
 

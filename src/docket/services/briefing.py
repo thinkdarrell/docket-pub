@@ -1106,3 +1106,79 @@ def topics_door(municipality: dict, days: int = TOPICS_WINDOW_DAYS) -> dict:
         "since": since,
         "since_text": _short_date(since),
     }
+
+
+# ---------------------------------------------------------------------------
+# The signals list and the page's provenance (M5)
+# ---------------------------------------------------------------------------
+
+SIGNALS_WINDOW_DAYS = 30
+PROVENANCE_TTL_SECONDS = 300
+
+# Per-city cache for ``city_provenance``: {municipality_id: (monotonic, dict)}.
+# Cleared by ``tests.support.briefing_seed.clear_caches`` beside the route's
+# ``_overview_cache``, so a render before seeding cannot leave a zero count
+# for the tests after it.
+_provenance_cache: dict[int, tuple[float, dict]] = {}
+
+
+def signals(municipality_id: int, days: int = SIGNALS_WINDOW_DAYS) -> list[dict]:
+    """``[{"slug", "label", "count"}]`` for ``partials/briefing/signals.html``:
+    the process badges of ``SIGNAL_LABELS``, in that order, whose count over
+    the last ``days`` days (``query.badge_volume_recent``, the same gates as
+    the category landing pages) is above zero. A zero is left out, so the
+    section renders only when something was signalled."""
+    from docket.services import query
+
+    out = []
+    for slug, label in SIGNAL_LABELS.items():
+        count = query.badge_volume_recent(municipality_id, slug, days=days)
+        if count > 0:
+            out.append({"slug": slug, "label": label, "count": int(count)})
+    return out
+
+
+_NEWEST_SOURCE_URL_SQL = """
+    SELECT source_url FROM meetings
+    WHERE municipality_id = %s AND source_url IS NOT NULL AND is_hidden = FALSE
+    ORDER BY meeting_date DESC, id DESC LIMIT 1
+"""
+
+
+def _source_host(url: str | None) -> str | None:
+    from urllib.parse import urlparse
+
+    if not url:
+        return None
+    try:
+        return urlparse(url).hostname or None
+    except ValueError:
+        return None
+
+
+def city_provenance(municipality_id: int) -> dict:
+    """``{"last_ingest_at", "meeting_count", "source_host", "source_url"}``:
+    the one owner of the facts the freshness chip, the source panel, and the
+    footer state (``query.most_recent_ingest_at``, ``query.count_meetings_lifetime``,
+    and the hostname of the newest non-hidden meeting's ``source_url``),
+    cached per city for ``PROVENANCE_TTL_SECONDS``."""
+    import time
+
+    from docket.services import query
+
+    now = time.monotonic()
+    cached = _provenance_cache.get(municipality_id)
+    if cached and now - cached[0] < PROVENANCE_TTL_SECONDS:
+        return cached[1]
+    with db_cursor() as cur:
+        cur.execute(_NEWEST_SOURCE_URL_SQL, (municipality_id,))
+        row = cur.fetchone()
+    source_url = row["source_url"] if row else None
+    result = {
+        "last_ingest_at": query.most_recent_ingest_at(municipality_id),
+        "meeting_count": query.count_meetings_lifetime(municipality_id),
+        "source_host": _source_host(source_url),
+        "source_url": source_url,
+    }
+    _provenance_cache[municipality_id] = (now, result)
+    return result

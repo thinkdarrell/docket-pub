@@ -111,18 +111,23 @@ def _sample_kpi_stats():
 
 
 def test_page_sources_renders_provenance(render_partial):
-    """page_sources.html renders the provenance block when municipality is in context."""
+    """page_sources.html renders the provenance paragraph when municipality
+    is in context, through the app's ``city_provenance`` global (plan
+    birmingham-city-briefing, M5); a stand-in municipality without an id
+    gets the empty shape, so the count is zero and the date clause is
+    dropped. The adapter class is no longer named."""
     muni = _make_municipality()
     html = render_partial(
         "partials/page_sources.html",
         municipality=muni,
-        meeting_count=1003,
     )
     assert 'class="page-sources"' in html
-    assert "SOURCE OF TRUTH" in html
-    assert "Birmingham" in html
-    assert "GranicusAdapter" in html
-    assert "1003 meetings" in html
+    assert "Where these records come from" in html
+    assert "docket.pub has indexed 0 Birmingham meetings." in html
+    assert "GranicusAdapter" not in html
+    assert "SOURCE OF TRUTH" not in html
+    assert ">Source health</a>" in html
+    assert ">How we read minutes</a>" in html
 
 
 def test_page_sources_renders_kpi_stack_when_provided(render_partial):
@@ -151,7 +156,7 @@ def test_page_sources_omits_kpi_stack_without_kpi_stats(render_partial):
         "KPI stack should be absent when kpi_stats not in context"
     )
     # Provenance block still renders
-    assert "SOURCE OF TRUTH" in html
+    assert "Where these records come from" in html
 
 
 def test_page_sources_omits_block_when_no_municipality(render_partial):
@@ -159,7 +164,7 @@ def test_page_sources_omits_block_when_no_municipality(render_partial):
     html = render_partial("partials/page_sources.html")
     # No municipality — entire aside should be absent
     assert 'class="page-sources"' not in html
-    assert "SOURCE OF TRUTH" not in html
+    assert "Where these records come from" not in html
 
 
 def test_city_html_page_sources_rendered_with_kpis(render_partial):
@@ -184,7 +189,7 @@ def test_city_html_page_sources_rendered_with_kpis(render_partial):
         kpi_stats=_sample_kpi_stats(),
     )
     assert 'class="page-sources"' in html, "page-sources block missing from city.html render"
-    assert "SOURCE OF TRUTH" in html
+    assert "Where these records come from" in html
     assert "page-sources-kpis" in html, "KPI stack missing when kpi_stats provided"
     # No rail
     assert 'id="source-rail"' not in html, "source-rail should be gone in P2b"

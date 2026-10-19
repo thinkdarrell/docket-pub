@@ -27,12 +27,19 @@
             back to its original document. Where automated extraction disagrees with official minutes, both readings are
             preserved — never silently reconciled.
         </p>
+        {#- The grid reads the same provenance as the freshness chip and the
+            source panel (the Jinja global city_provenance, plan
+            birmingham-city-briefing, M5); it is omitted when no city is in
+            context or nothing has been indexed, and the Source cell when
+            no source website is known. -#}
         {% if municipality is defined and municipality %}
+        {%- set prov = city_provenance(municipality) -%}
+        {% if prov.last_ingest_at %}
         <div class="footnote-grid t-mono">
-            <div><span class="t-label">Schema</span><div>10 tables · PostgreSQL 16 · FTS via tsvector</div></div>
-            <div><span class="t-label">Source</span><div>{{ municipality.name | lower }}al.gov · public domain</div></div>
-            <div><span class="t-label">Updated</span><div>{{ now.strftime('%b %d, %Y') if now is defined else 'N/A' }}</div></div>
+            {% if prov.source_host %}<div><span class="t-label">Source</span><div>{{ prov.source_host }} · public domain</div></div>{% endif %}
+            <div><span class="t-label">Updated</span><div>{{ prov.last_ingest_at.strftime('%b %d, %Y') }}</div></div>
         </div>
+        {% endif %}
         {% endif %}
     </div>
 
