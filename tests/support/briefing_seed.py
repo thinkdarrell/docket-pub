@@ -22,7 +22,14 @@ inserts, under Birmingham's id and with every title prefixed
   item A, the first from a speaker cluster resolved to Hunter Williams;
 * badges ``hidden_on_consent`` on item C and ``blight_accountability`` on A.
 
-Options produce the partial states the plan's tests name. ``cleanup``
+Options produce the partial states the plan's tests name: ``past_days``
+ages the past meeting (default seven days); ``votes="tally_only"`` records
+vote 1 with no member votes and ``votes="video"`` records votes 1 and 2
+from the video (``video_ocr``, not flagged for review) so the video becomes
+the meeting's chosen source; ``transcript="low_speech"`` writes the
+transcript with that status, which ``transcripts.public_predicate`` hides;
+``undocumented=True`` adds a council meeting ten days back with one item and
+no agenda, minutes, video, or source link. ``cleanup``
 removes everything by the prefix, plus Birmingham's ``city_briefing_facts``
 rows; ``seed`` calls it first, so a run killed midway is tidied by the next.
 """
@@ -95,6 +102,14 @@ OLD_ITEM = {
     "is_consent": False,
     "topic": "public_safety",
     "significance_score": 4,
+}
+
+
+UNDOCUMENTED_ITEM = {
+    "item_number": "1",
+    "title": PREFIX + "Appointment to the library board",
+    "description": "Appointment of one member to the library board.",
+    "topic": "appointments",
 }
 
 
@@ -193,13 +208,18 @@ def _insert_badge(cur, item_id: int, city_id: int, slug: str, kind: str, source:
     )
 
 
-def _insert_transcript(cur, meeting_id: int, item_id: int, roster: dict, *, resolved_speaker: bool) -> int:
+def _insert_transcript(cur, meeting_id: int, item_id: int, roster: dict, *, resolved_speaker: bool,
+                       status: str = "uploaded") -> int:
+    """Insert a transcript with ``status`` (``low_speech`` hides it from the
+    page, by ``transcripts.public_predicate``), its two speakers, and three
+    segments tagged to ``item_id``; the segments are written whatever the
+    status, since the predicate alone decides what the page shows."""
     cur.execute(
         """INSERT INTO transcripts (meeting_id, status, version, engine, asr_model, diarization_model,
                                     audio_duration_s, speech_ratio, word_count, uploaded_at)
-           VALUES (%s, 'uploaded', 1, 'whisper', 'large-v3', 'pyannote', 5400, 0.8, 9000, now())
+           VALUES (%s, %s, 1, 'whisper', 'large-v3', 'pyannote', 5400, 0.8, 9000, now())
            RETURNING id""",
-        (meeting_id,),
+        (meeting_id, status),
     )
     tid = cur.fetchone()["id"]
     cur.execute(
@@ -252,19 +272,27 @@ def cleanup(conn) -> None:
     conn.commit()
 
 
-def seed(conn, *, votes: str = "split", transcript: bool = True, upcoming: bool = True,
+def seed(conn, *, votes: str = "split", transcript: bool | str = True, upcoming: bool = True,
          dollars: bool = True, badges: bool = True, ghost: bool = True, old_split: bool = False,
-         resolved_speaker: bool = True) -> dict:
+         resolved_speaker: bool = True, past_days: int = 7, undocumented: bool = False) -> dict:
     """Insert the Birmingham rows; returns the ids created.
 
     ``votes`` is ``"split"`` (the default), ``"unanimous"`` (no split vote on
-    the past meeting), ``"none"`` (no votes at all), or ``"many_splits"``
+    the past meeting), ``"none"`` (no votes at all), ``"many_splits"``
     (three split votes: vote 1, a failed 4 to 5 on item B, and a 7 to 2
-    linked to C and D). ``dollars=False`` stores no amount on any item, so no
-    item passes the dollar check. ``old_split=True`` adds a meeting 200 days
-    ago with one split vote, outside the 180-day window.
+    linked to C and D), ``"tally_only"`` (vote 1 with no member votes, so
+    its dissenters are unknown), or ``"video"`` (votes 1 and 2 from the
+    video and not flagged for review, so the video is the chosen source).
+    ``transcript`` is ``True``, ``False``, or ``"low_speech"`` (the
+    transcript exists with that status and the page hides it).
+    ``dollars=False`` stores no amount on any item, so no item passes the
+    dollar check. ``old_split=True`` adds a meeting 200 days ago with one
+    split vote, outside the 180-day window. ``past_days`` is the past
+    meeting's age in days (``out["past_meeting_date"]`` follows it).
+    ``undocumented=True`` adds a council meeting ten days back with one item
+    and no document links (``out["undocumented_meeting_id"]``).
     """
-    if votes not in ("split", "unanimous", "none", "many_splits"):
+    if votes not in ("split", "unanimous", "none", "many_splits", "tally_only", "video"):
         raise ValueError(f"unknown votes option {votes!r}")
     cleanup(conn)
     today = date.today()
@@ -278,27 +306,29 @@ def seed(conn, *, votes: str = "split", transcript: bool = True, upcoming: bool 
 
         past = _insert_meeting(
             cur, city, external_id="past", title=PREFIX + "City Council Meeting",
-            meeting_date=today - timedelta(days=7), start_time=time(9, 30),
+            meeting_date=today - timedelta(days=past_days), start_time=time(9, 30),
             agenda_url="https://example.test/agendas/past.pdf",
             minutes_url="https://example.test/minutes/past.pdf",
             video_url="https://example.test/video/past",
             source_url="https://birminghamal.granicus.com/ViewPublisher.php?view_id=1",
         )
         out["past_meeting_id"] = past
-        out["past_meeting_date"] = today - timedelta(days=7)
+        out["past_meeting_date"] = today - timedelta(days=past_days)
         for key, spec in ITEMS.items():
             out["items"][key] = _insert_item(cur, past, spec, dollars=dollars)
         a, b, c, d = (out["items"][k] for k in "ABCD")
 
         if votes != "none":
-            if votes in ("split", "many_splits"):
+            source = "video_ocr" if votes == "video" else "minutes_text"
+            if votes in ("split", "many_splits", "tally_only", "video"):
                 out["votes"]["split"] = _insert_vote(
-                    cur, past, result="passed", yeas=8, nays=1, item_ids=[a], roster=roster,
+                    cur, past, result="passed", yeas=8, nays=1, item_ids=[a], source=source,
+                    roster=None if votes == "tally_only" else roster,
                     positions={MEMBER_NAY: "nay"},
                 )
             out["votes"]["unanimous"] = _insert_vote(
-                cur, past, result="passed", yeas=9, nays=0, item_ids=[c, d], roster=roster,
-                positions={MEMBER_ABSENT: "absent"},
+                cur, past, result="passed", yeas=9, nays=0, item_ids=[c, d], source=source,
+                roster=roster, positions={MEMBER_ABSENT: "absent"},
             )
             names = list(roster)
             out["votes"]["review"] = _insert_vote(
@@ -332,6 +362,15 @@ def seed(conn, *, votes: str = "split", transcript: bool = True, upcoming: bool 
                 meeting_date=today - timedelta(days=3),
             )
 
+        if undocumented:
+            und = _insert_meeting(
+                cur, city, external_id="undocumented",
+                title=PREFIX + "City Council Meeting (no documents)",
+                meeting_date=today - timedelta(days=10), start_time=time(9, 30),
+            )
+            out["undocumented_meeting_id"] = und
+            out["items"]["undocumented"] = _insert_item(cur, und, UNDOCUMENTED_ITEM)
+
         if old_split:
             old = _insert_meeting(
                 cur, city, external_id="old", title=PREFIX + "City Council Meeting (older)",
@@ -348,7 +387,10 @@ def seed(conn, *, votes: str = "split", transcript: bool = True, upcoming: bool 
             )
 
         if transcript:
-            out["transcript_id"] = _insert_transcript(cur, past, a, roster, resolved_speaker=resolved_speaker)
+            out["transcript_id"] = _insert_transcript(
+                cur, past, a, roster, resolved_speaker=resolved_speaker,
+                status="low_speech" if transcript == "low_speech" else "uploaded",
+            )
 
         if badges:
             _insert_badge(cur, c, city, "hidden_on_consent", "process", "deterministic", 1.0)

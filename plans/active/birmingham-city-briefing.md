@@ -317,6 +317,16 @@ The design's own anti-goals bind every milestone: no sentence whose number, name
   Rationale: the plan's acceptance arithmetic.
   Date/Author: 2026-10-19, M7 session (Claude).
 
+- Decision (M8): the seed's new options are mechanical readings of the plan's prose, with three small choices. `votes="video"` sets one local `source` (`video_ocr` for that option, else `minutes_text`) that votes 1 and 2 pass to `_insert_vote`, and vote 3 keeps its literal `video_ocr` and `needs_review=True`; `votes="tally_only"` passes `roster=None` to vote 1 so no `member_votes` row exists (the `positions` argument is then ignored); `transcript="low_speech"` is read by truthiness and compared once (`status="low_speech" if transcript == "low_speech" else "uploaded"`) and, as the plan names only the `votes` check, no value check was added for `transcript`; the undocumented meeting's item id is also returned as `out["items"]["undocumented"]`, beside the plan's `out["undocumented_meeting_id"]`, so a later test can link to it without a query.
+  Rationale: one `source` local keeps the two chosen-source votes the same shape in both options; a roll-call-free vote is exactly a vote with no `member_votes` rows, which is what the precompute's `dissenters` subquery and `_MEMBER_COUNTS_SQL` read; the extra id is an addition to the returned dict, which the Interfaces section describes as "the ids it created".
+  Date/Author: 2026-10-19, M8 session (Claude).
+- Decision (M8): the no-roll-call card test looks the card up by the escaped name (`markupsafe.escape(names[4])`) rather than changing M7's `_card` helper to escape on every call.
+  Rationale: the helper's other caller passes a name with no character to escape, and escaping at the one call that needs it keeps the helper's contract ("the card whose name link reads `>{name}</a>`") as M7 wrote it; the Surprises entry records why the raw name found nothing.
+  Date/Author: 2026-10-19, M8 session (Claude).
+- Decision (M8): six tests were added exactly as the plan names them, all in `tests/web/test_city_briefing.py`, so the expected fast-tier total is the M7 total plus six (1953) and integration stays at 625; the observed totals are in Artifacts and Notes. No template or service code changed: each state was already rendered by the code M2 to M7 shipped, and the seed could not produce it.
+  Rationale: the plan's acceptance arithmetic; the milestone's goal is coverage of shipped behaviour, not new behaviour.
+  Date/Author: 2026-10-19, M8 session (Claude).
+
 ## Outcomes & Retrospective
 
 This section is written at the end of each milestone and at completion, comparing what landed against the Purpose above.
@@ -906,6 +916,8 @@ M8 session, `./tools/verify` before any edit (2026-10-19 22:27Z; it built `docke
     verify: all 6 checks passed in 106s.
 
 M8 session, the six tests run against the unchanged seed (`DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/web/test_city_briefing.py -q -p no:cacheprovider -k "stale_last_met or tally_only_no_names or video_sourced or low_speech or without_documents or without_roll_calls"`) printed `2 failed, 44 deselected, 4 errors in 0.83s`: the four errors were `TypeError: seed() got an unexpected keyword argument 'past_days'`, `ValueError: unknown votes option 'tally_only'`, `ValueError: unknown votes option 'video'`, and `TypeError: seed() got an unexpected keyword argument 'undocumented'`; the two failures were the transcript door still rendered under `transcript="low_speech"` (the old seed treated any truthy value as `True`, so `_section(html, "brf-door-said")` was the section, not None) and the council card lookup for `Darrell O'Quinn` (Surprises).
+
+M8 session, after the seed change (the four options, `_insert_transcript`'s `status`) and the spec sentence: the six tests printed `6 passed, 44 deselected in 1.32s` on their first run; the three briefing test files together (`DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/web/test_city_briefing.py tests/web/test_city_briefing_a11y.py tests/services/test_briefing_facts.py -q -p no:cacheprovider`) printed `76 passed in 7.77s`. The acceptance greps: `grep -c 'from the video' tests/web/test_city_briefing.py` printed `5`; `grep -n 'assert "from the video" in\|"· from the video" in' tests/web/test_city_briefing.py` printed `859:    assert "· from the video" in door`; the five-pattern loop printed `2`, `2`, `1`, `2`, `1`; `grep -c 'past_days\|undocumented\|low_speech\|tally_only' docs/specs/city-page.md` printed `2`.
 
 ## Interfaces and Dependencies
 
