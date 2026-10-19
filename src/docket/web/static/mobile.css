@@ -670,4 +670,13 @@
   .item-detail-hero-dollar {
     margin-top: 0;
   }
+
+  /* City briefing: the opener reads at 17px, the meeting rows stack. */
+  .brf-beat { font-size: 17px; }
+  .brf-search-row { flex-direction: column; }
+  .brf-search-button { width: 100%; }
+  .brf-meeting {
+    grid-template-columns: 1fr;
+    grid-template-areas: "date" "title" "facts" "docs";
+  }
 }

@@ -384,6 +384,21 @@ M1 session, `./tools/verify` after the milestone's edits (2026-10-19 17:45Z):
 
 The fast tiers gained 19 tests over the baseline (fourteen in `tests/services/test_briefing_facts.py`, one in `tests/unit/test_worker_tasks.py`, two in `tests/unit/test_worker_scheduler.py`, two in `tests/web/test_source_health_briefing.py`); integration gained the two in `tests/integration/test_037_migration.py`.
 
+M2 session, 2026-10-19, baseline before any edit (`./tools/verify`, `.env` supplying `DATABASE_URL`, observed 17:52Z):
+
+    1894 passed, 5 skipped, 4 xfailed, 1 warning in 45.41s
+    626 passed, 1 warning in 49.69s
+    judge fixtures: 12 of 12 passed
+    84 passed in 0.72s
+    verify: test-db ... ok (0s) postgresql://thinkdarrell@/docket_test_29cd1d5f
+    verify: unit+web+services ... ok (46s)
+    verify: integration ... ok (51s)
+    verify: judge-fixtures ... ok (0s)
+    verify: workflows ... ok (0s)
+    verify: transcriber ... ok (1s)
+    verify: plans ... ok (0s)
+    verify: all 6 checks passed in 98s.
+
 ## Interfaces and Dependencies
 
 Identifiers spent by this plan: migration `037_city_briefing_facts`; table `city_briefing_facts` with `fact_set` values `split_votes` and `member_counts`; task `briefing_facts`; environment variable `HEALTHCHECK_BRIEFING_FACTS_UUID`; Healthchecks check `docket-briefing-facts`; metadata key `briefing`; module `src/docket/services/briefing.py`; partials under `src/docket/web/templates/partials/briefing/` named `opener.html`, `search.html`, `door_money.html`, `door_disagreed.html`, `door_topics.html`, `door_said.html`, `signals.html`, `meetings.html`; CSS class prefix `brf-` and the card class `cc-district-num`; Jinja global `city_provenance`; query parameters `since` (member route) and `order=amount` (search); test files `tests/support/briefing_seed.py`, `tests/services/test_briefing_facts.py`, `tests/web/test_city_briefing.py`, `tests/web/test_city_briefing_a11y.py`, `tests/integration/test_037_migration.py`, `tests/unit/test_query_coverage_note.py`; seed title prefix `BRIEFING_TEST_`; spec `docs/specs/city-page.md`.

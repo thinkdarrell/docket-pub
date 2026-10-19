@@ -26,7 +26,7 @@ from flask import (
 
 from docket.enrichment.topics import all_topics, get_topic_display_name
 from docket.models.data_quality import friendly_label
-from docket.services import query
+from docket.services import briefing, query
 
 bp = Blueprint("public", __name__)
 
@@ -106,19 +106,24 @@ def _city_overview_render(slug, municipality, now_ts):
     """Render and cache the city overview page. Caller holds ``_overview_lock``."""
     from datetime import datetime
 
-    result = query.list_meetings(slug, limit=6)
+    mid = municipality["id"]
+    # The briefing (plan birmingham-city-briefing, M2): the opener runs only
+    # where the municipality's metadata carries "briefing": true; the
+    # meetings list and the search field render for every city. The
+    # lifetime count feeds the source panel until M5 moves it into
+    # ``city_provenance``.
+    opener = briefing.opener_facts(municipality) if briefing.is_briefing_city(municipality) else None
+    opener_text = briefing.opener_text(opener, municipality) if opener else ""
+    briefing_meetings = briefing.list_briefing_meetings(slug)
+    meeting_count = query.count_meetings_lifetime(mid)
     topics = query.topic_counts(municipality_slug=slug)
     members = query.list_council_members(slug)
     notable = query.list_high_dollar_items(municipality_slug=slug, limit=6, days=180)
-    stats = query.dashboard_stats()
     # TODO: precompute these — too heavy for cold page loads on Railway
+    # (M3 of plan birmingham-city-briefing replaces this with the
+    # precomputed disagreement door; the switched-off "Recent votes"
+    # table left city.html in M2).
     contested = []
-    recent_votes = []
-
-    # P3 follow-up — SQL-side city filter so this city's meetings never
-    # get crowded out by other cities' activity in the global ranking:
-    recent_city = query.list_recent_meetings_for_city(slug, days=7, limit=4)
-    upcoming_city = query.list_upcoming_meetings_for_city(slug, days=14, limit=4)
 
     # F4 Browse-by-Priority (spec §6.7): two grids passed as
     # pre-decorated dicts — counts are zipped on here in the route, NOT
@@ -153,22 +158,6 @@ def _city_overview_render(slug, municipality, now_ts):
     notable_item_ids = [it['id'] for it in notable if 'id' in it]
     coverage_counts = coverage_counts_for_items(notable_item_ids)
 
-    # P3 — city_stats for the new 3-card YTD strip at the top of overview.
-    # Replaces P2b's kpi_stats build; overview no longer renders the KPI
-    # explainer stack at the bottom (that moves to interior pages — Task 7).
-    mid = municipality["id"]
-    ytd_dollars = query.sum_dollars_ytd(mid)
-    if ytd_dollars >= 1_000_000_000:
-        dollars_formatted = f"${ytd_dollars / 1_000_000_000:.1f}B"
-    elif ytd_dollars >= 1_000_000:
-        dollars_formatted = f"${ytd_dollars / 1_000_000:.1f}M"
-    else:
-        dollars_formatted = f"${int(ytd_dollars):,}"
-    city_stats = {
-        "meetings_ytd": query.count_meetings_ytd(mid),
-        "dollars_ytd_formatted": dollars_formatted,
-        "flagged_count": query.count_contested_votes_ytd(mid),
-    }
     freshness = query._freshness_state(query.most_recent_ingest_at(mid))
 
     blog_state = current_app.config.get("BLOG_STATE")
@@ -184,21 +173,18 @@ def _city_overview_render(slug, municipality, now_ts):
     rendered = render_template(
         "city.html",
         municipality=municipality,
-        meetings=result.meetings,
-        meeting_count=result.total,
+        opener=opener,
+        opener_text=opener_text,
+        briefing_meetings=briefing_meetings,
+        meeting_count=meeting_count,
         topics=topics,
         members=members,
-        recent_meetings=recent_city,
-        upcoming_meetings=upcoming_city,
         notable_items=notable,
         contested_votes=contested,
-        recent_votes=recent_votes,
-        stats=stats,
         city_policy_badges=city_policy_badges,
         process_badges=process_badges,
         now=datetime.now(),
         coverage_counts=coverage_counts,
-        city_stats=city_stats,
         freshness=freshness,
         blog_posts_for_city=blog_posts_for_city,
     )

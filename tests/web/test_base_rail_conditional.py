@@ -110,16 +110,6 @@ def _sample_kpi_stats():
     ]
 
 
-def _sample_city_stats():
-    """Minimal city_stats dict required by kpi_strip.html (P3 top-of-overview)."""
-    from types import SimpleNamespace
-    return SimpleNamespace(
-        meetings_ytd=42,
-        dollars_ytd_formatted="$1.4M",
-        flagged_count=7,
-    )
-
-
 def test_page_sources_renders_provenance(render_partial):
     """page_sources.html renders the provenance block when municipality is in context."""
     muni = _make_municipality()
@@ -184,18 +174,15 @@ def test_city_html_page_sources_rendered_with_kpis(render_partial):
         meeting_count=1003,
         topics=[],
         members=[],
-        recent_meetings=[],
-        upcoming_meetings=[],
+        opener=None,
+        briefing_meetings=[],
         notable_items=[],
         contested_votes=[],
-        recent_votes=[],
-        stats={},
         city_policy_badges=[],
         process_badges=[],
         now=datetime.datetime.now(),
         coverage_counts={},
         kpi_stats=_sample_kpi_stats(),
-        city_stats=_sample_city_stats(),
     )
     assert 'class="page-sources"' in html, "page-sources block missing from city.html render"
     assert "SOURCE OF TRUTH" in html
@@ -216,18 +203,15 @@ def test_city_html_no_source_sheet_rendered(render_partial):
         meeting_count=0,
         topics=[],
         members=[],
-        recent_meetings=[],
-        upcoming_meetings=[],
+        opener=None,
+        briefing_meetings=[],
         notable_items=[],
         contested_votes=[],
-        recent_votes=[],
-        stats={},
         city_policy_badges=[],
         process_badges=[],
         now=datetime.datetime.now(),
         coverage_counts={},
         kpi_stats=[],
-        city_stats=_sample_city_stats(),
     )
     assert 'id="source-sheet"' not in html, (
         "source_sheet dialog should not render — mobile_chrome block removed in P2b"
@@ -245,18 +229,15 @@ def test_city_html_bottom_tabs_still_present(render_partial):
         meeting_count=0,
         topics=[],
         members=[],
-        recent_meetings=[],
-        upcoming_meetings=[],
+        opener=None,
+        briefing_meetings=[],
         notable_items=[],
         contested_votes=[],
-        recent_votes=[],
-        stats={},
         city_policy_badges=[],
         process_badges=[],
         now=datetime.datetime.now(),
         coverage_counts={},
         kpi_stats=[],
-        city_stats=_sample_city_stats(),
     )
     assert 'class="bottom-tabs"' in html, (
         "bottom_tabs must be site-wide — should appear in city.html via base.html include"

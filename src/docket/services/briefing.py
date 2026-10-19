@@ -26,10 +26,12 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from datetime import date, datetime, timedelta, timezone
 
 from docket.analysis.structured_facts import extract_dollar_amounts
 from docket.db import db_cursor
+from docket.services.query import _UPCOMING_PREDICATE_MT
 
 FACT_SETS = ("split_votes", "member_counts")
 SPLIT_WINDOW_DAYS = 180
@@ -165,6 +167,30 @@ _CHOSEN_JOIN = """
 # ---------------------------------------------------------------------------
 
 
+# One split vote as the payload and the opener both carry it: the vote's
+# tally, how many active item links it has, the first linked item (used
+# only when the count is one), and the members who voted nay or abstained.
+# ``c`` is a row of a ``chosen`` CTE carrying the vote columns and
+# ``meeting_date``.
+_SPLIT_ROW_COLUMNS = """
+               c.id AS vote_id, c.meeting_id, c.meeting_date, c.source, c.result,
+               c.yeas, c.nays, c.abstentions,
+               (SELECT count(*) FROM vote_agenda_items l
+                 WHERE l.vote_id = c.id AND l.is_active) AS linked_item_count,
+               (SELECT json_build_object('id', ai.id, 'label', COALESCE(ai.headline, ai.title))
+                  FROM vote_agenda_items l JOIN agenda_items ai ON ai.id = l.agenda_item_id
+                 WHERE l.vote_id = c.id AND l.is_active
+                 ORDER BY ai.id LIMIT 1) AS item_one,
+               (SELECT json_agg(json_build_object(
+                           'member_name', mv.member_name,
+                           'council_member_id', mv.council_member_id,
+                           'position', CASE WHEN mv.position IN ('nay', 'no') THEN 'nay'
+                                            ELSE mv.position END)
+                       ORDER BY mv.id)
+                  FROM member_votes mv
+                 WHERE mv.vote_id = c.id AND mv.position IN ('nay', 'no', 'abstain')) AS dissenters
+"""
+
 _SPLIT_VOTES_SQL = (
     "WITH "
     + chosen_source_cte(
@@ -181,22 +207,9 @@ _SPLIT_VOTES_SQL = (
           JOIN meetings m ON m.id = v.meeting_id
     ),
     splits AS (
-        SELECT c.id AS vote_id, c.meeting_id, c.meeting_date, c.source, c.result,
-               c.yeas, c.nays, c.abstentions,
-               (SELECT count(*) FROM vote_agenda_items l
-                 WHERE l.vote_id = c.id AND l.is_active) AS linked_item_count,
-               (SELECT json_build_object('id', ai.id, 'label', COALESCE(ai.headline, ai.title))
-                  FROM vote_agenda_items l JOIN agenda_items ai ON ai.id = l.agenda_item_id
-                 WHERE l.vote_id = c.id AND l.is_active
-                 ORDER BY ai.id LIMIT 1) AS item_one,
-               (SELECT json_agg(json_build_object(
-                           'member_name', mv.member_name,
-                           'council_member_id', mv.council_member_id,
-                           'position', CASE WHEN mv.position IN ('nay', 'no') THEN 'nay'
-                                            ELSE mv.position END)
-                       ORDER BY mv.id)
-                  FROM member_votes mv
-                 WHERE mv.vote_id = c.id AND mv.position IN ('nay', 'no', 'abstain')) AS dissenters
+        SELECT """
+    + _SPLIT_ROW_COLUMNS
+    + """
           FROM chosen c
          WHERE c.nays > 0 OR c.abstentions > 0
          ORDER BY c.meeting_date DESC, c.id DESC
@@ -363,3 +376,417 @@ def facts_freshness(facts: dict | None) -> dict:
     if age > FACTS_STALE_AFTER:
         return {"state": "warn", "computed_at": oldest, "label": "Stale"}
     return {"state": "good", "computed_at": oldest, "label": "Computed"}
+
+
+# ---------------------------------------------------------------------------
+# The opener (M2): the first screen of a flagged city's page
+# ---------------------------------------------------------------------------
+
+OPENER_SENTENCE_WORDS = 25   # the design's ceiling per sentence
+OPENER_CLIP_FLOOR = 4        # a clipped clause keeps at least this many words
+OPENER_STALE_DAYS = 14       # "last met on" wording past this age
+OPENER_TEXT_MAX = 300        # the meta description's ceiling, in characters
+OPENER_BIGGEST_SCAN = 20     # items with an amount examined for the dollar check
+
+_NUMBER_WORDS = [
+    "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+    "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen",
+    "nineteen", "twenty",
+]
+
+
+def number_word(n: int) -> str:
+    """``3`` → ``"three"``; numbers past twenty stay as digits."""
+    if 0 <= n < len(_NUMBER_WORDS):
+        return _NUMBER_WORDS[n]
+    return str(n)
+
+
+def amount_in_words(amount) -> str:
+    """``10100000`` → ``"$10.1 million"``; ``2000000`` → ``"$2 million"``; ``850000`` → ``"$850,000"``."""
+    value = float(amount)
+    for unit, name in ((1_000_000_000, "billion"), (1_000_000, "million")):
+        if value >= unit:
+            scaled = round(value / unit, 1)
+            text = f"{scaled:.1f}".rstrip("0").rstrip(".")
+            return f"${text} {name}"
+    return f"${int(round(value)):,}"
+
+
+_LEADING_AMOUNT = re.compile(
+    r"^\$\s?\d[\d,]*(?:\.\d+)?\s*(?:billion|million|thousand|[bmk])?\b[\s:,\-–—]*",
+    re.IGNORECASE,
+)
+
+
+def _headline_without_leading_amount(headline: str) -> str:
+    """Strip a dollar figure that opens the headline, so the opener's own
+    amount is not printed twice ("a $10.1 million $10.1 million contract")."""
+    stripped = _LEADING_AMOUNT.sub("", headline or "", count=1).strip()
+    return stripped or (headline or "").strip()
+
+
+def _long_date(d: date, *, today: date | None = None) -> str:
+    """``Tuesday, October 14``, with the year appended when it is not this year."""
+    today = today or date.today()
+    text = d.strftime("%A, %B ") + str(d.day)
+    if d.year != today.year:
+        text += f", {d.year}"
+    return text
+
+
+def _short_date(d: date) -> str:
+    """``October 14``."""
+    return d.strftime("%B ") + str(d.day)
+
+
+def _as_date(value) -> date:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    return date.fromisoformat(str(value))
+
+
+_UPCOMING_MT = "(" + _UPCOMING_PREDICATE_MT + ")"
+
+_LAST_MEETING_SQL = f"""
+    SELECT mt.id, mt.meeting_date, mt.start_time,
+           (SELECT count(*) FROM agenda_items ai WHERE ai.meeting_id = mt.id) AS item_count
+      FROM meetings mt
+     WHERE mt.municipality_id = %s
+       AND mt.is_hidden = FALSE
+       AND mt.meeting_type = 'council'
+       AND mt.meeting_date IS NOT NULL
+       AND NOT {_UPCOMING_MT}
+       AND EXISTS (SELECT 1 FROM agenda_items ai WHERE ai.meeting_id = mt.id)
+     ORDER BY mt.meeting_date DESC, mt.id DESC
+     LIMIT 1
+"""
+
+_NEXT_MEETING_SQL = f"""
+    SELECT mt.id, mt.meeting_date, mt.start_time,
+           (SELECT count(*) FROM agenda_items ai WHERE ai.meeting_id = mt.id) AS item_count
+      FROM meetings mt
+     WHERE mt.municipality_id = %s
+       AND mt.is_hidden = FALSE
+       AND mt.meeting_type = 'council'
+       AND mt.meeting_date IS NOT NULL
+       AND {_UPCOMING_MT}
+     ORDER BY mt.meeting_date ASC, mt.start_time ASC NULLS LAST, mt.id ASC
+     LIMIT 1
+"""
+
+_BIGGEST_ITEMS_SQL = """
+    SELECT ai.id, ai.title, ai.description, ai.headline, ai.dollars_amount
+      FROM agenda_items ai
+     WHERE ai.meeting_id = %s AND ai.dollars_amount IS NOT NULL
+     ORDER BY ai.dollars_amount DESC, ai.id ASC
+     LIMIT %s
+"""
+
+_MEETING_SPLITS_SQL = (
+    "WITH "
+    + chosen_source_cte("v.meeting_id = %s")
+    + """,
+    chosen AS (
+        SELECT v.id, v.meeting_id, m.meeting_date, v.source, v.result,
+               v.yeas, v.nays, v.abstentions
+          FROM votes v
+    """
+    + _CHOSEN_JOIN
+    + """
+          JOIN meetings m ON m.id = v.meeting_id
+    ),
+    splits AS (
+        SELECT """
+    + _SPLIT_ROW_COLUMNS
+    + """
+          FROM chosen c
+         WHERE c.nays > 0 OR c.abstentions > 0
+         ORDER BY c.id ASC
+    )
+    SELECT (SELECT chosen_source FROM meeting_vote_source) AS chosen_source,
+           (SELECT count(*) FROM chosen) AS vote_count,
+           (SELECT json_agg(row_to_json(s)) FROM splits s) AS splits
+    """
+)
+
+
+def opener_facts(municipality: dict) -> dict | None:
+    """The counted rows the opener is written from, or None for an unflagged city.
+
+    ``{"last": {...} | None, "next": {...} | None, "beats": [...]}``. ``last``
+    holds ``meeting_id``, ``meeting_date``, ``item_count``, ``stale``,
+    ``biggest`` (``{item_id, amount, headline}`` or None), ``splits``
+    (``{"count", "first"}``), ``vote_count``, and ``source_label`` ("" or
+    "from the video"). ``next`` holds ``meeting_id``, ``meeting_date``,
+    ``item_count``. ``beats`` is what the template renders (see
+    :func:`opener_beats`). At most four queries.
+    """
+    if not is_briefing_city(municipality):
+        return None
+    mid = municipality["id"]
+    today = date.today()
+    last = None
+    nxt = None
+    with db_cursor() as cur:
+        cur.execute(_LAST_MEETING_SQL, (mid,))
+        row = cur.fetchone()
+        if row:
+            meeting_date = _as_date(row["meeting_date"])
+            last = {
+                "meeting_id": row["id"],
+                "meeting_date": meeting_date,
+                "item_count": int(row["item_count"] or 0),
+                "stale": (today - meeting_date).days > OPENER_STALE_DAYS,
+                "biggest": None,
+                "splits": {"count": 0, "first": None},
+                "vote_count": 0,
+                "source_label": "",
+            }
+            cur.execute(_BIGGEST_ITEMS_SQL, (row["id"], OPENER_BIGGEST_SCAN))
+            for item in cur.fetchall():
+                if passes_dollar_check(
+                    item["title"], item["description"], item["headline"], item["dollars_amount"]
+                ):
+                    last["biggest"] = {
+                        "item_id": item["id"],
+                        "amount": item["dollars_amount"],
+                        "headline": item["headline"] or item["title"],
+                    }
+                    break
+            cur.execute(_MEETING_SPLITS_SQL, (row["id"],))
+            votes = cur.fetchone()
+            splits = [_shape_split(r) for r in (votes["splits"] or [])]
+            last["vote_count"] = int(votes["vote_count"] or 0)
+            last["splits"] = {"count": len(splits), "first": splits[0] if splits else None}
+            last["source_label"] = "from the video" if votes["chosen_source"] == "video_ocr" else ""
+        cur.execute(_NEXT_MEETING_SQL, (mid,))
+        row = cur.fetchone()
+        if row:
+            nxt = {
+                "meeting_id": row["id"],
+                "meeting_date": _as_date(row["meeting_date"]),
+                "item_count": int(row["item_count"] or 0),
+            }
+    facts = {"last": last, "next": nxt}
+    facts["beats"] = opener_beats(facts, municipality)
+    return facts
+
+
+def _seg(text: str, href: str | None = None, kind: str = "text") -> dict:
+    return {"text": text, "href": href, "kind": kind}
+
+
+def _budget(rest: str) -> int:
+    """Words left for a clipped clause once ``rest`` of the sentence is counted."""
+    return max(OPENER_CLIP_FLOOR, OPENER_SENTENCE_WORDS - len(rest.split()))
+
+
+def _split_item_clause(split: dict, meeting_date: date) -> str:
+    if split.get("item"):
+        return split["item"]["label"] or ""
+    n = int(split.get("linked_item_count") or 0)
+    if n > 1:
+        return f"a consent-agenda vote covering {n} items"
+    return f"a vote at the {_short_date(meeting_date)} meeting"
+
+
+def _split_sentence(last: dict, slug: str) -> tuple[list[dict], str | None]:
+    """The split sentence's segments and, when the dissenter phrase links to
+    the vote's anchor, that anchor (so the action link does not repeat it)."""
+    splits = last["splits"]
+    count = splits["count"]
+    suffix = f" {last['source_label']}" if last["source_label"] else ""
+    if count == 0:
+        if last["vote_count"] > 0:
+            return [_seg(f"Every vote was unanimous{suffix}. ")], None
+        return [], None
+    first = splits["first"]
+    meeting_href = f"/al/{slug}/meetings/{last['meeting_id']}/"
+    anchor = f"{meeting_href}#vote-{first['vote_id']}"
+    if count > 1:
+        return [_seg(f"{number_word(count).capitalize()} votes split{suffix}. ")], None
+    verb = "passed" if first["result"] == "passed" else "failed"
+    tally = f"{verb} {first['yeas']} to {first['nays']},"
+    dissenters = first.get("dissenters") or []
+    named = [d for d in dissenters if d.get("council_member_id") and d.get("member_name")]
+    if len(dissenters) == 1 and len(named) == 1:
+        d = named[0]
+        action = "abstaining" if d["position"] == "abstain" else "voting no"
+        rest = f"One vote split: {tally} with {d['member_name']} {action}{suffix}."
+        clause = clip_words(_split_item_clause(first, last["meeting_date"]), _budget(rest))
+        return [
+            _seg(f"One vote split: {clause} {tally} with "),
+            _seg(d["member_name"], f"/al/{slug}/council/{d['council_member_id']}/"),
+            _seg(f" {action}{suffix}. "),
+        ], None
+    positions = {d.get("position") for d in dissenters}
+    action = "abstaining" if positions == {"abstain"} else "voting no"
+    how_many = number_word(len(dissenters)) if dissenters else "some"
+    phrase = f"with {how_many} members {action}"
+    rest = f"One vote split: {tally} {phrase}{suffix}."
+    clause = clip_words(_split_item_clause(first, last["meeting_date"]), _budget(rest))
+    return [
+        _seg(f"One vote split: {clause} {tally} "),
+        _seg(phrase, anchor),
+        _seg(f"{suffix}. "),
+    ], anchor
+
+
+def opener_beats(facts: dict | None, municipality: dict) -> list[list[dict]]:
+    """The opener as two beats of segments ``{"text", "href", "kind"}``.
+
+    ``kind`` is ``"text"``, ``"link"`` (a fact linked to its source), or
+    ``"action"`` (the beat's closing arrow link, left out of the plain
+    text). Each sentence is at most 25 words: the headline and the split
+    item clause are clipped to what the rest of their sentence leaves.
+    """
+    slug = municipality["slug"]
+    name = municipality.get("name") or slug
+    beats: list[list[dict]] = []
+
+    last = (facts or {}).get("last")
+    beat: list[dict] = []
+    if not last:
+        beat.append(_seg(f"docket.pub has not indexed a {name} meeting yet."))
+    else:
+        when = _long_date(last["meeting_date"])
+        verb = "last met" if last["stale"] else "met"
+        n = last["item_count"]
+        beat.append(_seg(
+            f"Last meeting. The council {verb} on {when} and acted on {n} "
+            f"item{'s' if n != 1 else ''}. "
+        ))
+        biggest = last.get("biggest")
+        if biggest:
+            amount = amount_in_words(biggest["amount"])
+            rest = f"The largest was a {amount}."
+            headline = clip_words(_headline_without_leading_amount(biggest["headline"]), _budget(rest))
+            beat.append(_seg("The largest was a "))
+            beat.append(_seg(f"{amount} {headline}", f"/al/{slug}/items/{biggest['item_id']}/", "link"))
+            beat.append(_seg(". "))
+        split_segs, used_anchor = _split_sentence(last, slug)
+        for s in split_segs:
+            if s["href"]:
+                s["kind"] = "link"
+        beat.extend(split_segs)
+        meeting_href = f"/al/{slug}/meetings/{last['meeting_id']}/"
+        first = last["splits"]["first"]
+        if first and not used_anchor:
+            action_href = f"{meeting_href}#vote-{first['vote_id']}"
+        else:
+            action_href = meeting_href
+        beat.append(_seg(f"Read the {_short_date(last['meeting_date'])} meeting →", action_href, "action"))
+    beats.append(beat)
+
+    nxt = (facts or {}).get("next")
+    beat = []
+    if not nxt:
+        beat.append(_seg(
+            "No agenda is posted yet for the next meeting; agendas usually appear a few days before."
+        ))
+    else:
+        n = nxt["item_count"]
+        sentence = f"Next meeting. {_long_date(nxt['meeting_date'])}"
+        if n > 0:
+            sentence += f", with {n} item{'s' if n != 1 else ''} on the agenda"
+        beat.append(_seg(sentence + ". "))
+        beat.append(_seg("See the agenda →", f"/al/{slug}/meetings/{nxt['meeting_id']}/", "action"))
+    beats.append(beat)
+    return beats
+
+
+_BEAT_LABELS = ("Last meeting.", "Next meeting.")
+
+
+def opener_text(facts: dict | None, municipality: dict) -> str:
+    """The opener as plain text for the page's meta description.
+
+    The beats' sentences joined by a space, action links left out, cut at
+    the last full stop before 300 characters when longer.
+    """
+    beats = (facts or {}).get("beats") or opener_beats(facts, municipality)
+    parts = []
+    for beat in beats:
+        text = "".join(s["text"] for s in beat if s["kind"] != "action").strip()
+        if text:
+            parts.append(text)
+    text = " ".join(parts)
+    if len(text) > OPENER_TEXT_MAX:
+        cut = text.rfind(".", 0, OPENER_TEXT_MAX)
+        text = text[: cut + 1] if cut > 0 else text[:OPENER_TEXT_MAX]
+        # A beat label left dangling by the cut ("... voting no. Next
+        # meeting.") says nothing on its own.
+        for label in _BEAT_LABELS:
+            if text.endswith(label) and len(text) > len(label):
+                text = text[: -len(label)].rstrip()
+    return text
+
+
+# ---------------------------------------------------------------------------
+# The meetings list (M2)
+# ---------------------------------------------------------------------------
+
+_BRIEFING_MEETINGS_SQL = (
+    f"""
+    WITH scoped AS (
+        SELECT mt.*
+          FROM meetings mt
+          JOIN municipalities m ON m.id = mt.municipality_id
+         WHERE m.slug = %s
+           AND mt.is_hidden = FALSE
+           AND (mt.agenda_url IS NOT NULL OR mt.minutes_url IS NOT NULL OR mt.video_url IS NOT NULL
+                OR EXISTS (SELECT 1 FROM agenda_items ai WHERE ai.meeting_id = mt.id))
+         ORDER BY mt.meeting_date DESC NULLS LAST, mt.id DESC
+         LIMIT %s
+    ),
+    """
+    + chosen_source_cte("v.meeting_id IN (SELECT id FROM scoped)")
+    + f""",
+    chosen AS (
+        SELECT v.id, v.meeting_id, v.nays, v.abstentions
+          FROM votes v
+    """
+    + _CHOSEN_JOIN
+    + f"""
+    )
+    SELECT mt.id, mt.title, mt.meeting_date, mt.start_time,
+           mt.agenda_url, mt.minutes_url, mt.video_url,
+           {_UPCOMING_MT} AS upcoming,
+           (SELECT count(*) FROM agenda_items ai WHERE ai.meeting_id = mt.id) AS item_count,
+           (SELECT sum(ai.dollars_amount) FROM agenda_items ai WHERE ai.meeting_id = mt.id) AS total_dollars,
+           (SELECT count(*) FROM chosen c WHERE c.meeting_id = mt.id) AS vote_count,
+           (SELECT count(*) FROM chosen c
+             WHERE c.meeting_id = mt.id AND (c.nays > 0 OR c.abstentions > 0)) AS split_count
+      FROM scoped mt
+     ORDER BY mt.meeting_date DESC NULLS LAST, mt.id DESC
+    """
+)
+
+
+def list_briefing_meetings(slug: str, limit: int = 6) -> list[dict]:
+    """The newest meetings that have an agenda item or a document link, past or upcoming.
+
+    Each row: ``id, title, meeting_date, start_time, upcoming, item_count,
+    total_dollars`` (None when no item has an amount, else with
+    ``total_dollars_text``), ``split_count`` (None when the meeting has no
+    chosen-source votes), ``agenda_url, minutes_url, video_url``, and
+    ``date_text`` (``Tuesday, October 14``, year added when not this year).
+    """
+    with db_cursor() as cur:
+        cur.execute(_BRIEFING_MEETINGS_SQL, (slug, limit))
+        rows = [dict(r) for r in cur.fetchall()]
+    out = []
+    for r in rows:
+        total = r.pop("total_dollars")
+        vote_count = int(r.pop("vote_count") or 0)
+        r["item_count"] = int(r["item_count"] or 0)
+        r["upcoming"] = bool(r["upcoming"])
+        r["total_dollars"] = total
+        r["total_dollars_text"] = amount_in_words(total) if total else None
+        r["split_count"] = int(r["split_count"] or 0) if vote_count else None
+        r["date_text"] = _long_date(_as_date(r["meeting_date"])) if r["meeting_date"] else ""
+        out.append(r)
+    return out
