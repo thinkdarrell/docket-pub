@@ -304,7 +304,13 @@ def _add_tabled_and_abstention_votes(seeded) -> str:
     seed's dissenter nor its absentee, so their other votes are aligned yeas.
     """
     roster = seeded["members"]
-    abstainer = next(n for n in roster if n not in (briefing_seed.MEMBER_NAY, briefing_seed.MEMBER_ABSENT))
+    names = list(roster)
+    # Not the seed's dissenter or absentee, and not one of the three members
+    # (names[2:5]) who vote no on its review-flagged video vote, which the
+    # undated Dissent view still counts: the abstainer's other votes must all
+    # be aligned yeas.
+    abstainer = next(n for i, n in enumerate(names)
+                     if n not in (briefing_seed.MEMBER_NAY, briefing_seed.MEMBER_ABSENT) and not 2 <= i < 5)
     with db() as conn:
         with briefing_seed._cur(conn) as cur:
             briefing_seed._insert_vote(cur, seeded["past_meeting_id"], result="tabled", yeas=9, nays=0,

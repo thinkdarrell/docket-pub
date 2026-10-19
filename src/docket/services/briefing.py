@@ -31,7 +31,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from docket.analysis.structured_facts import extract_dollar_amounts
 from docket.db import db_cursor
-from docket.services.query import _UPCOMING_PREDICATE_MT
+from docket.services.query import AGAINST_OUTCOME_PREDICATE, _UPCOMING_PREDICATE_MT
 from docket.services.transcripts import excerpt_for_item, public_predicate
 
 FACT_SETS = ("split_votes", "member_counts")
@@ -231,11 +231,7 @@ _MEMBER_COUNTS_SQL = (
     SELECT mv.council_member_id,
            count(*) AS roll_calls,
            count(*) FILTER (WHERE mv.position <> 'absent') AS attended,
-           count(*) FILTER (
-               WHERE mv.position <> 'absent'
-                 AND NOT ((mv.position IN ('yea', 'yes') AND v.result = 'passed')
-                       OR (mv.position IN ('nay', 'no') AND v.result = 'failed'))
-           ) AS against
+           count(*) FILTER (WHERE """ + AGAINST_OUTCOME_PREDICATE + """) AS against
       FROM votes v
     """
     + _CHOSEN_JOIN
@@ -610,7 +606,8 @@ def _split_sentence(last: dict, slug: str) -> tuple[list[dict], str | None]:
     if count > 1:
         return [_seg(f"{number_word(count).capitalize()} votes split{suffix}. ")], None
     verb = "passed" if first["result"] == "passed" else "failed"
-    tally = f"{verb} {first['yeas']} to {first['nays']},"
+    yeas, nays = first["yeas"], first["nays"]
+    tally = f"{verb} {yeas} to {nays},"
     dissenters = first.get("dissenters") or []
     named = [d for d in dissenters if d.get("council_member_id") and d.get("member_name")]
     if len(dissenters) == 1 and len(named) == 1:
@@ -623,10 +620,16 @@ def _split_sentence(last: dict, slug: str) -> tuple[list[dict], str | None]:
             _seg(d["member_name"], f"/al/{slug}/council/{d['council_member_id']}/"),
             _seg(f" {action}{suffix}. "),
         ], None
+    if not dissenters:
+        # A tally with no roll call: the sentence ends at the numbers, and
+        # the beat's action link carries the vote's anchor.
+        rest = f"One vote split: {verb} {yeas} to {nays}{suffix}."
+        clause = clip_words(_split_item_clause(first, last["meeting_date"]), _budget(rest))
+        return [_seg(f"One vote split: {clause} {verb} {yeas} to {nays}{suffix}. ")], None
     positions = {d.get("position") for d in dissenters}
     action = "abstaining" if positions == {"abstain"} else "voting no"
-    how_many = number_word(len(dissenters)) if dissenters else "some"
-    phrase = f"with {how_many} members {action}"
+    noun = "member" if len(dissenters) == 1 else "members"
+    phrase = f"with {number_word(len(dissenters))} {noun} {action}"
     rest = f"One vote split: {tally} {phrase}{suffix}."
     clause = clip_words(_split_item_clause(first, last["meeting_date"]), _budget(rest))
     return [
@@ -705,19 +708,31 @@ _BEAT_LABELS = ("Last meeting.", "Next meeting.")
 def opener_text(facts: dict | None, municipality: dict) -> str:
     """The opener as plain text for the page's meta description.
 
-    The beats' sentences joined by a space, action links left out, cut at
-    the last full stop before 300 characters when longer.
+    The beats' sentences joined by a space, action links left out. When
+    longer than 300 characters it is cut at the end of the last sentence
+    the opener wrote that fits: a sentence ends where a non-action text
+    segment ends with a full stop, so an abbreviation inside a headline,
+    an item label, or a member name is never a cut point. With no such
+    boundary under 300 characters the hard cut at 300 is the fallback.
     """
     beats = (facts or {}).get("beats") or opener_beats(facts, municipality)
-    parts = []
+    parts: list[str] = []
+    boundaries: list[int] = []
     for beat in beats:
-        text = "".join(s["text"] for s in beat if s["kind"] != "action").strip()
-        if text:
-            parts.append(text)
+        buf = ""
+        for s in beat:
+            if s["kind"] == "action":
+                continue
+            buf += s["text"]
+            if s["kind"] == "text" and s["text"].rstrip().endswith("."):
+                # The length of the whole text so far, as it will be joined.
+                boundaries.append(len(" ".join(parts + [buf.strip()])))
+        if buf.strip():
+            parts.append(buf.strip())
     text = " ".join(parts)
     if len(text) > OPENER_TEXT_MAX:
-        cut = text.rfind(".", 0, OPENER_TEXT_MAX)
-        text = text[: cut + 1] if cut > 0 else text[:OPENER_TEXT_MAX]
+        fits = [b for b in boundaries if b <= OPENER_TEXT_MAX]
+        text = text[: max(fits)] if fits else text[:OPENER_TEXT_MAX]
         # A beat label left dangling by the cut ("... voting no. Next
         # meeting.") says nothing on its own.
         for label in _BEAT_LABELS:
@@ -801,7 +816,7 @@ MONEY_WINDOW_DAYS = 90
 MONEY_SCAN = 40      # items with an amount examined for the dollar check
 MONEY_LINES = 3
 
-_MONEY_ITEMS_SQL = """
+_MONEY_ITEMS_SQL = f"""
     SELECT ai.id, ai.title, ai.description, ai.headline, ai.dollars_amount,
            ai.is_consent, ai.meeting_id, mt.meeting_date
       FROM agenda_items ai
@@ -809,6 +824,7 @@ _MONEY_ITEMS_SQL = """
      WHERE mt.municipality_id = %s
        AND mt.is_hidden = FALSE
        AND mt.meeting_date >= CURRENT_DATE - %s * INTERVAL '1 day'
+       AND NOT {_UPCOMING_MT}
        AND ai.dollars_amount IS NOT NULL
      ORDER BY ai.dollars_amount DESC, mt.meeting_date DESC, ai.id ASC
      LIMIT %s
@@ -816,9 +832,12 @@ _MONEY_ITEMS_SQL = """
 
 
 def money_items(municipality_id: int, days: int = MONEY_WINDOW_DAYS, limit: int = MONEY_LINES) -> list[dict]:
-    """The largest items of the last ``days`` days whose text backs their amount.
+    """The largest items of the last ``days`` days, in meetings that have
+    taken place, whose text backs their amount.
 
-    Scans at most forty rows ordered by amount and keeps the first ``limit``
+    An item on a posted upcoming agenda is left out: the door's heading is
+    past tense and its consent clause states an outcome. Scans at most
+    forty rows ordered by amount and keeps the first ``limit``
     that pass :func:`passes_dollar_check`. Each row: ``item_id, amount,
     amount_text, headline`` (a leading dollar figure stripped, since the
     line prints the amount itself), ``meeting_id, meeting_date, date_text,
@@ -939,9 +958,11 @@ def council_cards(members: list[dict], facts: dict | None, municipality: dict | 
 
     ``briefing`` is ``{"roll_calls", "attended", "against", "since" (date),
     "since_iso", "dissent_href"}``; ``dissent_href`` is the member page's
-    Dissent filter from the payload's ``since`` date, which counts the same
-    votes under the same source rule, and it is None when ``against`` is
-    zero (no door onto a zero). A member with no chosen-source roll call in
+    dated Dissent view from the payload's ``since`` date, which applies the
+    same ``query.AGAINST_OUTCOME_PREDICATE`` (a no on a motion that passed,
+    a yes on one that failed) under the same source rule, so the card and
+    the view count the same votes; it is None when ``against`` is zero (no
+    door onto a zero). A member with no chosen-source roll call in
     the window has no entry in the payload and gets ``briefing = None``.
     """
     payload = ((facts or {}).get("member_counts") or {}).get("payload") or {}

@@ -740,6 +740,18 @@ def _decode_cursor(cursor: str) -> tuple | None:
         return None
 
 
+# The one owner of "voted against the outcome" for the city page's council
+# card (``briefing._MEMBER_COUNTS_SQL``) and the member page's dated Dissent
+# view (``list_member_voting_history`` with ``since``): a no on a motion that
+# passed, or a yes on one that failed. An abstention, and any vote on a motion
+# that was tabled, is a roll call attended, not a vote against an outcome.
+# The undated Dissent view keeps its older filter (docs/DEBT.md D58).
+AGAINST_OUTCOME_PREDICATE = (
+    "((mv.position IN ('yea','yes') AND v.result = 'failed')"
+    " OR (mv.position IN ('nay','no') AND v.result = 'passed'))"
+)
+
+
 def list_member_voting_history(
     member_id: int,
     *,
@@ -759,14 +771,18 @@ def list_member_voting_history(
                only the meeting's chosen source (``briefing.chosen_source_cte``:
                minutes over manual over api over video) with ``needs_review``
                votes excluded, so the dated view counts what the city page's
-               council card counts. Without it the history is as it always was.
+               council card counts; the dated Dissent filter is
+               ``AGAINST_OUTCOME_PREDICATE``. Without it the history is as it
+               always was, the undated Dissent filter included (``D58``).
 
     Returns ``{rows: list[dict], next_cursor: str | None}``. Each row:
         vote_id, meeting_id, meeting_date, meeting_title, position, result,
         yeas, nays, agenda_links (list of {item_number, item_title}).
     """
     where_filter = ""
-    if filter_mode == "dissent":
+    if filter_mode == "dissent" and since is not None:
+        where_filter = f"AND {AGAINST_OUTCOME_PREDICATE}"
+    elif filter_mode == "dissent":
         where_filter = """
           AND mv.position <> 'absent'
           AND NOT (
@@ -1216,7 +1232,8 @@ def list_items_by_amount(
     days: int = 90,
     limit: int = 200,
 ) -> list[AgendaItem]:
-    """A city's items of the last ``days`` days that carry a dollar amount, largest first.
+    """A city's items of the last ``days`` days that have taken place and carry a
+    dollar amount, largest first (an upcoming meeting's items are left out).
 
     The ``order=amount`` search page (plan birmingham-city-briefing, M3) and
     the city page's money door read these rows; the route keeps the ones
@@ -1227,7 +1244,7 @@ def list_items_by_amount(
     """
     with db_cursor() as cur:
         cur.execute(
-            """
+            f"""
             SELECT
                 ai.id,
                 ai.meeting_id,
@@ -1293,6 +1310,7 @@ def list_items_by_amount(
               AND mt.is_hidden = FALSE
               AND m.slug = %s
               AND mt.meeting_date >= CURRENT_DATE - %s * INTERVAL '1 day'
+              AND NOT ({_UPCOMING_PREDICATE_MT})
               AND ai.dollars_amount IS NOT NULL
             ORDER BY ai.dollars_amount DESC, mt.meeting_date DESC, ai.id ASC
             LIMIT %s
