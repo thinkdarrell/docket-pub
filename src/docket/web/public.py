@@ -153,6 +153,10 @@ def _city_overview_render(slug, municipality, now_ts):
     # global ``city_provenance`` below), so they cannot disagree.
     signals = briefing.signals(mid)
     freshness = query._freshness_state(briefing.city_provenance(mid)["last_ingest_at"])
+    # The transcript door (M6): one excerpt from the newest public
+    # transcript, for flagged cities only (the design wrote the section for
+    # Birmingham's transcripts); absent without a transcript or a quotable item.
+    said = briefing.said_at_the_meeting(mid) if briefing.is_briefing_city(municipality) else None
 
     blog_state = current_app.config.get("BLOG_STATE")
     blog_posts_for_city = []
@@ -175,6 +179,7 @@ def _city_overview_render(slug, municipality, now_ts):
         topics_door=topics_door,
         members=members,
         signals=signals,
+        said=said,
         freshness=freshness,
         blog_posts_for_city=blog_posts_for_city,
     )

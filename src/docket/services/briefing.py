@@ -32,6 +32,7 @@ from datetime import date, datetime, timedelta, timezone
 from docket.analysis.structured_facts import extract_dollar_amounts
 from docket.db import db_cursor
 from docket.services.query import _UPCOMING_PREDICATE_MT
+from docket.services.transcripts import excerpt_for_item, public_predicate
 
 FACT_SETS = ("split_votes", "member_counts")
 SPLIT_WINDOW_DAYS = 180
@@ -1182,3 +1183,85 @@ def city_provenance(municipality_id: int) -> dict:
     }
     _provenance_cache[municipality_id] = (now, result)
     return result
+
+
+# ---------------------------------------------------------------------------
+# The transcript door (M6): one excerpt from the newest public transcript
+# ---------------------------------------------------------------------------
+
+SAID_SCAN = 5          # items with an amount examined for the dollar check
+SAID_CLIP_WORDS = 60   # the quote's ceiling, in words
+
+# The two labels ``transcripts._label`` gives a voice nobody has named
+# ("Unknown speaker" for a segment with no cluster, "Speaker N" for an
+# unresolved cluster). Neither may reach the page: a quote is attributed to
+# a person only when speaker resolution attached a council member or a name.
+_UNNAMED_SPEAKER = re.compile(r"^(Unknown speaker|Speaker \d+)$")
+
+_SAID_MEETING_SQL = f"""
+    SELECT m.id, m.meeting_date
+      FROM meetings m
+      JOIN transcripts t ON t.meeting_id = m.id
+     WHERE m.municipality_id = %s AND m.is_hidden = FALSE AND {public_predicate('t')}
+     ORDER BY m.meeting_date DESC, m.id DESC
+     LIMIT 1
+"""
+
+_SAID_ITEMS_SQL = """
+    SELECT ai.id, ai.title, ai.description, ai.headline, ai.dollars_amount
+      FROM agenda_items ai
+     WHERE ai.meeting_id = %s AND ai.dollars_amount IS NOT NULL
+     ORDER BY ai.dollars_amount DESC, ai.id ASC
+     LIMIT %s
+"""
+
+
+def said_at_the_meeting(municipality_id: int) -> dict | None:
+    """One transcript excerpt for ``partials/briefing/door_said.html``, or None.
+
+    The newest non-hidden meeting of the city with a public transcript
+    (``transcripts.public_predicate``); of its items with an amount, the
+    largest ``SAID_SCAN`` are examined and the first that passes
+    :func:`passes_dollar_check` and for which
+    ``transcripts.excerpt_for_item`` returns turns is the one quoted. Returns
+    ``{"meeting_id", "meeting_date", "date_text", "item_id", "item_label",
+    "anchor", "text", "speaker"}``: ``text`` is the first turn's text
+    clipped to ``SAID_CLIP_WORDS`` words, ``anchor`` the turn's ``t-<seq>``
+    on the transcript page, ``item_label`` the item's headline or title, and
+    ``speaker`` is ``{"label", "member_id"}`` only when the turn's speaker
+    resolved to a council member or to a name that is not one of the two
+    fallback labels (``member_id`` is then None and the name renders
+    unlinked); otherwise ``speaker`` is None and the quote is attributed to
+    the discussion alone. None when the city has no public transcript or no
+    item of that meeting qualifies, and the door is absent.
+    """
+    with db_cursor() as cur:
+        cur.execute(_SAID_MEETING_SQL, (municipality_id,))
+        meeting = cur.fetchone()
+        if meeting is None:
+            return None
+        cur.execute(_SAID_ITEMS_SQL, (meeting["id"], SAID_SCAN))
+        items = [dict(r) for r in cur.fetchall()]
+    for item in items:
+        if not passes_dollar_check(item["title"], item["description"], item["headline"], item["dollars_amount"]):
+            continue
+        excerpt = excerpt_for_item(item["id"])
+        if not excerpt or not excerpt.get("turns"):
+            continue
+        turn = excerpt["turns"][0]
+        label = turn.speaker_label or ""
+        speaker = None
+        if turn.speaker_member_id is not None or (label and not _UNNAMED_SPEAKER.match(label)):
+            speaker = {"label": label, "member_id": turn.speaker_member_id}
+        meeting_date = _as_date(meeting["meeting_date"])
+        return {
+            "meeting_id": meeting["id"],
+            "meeting_date": meeting_date,
+            "date_text": _short_date(meeting_date),
+            "item_id": item["id"],
+            "item_label": item["headline"] or item["title"],
+            "anchor": turn.anchor,
+            "text": clip_words(turn.text, SAID_CLIP_WORDS),
+            "speaker": speaker,
+        }
+    return None

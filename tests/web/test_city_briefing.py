@@ -652,3 +652,50 @@ def test_base_has_skip_link_to_main(client, unseeded):
     assert body.lstrip().startswith('<a class="skip-link" href="#main">Skip to main content</a>')
     assert html.count('id="main"') == 1
     assert '<main class="app-main" id="main">' in html
+
+
+# --- the transcript door (M6) -----------------------------------------------
+
+
+def test_said_full_with_resolved_speaker(client, seeded):
+    # The seed's transcript tags three segments to item A ($10.1 million,
+    # passes the dollar check); item B is larger but fails it. The first
+    # segment's cluster is resolved to Hunter Williams at confidence 0.9.
+    html = _page(client)
+    section = _section(html, "brf-door-said")
+    assert section is not None
+    assert "Said at the meeting" in section
+    quote = re.search(r'<blockquote class="brf-quote"><p>([^<]+)</p></blockquote>', section)
+    assert quote, section
+    assert quote.group(1).startswith("I want to be clear that I cannot support this contract")
+    assert "The department has answered" not in section  # the first turn only
+    assert (f'<a href="/al/birmingham/council/{seeded["nay_member_id"]}/">Hunter Williams</a>'
+            ", during discussion of") in section
+    assert (f'<a href="/al/birmingham/items/{seeded["items"]["A"]}/">'
+            "$10.1 million contract for citywide road resurfacing</a>") in section
+    date_text = seeded["past_meeting_date"].strftime("%B ") + str(seeded["past_meeting_date"].day)
+    assert f"at the {date_text} meeting." in section
+    assert (f'<a href="/al/birmingham/meetings/{seeded["past_meeting_id"]}/transcript/#t-1">'
+            "Read the transcript →</a>") in section
+    assert "SPEAKER_0" not in section and "Speaker 1" not in section
+
+
+@pytest.mark.parametrize("seeded", [{"resolved_speaker": False}], indirect=True)
+def test_said_unnamed_when_cluster_unresolved(client, seeded):
+    html = _page(client)
+    section = _section(html, "brf-door-said")
+    assert section is not None
+    assert "I want to be clear that I cannot support this contract" in section
+    assert "During discussion of" in section
+    assert "Hunter Williams" not in section
+    assert "/council/" not in section
+    # Neither fallback label the transcript service produces reaches the page.
+    assert "Speaker 1" not in section and "SPEAKER_01" not in section and "Unknown speaker" not in section
+    assert f'/meetings/{seeded["past_meeting_id"]}/transcript/#t-1' in section
+
+
+@pytest.mark.parametrize("seeded", [{"transcript": False}], indirect=True)
+def test_said_absent_without_transcript(client, seeded):
+    html = _page(client)
+    assert _section(html, "brf-door-said") is None
+    assert "Said at the meeting" not in html

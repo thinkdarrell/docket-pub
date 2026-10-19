@@ -1435,3 +1435,10 @@
 }
 .skip-link:focus { left: 8px; outline: 2px solid var(--accent); outline-offset: 2px; }
 .brf-signals .brf-door-line a { display: inline-block; }
+
+/* The transcript door (M6): one quote, its attribution, the transcript link. */
+.brf-quote { margin: 0; padding: var(--space-1) 0 var(--space-1) var(--space-3); border-left: 3px solid var(--accent); }
+.brf-quote p { margin: 0; font-size: 18px; line-height: 1.5; }
+.brf-attribution { font-size: 14px; line-height: 1.5; color: var(--ink-2); margin: var(--space-2) 0 0; }
+.brf-attribution a { color: var(--ink); text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 3px; }
+.brf-attribution a:hover { color: var(--accent-ink); }
