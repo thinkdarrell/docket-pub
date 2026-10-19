@@ -15,7 +15,7 @@ The design's own anti-goals bind every milestone: no sentence whose number, name
 ## Progress
 
 - [x] (2026-10-19 17:45Z) M1: the briefing flag, the `city_briefing_facts` table, the `briefing_facts` worker task, and the seeded test city
-- [ ] M2: the opener, the Birmingham search field, and the one meetings list replace the KPI strip, the two strips, and the meetings table
+- [x] (2026-10-19 18:00Z) M2: the opener, the Birmingham search field, and the one meetings list replace the KPI strip, the two strips, and the meetings table
 - [ ] M3: the money door and the disagreement door replace the notable-items grid and the switched-off vote sections; search gains order=amount; public.py loses its last direct SQL
 - [ ] M4: the council door and the topics door replace the council grid and the topic chips; the member route gains since
 - [ ] M5: the signals list replaces the priority tile grids; the source panel, the footer, and the skip link
@@ -39,6 +39,17 @@ The design's own anti-goals bind every milestone: no sentence whose number, name
   Evidence: `ls tests/support` printed `__init__.py  transcript_fixtures.py`.
 - Observation (M1 session): psycopg2 returns `json` and `jsonb` columns already decoded, so the split-votes query can return its rows as one `json_agg(row_to_json(...))` value and the payload is shaped in Python without a second parse; `row_to_json` renders a `DATE` as `YYYY-MM-DD`, which is the form the payload keeps.
   Evidence: `tests/services/test_briefing_facts.py::test_split_votes_payload_uses_minutes_over_video_and_excludes_review` asserts `split["meeting_date"] == seeded["past_meeting_date"].isoformat()` and passed.
+
+- Observation (M2 session): `venv/bin/flask run`, the command the plan and `docs/specs/operations.md` give for the dev server, exits with `Error: Could not locate a Flask application. Use the 'flask --app' option, 'FLASK_APP' environment variable, or a 'wsgi.py' or 'app.py' file in the current directory.` in this worktree; the repository has no `wsgi.py`, `app.py`, or `.flaskenv`, and the operator's `.env` does not set `FLASK_APP`. The acceptance curls were run against `venv/bin/flask --app docket.web:create_app run --port 5057`.
+  Evidence: the error line above, 2026-10-19 12:57 local; `ls wsgi.py app.py .flaskenv` printed nothing.
+- Observation (M2 session): on the local `docket_db` (1005 Birmingham meetings, one agenda item), the opener's first beat renders the empty-state sentence "docket.pub has not indexed a Birmingham meeting yet." because no non-hidden council meeting that is not upcoming has an agenda item (the one item sits on a meeting the query does not select), even though meetings exist; the sentence is the plan's prescribed copy for "no qualifying last meeting" and is a misstatement on a database with meetings but no items. Production Birmingham has items, so the page there is not affected; the operator may want to revisit the copy.
+  Evidence: `curl -s localhost:5057/al/birmingham/` printed `<p class="brf-beat">docket.pub has not indexed a Birmingham meeting yet.</p>`; M1's Surprises entry records `1005|0|0|0|1|0`.
+- Observation (M2 session): the switched-off "Recent votes" section of `city.html` (rendered only when `recent_votes` is non-empty, which the route never supplies) carried the only other `feed-table` on the page, so M2's acceptance grep (`feed-table` absent from `city.html`) could not pass with it in place. It left the template and the route in this milestone (Decision Log); the "Contested votes" section stays for M3.
+  Evidence: `grep -n feed-table src/docket/web/templates/city.html` printed line 120 inside the Recent votes block before the cut and nothing after.
+- Observation (M2 session): the seeded past meeting's row in the meetings list shows `$49.6 million`, the plain sum of its items' stored amounts, which includes the KultureCity item's $39.5 million that the dollar check keeps out of the opener. The plan defines `total_dollars` as the sum; the list is a count per meeting, not a quoted fact, and the row links to the meeting, but a reader who compares the row with the opener will see different numbers.
+  Evidence: the render in Artifacts and Notes; `tests/web/test_city_briefing.py::test_meetings_list_rows_and_ghost_excluded` asserts the row's other facts only.
+- Observation (M2 session): `partials/kpi_strip.html` is no longer included by any template (`meeting_detail.html`, `member_detail.html`, and `index.html` write their own `<div class="kpi-strip">`), but `tests/web/test_partials_visual_refactor.py::test_kpi_strip_renders_three_cards` still renders it directly, so the partial and the `.kpi-strip` rules stay (the deletion rule in the Decision Log covers CSS, and the partial has a test).
+  Evidence: `grep -rln kpi_strip src/docket/web/templates` prints only the partial itself after the change.
 
 ## Decision Log
 
@@ -121,11 +132,35 @@ The design's own anti-goals bind every milestone: no sentence whose number, name
   Rationale: the acceptance is stated against that database ("run in this worktree, `DATABASE_URL` exported as described"); it is the operator's development copy, not production, and `--down 37` reverses it.
   Date/Author: 2026-10-19, M1 session (Claude).
 
+- Decision (M2): the opener's copy is built in Python, not in the template. `briefing.opener_facts` returns the counted rows plus `beats`, two lists of segments `{"text", "href", "kind"}` (`kind` is `text`, `link`, or `action`) from `briefing.opener_beats(facts, municipality)`; `partials/briefing/opener.html` renders each beat as one `<p>` of text and `<a>` elements and nothing else; `briefing.opener_text` joins the same segments (action links left out) for the meta description.
+  Rationale: the plan asked for the template to fill a dict and for `opener_text` to produce the plain form, which would make two owners of one sentence (one owner per fact, `docs/PRINCIPLES.md`); the word budget and the clipping then have one implementation and the meta description cannot drift from the page. An action link's "→" and "Read the ... meeting" belong to the page, not to a search snippet.
+  Date/Author: 2026-10-19, M2 session (Claude).
+- Decision (M2): when the dissenter phrase links to the vote's anchor (two or more dissenters, or an unresolved one), the beat's action link goes to the meeting page without the anchor; the action link carries `#vote-<id>` only when no other link in the beat already does.
+  Rationale: the plan's two rules collide there: the phrase links to `/al/<slug>/meetings/<id>/#vote-<vote_id>` and the action link "to `#vote-<id>` of the first split when one exists", while the adjacency test forbids two links with one href in a beat. The test is the design's rule; the meeting page still holds the roll call one scroll below.
+  Date/Author: 2026-10-19, M2 session (Claude).
+- Decision (M2): a headline that opens with a dollar figure (`$10.1 million contract for ...`, the shape the seed and the AI headlines use) has that figure stripped before the opener prefixes its own amount in words, so the sentence reads "a $10.1 million contract for citywide road resurfacing" rather than repeating the amount; the amount shown is always the stored `dollars_amount`, formatted by `briefing.amount_in_words` (`$10.1 million`, `$2 million`, `$850,000`, `$1.2 billion`).
+  Rationale: the plan's "a <amount> <headline>" doubled the figure on every seeded headline; the stored amount is the one the dollar check validated, and formatting it in one function keeps the opener and the meetings list consistent.
+  Date/Author: 2026-10-19, M2 session (Claude).
+- Decision (M2): with no upcoming council meeting the second beat is the one sentence "No agenda is posted yet for the next meeting; agendas usually appear a few days before." without a "Next meeting." lead; with a last meeting that has chosen-source votes but no split, the sentence is "Every vote was unanimous."; with a last meeting that has no chosen-source votes at all, no vote sentence renders (clause dropped, not defaulted). The meta description is cut at the last full stop before 300 characters and then loses a dangling beat label ("Next meeting.") the cut can leave.
+  Rationale: the plan's copy for the no-upcoming case already names the next meeting, so a lead would say it twice; "every vote was unanimous" over zero votes would be a default; a trailing label says nothing.
+  Date/Author: 2026-10-19, M2 session (Claude).
+- Decision (M2): the per-split SELECT columns the precompute used are now one fragment `_SPLIT_ROW_COLUMNS` in `briefing.py`, shared by `_SPLIT_VOTES_SQL` and the opener's `_MEETING_SPLITS_SQL`, and `_shape_split` shapes both; the opener's query returns the meeting's chosen source and its chosen-source vote count beside the splits, so `opener_facts` runs four queries (last meeting with its item count, its items with an amount, its chosen-source votes, the next meeting with its item count), within the plan's "at most six".
+  Rationale: one owner of the split shape; the item count folds into the meeting query as a subselect.
+  Date/Author: 2026-10-19, M2 session (Claude).
+- Decision (M2): the switched-off "Recent votes" section and its `recent_votes` context key left `city.html` and the route in M2 rather than M3, because M2's acceptance greps `city.html` for `feed-table` and that dead section held it. The "Contested votes" section, `notable`, and `coverage_counts` stay for M3 as planned.
+  Rationale: the section never rendered (`recent_votes = []`), so no reader-visible change; leaving it would have failed this milestone's own acceptance.
+  Date/Author: 2026-10-19, M2 session (Claude).
+- Decision (M2): `tests/web/test_city_overview_render.py` keeps `test_footer_colophon_no_adapter_tile` beside the five tests the plan named, so eleven tests were removed rather than twelve; `tests/web/test_card_navigation.py` (two hand-built `city.html` contexts, not named by the plan) gained a `_briefing_row` helper and passes `briefing_meetings` and `opener=None` where it passed `meetings` and `city_stats`; `test_city_briefing.py` holds an eleventh test, `test_search_field_scoped_to_city`, for the search partial, and parametrises `test_other_cities_render_without_opener` over the three cities and `test_opener_sentences_at_most_25_words` over four seed states.
+  Rationale: M5 names the colophon test in that file as the one it edits; the card-navigation tests render `city.html` and would have failed on the removed context keys; the search partial had no test of its own. The observed fast-tier total is therefore 1902, not the plan's 1895 (1894 − 11 + 3 + 11 + 5 parametrised cases).
+  Date/Author: 2026-10-19, M2 session (Claude).
+
 ## Outcomes & Retrospective
 
 This section is written at the end of each milestone and at completion, comparing what landed against the Purpose above.
 
 M1 (2026-10-19 17:45Z): landed in commits `0337283` and the one carrying this entry. A flagged city's heavy facts now exist in `city_briefing_facts`, rebuilt by `briefing_facts` (09:45, `HEALTHCHECK_BRIEFING_FACTS_UUID`), read back by `get_city_facts` in one query, and shown as stage 5 of source health; Birmingham alone carries `metadata.briefing = true`; `tests/support/briefing_seed.py` seeds a full Birmingham under `BRIEFING_TEST_`. Every acceptance clause was run and met: `--status` lists 037 applied, `--run-once briefing_facts` logged `recomputed 1 cities`, `psql` printed two rows with one `computed_at`, `./tools/verify` ended `verify: all 6 checks passed in 98s.`, and `D34`, `D41`, `D46` carry this plan's sentence. The only divergence is arithmetic, not acceptance: the fast tiers report `1894 passed` where the plan predicted `1886`, because the session added eight tests beyond the named ones (Decision Log, "the test count exceeds the plan's arithmetic"); integration reports `626 passed` as predicted. The page itself is unchanged, as the milestone intended. Two things the next session should know: the seed's topic slugs differ from the plan's prose (`grants`, not `housing`, for item C), and the local `docket_db` now has migration 037 applied and Birmingham's two empty-shape facts rows. Next: M2.
+
+M2 (2026-10-19 18:00Z): landed in commit `c75b01e` and the one carrying this entry. `/al/birmingham/` now opens with the lead, the two-beat opener (for the flagged city only), the city-scoped search field, the remaining old sections, one "Recent meetings" list of up to six rows with the feed line, the council grid, and the blog rail; the KPI strip, the "On the agenda" and "Last week" strips, the dead "Recent votes" table, and the meetings table are gone, and the opener's text is the page's meta description. Every acceptance clause was run: `./tools/verify` ended `all 6 checks passed in 101s.` with the fast tiers at `1902 passed, 5 skipped, 4 xfailed, 1 warning in 48.98s` (the plan predicted 1895; the Decision Log entry on the test count says why 1902) and integration at `626 passed, 1 warning in 49.46s`; `curl -s localhost:5057/al/birmingham/ | grep -c 'brf-opener'` printed `1` and the same for `/al/mobile/` printed `0` (the server started with `--app docket.web:create_app`, see Surprises); `grep -c 'kpi_strip\|tw-upcoming-section\|feed-table' src/docket/web/templates/city.html` printed `0`. One divergence against the stated work, not the acceptance: the opener's copy lives in `briefing.opener_beats` rather than in the template (Decision Log). Two things the next session should know: `opener_facts` returns `beats` alongside `last` and `next`, and the dead "Recent votes" section is already gone, so M3 removes only "Contested votes", `notable`, and `coverage_counts`. Next: M3.
 
 ## Context and Orientation
 
@@ -399,6 +434,40 @@ M2 session, 2026-10-19, baseline before any edit (`./tools/verify`, `.env` suppl
     verify: plans ... ok (0s)
     verify: all 6 checks passed in 98s.
 
+M2 session, the touched tiers by hand on a throwaway database (`DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/web/test_city_briefing.py tests/web/test_city_overview_render.py tests/web/test_base_rail_conditional.py tests/web/test_card_navigation.py tests/web/test_partials_visual_refactor.py tests/web/test_source_health_briefing.py tests/services/test_briefing_facts.py tests/integration/test_f4_browse_by_priority.py -q -p no:cacheprovider; tools/test-db --drop`):
+
+    143 passed, 1 skipped in 8.75s
+
+M2 session, the seeded page on a throwaway database before the tests were written (the opener's first beat, the meta description, and the past meeting's list row):
+
+    <p class="brf-beat">Last meeting. The council met on Monday, October 12 and acted on 4 items. The largest was a <a href="/al/birmingham/items/1/">$10.1 million contract for citywide road resurfacing</a>. One vote split: $10.1 million contract for citywide road resurfacing passed 8 to 1, with <a href="/al/birmingham/council/2/">Hunter Williams</a> voting no. <a href="/al/birmingham/meetings/1/#vote-1" class="brf-action">Read the October 12 meeting →</a></p>
+    <p class="brf-beat">Next meeting. Saturday, October 24, with 2 items on the agenda. <a href="/al/birmingham/meetings/2/" class="brf-action">See the agenda →</a></p>
+    <span class="brf-meeting-facts"><span>4 items</span> · <span>$49.6 million</span> · <span>1 split vote</span></span>
+
+M2 session, the acceptance curls against the local `docket_db` (`venv/bin/flask --app docket.web:create_app run --port 5057`, 2026-10-19 12:58 local):
+
+    birmingham http 200
+    mobile http 200
+    birmingham brf-opener: 1
+    mobile brf-opener: 0
+    mobile brf-search: 6
+    template grep: 0
+
+M2 session, `./tools/verify` after the milestone's edits (2026-10-19 18:00Z):
+
+    1902 passed, 5 skipped, 4 xfailed, 1 warning in 48.98s
+    626 passed, 1 warning in 49.46s
+    judge fixtures: 12 of 12 passed
+    84 passed in 0.91s
+    verify: test-db ... ok (0s) postgresql://thinkdarrell@/docket_test_29cd1d5f
+    verify: unit+web+services ... ok (49s)
+    verify: integration ... ok (51s)
+    verify: judge-fixtures ... ok (0s)
+    verify: workflows ... ok (0s)
+    verify: transcriber ... ok (1s)
+    verify: plans ... ok (0s)
+    verify: all 6 checks passed in 101s.
+
 ## Interfaces and Dependencies
 
 Identifiers spent by this plan: migration `037_city_briefing_facts`; table `city_briefing_facts` with `fact_set` values `split_votes` and `member_counts`; task `briefing_facts`; environment variable `HEALTHCHECK_BRIEFING_FACTS_UUID`; Healthchecks check `docket-briefing-facts`; metadata key `briefing`; module `src/docket/services/briefing.py`; partials under `src/docket/web/templates/partials/briefing/` named `opener.html`, `search.html`, `door_money.html`, `door_disagreed.html`, `door_topics.html`, `door_said.html`, `signals.html`, `meetings.html`; CSS class prefix `brf-` and the card class `cc-district-num`; Jinja global `city_provenance`; query parameters `since` (member route) and `order=amount` (search); test files `tests/support/briefing_seed.py`, `tests/services/test_briefing_facts.py`, `tests/web/test_city_briefing.py`, `tests/web/test_city_briefing_a11y.py`, `tests/integration/test_037_migration.py`, `tests/unit/test_query_coverage_note.py`; seed title prefix `BRIEFING_TEST_`; spec `docs/specs/city-page.md`.
@@ -414,9 +483,12 @@ In `src/docket/services/briefing.py` (imports: `docket.db.db_cursor`, `docket.an
     def recompute_all_flagged() -> int                            # number of cities written
     def get_city_facts(municipality_id: int) -> dict[str, dict]   # {fact_set: {"payload", "computed_at"}}
     def facts_freshness(facts: dict) -> dict                      # {"state", "computed_at"}
-    def opener_facts(municipality: dict) -> dict | None
+    def opener_facts(municipality: dict) -> dict | None     # {"last", "next", "beats"} (M2)
+    def opener_beats(facts: dict | None, municipality: dict) -> list[list[dict]]   # segments {"text", "href", "kind"} (M2)
     def opener_text(facts: dict | None, municipality: dict) -> str
-    def list_briefing_meetings(slug: str, limit: int = 6) -> list[dict]
+    def amount_in_words(amount) -> str                      # "$10.1 million", "$850,000" (M2)
+    def number_word(n: int) -> str                          # "three"; digits past twenty (M2)
+    def list_briefing_meetings(slug: str, limit: int = 6) -> list[dict]   # rows also carry total_dollars_text, date_text (M2)
     def money_items(municipality_id: int, days: int = 90, limit: int = 3) -> list[dict]
     def disagreement(facts: dict) -> dict | None
     def topics_door(municipality: dict, days: int = 90) -> dict
@@ -433,3 +505,5 @@ Libraries: nothing new; psycopg2 through `db_cursor`, Flask and Jinja as today, 
 Revision note, 2026-10-19 (authoring): first version, written by the cycle-plan plan-author agent from the approved design and the scope brief. The brief's questions list was empty. Its out-of-scope items are recorded as the last Decision Log entry and are deliberately left out of every milestone; its debt and spec lists are accounted for in the Decision Log entry on debt rows and in Milestones 1, 3, and 6. No work described here has been started.
 
 Revision note, 2026-10-19 (before any milestone): the operator pasted an external review of this plan into their session. Six Decision Log entries dated 2026-10-19 record what was accepted and what was declined, and Milestones 1 to 6 and the Interfaces section were edited to match: the scoped `chosen_source_cte` with an explicit fallback order, the dollar check's equality and tolerance cap, the opener's word budget and plain many-splits sentence, the dollar check on the `order=amount` page, the provenance cache clear in tests, and the speaker label restatement. No work described here has been started.
+
+Revision note, 2026-10-19 18:00Z (M2 session): Progress ticked for M2; five Surprises entries, seven Decision Log entries, and the M2 Outcomes entry added; transcripts appended to Artifacts and Notes. No milestone text was changed; where the session resolved an ambiguity in M2's prose (the opener's owner, the action-link anchor, the headline's leading amount, the no-upcoming and no-votes sentences, the dead Recent votes section, the kept colophon test), the Decision Log records the resolution and M3 to M6 read as written.
