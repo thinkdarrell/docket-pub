@@ -14,7 +14,7 @@ The design's own anti-goals bind every milestone: no sentence whose number, name
 
 ## Progress
 
-- [ ] M1: the briefing flag, the `city_briefing_facts` table, the `briefing_facts` worker task, and the seeded test city
+- [x] (2026-10-19 17:45Z) M1: the briefing flag, the `city_briefing_facts` table, the `briefing_facts` worker task, and the seeded test city
 - [ ] M2: the opener, the Birmingham search field, and the one meetings list replace the KPI strip, the two strips, and the meetings table
 - [ ] M3: the money door and the disagreement door replace the notable-items grid and the switched-off vote sections; search gains order=amount; public.py loses its last direct SQL
 - [ ] M4: the council door and the topics door replace the council grid and the topic chips; the member route gains since
@@ -123,7 +123,9 @@ The design's own anti-goals bind every milestone: no sentence whose number, name
 
 ## Outcomes & Retrospective
 
-Nothing has been executed yet. This section is written at the end of each milestone and at completion, comparing what landed against the Purpose above.
+This section is written at the end of each milestone and at completion, comparing what landed against the Purpose above.
+
+M1 (2026-10-19 17:45Z): landed in commits `0337283` and the one carrying this entry. A flagged city's heavy facts now exist in `city_briefing_facts`, rebuilt by `briefing_facts` (09:45, `HEALTHCHECK_BRIEFING_FACTS_UUID`), read back by `get_city_facts` in one query, and shown as stage 5 of source health; Birmingham alone carries `metadata.briefing = true`; `tests/support/briefing_seed.py` seeds a full Birmingham under `BRIEFING_TEST_`. Every acceptance clause was run and met: `--status` lists 037 applied, `--run-once briefing_facts` logged `recomputed 1 cities`, `psql` printed two rows with one `computed_at`, `./tools/verify` ended `verify: all 6 checks passed in 98s.`, and `D34`, `D41`, `D46` carry this plan's sentence. The only divergence is arithmetic, not acceptance: the fast tiers report `1894 passed` where the plan predicted `1886`, because the session added eight tests beyond the named ones (Decision Log, "the test count exceeds the plan's arithmetic"); integration reports `626 passed` as predicted. The page itself is unchanged, as the milestone intended. Two things the next session should know: the seed's topic slugs differ from the plan's prose (`grants`, not `housing`, for item C), and the local `docket_db` now has migration 037 applied and Birmingham's two empty-shape facts rows. Next: M2.
 
 ## Context and Orientation
 
@@ -364,6 +366,23 @@ The local database holds no votes (Surprises & Discoveries), so both payloads th
     $ psql "postgresql://thinkdarrell@/docket_db" -tAc "select fact_set, payload::text from city_briefing_facts order by fact_set"
     member_counts|{"since": "2025-10-19", "members": {}, "window_days": 365}
     split_votes|{"since": "2026-04-22", "splits": [], "last_split": null, "window_days": 180, "votes_in_window": 0}
+
+M1 session, `./tools/verify` after the milestone's edits (2026-10-19 17:45Z):
+
+    1894 passed, 5 skipped, 4 xfailed, 1 warning in 45.52s
+    626 passed, 1 warning in 48.54s
+    judge fixtures: 12 of 12 passed
+    84 passed in 0.94s
+    verify: test-db ... ok (1s) postgresql://thinkdarrell@/docket_test_29cd1d5f
+    verify: unit+web+services ... ok (46s)
+    verify: integration ... ok (49s)
+    verify: judge-fixtures ... ok (0s)
+    verify: workflows ... ok (0s)
+    verify: transcriber ... ok (2s)
+    verify: plans ... ok (0s)
+    verify: all 6 checks passed in 98s.
+
+The fast tiers gained 19 tests over the baseline (fourteen in `tests/services/test_briefing_facts.py`, one in `tests/unit/test_worker_tasks.py`, two in `tests/unit/test_worker_scheduler.py`, two in `tests/web/test_source_health_briefing.py`); integration gained the two in `tests/integration/test_037_migration.py`.
 
 ## Interfaces and Dependencies
 
