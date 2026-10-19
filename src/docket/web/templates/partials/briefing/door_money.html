@@ -1,0 +1,24 @@
+{# Where the money went: the largest items of the last 90 days whose own
+   text backs their stored amount (briefing.passes_dollar_check).
+
+   Args:
+     municipality (dict) — required: slug.
+     money (list[dict]) — from briefing.money_items: item_id, amount_text,
+       headline, date_text, is_consent. Renders only when non-empty. #}
+{% if money %}
+<section class="brf-door brf-door-money" aria-labelledby="brf-money-h">
+  <header class="brf-head">
+    <h2 id="brf-money-h" class="brf-h2">Where the money went</h2>
+  </header>
+  <ul class="brf-door-list">
+    {% for it in money %}
+    <li class="brf-door-line">
+      <a href="{{ url_for('public.item_detail', slug=municipality.slug, item_id=it.item_id) }}">
+        <span class="brf-amount">{{ it.amount_text }}</span> — {{ it.headline }} · {{ it.date_text }}{% if it.is_consent %} · passed on the consent agenda{% endif %}
+      </a>
+    </li>
+    {% endfor %}
+  </ul>
+  <p class="brf-more"><a href="{{ url_for('public.search', city=municipality.slug, order='amount') }}">More →</a></p>
+</section>
+{% endif %}

@@ -790,3 +790,138 @@ def list_briefing_meetings(slug: str, limit: int = 6) -> list[dict]:
         r["date_text"] = _long_date(_as_date(r["meeting_date"])) if r["meeting_date"] else ""
         out.append(r)
     return out
+
+
+# ---------------------------------------------------------------------------
+# The money door (M3): the largest items of the last 90 days
+# ---------------------------------------------------------------------------
+
+MONEY_WINDOW_DAYS = 90
+MONEY_SCAN = 40      # items with an amount examined for the dollar check
+MONEY_LINES = 3
+
+_MONEY_ITEMS_SQL = """
+    SELECT ai.id, ai.title, ai.description, ai.headline, ai.dollars_amount,
+           ai.is_consent, ai.meeting_id, mt.meeting_date
+      FROM agenda_items ai
+      JOIN meetings mt ON ai.meeting_id = mt.id
+     WHERE mt.municipality_id = %s
+       AND mt.is_hidden = FALSE
+       AND mt.meeting_date >= CURRENT_DATE - %s * INTERVAL '1 day'
+       AND ai.dollars_amount IS NOT NULL
+     ORDER BY ai.dollars_amount DESC, mt.meeting_date DESC, ai.id ASC
+     LIMIT %s
+"""
+
+
+def money_items(municipality_id: int, days: int = MONEY_WINDOW_DAYS, limit: int = MONEY_LINES) -> list[dict]:
+    """The largest items of the last ``days`` days whose text backs their amount.
+
+    Scans at most forty rows ordered by amount and keeps the first ``limit``
+    that pass :func:`passes_dollar_check`. Each row: ``item_id, amount,
+    amount_text, headline`` (a leading dollar figure stripped, since the
+    line prints the amount itself), ``meeting_id, meeting_date, date_text,
+    is_consent``.
+    """
+    with db_cursor() as cur:
+        cur.execute(_MONEY_ITEMS_SQL, (municipality_id, days, MONEY_SCAN))
+        rows = [dict(r) for r in cur.fetchall()]
+    out: list[dict] = []
+    for r in rows:
+        if not passes_dollar_check(r["title"], r["description"], r["headline"], r["dollars_amount"]):
+            continue
+        meeting_date = _as_date(r["meeting_date"])
+        out.append({
+            "item_id": r["id"],
+            "amount": r["dollars_amount"],
+            "amount_text": amount_in_words(r["dollars_amount"]),
+            "headline": _headline_without_leading_amount(r["headline"] or r["title"]),
+            "meeting_id": r["meeting_id"],
+            "meeting_date": meeting_date,
+            "date_text": _short_date(meeting_date),
+            "is_consent": bool(r["is_consent"]),
+        })
+        if len(out) >= limit:
+            break
+    return out
+
+
+# ---------------------------------------------------------------------------
+# The disagreement door (M3): the precomputed split votes, shaped for the page
+# ---------------------------------------------------------------------------
+
+
+def _disagreement_line(split: dict, slug: str) -> dict:
+    """One split of the ``split_votes`` payload as the door prints it."""
+    meeting_date = _as_date(split["meeting_date"])
+    meeting_href = f"/al/{slug}/meetings/{split['meeting_id']}/"
+    anchor = f"{meeting_href}#vote-{split['vote_id']}"
+    clause = _split_item_clause(split, meeting_date)
+    clause_href = f"/al/{slug}/items/{split['item']['id']}/" if split.get("item") else anchor
+    dissenters = []
+    for d in split.get("dissenters") or []:
+        name = d.get("member_name") or ""
+        if not name:
+            continue
+        member_id = d.get("council_member_id")
+        dissenters.append({
+            "name": name,
+            "href": f"/al/{slug}/council/{member_id}/" if member_id else None,
+            "abstained": d.get("position") == "abstain",
+        })
+    return {
+        "vote_id": split["vote_id"],
+        "meeting_id": split["meeting_id"],
+        "meeting_date": meeting_date,
+        "date_text": _short_date(meeting_date),
+        "clause": clause,
+        "clause_href": clause_href,
+        "verb": "passed" if split["result"] == "passed" else "failed",
+        "yeas": split["yeas"],
+        "nays": split["nays"],
+        "abstentions": split.get("abstentions") or 0,
+        "dissenters": dissenters,
+        "from_video": split.get("source") == "video_ocr",
+    }
+
+
+def disagreement(facts: dict | None, municipality: dict | None = None) -> dict | None:
+    """The ``split_votes`` payload shaped for ``partials/briefing/door_disagreed.html``.
+
+    ``None`` when the city has no facts row (the task never ran) or no
+    chosen-source vote at all, so the door renders nothing. Otherwise
+    ``{"mode", "since", "since_text", "splits", "last_split",
+    "votes_in_window"}`` where ``mode`` is ``"splits"`` (the window holds
+    split votes, listed newest first), ``"unanimous"`` (no split in the
+    window, the newest split ever carried as ``last_split``), or
+    ``"unanimous_only"`` (votes in the window, no split ever).
+    """
+    row = (facts or {}).get("split_votes")
+    if not row:
+        return None
+    payload = row.get("payload") or {}
+    slug = (municipality or {}).get("slug") or ""
+    splits = payload.get("splits") or []
+    last_split = payload.get("last_split")
+    votes_in_window = int(payload.get("votes_in_window") or 0)
+    if not splits and not last_split and votes_in_window == 0:
+        return None
+    since = _as_date(payload["since"]) if payload.get("since") else None
+    shaped_splits = [_disagreement_line(s, slug) for s in splits[:SPLITS_KEPT]]
+    shaped_last = _disagreement_line(last_split, slug) if last_split else None
+    if shaped_splits:
+        mode = "splits"
+    elif shaped_last:
+        mode = "unanimous"
+    elif votes_in_window > 0:
+        mode = "unanimous_only"
+    else:
+        return None
+    return {
+        "mode": mode,
+        "since": since,
+        "since_text": _long_date(since).split(", ", 1)[-1] if since else "",
+        "splits": shaped_splits,
+        "last_split": shaped_last,
+        "votes_in_window": votes_in_window,
+    }

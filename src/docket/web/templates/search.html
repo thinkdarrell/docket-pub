@@ -18,6 +18,9 @@
                 Searching for <strong>'{{ query }}'</strong>
                 {% if city_name %}in <strong>{{ city_name }}</strong>{% elif city %}in <strong>{{ city }}</strong>{% else %}across all cities{% endif %}.
                 <strong>{{ results | length }}</strong> result{{ 's' if results | length != 1 else '' }} on this page.
+                {% elif order == 'amount' and city %}
+                Items with a dollar amount in <strong>{{ municipality.name if municipality else city }}</strong> from the last 90 days, largest first;
+                an item is listed only when its own text backs the amount.
                 {% else %}
                 Type a query to search across agenda items, dollar amounts, and topic tags.
                 {% endif %}
@@ -111,6 +114,31 @@
        page (off-by-one beyond the last) can click Previous. #}
     {% include 'partials/pagination_controls.html' %}
     {% endif %}
+{% elif order == 'amount' and city %}
+{# ── Where the money went (the city page's money door opens here; plan birmingham-city-briefing, M3) ── #}
+<section class="feed brf-money-search">
+    <header class="feed-head">
+        <div>
+            <div class="t-eyebrow">By amount</div>
+            <h2 class="feed-title t-display">Where the money went in {{ municipality.name if municipality else city }}, last 90 days</h2>
+        </div>
+        <div class="t-mono t-meta">{{ results | length }} on this page</div>
+    </header>
+    {% if results %}
+    {% with show_meeting_context=true %}
+    <div class="notable-list smart-brevity-list smart-brevity-list--regular">
+        {% for item in results %}
+            {% include 'partials/card_smart_brevity.html' %}
+        {% endfor %}
+    </div>
+    {% endwith %}
+    {% else %}
+    <p class="t-meta" style="max-width: 560px; margin-top: 8px;">
+        {% if page > 1 %}You've reached the end of the list.{% else %}No item from the last 90 days carries an amount its own text backs.{% endif %}
+    </p>
+    {% endif %}
+</section>
+{% include 'partials/pagination_controls.html' %}
 {% else %}
 <section class="feed">
     <div class="feed-head">

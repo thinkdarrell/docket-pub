@@ -1,0 +1,44 @@
+{# Where they disagreed: the split votes of the last 180 days from the
+   precomputed city_briefing_facts row (worker task briefing_facts), or the
+   unanimity sentence with the last split ever.
+
+   Args:
+     municipality (dict) — required: slug.
+     disagreed (dict | None) — from briefing.disagreement: mode
+       (splits | unanimous | unanimous_only), since_text, splits, last_split,
+       each split {clause, clause_href, verb, yeas, nays, abstentions,
+       date_text, dissenters [{name, href, abstained}], from_video}.
+   Renders nothing without a facts row or without any chosen-source vote. #}
+{% if disagreed %}
+<section class="brf-door brf-door-disagreed" aria-labelledby="brf-disagreed-h">
+  <header class="brf-head">
+    <h2 id="brf-disagreed-h" class="brf-h2">Where they disagreed</h2>
+  </header>
+  {% if disagreed.mode == 'splits' %}
+  <ul class="brf-door-list">
+    {% for s in disagreed.splits %}
+    <li class="brf-door-line">
+      <a href="{{ s.clause_href }}">{{ s.clause }}</a>
+      · {{ s.verb }} {{ s.yeas }} to {{ s.nays }}{% if s.abstentions %} to {{ s.abstentions }} abstaining{% endif %}
+      · {{ s.date_text }}
+      {%- if s.dissenters %} ·
+        {%- for d in s.dissenters %}
+        {% if d.href %}<a href="{{ d.href }}">{{ d.name }}</a>{% else %}{{ d.name }}{% endif %}{% if d.abstained %} (abstained){% endif %}{% if not loop.last %},{% endif %}
+        {%- endfor %}
+      {%- endif %}
+      {%- if s.from_video %} · from the video{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  <p class="brf-more"><a href="{{ url_for('public.category_landing', slug=municipality.slug, badge_slug='split_vote') }}">More →</a></p>
+  {% elif disagreed.mode == 'unanimous' %}
+  <p class="brf-door-text">
+    Every recorded vote since {{ disagreed.since_text }} was unanimous.
+    The last split was <a href="{{ disagreed.last_split.clause_href }}">{{ disagreed.last_split.clause }}</a>
+    on {{ disagreed.last_split.date_text }}, {{ disagreed.last_split.yeas }} to {{ disagreed.last_split.nays }}{% if disagreed.last_split.from_video %}, from the video{% endif %}.
+  </p>
+  {% else %}
+  <p class="brf-door-text">Every recorded vote since {{ disagreed.since_text }} was unanimous.</p>
+  {% endif %}
+</section>
+{% endif %}

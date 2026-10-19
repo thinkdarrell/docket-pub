@@ -85,87 +85,6 @@
   font-size: 10px; color: var(--ink-3); font-feature-settings: "tnum" 1;
 }
 
-/* ── Legislation cards ─────────────────────────────── */
-.leg { padding: 36px 0 48px; border-bottom: 1px solid var(--rule); }
-.leg-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
-  border-top: 1px solid var(--rule);
-  padding-top: 16px;
-}
-.legc {
-  display: flex; flex-direction: column;
-  text-align: left;
-  background: var(--paper);
-  border: 1px solid var(--rule-strong);
-  border-radius: var(--radius-2);
-  padding: 16px 18px;
-  cursor: pointer;
-  transition: border-color .12s, transform .15s, box-shadow .15s;
-  gap: 10px;
-  min-height: 200px;
-}
-.legc:hover { border-color: var(--ink-3); transform: translateY(-1px); box-shadow: var(--shadow-2); }
-.legc.is-selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
-
-.legc-top {
-  display: flex; justify-content: space-between; align-items: center; gap: 8px;
-}
-.legc-status-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-.legc-num { font-size: 11px; color: var(--ink-3); }
-
-.legc-byline {
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  color: var(--ink-3);
-  text-transform: none;
-  line-height: 1.4;
-  padding-bottom: 2px;
-  border-bottom: 1px solid var(--rule);
-}
-.legc-byline-by { color: var(--ink-4); font-style: italic; font-family: var(--font-display); text-transform: none; letter-spacing: 0; }
-.legc-byline-who { color: var(--ink); font-weight: 500; letter-spacing: 0.08em; }
-.legc-byline-dist { color: var(--ink-3); }
-.legc-byline-sep { color: var(--ink-4); }
-.legc-byline-where { color: var(--ink-3); font-style: italic; font-family: var(--font-display); text-transform: none; letter-spacing: 0; font-size: 12px; }
-
-.legc-title {
-  font-size: 17px; line-height: 1.3; font-weight: 500;
-  font-family: var(--font-display);
-  text-wrap: balance;
-}
-
-.legc-summary {
-  font-size: 13px;
-  line-height: 1.45;
-  color: var(--ink-2);
-  font-family: var(--font-display);
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.legc-topic {
-  display: inline-flex; align-items: center; gap: 6px;
-  font-size: 11px;
-  color: var(--ink-2);
-}
-
-.legc-bottom {
-  margin-top: auto;
-  display: flex; justify-content: space-between; align-items: center; gap: 12px;
-  padding-top: 10px; border-top: 1px solid var(--rule);
-}
-.legc-meta {
-  display: flex; align-items: center; gap: 10px;
-}
-.legc-vote { font-size: 11px; }
-.legc-vote.is-pass { color: var(--good); }
-.legc-vote.is-fail { color: var(--bad); }
-.legc-empty { padding: 24px; text-align: center; grid-column: 1 / -1; }
-
 /* status pills (Councilmatic-style) */
 .status-pill {
   display: inline-flex; align-items: center; gap: 5px;
@@ -182,5 +101,4 @@
 
 @media (max-width: 1280px) {
   .tw-strip { grid-template-columns: repeat(2, 1fr); }
-  .leg-grid { grid-template-columns: 1fr; }
 }

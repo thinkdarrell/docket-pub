@@ -1178,6 +1178,97 @@ def search_agenda_items(
         return [AgendaItem.from_row(dict(row)) for row in cur.fetchall()]
 
 
+def list_items_by_amount(
+    municipality_slug: str,
+    days: int = 90,
+    limit: int = 200,
+) -> list[AgendaItem]:
+    """A city's items of the last ``days`` days that carry a dollar amount, largest first.
+
+    The ``order=amount`` search page (plan birmingham-city-briefing, M3) and
+    the city page's money door read these rows; the route keeps the ones
+    that pass ``docket.services.briefing.passes_dollar_check`` and pages
+    them in Python, so at most ``limit`` (200) rows are scanned. Same column
+    shape as ``search_agenda_items`` (without ``rank``), so the Smart
+    Brevity Card chain renders them unchanged.
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+                ai.id,
+                ai.meeting_id,
+                ai.external_id,
+                ai.item_number,
+                ai.title,
+                ai.description,
+                ai.section,
+                ai.is_consent,
+                ai.sponsor,
+                ai.dollars_amount,
+                ai.topic,
+                ai.significance_score,
+                ai.consent_placement_score,
+                ai.summary,
+                ai.ai_metadata,
+                ai.ai_prompt_version,
+                ai.ai_generated_at,
+                ai.data_quality::text       AS data_quality,
+                ai.data_debt_priority::text AS data_debt_priority,
+                ai.processing_status::text  AS processing_status,
+                ai.ai_extraction_version,
+                ai.ai_rewrite_version,
+                ai.ai_rewrite_voice,
+                ai.ai_confidence,
+                ai.headline,
+                ai.why_it_matters,
+                ai.source_anchor,
+                CASE
+                    WHEN ai.extracted_facts IS NULL THEN NULL
+                    ELSE jsonb_strip_nulls(jsonb_build_object(
+                        'counterparty',       ai.extracted_facts->>'counterparty',
+                        'funding_source',     ai.extracted_facts->>'funding_source',
+                        'procurement_method', ai.extracted_facts->>'procurement_method',
+                        'action_type',        ai.extracted_facts->>'action_type',
+                        'location',           ai.extracted_facts->'location',
+                        'next_steps',         ai.extracted_facts->'next_steps'
+                    ))
+                END AS extracted_facts,
+                COALESCE(b_agg.badges, '[]'::jsonb) AS badges,
+                mt.title AS meeting_title,
+                mt.meeting_date,
+                m.name AS municipality_name,
+                m.slug AS municipality_slug
+            FROM agenda_items ai
+            JOIN meetings mt ON ai.meeting_id = mt.id
+            JOIN municipalities m ON mt.municipality_id = m.id
+            LEFT JOIN LATERAL (
+                SELECT jsonb_agg(jsonb_build_object(
+                           'kind',        b.kind,
+                           'slug',        b.badge_slug,
+                           'confidence',  b.confidence,
+                           'name',        t.name,
+                           'icon',        t.icon,
+                           'description', t.description
+                       ) ORDER BY b.detected_at DESC) AS badges
+                FROM agenda_item_badges b
+                JOIN priority_badge_templates t ON t.slug = b.badge_slug
+                WHERE b.agenda_item_id = ai.id
+                  AND b.status = 'applied'
+            ) b_agg ON true
+            WHERE m.active = TRUE
+              AND mt.is_hidden = FALSE
+              AND m.slug = %s
+              AND mt.meeting_date >= CURRENT_DATE - %s * INTERVAL '1 day'
+              AND ai.dollars_amount IS NOT NULL
+            ORDER BY ai.dollars_amount DESC, mt.meeting_date DESC, ai.id ASC
+            LIMIT %s
+            """,
+            (municipality_slug, days, limit),
+        )
+        return [AgendaItem.from_row(dict(row)) for row in cur.fetchall()]
+
+
 # --- Topic browsing ---------------------------------------------------------
 
 
@@ -3363,6 +3454,27 @@ def _hydrate_subjects_for_entries(cur, entries: list[CoverageEntry]) -> list[Cov
             )
         )
     return [replace(e, subjects=tuple(grouped.get(e.id, []))) for e in entries]
+
+
+def get_published_note(coverage_id: int) -> CoverageEntry | None:
+    """One published note by id, with its subjects hydrated; ``None`` otherwise.
+
+    Citations and unpublished entries have no permalink, so the route
+    (``/coverage/<id>``) answers 404 when this returns ``None``. Moved here
+    from ``docket.web.public.coverage_permalink`` (plan
+    birmingham-city-briefing, M3; debt ``D7``).
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            _COVERAGE_SELECT + " WHERE ce.id = %s AND ce.kind = 'note' "
+                               "AND ce.status = 'published'",
+            (coverage_id,),
+        )
+        entries = _hydrate_coverage_rows(cur)
+        if not entries:
+            return None
+        entries = _hydrate_subjects_for_entries(cur, entries)
+        return entries[0]
 
 
 def list_published_coverage(

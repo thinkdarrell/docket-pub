@@ -176,12 +176,11 @@ def test_city_html_page_sources_rendered_with_kpis(render_partial):
         members=[],
         opener=None,
         briefing_meetings=[],
-        notable_items=[],
-        contested_votes=[],
+        money=[],
+        disagreed=None,
         city_policy_badges=[],
         process_badges=[],
         now=datetime.datetime.now(),
-        coverage_counts={},
         kpi_stats=_sample_kpi_stats(),
     )
     assert 'class="page-sources"' in html, "page-sources block missing from city.html render"
@@ -205,12 +204,11 @@ def test_city_html_no_source_sheet_rendered(render_partial):
         members=[],
         opener=None,
         briefing_meetings=[],
-        notable_items=[],
-        contested_votes=[],
+        money=[],
+        disagreed=None,
         city_policy_badges=[],
         process_badges=[],
         now=datetime.datetime.now(),
-        coverage_counts={},
         kpi_stats=[],
     )
     assert 'id="source-sheet"' not in html, (
@@ -231,12 +229,11 @@ def test_city_html_bottom_tabs_still_present(render_partial):
         members=[],
         opener=None,
         briefing_meetings=[],
-        notable_items=[],
-        contested_votes=[],
+        money=[],
+        disagreed=None,
         city_policy_badges=[],
         process_badges=[],
         now=datetime.datetime.now(),
-        coverage_counts={},
         kpi_stats=[],
     )
     assert 'class="bottom-tabs"' in html, (

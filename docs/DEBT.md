@@ -5,7 +5,7 @@
 | ID | Item | Where | Why deferred | Trigger to pay it down |
 | --- | --- | --- | --- | --- |
 | D4 | Local Postgres 16, Railway 18.3 | local environment | Homebrew default; the installed postgresql@18 is not running as a service | `tools/test-db` can be pointed at postgresql@18 by changing the server part of `DATABASE_URL`; do that once that server runs as a service |
-| D7 | Seven web modules execute SQL directly | `src/docket/web/auth.py`, `admin.py`, `admin_badge_review.py`, `admin_transcripts.py`, `create_admin.py`, `source_security.py`, `public.py` | Grew with the admin surface | The next plan touching each module moves its SQL into `services/` |
+| D7 | Six web modules execute SQL directly | `src/docket/web/auth.py`, `admin.py`, `admin_badge_review.py`, `admin_transcripts.py`, `create_admin.py`, `source_security.py` | Grew with the admin surface; `public.py` was paid by plan `birmingham-city-briefing` M3 (its one query moved to `query.get_published_note`) | The next plan touching each module moves its SQL into `services/` |
 | D8 | `ai/` imports `docket.services.badges` | `src/docket/ai/pipeline.py:70`, `batch_ingest.py:252`, `badges_policy.py:106` | Badge slugs live in services | Next change to badge policy moves the enabled-slug lookup into `ai/` or a shared module |
 | D9 | No present-tense behaviour specs for ingest, vote matching, AI pipeline, OCR, coverage, blog, transcripts (except the comparison stage's reconcile policy, category remap, and vote-result vocabulary, and the producer's cleaning, splitting, versioning, and re-claim rules, in `docs/specs/transcripts.md`) | `docs/specs/` | Design docs under `docs/superpowers/specs/` served as specs | The first plan touching each area reflects its behaviour into `docs/specs/` |
 | D10 | `www.docket.pub` is a Namecheap HTTP redirect; HSTS omits `includeSubDomains` | DNS, `src/docket/web/__init__.py` | Apex first | Public launch preparation |
@@ -18,7 +18,7 @@
 | D18 | `video_ocr` cron has no Healthchecks ping | Railway worker env `HEALTHCHECK_VIDEO_OCR_UUID` | Ping no-ops cleanly when unset | Create the check and set the variable (issue #89) |
 | D20 | OCR claim window hard-coded to 60 days | `src/docket/services/video_ocr.py` | Manual laptop OCR covers older meetings | Backfilling older meetings by OCR |
 | D21 | Blog follow-ups: `extra_css` lint, sitemap, `city_blog_url()` helper, frontmatter type validation, authoring ergonomics | `src/docket/blog/`, `src/docket/web/` | v1 deliberately minimal | Next blog work (issue #92) |
-| D22 | Search has no facets or sort | `src/docket/services/query.py` `search_agenda_items` | Separate feature | When search is revisited |
+| D22 | Search has no facets; its one sort is `order=amount` on the empty-query, city-scoped case (`query.list_items_by_amount`, plan `birmingham-city-briefing` M3) | `src/docket/services/query.py` `search_agenda_items` | Separate feature | When search is revisited |
 | D23 | Editorial coverage v1.1 to v1.3 surfaces (meeting, member, badge) and v2 proposers not built | templates, coverage schema | Paired chip-plus-block ships | When v1.1 starts |
 | D24 | Granicus retraction (403) not detected; ghost rows deleted by hand | `src/docket/adapters/granicus.py` | Rare | Next ghost card |
 | D25 | Badge INSERT statements outside `decide_status_and_confidence` in `src/docket/ai/badges_policy.py` rely on the column default for `status` | `src/docket/ai/badges_process.py`, `src/docket/ai/pipeline.py`, `src/docket/services/badges.py`, `src/docket/web/admin.py`, `src/docket/web/admin_badge_review.py` | Correct today via the DB default | Any change to the badge status contract |
@@ -55,7 +55,7 @@
 
 ### D7 — SQL in the web layer
 
-The rule in `ARCHITECTURE.md` says routes call services. The seven modules named in the row call `db_cursor()` directly, mostly in admin forms and auth. Fixed means each query becomes a function in `src/docket/services/` with a unit test, and `grep -rl 'db_cursor\|db()' src/docket/web` prints nothing. Pay it down module by module inside plans that already touch each module; do not open a plan for it alone.
+The rule in `ARCHITECTURE.md` says routes call services. The six modules named in the row call `db_cursor()` directly, mostly in admin forms and auth (`public.py` no longer does). Fixed means each query becomes a function in `src/docket/services/` with a unit test, and `grep -rl 'db_cursor\|db()' src/docket/web` prints nothing. Pay it down module by module inside plans that already touch each module; do not open a plan for it alone.
 
 ### D12 — Consent item text recovery
 

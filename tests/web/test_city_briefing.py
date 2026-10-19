@@ -7,7 +7,8 @@ after, since the city page is cached per slug for five minutes. Runs in the
 web tier against the throwaway database (``DATABASE_URL`` names
 ``docket_test_*``).
 
-M2 covers the opener, the search field, and the meetings list; later
+M2 covers the opener, the search field, and the meetings list; M3 the money
+door, the disagreement door, and the ``order=amount`` search page; later
 milestones add their doors here.
 """
 
@@ -19,6 +20,7 @@ from html.parser import HTMLParser
 import pytest
 
 from docket.db import db
+from docket.services import briefing
 from docket.web import create_app
 from tests.support import briefing_seed
 
@@ -46,6 +48,14 @@ def seeded(request):
         with db() as conn:
             briefing_seed.cleanup(conn)
         briefing_seed.clear_caches()
+
+
+@pytest.fixture
+def facts(seeded):
+    """The seeded rows plus Birmingham's precomputed facts, as the worker task leaves them."""
+    briefing.recompute_city_facts(seeded["municipality_id"])
+    briefing_seed.clear_caches()
+    return seeded
 
 
 @pytest.fixture
@@ -251,3 +261,141 @@ def test_search_field_scoped_to_city(client, unseeded):
     assert '<input type="hidden" name="city" value="birmingham">' in html
     assert "Search Birmingham's agendas, minutes, and transcripts" in html
     assert 'action="/search"' in html
+
+
+# --- the money door --------------------------------------------------------
+
+
+def _section(html: str, cls: str) -> str | None:
+    """The ``<section class="... cls ...">`` element's markup, or None when absent."""
+    marker = f'<section class="brf-door {cls}"'
+    if marker not in html:
+        return None
+    start = html.index(marker)
+    return html[start: html.index("</section>", start)]
+
+
+MORE_MONEY_ITEMS = [
+    {"item_number": "5", "title": briefing_seed.PREFIX + "Sidewalk repair contract",
+     "description": "Contract for sidewalk repair in the amount of $2,300,000.",
+     "headline": "$2.3 million sidewalk repair contract", "dollars_amount": 2_300_000,
+     "is_consent": True, "topic": "public_works"},
+    {"item_number": "6", "title": briefing_seed.PREFIX + "Library roof replacement",
+     "description": "Roof replacement at the central library for $850,000.",
+     "headline": "$850,000 library roof replacement", "dollars_amount": 850_000,
+     "is_consent": False, "topic": "contracts"},
+]
+
+
+def _add_money_items(seeded) -> list[int]:
+    """Two more items on the past meeting whose text backs their amount (cleaned with the meeting)."""
+    ids = []
+    with db() as conn:
+        with briefing_seed._cur(conn) as cur:
+            for spec in MORE_MONEY_ITEMS:
+                ids.append(briefing_seed._insert_item(cur, seeded["past_meeting_id"], spec))
+        conn.commit()
+    briefing_seed.clear_caches()
+    return ids
+
+
+def test_money_door_full_three_lines_in_amount_order(client, seeded):
+    sidewalk, roof = _add_money_items(seeded)
+    door = _section(_page(client), "brf-door-money")
+    assert door is not None
+    assert "Where the money went" in door
+    assert door.count('<li class="brf-door-line">') == 3
+    a = door.index(f'href="/al/birmingham/items/{seeded["items"]["A"]}/"')
+    b = door.index(f'href="/al/birmingham/items/{sidewalk}/"')
+    c = door.index(f'href="/al/birmingham/items/{roof}/"')
+    assert a < b < c, "lines must be in descending amount order"
+    assert "$10.1 million" in door and "$2.3 million" in door and "$850,000" in door
+    assert "passed on the consent agenda" in door
+    assert 'href="/search?city=birmingham&amp;order=amount"' in door
+    assert "More →" in door
+
+
+def test_money_door_skips_item_failing_dollar_check(client, seeded):
+    door = _section(_page(client), "brf-door-money")
+    assert door is not None
+    assert f'href="/al/birmingham/items/{seeded["items"]["A"]}/"' in door
+    assert f'href="/al/birmingham/items/{seeded["items"]["B"]}/"' not in door
+    assert "39.5" not in door and "KultureCity" not in door
+
+
+def test_money_door_partial_fewer_than_three(client, seeded):
+    door = _section(_page(client), "brf-door-money")
+    assert door is not None
+    assert door.count('<li class="brf-door-line">') == 1
+    assert "$10.1 million" in door
+    # The amount is printed once, not repeated from the headline.
+    assert door.count("$10.1 million") == 1
+
+
+@pytest.mark.parametrize("seeded", [{"dollars": False}], indirect=True)
+def test_money_door_absent_without_items(client, seeded):
+    html = _page(client)
+    assert _section(html, "brf-door-money") is None
+    assert "Where the money went" not in html
+
+
+# --- the disagreement door -------------------------------------------------
+
+
+def test_disagreed_full_lists_split_with_dissenter_links(client, facts):
+    door = _section(_page(client), "brf-door-disagreed")
+    assert door is not None
+    assert "Where they disagreed" in door
+    assert door.count('<li class="brf-door-line">') == 1
+    assert f'href="/al/birmingham/items/{facts["items"]["A"]}/"' in door
+    assert "passed 8 to 1" in door
+    assert f'<a href="/al/birmingham/council/{facts["nay_member_id"]}/">Hunter Williams</a>' in door
+    assert "from the video" not in door
+    assert 'href="/al/birmingham/split_vote/"' in door
+    assert "More →" in door
+
+
+@pytest.mark.parametrize("seeded", [{"votes": "unanimous", "old_split": True}], indirect=True)
+def test_disagreed_unanimity_sentence_with_last_split(client, facts):
+    door = _section(_page(client), "brf-door-disagreed")
+    assert door is not None
+    assert "Every recorded vote since" in door
+    assert "was unanimous." in door
+    assert "The last split was" in door
+    assert f'href="/al/birmingham/items/{facts["items"]["E"]}/"' in door
+    assert "7 to 2" in door
+    assert '<li class="brf-door-line">' not in door
+    assert "More →" not in door
+
+
+@pytest.mark.parametrize("seeded", [{"votes": "none"}], indirect=True)
+def test_disagreed_absent_without_votes(client, facts):
+    html = _page(client)
+    assert _section(html, "brf-door-disagreed") is None
+    assert "Where they disagreed" not in html
+
+
+def test_disagreed_absent_without_facts_row(client, seeded):
+    html = _page(client)
+    assert _section(html, "brf-door-disagreed") is None
+    assert "Where they disagreed" not in html
+
+
+# --- the order=amount search page ------------------------------------------
+
+
+def test_search_order_amount_lists_city_items(client, seeded):
+    resp = client.get("/search?city=birmingham&order=amount")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    assert "Where the money went in Birmingham, last 90 days" in html
+    assert f'id="item-{seeded["items"]["A"]}"' in html
+    assert "Type a query above to search" not in html
+
+
+def test_search_order_amount_skips_item_failing_dollar_check(client, seeded):
+    sidewalk, roof = _add_money_items(seeded)
+    html = client.get("/search?city=birmingham&order=amount").get_data(as_text=True)
+    assert f'id="item-{seeded["items"]["B"]}"' not in html
+    a = html.index(f'id="item-{seeded["items"]["A"]}"')
+    assert a < html.index(f'id="item-{sidewalk}"') < html.index(f'id="item-{roof}"')

@@ -166,12 +166,11 @@ def test_city_html_rendered_no_rail_refs(render_partial):
         meeting_count=1,
         topics=[],
         members=[],
-        notable_items=[],
-        contested_votes=[],
+        money=[],
+        disagreed=None,
         city_policy_badges=[],
         process_badges=[],
         now=datetime.datetime.now(),
-        coverage_counts={},
         kpi_stats=[],
     )
     assert "rail_meeting" not in html, "Rendered city.html emits rail_meeting"
@@ -210,12 +209,11 @@ def test_city_html_recent_meetings_have_href(render_partial):
         meeting_count=1,
         topics=[],
         members=[],
-        notable_items=[],
-        contested_votes=[],
+        money=[],
+        disagreed=None,
         city_policy_badges=[],
         process_badges=[],
         now=datetime.datetime.now(),
-        coverage_counts={},
         kpi_stats=[],
     )
     # The meetings-list row should link to meeting_detail

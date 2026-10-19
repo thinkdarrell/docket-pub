@@ -115,15 +115,17 @@ def _city_overview_render(slug, municipality, now_ts):
     opener = briefing.opener_facts(municipality) if briefing.is_briefing_city(municipality) else None
     opener_text = briefing.opener_text(opener, municipality) if opener else ""
     briefing_meetings = briefing.list_briefing_meetings(slug)
+    # The doors (M3): the money door is a handful of indexed rows checked
+    # per request; the disagreement door reads the precomputed
+    # ``city_briefing_facts`` rows (worker task ``briefing_facts``) in one
+    # query, which is what replaced the switched-off contested-votes
+    # section and its cold-load cost. Each renders only when its data exists.
+    facts = briefing.get_city_facts(mid)
+    money = briefing.money_items(mid)
+    disagreed = briefing.disagreement(facts, municipality)
     meeting_count = query.count_meetings_lifetime(mid)
     topics = query.topic_counts(municipality_slug=slug)
     members = query.list_council_members(slug)
-    notable = query.list_high_dollar_items(municipality_slug=slug, limit=6, days=180)
-    # TODO: precompute these — too heavy for cold page loads on Railway
-    # (M3 of plan birmingham-city-briefing replaces this with the
-    # precomputed disagreement door; the switched-off "Recent votes"
-    # table left city.html in M2).
-    contested = []
 
     # F4 Browse-by-Priority (spec §6.7): two grids passed as
     # pre-decorated dicts — counts are zipped on here in the route, NOT
@@ -154,10 +156,6 @@ def _city_overview_render(slug, municipality, now_ts):
         for b in query.list_process_badges()
     ]
 
-    from docket.services.query import coverage_counts_for_items
-    notable_item_ids = [it['id'] for it in notable if 'id' in it]
-    coverage_counts = coverage_counts_for_items(notable_item_ids)
-
     freshness = query._freshness_state(query.most_recent_ingest_at(mid))
 
     blog_state = current_app.config.get("BLOG_STATE")
@@ -176,15 +174,14 @@ def _city_overview_render(slug, municipality, now_ts):
         opener=opener,
         opener_text=opener_text,
         briefing_meetings=briefing_meetings,
+        money=money,
+        disagreed=disagreed,
         meeting_count=meeting_count,
         topics=topics,
         members=members,
-        notable_items=notable,
-        contested_votes=contested,
         city_policy_badges=city_policy_badges,
         process_badges=process_badges,
         now=datetime.now(),
-        coverage_counts=coverage_counts,
         freshness=freshness,
         blog_posts_for_city=blog_posts_for_city,
     )
@@ -992,11 +989,13 @@ def search():
     """Search results page — scoped to city or cross-city."""
     q = request.args.get("q", "").strip()
     city = request.args.get("city")
+    order = request.args.get("order")
     page = max(1, request.args.get("page", 1, type=int))
     per_page = 20
     offset = (page - 1) * per_page
 
     results = []
+    has_next = False
     if q:
         results = query.search_agenda_items(
             q,
@@ -1004,6 +1003,26 @@ def search():
             limit=per_page,
             offset=offset,
         )
+        # has_next via row-count heuristic (no separate COUNT query). After
+        # the AI backfill ramps result counts up, an explicit COUNT on every
+        # search hit would be wasteful — the heuristic costs nothing and
+        # only mis-paints "next" on the rare page that lands exactly on
+        # per_page boundary (user lands on an empty next page; cheap fix).
+        has_next = len(results) == per_page
+    elif city and order == "amount":
+        # The city page's money door opens here (plan
+        # birmingham-city-briefing, M3): the city's items of the last 90
+        # days by amount, kept only when the item's own text backs the
+        # stored amount, so this page and the door agree on which item is
+        # largest. At most 200 rows, paged in Python.
+        kept = [
+            it for it in query.list_items_by_amount(city)
+            if briefing.passes_dollar_check(it.title, it.description, it.headline, it.dollars_amount)
+        ]
+        results = kept[offset:offset + per_page]
+        has_next = len(kept) > offset + per_page
+    else:
+        order = None
 
     from docket.services import transcripts as tsvc
     transcript_hits: list[dict] = []
@@ -1013,13 +1032,6 @@ def search():
             transcript_hits = tsvc.search_transcripts(
                 clean_q, municipality_slug=city, speaker=speaker, limit=10, offset=offset // 2,
             )
-
-    # has_next via row-count heuristic (no separate COUNT query). After
-    # the AI backfill ramps result counts up, an explicit COUNT on every
-    # search hit would be wasteful — the heuristic costs nothing and
-    # only mis-paints "next" on the rare page that lands exactly on
-    # per_page boundary (user lands on an empty next page; cheap fix).
-    has_next = len(results) == per_page
 
     municipalities = query.list_municipalities()
 
@@ -1043,6 +1055,7 @@ def search():
         municipalities=municipalities,
         page=page,
         has_next=has_next,
+        order=order,
         coverage_counts=coverage_counts,
         municipality=municipality,
         kpi_stats=kpi_stats,
@@ -1207,19 +1220,7 @@ def coverage_permalink(coverage_id: int):
     Subject hydration is always performed so the subjects footer renders
     the "→ on Item X, Meeting Y" context automatically.
     """
-    from docket.services.query import (
-        _COVERAGE_SELECT, _hydrate_coverage_rows, _hydrate_subjects_for_entries,
-    )
-    from docket.db import db_cursor
-    with db_cursor() as cur:
-        cur.execute(
-            _COVERAGE_SELECT + " WHERE ce.id = %s AND ce.kind = 'note' "
-                               "AND ce.status = 'published'",
-            (coverage_id,),
-        )
-        entries = _hydrate_coverage_rows(cur)
-        if not entries:
-            abort(404)
-        entries = _hydrate_subjects_for_entries(cur, entries)
-        note = entries[0]
+    note = query.get_published_note(coverage_id)
+    if note is None:
+        abort(404)
     return render_template("coverage/permalink.html", note=note)

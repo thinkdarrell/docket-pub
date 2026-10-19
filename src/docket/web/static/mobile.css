@@ -154,24 +154,6 @@
     font-size: 12px;
   }
 
-  /* ── 7. Legislation cards — single column, 1px rule between ──────────────── */
-  .leg { padding: 24px 0 28px; }
-  .leg-grid {
-    grid-template-columns: 1fr !important;
-    gap: 0;
-    padding-top: 8px;
-  }
-  .legc {
-    border: 0;
-    border-bottom: 1px solid var(--rule);
-    border-radius: 0;
-    padding: 14px 0;
-    min-height: 0;
-  }
-  .legc:hover { transform: none; box-shadow: none; }
-  .legc-title { font-size: 17px; }
-  .legc-byline { font-size: 9px; }
-
   /* ── 8. Council list — 3-column tile grid (3x3 for 9-member councils) ─────── */
   .council { padding: 24px 0 28px; }
   .council-grid {
@@ -303,10 +285,6 @@
 
   /* Result chips inside feed rows shrink */
   .feed-row .chip { font-size: 10px; height: 20px; padding: 0 6px; }
-
-  /* ── 12. Tier-key (legend strip) wraps ────────────────────────────────────── */
-  .tier-key { flex-wrap: wrap; gap: 4px; }
-  .tier-key .tier { font-size: 9px; padding: 1px 5px; }
 
   /* ── 13. Footer accordion ─────────────────────────────────────────────────── */
   .footnote { padding: 28px 0 16px; }
@@ -557,7 +535,6 @@
 
   /* ── 18. Type scale — section titles + cards ──────────────────────────────── */
   .feed-title { font-size: 22px !important; }
-  .legc-title { font-size: 17px; }
 
   /* ── 19. Source-link rail row inside meeting hero stays stacked ───────────── */
   .mtg-sources .rail-link { flex: 1 1 100% !important; min-width: 0 !important; }

@@ -350,8 +350,6 @@
 .flag-bad  { background: color-mix(in oklab, var(--bad) 15%, transparent);  color: var(--bad); }
 
 /* ── notable items ────────────────────────────────── */
-.tier-key { display: flex; gap: 6px; }
-.tier-key .tier { font-size: 10px; padding: 2px 6px; }
 .notable-list { display: flex; flex-direction: column; gap: 0; border-top: 1px solid var(--rule); }
 .notable-row {
   display: grid;
@@ -1443,3 +1441,16 @@
 .brf-empty { color: var(--ink-3); }
 .brf-meetings-foot, .brf-follow { font-size: 14px; margin: var(--space-3) 0 0; }
 .brf-follow { color: var(--ink-3); }
+
+/* The doors (plan birmingham-city-briefing, M3): one list of linked lines each */
+.brf-door { max-width: 68ch; }
+.brf-door-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--rule); }
+.brf-door-line { padding: var(--space-2) 0; border-bottom: 1px solid var(--rule); line-height: 1.5; min-height: 44px; }
+.brf-door-line a { color: var(--ink); text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 3px; }
+.brf-door-line a:hover { color: var(--accent-ink); }
+.brf-amount { font-weight: 600; font-variant-numeric: tabular-nums; }
+.brf-door-text { line-height: 1.5; margin: 0; }
+.brf-door-text a { color: var(--ink); text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 3px; }
+.brf-more { font-size: 14px; margin: var(--space-3) 0 0; }
+.brf-more a { color: var(--accent-ink); text-decoration: none; }
+.brf-more a:hover { text-decoration: underline; }
