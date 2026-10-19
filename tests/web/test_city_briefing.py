@@ -19,6 +19,7 @@ from datetime import datetime
 from html.parser import HTMLParser
 
 import pytest
+from markupsafe import escape
 
 from docket.db import db
 from docket.services import briefing
@@ -809,3 +810,96 @@ def test_council_card_count_matches_dated_dissent_view_with_abstention_and_table
     assert _dissent_rows(client, abstainer_id, since) == 0
     # ... while the undated view keeps its older filter: the abstention and the tabled yea (D58).
     assert _dissent_rows(client, abstainer_id, None) == 2
+
+
+# --- M8: the interaction-table states the tests never rendered ------------
+
+
+@pytest.mark.parametrize("seeded", [{"past_days": 20}], indirect=True)
+def test_opener_stale_last_met_phrasing(client, seeded):
+    html = _page(client)
+    op = _opener(html)
+    assert "The council last met on" in op
+    assert "The council met on" not in op
+    meta = re.search(r'<meta name="description" content="([^"]*)"', html)
+    assert meta, "meta description missing"
+    assert "last met on" in meta.group(1)
+    # The meeting is still listed; only the opener's wording changes.
+    assert _meeting_row(html, seeded["past_meeting_id"])
+
+
+@pytest.mark.parametrize("seeded", [{"votes": "tally_only"}], indirect=True)
+def test_disagreed_partial_tally_only_no_names(client, facts):
+    html = _page(client)
+    door = _section(html, "brf-door-disagreed")
+    assert door is not None
+    assert door.count('<li class="brf-door-line">') == 1
+    assert f'href="/al/birmingham/items/{facts["items"]["A"]}/"' in door
+    assert "passed 8 to 1" in door
+    assert "/council/" not in door
+    assert "(abstained)" not in door
+    # The opener's split sentence ends at the tally, and the beat's action
+    # link carries the vote's anchor.
+    first = _beats(html)[0]
+    text = _beat_text(first)
+    assert "passed 8 to 1. Read the" in text
+    assert "with " not in text[text.index("passed 8 to 1."):]
+    action = [h for k, t, h in first if k == "link" and t.startswith("Read the")]
+    assert action == [
+        f"/al/birmingham/meetings/{facts['past_meeting_id']}/#vote-{facts['votes']['split']}"
+    ]
+
+
+@pytest.mark.parametrize("seeded", [{"votes": "video"}], indirect=True)
+def test_disagreed_video_sourced_vote_carries_label(client, facts):
+    html = _page(client)
+    door = _section(html, "brf-door-disagreed")
+    assert door is not None
+    assert door.count('<li class="brf-door-line">') == 1
+    assert "· from the video" in door
+    assert f'<a href="/al/birmingham/council/{facts["nay_member_id"]}/">Hunter Williams</a>' in door
+    assert "voting no from the video." in _opener(html)
+    assert "1 split vote" in _meeting_row(html, facts["past_meeting_id"])
+
+
+@pytest.mark.parametrize("seeded", [{"transcript": "low_speech"}], indirect=True)
+def test_said_absent_when_transcript_low_speech(client, seeded):
+    html = _page(client)
+    assert _section(html, "brf-door-said") is None
+    assert "Said at the meeting" not in html
+    assert "acted on 4 items" in _opener(html)
+
+
+@pytest.mark.parametrize("seeded", [{"undocumented": True}], indirect=True)
+def test_meetings_list_row_without_documents_says_so(client, seeded):
+    html = _page(client)
+    row = _meeting_row(html, seeded["undocumented_meeting_id"])
+    assert "no documents linked" in row
+    assert "1 item" in row
+    assert "agenda · minutes · video" in _meeting_row(html, seeded["past_meeting_id"])
+    section = html[html.index("brf-meetings-section"):]
+    assert "Regular City Council Meeting" not in section, "the ghost meeting must not be listed"
+
+
+def test_council_card_without_roll_calls_shows_name_alone(client, facts):
+    names = list(facts["members"])
+    quiet = names[4]
+    with db() as conn:
+        with briefing_seed._cur(conn) as cur:
+            cur.execute(
+                """DELETE FROM member_votes
+                    WHERE council_member_id = %s
+                      AND vote_id IN (SELECT v.id FROM votes v JOIN meetings m ON m.id = v.meeting_id
+                                       WHERE position(%s IN m.title) = 1)""",
+                (facts["members"][quiet], briefing_seed.PREFIX),
+            )
+        conn.commit()
+    briefing.recompute_city_facts(facts["municipality_id"])
+    briefing_seed.clear_caches()
+    section = _council(_page(client))
+    assert section is not None
+    # The fifth seeded name holds an apostrophe, which the page escapes.
+    card = _card(section, str(escape(quiet)))
+    assert "cc-stats" not in card
+    assert "roll calls" not in card
+    assert section.count("roll calls in the last 12 months") == 8

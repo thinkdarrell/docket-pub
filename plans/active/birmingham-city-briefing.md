@@ -97,6 +97,9 @@ The design's own anti-goals bind every milestone: no sentence whose number, name
 - Observation (M7 session): the crafted facts for the three pure tests are this session's, not the reviewer's dict (the plan records its lengths, 391 characters and sentence ends at 74, 174, 325, 391, but not its headline): a 14-word headline "$4.2 million contract for curb ramps, crosswalk markings, and neighborhood sidewalk reconstruction", the St. Vincent's item label, 38 items, a 40-item next meeting, `meeting_date` 2026-10-14 (a Wednesday). The joined beats are 412 characters and the sentence-boundary cut lands at 195, after "sidewalk reconstruction."; the tests assert the plan's three properties (at most 300 characters, ends with "sidewalk reconstruction.", no "St.") rather than offsets, so the year suffix `_long_date` adds after 2026 cannot move the cut past a boundary.
   Evidence: the probe under Artifacts and Notes; `test_opener_text_cuts_at_sentence_boundary_not_inside_label` asserts `len(joined) > briefing.OPENER_TEXT_MAX` first, so the case is known to need a cut.
 
+- Observation (M8 session): `names[4]` of the seeded roster, the member the plan names for the no-roll-call card test, is Darrell O'Quinn, and the page renders his name with the apostrophe escaped (`Darrell O&#39;Quinn`), so M7's `_card` helper, which looks for `>{name}</a>`, found no card for the raw name. The test passes the name through `markupsafe.escape` (Jinja's own escaping) before the lookup; the helper is unchanged.
+  Evidence: the first run of `test_council_card_without_roll_calls_shows_name_alone` printed `AssertionError: expected one card for Darrell O'Quinn, found 0`; `sed -n 25,33p src/docket/migrations/005_*.py` lists the roster in id order with `Darrell O'Quinn` fifth.
+
 ## Decision Log
 
 - Decision: the opener's facts are computed per request from a handful of single-meeting queries, and only the heavy facts (the split votes of the last 180 days, the unanimity fallback, the per-member twelve-month counts) come from the precomputed table.
@@ -893,6 +896,16 @@ M7 session, `./tools/verify` after the milestone's edits (2026-10-19 22:22Z, aft
     verify: all 6 checks passed in 102s.
 
 The fast tiers gained 8 tests over the M6 total (four in `tests/services/test_briefing_facts.py`, three in `tests/web/test_city_briefing.py`, one in `tests/unit/test_query_member_history.py`); integration is unchanged at 625, both as the milestone's acceptance predicted.
+
+M8 session, `./tools/verify` before any edit (2026-10-19 22:27Z; it built `docket_test_29cd1d5f`):
+
+    1947 passed, 5 skipped, 4 xfailed, 1 warning in 53.99s
+    625 passed, 1 warning in 48.75s
+    judge fixtures: 12 of 12 passed
+    84 passed in 0.74s
+    verify: all 6 checks passed in 106s.
+
+M8 session, the six tests run against the unchanged seed (`DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/web/test_city_briefing.py -q -p no:cacheprovider -k "stale_last_met or tally_only_no_names or video_sourced or low_speech or without_documents or without_roll_calls"`) printed `2 failed, 44 deselected, 4 errors in 0.83s`: the four errors were `TypeError: seed() got an unexpected keyword argument 'past_days'`, `ValueError: unknown votes option 'tally_only'`, `ValueError: unknown votes option 'video'`, and `TypeError: seed() got an unexpected keyword argument 'undocumented'`; the two failures were the transcript door still rendered under `transcript="low_speech"` (the old seed treated any truthy value as `True`, so `_section(html, "brf-door-said")` was the section, not None) and the council card lookup for `Darrell O'Quinn` (Surprises).
 
 ## Interfaces and Dependencies
 
