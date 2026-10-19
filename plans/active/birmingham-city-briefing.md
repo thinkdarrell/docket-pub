@@ -698,6 +698,33 @@ M5 session, `./tools/verify` before any edit (2026-10-19 18:35Z, the starting st
 
 The fast tiers gained 7 tests over the M4 total (all in `tests/web/test_city_briefing.py`); integration lost one (the four F4 tile tests became three), both as the milestone's acceptance predicted.
 
+M6 session, the seeded render through the Flask test client against the throwaway database (`docket_test_29cd1d5f`, 2026-10-19 18:57Z; the local `docket_db` holds no public Birmingham transcript, so this is the only render of the door on this machine):
+
+    <section class="brf-door brf-door-said" aria-labelledby="brf-said-h">
+      <header class="brf-head">
+        <h2 id="brf-said-h" class="brf-h2">Said at the meeting</h2>
+      </header>
+      <blockquote class="brf-quote"><p>I want to be clear that I cannot support this contract at this price, not with the questions we still have about the bid.</p></blockquote>
+      <p class="brf-attribution"><a href="/al/birmingham/council/2/">Hunter Williams</a>, during discussion of
+        <a href="/al/birmingham/items/1/">$10.1 million contract for citywide road resurfacing</a>
+        at the October 12 meeting.
+      </p>
+      <p class="brf-more"><a href="/al/birmingham/meetings/1/transcript/#t-1">Read the transcript →</a></p>
+    </section>
+    h2s: ['Where the money went', 'Where they disagreed', 'The council', 'What they keep dealing with', 'Said at the meeting', 'Signals in the last 30 days', 'Recent meetings', 'From the blog']
+
+The two new test files by hand on the same database (`DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/web/test_city_briefing.py tests/web/test_city_briefing_a11y.py -q -p no:cacheprovider`) printed `49 passed in 6.13s` (41 and 8; `--collect-only` printed `49 tests collected`).
+
+M6 session, the acceptance commands against the local `docket_db` (`venv/bin/flask --app docket.web:create_app run --port 5061`, 2026-10-19 19:00Z; the server was stopped afterwards by process id):
+
+    curl -s localhost:5061/al/birmingham/ | grep -c 'Said at the meeting'   -> 0
+    psql ... public Birmingham transcripts (the operator's query 7)         -> 0
+    curl -s localhost:5061/al/birmingham/ | grep -o '<h2[^>]*>[^<]*'        -> The council, Recent meetings, From the blog
+    mobile 200, homewood 200, vestavia_hills 200
+    grep -c 'city-page.md' docs/specs/index.md                              -> 1
+
+(On this database every door but the council is absent, as M3 to M5 found for their windows, so the rendered `<h2>` list is the subset of the spec's list that the rows support; the full eight were observed in the seeded render above.)
+
 ## Interfaces and Dependencies
 
 Identifiers spent by this plan: migration `037_city_briefing_facts`; table `city_briefing_facts` with `fact_set` values `split_votes` and `member_counts`; task `briefing_facts`; environment variable `HEALTHCHECK_BRIEFING_FACTS_UUID`; Healthchecks check `docket-briefing-facts`; metadata key `briefing`; module `src/docket/services/briefing.py`; partials under `src/docket/web/templates/partials/briefing/` named `opener.html`, `search.html`, `door_money.html`, `door_disagreed.html`, `door_topics.html`, `door_said.html`, `signals.html`, `meetings.html`; CSS class prefix `brf-` and the card class `cc-district-num`; Jinja global `city_provenance`; query parameters `since` (member route) and `order=amount` (search); test files `tests/support/briefing_seed.py`, `tests/services/test_briefing_facts.py`, `tests/web/test_city_briefing.py`, `tests/web/test_city_briefing_a11y.py`, `tests/integration/test_037_migration.py`, `tests/unit/test_query_coverage_note.py`; seed title prefix `BRIEFING_TEST_`; spec `docs/specs/city-page.md`.
