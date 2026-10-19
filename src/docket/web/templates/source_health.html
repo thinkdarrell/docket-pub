@@ -91,6 +91,23 @@
       </div>
       <div class="source-stage-dot is-{{ health.index.state }}" aria-hidden="true"></div>
     </li>
+
+    {# 5. Briefing facts — only when the briefing_facts task has written a row #}
+    {% if health.briefing %}
+    <li class="source-stage">
+      <div class="source-stage-num t-mono">5</div>
+      <div class="source-stage-body">
+        <div class="source-stage-label t-mono">Briefing facts</div>
+        <div class="source-stage-title">Split votes and member counts for the city page</div>
+        <div class="t-meta">
+          {{ health.briefing.label }}
+          {%- if health.briefing.computed_at %} · computed {{ health.briefing.computed_at.strftime('%b %-d, %Y %H:%M') }} UTC{% endif -%}
+          {%- if health.briefing.state == 'warn' %} · older than 48 hours{% endif -%}
+        </div>
+      </div>
+      <div class="source-stage-dot is-{{ health.briefing.state }}" aria-hidden="true"></div>
+    </li>
+    {% endif %}
   </ol>
 
   <p class="t-meta source-pipeline-foot">

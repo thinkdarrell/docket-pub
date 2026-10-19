@@ -43,6 +43,9 @@ TASK_UUID_ENV: dict[str, str] = {
     # UUID set in Railway dashboard during deploy (Task 18).
     # ping() short-circuits when the env var is unset (local dev, pre-deploy).
     "video_ocr": "HEALTHCHECK_VIDEO_OCR_UUID",
+    # Check docket-briefing-facts; set after the first deploy of the task
+    # (docs/runbooks/cron-worker.md). ping() short-circuits until then.
+    "briefing_facts": "HEALTHCHECK_BRIEFING_FACTS_UUID",
 }
 
 PingStatus = Literal["start", "success", "fail"]

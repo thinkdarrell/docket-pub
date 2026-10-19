@@ -31,6 +31,14 @@ The design's own anti-goals bind every milestone: no sentence whose number, name
   Evidence: `ls -la .env` printed `No such file or directory`; `DATABASE_URL=postgresql://thinkdarrell@/docket_db ./tools/verify` printed `verify: all 6 checks passed in 101s.`
 - Observation: the integration test `test_link_crawler_homepage_links_resolve_to_200` in `tests/integration/test_f4_browse_by_priority.py` asserts at least seven category-landing links on every city page, which the redesign cannot satisfy (the signals list shows only nonzero badges, and the other three cities have no priority badges), so it is rewritten in M5 along with the tile tests, as the Decision Log records.
   Evidence: lines 715 to 760 of that file, read 2026-10-19.
+- Observation (M1 session): the worktree already held a gitignored `.env` (50 bytes, written by the operator before the run), so `./tools/verify`, the migration runner, the task, and `psql` all ran without `DATABASE_URL` exported on the command line; the session never printed the file.
+  Evidence: `ls -la .env` printed `-rw-r--r-- 1 thinkdarrell thinkdarrell 50 Oct 19 09:02 .env`; `./tools/verify` built `docket_test_29cd1d5f` and ended `verify: all 6 checks passed in 98s.` before any edit.
+- Observation (M1 session): `housing` is not a topic slug. `src/docket/enrichment/topics.py` defines `zoning`, `public_safety`, `public_works`, `budget`, `grants`, `contracts`, `legal`, `parks_culture`, `licensing`, `appointments`, and `routine`; the plan's seed description gave item C `topic 'housing'`, which the topics door of M4 could not name. The seed uses `grants` for item C (its title is a housing rehabilitation grant), `public_works` for A, `contracts` for B, and `routine` for D.
+  Evidence: `grep -n '^    ("' src/docket/enrichment/topics.py` printed those eleven slugs on 2026-10-19.
+- Observation (M1 session): `tests/support/__init__.py` already existed (the transcript fixtures live there), so the seed module needed no package file; the plan's "add `tests/support/__init__.py` if it is missing" was a no-op.
+  Evidence: `ls tests/support` printed `__init__.py  transcript_fixtures.py`.
+- Observation (M1 session): psycopg2 returns `json` and `jsonb` columns already decoded, so the split-votes query can return its rows as one `json_agg(row_to_json(...))` value and the payload is shaped in Python without a second parse; `row_to_json` renders a `DATE` as `YYYY-MM-DD`, which is the form the payload keeps.
+  Evidence: `tests/services/test_briefing_facts.py::test_split_votes_payload_uses_minutes_over_video_and_excludes_review` asserts `split["meeting_date"] == seeded["past_meeting_date"].isoformat()` and passed.
 
 ## Decision Log
 
@@ -97,6 +105,21 @@ The design's own anti-goals bind every milestone: no sentence whose number, name
 - Decision: three of the review's points are not applied. The transcript door keeps its label check, restated as the exact two fallback forms `_label` in `src/docket/services/transcripts.py` produces, because the `SPEAKER_00`-style labels the review feared come from a pipeline this repository does not run and the `Turn` object carries no resolved flag to allowlist on; `list_council_members` already orders by `d.number NULLS FIRST, cm.name`, which is deterministic; and condition one of the dollar check is not relaxed for multi-amount texts, as the entry above says.
   Rationale: each was checked against the code rather than taken on the review's word.
   Date/Author: 2026-10-19, the operator, from an external review of this plan pasted into the operator's session; checked against the code and applied by Claude.
+- Decision (M1): the split-votes SELECT returns one row: `votes_in_window` (chosen-source votes dated in the 180-day window) and `splits`, the five newest chosen-source splits of the city regardless of date; Python keeps those dated in the window as `splits` and the first of them as `last_split`. The `item` of a split is set only when `linked_item_count = 1`, with `COALESCE(ai.headline, ai.title)` as its label; dissenter positions are normalised to `nay` and `abstain`.
+  Rationale: the newest split ever is always the first row of that order, and the in-window splits are a prefix of it, so one ordered query with `LIMIT 5` serves both without a second scan; that keeps `recompute_city_facts` at the two SELECTs and one upsert the milestone states. The label `COALESCE` is a fallback between two columns of the same row from the same document, not a merge across sources.
+  Date/Author: 2026-10-19, M1 session (Claude).
+- Decision (M1): `source_health_for_city` in `src/docket/services/query.py` imports `docket.services.briefing` inside the function and adds a `briefing` key (`None` without a facts row, else `facts_freshness`'s dict) that the template renders as stage 5 "Briefing facts"; a `warn` row also raises the page's `overall` state.
+  Rationale: `briefing.py` will import `query.py` helpers from M3 on, so a module-level import in `query.py` would be circular; the route stays a one-call route. The plan named `source_health_for_city` as the place, and the existing function already folds every stage's state into `overall`.
+  Date/Author: 2026-10-19, M1 session (Claude).
+- Decision (M1): `tests/support/briefing_seed.py` gains `clear_caches()` now rather than in M5, as the Interfaces section lists it; it clears `public._overview_cache` and, when the attribute exists, `briefing._provenance_cache`. The seed's `votes="many_splits"` adds, beside vote 1, a failed 4 to 5 vote on item B and a passed 7 to 2 vote linked to items C and D; `old_split=True` adds a meeting 200 days ago with item E ("$2 million fire truck purchase") and one 7 to 2 split on it; vote 2 marks Clinton P. Woods absent so the member counts have an attendance case.
+  Rationale: the Interfaces section is the contract later sessions reuse; M2's `client` fixture needs the helper on its first day, and the `getattr` guard makes it correct before M5 adds the second cache. The extra vote shapes give the milestone's named tests a two-item split and a failed split to assert against.
+  Date/Author: 2026-10-19, M1 session (Claude).
+- Decision (M1): the test count exceeds the plan's arithmetic. Beyond the nine named service tests, `tests/services/test_briefing_facts.py` holds `test_no_votes_gives_empty_payload`, `test_recompute_all_flagged_counts_birmingham_only`, `test_clip_words`, `test_is_briefing_city`, and `test_birmingham_is_flagged_by_migration_037`; `tests/unit/test_worker_scheduler.py` gains `test_build_scheduler_briefing_facts_at_45_minutes` beside the hours case; and `tests/web/test_source_health_briefing.py` holds two tests for the stage line (absent without a row, present after a recompute). The observed totals are recorded in Artifacts and Notes.
+  Rationale: each covers a branch the milestone's prose states (`"none"` votes, the flagged-city loop, the two pure helpers, the migration's flag, the 09:45 minute, the stage line), and the plan asks for observed numbers, not the predicted ones.
+  Date/Author: 2026-10-19, M1 session (Claude).
+- Decision (M1): migration 037 was applied to the local development database `docket_db` (the one `.env` names) to run the acceptance commands, and the task's first run wrote Birmingham's two rows there.
+  Rationale: the acceptance is stated against that database ("run in this worktree, `DATABASE_URL` exported as described"); it is the operator's development copy, not production, and `--down 37` reverses it.
+  Date/Author: 2026-10-19, M1 session (Claude).
 
 ## Outcomes & Retrospective
 
@@ -295,6 +318,52 @@ Probe of the task name before it exists, same day:
     unknown task: 'briefing_facts' (known: ['ai_items', 'ai_meetings', 'calibration_report', 'ingest_all', 'process_badges', 'process_batches', 'prune_analytics', 'recast_post_meeting_ai', 'refresh_backfill_ratio_mv', 'repair_empty_agendas', 'transcript_pipeline', 'video_ocr', 'vote_matching'])
 
 Sessions append their observed transcripts here.
+
+M1 session, 2026-10-19, baseline before any edit (`./tools/verify`, `.env` supplying `DATABASE_URL`):
+
+    1875 passed, 5 skipped, 4 xfailed, 1 warning in 45.60s
+    624 passed, 1 warning in 49.88s
+    judge fixtures: 12 of 12 passed
+    84 passed in 0.75s
+    verify: test-db ... ok (0s) postgresql://thinkdarrell@/docket_test_29cd1d5f
+    verify: unit+web+services ... ok (46s)
+    verify: integration ... ok (51s)
+    verify: judge-fixtures ... ok (0s)
+    verify: workflows ... ok (0s)
+    verify: transcriber ... ok (1s)
+    verify: plans ... ok (0s)
+    verify: all 6 checks passed in 98s.
+
+M1 session, the new and touched tiers by hand on a throwaway database (`DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/services/test_briefing_facts.py tests/unit/test_worker_scheduler.py tests/unit/test_worker_tasks.py tests/unit/test_worker_health.py tests/integration/test_037_migration.py tests/web/test_new_routes_p4.py -q -p no:cacheprovider; tools/test-db --drop`):
+
+    68 passed, 1 warning in 2.05s
+
+M1 session, the acceptance commands against the local `docket_db`:
+
+    $ venv/bin/python -m docket.migrations.runner --status | tail -3
+      [applied] 35: docket.migrations.035_transcripts
+      [applied] 36: docket.migrations.036_discrepancy_anchor_and_minutes_check
+      [pending] 37: docket.migrations.037_city_briefing_facts
+    $ venv/bin/python -m docket.migrations.runner
+    Applying migration 37: docket.migrations.037_city_briefing_facts
+      Applied migration 37
+    All migrations applied.
+    $ venv/bin/python -m docket.migrations.runner --status | tail -1
+      [applied] 37: docket.migrations.037_city_briefing_facts
+    $ venv/bin/python -m docket.worker.scheduler --run-once briefing_facts
+    2026-10-19 12:42:17,754 INFO docket.worker.tasks: briefing_facts: recomputed 1 cities
+    $ psql "postgresql://thinkdarrell@/docket_db" -c "select fact_set, computed_at from city_briefing_facts"
+       fact_set    |          computed_at
+    ---------------+-------------------------------
+     split_votes   | 2026-10-19 12:42:17.747486-05
+     member_counts | 2026-10-19 12:42:17.747486-05
+    (2 rows)
+
+The local database holds no votes (Surprises & Discoveries), so both payloads there are empty shapes:
+
+    $ psql "postgresql://thinkdarrell@/docket_db" -tAc "select fact_set, payload::text from city_briefing_facts order by fact_set"
+    member_counts|{"since": "2025-10-19", "members": {}, "window_days": 365}
+    split_votes|{"since": "2026-04-22", "splits": [], "last_split": null, "window_days": 180, "votes_in_window": 0}
 
 ## Interfaces and Dependencies
 

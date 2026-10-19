@@ -1,7 +1,7 @@
 # Cron Worker Runbook
 
 The Railway `worker` service runs `python -m docket.worker.scheduler` and fires
-**eleven scheduled tasks** (see the design spec at
+**fourteen scheduled tasks** (see the design spec at
 `docs/superpowers/specs/2026-05-04-cron-worker-design.md`; subsequent additions
 documented in `~/docket-pub/CLAUDE.md`).
 
@@ -21,6 +21,7 @@ documented in `~/docket-pub/CLAUDE.md`).
 | `ai_meetings` | Daily 08:00 | `HEALTHCHECK_AI_MEETINGS_UUID` | Sonnet 4.6; two-phase (provisional → adopted) |
 | `vote_matching` | Daily 09:00 | `HEALTHCHECK_VOTE_MATCH_UUID` | N:M matcher + strict re-parse |
 | `process_badges` | Daily 09:30 | `HEALTHCHECK_PROCESS_BADGES_UUID` | Conservative policy badge writer |
+| `briefing_facts` | Daily 09:45 | `HEALTHCHECK_BRIEFING_FACTS_UUID` | Rebuilds `city_briefing_facts` (split votes, member roll-call counts) for every city whose metadata carries `briefing: true`; one upsert per city |
 | `calibration_report` | Daily 11:00 | `HEALTHCHECK_CALIBRATION_UUID` *(silent-by-design)* | Daily diagnostic, no production impact |
 | `process_batches` | Every :00 and :30 | `HEALTHCHECK_PROCESS_BATCHES_UUID` | Anthropic Batches API polling (Phase 3 backfill) |
 
@@ -40,6 +41,7 @@ railway variables --service worker --set HEALTHCHECK_PROCESS_BADGES_UUID=<uuid>
 railway variables --service worker --set HEALTHCHECK_PROCESS_BATCHES_UUID=<uuid>
 railway variables --service worker --set HEALTHCHECK_REFRESH_BACKFILL_RATIO_UUID=<uuid>
 railway variables --service worker --set HEALTHCHECK_VIDEO_OCR_UUID=<uuid>
+railway variables --service worker --set HEALTHCHECK_BRIEFING_FACTS_UUID=<uuid>
 # silent-by-design (do not set unless you want active alerting):
 # railway variables --service worker --set HEALTHCHECK_CALIBRATION_UUID=<uuid>
 # railway variables --service worker --set HEALTHCHECK_PRUNE_ANALYTICS_UUID=<uuid>
@@ -55,6 +57,7 @@ Suggested schedule + grace per check:
 | docket-ai-meetings               | Daily 08:00        | 2h    |
 | docket-vote-matching             | Daily 09:00        | 2h    |
 | docket-process-badges            | Daily 09:30        | 2h    |
+| docket-briefing-facts            | Daily 09:45        | 2h    |
 | docket-process-batches           | Every 30m          | 1h    |
 | docket-refresh-backfill-ratio    | Daily 04:30        | 2h    |
 | docket-repair                    | Mon 05:00          | 24h   |
@@ -94,6 +97,7 @@ python -m docket.worker.scheduler --run-once ai_items
 python -m docket.worker.scheduler --run-once ai_meetings
 python -m docket.worker.scheduler --run-once vote_matching
 python -m docket.worker.scheduler --run-once process_badges
+python -m docket.worker.scheduler --run-once briefing_facts
 python -m docket.worker.scheduler --run-once calibration_report
 python -m docket.worker.scheduler --run-once process_batches
 python -m docket.worker.scheduler --run-once prune_analytics

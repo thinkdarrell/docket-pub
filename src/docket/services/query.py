@@ -3601,8 +3601,14 @@ def source_health_for_city(municipality: dict) -> dict:
     freshness state derived from the most recent successful step.
 
     Returns dict with keys: source_url, adapter_class, parser, index,
+    briefing (None unless city_briefing_facts holds a row for the city;
+    otherwise ``briefing.facts_freshness``'s dict, ``warn`` past 48 hours),
     overall (the highest-severity state across all stages).
     """
+    # Local import: briefing.py imports this module's helpers, so a
+    # module-level import here would be circular.
+    from docket.services import briefing as _briefing
+
     mid = municipality["id"]
     with db_cursor() as cur:
         cur.execute(
@@ -3643,7 +3649,12 @@ def source_health_for_city(municipality: dict) -> dict:
 
     parser_state = _date_age_state(last_parsed)
 
+    facts = _briefing.get_city_facts(mid)
+    briefing_state = _briefing.facts_freshness(facts) if facts else None
+
     states = [index_state["state"], parser_state["state"]]
+    if briefing_state is not None:
+        states.append(briefing_state["state"])
     severity = {"good": 0, "warn": 1, "bad": 2, "unknown": 1}
     overall = max(states, key=lambda s: severity.get(s, 1))
 
@@ -3661,6 +3672,7 @@ def source_health_for_city(municipality: dict) -> dict:
             "last_success": last_ingest,
             "meeting_count": meeting_count,
         },
+        "briefing": briefing_state,
         "overall": overall,
     }
 

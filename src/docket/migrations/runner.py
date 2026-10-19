@@ -47,6 +47,7 @@ MIGRATIONS = [
     "docket.migrations.034_video_ocr_processing_status",
     "docket.migrations.035_transcripts",
     "docket.migrations.036_discrepancy_anchor_and_minutes_check",
+    "docket.migrations.037_city_briefing_facts",
 ]
 
 

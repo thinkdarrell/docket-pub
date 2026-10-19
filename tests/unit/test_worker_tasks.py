@@ -129,6 +129,15 @@ def test_repair_invokes_repair_empty_agendas():
     mock_repair.assert_called_once()
 
 
+def test_briefing_facts_calls_recompute_all_flagged(caplog):
+    with patch("docket.worker.tasks.briefing.recompute_all_flagged") as mock_recompute:
+        mock_recompute.return_value = 1
+        with caplog.at_level("INFO", logger="docket.worker.tasks"):
+            tasks._do_briefing_facts()
+    mock_recompute.assert_called_once_with()
+    assert any("briefing_facts: recomputed 1 cities" in r.message for r in caplog.records)
+
+
 # --- TASKS registry ----------------------------------------------------------
 
 def test_tasks_registry_has_all_jobs():
@@ -136,6 +145,6 @@ def test_tasks_registry_has_all_jobs():
         "ingest_all", "video_ocr", "ai_items", "ai_meetings", "vote_matching",
         "repair_empty_agendas", "process_badges", "calibration_report",
         "process_batches", "refresh_backfill_ratio_mv", "prune_analytics",
-        "recast_post_meeting_ai", "transcript_pipeline",
+        "recast_post_meeting_ai", "transcript_pipeline", "briefing_facts",
     }
     assert set(tasks.TASKS.keys()) == expected
