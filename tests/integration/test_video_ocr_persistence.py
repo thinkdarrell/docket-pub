@@ -133,3 +133,36 @@ def test_persist_needs_review_vote_marked_medium_confidence(seeded_bham_meeting_
     assert float(rows[1]["video_timestamp"]) == 600.0
     assert rows[1]["confidence"] == "medium"
     assert rows[1]["needs_review"] is True
+
+
+def test_persist_non_terminal_vote_stores_review_triple(seeded_bham_meeting_2026):
+    """A vote whose terminal header could not be read is stored as the
+    triple (needs_review true, confidence medium, result unknown) with
+    its own reason, never as a clean vote with result 'unknown'."""
+    detected = DetectedVote(
+        timestamp=700.0,
+        vote_result="unknown",
+        yeas=7, nays=None, abstentions=None,
+        raw_text="",
+        member_votes=[],
+        header_result="unknown",
+        needs_review=True,
+        review_reason="header_not_terminal",
+    )
+    n = persist_detected_votes(seeded_bham_meeting_2026, [detected], member_map={})
+    assert n == 1
+    with db_cursor() as cur:
+        cur.execute(
+            """SELECT result, needs_review, confidence, review_reason, yeas, nays
+                 FROM votes
+                WHERE meeting_id = %s AND video_timestamp = 700.0""",
+            [seeded_bham_meeting_2026],
+        )
+        rows = cur.fetchall()
+    assert len(rows) == 1
+    assert rows[0]["result"] == "unknown"
+    assert rows[0]["needs_review"] is True
+    assert rows[0]["confidence"] == "medium"
+    assert rows[0]["review_reason"] == "header_not_terminal"
+    assert rows[0]["yeas"] == 7
+    assert rows[0]["nays"] is None
