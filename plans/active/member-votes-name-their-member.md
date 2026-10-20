@@ -34,6 +34,13 @@ The city page plan on branch `plan/birmingham-city-briefing` (pull request #128,
 - Observation: the worktree had no `.env`, and `tools/test-db` failed with `ERROR: permission denied to create database` under the default URL in `src/docket/config.py` (`D57`). The author wrote the gitignored `.env` the `D57` row records so that `./tools/verify` runs here (Decision Log). The baseline verify then passed in 104 seconds.
   Evidence: `./tools/verify` at `8aa6a55` printed `verify: test-db ... ok (0s) postgresql://thinkdarrell@/docket_test_71c45d3e`, `1875 passed, 5 skipped, 4 xfailed, 2 warnings in 47.45s` for the fast tiers, `624 passed, 1 warning in 53.58s` for integration, `judge fixtures: 12 of 12 passed`, `84 passed in 1.09s` for the producer suite, and `verify: all 6 checks passed in 104s.`; `git status --short` printed nothing after the `.env` was written.
 
+- Observation: the baseline for this session, at `b3bb8a6`, matched the authoring baseline: `./tools/verify` printed `1875 passed, 5 skipped, 4 xfailed, 1 warning in 44.96s`, `624 passed, 1 warning in 48.42s`, `judge fixtures: 12 of 12 passed`, `84 passed in 0.72s`, and `verify: all 6 checks passed in 97s.`, exit 0, before any file was edited.
+  Evidence: M1 session, 2026-10-20, log at the session's scratchpad `verify-baseline.log`.
+- Observation: the plan's bare `venv/bin/python -m pytest tests/unit/test_member_votes.py -q -p no:cacheprovider` cannot run in this worktree: the guard in `tests/conftest.py` refuses it with `Exit: tests: refusing to run against database 'docket_db': the unit tier deletes rows from whatever DATABASE_URL names (docs/DEBT.md D37)`, because the worktree's `.env` names `docket_db`. The unit file was run with `DATABASE_URL=$(tools/test-db)` like the integration file; `AGENTS.md` already says this, and the plan's M1 and M3 command lines for the unit files omit it.
+  Evidence: the refusal text above, M1 session, 2026-10-20; then `DATABASE_URL=$URL venv/bin/python -m pytest tests/unit/test_member_votes.py -q -p no:cacheprovider` printed `10 passed in 0.03s`.
+- Observation: before the ingest change, `tests/integration/test_member_vote_resolution.py` printed `1 failed, 4 passed in 0.50s`; the failure was `test_ingest_votes_stores_member_ids` with `{'Woods': None} != {'Woods': 1}` and `{'O’Quinn': None} != {'O’Quinn': 5}`, the NULL ids the unchanged `_ingest_votes` stores.
+  Evidence: M1 session, 2026-10-20, run against `docket_test_71c45d3e` built by `tools/test-db`, dropped afterwards (`drop exit=0`).
+
 ## Decision Log
 
 - Decision: the rule lives in one new module, `src/docket/services/member_votes.py`, with a pure resolver (`RosterIndex.resolve`) that both the insert path and the daily sweep call; the sweep groups unresolved rows by municipality, stored name, and meeting date, resolves each group in Python, and writes one `UPDATE ... WHERE mv.member_name = %s AND m.meeting_date = ANY(%s)` per (municipality, stored name, member id) bucket.
@@ -84,6 +91,16 @@ The city page plan on branch `plan/birmingham-city-briefing` (pull request #128,
 - Decision: the five continuing members' missing prior-term roster rows are recorded as a debt row, `D67`, written by M4 beside `D66` (Artifacts and Notes); this supersedes the last sentence of the entry above that said this plan adds no row. No migration is added by this plan.
   Rationale: an external review the operator supplied on 2026-10-20 pointed out that the daily `resolve_member_votes` log would name `Woods`, `Williams`, `Smitherman`, `Alexander`, and `Tate` among the unresolved every day, on every meeting dated before 2025-10-28, for as long as the roster lacks their first term; `AGENTS.md` says a deliberate deferral goes in `docs/DEBT.md`, and a row gives the residue a committed trigger instead of a sentence in a completed plan. The review's other findings were measured against the plan and the code and not taken: the UPDATE already keys its buckets on the stored spelling (Artifacts and Notes), and `test_sweep_resolves_null_rows_and_keeps_noise` with the curly `O’Quinn` would fail if the normalised name were passed instead; `header_inferred_from_counts` is the one string `pipeline.py` uses (lines 131 and 179, read at review) and the plan already spells it that way everywhere; `Lashunda Scales Clarke` resolves from her last token `Clarke`, which is what the minutes print, and no roster name carries a comma or a hyphen; the minutes parser's name pattern admits no whitespace and the OCR keys come from `rosters.py`, so a stored name with trailing spaces has no producer (and the raw-name bucket would still update it); `idx_votes_meeting`, `idx_member_votes_vote`, `idx_meetings_date`, and `idx_meetings_municipality` exist in migration 001, no trigger is defined on `votes` or `member_votes`, and the sweep writes about two thousand rows once; `health.py` `ping` returns before any network call when the variable is unset (line 60), which the Context section already records.
   Date/Author: 2026-10-20, Claude, at the operator's request, from the external review the operator supplied.
+
+- Decision: the sweep's per-name `member_votes: unresolved name=...` lines and the `and N more` line log at WARNING, the level the plan gives the ambiguous-name line and the level `persist_detected_votes` uses when it inserts a NULL id.
+  Rationale: the plan names the message text but not the level; the line is the operator's signal that parser noise or a roster gap exists (Decision Log, 2026-10-20, on not deleting rows), and the worker's log is read at WARNING. The integration test sets `caplog` to INFO on the module's logger so the assertion does not depend on this choice.
+  Date/Author: 2026-10-20, M1 session (Claude, under `cycle-run`).
+- Decision: the roster SELECT lives in a private helper `_roster_rows(cur, municipality_id)` in `member_votes.py`; `load_roster_index` runs it in its own `db_cursor()`, and the sweep runs it on its own cursor for each municipality present, so the sweep stays one transaction and opens no second connection.
+  Rationale: the plan says the sweep "loads one index per municipality present" inside its one `db_cursor()` and that only the two public functions open a connection; calling `load_roster_index` from inside the sweep would open a second connection per municipality. The helper keeps one owner for the SELECT.
+  Date/Author: 2026-10-20, M1 session.
+- Decision: the integration tests take Birmingham's id from the `seeded_birmingham` fixture (which returns 1 on the throwaway database) instead of the literal 1 the Validation section names, and name the sitting members by the full names migration 005 seeds (`Brian Gunn`, `LaTonya A. Tate`, `Josh Vasa`, `Hunter Williams`, `Sonja Q. Smith`, `Crystal N. Smitherman`, and the three the plan already names).
+  Rationale: the fixture is how every other integration test reaches the id; the assertions are the same.
+  Date/Author: 2026-10-20, M1 session.
 
 ## Outcomes & Retrospective
 
@@ -142,7 +159,7 @@ M1.
     ./tools/verify
     git add -A && git commit -m "ingest: a minutes member vote carries its council_member_id at insert; plan M1 ticked"
 
-The `pytest` guard in `tests/conftest.py` refuses any `DATABASE_URL` not named `docket_test_*`, which is why every integration run above goes through `tools/test-db`.
+The `pytest` guard in `tests/conftest.py` refuses any `DATABASE_URL` not named `docket_test_*`, which is why every integration run above goes through `tools/test-db`. Observed in the M1 session (2026-10-20): the guard also refuses the bare unit-file run in this worktree, so the unit file was run with `DATABASE_URL=$(tools/test-db)` too; `./tools/verify` at `b3bb8a6` ended `verify: all 6 checks passed in 97s.`; the unit file printed `10 passed in 0.03s`; the integration file before the ingest change printed `1 failed, 4 passed in 0.50s` (the ingest test, on NULL ids).
 
 M2.
 
