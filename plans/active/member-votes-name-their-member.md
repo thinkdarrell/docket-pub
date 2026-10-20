@@ -12,7 +12,7 @@ The city page plan on branch `plan/birmingham-city-briefing` (pull request #128,
 
 ## Progress
 
-- [ ] M1: `src/docket/services/member_votes.py` resolves a member name to a council member by roster variants compared after apostrophe folding, scoped to the municipality and the half-open term window; `_ingest_votes` stores the id at insert; ten unit tests and five integration tests against the migration-seeded Birmingham roster pass, and the ingest test fails before the ingest change
+- [x] (2026-10-20 16:18Z) M1: `src/docket/services/member_votes.py` resolves a member name to a council member by roster variants compared after apostrophe folding, scoped to the municipality and the half-open term window; `_ingest_votes` stores the id at insert; ten unit tests and five integration tests against the migration-seeded Birmingham roster pass, and the ingest test fails before the ingest change
 - [ ] M2: the worker task `resolve_member_votes` sweeps every `council_member_id IS NULL` row daily at 08:45, is registered, scheduled, pinged, documented in the runbook, the README, and `.env.example`, `scripts/backfill_member_vote_ids.py` is deleted, decision `0004` carries a dated note and decision `0062` the new rule, `D34` is paid for `scheduler.py` and re-deferred for `tasks.py`, and `D46` is re-deferred
 - [ ] M3: `_cross_verify` in `src/docket/analysis/ocr/pipeline.py` flags a non-terminal header as `needs_review` with reason `header_not_terminal`, `_models.py` lists every reason, four unit tests and one integration test pass, and the terminal-frame test fails before the change
 - [ ] M4: `docs/specs/votes.md` states the resolution rule, when it runs, and the OCR review reasons in the present tense, `docs/specs/index.md` lists it, `D9` is narrowed, and `D66` records the operator's production steps that remain
@@ -40,6 +40,9 @@ The city page plan on branch `plan/birmingham-city-briefing` (pull request #128,
   Evidence: the refusal text above, M1 session, 2026-10-20; then `DATABASE_URL=$URL venv/bin/python -m pytest tests/unit/test_member_votes.py -q -p no:cacheprovider` printed `10 passed in 0.03s`.
 - Observation: before the ingest change, `tests/integration/test_member_vote_resolution.py` printed `1 failed, 4 passed in 0.50s`; the failure was `test_ingest_votes_stores_member_ids` with `{'Woods': None} != {'Woods': 1}` and `{'O’Quinn': None} != {'O’Quinn': 5}`, the NULL ids the unchanged `_ingest_votes` stores.
   Evidence: M1 session, 2026-10-20, run against `docket_test_71c45d3e` built by `tools/test-db`, dropped afterwards (`drop exit=0`).
+
+- Observation: after the ingest change, `tests/integration/test_member_vote_resolution.py` together with `tests/unit/test_ingest_event_guard.py` printed `8 passed in 0.48s` (the five resolution tests and the three event-guard tests, which patch `db` and `db_cursor` and are unaffected because the roster read happens after the `event-` early return), and the closing `./tools/verify` printed `1885 passed, 5 skipped, 4 xfailed, 1 warning in 44.86s`, `629 passed, 1 warning in 48.61s`, `judge fixtures: 12 of 12 passed`, `84 passed in 0.71s`, and `verify: all 6 checks passed in 97s.`, exit 0, the counts M1's acceptance names. `grep -n "from docket.services.member_votes import load_roster_index" src/docket/services/ingest.py` printed line 29 and `grep -c "council_member_id" src/docket/services/ingest.py` printed `1`.
+  Evidence: M1 session, 2026-10-20, log at the session's scratchpad `verify-m1-final.log`.
 
 ## Decision Log
 
@@ -106,6 +109,8 @@ The city page plan on branch `plan/birmingham-city-briefing` (pull request #128,
 
 Nothing has been executed yet. The plan was authored on 2026-10-20 from the operator's goal and the scope brief; each milestone session appends its outcome here, and the closing retrospective compares the result against the Purpose above.
 
+M1, 2026-10-20 16:18Z: done, acceptance met in full. `src/docket/services/member_votes.py` exists with the interfaces the plan names; `_ingest_votes` reads the roster once per meeting and stores `council_member_id` at insert; ten unit tests and five integration tests pass against the migration-seeded Birmingham roster; the ingest test failed before the ingest change (`1 failed, 4 passed`, NULL ids) and passed after; `./tools/verify` ended `all 6 checks passed` with the fast tiers at `1885 passed, 5 skipped, 4 xfailed` and integration at `629 passed`. Two commits, `ab424be` and the one that ticks this line. One plan defect found and recorded, not fixed in the plan's command lines: the bare unit-file `pytest` command is refused by the `tests/conftest.py` guard in a worktree whose `.env` names `docket_db`, so M3's `tests/unit/ocr/test_pipeline.py` runs need `DATABASE_URL=$(tools/test-db)` as well (Surprises). Nothing adjacent was touched: the script still exists until M2, and no reader changed.
+
 ## Context and Orientation
 
 docket.pub is a Python 3.10 application: a Flask site, an APScheduler worker on Railway, and PostgreSQL. `AGENTS.md` is the map; `docs/PRINCIPLES.md` holds six rules that outrank convenience, and the two that bind this plan most are Source or silence (a value the source does not supply is shown as missing, never filled with a guess) and Evidence or silence (a change is reported as working only after the command that proves it ran). The service layer, `src/docket/services/`, owns every database transaction; routes and worker tasks call services. Nothing under `src/docket/analysis/` may import from services.
@@ -159,7 +164,7 @@ M1.
     ./tools/verify
     git add -A && git commit -m "ingest: a minutes member vote carries its council_member_id at insert; plan M1 ticked"
 
-The `pytest` guard in `tests/conftest.py` refuses any `DATABASE_URL` not named `docket_test_*`, which is why every integration run above goes through `tools/test-db`. Observed in the M1 session (2026-10-20): the guard also refuses the bare unit-file run in this worktree, so the unit file was run with `DATABASE_URL=$(tools/test-db)` too; `./tools/verify` at `b3bb8a6` ended `verify: all 6 checks passed in 97s.`; the unit file printed `10 passed in 0.03s`; the integration file before the ingest change printed `1 failed, 4 passed in 0.50s` (the ingest test, on NULL ids).
+The `pytest` guard in `tests/conftest.py` refuses any `DATABASE_URL` not named `docket_test_*`, which is why every integration run above goes through `tools/test-db`. Observed in the M1 session (2026-10-20): the guard also refuses the bare unit-file run in this worktree, so the unit file was run with `DATABASE_URL=$(tools/test-db)` too; `./tools/verify` at `b3bb8a6` ended `verify: all 6 checks passed in 97s.`; the unit file printed `10 passed in 0.03s`; the integration file before the ingest change printed `1 failed, 4 passed in 0.50s` (the ingest test, on NULL ids). After the ingest change the integration file with `tests/unit/test_ingest_event_guard.py` printed `8 passed in 0.48s`, and the closing `./tools/verify` ended `verify: all 6 checks passed in 97s.` with `1885 passed, 5 skipped, 4 xfailed` and `629 passed`.
 
 M2.
 
