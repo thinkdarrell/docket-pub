@@ -398,6 +398,13 @@ The design's own anti-goals bind every milestone: no sentence whose number, name
   Rationale: the plan's clause named the page, not the anchor rule M7 added; the test's intent (the past meeting is linked, the cancelled one is not) is unchanged.
   Date/Author: 2026-10-20, M9 session.
 
+- Decision (M10 session): the video-label test checks both states the milestone names (the video-sourced row carrying the label, the default row without it) in one test by cleaning the seeded rows and reseeding the default state midway (`briefing_seed.cleanup`, `briefing_seed.seed(conn)`, `recompute_city_facts`, `clear_caches`), rather than as a parametrised pair, so the fast tiers gain exactly the three tests the acceptance counts; the fixture's cleanup still removes the reseeded rows by prefix.
+  Rationale: the milestone's sentence puts both observations under one test name and its acceptance arithmetic is plus three; a parametrised pair would be plus four.
+  Date/Author: 2026-10-20, M10 session.
+- Decision (M10 session): the "from the video" span in `meetings.html` is nested inside the existing `split_count is not none` branch, so the two conditions the milestone states (`m.from_video` and a split count) are the branch and one inner test, and a row whose chosen source is the video but which has no split prints the count alone; the milestone's "its docstring sentence \"under 300 characters\" in the module docstring" did not exist (the a11y module docstring listed "a meta description" with no ceiling), so the ceiling was added there as "a meta description of at most 300 characters".
+  Rationale: the design labels a fact that is quoted from the video; a count of zero splits quotes nothing worth labelling, and the nested test keeps the markup one `·`-separated run. The docstring edit adds the sentence the milestone assumed rather than leaving the file's description silent on the ceiling it now tests.
+  Date/Author: 2026-10-20, M10 session.
+
 ## Outcomes & Retrospective
 
 This section is written at the end of each milestone and at completion, comparing what landed against the Purpose above.
@@ -1095,6 +1102,8 @@ M10 session, `./tools/verify` before any edit (began 2026-10-20 02:46Z, ended 02
     verify: all 6 checks passed in 104s.
 
 M10 session, the three tests against the unchanged code (`DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/web/test_city_briefing.py -q -p no:cacheprovider -k "fewer_than_five or consent_vote_only or video_sourced_split_count"; tools/test-db --drop`, 02:49Z): `2 failed, 1 passed, 55 deselected in 0.93s`. The topics test passed, as a test of a state the M4 code already renders must; the consent test failed on its second assertion, the door quoting `vote-8">a consent-agenda vote covering 2 items</a>` for the split over C (consent) and D (not); the video test failed on its first, the row ending `· <span>1 split vote</span></span>` with no label.
+
+M10 session, after the code change (`all_consent` in `_SPLIT_ROW_COLUMNS`, `_shape_split`, and `_split_item_clause`; `vote_source` in `_BRIEFING_MEETINGS_SQL` and `from_video` on `list_briefing_meetings`; the nested label span in `meetings.html`; the a11y ceiling and its docstring; the four spec sentences): the three briefing test files together (`DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/web/test_city_briefing.py tests/web/test_city_briefing_a11y.py tests/services/test_briefing_facts.py -q -p no:cacheprovider; tools/test-db --drop`, 02:50Z) printed `87 passed in 9.71s`, the M9 session's 84 plus three, the two label tests passing on their first run after the change. The acceptance greps: `all_consent` in `briefing.py` printed `3`; `len(description) <= 300` printed `1` and `len(description) < 300` printed `0`; `from the video` in `meetings.html` printed `1`; `fewer_than_five` in the test file printed `1`; `all_consent\|a vote covering` in the spec printed `2`.
 
 ## Interfaces and Dependencies
 

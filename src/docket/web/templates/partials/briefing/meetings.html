@@ -4,7 +4,8 @@
      municipality (dict) — required: slug, name.
      briefing_meetings (list[dict]) — from briefing.list_briefing_meetings:
        id, title, date_text, upcoming, cancelled, item_count,
-       total_dollars_text, split_count, agenda_url, minutes_url, video_url.
+       total_dollars_text, split_count, from_video, agenda_url, minutes_url,
+       video_url. A split count whose source is the video says so after it.
        A cancelled row (title matches query.CANCELLED_PREDICATE_SQL) says
        "cancelled" in place of its counts, as an upcoming row says
        "upcoming". #}
@@ -27,7 +28,9 @@
         {%- else -%}
           <span>{{ m.item_count }} item{{ 's' if m.item_count != 1 else '' }}</span>
           {%- if m.total_dollars_text %} · <span>{{ m.total_dollars_text }}</span>{% endif -%}
-          {%- if m.split_count is not none %} · <span>{{ m.split_count }} split vote{{ 's' if m.split_count != 1 else '' }}</span>{% endif -%}
+          {%- if m.split_count is not none %} · <span>{{ m.split_count }} split vote{{ 's' if m.split_count != 1 else '' }}</span>
+            {%- if m.from_video %} · <span>from the video</span>{% endif -%}
+          {%- endif -%}
         {%- endif -%}
       </span>
       <span class="brf-meeting-docs">

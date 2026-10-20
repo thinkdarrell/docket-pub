@@ -5,8 +5,8 @@ client against the full seed (``tests/support/briefing_seed.py`` plus the
 precomputed facts row, so every section renders), in the web tier against
 the throwaway database. The rules are the design's (one h1, unique headings
 that say what is under them, plain words, no emoji, every link with text, a
-meta description, sentences of at most 25 words); each section's own states
-are tested in ``tests/web/test_city_briefing.py``.
+meta description of at most 300 characters, sentences of at most 25 words);
+each section's own states are tested in ``tests/web/test_city_briefing.py``.
 """
 
 from __future__ import annotations
@@ -181,7 +181,7 @@ def test_meta_description_present_and_under_300_characters(page):
     assert m, "no meta description"
     description = m.group(1)
     assert description.strip()
-    assert len(description) < 300, len(description)
+    assert len(description) <= 300, len(description)
     assert "Last meeting." in description
 
 

@@ -182,6 +182,9 @@ _SPLIT_ROW_COLUMNS = """
                c.yeas, c.nays, c.abstentions,
                (SELECT count(*) FROM vote_agenda_items l
                  WHERE l.vote_id = c.id AND l.is_active) AS linked_item_count,
+               (SELECT bool_and(ai.is_consent)
+                  FROM vote_agenda_items l JOIN agenda_items ai ON ai.id = l.agenda_item_id
+                 WHERE l.vote_id = c.id AND l.is_active) AS all_consent,
                (SELECT json_build_object('id', ai.id, 'label', COALESCE(ai.headline, ai.title))
                   FROM vote_agenda_items l JOIN agenda_items ai ON ai.id = l.agenda_item_id
                  WHERE l.vote_id = c.id AND l.is_active
@@ -274,6 +277,7 @@ def _shape_split(row: dict) -> dict:
         "abstentions": row["abstentions"],
         "item": item,
         "linked_item_count": row["linked_item_count"],
+        "all_consent": bool(row.get("all_consent")),
         "dissenters": row.get("dissenters") or [],
     }
 
@@ -609,8 +613,10 @@ def _split_item_clause(split: dict, meeting_date: date) -> str:
     if split.get("item"):
         return split["item"]["label"] or ""
     n = int(split.get("linked_item_count") or 0)
-    if n > 1:
+    if n > 1 and split.get("all_consent"):
         return f"a consent-agenda vote covering {n} items"
+    if n > 1:
+        return f"a vote covering {n} items"
     return f"a vote at the {_short_date(meeting_date)} meeting"
 
 
@@ -800,7 +806,8 @@ _BRIEFING_MEETINGS_SQL = (
            (SELECT sum(ai.dollars_amount) FROM agenda_items ai WHERE ai.meeting_id = mt.id) AS total_dollars,
            (SELECT count(*) FROM chosen c WHERE c.meeting_id = mt.id) AS vote_count,
            (SELECT count(*) FROM chosen c
-             WHERE c.meeting_id = mt.id AND (c.nays > 0 OR c.abstentions > 0)) AS split_count
+             WHERE c.meeting_id = mt.id AND (c.nays > 0 OR c.abstentions > 0)) AS split_count,
+           (SELECT s.chosen_source FROM meeting_vote_source s WHERE s.meeting_id = mt.id) AS vote_source
       FROM scoped mt
      ORDER BY mt.meeting_date DESC NULLS LAST, mt.id DESC
     """
@@ -814,7 +821,8 @@ def list_briefing_meetings(slug: str, limit: int = 6) -> list[dict]:
     (the title matches ``query.CANCELLED_PREDICATE_SQL``), ``item_count,
     total_dollars`` (None when no item has an amount, else with
     ``total_dollars_text``), ``split_count`` (None when the meeting has no
-    chosen-source votes), ``agenda_url, minutes_url, video_url``, and
+    chosen-source votes), ``from_video`` (True when the meeting's chosen
+    source is ``video_ocr``), ``agenda_url, minutes_url, video_url``, and
     ``date_text`` (``Tuesday, October 14``, year added when not this year).
     """
     with db_cursor() as cur:
@@ -830,6 +838,7 @@ def list_briefing_meetings(slug: str, limit: int = 6) -> list[dict]:
         r["total_dollars"] = total
         r["total_dollars_text"] = amount_in_words(total) if total else None
         r["split_count"] = int(r["split_count"] or 0) if vote_count else None
+        r["from_video"] = r.pop("vote_source") == "video_ocr"
         r["date_text"] = _long_date(_as_date(r["meeting_date"])) if r["meeting_date"] else ""
         out.append(r)
     return out
