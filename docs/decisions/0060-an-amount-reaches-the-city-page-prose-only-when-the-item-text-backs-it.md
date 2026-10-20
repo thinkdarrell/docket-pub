@@ -10,7 +10,7 @@ The opener, "Where the money went", the transcript door, and the `order=amount` 
 
 ## Date
 
-2026-10-19, the plan author (Claude, cycle-plan) and the operator from an external review, in `plans/active/birmingham-city-briefing.md`, applied in M1 to M3; graduated at the plan's retrospective on 2026-10-20.
+2026-10-19, the plan author (Claude, cycle-plan) and the operator from an external review, in `plans/completed/birmingham-city-briefing.md`, applied in M1 to M3; graduated at the plan's retrospective on 2026-10-20.
 
 ## Status
 

@@ -12,7 +12,7 @@ The scope argument exists because an unscoped `GROUP BY v.meeting_id` over all o
 
 ## Date
 
-2026-10-19, the plan author (Claude, cycle-plan) and the operator from an external review, in `plans/active/birmingham-city-briefing.md`; graduated from the plan's Decision Log at its retrospective on 2026-10-20.
+2026-10-19, the plan author (Claude, cycle-plan) and the operator from an external review, in `plans/completed/birmingham-city-briefing.md`; graduated from the plan's Decision Log at its retrospective on 2026-10-20.
 
 ## Status
 

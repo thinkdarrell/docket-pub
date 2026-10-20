@@ -10,7 +10,7 @@ The next-meeting clause depends on the clock (a meeting stops being upcoming thr
 
 ## Date
 
-2026-10-19, the plan author (Claude, cycle-plan) in `plans/active/birmingham-city-briefing.md`, applied in M1 and M2; graduated at the plan's retrospective on 2026-10-20.
+2026-10-19, the plan author (Claude, cycle-plan) in `plans/completed/birmingham-city-briefing.md`, applied in M1 and M2; graduated at the plan's retrospective on 2026-10-20.
 
 ## Status
 

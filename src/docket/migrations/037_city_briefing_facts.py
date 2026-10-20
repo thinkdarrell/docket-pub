@@ -6,7 +6,7 @@ reads in one query: one row per city per fact set (`split_votes`,
 (src/docket/services/briefing.py) with one INSERT ... ON CONFLICT statement
 per city. The page's opener runs only where municipalities.metadata carries
 `"briefing": true`; this migration sets that key for Birmingham alone and
-removes it on the way down. Plan: plans/active/birmingham-city-briefing.md.
+removes it on the way down. Plan: plans/completed/birmingham-city-briefing.md.
 """
 
 from __future__ import annotations

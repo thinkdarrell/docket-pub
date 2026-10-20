@@ -10,7 +10,7 @@ The city page writes a split vote with its stored `votes.result` as the verb (`b
 
 ## Date
 
-2026-10-19, the plan author (Claude) revising `plans/active/birmingham-city-briefing.md` after its first and second closing reviews, applied in M7 and M9; graduated at the plan's retrospective on 2026-10-20.
+2026-10-19, the plan author (Claude) revising `plans/completed/birmingham-city-briefing.md` after its first and second closing reviews, applied in M7 and M9; graduated at the plan's retrospective on 2026-10-20.
 
 ## Status
 

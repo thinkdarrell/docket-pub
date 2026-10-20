@@ -12,7 +12,7 @@ Withdrawn items leave the amount prose because "The largest was" and the heading
 
 ## Date
 
-2026-10-19, the plan author (Claude) revising `plans/active/birmingham-city-briefing.md` after its second closing review, applied in M9; graduated at the plan's retrospective on 2026-10-20.
+2026-10-19, the plan author (Claude) revising `plans/completed/birmingham-city-briefing.md` after its second closing review, applied in M9; graduated at the plan's retrospective on 2026-10-20.
 
 ## Status
 

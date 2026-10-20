@@ -412,7 +412,7 @@ def _do_briefing_facts() -> None:
 
     A few SQL statements per city (two SELECTs, one upsert); runs at 09:45
     after vote_matching (09:00) and process_badges (09:30) so the split
-    votes name today's item links. Spec: plans/active/birmingham-city-briefing.md.
+    votes name today's item links. Spec: plans/completed/birmingham-city-briefing.md.
     """
     n = briefing.recompute_all_flagged()
     log.info("briefing_facts: recomputed %d cities", n)
