@@ -143,7 +143,9 @@ def analyze_sequence(
         # "Voting in Progress" matching the "passes" keyword) and the
         # vote is unusable as-is. Prefer inference when it can find a
         # coherent frame elsewhere in the sequence; otherwise keep the
-        # OCR'd vote so cross_verify's extraction_failed flag stands.
+        # OCR'd vote so cross_verify's flag stands (header_not_terminal
+        # when the second header read is not terminal, else
+        # extraction_failed).
         counts_empty = (
             vote.yeas is None and vote.nays is None and vote.abstentions is None
         )
@@ -238,8 +240,9 @@ def _find_terminal_frame(sequence: VoteSequence) -> FrameWithTimestamp | None:
     frames and stop on the first one with fully readable counts.
 
     If no terminal frame has readable counts, we fall back to the
-    latest terminal frame so the cross-verification flag can catch it
-    as ``extraction_failed``.
+    latest terminal frame so the cross-verification flag can catch it:
+    ``header_not_terminal`` when its header re-reads as non-terminal,
+    ``extraction_failed`` when it reads terminal with nothing extracted.
     """
     terminal_frames: list[FrameWithTimestamp] = [
         (ts, frame) for ts, frame in sequence.frames if read_header(frame).is_terminal()
