@@ -21,7 +21,7 @@ docket.pub is a Python application with three runtime processes sharing one Post
 ### Services
 
 - Lives in: `src/docket/services/`
-- Owns: every transaction. Ingest (scrape, enrich, upsert, then sweep minutes adoptions), query (all reads for the web layer), enrichment, maintenance, minutes adoption, video OCR orchestration, badges, coverage, transcripts, and the archived-meeting backfill (`archived_meetings.py`, which creates the 2023 Boutwell-era Birmingham meetings Granicus never recorded; decision `0033`).
+- Owns: every transaction. Ingest (scrape, enrich, upsert, then sweep minutes adoptions), query (all reads for the web layer), enrichment, maintenance, minutes adoption, video OCR orchestration, badges, coverage, transcripts, the city briefing (`briefing.py`: the opener and doors of `/al/<slug>/` for a city whose metadata carries `briefing: true`, and the `city_briefing_facts` rebuild the worker's `briefing_facts` task calls; `docs/specs/city-page.md`), and the archived-meeting backfill (`archived_meetings.py`, which creates the 2023 Boutwell-era Birmingham meetings Granicus never recorded; decision `0033`).
 - Does not: render HTML, schedule itself, or talk to a vendor site directly.
 
 ### Analysis
