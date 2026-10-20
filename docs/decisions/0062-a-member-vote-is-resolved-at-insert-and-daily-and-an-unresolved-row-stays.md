@@ -10,7 +10,7 @@ The one-shot `scripts/backfill_member_vote_ids.py` (deleted by the plan `member-
 
 ## Date
 
-2026-10-20, the plan author (Claude) in `plans/active/member-votes-name-their-member.md`, applied in M2.
+2026-10-20, the plan author (Claude) in `plans/completed/member-votes-name-their-member.md`, applied in M2.
 
 ## Status
 
