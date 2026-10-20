@@ -32,9 +32,11 @@ class DetectedVote:
       OCR'd count boxes.
     - ``header_counts_disagree``: the header's outcome contradicts the
       yea and nay totals.
-    - ``header_inferred_from_counts``: no header could be read, and the
-      result was inferred from a frame whose counts and member
-      positions agree (``_build_inferred_vote``).
+    - ``header_inferred_from_counts``: no terminal frame with readable
+      counts was found (no header read as terminal, or the terminal
+      frame's three counts were all empty), and the result was inferred
+      from a frame whose counts and member positions agree
+      (``_build_inferred_vote``).
     """
 
     timestamp: float
