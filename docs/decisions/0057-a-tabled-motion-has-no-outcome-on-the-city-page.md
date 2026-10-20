@@ -12,6 +12,10 @@ The city page writes a split vote with its stored `votes.result` as the verb (`b
 
 2026-10-19, the plan author (Claude) revising `plans/completed/birmingham-city-briefing.md` after its first and second closing reviews, applied in M7 and M9; graduated at the plan's retrospective on 2026-10-20.
 
+## Note, 2026-10-20
+
+The sentence above that the three writers produce only `passed`, `failed`, and `tabled` is wrong on production: on 2026-10-20 `votes.result` had never held `tabled` and held `unknown` five times, written by `src/docket/analysis/ocr/pipeline.py` for a non-terminal header with `needs_review = FALSE`. None of the five is a chosen-source vote. The rule stands (the stored word is the verb); the producer fix, marking such a vote `needs_review`, is a milestone of the resolver plan named in `plans/completed/birmingham-city-briefing.md`, Decision Log 2026-10-20.
+
 ## Status
 
 accepted
