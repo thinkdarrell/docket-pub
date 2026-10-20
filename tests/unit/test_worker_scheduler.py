@@ -15,7 +15,7 @@ def test_build_scheduler_registers_all_jobs():
         "ingest_all", "video_ocr", "ai_items", "ai_meetings", "vote_matching",
         "repair_empty_agendas", "process_badges", "calibration_report",
         "process_batches", "refresh_backfill_ratio_mv", "prune_analytics",
-        "recast_post_meeting_ai", "transcript_pipeline",
+        "recast_post_meeting_ai", "transcript_pipeline", "resolve_member_votes",
     }
 
 
@@ -38,6 +38,7 @@ def test_build_scheduler_uses_supplied_timezone():
     ("ai_items",             7),
     ("ai_meetings",          8),
     ("vote_matching",        9),
+    ("resolve_member_votes", 8),
     ("process_badges",       9),
     ("calibration_report",  11),
     ("prune_analytics",      4),
@@ -63,6 +64,13 @@ def test_build_scheduler_calibration_report_at_00_minutes():
     job = sched.get_job("calibration_report")
     fields = {f.name: str(f) for f in job.trigger.fields}
     assert fields["minute"] == "0"
+
+
+def test_build_scheduler_resolve_member_votes_at_45_minutes():
+    sched = scheduler.build_scheduler(timezone="America/Chicago")
+    job = sched.get_job("resolve_member_votes")
+    fields = {f.name: str(f) for f in job.trigger.fields}
+    assert fields["minute"] == "45"
 
 
 def test_build_scheduler_process_badges_at_30_minutes():

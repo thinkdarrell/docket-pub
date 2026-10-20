@@ -4,6 +4,7 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
+from docket.services.member_votes import ResolveResult
 from docket.worker import tasks
 
 
@@ -129,6 +130,13 @@ def test_repair_invokes_repair_empty_agendas():
     mock_repair.assert_called_once()
 
 
+def test_resolve_member_votes_invokes_service():
+    with patch("docket.worker.tasks.resolve_unresolved_member_votes") as mock_resolve:
+        mock_resolve.return_value = ResolveResult(3, 2, {"Georgia": 2})
+        tasks._do_resolve_member_votes()
+    mock_resolve.assert_called_once()
+
+
 # --- TASKS registry ----------------------------------------------------------
 
 def test_tasks_registry_has_all_jobs():
@@ -136,6 +144,6 @@ def test_tasks_registry_has_all_jobs():
         "ingest_all", "video_ocr", "ai_items", "ai_meetings", "vote_matching",
         "repair_empty_agendas", "process_badges", "calibration_report",
         "process_batches", "refresh_backfill_ratio_mv", "prune_analytics",
-        "recast_post_meeting_ai", "transcript_pipeline",
+        "recast_post_meeting_ai", "transcript_pipeline", "resolve_member_votes",
     }
     assert set(tasks.TASKS.keys()) == expected
