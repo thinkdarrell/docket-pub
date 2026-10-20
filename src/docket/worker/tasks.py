@@ -24,6 +24,7 @@ from docket.db import db, db_cursor
 from docket.services import briefing
 from docket.services.ingest import ingest_municipality
 from docket.services.maintenance import repair_empty_agendas
+from docket.services.member_votes import resolve_unresolved_member_votes
 from docket.services.video_ocr import _claim_next_ocr_meeting, _ocr_one_meeting
 from docket.worker import health
 
@@ -154,6 +155,19 @@ def _do_vote_matching() -> None:
     )
 
 
+def _do_resolve_member_votes() -> None:
+    """Sweep every member_votes row with a NULL council_member_id.
+
+    The rule is RosterIndex.resolve in services/member_votes.py; the sweep
+    never deletes a row, and logs each unresolved name by count.
+    """
+    r = resolve_unresolved_member_votes()
+    log.info(
+        "resolve_member_votes resolved=%d unresolved=%d distinct_names=%d",
+        r.resolved, r.unresolved, len(r.unresolved_names),
+    )
+
+
 def _do_repair_empty_agendas() -> None:
     repair_empty_agendas()
 
@@ -214,6 +228,10 @@ def task_ai_meetings() -> None:
 
 def task_vote_matching() -> None:
     _safe_run("vote_matching", _do_vote_matching)
+
+
+def task_resolve_member_votes() -> None:
+    _safe_run("resolve_member_votes", _do_resolve_member_votes)
 
 
 def task_repair_empty_agendas() -> None:
@@ -432,6 +450,7 @@ TASKS: dict[str, Callable[[], None]] = {
     "ai_meetings": task_ai_meetings,
     "recast_post_meeting_ai": lambda: _safe_run("recast_post_meeting_ai", _do_recast_post_meeting_ai),
     "vote_matching": task_vote_matching,
+    "resolve_member_votes": task_resolve_member_votes,
     "transcript_pipeline": task_transcript_pipeline,
     "process_badges": task_process_badges,
     "calibration_report": task_calibration_report,

@@ -70,3 +70,7 @@ All three passes are safe to repeat: `--cache-audio` skips a meeting whose `audi
 ## Interfaces and Dependencies
 
 `transcriber/transcriber/inputs.py`: `audio_path`, `raw_path`, `diarization_path`, `get_audio`, `store_flac`, `write_raw`, `read_raw`, `write_diarization`, `read_diarization`, `replay`. `transcriber/transcriber/db.py`: `meeting_source(conn, meeting_id) -> str | None`. `transcriber/transcriber/cli.py`: `cache_audio`, `capture_inputs`, `replay_meeting`. ffmpeg's built-in FLAC encoder; no new Python dependency.
+
+## Revision notes
+
+- 2026-10-20, doc-garden pass after plan `member-votes-name-their-member`: the record this plan wrote as decision `0053` is `docs/decisions/0065-the-archive-keeps-each-meetings-audio-and-gpu-stage-outputs.md`. The number 0053 had already been spent by `docs/decisions/0053-the-deny-list-guards-stated-norms-and-is-not-a-containment-boundary.md` (pull request #124, merged before #126), so two records shared it on `main`; the transcriber record was renumbered and the entries above are unchanged.

@@ -4,6 +4,7 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
+from docket.services.member_votes import ResolveResult
 from docket.worker import tasks
 
 
@@ -138,6 +139,13 @@ def test_briefing_facts_calls_recompute_all_flagged(caplog):
     assert any("briefing_facts: recomputed 1 cities" in r.message for r in caplog.records)
 
 
+def test_resolve_member_votes_invokes_service():
+    with patch("docket.worker.tasks.resolve_unresolved_member_votes") as mock_resolve:
+        mock_resolve.return_value = ResolveResult(3, 2, {"Georgia": 2})
+        tasks._do_resolve_member_votes()
+    mock_resolve.assert_called_once()
+
+
 # --- TASKS registry ----------------------------------------------------------
 
 def test_tasks_registry_has_all_jobs():
@@ -145,6 +153,7 @@ def test_tasks_registry_has_all_jobs():
         "ingest_all", "video_ocr", "ai_items", "ai_meetings", "vote_matching",
         "repair_empty_agendas", "process_badges", "calibration_report",
         "process_batches", "refresh_backfill_ratio_mv", "prune_analytics",
-        "recast_post_meeting_ai", "transcript_pipeline", "briefing_facts",
+        "recast_post_meeting_ai", "transcript_pipeline", "resolve_member_votes",
+        "briefing_facts",
     }
     assert set(tasks.TASKS.keys()) == expected

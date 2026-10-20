@@ -1,7 +1,7 @@
 # Cron Worker Runbook
 
 The Railway `worker` service runs `python -m docket.worker.scheduler` and fires
-**fourteen scheduled tasks** (see the design spec at
+**fifteen scheduled tasks** (see the design spec at
 `docs/superpowers/specs/2026-05-04-cron-worker-design.md`; subsequent additions
 documented in `~/docket-pub/CLAUDE.md`).
 
@@ -19,9 +19,11 @@ documented in `~/docket-pub/CLAUDE.md`).
 | `video_ocr` | Daily 06:30 | `HEALTHCHECK_VIDEO_OCR_UUID` | Claim pattern; 3-attempt cap; 60-day window |
 | `ai_items` | Daily 07:00 | `HEALTHCHECK_AI_ITEMS_UUID` | v3 pipeline; gated by `AI_DAILY_BUDGET_USD` |
 | `ai_meetings` | Daily 08:00 | `HEALTHCHECK_AI_MEETINGS_UUID` | Sonnet 4.6; two-phase (provisional → adopted) |
+| `resolve_member_votes` | Daily 08:45 | `HEALTHCHECK_RESOLVE_MEMBER_VOTES_UUID` | Gives every `member_votes` row with no `council_member_id` its member from the roster; the rule is `docs/specs/votes.md` |
 | `vote_matching` | Daily 09:00 | `HEALTHCHECK_VOTE_MATCH_UUID` | N:M matcher + strict re-parse |
 | `process_badges` | Daily 09:30 | `HEALTHCHECK_PROCESS_BADGES_UUID` | Conservative policy badge writer |
 | `briefing_facts` | Daily 09:45 | `HEALTHCHECK_BRIEFING_FACTS_UUID` | Rebuilds `city_briefing_facts` (split votes, member roll-call counts) for every city whose metadata carries `briefing: true`; one upsert per city |
+| `transcript_pipeline` | Daily 10:00 | `HEALTHCHECK_TRANSCRIPT_PIPELINE_UUID` | Transcript LLM stages; see `docs/runbooks/transcripts.md` |
 | `calibration_report` | Daily 11:00 | `HEALTHCHECK_CALIBRATION_UUID` *(silent-by-design)* | Daily diagnostic, no production impact |
 | `process_batches` | Every :00 and :30 | `HEALTHCHECK_PROCESS_BATCHES_UUID` | Anthropic Batches API polling (Phase 3 backfill) |
 
@@ -42,6 +44,7 @@ railway variables --service worker --set HEALTHCHECK_PROCESS_BATCHES_UUID=<uuid>
 railway variables --service worker --set HEALTHCHECK_REFRESH_BACKFILL_RATIO_UUID=<uuid>
 railway variables --service worker --set HEALTHCHECK_VIDEO_OCR_UUID=<uuid>
 railway variables --service worker --set HEALTHCHECK_BRIEFING_FACTS_UUID=<uuid>
+railway variables --service worker --set HEALTHCHECK_RESOLVE_MEMBER_VOTES_UUID=<uuid>
 # silent-by-design (do not set unless you want active alerting):
 # railway variables --service worker --set HEALTHCHECK_CALIBRATION_UUID=<uuid>
 # railway variables --service worker --set HEALTHCHECK_PRUNE_ANALYTICS_UUID=<uuid>
@@ -55,6 +58,7 @@ Suggested schedule + grace per check:
 | docket-video-ocr                 | Daily 06:30        | 2h    |
 | docket-ai-items                  | Daily 07:00        | 2h    |
 | docket-ai-meetings               | Daily 08:00        | 2h    |
+| docket-resolve-member-votes      | Daily 08:45        | 2h    |
 | docket-vote-matching             | Daily 09:00        | 2h    |
 | docket-process-badges            | Daily 09:30        | 2h    |
 | docket-briefing-facts            | Daily 09:45        | 2h    |
@@ -95,6 +99,7 @@ python -m docket.worker.scheduler --run-once ingest_all
 python -m docket.worker.scheduler --run-once video_ocr
 python -m docket.worker.scheduler --run-once ai_items
 python -m docket.worker.scheduler --run-once ai_meetings
+python -m docket.worker.scheduler --run-once resolve_member_votes
 python -m docket.worker.scheduler --run-once vote_matching
 python -m docket.worker.scheduler --run-once process_badges
 python -m docket.worker.scheduler --run-once briefing_facts
@@ -117,6 +122,12 @@ DATABASE_URL=$(railway variables --service worker --kv | grep ^DATABASE_PUBLIC_U
 ## Manual one-off triggers
 
 The `--run-once` invocation through `railway ssh` is the right pattern for ad-hoc runs in production. Prefer it over calling the underlying CLIs directly — `--run-once` runs through the same logging and Healthchecks pipeline as scheduled runs, so manual triggers don't silently bypass observability.
+
+## Member vote resolution
+
+`resolve_member_votes` (daily 08:45) gives every `member_votes` row whose `council_member_id` is NULL, from either source, its council member from the roster; the rule is `RosterIndex.resolve` in `src/docket/services/member_votes.py`, described in `docs/specs/votes.md`. Each run logs one summary line, `resolve_member_votes resolved=N unresolved=M distinct_names=K` (rows given an id, rows still NULL, distinct stored names among them), and one WARNING line per unresolved name, `member_votes: unresolved name='<name>' municipality_id=<id> rows=<n>`, for the thirty most common, then `member_votes: and N more unresolved names` when more remain. An unresolved name is a parser question (a name the minutes parser should not have produced, fixed in `src/docket/analysis/minutes_parser.py`) or a roster question (a person the roster lacks for that meeting date, fixed by a migration under decision `0004`); it is never a row to delete, because the row is evidence of what the source said. Expected residue today: the five continuing members on meetings dated before 2025-10-28, `D67` in `docs/DEBT.md`.
+
+The one-time production run of `python -m docket.worker.scheduler --run-once resolve_member_votes` after the deploy of plan `member-votes-name-their-member` (`docs/DEBT.md` `D66`) is recorded here by the operator: the summary line it printed and the before-and-after results of that plan's queries 1 and 3. Not yet run.
 
 ## When a Healthchecks alert fires
 

@@ -22,6 +22,10 @@ TASK_UUID_ENV: dict[str, str] = {
     "ai_items": "HEALTHCHECK_AI_ITEMS_UUID",
     "ai_meetings": "HEALTHCHECK_AI_MEETINGS_UUID",
     "vote_matching": "HEALTHCHECK_VOTE_MATCH_UUID",
+    # The operator creates the check docket-resolve-member-votes and sets
+    # the variable on the worker service after the deploy (docs/DEBT.md
+    # D66); until then ping() short-circuits because the variable is unset.
+    "resolve_member_votes": "HEALTHCHECK_RESOLVE_MEMBER_VOTES_UUID",
     "transcript_pipeline": "HEALTHCHECK_TRANSCRIPT_PIPELINE_UUID",
     "repair_empty_agendas": "HEALTHCHECK_REPAIR_UUID",
     "process_badges": "HEALTHCHECK_PROCESS_BADGES_UUID",

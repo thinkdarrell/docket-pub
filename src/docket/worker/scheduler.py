@@ -5,8 +5,9 @@ Two modes:
   python -m docket.worker.scheduler                   # daemon mode (Railway worker)
   python -m docket.worker.scheduler --run-once <task> # foreground one-shot
 
-The daemon registers all fourteen jobs with the timezone in $WORKER_TIMEZONE
-(default America/Chicago) and calls scheduler.start(), which blocks.
+The daemon registers all fifteen jobs with the timezone in $WORKER_TIMEZONE
+(default America/Chicago, read through docket.config) and calls
+scheduler.start(), which blocks.
 
 The one-shot mode runs a single named task in the foreground using the same
 _safe_run wrapper as scheduled runs, ensuring environmental parity for
@@ -17,19 +18,19 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
 import sys
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+from docket import config
 from docket.worker.tasks import TASKS
 
 log = logging.getLogger(__name__)
 
 
 def build_scheduler(timezone: str = "America/Chicago") -> BlockingScheduler:
-    """Build a scheduler with all fourteen jobs registered. Does not start it."""
+    """Build a scheduler with all fifteen jobs registered. Does not start it."""
     sched = BlockingScheduler(timezone=timezone)
 
     sched.add_job(
@@ -64,6 +65,19 @@ def build_scheduler(timezone: str = "America/Chicago") -> BlockingScheduler:
         TASKS["ai_meetings"],
         CronTrigger(hour=8, minute=0, timezone=timezone),
         id="ai_meetings",
+        coalesce=True,
+        max_instances=1,
+    )
+    # Give every member_votes row still without a council_member_id its
+    # member from the roster. After ingest_all (06:00) and after most of
+    # video_ocr (06:30, the slow task of the morning), before vote_matching
+    # (09:00); off the :00/:30 minutes process_batches uses. OCR rows
+    # inserted after 08:45 are swept the next day; minutes rows never wait,
+    # because the insert path in services/ingest.py resolves them.
+    sched.add_job(
+        TASKS["resolve_member_votes"],
+        CronTrigger(hour=8, minute=45, timezone=timezone),
+        id="resolve_member_votes",
         coalesce=True,
         max_instances=1,
     )
@@ -177,7 +191,7 @@ def main() -> None:
         run_once_task(args.run_once)
         return
 
-    tz = os.environ.get("WORKER_TIMEZONE", "America/Chicago")
+    tz = config.WORKER_TIMEZONE
     sched = build_scheduler(timezone=tz)
     log.info(
         "docket.pub worker starting timezone=%s jobs=%d", tz, len(sched.get_jobs())

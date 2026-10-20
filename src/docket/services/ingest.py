@@ -6,7 +6,11 @@ Functions here own their DB transactions.
 Pipeline stages per meeting:
     1. Scrape meetings from platform adapter
     2. Scrape agenda items for each meeting
-    (Stages 3-4 — video vote scan + matching — will be ported later)
+    3. (video vote scan + matching live in the worker's video_ocr and
+       vote_matching tasks)
+    4. Votes from the minutes: each member vote is resolved to its
+       council member at insert through docket.services.member_votes
+       (the roster rule; a name not on the roster stays NULL)
 """
 
 from __future__ import annotations
@@ -22,6 +26,7 @@ from docket.adapters._helpers import normalize_title
 from docket.db import db, db_cursor
 from docket.models.protocol import RawMeeting
 from docket.services.enrichment import enrich_agenda_item
+from docket.services.member_votes import load_roster_index
 
 logger = logging.getLogger(__name__)
 
@@ -466,6 +471,10 @@ def _ingest_votes(
         _update_processing_status(meeting_id, votes_scanned=True)
         return 0
 
+    # One short roster read per meeting, before the insert transaction;
+    # the resolver is pure once the index is built.
+    index = load_roster_index(municipality_id)
+
     with db() as conn:
         with conn.cursor() as cur:
             for rv in raw_votes:
@@ -491,10 +500,16 @@ def _ingest_votes(
                 for mv in rv.member_votes:
                     cur.execute(
                         """
-                        INSERT INTO member_votes (vote_id, member_name, position)
-                        VALUES (%s, %s, %s)
+                        INSERT INTO member_votes
+                            (vote_id, council_member_id, member_name, position)
+                        VALUES (%s, %s, %s, %s)
                         """,
-                        (vote_id, mv["member"], mv["vote"]),
+                        (
+                            vote_id,
+                            index.resolve(mv["member"], raw_meeting.meeting_date),
+                            mv["member"],
+                            mv["vote"],
+                        ),
                     )
 
     _update_processing_status(meeting_id, votes_scanned=True)

@@ -1,4 +1,4 @@
-# 0052 — Back-to-back segments from one cluster are joined up to 30 seconds after the split, and a one-word fragment of a split greeting is not absorbed into its neighbour
+# 0064 — Back-to-back segments from one cluster are joined up to 30 seconds after the split, and a one-word fragment of a split greeting is not absorbed into its neighbour
 
 ## Decision
 
