@@ -13,6 +13,10 @@ DATABASE_URL: str = os.environ.get(
     "postgresql://docket:docket_dev@localhost:5432/docket_db",
 )
 
+# Timezone the cron worker (src/docket/worker/scheduler.py) registers its
+# jobs in. Every task time in docs/runbooks/cron-worker.md is in this zone.
+WORKER_TIMEZONE: str = os.environ.get("WORKER_TIMEZONE", "America/Chicago")
+
 SECRET_KEY: str = os.environ.get("SECRET_KEY", "dev-secret-change-in-production")
 
 DOMAIN_NAME: str = os.environ.get("DOMAIN_NAME", "docket.pub")

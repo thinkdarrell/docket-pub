@@ -99,3 +99,7 @@ Observed 2026-10-17, suite in the producer image with `src/` on the path: `56 pa
 ## Interfaces and Dependencies
 
 In `transcriber/transcriber/engine.py`: `merge_same_speaker(segs: list[Segment]) -> list[Segment]`, `has_signature_phrase(norm: str) -> bool`, and the constants `SIGNATURE_LOGPROB`, `SIGNATURE_PHRASES`, `MERGE_MAX_GAP_S`, `MERGE_MAX_S`. No new dependencies.
+
+## Revision notes
+
+- 2026-10-20, doc-garden pass after plan `member-votes-name-their-member`: the record this plan wrote as decision `0052` is `docs/decisions/0064-same-speaker-segments-are-merged-and-split-fragments-are-not-absorbed.md`. The number 0052 had already been spent by `docs/decisions/0052-main-requires-the-verify-check-to-merge.md` (pull request #124, merged the day before #125), so two records shared it on `main`; the transcriber record was renumbered and the entries above are unchanged.

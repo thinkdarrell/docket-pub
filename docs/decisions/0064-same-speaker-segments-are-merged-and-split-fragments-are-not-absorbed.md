@@ -1,4 +1,4 @@
-# 0052 — Back-to-back segments from one cluster are joined up to 30 seconds after the split, and a one-word fragment of a split greeting is not absorbed into its neighbour
+# 0064 — Back-to-back segments from one cluster are joined up to 30 seconds after the split, and a one-word fragment of a split greeting is not absorbed into its neighbour
 
 ## Decision
 
@@ -14,7 +14,7 @@ The trap is re-adding fragment absorption, or a minimum run length, because one-
 
 ## Date
 
-2026-10-17, by hand on branch `feat/transcriber-v3-quick-wins` (plan `plans/active/transcriber-v3-quick-wins.md`).
+2026-10-17, by hand on branch `feat/transcriber-v3-quick-wins` (plan `plans/completed/transcriber-v3-quick-wins.md`).
 
 ## Status
 

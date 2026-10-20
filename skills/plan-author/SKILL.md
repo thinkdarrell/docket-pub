@@ -132,7 +132,15 @@ constrains:
    first refusal the environment can produce without doing the work —
    argument parsing, authentication, a version banner — and the point it
    reached is recorded beside it. A line composed from individually correct
-   flags is not a line anyone has run.
+   flags is not a line anyone has run. A file the line names need not exist
+   yet for the run to teach something: the database guard in
+   `tests/conftest.py` fires before collection, so a bare `pytest` line for
+   a unit file not yet written is refused in a worktree whose `.env` names
+   `docket_db`, and one plan's three such lines were each refused by the
+   session that ran them, in every milestone that had one; the same plan's
+   `grep -rn ... . | grep -v '^./venv'` filter removed nothing, because the
+   development machine's `grep` (ugrep) prints recursive paths without the
+   `./` prefix, which one run at authoring would have shown.
    A command the executing session will be forbidden to run is given to
    the operator at authoring, not discovered mid-milestone: a write to a
    remote service (`gh api --method PUT`, a Railway variable) is refused by
