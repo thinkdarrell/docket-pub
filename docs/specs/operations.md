@@ -25,7 +25,9 @@ Migrations and the dev server:
     venv/bin/python -m docket.migrations.runner --down <version>   # rolls back migration number <version>
 
 `--down` takes a migration number, not a count: `--down 35` rolls back 035, and `--down 1` runs 001's down SQL, which drops the whole schema.
-    venv/bin/flask run
+    venv/bin/flask --app docket.web:create_app run
+
+The application is the factory `create_app` in `src/docket/web/__init__.py`, the same object the `Procfile` and the `Dockerfile` hand to gunicorn; nothing in the checkout names it for a bare `venv/bin/flask run` (no `wsgi.py`, `app.py`, or `.flaskenv`, and no `FLASK_APP` in a worktree's `.env`), which exits 2 with `Could not locate a Flask application`.
 
 Docker is an alternative for the database and app together: `docker-compose up -d`.
 
