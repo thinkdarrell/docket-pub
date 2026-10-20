@@ -994,3 +994,55 @@ def test_disagreement_door_absent_with_no_vote_in_window(client, facts):
     assert _section(html, "brf-door-disagreed") is None
     assert "was unanimous" not in html
     assert "acted on 4 items" in _opener(html)
+
+
+# --- M10: the topics partial state, the consent label, and the row's video label ---
+
+
+@pytest.mark.parametrize("seeded", [{"upcoming": False}], indirect=True)
+def test_topics_door_partial_fewer_than_five_topics(client, seeded):
+    # Without the upcoming agenda only the past meeting's items count: A, B,
+    # and C carry public_works, contracts, and grants; D is routine and
+    # excluded. One priority line (item A's badge) plus three topic lines.
+    door = _section(_page(client), "brf-door-topics")
+    assert door is not None
+    for slug in ("public_works", "contracts", "grants"):
+        assert f'href="/topics/{slug}/?city=birmingham"' in door, slug
+    assert "/topics/budget/" not in door
+    assert "/topics/zoning/" not in door
+    assert door.count('<li class="brf-door-line">') == 4
+
+
+@pytest.mark.parametrize("seeded", [{"votes": "many_splits"}], indirect=True)
+def test_many_item_split_is_a_consent_vote_only_when_every_item_is_consent(client, facts):
+    # The two-item split covers C (consent) and D (not), so it is a plain vote.
+    door = _section(_page(client), "brf-door-disagreed")
+    assert door is not None
+    assert "a vote covering 2 items" in door
+    assert "consent-agenda vote" not in door
+    # Once every linked item is on the consent agenda, the label says so.
+    with db() as conn:
+        with briefing_seed._cur(conn) as cur:
+            cur.execute("UPDATE agenda_items SET is_consent = TRUE WHERE id = %s",
+                        (facts["items"]["D"],))
+        conn.commit()
+    briefing.recompute_city_facts(facts["municipality_id"])
+    briefing_seed.clear_caches()
+    door = _section(_page(client), "brf-door-disagreed")
+    assert door is not None
+    assert "a consent-agenda vote covering 2 items" in door
+
+
+@pytest.mark.parametrize("seeded", [{"votes": "video"}], indirect=True)
+def test_meetings_row_video_sourced_split_count_carries_label(client, facts):
+    row = _meeting_row(_page(client), facts["past_meeting_id"])
+    assert "1 split vote</span> · <span>from the video</span>" in row
+    # The default seed's chosen source is the minutes: the count stands alone.
+    with db() as conn:
+        briefing_seed.cleanup(conn)
+        default = briefing_seed.seed(conn)
+    briefing.recompute_city_facts(default["municipality_id"])
+    briefing_seed.clear_caches()
+    row = _meeting_row(_page(client), default["past_meeting_id"])
+    assert "1 split vote" in row
+    assert "from the video" not in row

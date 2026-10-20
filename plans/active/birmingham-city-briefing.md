@@ -1086,6 +1086,16 @@ M9 session, `./tools/verify` after the milestone's edits (began 2026-10-20 02:42
 
 The fast tiers gained 8 tests over the M8 total (three in `tests/services/test_briefing_facts.py`, five in `tests/web/test_city_briefing.py`); integration is unchanged at 625, both as the milestone's acceptance predicted.
 
+M10 session, `./tools/verify` before any edit (began 2026-10-20 02:46Z, ended 02:48Z, at commit `d34fba3`):
+
+    1961 passed, 5 skipped, 4 xfailed, 1 warning in 54.24s
+    625 passed, 1 warning in 47.17s
+    judge fixtures: 12 of 12 passed
+    84 passed in 0.71s
+    verify: all 6 checks passed in 104s.
+
+M10 session, the three tests against the unchanged code (`DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/web/test_city_briefing.py -q -p no:cacheprovider -k "fewer_than_five or consent_vote_only or video_sourced_split_count"; tools/test-db --drop`, 02:49Z): `2 failed, 1 passed, 55 deselected in 0.93s`. The topics test passed, as a test of a state the M4 code already renders must; the consent test failed on its second assertion, the door quoting `vote-8">a consent-agenda vote covering 2 items</a>` for the split over C (consent) and D (not); the video test failed on its first, the row ending `· <span>1 split vote</span></span>` with no label.
+
 ## Interfaces and Dependencies
 
 Identifiers spent by this plan: migration `037_city_briefing_facts`; table `city_briefing_facts` with `fact_set` values `split_votes` and `member_counts`; task `briefing_facts`; environment variable `HEALTHCHECK_BRIEFING_FACTS_UUID`; Healthchecks check `docket-briefing-facts`; metadata key `briefing`; module `src/docket/services/briefing.py`; partials under `src/docket/web/templates/partials/briefing/` named `opener.html`, `search.html`, `door_money.html`, `door_disagreed.html`, `door_topics.html`, `door_said.html`, `signals.html`, `meetings.html`; CSS class prefix `brf-` and the card class `cc-district-num`; Jinja global `city_provenance`; query parameters `since` (member route) and `order=amount` (search); test files `tests/support/briefing_seed.py`, `tests/services/test_briefing_facts.py`, `tests/web/test_city_briefing.py`, `tests/web/test_city_briefing_a11y.py`, `tests/integration/test_037_migration.py`, `tests/unit/test_query_coverage_note.py`; seed title prefix `BRIEFING_TEST_`; spec `docs/specs/city-page.md`; from the revision after the review: debt row `D58`, the constant `AGAINST_OUTCOME_PREDICATE` in `query.py`, the seed options `past_days`, `undocumented`, `votes="tally_only"`, `votes="video"`, `transcript="low_speech"`, and the test names Milestones 7 and 8 give; from the revision after the second review: debt row `D59`, the constants `CANCELLED_PREDICATE_SQL` and `CANCELLED_PREDICATE_MT` in `query.py`, the helpers `_result_verb`, `_year_suffix`, `_month_day` in `briefing.py`, the seed option `cancelled` and its constant `CANCELLED_ITEM`, the payload key `all_consent`, the row keys `cancelled` and `from_video` on `list_briefing_meetings`, and the test names Milestones 9 and 10 give.
