@@ -3,8 +3,11 @@
    Args:
      municipality (dict) — required: slug, name.
      briefing_meetings (list[dict]) — from briefing.list_briefing_meetings:
-       id, title, date_text, upcoming, item_count, total_dollars_text,
-       split_count, agenda_url, minutes_url, video_url. #}
+       id, title, date_text, upcoming, cancelled, item_count,
+       total_dollars_text, split_count, agenda_url, minutes_url, video_url.
+       A cancelled row (title matches query.CANCELLED_PREDICATE_SQL) says
+       "cancelled" in place of its counts, as an upcoming row says
+       "upcoming". #}
 <section class="brf-meetings-section" aria-labelledby="brf-meetings-h">
   <header class="brf-head">
     <h2 id="brf-meetings-h" class="brf-h2">Recent meetings</h2>
@@ -16,7 +19,9 @@
       <a class="brf-meeting-date" href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=m.id) }}">{{ m.date_text }}</a>
       <span class="brf-meeting-title">{{ m.title }}</span>
       <span class="brf-meeting-facts">
-        {%- if m.upcoming -%}
+        {%- if m.cancelled -%}
+          <span>cancelled</span>
+        {%- elif m.upcoming -%}
           <span>upcoming</span>
           {%- if m.item_count %} · <span>{{ m.item_count }} item{{ 's' if m.item_count != 1 else '' }}</span>{% endif -%}
         {%- else -%}

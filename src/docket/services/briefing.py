@@ -31,7 +31,11 @@ from datetime import date, datetime, timedelta, timezone
 
 from docket.analysis.structured_facts import extract_dollar_amounts
 from docket.db import db_cursor
-from docket.services.query import AGAINST_OUTCOME_PREDICATE, _UPCOMING_PREDICATE_MT
+from docket.services.query import (
+    AGAINST_OUTCOME_PREDICATE,
+    CANCELLED_PREDICATE_MT,
+    _UPCOMING_PREDICATE_MT,
+)
 from docket.services.transcripts import excerpt_for_item, public_predicate
 
 FACT_SETS = ("split_votes", "member_counts")
@@ -423,18 +427,34 @@ def _headline_without_leading_amount(headline: str) -> str:
     return stripped or (headline or "").strip()
 
 
+def _result_verb(result: str) -> str:
+    """The verb a vote is written with: the stored ``votes.result`` itself.
+
+    The three values the writers produce (``passed``, ``failed``, ``tabled``)
+    are English verbs, and no other word is substituted for any of them, so a
+    motion the council set aside is never reported as defeated.
+    """
+    return result
+
+
+def _year_suffix(d: date, today: date | None = None) -> str:
+    """``, 2024`` when ``d`` is not in this year (or ``today``'s), else ``""``."""
+    return f", {d.year}" if d.year != (today or date.today()).year else ""
+
+
+def _month_day(d: date) -> str:
+    """``October 14``, never with a year."""
+    return d.strftime("%B ") + str(d.day)
+
+
 def _long_date(d: date, *, today: date | None = None) -> str:
     """``Tuesday, October 14``, with the year appended when it is not this year."""
-    today = today or date.today()
-    text = d.strftime("%A, %B ") + str(d.day)
-    if d.year != today.year:
-        text += f", {d.year}"
-    return text
+    return d.strftime("%A, ") + _month_day(d) + _year_suffix(d, today)
 
 
-def _short_date(d: date) -> str:
-    """``October 14``."""
-    return d.strftime("%B ") + str(d.day)
+def _short_date(d: date, *, today: date | None = None) -> str:
+    """``October 14``, with the year appended when it is not this year."""
+    return _month_day(d) + _year_suffix(d, today)
 
 
 def _as_date(value) -> date:
@@ -446,6 +466,7 @@ def _as_date(value) -> date:
 
 
 _UPCOMING_MT = "(" + _UPCOMING_PREDICATE_MT + ")"
+_CANCELLED_MT = CANCELLED_PREDICATE_MT
 
 _LAST_MEETING_SQL = f"""
     SELECT mt.id, mt.meeting_date, mt.start_time,
@@ -456,6 +477,7 @@ _LAST_MEETING_SQL = f"""
        AND mt.meeting_type = 'council'
        AND mt.meeting_date IS NOT NULL
        AND NOT {_UPCOMING_MT}
+       AND NOT {_CANCELLED_MT}
        AND EXISTS (SELECT 1 FROM agenda_items ai WHERE ai.meeting_id = mt.id)
      ORDER BY mt.meeting_date DESC, mt.id DESC
      LIMIT 1
@@ -470,6 +492,7 @@ _NEXT_MEETING_SQL = f"""
        AND mt.meeting_type = 'council'
        AND mt.meeting_date IS NOT NULL
        AND {_UPCOMING_MT}
+       AND NOT {_CANCELLED_MT}
      ORDER BY mt.meeting_date ASC, mt.start_time ASC NULLS LAST, mt.id ASC
      LIMIT 1
 """
@@ -478,6 +501,7 @@ _BIGGEST_ITEMS_SQL = """
     SELECT ai.id, ai.title, ai.description, ai.headline, ai.dollars_amount
       FROM agenda_items ai
      WHERE ai.meeting_id = %s AND ai.dollars_amount IS NOT NULL
+       AND ai.processing_status::text <> 'withdrawn'
      ORDER BY ai.dollars_amount DESC, ai.id ASC
      LIMIT %s
 """
@@ -605,7 +629,7 @@ def _split_sentence(last: dict, slug: str) -> tuple[list[dict], str | None]:
     anchor = f"{meeting_href}#vote-{first['vote_id']}"
     if count > 1:
         return [_seg(f"{number_word(count).capitalize()} votes split{suffix}. ")], None
-    verb = "passed" if first["result"] == "passed" else "failed"
+    verb = _result_verb(first["result"])
     yeas, nays = first["yeas"], first["nays"]
     tally = f"{verb} {yeas} to {nays},"
     dissenters = first.get("dissenters") or []
@@ -771,6 +795,7 @@ _BRIEFING_MEETINGS_SQL = (
     SELECT mt.id, mt.title, mt.meeting_date, mt.start_time,
            mt.agenda_url, mt.minutes_url, mt.video_url,
            {_UPCOMING_MT} AS upcoming,
+           {_CANCELLED_MT} AS cancelled,
            (SELECT count(*) FROM agenda_items ai WHERE ai.meeting_id = mt.id) AS item_count,
            (SELECT sum(ai.dollars_amount) FROM agenda_items ai WHERE ai.meeting_id = mt.id) AS total_dollars,
            (SELECT count(*) FROM chosen c WHERE c.meeting_id = mt.id) AS vote_count,
@@ -785,7 +810,8 @@ _BRIEFING_MEETINGS_SQL = (
 def list_briefing_meetings(slug: str, limit: int = 6) -> list[dict]:
     """The newest meetings that have an agenda item or a document link, past or upcoming.
 
-    Each row: ``id, title, meeting_date, start_time, upcoming, item_count,
+    Each row: ``id, title, meeting_date, start_time, upcoming, cancelled``
+    (the title matches ``query.CANCELLED_PREDICATE_SQL``), ``item_count,
     total_dollars`` (None when no item has an amount, else with
     ``total_dollars_text``), ``split_count`` (None when the meeting has no
     chosen-source votes), ``agenda_url, minutes_url, video_url``, and
@@ -800,6 +826,7 @@ def list_briefing_meetings(slug: str, limit: int = 6) -> list[dict]:
         vote_count = int(r.pop("vote_count") or 0)
         r["item_count"] = int(r["item_count"] or 0)
         r["upcoming"] = bool(r["upcoming"])
+        r["cancelled"] = bool(r["cancelled"])
         r["total_dollars"] = total
         r["total_dollars_text"] = amount_in_words(total) if total else None
         r["split_count"] = int(r["split_count"] or 0) if vote_count else None
@@ -825,7 +852,9 @@ _MONEY_ITEMS_SQL = f"""
        AND mt.is_hidden = FALSE
        AND mt.meeting_date >= CURRENT_DATE - %s * INTERVAL '1 day'
        AND NOT {_UPCOMING_MT}
+       AND NOT {_CANCELLED_MT}
        AND ai.dollars_amount IS NOT NULL
+       AND ai.processing_status::text <> 'withdrawn'
      ORDER BY ai.dollars_amount DESC, mt.meeting_date DESC, ai.id ASC
      LIMIT %s
 """
@@ -896,7 +925,7 @@ def _disagreement_line(split: dict, slug: str) -> dict:
         "date_text": _short_date(meeting_date),
         "clause": clause,
         "clause_href": clause_href,
-        "verb": "passed" if split["result"] == "passed" else "failed",
+        "verb": _result_verb(split["result"]),
         "yeas": split["yeas"],
         "nays": split["nays"],
         "abstentions": split.get("abstentions") or 0,
@@ -908,8 +937,9 @@ def _disagreement_line(split: dict, slug: str) -> dict:
 def disagreement(facts: dict | None, municipality: dict | None = None) -> dict | None:
     """The ``split_votes`` payload shaped for ``partials/briefing/door_disagreed.html``.
 
-    ``None`` when the city has no facts row (the task never ran) or no
-    chosen-source vote at all, so the door renders nothing. Otherwise
+    ``None`` when the city has no facts row (the task never ran), no
+    chosen-source vote at all, or no chosen-source vote in the window, so
+    the door renders nothing. Otherwise
     ``{"mode", "since", "since_text", "splits", "last_split",
     "votes_in_window"}`` where ``mode`` is ``"splits"`` (the window holds
     split votes, listed newest first), ``"unanimous"`` (no split in the
@@ -925,6 +955,9 @@ def disagreement(facts: dict | None, municipality: dict | None = None) -> dict |
     last_split = payload.get("last_split")
     votes_in_window = int(payload.get("votes_in_window") or 0)
     if not splits and not last_split and votes_in_window == 0:
+        return None
+    if votes_in_window == 0:
+        # No chosen-source vote fell in the window: nothing to call unanimous.
         return None
     since = _as_date(payload["since"]) if payload.get("since") else None
     shaped_splits = [_disagreement_line(s, slug) for s in splits[:SPLITS_KEPT]]
@@ -1062,7 +1095,7 @@ def _example(row: dict | None) -> dict | None:
         "headline": row["label"] or "",
         "meeting_date": meeting_date,
         "date_text": _short_date(meeting_date),
-        "date_long": _short_date(meeting_date) + f", {meeting_date.year}",
+        "date_long": _month_day(meeting_date) + f", {meeting_date.year}",
     }
 
 

@@ -22,6 +22,15 @@ _UPCOMING_PREDICATE_MT = (
     .replace("start_time", "mt.start_time")
 )
 
+# The one owner of "this meeting was cancelled". Birmingham's feed keeps a
+# cancelled meeting as an ordinary row whose title says so; nothing sets a
+# flag or hides it, so the title is the only mark. Used by the opener's two
+# meeting queries, the money query, and the meetings list in
+# docket.services.briefing, by list_items_by_amount below, and by
+# maintenance.repair_empty_agendas (plan birmingham-city-briefing, M9).
+CANCELLED_PREDICATE_SQL = "(title ~* 'cancell?ed')"
+CANCELLED_PREDICATE_MT = CANCELLED_PREDICATE_SQL.replace("title", "mt.title")
+
 
 @dataclass(frozen=True)
 class PaginatedMeetings:
@@ -1232,8 +1241,9 @@ def list_items_by_amount(
     days: int = 90,
     limit: int = 200,
 ) -> list[AgendaItem]:
-    """A city's items of the last ``days`` days that have taken place and carry a
-    dollar amount, largest first (an upcoming meeting's items are left out).
+    """A city's items of the last ``days`` days that have taken place and were
+    not cancelled, excluding withdrawn items, that carry a dollar amount,
+    largest first (an upcoming or a cancelled meeting's items are left out).
 
     The ``order=amount`` search page (plan birmingham-city-briefing, M3) and
     the city page's money door read these rows; the route keeps the ones
@@ -1311,6 +1321,8 @@ def list_items_by_amount(
               AND m.slug = %s
               AND mt.meeting_date >= CURRENT_DATE - %s * INTERVAL '1 day'
               AND NOT ({_UPCOMING_PREDICATE_MT})
+              AND NOT {CANCELLED_PREDICATE_MT}
+              AND ai.processing_status::text <> 'withdrawn'
               AND ai.dollars_amount IS NOT NULL
             ORDER BY ai.dollars_amount DESC, mt.meeting_date DESC, ai.id ASC
             LIMIT %s

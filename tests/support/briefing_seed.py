@@ -29,7 +29,11 @@ from the video (``video_ocr``, not flagged for review) so the video becomes
 the meeting's chosen source; ``transcript="low_speech"`` writes the
 transcript with that status, which ``transcripts.public_predicate`` hides;
 ``undocumented=True`` adds a council meeting ten days back with one item and
-no agenda, minutes, video, or source link. ``cleanup``
+no agenda, minutes, video, or source link; ``cancelled=True`` adds a council
+meeting two days back whose title says it was cancelled (the only mark
+Birmingham's cancelled rows carry), with agenda and video links and one
+posted consent item of $12 million, and ``cancelled="upcoming"`` the same
+meeting two days ahead. ``cleanup``
 removes everything by the prefix, plus Birmingham's ``city_briefing_facts``
 rows; ``seed`` calls it first, so a run killed midway is tidied by the next.
 """
@@ -110,6 +114,19 @@ UNDOCUMENTED_ITEM = {
     "title": PREFIX + "Appointment to the library board",
     "description": "Appointment of one member to the library board.",
     "topic": "appointments",
+}
+
+# Above item A's amount so that, unfiltered, it would head the money door
+# and the opener.
+CANCELLED_ITEM = {
+    "item_number": "1",
+    "title": PREFIX + "Stormwater pump station contract",
+    "description": "Contract for the rebuild of the Valley Creek pump station in the amount "
+                   "of $12,000,000.",
+    "headline": "$12 million stormwater pump station contract",
+    "dollars_amount": 12_000_000,
+    "is_consent": True,
+    "topic": "public_works",
 }
 
 
@@ -274,7 +291,8 @@ def cleanup(conn) -> None:
 
 def seed(conn, *, votes: str = "split", transcript: bool | str = True, upcoming: bool = True,
          dollars: bool = True, badges: bool = True, ghost: bool = True, old_split: bool = False,
-         resolved_speaker: bool = True, past_days: int = 7, undocumented: bool = False) -> dict:
+         resolved_speaker: bool = True, past_days: int = 7, undocumented: bool = False,
+         cancelled: bool | str = False) -> dict:
     """Insert the Birmingham rows; returns the ids created.
 
     ``votes`` is ``"split"`` (the default), ``"unanimous"`` (no split vote on
@@ -291,9 +309,17 @@ def seed(conn, *, votes: str = "split", transcript: bool | str = True, upcoming:
     meeting's age in days (``out["past_meeting_date"]`` follows it).
     ``undocumented=True`` adds a council meeting ten days back with one item
     and no document links (``out["undocumented_meeting_id"]``).
+    ``cancelled=True`` adds a council meeting two days back whose title says
+    it was cancelled, with agenda and video links and one posted consent item
+    (``CANCELLED_ITEM``, $12 million, above item A), returned as
+    ``out["cancelled_meeting_id"]`` and ``out["items"]["cancelled"]``;
+    ``cancelled="upcoming"`` adds the same meeting two days ahead, before the
+    seed's upcoming meeting.
     """
     if votes not in ("split", "unanimous", "none", "many_splits", "tally_only", "video"):
         raise ValueError(f"unknown votes option {votes!r}")
+    if cancelled not in (False, True, "upcoming"):
+        raise ValueError(f"unknown cancelled option {cancelled!r}")
     cleanup(conn)
     today = date.today()
     out: dict = {"items": {}, "votes": {}, "upcoming_items": []}
@@ -355,6 +381,21 @@ def seed(conn, *, votes: str = "split", transcript: bool | str = True, upcoming:
             out["upcoming_meeting_date"] = today + timedelta(days=5)
             for spec in UPCOMING_ITEMS:
                 out["upcoming_items"].append(_insert_item(cur, up, spec))
+
+        if cancelled:
+            next_regular = (today + timedelta(days=5)).strftime("%m/%d/%Y")
+            offset = timedelta(days=2) if cancelled == "upcoming" else timedelta(days=-2)
+            can = _insert_meeting(
+                cur, city, external_id="cancelled",
+                title=PREFIX + "Regular City Council Meeting - Cancelled "
+                      f"(Next Regular Meeting {next_regular})",
+                meeting_date=today + offset, start_time=time(9, 30),
+                agenda_url="https://example.test/agendas/cancelled.pdf",
+                video_url="https://example.test/video/cancelled",
+            )
+            out["cancelled_meeting_id"] = can
+            out["cancelled_meeting_date"] = today + offset
+            out["items"]["cancelled"] = _insert_item(cur, can, CANCELLED_ITEM)
 
         if ghost:
             out["ghost_meeting_id"] = _insert_meeting(

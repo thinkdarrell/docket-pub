@@ -913,8 +913,10 @@ def test_cancelled_meeting_is_not_the_last_meeting(client, seeded):
     html = _page(client)
     opener = _opener(html)
     assert "acted on 4 items" in opener
-    assert f'href="/al/birmingham/meetings/{seeded["past_meeting_id"]}/"' in opener
-    assert f'href="/al/birmingham/meetings/{seeded["cancelled_meeting_id"]}/"' not in opener
+    # The action link carries the split vote's anchor, so the href is matched
+    # without its closing quote.
+    assert f'href="/al/birmingham/meetings/{seeded["past_meeting_id"]}/' in opener
+    assert f'href="/al/birmingham/meetings/{seeded["cancelled_meeting_id"]}/' not in opener
     assert "$12 million" not in opener
     door = _section(html, "brf-door-money")
     assert door is not None
