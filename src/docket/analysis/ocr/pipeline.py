@@ -13,6 +13,8 @@ The pipeline runs in five stages:
     E. Cross-verify       — compare the three independent signals
                              (header, count boxes, summed member
                              positions); flag disagreements for review.
+                             A frame whose header does not read as
+                             terminal is flagged for review too.
 
 Stages A+B live in ``vote_sequence``. Stages C–E live here.
 """
@@ -294,7 +296,21 @@ def _cross_verify(
     counts: dict[str, int | None],
     member_positions: dict[str, str],
 ) -> tuple[bool, str | None]:
-    """Return ``(needs_review, reason)`` by comparing header / counts / members."""
+    """Return ``(needs_review, reason)`` by comparing header / counts / members.
+
+    A header that does not read as a terminal state outranks every other
+    check, because a vote without a readable result is not evidence
+    whatever its counts say.
+    """
+    # Check -1: the header read as a finalized motion state. The terminal
+    # frame was chosen by ``_find_terminal_frame`` on a header read that
+    # was terminal, but the second read here can come back
+    # VOTING_IN_PROGRESS or UNKNOWN; such a vote is stored with
+    # ``result = 'unknown'`` and must carry the review flag, never pass
+    # as clean.
+    if not header.is_terminal():
+        return True, "header_not_terminal"
+
     y = counts.get("yeas")
     n = counts.get("nays")
     a = counts.get("abstentions")
