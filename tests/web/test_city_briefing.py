@@ -903,3 +903,92 @@ def test_council_card_without_roll_calls_shows_name_alone(client, facts):
     assert "cc-stats" not in card
     assert "roll calls" not in card
     assert section.count("roll calls in the last 12 months") == 8
+
+
+# --- M9: cancelled meetings, withdrawn items, the tabled verb, and the empty window ---
+
+
+@pytest.mark.parametrize("seeded", [{"cancelled": True}], indirect=True)
+def test_cancelled_meeting_is_not_the_last_meeting(client, seeded):
+    html = _page(client)
+    opener = _opener(html)
+    assert "acted on 4 items" in opener
+    assert f'href="/al/birmingham/meetings/{seeded["past_meeting_id"]}/"' in opener
+    assert f'href="/al/birmingham/meetings/{seeded["cancelled_meeting_id"]}/"' not in opener
+    assert "$12 million" not in opener
+    door = _section(html, "brf-door-money")
+    assert door is not None
+    assert door.count('<li class="brf-door-line">') == 1
+    assert f'href="/al/birmingham/items/{seeded["items"]["A"]}/"' in door
+    assert f'href="/al/birmingham/items/{seeded["items"]["cancelled"]}/"' not in door
+    assert "$12 million" not in door
+    row = _meeting_row(html, seeded["cancelled_meeting_id"])
+    assert "<span>cancelled</span>" in row
+    assert "agenda · video" in row
+    assert "1 item" not in row
+    assert "$12 million" not in row
+    assert "split vote" not in row
+    search = client.get("/search?city=birmingham&order=amount").get_data(as_text=True)
+    assert f'id="item-{seeded["items"]["cancelled"]}"' not in search
+    assert f'id="item-{seeded["items"]["A"]}"' in search
+
+
+@pytest.mark.parametrize("seeded", [{"cancelled": "upcoming"}], indirect=True)
+def test_cancelled_upcoming_meeting_is_not_the_next_meeting(client, seeded):
+    html = _page(client)
+    opener = _opener(html)
+    assert f'href="/al/birmingham/meetings/{seeded["upcoming_meeting_id"]}/"' in opener
+    assert "with 2 items on the agenda" in opener
+    assert f'href="/al/birmingham/meetings/{seeded["cancelled_meeting_id"]}/"' not in opener
+    row = _meeting_row(html, seeded["cancelled_meeting_id"])
+    assert "<span>cancelled</span>" in row
+    assert "upcoming" not in row
+
+
+@pytest.mark.parametrize("seeded", [{"votes": "unanimous"}], indirect=True)
+def test_withdrawn_item_is_never_the_largest(client, seeded):
+    with db() as conn:
+        with briefing_seed._cur(conn) as cur:
+            cur.execute("UPDATE agenda_items SET processing_status = 'withdrawn' WHERE id = %s",
+                        (seeded["items"]["A"],))
+        conn.commit()
+    briefing_seed.clear_caches()
+    html = _page(client)
+    opener = _opener(html)
+    assert "acted on 4 items" in opener
+    assert "The largest was" not in opener
+    assert _section(html, "brf-door-money") is None, "no other seeded item passes the dollar check"
+    search = client.get("/search?city=birmingham&order=amount").get_data(as_text=True)
+    assert f'id="item-{seeded["items"]["A"]}"' not in search
+
+
+@pytest.mark.parametrize("seeded", [{"votes": "none"}], indirect=True)
+def test_tabled_split_is_written_tabled(client, facts):
+    names = list(facts["members"])
+    with db() as conn:
+        with briefing_seed._cur(conn) as cur:
+            briefing_seed._insert_vote(
+                cur, facts["past_meeting_id"], result="tabled", yeas=5, nays=4,
+                item_ids=[facts["items"]["B"]], roster=facts["members"],
+                positions={n: "nay" for n in names[:4]},
+            )
+        conn.commit()
+    briefing.recompute_city_facts(facts["municipality_id"])
+    briefing_seed.clear_caches()
+    html = _page(client)
+    # The dissenter phrase is a link, so the sentence is read as the beat's text.
+    first_beat = _beat_text(_beats(html)[0])
+    assert "tabled 5 to 4, with four members voting no." in first_beat
+    assert "failed" not in _opener(html)
+    door = _section(html, "brf-door-disagreed")
+    assert door is not None
+    assert "· tabled 5 to 4" in door
+    assert "failed" not in door
+
+
+@pytest.mark.parametrize("seeded", [{"votes": "none", "old_split": True}], indirect=True)
+def test_disagreement_door_absent_with_no_vote_in_window(client, facts):
+    html = _page(client)
+    assert _section(html, "brf-door-disagreed") is None
+    assert "was unanimous" not in html
+    assert "acted on 4 items" in _opener(html)

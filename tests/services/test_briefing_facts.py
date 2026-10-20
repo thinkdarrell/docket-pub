@@ -399,3 +399,39 @@ def test_opener_text_cuts_at_sentence_boundary_not_inside_label():
     assert len(text) <= briefing.OPENER_TEXT_MAX
     assert text.endswith("sidewalk reconstruction.")
     assert "St." not in text
+
+
+# --- M9: the stored verb, the year on a short date, the empty window -------
+
+
+def test_split_sentence_and_door_line_print_the_stored_result():
+    facts = _crafted_facts([{"member_name": "J. Doe", "council_member_id": 4, "position": "nay"}])
+    split = facts["last"]["splits"]["first"]
+    split["result"] = "tabled"
+    text = _beat_text(briefing.opener_beats(facts, MUNI)[0])
+    assert "tabled 8 to 1, with " in text
+    assert "failed" not in text
+    assert briefing._disagreement_line(split, "birmingham")["verb"] == "tabled"
+    split["result"] = "failed"
+    assert briefing._disagreement_line(split, "birmingham")["verb"] == "failed"
+
+
+def test_short_date_carries_the_year_when_not_this_year():
+    assert briefing._short_date(date(2024, 3, 3), today=date(2026, 10, 19)) == "March 3, 2024"
+    assert briefing._short_date(date(2026, 3, 3), today=date(2026, 10, 19)) == "March 3"
+    assert briefing._long_date(date(2024, 3, 3), today=date(2026, 10, 19)) == "Sunday, March 3, 2024"
+
+
+def test_disagreement_is_none_with_no_vote_in_window():
+    last_split = {
+        "vote_id": 1, "meeting_id": 1, "meeting_date": "2024-03-03", "source": "minutes_text",
+        "result": "tabled", "yeas": 7, "nays": 2, "abstentions": 0,
+        "item": {"id": 5, "label": SPLIT_LABEL}, "linked_item_count": 1, "dissenters": [],
+    }
+    payload = {"splits": [], "votes_in_window": 0, "since": "2026-04-22", "last_split": last_split}
+    assert briefing.disagreement({"split_votes": {"payload": payload}}, MUNI) is None
+    payload["votes_in_window"] = 3
+    shaped = briefing.disagreement({"split_votes": {"payload": payload}}, MUNI)
+    assert shaped is not None
+    assert shaped["mode"] == "unanimous"
+    assert shaped["last_split"]["date_text"] == "March 3, 2024"

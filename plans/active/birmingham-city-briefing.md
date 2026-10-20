@@ -387,6 +387,10 @@ The design's own anti-goals bind every milestone: no sentence whose number, name
   Rationale: the plan's convention is that a correction is appended beside what it corrects, and the review's minor finding is right that the two sets disagree.
   Date/Author: 2026-10-19, plan author, revising.
 
+- Decision (M9 session): the tabled test's opener assertion, which the milestone states as "the opener contains \"tabled 5 to 4, with four members voting no.\"", is read from the first beat's text through the file's `_beats` and `_beat_text` helpers, not from the section's markup, because the dissenter phrase "with four members voting no" is one `<a>` segment and the sentence is contiguous only as text; `"failed" not in _opener(html)` is still asserted on the markup.
+  Rationale: the plan's sentence describes what a reader sees; the markup holds the same words split by a tag. The helpers already exist for the M2 opener tests.
+  Date/Author: 2026-10-20, M9 session.
+
 ## Outcomes & Retrospective
 
 This section is written at the end of each milestone and at completion, comparing what landed against the Purpose above.
@@ -1038,6 +1042,16 @@ M8 session, `./tools/verify` after the milestone's edits (2026-10-19 22:32Z, aft
     verify: all 6 checks passed in 105s.
 
 The fast tiers gained 6 tests over the M7 total, all in `tests/web/test_city_briefing.py`; integration is unchanged at 625, both as the milestone's acceptance predicted.
+
+M9 session, `./tools/verify` before any edit (2026-10-20 00:04Z; it built `docket_test_29cd1d5f`):
+
+    1953 passed, 5 skipped, 4 xfailed, 1 warning in 53.73s
+    625 passed, 1 warning in 49.59s
+    judge fixtures: 12 of 12 passed
+    84 passed in 0.73s
+    verify: all 6 checks passed in 106s.
+
+M9 session, the acceptance's pre-edit checks against the unchanged code: the collection check (`DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/services/test_briefing_facts.py -q -p no:cacheprovider -k "stored_result or carries_the_year or no_vote_in_window"`) printed `18 deselected in 0.02s`; the greps printed `maintenance.py:2`, `query.py:0`, `briefing.py:0` for `cancell?ed`, `briefing.py:2`, `query.py:3` for the withdrawn clause, `2` for `"passed" if`, `0` for `D59`, `0` for `cancelled` in the spec; the probe from the Surprises entry, rerun as a script in the session's scratchpad, printed `short (no today kw): March 3 | _short_date() got an unexpected keyword argument 'today'` and `disagreement: mode: unanimous | verb: failed | date_text: March 3 | votes_in_window: 0`. After the eight tests were written and before any code change, `-k "stored_result or carries_the_year or no_vote_in_window or cancelled or withdrawn_item or tabled_split"` over the two files printed `6 failed, 68 deselected, 2 errors in 1.05s`: the two errors `TypeError: seed() got an unexpected keyword argument 'cancelled'`; the failures quoting `'tabled 8 to 1, with ' in "...failed 8 to 1, with J. Doe voting no. "`, `_short_date() got an unexpected keyword argument 'today'`, `{'mode': 'unanimous', ...} is None`, `'The largest was' not in '<section cl...'`, `'tabled 5 to 4, with four members voting no.' in '...failed 5 to 4, with four members voting no. Read the October 13 meeting →'`, and the rendered door `...on April 3, 7 to 2.\n  </p>` where None was expected.
 
 ## Interfaces and Dependencies
 
