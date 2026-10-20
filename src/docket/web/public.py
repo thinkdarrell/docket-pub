@@ -26,7 +26,7 @@ from flask import (
 
 from docket.enrichment.topics import all_topics, get_topic_display_name
 from docket.models.data_quality import friendly_label
-from docket.services import query
+from docket.services import briefing, query
 
 bp = Blueprint("public", __name__)
 
@@ -70,6 +70,27 @@ def index():
     )
 
 
+@bp.app_template_global("city_provenance")
+def city_provenance(municipality):
+    """The page's provenance for the freshness chip, the source panel, and
+    the footer (plan birmingham-city-briefing, M5): one owner of the last
+    ingest time, the indexed meeting count, and the source website, read
+    from ``briefing.city_provenance`` (cached per city for five minutes).
+    Accepts the municipality dict the routes pass or any object with an
+    ``id``; without one (a partial rendered with a stand-in) it returns
+    the empty shape without touching the database."""
+    empty = {"last_ingest_at": None, "meeting_count": 0, "source_host": None, "source_url": None}
+    if not municipality:
+        return empty
+    if isinstance(municipality, dict):
+        mid = municipality.get("id")
+    else:
+        mid = getattr(municipality, "id", None)
+    if mid is None:
+        return empty
+    return briefing.city_provenance(mid)
+
+
 _overview_cache: dict[str, tuple] = {}
 _CACHE_TTL = 300  # 5 minutes
 # F5 fix-up (R1 + D4 / Override 2): symmetric thread safety. Module-level
@@ -104,72 +125,38 @@ def city_overview(slug):
 
 def _city_overview_render(slug, municipality, now_ts):
     """Render and cache the city overview page. Caller holds ``_overview_lock``."""
-    from datetime import datetime
-
-    result = query.list_meetings(slug, limit=6)
-    topics = query.topic_counts(municipality_slug=slug)
-    members = query.list_council_members(slug)
-    notable = query.list_high_dollar_items(municipality_slug=slug, limit=6, days=180)
-    stats = query.dashboard_stats()
-    # TODO: precompute these — too heavy for cold page loads on Railway
-    contested = []
-    recent_votes = []
-
-    # P3 follow-up — SQL-side city filter so this city's meetings never
-    # get crowded out by other cities' activity in the global ranking:
-    recent_city = query.list_recent_meetings_for_city(slug, days=7, limit=4)
-    upcoming_city = query.list_upcoming_meetings_for_city(slug, days=14, limit=4)
-
-    # F4 Browse-by-Priority (spec §6.7): two grids passed as
-    # pre-decorated dicts — counts are zipped on here in the route, NOT
-    # computed via Jinja globals (route-side pre-compute pattern set by
-    # F2). Counts are gated identically to ``list_items_by_badge`` /
-    # ``category_kpis`` so a tile reading "12 this year" matches what
-    # the citizen will see when they click into the category page.
-    #
-    # Cost: each grid does one count query per badge, all light
-    # (covered by ``idx_agenda_item_badges_city_slug_conf``). 4 + 7 = 11
-    # SELECT COUNT queries per cold city homepage render, then cached
-    # for 5 min by the existing ``_overview_cache``. If this turns out
-    # to be a hot-path tax post-deploy, the natural follow-up is a
-    # single GROUP BY query rolled into ``list_*_badges``.
-    current_year = date.today().year
-    city_policy_badges = [
-        {**b,
-         "count": query.badge_volume_year(
-             municipality["id"], b["slug"], year=current_year
-         )}
-        for b in query.list_city_policy_badges(municipality["id"])
-    ]
-    process_badges = [
-        {**b,
-         "count": query.badge_volume_recent(
-             municipality["id"], b["slug"], days=30
-         )}
-        for b in query.list_process_badges()
-    ]
-
-    from docket.services.query import coverage_counts_for_items
-    notable_item_ids = [it['id'] for it in notable if 'id' in it]
-    coverage_counts = coverage_counts_for_items(notable_item_ids)
-
-    # P3 — city_stats for the new 3-card YTD strip at the top of overview.
-    # Replaces P2b's kpi_stats build; overview no longer renders the KPI
-    # explainer stack at the bottom (that moves to interior pages — Task 7).
     mid = municipality["id"]
-    ytd_dollars = query.sum_dollars_ytd(mid)
-    if ytd_dollars >= 1_000_000_000:
-        dollars_formatted = f"${ytd_dollars / 1_000_000_000:.1f}B"
-    elif ytd_dollars >= 1_000_000:
-        dollars_formatted = f"${ytd_dollars / 1_000_000:.1f}M"
-    else:
-        dollars_formatted = f"${int(ytd_dollars):,}"
-    city_stats = {
-        "meetings_ytd": query.count_meetings_ytd(mid),
-        "dollars_ytd_formatted": dollars_formatted,
-        "flagged_count": query.count_contested_votes_ytd(mid),
-    }
-    freshness = query._freshness_state(query.most_recent_ingest_at(mid))
+    # The briefing (plan birmingham-city-briefing, M2): the opener runs only
+    # where the municipality's metadata carries "briefing": true; the
+    # meetings list and the search field render for every city.
+    opener = briefing.opener_facts(municipality) if briefing.is_briefing_city(municipality) else None
+    opener_text = briefing.opener_text(opener, municipality) if opener else ""
+    briefing_meetings = briefing.list_briefing_meetings(slug)
+    # The doors (M3): the money door is a handful of indexed rows checked
+    # per request; the disagreement door reads the precomputed
+    # ``city_briefing_facts`` rows (worker task ``briefing_facts``) in one
+    # query, which is what replaced the switched-off contested-votes
+    # section and its cold-load cost. Each renders only when its data exists.
+    facts = briefing.get_city_facts(mid)
+    money = briefing.money_items(mid)
+    disagreed = briefing.disagreement(facts, municipality)
+    # The council door and the topics door (M4): the roster carries each
+    # member's twelve-month counts from the same precomputed row; the
+    # topics door is the city's tracked priorities and busiest topics of
+    # the last 90 days, each with one example.
+    members = briefing.council_cards(query.list_council_members(slug), facts, municipality)
+    topics_door = briefing.topics_door(municipality)
+    # The signals list (M5): the process badges with a nonzero count in
+    # the last 30 days, in plain words; the four policy badges reach the
+    # page through ``topics_door``. The freshness chip, the source panel,
+    # and the footer all read ``briefing.city_provenance`` (the Jinja
+    # global ``city_provenance`` below), so they cannot disagree.
+    signals = briefing.signals(mid)
+    freshness = query._freshness_state(briefing.city_provenance(mid)["last_ingest_at"])
+    # The transcript door (M6): one excerpt from the newest public
+    # transcript, for flagged cities only (the design wrote the section for
+    # Birmingham's transcripts); absent without a transcript or a quotable item.
+    said = briefing.said_at_the_meeting(mid) if briefing.is_briefing_city(municipality) else None
 
     blog_state = current_app.config.get("BLOG_STATE")
     blog_posts_for_city = []
@@ -184,21 +171,15 @@ def _city_overview_render(slug, municipality, now_ts):
     rendered = render_template(
         "city.html",
         municipality=municipality,
-        meetings=result.meetings,
-        meeting_count=result.total,
-        topics=topics,
+        opener=opener,
+        opener_text=opener_text,
+        briefing_meetings=briefing_meetings,
+        money=money,
+        disagreed=disagreed,
+        topics_door=topics_door,
         members=members,
-        recent_meetings=recent_city,
-        upcoming_meetings=upcoming_city,
-        notable_items=notable,
-        contested_votes=contested,
-        recent_votes=recent_votes,
-        stats=stats,
-        city_policy_badges=city_policy_badges,
-        process_badges=process_badges,
-        now=datetime.now(),
-        coverage_counts=coverage_counts,
-        city_stats=city_stats,
+        signals=signals,
+        said=said,
         freshness=freshness,
         blog_posts_for_city=blog_posts_for_city,
     )
@@ -931,22 +912,33 @@ def member_detail(slug, member_id):
     filter_mode = request.args.get("filter", "all")
     if filter_mode not in ("all", "dissent", "sponsored"):
         filter_mode = "all"
+    # ``since=YYYY-MM-DD`` (plan birmingham-city-briefing, M4) restricts the
+    # voting history to meetings on or after that date under the city page's
+    # source-per-meeting rule; the council card links here with the date its
+    # count was taken from. A malformed value is ignored.
+    since = None
+    since_raw = request.args.get("since")
+    if since_raw:
+        try:
+            since = date.fromisoformat(since_raw)
+        except ValueError:
+            since = None
 
     # Cache only the no-cursor first-page render (common case). Paginated
     # follow-up requests re-execute the query — cheap enough at member-page
     # traffic and avoids cursor key explosion.
-    cache_key = (slug, member_id, filter_mode)
+    cache_key = (slug, member_id, filter_mode, since)
     if cursor is None:
         cached = _member_cache.get(cache_key)
         if cached and (time.time() - cached[0]) < _CACHE_TTL:
             return cached[1]
 
     return _member_detail_render(
-        slug, municipality, member, filter_mode, cursor
+        slug, municipality, member, filter_mode, cursor, since
     )
 
 
-def _member_detail_render(slug, municipality, member, filter_mode, cursor):
+def _member_detail_render(slug, municipality, member, filter_mode, cursor, since=None):
     stats = query.get_member_stats(member["id"])
     sponsorship_count = query.count_sponsored_items_for_member(member["name"])
 
@@ -963,6 +955,7 @@ def _member_detail_render(slug, municipality, member, filter_mode, cursor):
             cursor=cursor,
             limit=20,
             filter_mode=filter_mode,
+            since=since,
         )
 
     rendered = render_template(
@@ -973,11 +966,12 @@ def _member_detail_render(slug, municipality, member, filter_mode, cursor):
         sponsorship_count=sponsorship_count,
         history=history,
         filter_mode=filter_mode,
+        since=since,
     )
 
     if cursor is None:
         with _member_lock:
-            _member_cache[(slug, member["id"], filter_mode)] = (time.time(), rendered)
+            _member_cache[(slug, member["id"], filter_mode, since)] = (time.time(), rendered)
     return rendered
 
 
@@ -1006,11 +1000,13 @@ def search():
     """Search results page — scoped to city or cross-city."""
     q = request.args.get("q", "").strip()
     city = request.args.get("city")
+    order = request.args.get("order")
     page = max(1, request.args.get("page", 1, type=int))
     per_page = 20
     offset = (page - 1) * per_page
 
     results = []
+    has_next = False
     if q:
         results = query.search_agenda_items(
             q,
@@ -1018,6 +1014,26 @@ def search():
             limit=per_page,
             offset=offset,
         )
+        # has_next via row-count heuristic (no separate COUNT query). After
+        # the AI backfill ramps result counts up, an explicit COUNT on every
+        # search hit would be wasteful — the heuristic costs nothing and
+        # only mis-paints "next" on the rare page that lands exactly on
+        # per_page boundary (user lands on an empty next page; cheap fix).
+        has_next = len(results) == per_page
+    elif city and order == "amount":
+        # The city page's money door opens here (plan
+        # birmingham-city-briefing, M3): the city's items of the last 90
+        # days by amount, kept only when the item's own text backs the
+        # stored amount, so this page and the door agree on which item is
+        # largest. At most 200 rows, paged in Python.
+        kept = [
+            it for it in query.list_items_by_amount(city)
+            if briefing.passes_dollar_check(it.title, it.description, it.headline, it.dollars_amount)
+        ]
+        results = kept[offset:offset + per_page]
+        has_next = len(kept) > offset + per_page
+    else:
+        order = None
 
     from docket.services import transcripts as tsvc
     transcript_hits: list[dict] = []
@@ -1027,13 +1043,6 @@ def search():
             transcript_hits = tsvc.search_transcripts(
                 clean_q, municipality_slug=city, speaker=speaker, limit=10, offset=offset // 2,
             )
-
-    # has_next via row-count heuristic (no separate COUNT query). After
-    # the AI backfill ramps result counts up, an explicit COUNT on every
-    # search hit would be wasteful — the heuristic costs nothing and
-    # only mis-paints "next" on the rare page that lands exactly on
-    # per_page boundary (user lands on an empty next page; cheap fix).
-    has_next = len(results) == per_page
 
     municipalities = query.list_municipalities()
 
@@ -1057,6 +1066,7 @@ def search():
         municipalities=municipalities,
         page=page,
         has_next=has_next,
+        order=order,
         coverage_counts=coverage_counts,
         municipality=municipality,
         kpi_stats=kpi_stats,
@@ -1221,19 +1231,7 @@ def coverage_permalink(coverage_id: int):
     Subject hydration is always performed so the subjects footer renders
     the "→ on Item X, Meeting Y" context automatically.
     """
-    from docket.services.query import (
-        _COVERAGE_SELECT, _hydrate_coverage_rows, _hydrate_subjects_for_entries,
-    )
-    from docket.db import db_cursor
-    with db_cursor() as cur:
-        cur.execute(
-            _COVERAGE_SELECT + " WHERE ce.id = %s AND ce.kind = 'note' "
-                               "AND ce.status = 'published'",
-            (coverage_id,),
-        )
-        entries = _hydrate_coverage_rows(cur)
-        if not entries:
-            abort(404)
-        entries = _hydrate_subjects_for_entries(cur, entries)
-        note = entries[0]
+    note = query.get_published_note(coverage_id)
+    if note is None:
+        abort(404)
     return render_template("coverage/permalink.html", note=note)

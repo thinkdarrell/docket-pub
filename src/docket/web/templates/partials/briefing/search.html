@@ -1,0 +1,17 @@
+{# One search field scoped to this city.
+
+   Args:
+     municipality (dict) — required: slug, name. #}
+<section class="brf-search" aria-label="Search {{ municipality.name }}">
+  <form method="get" action="{{ url_for('public.search') }}" class="brf-search-form" role="search">
+    <input type="hidden" name="city" value="{{ municipality.slug }}">
+    <label for="brf-search-q" class="brf-search-label">
+      Search {{ municipality.name }}'s agendas, minutes, and transcripts for a street, a company, or a topic.
+    </label>
+    <div class="brf-search-row">
+      <input type="search" id="brf-search-q" name="q" class="brf-search-input"
+             placeholder="Try a street, a company, or a topic" autocomplete="off">
+      <button type="submit" class="brf-search-button">Search</button>
+    </div>
+  </form>
+</section>

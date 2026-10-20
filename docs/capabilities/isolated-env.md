@@ -17,7 +17,7 @@ attributed.
 If this project has no runtime and no toolchain — a repository of documents,
 for instance — the honest action is to delete this card and its row in
 `docs/capabilities/index.md`, and to record the omission in `GOALS.md` under
-scope. Keeping a card that is trivially satisfied manufactures a green check
+scope, as `skills/harness-init/SKILL.md` says of any omitted artifact. Keeping a card that is trivially satisfied manufactures a green check
 that means nothing.
 
 ## Enforcement point

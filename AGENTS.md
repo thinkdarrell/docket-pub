@@ -28,7 +28,7 @@ Run from the repository root (or the worktree root) with that checkout's own `ve
 - Live tests: `venv/bin/python -m pytest -m live` (real Anthropic calls; needs a real `ANTHROPIC_API_KEY`).
 - Milestone judge: `tools/judge-milestone snapshot <plan>` before a session, `tools/judge-milestone judge <plan> <snapshot-file> <start-sha>` after it; the contract is `docs/capabilities/judge-milestone.md`.
 - Migrations: `venv/bin/python -m docket.migrations.runner` (`--status`; `--down <version>` rolls back that migration number, and `--down 1` drops the schema).
-- Dev server: `venv/bin/flask run`.
+- Dev server: `venv/bin/flask --app docket.web:create_app run`.
 - Deploy: humans only, from a clean `main`, `scripts/deploy.sh --service docket-web` or `--service worker`.
 - Factory: `/cycle-plan <goal>` from any checkout; `/cycle-run plans/active/<slug>.md` from a session started in `.claude/worktrees/<slug>`. One run at a time.
 

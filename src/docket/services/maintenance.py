@@ -9,6 +9,7 @@ from datetime import date
 from typing import Callable
 
 from docket.db import db
+from docket.services.query import CANCELLED_PREDICATE_SQL
 
 log = logging.getLogger(__name__)
 
@@ -18,7 +19,7 @@ def repair_empty_agendas() -> int:
 
     Targets meetings within the last 18 months that have an agenda_url, were
     flagged scraped, but have no agenda_items rows. Skips cancelled meetings
-    (title matches /cancell?ed/i) since those legitimately have no agenda.
+    (``query.CANCELLED_PREDICATE_SQL``) since those legitimately have no agenda.
 
     The next ingest run will re-fetch whatever this clears.
 
@@ -26,7 +27,7 @@ def repair_empty_agendas() -> int:
         Number of meetings whose flag was cleared.
     """
     with db() as conn, conn.cursor() as cur:
-        cur.execute("""
+        cur.execute(f"""
             UPDATE processing_status ps
                SET agenda_items_scraped = FALSE
               FROM meetings m
@@ -34,7 +35,7 @@ def repair_empty_agendas() -> int:
                AND m.agenda_url IS NOT NULL
                AND m.meeting_date >= CURRENT_DATE - INTERVAL '18 months'
                AND ps.agenda_items_scraped = TRUE
-               AND m.title !~* 'cancell?ed'
+               AND NOT {CANCELLED_PREDICATE_SQL.replace('title', 'm.title')}
                AND NOT EXISTS (
                    SELECT 1 FROM agenda_items ai WHERE ai.meeting_id = m.id
                )

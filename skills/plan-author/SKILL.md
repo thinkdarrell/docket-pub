@@ -87,6 +87,23 @@ constrains:
    plans left a sentence of the old rule standing, four prose sites in one
    and a producer docstring in the next, and each was found after the
    milestones closed, by the retro and by the closing review.
+   When the work has a page write a sentence about a row (the council
+   met, an item passed, a vote failed, this was the largest), the research
+   lists the states of that row's table that would make the sentence
+   false, and the plan says for each whether the row is excluded or what
+   the sentence prints instead: every value an enumerated column can
+   hold, read from its CHECK constraint or, without one, from its writers
+   (`votes.result` holds `tabled` beside `passed` and `failed`); every
+   status a classifier assigns (`processing_status = 'withdrawn'`); every
+   marker a producer leaves in free text (a cancelled Birmingham meeting
+   is an ordinary row whose title says so); and the clock (a posted
+   agenda is a row before its meeting). A design's table of empty,
+   partial, and full states does not name these. One plan's three
+   closing reviews each halted or found an important defect in such a
+   state, an upcoming agenda's item written "passed on the consent
+   agenda", a cancelled meeting written "the council met", a tabled vote
+   written "failed", a withdrawn item written "the largest", and the
+   fixes cost four milestones after the six the plan was cut into.
 3. Write each candidate milestone's acceptance before its narrative.
    Acceptance is a small number of checks a different person can run or read
    and agree on: a command together with the output it prints, or a named

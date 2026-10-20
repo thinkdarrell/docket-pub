@@ -33,6 +33,8 @@ The version-3 backlog re-run (2026-10-18, 47 meetings, about 4½ hours) download
 
 On meeting 2543: `--cache-audio` fetched 110 MB of FLAC whose decoded WAV has the download's SHA-256; `--capture-inputs` took about 4 minutes with no download; `--replay` rebuilt the uploaded transcript row for row in under a second. What remains is the archive fill for the other 47 version-3 meetings after the merge.
 
+Reflection, appended 2026-10-19 by the doc-garden pass after plan `birmingham-city-briefing` (nothing above is reworded): this section did not say where the outcome is reflected. It is: `docs/specs/transcripts.md` describes the archive folder, `audio.flac`, `raw.json`, `diarization.json`, `--cache-audio`, `--capture-inputs`, and `--replay` in present tense; `docs/runbooks/transcripts.md` "Archived inputs: cache, capture, replay" is the procedure; decision `0053` records why the archive keeps them.
+
 ## Context and Orientation
 
 The producer in `transcriber/` runs under Docker on the operator's GPU machine. `cli.py` `process_claim()` fetches a meeting's audio, runs `engine.transcribe()` (Whisper) and `engine.diarize()` (pyannote), and passes their outputs to `build_output()` in `engine.py`, which applies the post-processing. The archive is `/archive/transcripts/<id>/` in the container, the host folder `C:\docket-archive\transcripts\<id>\`.

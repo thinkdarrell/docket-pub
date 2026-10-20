@@ -102,6 +102,17 @@ def app(tmp_path: Path):
     def city_council(slug):
         return Response("")
 
+    @public_stub.route("/al/<slug>/source-health/")
+    def source_health(slug):
+        return Response("")
+
+    # base.html's source panel and footer read the ``city_provenance``
+    # global the real public blueprint registers (plan
+    # birmingham-city-briefing, M5); the stub supplies the empty shape.
+    app.jinja_env.globals["city_provenance"] = lambda municipality: {
+        "last_ingest_at": None, "meeting_count": 0, "source_host": None, "source_url": None,
+    }
+
     app.register_blueprint(public_stub)
     app.register_blueprint(blog_bp)
     def _post_url(post):

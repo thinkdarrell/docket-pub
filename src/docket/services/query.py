@@ -6,7 +6,7 @@ Every read operation goes through this module. Returns dataclasses or dicts.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from datetime import datetime
+from datetime import date, datetime
 from typing import Iterable, Sequence
 
 from docket.db import db_cursor
@@ -21,6 +21,15 @@ _UPCOMING_PREDICATE_MT = (
     .replace("meeting_date", "mt.meeting_date")
     .replace("start_time", "mt.start_time")
 )
+
+# The one owner of "this meeting was cancelled". Birmingham's feed keeps a
+# cancelled meeting as an ordinary row whose title says so; nothing sets a
+# flag or hides it, so the title is the only mark. Used by the opener's two
+# meeting queries, the money query, and the meetings list in
+# docket.services.briefing, by list_items_by_amount below, and by
+# maintenance.repair_empty_agendas (plan birmingham-city-briefing, M9).
+CANCELLED_PREDICATE_SQL = "(title ~* 'cancell?ed')"
+CANCELLED_PREDICATE_MT = CANCELLED_PREDICATE_SQL.replace("title", "mt.title")
 
 
 @dataclass(frozen=True)
@@ -740,12 +749,25 @@ def _decode_cursor(cursor: str) -> tuple | None:
         return None
 
 
+# The one owner of "voted against the outcome" for the city page's council
+# card (``briefing._MEMBER_COUNTS_SQL``) and the member page's dated Dissent
+# view (``list_member_voting_history`` with ``since``): a no on a motion that
+# passed, or a yes on one that failed. An abstention, and any vote on a motion
+# that was tabled, is a roll call attended, not a vote against an outcome.
+# The undated Dissent view keeps its older filter (docs/DEBT.md D58).
+AGAINST_OUTCOME_PREDICATE = (
+    "((mv.position IN ('yea','yes') AND v.result = 'failed')"
+    " OR (mv.position IN ('nay','no') AND v.result = 'passed'))"
+)
+
+
 def list_member_voting_history(
     member_id: int,
     *,
     cursor: str | None = None,
     limit: int = 20,
     filter_mode: str = "all",
+    since: date | None = None,
 ) -> dict:
     """Cursor-paginated voting history for a member.
 
@@ -754,13 +776,22 @@ def list_member_voting_history(
         limit:  rows per page.
         filter_mode: ``"all"`` or ``"dissent"`` (dissent = position was in the
                      minority for the vote, i.e. *not* aligned with result).
+        since: when given, only votes in meetings dated on or after it, and
+               only the meeting's chosen source (``briefing.chosen_source_cte``:
+               minutes over manual over api over video) with ``needs_review``
+               votes excluded, so the dated view counts what the city page's
+               council card counts; the dated Dissent filter is
+               ``AGAINST_OUTCOME_PREDICATE``. Without it the history is as it
+               always was, the undated Dissent filter included (``D58``).
 
     Returns ``{rows: list[dict], next_cursor: str | None}``. Each row:
         vote_id, meeting_id, meeting_date, meeting_title, position, result,
         yeas, nays, agenda_links (list of {item_number, item_title}).
     """
     where_filter = ""
-    if filter_mode == "dissent":
+    if filter_mode == "dissent" and since is not None:
+        where_filter = f"AND {AGAINST_OUTCOME_PREDICATE}"
+    elif filter_mode == "dissent":
         where_filter = """
           AND mv.position <> 'absent'
           AND NOT (
@@ -769,7 +800,31 @@ def list_member_voting_history(
           )
         """
 
-    params: list = [member_id]
+    params: list = []
+    with_clause = ""
+    source_join = ""
+    where_since = ""
+    if since is not None:
+        # Imported here: briefing imports this module at import time.
+        from docket.services.briefing import chosen_source_cte
+
+        with_clause = "WITH " + chosen_source_cte(
+            "v.meeting_id IN (SELECT m2.id FROM meetings m2"
+            " JOIN votes v2 ON v2.meeting_id = m2.id"
+            " JOIN member_votes mv2 ON mv2.vote_id = v2.id"
+            " WHERE mv2.council_member_id = %s AND m2.meeting_date >= %s AND m2.is_hidden = FALSE)"
+        )
+        params.extend([member_id, since])
+        source_join = """
+            JOIN meeting_vote_source s
+              ON s.meeting_id = v.meeting_id
+             AND s.chosen_source = v.source
+             AND v.needs_review = FALSE
+        """
+        where_since = "AND m.meeting_date >= %s"
+    params.append(member_id)
+    if since is not None:
+        params.append(since)
     where_cursor = ""
     decoded = _decode_cursor(cursor) if cursor else None
     if decoded is not None:
@@ -780,6 +835,7 @@ def list_member_voting_history(
     with db_cursor() as cur:
         cur.execute(
             f"""
+            {with_clause}
             SELECT v.id AS vote_id, v.result, v.source, v.yeas, v.nays,
                    CASE WHEN mv.position IN ('yea','yes') THEN 'yea'
                         WHEN mv.position IN ('nay','no')  THEN 'nay'
@@ -787,9 +843,11 @@ def list_member_voting_history(
                    m.id AS meeting_id, m.meeting_date, m.title AS meeting_title
             FROM member_votes mv
             JOIN votes v    ON mv.vote_id = v.id
+            {source_join}
             JOIN meetings m ON v.meeting_id = m.id
             WHERE mv.council_member_id = %s
               AND m.is_hidden = FALSE
+              {where_since}
               {where_cursor}
               {where_filter}
             ORDER BY m.meeting_date DESC, v.id DESC
@@ -1174,6 +1232,102 @@ def search_agenda_items(
             LIMIT %s OFFSET %s
             """,
             (query, *params, limit, offset),
+        )
+        return [AgendaItem.from_row(dict(row)) for row in cur.fetchall()]
+
+
+def list_items_by_amount(
+    municipality_slug: str,
+    days: int = 90,
+    limit: int = 200,
+) -> list[AgendaItem]:
+    """A city's items of the last ``days`` days that have taken place and were
+    not cancelled, excluding withdrawn items, that carry a dollar amount,
+    largest first (an upcoming or a cancelled meeting's items are left out).
+
+    The ``order=amount`` search page (plan birmingham-city-briefing, M3) and
+    the city page's money door read these rows; the route keeps the ones
+    that pass ``docket.services.briefing.passes_dollar_check`` and pages
+    them in Python, so at most ``limit`` (200) rows are scanned. Same column
+    shape as ``search_agenda_items`` (without ``rank``), so the Smart
+    Brevity Card chain renders them unchanged.
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            f"""
+            SELECT
+                ai.id,
+                ai.meeting_id,
+                ai.external_id,
+                ai.item_number,
+                ai.title,
+                ai.description,
+                ai.section,
+                ai.is_consent,
+                ai.sponsor,
+                ai.dollars_amount,
+                ai.topic,
+                ai.significance_score,
+                ai.consent_placement_score,
+                ai.summary,
+                ai.ai_metadata,
+                ai.ai_prompt_version,
+                ai.ai_generated_at,
+                ai.data_quality::text       AS data_quality,
+                ai.data_debt_priority::text AS data_debt_priority,
+                ai.processing_status::text  AS processing_status,
+                ai.ai_extraction_version,
+                ai.ai_rewrite_version,
+                ai.ai_rewrite_voice,
+                ai.ai_confidence,
+                ai.headline,
+                ai.why_it_matters,
+                ai.source_anchor,
+                CASE
+                    WHEN ai.extracted_facts IS NULL THEN NULL
+                    ELSE jsonb_strip_nulls(jsonb_build_object(
+                        'counterparty',       ai.extracted_facts->>'counterparty',
+                        'funding_source',     ai.extracted_facts->>'funding_source',
+                        'procurement_method', ai.extracted_facts->>'procurement_method',
+                        'action_type',        ai.extracted_facts->>'action_type',
+                        'location',           ai.extracted_facts->'location',
+                        'next_steps',         ai.extracted_facts->'next_steps'
+                    ))
+                END AS extracted_facts,
+                COALESCE(b_agg.badges, '[]'::jsonb) AS badges,
+                mt.title AS meeting_title,
+                mt.meeting_date,
+                m.name AS municipality_name,
+                m.slug AS municipality_slug
+            FROM agenda_items ai
+            JOIN meetings mt ON ai.meeting_id = mt.id
+            JOIN municipalities m ON mt.municipality_id = m.id
+            LEFT JOIN LATERAL (
+                SELECT jsonb_agg(jsonb_build_object(
+                           'kind',        b.kind,
+                           'slug',        b.badge_slug,
+                           'confidence',  b.confidence,
+                           'name',        t.name,
+                           'icon',        t.icon,
+                           'description', t.description
+                       ) ORDER BY b.detected_at DESC) AS badges
+                FROM agenda_item_badges b
+                JOIN priority_badge_templates t ON t.slug = b.badge_slug
+                WHERE b.agenda_item_id = ai.id
+                  AND b.status = 'applied'
+            ) b_agg ON true
+            WHERE m.active = TRUE
+              AND mt.is_hidden = FALSE
+              AND m.slug = %s
+              AND mt.meeting_date >= CURRENT_DATE - %s * INTERVAL '1 day'
+              AND NOT ({_UPCOMING_PREDICATE_MT})
+              AND NOT {CANCELLED_PREDICATE_MT}
+              AND ai.processing_status::text <> 'withdrawn'
+              AND ai.dollars_amount IS NOT NULL
+            ORDER BY ai.dollars_amount DESC, mt.meeting_date DESC, ai.id ASC
+            LIMIT %s
+            """,
+            (municipality_slug, days, limit),
         )
         return [AgendaItem.from_row(dict(row)) for row in cur.fetchall()]
 
@@ -3365,6 +3519,27 @@ def _hydrate_subjects_for_entries(cur, entries: list[CoverageEntry]) -> list[Cov
     return [replace(e, subjects=tuple(grouped.get(e.id, []))) for e in entries]
 
 
+def get_published_note(coverage_id: int) -> CoverageEntry | None:
+    """One published note by id, with its subjects hydrated; ``None`` otherwise.
+
+    Citations and unpublished entries have no permalink, so the route
+    (``/coverage/<id>``) answers 404 when this returns ``None``. Moved here
+    from ``docket.web.public.coverage_permalink`` (plan
+    birmingham-city-briefing, M3; debt ``D7``).
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            _COVERAGE_SELECT + " WHERE ce.id = %s AND ce.kind = 'note' "
+                               "AND ce.status = 'published'",
+            (coverage_id,),
+        )
+        entries = _hydrate_coverage_rows(cur)
+        if not entries:
+            return None
+        entries = _hydrate_subjects_for_entries(cur, entries)
+        return entries[0]
+
+
 def list_published_coverage(
     *,
     kind: str | None = None,
@@ -3601,8 +3776,14 @@ def source_health_for_city(municipality: dict) -> dict:
     freshness state derived from the most recent successful step.
 
     Returns dict with keys: source_url, adapter_class, parser, index,
+    briefing (None unless city_briefing_facts holds a row for the city;
+    otherwise ``briefing.facts_freshness``'s dict, ``warn`` past 48 hours),
     overall (the highest-severity state across all stages).
     """
+    # Local import: briefing.py imports this module's helpers, so a
+    # module-level import here would be circular.
+    from docket.services import briefing as _briefing
+
     mid = municipality["id"]
     with db_cursor() as cur:
         cur.execute(
@@ -3643,7 +3824,12 @@ def source_health_for_city(municipality: dict) -> dict:
 
     parser_state = _date_age_state(last_parsed)
 
+    facts = _briefing.get_city_facts(mid)
+    briefing_state = _briefing.facts_freshness(facts) if facts else None
+
     states = [index_state["state"], parser_state["state"]]
+    if briefing_state is not None:
+        states.append(briefing_state["state"])
     severity = {"good": 0, "warn": 1, "bad": 2, "unknown": 1}
     overall = max(states, key=lambda s: severity.get(s, 1))
 
@@ -3661,6 +3847,7 @@ def source_health_for_city(municipality: dict) -> dict:
             "last_success": last_ingest,
             "meeting_count": meeting_count,
         },
+        "briefing": briefing_state,
         "overall": overall,
     }
 

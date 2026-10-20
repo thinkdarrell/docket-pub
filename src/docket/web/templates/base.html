@@ -47,8 +47,9 @@
     {% block head %}{% endblock %}
 </head>
 <body>
+    <a class="skip-link" href="#main">Skip to main content</a>
     {% block body %}
-    <main class="app-main">
+    <main class="app-main" id="main">
         {% include "partials/masthead.html" %}
         {% block content %}{% endblock %}
         {% include "partials/page_sources.html" %}

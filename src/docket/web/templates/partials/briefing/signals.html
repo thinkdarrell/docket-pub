@@ -1,0 +1,21 @@
+{# Signals in the last 30 days: the process badges with a nonzero count,
+   in plain words, each line a link to its category landing page.
+
+   Args:
+     municipality (dict) — required: slug.
+     signals (list[dict]) — from briefing.signals: slug, label, count.
+       Renders only when non-empty; a zero count has no line. #}
+{% if signals %}
+<section class="brf-door brf-signals" aria-labelledby="brf-signals-h">
+  <header class="brf-head">
+    <h2 id="brf-signals-h" class="brf-h2">Signals in the last 30 days</h2>
+  </header>
+  <ul class="brf-door-list">
+    {% for s in signals %}
+    <li class="brf-door-line">
+      <a href="{{ url_for('public.category_landing', slug=municipality.slug, badge_slug=s.slug) }}">{{ s.label }} — {{ s.count }} item{{ 's' if s.count != 1 else '' }}</a>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}

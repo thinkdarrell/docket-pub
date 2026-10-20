@@ -21,6 +21,7 @@ import psycopg2 as psycopg
 from docket.ai.worker import BudgetExceededError, run_once
 from docket.analysis.vote_matcher import match_all_unmatched
 from docket.db import db, db_cursor
+from docket.services import briefing
 from docket.services.ingest import ingest_municipality
 from docket.services.maintenance import repair_empty_agendas
 from docket.services.member_votes import resolve_unresolved_member_votes
@@ -424,6 +425,21 @@ def task_transcript_pipeline() -> None:
     _safe_run("transcript_pipeline", _do_transcript_pipeline)
 
 
+def _do_briefing_facts() -> None:
+    """Rebuild city_briefing_facts for every city flagged ``briefing``.
+
+    A few SQL statements per city (two SELECTs, one upsert); runs at 09:45
+    after vote_matching (09:00) and process_badges (09:30) so the split
+    votes name today's item links. Spec: plans/completed/birmingham-city-briefing.md.
+    """
+    n = briefing.recompute_all_flagged()
+    log.info("briefing_facts: recomputed %d cities", n)
+
+
+def task_briefing_facts() -> None:
+    _safe_run("briefing_facts", _do_briefing_facts)
+
+
 # --- registry — used by scheduler.py and the --run-once flag -----------------
 
 TASKS: dict[str, Callable[[], None]] = {
@@ -441,4 +457,5 @@ TASKS: dict[str, Callable[[], None]] = {
     "process_batches": task_process_batches,
     "refresh_backfill_ratio_mv": task_refresh_backfill_ratio_mv,
     "prune_analytics": task_prune_analytics,
+    "briefing_facts": task_briefing_facts,
 }

@@ -1,0 +1,25 @@
+{# The opener: two prose beats about the last and the next council meeting,
+   every fact linked to the meeting, item, or member page it came from.
+
+   Args:
+     opener (dict) — from docket.services.briefing.opener_facts; its
+                     ``beats`` is a list of two lists of segments
+                     {text, href, kind}; kind is text | link | action.
+   Renders only for a city whose metadata carries "briefing": true (the
+   route passes opener=None otherwise). Copy and clipping live in
+   briefing.opener_beats so the meta description and the page agree. #}
+{% if opener and opener.beats %}
+<section class="brf-opener" aria-label="Briefing">
+  {% for beat in opener.beats %}
+  <p class="brf-beat">
+    {%- for seg in beat -%}
+      {%- if seg.href -%}
+        <a href="{{ seg.href }}"{% if seg.kind == 'action' %} class="brf-action"{% endif %}>{{ seg.text }}</a>
+      {%- else -%}
+        {{ seg.text }}
+      {%- endif -%}
+    {%- endfor -%}
+  </p>
+  {% endfor %}
+</section>
+{% endif %}

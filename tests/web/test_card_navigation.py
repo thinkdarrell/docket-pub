@@ -95,7 +95,9 @@ def test_council_card_navigates_to_member_detail():
     navigate. P4-2 introduces member_detail; this test pins the new shape.
     """
     src = _template_text("partials/council_card.html")
-    assert '<a class="cc"' in src, "council_card.html must use anchor element"
+    # Since plan birmingham-city-briefing M4 the card is an <article class="cc">
+    # whose name link (cc-link, stretched over the card) carries the record's URL.
+    assert '<a class="cc-name cc-link"' in src, "council_card.html must link the name to the record"
     assert "public.member_detail" in src, (
         "council_card.html must url_for('public.member_detail')"
     )
@@ -130,14 +132,14 @@ def _make_municipality(**overrides):
     return SimpleNamespace(**defaults)
 
 
-def _sample_city_stats():
-    """Minimal city_stats dict required by kpi_strip.html (P3 top-of-overview)."""
-    return SimpleNamespace(
-        meetings_ytd=42,
-        dollars_ytd_formatted="$1.4M",
-        flagged_count=7,
+def _briefing_row(m):
+    """One row as ``briefing.list_briefing_meetings`` shapes it (M2 of the city briefing)."""
+    return dict(
+        id=m.id, title=m.title, meeting_date=m.meeting_date, start_time=None,
+        upcoming=False, item_count=0, total_dollars=None, total_dollars_text=None,
+        split_count=None, agenda_url=None, minutes_url=None, video_url=None,
+        date_text="Monday, October 12",
     )
-
 
 def _make_meeting(id=1, title="City Council Regular Meeting"):
     return SimpleNamespace(
@@ -161,22 +163,17 @@ def test_city_html_rendered_no_rail_refs(render_partial):
     html = render_partial(
         "city.html",
         municipality=muni,
-        meetings=[m],
+        opener=None,
+        briefing_meetings=[_briefing_row(m)],
         meeting_count=1,
         topics=[],
         members=[],
-        recent_meetings=[m],
-        upcoming_meetings=[],
-        notable_items=[],
-        contested_votes=[],
-        recent_votes=[],
-        stats={},
+        money=[],
+        disagreed=None,
         city_policy_badges=[],
         process_badges=[],
         now=datetime.datetime.now(),
-        coverage_counts={},
         kpi_stats=[],
-        city_stats=_sample_city_stats(),
     )
     assert "rail_meeting" not in html, "Rendered city.html emits rail_meeting"
     assert 'hx-target="#source-rail"' not in html, (
@@ -209,26 +206,21 @@ def test_city_html_recent_meetings_have_href(render_partial):
     html = render_partial(
         "city.html",
         municipality=muni,
-        meetings=[m],
+        opener=None,
+        briefing_meetings=[_briefing_row(m)],
         meeting_count=1,
         topics=[],
         members=[],
-        recent_meetings=[m],
-        upcoming_meetings=[],
-        notable_items=[],
-        contested_votes=[],
-        recent_votes=[],
-        stats={},
+        money=[],
+        disagreed=None,
         city_policy_badges=[],
         process_badges=[],
         now=datetime.datetime.now(),
-        coverage_counts={},
         kpi_stats=[],
-        city_stats=_sample_city_stats(),
     )
-    # The feed-row should link to meeting_detail
+    # The meetings-list row should link to meeting_detail
     assert "/al/birmingham/meetings/42/" in html, (
-        "Recent meetings feed-row has no link to meeting_detail"
+        "Recent meetings row has no link to meeting_detail"
     )
 
 

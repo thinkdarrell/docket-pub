@@ -5,7 +5,7 @@ Two modes:
   python -m docket.worker.scheduler                   # daemon mode (Railway worker)
   python -m docket.worker.scheduler --run-once <task> # foreground one-shot
 
-The daemon registers all fourteen jobs with the timezone in $WORKER_TIMEZONE
+The daemon registers all fifteen jobs with the timezone in $WORKER_TIMEZONE
 (default America/Chicago, read through docket.config) and calls
 scheduler.start(), which blocks.
 
@@ -30,7 +30,7 @@ log = logging.getLogger(__name__)
 
 
 def build_scheduler(timezone: str = "America/Chicago") -> BlockingScheduler:
-    """Build a scheduler with all fourteen jobs registered. Does not start it."""
+    """Build a scheduler with all fifteen jobs registered. Does not start it."""
     sched = BlockingScheduler(timezone=timezone)
 
     sched.add_job(
@@ -150,6 +150,16 @@ def build_scheduler(timezone: str = "America/Chicago") -> BlockingScheduler:
         TASKS["recast_post_meeting_ai"],
         CronTrigger(hour=4, minute=45, timezone=timezone),
         id="recast_post_meeting_ai",
+        coalesce=True,
+        max_instances=1,
+    )
+    # Precompute the city briefing's heavy facts (split votes, member
+    # roll-call counts) after vote_matching (09:00) and process_badges
+    # (09:30) so the page reads today's item links in one query.
+    sched.add_job(
+        TASKS["briefing_facts"],
+        CronTrigger(hour=9, minute=45, timezone=timezone),
+        id="briefing_facts",
         coalesce=True,
         max_instances=1,
     )

@@ -32,15 +32,7 @@
 }
 .footnote-bottom .dim { color: var(--ink-3); }
 
-/* leg-foot — "view all" CTA below legislation grid */
-.leg-foot {
-  display: flex; justify-content: space-between; align-items: baseline;
-  margin-top: 24px;
-  padding: 16px 0 8px;
-  border-top: 1px solid var(--rule);
-  gap: 24px;
-  flex-wrap: wrap;
-}
+/* leg-viewall — "view all" CTA (search, coverage listing) */
 .leg-viewall {
   display: inline-flex; align-items: center; gap: 8px;
   font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;

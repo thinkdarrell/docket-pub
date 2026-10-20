@@ -1,0 +1,33 @@
+{# Said at the meeting: one transcript excerpt from the newest meeting with
+   a public transcript, on that meeting's largest item whose own text backs
+   its amount (briefing.said_at_the_meeting).
+
+   Args:
+     municipality (dict) — required: slug.
+     said (dict | None) — meeting_id, date_text, item_id, item_label,
+       anchor, text, speaker ({label, member_id} or None; a None speaker
+       attributes the quote to the discussion alone, so an unresolved
+       cluster label never reaches the page). Renders only when set. #}
+{% if said %}
+<section class="brf-door brf-door-said" aria-labelledby="brf-said-h">
+  <header class="brf-head">
+    <h2 id="brf-said-h" class="brf-h2">Said at the meeting</h2>
+  </header>
+  <blockquote class="brf-quote"><p>{{ said.text }}</p></blockquote>
+  <p class="brf-attribution">
+    {%- if said.speaker -%}
+      {%- if said.speaker.member_id -%}
+        <a href="{{ url_for('public.member_detail', slug=municipality.slug, member_id=said.speaker.member_id) }}">{{ said.speaker.label }}</a>
+      {%- else -%}
+        {{ said.speaker.label }}
+      {%- endif -%}
+      , during discussion of
+    {%- else -%}
+      During discussion of
+    {%- endif %}
+    <a href="{{ url_for('public.item_detail', slug=municipality.slug, item_id=said.item_id) }}">{{ said.item_label }}</a>
+    at the {{ said.date_text }} meeting.
+  </p>
+  <p class="brf-more"><a href="{{ url_for('public.meeting_transcript', slug=municipality.slug, meeting_id=said.meeting_id, _anchor=said.anchor) }}">Read the transcript →</a></p>
+</section>
+{% endif %}

@@ -1,0 +1,62 @@
+{# Recent meetings: the newest six that have an item or a document link.
+
+   Args:
+     municipality (dict) — required: slug, name.
+     briefing_meetings (list[dict]) — from briefing.list_briefing_meetings:
+       id, title, date_text, upcoming, cancelled, item_count,
+       total_dollars_text, split_count, from_video, agenda_url, minutes_url,
+       video_url. A split count whose source is the video says so after it.
+       A cancelled row (title matches query.CANCELLED_PREDICATE_SQL) says
+       "cancelled" in place of its counts, as an upcoming row says
+       "upcoming". #}
+<section class="brf-meetings-section" aria-labelledby="brf-meetings-h">
+  <header class="brf-head">
+    <h2 id="brf-meetings-h" class="brf-h2">Recent meetings</h2>
+  </header>
+  {% if briefing_meetings %}
+  <ul class="brf-meetings">
+    {% for m in briefing_meetings %}
+    <li class="brf-meeting">
+      <a class="brf-meeting-date" href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=m.id) }}">{{ m.date_text }}</a>
+      <span class="brf-meeting-title">{{ m.title }}</span>
+      <span class="brf-meeting-facts">
+        {%- if m.cancelled -%}
+          <span>cancelled</span>
+        {%- elif m.upcoming -%}
+          <span>upcoming</span>
+          {%- if m.item_count %} · <span>{{ m.item_count }} item{{ 's' if m.item_count != 1 else '' }}</span>{% endif -%}
+        {%- else -%}
+          <span>{{ m.item_count }} item{{ 's' if m.item_count != 1 else '' }}</span>
+          {%- if m.total_dollars_text %} · <span>{{ m.total_dollars_text }}</span>{% endif -%}
+          {%- if m.split_count is not none %} · <span>{{ m.split_count }} split vote{{ 's' if m.split_count != 1 else '' }}</span>
+            {%- if m.from_video %} · <span>from the video</span>{% endif -%}
+          {%- endif -%}
+        {%- endif -%}
+      </span>
+      <span class="brf-meeting-docs">
+        {%- if m.agenda_url or m.minutes_url or m.video_url -%}
+          {%- set docs = [] -%}
+          {%- if m.agenda_url %}{% set _ = docs.append('agenda') %}{% endif -%}
+          {%- if m.minutes_url %}{% set _ = docs.append('minutes') %}{% endif -%}
+          {%- if m.video_url %}{% set _ = docs.append('video') %}{% endif -%}
+          {{ docs | join(' · ') }}
+        {%- else -%}
+          no documents linked
+        {%- endif -%}
+      </span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="brf-empty">docket.pub has not indexed a {{ municipality.name }} meeting yet.</p>
+  {% endif %}
+  <p class="brf-meetings-foot">
+    <a href="{{ url_for('public.city_meetings', slug=municipality.slug) }}">All meetings →</a>
+  </p>
+  <p class="brf-follow">
+    Follow:
+    <a href="{{ url_for('public.upcoming_hearings_rss', city=municipality.slug) }}">upcoming hearings (RSS)</a> ·
+    <a href="/al/{{ municipality.slug }}/blog/feed.xml">city blog</a> ·
+    <a href="{{ url_for('public.coverage_rss') }}">coverage</a>
+  </p>
+</section>
