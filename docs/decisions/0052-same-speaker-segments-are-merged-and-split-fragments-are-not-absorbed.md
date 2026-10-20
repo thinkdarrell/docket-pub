@@ -14,7 +14,7 @@ The trap is re-adding fragment absorption, or a minimum run length, because one-
 
 ## Date
 
-2026-10-17, by hand on branch `feat/transcriber-v3-quick-wins` (plan `plans/active/transcriber-v3-quick-wins.md`).
+2026-10-17, by hand on branch `feat/transcriber-v3-quick-wins` (plan `plans/completed/transcriber-v3-quick-wins.md`).
 
 ## Status
 
