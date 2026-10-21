@@ -105,9 +105,14 @@ constrains:
    (`votes.result` holds `tabled` beside `passed` and `failed`); every
    status a classifier assigns (`processing_status = 'withdrawn'`); every
    marker a producer leaves in free text (a cancelled Birmingham meeting
-   is an ordinary row whose title says so); and the clock (a posted
-   agenda is a row before its meeting). A design's table of empty,
-   partial, and full states does not name these. One plan's three
+   is an ordinary row whose title says so); the clock (a posted
+   agenda is a row before its meeting); and every value of the route's
+   own parameters, since one template serves them all (one plan's note
+   under the member page's stat strip, that a flagged vote is listed
+   below but not counted, rendered on the dated view, whose history
+   excludes flagged votes, and on the sponsored view, which lists no
+   votes; the closing review rated it important). A design's table of
+   empty, partial, and full states does not name these. One plan's three
    closing reviews each halted or found an important defect in such a
    state, an upcoming agenda's item written "passed on the consent
    agenda", a cancelled meeting written "the council met", a tabled vote
