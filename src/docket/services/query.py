@@ -265,7 +265,7 @@ def list_agenda_items(meeting_id: int) -> list[AgendaItem]:
             ORDER BY
                 COALESCE(
                     NULLIF(
-                        regexp_replace(COALESCE(ai.item_number, ''), '\D.*$', ''),
+                        regexp_replace(COALESCE(ai.item_number, ''), '\\D.*$', ''),
                         ''
                     )::int,
                     999999
