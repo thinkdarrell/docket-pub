@@ -466,7 +466,8 @@ def test_council_card_links_dissent_since_and_member_page_matches_count(client, 
     resp = client.get(f"/al/birmingham/council/{other}/?filter=dissent&since={since}")
     assert resp.status_code == 200
     assert 'class="member-history-row vote-row"' not in resp.get_data(as_text=True)
-    # Without ``since`` the member page behaves as it always did: every vote.
+    # Without ``since`` the history lists every row, the flagged video vote
+    # included, so the Dissent predicate finds that no on a motion that passed.
     resp = client.get(f"/al/birmingham/council/{other}/?filter=dissent")
     assert resp.status_code == 200
     assert resp.get_data(as_text=True).count('class="member-history-row vote-row"') == 1
@@ -808,8 +809,8 @@ def test_council_card_count_matches_dated_dissent_view_with_abstention_and_table
     # The abstainer's dated view counts none, as the card said ...
     abstainer_id = facts["members"][abstainer]
     assert _dissent_rows(client, abstainer_id, since) == 0
-    # ... while the undated view keeps its older filter: the abstention and the tabled yea (D58).
-    assert _dissent_rows(client, abstainer_id, None) == 2
+    # ... and the undated view, under the same predicate, counts none (decision 0066).
+    assert _dissent_rows(client, abstainer_id, None) == 0
 
 
 # --- M8: the interaction-table states the tests never rendered ------------

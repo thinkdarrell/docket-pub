@@ -265,7 +265,7 @@ def list_agenda_items(meeting_id: int) -> list[AgendaItem]:
             ORDER BY
                 COALESCE(
                     NULLIF(
-                        regexp_replace(COALESCE(ai.item_number, ''), '\D.*$', ''),
+                        regexp_replace(COALESCE(ai.item_number, ''), '\\D.*$', ''),
                         ''
                     )::int,
                     999999
@@ -659,8 +659,41 @@ def get_council_member(member_id: int) -> dict | None:
         return dict(row) if row else None
 
 
+# The member page's counting readers (``get_member_stats``, the counts of
+# ``get_member_vote_summary``) and the dated history take one vote source per
+# meeting: the city page's rule, owned by ``briefing.chosen_source_cte``
+# (decision 0056) and written nowhere else. ``_member_source_with`` returns
+# the WITH clause scoped to the non-hidden meetings holding a vote of one
+# member; its parameters are the member id, then ``since`` when
+# ``where_since`` is given. ``_CHOSEN_SOURCE_JOIN`` keeps the votes of each
+# meeting's chosen source and drops flagged ones.
+def _member_source_with(where_since: str = "") -> str:
+    # Imported here: briefing imports this module at import time.
+    from docket.services.briefing import chosen_source_cte
+
+    return "WITH " + chosen_source_cte(
+        "v.meeting_id IN (SELECT m2.id FROM meetings m2"
+        " JOIN votes v2 ON v2.meeting_id = m2.id"
+        " JOIN member_votes mv2 ON mv2.vote_id = v2.id"
+        f" WHERE mv2.council_member_id = %s{where_since} AND m2.is_hidden = FALSE)"
+    )
+
+
+_CHOSEN_SOURCE_JOIN = """
+            JOIN meeting_vote_source s
+              ON s.meeting_id = v.meeting_id
+             AND s.chosen_source = v.source
+             AND v.needs_review = FALSE
+"""
+
+
 def get_member_stats(member_id: int) -> dict:
     """Compute attendance%, alignment-with-majority%, and total roll-call count.
+
+    The counts take one source per meeting through ``briefing.chosen_source_cte``
+    (minutes over manual over api over video OCR) with flagged (``needs_review``)
+    votes excluded, so the total is the city page's council card's over the
+    same meetings (decision 0066).
 
     attendance_pct = (votes where position != 'absent') / total_votes
     alignment_pct  = (votes where position aligns with majority) / non_absent
@@ -673,7 +706,8 @@ def get_member_stats(member_id: int) -> dict:
     """
     with db_cursor() as cur:
         cur.execute(
-            """
+            f"""
+            {_member_source_with()}
             SELECT
               COUNT(*) AS total,
               COUNT(*) FILTER (WHERE mv.position <> 'absent') AS present,
@@ -686,11 +720,12 @@ def get_member_stats(member_id: int) -> dict:
               ) AS aligned
             FROM member_votes mv
             JOIN votes v ON v.id = mv.vote_id
+            {_CHOSEN_SOURCE_JOIN}
             JOIN meetings m ON m.id = v.meeting_id
             WHERE mv.council_member_id = %s
               AND m.is_hidden = FALSE
             """,
-            (member_id,),
+            (member_id, member_id),
         )
         row = cur.fetchone()
         total = row["total"] or 0
@@ -750,11 +785,11 @@ def _decode_cursor(cursor: str) -> tuple | None:
 
 
 # The one owner of "voted against the outcome" for the city page's council
-# card (``briefing._MEMBER_COUNTS_SQL``) and the member page's dated Dissent
-# view (``list_member_voting_history`` with ``since``): a no on a motion that
-# passed, or a yes on one that failed. An abstention, and any vote on a motion
-# that was tabled, is a roll call attended, not a vote against an outcome.
-# The undated Dissent view keeps its older filter (docs/DEBT.md D58).
+# card (``briefing._MEMBER_COUNTS_SQL``) and the member page's Dissent view
+# (``list_member_voting_history``, with or without ``since``): a no on a motion
+# that passed, or a yes on one that failed. An abstention, and any vote on a
+# motion that was tabled, is a roll call attended, not a vote against an
+# outcome (decisions 0057 and 0066).
 AGAINST_OUTCOME_PREDICATE = (
     "((mv.position IN ('yea','yes') AND v.result = 'failed')"
     " OR (mv.position IN ('nay','no') AND v.result = 'passed'))"
@@ -774,53 +809,34 @@ def list_member_voting_history(
     Args:
         cursor: opaque token from previous page's ``next_cursor``.
         limit:  rows per page.
-        filter_mode: ``"all"`` or ``"dissent"`` (dissent = position was in the
-                     minority for the vote, i.e. *not* aligned with result).
+        filter_mode: ``"all"`` or ``"dissent"`` (dissent = voted against the
+                     outcome: a no on a motion that passed or a yes on one
+                     that failed, ``AGAINST_OUTCOME_PREDICATE``).
         since: when given, only votes in meetings dated on or after it, and
                only the meeting's chosen source (``briefing.chosen_source_cte``:
                minutes over manual over api over video) with ``needs_review``
                votes excluded, so the dated view counts what the city page's
-               council card counts; the dated Dissent filter is
-               ``AGAINST_OUTCOME_PREDICATE``. Without it the history is as it
-               always was, the undated Dissent filter included (``D58``).
+               council card counts. Without it the history lists every row of
+               every source carrying the member's id, flagged rows included
+               (the page shows each row's source). The Dissent filter is
+               ``AGAINST_OUTCOME_PREDICATE`` with or without ``since``.
 
     Returns ``{rows: list[dict], next_cursor: str | None}``. Each row:
         vote_id, meeting_id, meeting_date, meeting_title, position, result,
         yeas, nays, agenda_links (list of {item_number, item_title}).
     """
     where_filter = ""
-    if filter_mode == "dissent" and since is not None:
+    if filter_mode == "dissent":
         where_filter = f"AND {AGAINST_OUTCOME_PREDICATE}"
-    elif filter_mode == "dissent":
-        where_filter = """
-          AND mv.position <> 'absent'
-          AND NOT (
-            (mv.position IN ('yea','yes') AND v.result = 'passed')
-            OR (mv.position IN ('nay','no')  AND v.result = 'failed')
-          )
-        """
 
     params: list = []
     with_clause = ""
     source_join = ""
     where_since = ""
     if since is not None:
-        # Imported here: briefing imports this module at import time.
-        from docket.services.briefing import chosen_source_cte
-
-        with_clause = "WITH " + chosen_source_cte(
-            "v.meeting_id IN (SELECT m2.id FROM meetings m2"
-            " JOIN votes v2 ON v2.meeting_id = m2.id"
-            " JOIN member_votes mv2 ON mv2.vote_id = v2.id"
-            " WHERE mv2.council_member_id = %s AND m2.meeting_date >= %s AND m2.is_hidden = FALSE)"
-        )
+        with_clause = _member_source_with(" AND m2.meeting_date >= %s")
         params.extend([member_id, since])
-        source_join = """
-            JOIN meeting_vote_source s
-              ON s.meeting_id = v.meeting_id
-             AND s.chosen_source = v.source
-             AND v.needs_review = FALSE
-        """
+        source_join = _CHOSEN_SOURCE_JOIN
         where_since = "AND m.meeting_date >= %s"
     params.append(member_id)
     if since is not None:
@@ -946,6 +962,11 @@ def list_sponsored_items_for_member(
 def get_member_vote_summary(member_id: int) -> dict:
     """Return vote summary stats and recent votes for a council member.
 
+    The counts (``total``, ``yea``, ``nay``, ``abstain``, ``absent``) take one
+    source per meeting through ``briefing.chosen_source_cte`` with flagged
+    votes excluded, as ``get_member_stats`` does (decision 0066); ``recent``
+    lists every row carrying the member's id, one per source.
+
     Each recent-vote dict carries an `agenda_links` list of dicts (one per
     linked agenda_item, filtered to is_active=TRUE) with item_number, title,
     and association_type — so the UI can show what was voted on, with
@@ -953,19 +974,21 @@ def get_member_vote_summary(member_id: int) -> dict:
     """
     with db_cursor() as cur:
         cur.execute(
-            """
+            f"""
+            {_member_source_with()}
             SELECT CASE WHEN mv.position IN ('yea','yes') THEN 'yea'
                         WHEN mv.position IN ('nay','no') THEN 'nay'
                         ELSE mv.position END AS pos,
                    COUNT(*) as cnt
             FROM member_votes mv
             JOIN votes v    ON mv.vote_id = v.id
+            {_CHOSEN_SOURCE_JOIN}
             JOIN meetings m ON v.meeting_id = m.id
             WHERE mv.council_member_id = %s
               AND m.is_hidden = FALSE
             GROUP BY pos
             """,
-            (member_id,),
+            (member_id, member_id),
         )
         counts = {r["pos"]: r["cnt"] for r in cur.fetchall()}
 

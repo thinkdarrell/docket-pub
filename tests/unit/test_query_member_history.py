@@ -17,6 +17,7 @@ from docket.services.query import (
     _decode_cursor,
     list_member_voting_history,
     get_member_stats,
+    get_member_vote_summary,
     count_sponsored_items_for_member,
 )
 
@@ -186,7 +187,8 @@ def member_with_two_sources():
 
 def test_voting_history_since_filters_and_applies_source_rule(member_with_two_sources):
     mid = member_with_two_sources
-    # Without ``since``: every vote, as the page always behaved (four dissents).
+    # Without ``since``: the history lists every row of every source, and four
+    # of them are against an outcome (a yea on a motion that failed).
     page = list_member_voting_history(mid, limit=10, filter_mode="dissent")
     assert len(page["rows"]) == 4
     # With ``since``: the date filter drops A; the source rule keeps only B's
@@ -206,9 +208,9 @@ def test_voting_history_since_filters_and_applies_source_rule(member_with_two_so
 
 
 def test_voting_history_since_dissent_excludes_abstentions_and_tabled(member_with_two_sources):
-    """The dated Dissent filter is ``AGAINST_OUTCOME_PREDICATE``: a yea on a
-    tabled motion and an abstention are not votes against an outcome. The
-    undated filter keeps its older definition (``D58``)."""
+    """The Dissent filter, dated or not, is ``AGAINST_OUTCOME_PREDICATE``: a
+    yea on a tabled motion and an abstention are not votes against an outcome,
+    so both views exclude them (decision 0066)."""
     mid = member_with_two_sources
     with db() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -243,6 +245,149 @@ def test_voting_history_since_dissent_excludes_abstentions_and_tabled(member_wit
     # Dated and unfiltered: D's two votes are in the history (they are roll calls attended).
     page = list_member_voting_history(mid, limit=10, since=date(2099, 1, 15))
     assert [r["meeting_title"] for r in page["rows"]] == ["TEST_MH_D", "TEST_MH_D", "TEST_MH_C", "TEST_MH_B"]
-    # Undated Dissent: the older filter lists both of D's votes as dissent (D58).
+    # Undated Dissent: the same predicate, so D's two votes are excluded here too
+    # and the four against-an-outcome rows remain.
     page = list_member_voting_history(mid, limit=10, filter_mode="dissent")
-    assert len(page["rows"]) == 6
+    assert len(page["rows"]) == 4
+
+
+def _add_vote_meeting(
+    muni_id: int,
+    member_id: int,
+    label: str,
+    mdate: str,
+    *,
+    source: str,
+    result: str,
+    position: str,
+    needs_review: bool = False,
+) -> int:
+    """Insert one ``TEST_MH_<label>`` council meeting holding one vote of
+    ``source`` (5-0-0, confidence high) and one member vote; return the
+    meeting id. A label used twice adds a second meeting of the same title."""
+    with db() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """INSERT INTO meetings (municipality_id, title, meeting_date, meeting_type)
+                   VALUES (%s, %s, %s, 'council') RETURNING id""",
+                (muni_id, f"TEST_MH_{label}", mdate),
+            )
+            meeting_id = cur.fetchone()["id"]
+            cur.execute(
+                """INSERT INTO votes (meeting_id, source, result, yeas, nays, abstentions,
+                                       confidence, needs_review)
+                   VALUES (%s, %s, %s, 5, 0, 0, 'high', %s) RETURNING id""",
+                (meeting_id, source, result, needs_review),
+            )
+            vote_id = cur.fetchone()["id"]
+            cur.execute(
+                """INSERT INTO member_votes (vote_id, council_member_id, member_name, position)
+                   VALUES (%s, %s, 'TEST_MH_Lee', %s)""",
+                (vote_id, member_id, position),
+            )
+        conn.commit()
+    return meeting_id
+
+
+def _add_vote_to_meeting(
+    meeting_id: int, member_id: int, *, source: str, result: str, position: str
+) -> int:
+    """Add a second vote of ``source`` to an existing meeting, with one member
+    vote; return the vote id."""
+    with db() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """INSERT INTO votes (meeting_id, source, result, yeas, nays, abstentions,
+                                       confidence, needs_review)
+                   VALUES (%s, %s, %s, 5, 0, 0, 'high', FALSE) RETURNING id""",
+                (meeting_id, source, result),
+            )
+            vote_id = cur.fetchone()["id"]
+            cur.execute(
+                """INSERT INTO member_votes (vote_id, council_member_id, member_name, position)
+                   VALUES (%s, %s, 'TEST_MH_Lee', %s)""",
+                (vote_id, member_id, position),
+            )
+        conn.commit()
+    return vote_id
+
+
+@pytest.fixture
+def member_with_both_sources_one_meeting():
+    """Member ``TEST_MH_Lee`` and one meeting X (2099-05-01) that holds the
+    same motion twice: a ``minutes_text`` vote (passed, yea) and a
+    ``video_ocr`` vote (passed, yes). The member page's counting rule counts
+    the meeting once (minutes win); its history lists both rows."""
+    _cleanup()
+    with db() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT id FROM municipalities ORDER BY id LIMIT 1")
+            muni_id = cur.fetchone()["id"]
+            cur.execute(
+                """INSERT INTO council_members (municipality_id, name, active)
+                   VALUES (%s, 'TEST_MH_Lee', TRUE) RETURNING id""",
+                (muni_id,),
+            )
+            mid = cur.fetchone()["id"]
+        conn.commit()
+    x = _add_vote_meeting(
+        muni_id, mid, "X", "2099-05-01", source="minutes_text", result="passed", position="yea"
+    )
+    _add_vote_to_meeting(x, mid, source="video_ocr", result="passed", position="yes")
+    yield {"member_id": mid, "muni_id": muni_id}
+    _cleanup()
+
+
+def test_get_member_stats_counts_one_source_per_meeting(member_with_both_sources_one_meeting):
+    mid = member_with_both_sources_one_meeting["member_id"]
+    # One meeting, one position, recorded by two sources: one roll call.
+    assert get_member_stats(mid) == {"votes_total": 1, "attendance_pct": 100, "alignment_pct": 100}
+    # The history is not a count: both rows are listed, one per source.
+    rows = list_member_voting_history(mid, limit=10)["rows"]
+    assert len(rows) == 2
+    assert sorted(r["source"] for r in rows) == ["minutes_text", "video_ocr"]
+    assert [r["position"] for r in rows] == ["yea", "yea"]
+
+
+def test_get_member_stats_counts_ocr_only_meeting(member_with_both_sources_one_meeting):
+    fx = member_with_both_sources_one_meeting
+    # Y has only a video vote, so video OCR is its chosen source and it counts.
+    _add_vote_meeting(
+        fx["muni_id"], fx["member_id"], "Y", "2099-06-01",
+        source="video_ocr", result="passed", position="no",
+    )
+    stats = get_member_stats(fx["member_id"])
+    assert stats["votes_total"] == 2
+    assert stats["attendance_pct"] == 100
+    # X aligned (yea on passed), Y not (no on passed).
+    assert stats["alignment_pct"] == 50
+
+
+def test_get_member_stats_excludes_flagged_vote_and_history_lists_it(
+    member_with_both_sources_one_meeting,
+):
+    fx = member_with_both_sources_one_meeting
+    # Z's only vote is flagged for review: counted nowhere, listed everywhere.
+    _add_vote_meeting(
+        fx["muni_id"], fx["member_id"], "Z", "2099-07-01",
+        source="minutes_text", result="failed", position="yea", needs_review=True,
+    )
+    stats = get_member_stats(fx["member_id"])
+    assert stats["votes_total"] == 1
+    assert stats["attendance_pct"] == 100
+    rows = list_member_voting_history(fx["member_id"], limit=10)["rows"]
+    assert [r["meeting_title"] for r in rows] == ["TEST_MH_Z", "TEST_MH_X", "TEST_MH_X"]
+    # Undated Dissent: a yes on a motion that failed, listed though never counted.
+    rows = list_member_voting_history(fx["member_id"], limit=10, filter_mode="dissent")["rows"]
+    assert [r["meeting_title"] for r in rows] == ["TEST_MH_Z"]
+
+
+def test_get_member_vote_summary_counts_under_rule(member_with_both_sources_one_meeting):
+    mid = member_with_both_sources_one_meeting["member_id"]
+    summary = get_member_vote_summary(mid)
+    assert summary["total"] == 1
+    assert summary["yea"] == 1
+    assert summary["nay"] == 0
+    # ``recent`` lists every row, one per source.
+    assert len(summary["recent"]) == 2
+    assert sorted(r["source"] for r in summary["recent"]) == ["minutes_text", "video_ocr"]

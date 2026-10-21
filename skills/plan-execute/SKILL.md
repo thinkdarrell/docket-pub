@@ -59,7 +59,15 @@ available to this session.
 
 Commit at each coherent step rather than once at the end — `plans/PLANS.md`
 asks for frequent commits — so a session that dies leaves landed work rather
-than a dirty tree.
+than a dirty tree. When the acceptance says a test fails before the change
+and passes after, commit the test failing before the code that makes it
+pass, so the before state is readable from git and not only from the plan's
+prose: one plan landed four new tests and the reader they pin in one commit,
+and its closing review had to rebuild the old module on a scratch path to
+check the claim. When that order was missed, recover the before state by
+saving `git diff -- src` to a patch in the session scratchpad, reverting
+`src/`, running the test, and applying the patch back, never with
+`git stash`, whose stack every worktree on the machine shares.
 
 Prove acceptance by running it. Every acceptance check the milestone states
 gets executed, and what it printed is what you record. An acceptance check you

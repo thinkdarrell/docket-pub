@@ -39,7 +39,7 @@
   </div>
 
   <div class="kpi-strip">
-    {% with label='Attendance', value=(stats.attendance_pct ~ '%' if stats.attendance_pct is not none else '—'), sub=(stats.votes_total ~ ' roll calls') %}
+    {% with label='Attendance', value=(stats.attendance_pct ~ '%' if stats.attendance_pct is not none else '—'), sub=(stats.votes_total ~ (' roll call' if stats.votes_total == 1 else ' roll calls')) %}
       {% include 'partials/num_stat.html' with context %}
     {% endwith %}
     {% with label='Alignment with majority', value=(stats.alignment_pct ~ '%' if stats.alignment_pct is not none else '—'), sub='of votes cast' %}
@@ -49,6 +49,14 @@
       {% include 'partials/num_stat.html' with context %}
     {% endwith %}
   </div>
+  {# The second clause says what the list below does with a flagged vote (D71,
+     now closed): the undated history lists it, the dated history drops it
+     (query._CHOSEN_SOURCE_JOIN), and the sponsored view lists no votes. #}
+  <p class="t-meta member-count-note">Counted from the official minutes where a meeting has them and from video OCR otherwise
+    {%- if filter_mode == 'sponsored' %}.
+    {%- elif since %}; a vote flagged for review is neither listed below nor counted.
+    {%- else %}; a vote flagged for review is listed below but not counted.
+    {%- endif %}</p>
 </section>
 
 {# ── Filter chips ─────────────────────────────────── #}
@@ -113,6 +121,7 @@
             </div>
             <div class="t-meta">{{ row.yeas }}–{{ row.nays }} · {{ row.result }}</div>
           </div>
+          <span class="member-history-source t-meta">{{ 'video OCR' if row.source == 'video_ocr' else 'official minutes' }}</span>
           <span class="chip chip-{{ row.position }}">{{ row.position | upper }}</span>
         </a>
         {% endfor %}

@@ -176,6 +176,8 @@
   text-decoration: none; color: var(--ink);
   transition: background .12s;
 }
+.member-history-row.vote-row { grid-template-columns: 110px 1fr auto auto; }
+.member-history-source { color: var(--ink-3); font-size: 11px; white-space: nowrap; }
 .member-history-row:hover { background: var(--paper-2); }
 .member-history-date { color: var(--ink-3); font-size: 11px; }
 .member-history-body { min-width: 0; }
@@ -1416,6 +1418,7 @@
 .brf-sublabel { font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-3); margin: var(--space-3) 0 var(--space-2); }
 .brf-council .council-grid { margin-top: var(--space-2); }
 .member-since { margin: var(--space-2) 0 0; }
+.member-count-note { margin: 0; max-width: 68ch; }
 .brf-more { font-size: 14px; margin: var(--space-3) 0 0; }
 .brf-more a { color: var(--accent-ink); text-decoration: none; }
 .brf-more a:hover { text-decoration: underline; }

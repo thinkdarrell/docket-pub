@@ -86,7 +86,16 @@ constrains:
    Context lists each hit as an edit or a leave-alone. Two consecutive
    plans left a sentence of the old rule standing, four prose sites in one
    and a producer docstring in the next, and each was found after the
-   milestones closed, by the retro and by the closing review.
+   milestones closed, by the retro and by the closing review. The same
+   grep is run for an identifier the work retires, a debt row id or a
+   decision number, and Context lists each hit the same way, before any
+   acceptance clause says the id will print nowhere: a paid row stays
+   cited by the record that paid it and by any row that names it as
+   history, so such a clause is written from the hits that remain. One
+   plan's clause that `D58` print nothing from four files met the `D70`
+   row, which lists the rows a pull request spent, and its own decision
+   `0066` kept citing the `D68` row the plan deleted; each became a
+   carve-out the session recorded in place of a check the author had run.
    When the work has a page write a sentence about a row (the council
    met, an item passed, a vote failed, this was the largest), the research
    lists the states of that row's table that would make the sentence
@@ -96,9 +105,14 @@ constrains:
    (`votes.result` holds `tabled` beside `passed` and `failed`); every
    status a classifier assigns (`processing_status = 'withdrawn'`); every
    marker a producer leaves in free text (a cancelled Birmingham meeting
-   is an ordinary row whose title says so); and the clock (a posted
-   agenda is a row before its meeting). A design's table of empty,
-   partial, and full states does not name these. One plan's three
+   is an ordinary row whose title says so); the clock (a posted
+   agenda is a row before its meeting); and every value of the route's
+   own parameters, since one template serves them all (one plan's note
+   under the member page's stat strip, that a flagged vote is listed
+   below but not counted, rendered on the dated view, whose history
+   excludes flagged votes, and on the sponsored view, which lists no
+   votes; the closing review rated it important). A design's table of
+   empty, partial, and full states does not name these. One plan's three
    closing reviews each halted or found an important defect in such a
    state, an upcoming agenda's item written "passed on the consent
    agenda", a cancelled meeting written "the council met", a tabled vote
