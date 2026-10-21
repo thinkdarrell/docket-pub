@@ -38,6 +38,10 @@ After this plan a reader notices three things. The member page without `since` p
   Evidence: `1 failed, 10 passed in 0.72s`, with `FAILED tests/web/test_new_routes_p4.py::test_member_detail_shows_source_column_and_count_note` and `E       assert 'class="member-history-source t-meta">official minutes<' in '<!DOCTYPE html>...'`.
 - Observation (M2 session): the stat strip's sub-line reads `1 roll calls` for one roll call, the plural the existing `partials/num_stat.html` call in the template has always printed (`sub=(stats.votes_total ~ ' roll calls')`), and the plan's acceptance asserts that exact text. Left as it is: the wording predates this plan and changing it is outside the milestone.
   Evidence: the body assertion `"1 roll calls" in body` passed in the `11 passed` run.
+- Observation (M2 session): the `1 warning` the first verify tier prints (M1 saw it too and did not capture it) is `PytestRemovedIn10Warning: Class-scoped fixture defined as instance method is deprecated.` from `tests/unit/test_engagement_strip.py::TestCardPartialCityAlias::test_engagement_strip_without_city_silently_degrades`, a file this plan does not touch; the integration tier separately prints `PytestUnknownMarkWarning: Unknown pytest.mark.integration` from `tests/integration/test_vote_matcher_v2_integration.py:19`. Both predate this plan and are left alone.
+  Evidence: the closing `./tools/verify` log of the M2 session, its two `warnings summary` blocks.
+- Observation (M2 session): the M2 tick was stamped `00:24Z` while the clock read `2026-10-21 00:23Z` when the tick commit was made (`date -u` printed in the same command); the stamp is one minute ahead and is left as written because a Progress line's text is not reworded once written.
+  Evidence: the output of the tick command, 2026-10-21.
 
 ## Decision Log
 
