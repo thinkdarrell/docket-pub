@@ -68,6 +68,13 @@ check the claim. When that order was missed, recover the before state by
 saving `git diff -- src` to a patch in the session scratchpad, reverting
 `src/`, running the test, and applying the patch back, never with
 `git stash`, whose stack every worktree on the machine shares.
+A test of a symbol that does not exist yet imports it inside the test
+function, not at the top of the module, so the file still collects and
+the before state reads as that test failing beside the rest passing, not
+as one collection error that hides every test in the file: one plan's
+test of a new filter did so and its before state read `12 failed, 71
+deselected`, where the module-level import the plan's own wording
+suggested would have failed collection of the file's 71 existing tests.
 
 Prove acceptance by running it. Every acceptance check the milestone states
 gets executed, and what it printed is what you record. An acceptance check you
