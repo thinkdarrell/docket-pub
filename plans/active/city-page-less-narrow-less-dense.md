@@ -8,7 +8,7 @@ This document must be maintained in accordance with `plans/PLANS.md`.
 
 The Birmingham city page, `https://docket.pub/al/birmingham/` (the route `city_overview` in `src/docket/web/public.py`, the template `src/docket/web/templates/city.html`, the service `src/docket/services/briefing.py`, described in the present tense by `docs/specs/city-page.md`), is ten stacked sections of one-line list items. The operator's review measured the live page at ten stacked sections, about 5,200 visible characters, and 76 links, with disagreement rows of up to 184 characters that wrap to three lines inside the lists' 68-character cap on a desktop and to five or six lines on a phone. Every list sits in a column 68 characters wide while the page's main column is 1,200 pixels, so on a desktop the page reads as a narrow strip down the left; and every row packs its amount, headline, date, names, and labels into one run of text, so it reads dense at every width.
 
-After this plan a reader opening the same page sees the same ten sections and every link the page carries today (one deliberate exception, the example headline each topic line carries, which the operator's own goal drops), laid out so that it is wider on a desktop and lighter everywhere. Three changes, each shipped on its own and each visible on its own. (A) Every row of "Where the money went", "Where they disagreed", "What they keep dealing with", and "Signals in the last 30 days" becomes two-tier: a key figure at the left in the monospace face (the dollar amount in a compact form, "$10.1M"; the vote tally, "8–1", with "1–6 failed" in the page's bad tone and "5–4 tabled" plain; the count, "3 items"), the linked headline beside it, and a muted 13-pixel second line under the headline holding the date, then the dissenters' names, then "from the video" or "passed on the consent agenda" where today's line says them; on a phone the key figure and the date share one small line above the headline. The "Recent meetings" list already has this shape and does not change. (B) From 900 pixels of viewport width, money and disagreed share one two-column band and topics shares a second band with signals over the "Said at the meeting" quote; below that width they stack as today. The opener, the search label, and the quote keep their 68-character cap because they are prose; the lists lose it. (C) The topics door shows each tracked priority and each busiest topic as its count and its linked name, with the window stated once in the sub-label and no example headline; the council card's two stats shorten to "Attended 121 of 121 roll calls" and "Against the outcome 2 times" with "Roll calls counted over the last 12 months." stated once under the grid; and on a phone the city page's council renders as nine rows (initials square, district, name, the two numbers) instead of nine three-column tiles. Section order stays as it is except that signals moves up beside topics, so the order becomes money, disagreed, council, topics, signals, said, meetings, blog.
+After this plan a reader opening the same page sees the same ten sections and every link the page carries today (one deliberate exception, the example headline each topic line carries, which the operator's own goal drops), laid out so that it is wider on a desktop and lighter everywhere. Three changes, each shipped on its own and each visible on its own. (A) Every row of "Where the money went", "Where they disagreed", "What they keep dealing with", and "Signals in the last 30 days" becomes two-tier: a key figure at the left in the monospace face (the dollar amount in a compact form, "$10.1M"; the vote tally, "8–1", with "1–6 failed" in the page's bad tone and "5–4 tabled" plain; the count, "3 items"), the linked headline beside it, and a muted 13-pixel second line under the headline holding the date, then the dissenters' names, then "from the video" or "passed on the consent agenda" where today's line says them; on a phone the money and disagreement rows put the key figure and the date on one small line above the headline, while the count rows of topics and signals keep the key beside the name. The "Recent meetings" list already has this shape and does not change. (B) From 900 pixels of viewport width, money and disagreed share one two-column band and topics shares a second band with signals over the "Said at the meeting" quote; below that width they stack as today. The opener, the search label, and the quote keep their 68-character cap because they are prose; the lists lose it. (C) The topics door shows each tracked priority and each busiest topic as its count and its linked name, with the window stated once in the sub-label and no example headline; the council card's two stats shorten to "Attended 121 of 121 roll calls" and "Against the outcome 2 times" with "Roll calls counted over the last 12 months." stated once under the grid; and on a phone the city page's council renders as nine rows (initials square, district, name, the two numbers) instead of nine three-column tiles. Section order stays as it is except that signals moves up beside topics, so the order becomes money, disagreed, council, topics, signals, said, meetings, blog.
 
 How to see it working: `./tools/verify` passes at the end of every milestone with the city page's tests rewritten to the new markup; `venv/bin/flask --app docket.web:create_app run` against a database seeded by `tests/support/briefing_seed.py` plus `briefing.recompute_city_facts` renders `http://127.0.0.1:5000/al/birmingham/` with the rows, bands, and copy this plan describes; and the operator, who alone has a browser in this workflow, records in Surprises & Discoveries what the page looks like at 1,200, 900, and 375 pixels after each milestone merges.
 
@@ -81,6 +81,19 @@ How to see it working: `./tools/verify` passes at the end of every milestone wit
   Rationale: a factory session has no browser; the acceptance it can run is the rendered markup, the stylesheet text, and the tests, and a plan that names a command the session cannot run costs a divergence instead of a check (`skills/plan-author/SKILL.md`, step 8).
   Date/Author: 2026-10-21, plan author.
 
+- Decision: the desktop row has `column-gap: 0`; the key column is `calc(var(--brf-key-w) + var(--space-3))` with that `--space-3` as the key's right padding, and the separator before the rest span is `"\00a0· "` (a no-break space, then the dot). The default `--brf-key-w` is `12ch`, not `11ch`.
+  Rationale: the operator's external review of this plan (2026-10-21) found that with `column-gap: var(--space-3)` the gap falls between the date (column 2) and the rest (column 3) as well as after the key, so a second line printed as "October 14", twelve pixels of nothing, then "· against: ...": a chasm before the dot and a normal space after it. Moving the gap into the key column keeps the headline where it was and lets the date and the rest sit flush, with the no-break space giving the dot its own even spacing. The review also noted that a failed or tabled vote can carry an abstention ("4–4–1 failed", twelve characters), which an eleven-character column would overflow; one character more costs about nine pixels in each list. Two of the review's other suggestions were not taken: `align-items: baseline` (the key spans both grid rows, and a multi-row item's part in baseline alignment is not something to rely on, so the hand-set one-pixel top padding stays), and its claim that single-line rows lose twelve pixels to the gap between columns 2 and 3 (the headline spans both tracks, and a spanning item's width includes the gap it crosses, so nothing is lost; the only cost on a single-line row is the two-pixel row gap before an empty second row, which is left as it is).
+  Date/Author: 2026-10-21, the operator (Darrell Nance) by external review; applied by Claude.
+- Decision: the phone stacking (`"key date" / "head head" / "rest rest"`) applies to the rows of `.brf-door-money` and `.brf-door-disagreed` only; the rows of the topics and signals doors keep the desktop grid at phone width, the key column beside the name, and a quiet priority's "last item <date>" sits under its name in the date slot.
+  Rationale: the same review found that a row with no date (every active priority, every busiest topic, every signal) would put its key alone on the first line and the name on the second under the unscoped phone rule, doubling the height of two lists whose rows are one short name each. The review offered `.brf-door-line:has(.brf-row-date)`; scoping by door is chosen instead because it needs no `:has()` support, reads as the doors' own rule, and gives the topics door one shape at phone width whether or not a priority is quiet. The phone `.brf-key` rule keeps only the 13-pixel size; the stacked doors zero the key's padding, since their phone grid carries its own `column-gap`.
+  Date/Author: 2026-10-21, the operator by external review; applied by Claude.
+- Decision: each `<div class="brf-band">` in `city.html` is guarded by the condition under which at least one of its sections renders: `{% if money or disagreed %}` and `{% if (topics_door and (topics_door.priorities or topics_door.topics)) or signals or said %}`.
+  Rationale: the review noted that an unguarded wrapper renders an empty `<div>` for a city with nothing in either door (the `tests/web/test_card_navigation.py` fixtures, a newly onboarded city). Today that div has no height, but `docs/specs/city-page.md` says a section with nothing to show renders nothing, and the guard keeps that true of the wrappers too; the `facts` fixture renders every door, so the band-order test and the `grep -c` of two bands are unchanged.
+  Date/Author: 2026-10-21, the operator by external review; applied by Claude.
+- Decision: `compact_dollars` drops a trailing `.0` with `str.removesuffix(".0")` rather than `.rstrip("0").rstrip(".")`.
+  Rationale: the review observed that the `rstrip` form is correct only because the quantized value always carries a decimal point; fed an integer string it would turn `"50"` into `"5"`. The suffix form prints the same nine strings on the plan's cases (checked 2026-10-21) and cannot do that, and Python 3.10 has it.
+  Date/Author: 2026-10-21, the operator by external review; applied by Claude.
+
 ## Outcomes & Retrospective
 
 Nothing has been executed yet. The entry for each milestone is written by the session that completes it, and the closing entry compares the page against the purpose above: the same sections and links, two-tier rows, two bands from 900 pixels, and the trimmed topics and council copy.
@@ -115,13 +128,13 @@ In `tests/web/test_city_briefing.py`: line 237, `assert "upcoming" in section` b
 
 In `docs/DEBT.md`, the `D62` row becomes: Item "Two small defects the first and second closing reviews of plan `birmingham-city-briefing` rated minor: source health prints the briefing row's `computed_at` through `strftime` followed by a literal "UTC" while psycopg2 delivers it in the session's time zone (`America/Chicago` locally), so the operator reads a wall-clock time mislabelled; and `briefing.amount_in_words` rounds to one decimal before choosing the unit, so 999,950,000 to 999,999,999 print "$1000 million" (the third item, the assertion in `tests/web/test_city_briefing.py` that could not fail, was paid by plan `city-page-less-narrow-less-dense` M1)"; Where "`src/docket/web/templates/source_health.html` (stage 5), `src/docket/services/briefing.py` `amount_in_words`"; Why deferred unchanged; Trigger "The next touch of each file".
 
-In `docs/specs/city-page.md`, in "The doors": the money sentence `each line "<$ amount> — <headline> · <Month D>[ · passed on the consent agenda]" linking to the item page` becomes `each row two-tier: the amount as the key figure at the left in the mono face, in its compact form (`compact_dollars` in `src/docket/web/filters.py`: "$50M", "$10.1M", "$1.2B", and "$850,000" below a million), the headline linked to the item page beside it, and a muted second line "<Month D>[ · passed on the consent agenda]"; at phone width the key figure and the date share one small line above the headline`; the disagreement sentence `each "<item clause linked> · <passed, failed, or tabled, the stored result> <y> to <n>[ to <a> abstaining] · <Month D> · <dissenters>[ · from the video]"` becomes `each row two-tier: the tally "<y>–<n>[–<a>]" as the key figure, followed by " failed" in the bad tone or " tabled" plain when the stored result is not passed and by nothing when it is, the item clause linked beside it, and a muted second line "<Month D>[ · against: <names>][ · <names> abstained][ · from the video]"`, with the clause about where the item clause links and how a resolved dissenter links kept, and `with "(abstained)" after an abstainer` dropped. In "The page, first to last", after the sentence naming the `brf-` prefix, add: `A door row (`.brf-door-line`) is a grid of a key figure, a headline link, a date, and the rest of its second line, with the phone layer of `mobile.css` moving the key and the date onto one line above the headline.`
+In `docs/specs/city-page.md`, in "The doors": the money sentence `each line "<$ amount> — <headline> · <Month D>[ · passed on the consent agenda]" linking to the item page` becomes `each row two-tier: the amount as the key figure at the left in the mono face, in its compact form (`compact_dollars` in `src/docket/web/filters.py`: "$50M", "$10.1M", "$1.2B", and "$850,000" below a million), the headline linked to the item page beside it, and a muted second line "<Month D>[ · passed on the consent agenda]"; at phone width the key figure and the date share one small line above the headline`; the disagreement sentence `each "<item clause linked> · <passed, failed, or tabled, the stored result> <y> to <n>[ to <a> abstaining] · <Month D> · <dissenters>[ · from the video]"` becomes `each row two-tier: the tally "<y>–<n>[–<a>]" as the key figure, followed by " failed" in the bad tone or " tabled" plain when the stored result is not passed and by nothing when it is, the item clause linked beside it, and a muted second line "<Month D>[ · against: <names>][ · <names> abstained][ · from the video]"`, with the clause about where the item clause links and how a resolved dissenter links kept, and `with "(abstained)" after an abstainer` dropped. In "The page, first to last", after the sentence naming the `brf-` prefix, add: `A door row (`.brf-door-line`) is a grid of a key figure, a headline link, a date, and the rest of its second line, with the phone layer of `mobile.css` moving the key and the date onto one line above the headline in "Where the money went" and "Where they disagreed".`
 
 ### M2: the topics and signals rows, the bands, the order
 
 Rewrite `partials/briefing/door_topics.html` and `partials/briefing/signals.html` as given under Artifacts and Notes: the topics sub-labels become `Tracked in {{ municipality.name }} · since {{ topics_door.since_text }}` and `Busiest topics · since {{ topics_door.since_text }}`; each priority and topic row is the key `<n> item(s)` and the linked name, with a quiet priority's row (its `latest` set, `example` None) adding `<span class="brf-row-date">last item {{ p.latest.date_long }}</span>` and the key `0 items`; no example headline and no item link remain in the door. Each signal row is the key `<n> item(s)` and the label linked to its category landing.
 
-In `city.html`, wrap the two includes of `door_money.html` and `door_disagreed.html` in `<div class="brf-band">`; move the include of `signals.html` above `door_said.html`; wrap the include of `door_topics.html` and, inside `{% if signals or said %}`, a `<div class="brf-band-col">` holding the `signals.html` and `door_said.html` includes, in a second `<div class="brf-band">`; the council section stays between the bands and the meetings and blog sections follow the second band. The resulting order of `<h2>` texts is money, disagreed, council, topics, signals, said, meetings, blog.
+In `city.html`, wrap the two includes of `door_money.html` and `door_disagreed.html` in `<div class="brf-band">` inside `{% if money or disagreed %}`; move the include of `signals.html` above `door_said.html`; wrap the include of `door_topics.html` and, inside `{% if signals or said %}`, a `<div class="brf-band-col">` holding the `signals.html` and `door_said.html` includes, in a second `<div class="brf-band">` inside `{% if (topics_door and (topics_door.priorities or topics_door.topics)) or signals or said %}` (the topics partial's own condition, so a band renders only when it will hold a section); the council section stays between the bands and the meetings and blog sections follow the second band. The resulting order of `<h2>` texts is money, disagreed, council, topics, signals, said, meetings, blog.
 
 In `layout.css`, delete `.brf-door { max-width: 68ch; }`, add `.brf-door-said { max-width: 68ch; }` beside the quote rules, add `.brf-door-topics .brf-door-line, .brf-signals .brf-door-line { --brf-key-w: 9ch; }` beside the money door's width rule, and add the band block given under Artifacts and Notes (`.brf-band-col { min-width: 0; }` and the `@media (min-width: 900px)` rule).
 
@@ -311,10 +324,12 @@ The signals partial's list after M2:
     {% include 'partials/briefing/search.html' %}
 
     {# Band one (plan city-page-less-narrow-less-dense, M2): money beside disagreed from 900px #}
+    {% if money or disagreed %}
     <div class="brf-band">
     {% include 'partials/briefing/door_money.html' %}
     {% include 'partials/briefing/door_disagreed.html' %}
     </div>
+    {% endif %}
 
     {# The council: the roster by district with the twelve-month counts #}
     {% if members %}
@@ -327,6 +342,7 @@ The signals partial's list after M2:
     {% endif %}
 
     {# Band two: topics beside signals over the quote #}
+    {% if (topics_door and (topics_door.priorities or topics_door.topics)) or signals or said %}
     <div class="brf-band">
     {% include 'partials/briefing/door_topics.html' %}
     {% if signals or said %}
@@ -336,6 +352,7 @@ The signals partial's list after M2:
     </div>
     {% endif %}
     </div>
+    {% endif %}
 
     {% include 'partials/briefing/meetings.html' %}
     ... the blog rail as today ...
@@ -350,12 +367,12 @@ The row rules in `layout.css` after M1, replacing lines 1409 to 1415:
        layer in mobile.css moves the key and the date onto one line above it. */
     .brf-door-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--rule); }
     .brf-door-line {
-      --brf-key-w: 11ch;
+      --brf-key-w: 12ch;
       display: grid;
-      grid-template-columns: var(--brf-key-w) max-content 1fr;
+      grid-template-columns: calc(var(--brf-key-w) + var(--space-3)) max-content 1fr;
       grid-template-areas: "key head head" "key date rest";
       align-items: start;
-      column-gap: var(--space-3);
+      column-gap: 0;
       row-gap: 2px;
       padding: var(--space-3) 0;
       border-bottom: 1px solid var(--rule);
@@ -363,7 +380,7 @@ The row rules in `layout.css` after M1, replacing lines 1409 to 1415:
       min-height: 44px;
     }
     .brf-door-money .brf-door-line { --brf-key-w: 9ch; }
-    .brf-key { grid-area: key; font-size: 14px; line-height: 1.5; padding-top: 1px; font-weight: 500; color: var(--ink); white-space: nowrap; }
+    .brf-key { grid-area: key; font-size: 14px; line-height: 1.5; padding: 1px var(--space-3) 0 0; font-weight: 500; color: var(--ink); white-space: nowrap; }
     .brf-key--bad { color: var(--bad); }
     .brf-row-link { grid-area: head; }
     .brf-door-line a { color: var(--ink); text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 3px; }
@@ -371,24 +388,27 @@ The row rules in `layout.css` after M1, replacing lines 1409 to 1415:
     .brf-row-date, .brf-row-rest { font-size: 13px; line-height: 1.5; color: var(--ink-3); }
     .brf-row-date { grid-area: date; white-space: nowrap; }
     .brf-row-rest { grid-area: rest; min-width: 0; }
-    .brf-row-date + .brf-row-rest::before { content: "· "; }
+    .brf-row-date + .brf-row-rest::before { content: "\00a0· "; }
     .brf-row-rest a { color: var(--ink-2); }
     .brf-door-text { line-height: 1.5; margin: 0; }
     .brf-door-text a { color: var(--ink); text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 3px; }
 
 The phone row rules in `mobile.css` after M1, at the end of the `@media (max-width: 768px)` block that holds `.brf-meeting`:
 
-      /* City briefing door rows (plan city-page-less-narrow-less-dense, M1): the
-         key figure and the date share one small line above the headline. */
-      .brf-door-line {
+      /* City briefing door rows (plan city-page-less-narrow-less-dense, M1): in the
+         money and disagreement doors the key figure and the date share one small
+         line above the headline. The count rows of the topics and signals doors
+         (M2) keep the desktop shape, the key beside the name. */
+      .brf-key { font-size: 13px; }
+      .brf-door-money .brf-door-line, .brf-door-disagreed .brf-door-line {
         grid-template-columns: max-content 1fr;
         grid-template-areas: "key date" "head head" "rest rest";
         column-gap: var(--space-2);
       }
-      .brf-key { font-size: 13px; padding-top: 0; }
-      .brf-row-date { white-space: normal; }
-      .brf-row-date::before { content: "· "; }
-      .brf-row-date + .brf-row-rest::before { content: none; }
+      .brf-door-money .brf-key, .brf-door-disagreed .brf-key { padding: 0; }
+      .brf-door-money .brf-row-date, .brf-door-disagreed .brf-row-date { white-space: normal; }
+      .brf-door-money .brf-row-date::before, .brf-door-disagreed .brf-row-date::before { content: "· "; }
+      .brf-door-money .brf-row-date + .brf-row-rest::before, .brf-door-disagreed .brf-row-date + .brf-row-rest::before { content: none; }
 
 The band rules in `layout.css` after M2, after `.brf-more a:hover`:
 
@@ -449,14 +469,16 @@ In `src/docket/web/filters.py`, define and register:
         so 999,950,000 prints ``$1B``, never ``$1000M``.
         """
 
-Its twelve unit cases and what each prints: `50_000_000` → `$50M`; `10_125_000` → `$10.1M`; `850_000` → `$850,000`; `1_200_000_000` → `$1.2B`; `999_950_000` → `$1B`; `1_000_000` → `$1M`; `1_050_000` → `$1.1M`; `Decimal("2300000.00")` → `$2.3M`; `850_000.42` → `$850,000`; `None` → `""`; `0` → `""`; `"abc"` → `""`. Rounding is `decimal.ROUND_HALF_UP` on `Decimal` arithmetic (`(amount / Decimal(1_000_000)).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)`), and the text is `format(scaled, "f").rstrip("0").rstrip(".")`; the arithmetic was checked at authoring and printed exactly these values.
+Its twelve unit cases and what each prints: `50_000_000` → `$50M`; `10_125_000` → `$10.1M`; `850_000` → `$850,000`; `1_200_000_000` → `$1.2B`; `999_950_000` → `$1B`; `1_000_000` → `$1M`; `1_050_000` → `$1.1M`; `Decimal("2300000.00")` → `$2.3M`; `850_000.42` → `$850,000`; `None` → `""`; `0` → `""`; `"abc"` → `""`. Rounding is `decimal.ROUND_HALF_UP` on `Decimal` arithmetic (`(amount / Decimal(1_000_000)).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)`), and the text is `format(scaled, "f").removesuffix(".0")` (the quantized value always carries one decimal, so this drops exactly a trailing `.0` and can never shorten an integer the way `rstrip("0")` would turn `"50"` into `"5"`); the arithmetic was checked at authoring and printed exactly these values, and the suffix form was checked on 2026-10-21 to print the same nine strings as the `rstrip` form it replaced.
 
 The template context is unchanged: `money` rows carry `amount` (the stored `Decimal`), `headline`, `date_text`, `is_consent`, `item_id`; `disagreed.splits` rows carry `clause`, `clause_href`, `verb`, `yeas`, `nays`, `abstentions`, `date_text`, `dissenters` (`name`, `href`, `abstained`), `from_video`; `topics_door` carries `since_text`, `priorities` (`slug`, `name`, `count`, `example`, `latest`), `topics` (`slug`, `name`, `count`); `signals` rows carry `slug`, `label`, `count`; each member's `briefing` carries `roll_calls`, `attended`, `against`, `dissent_href`. `src/docket/services/briefing.py` and `src/docket/web/public.py` are not edited by any milestone, and `git diff --stat origin/main -- src/docket/services` printing nothing is part of every milestone's acceptance.
 
-CSS classes this plan introduces, all on the city page: `brf-key`, `brf-key--bad`, `brf-row-link`, `brf-row-date`, `brf-row-rest` (M1); `brf-band`, `brf-band-col` (M2); `brf-council-note` (M3). Classes it retires: `brf-amount` (M1); the `.brf-door` width rule (M2; the class itself stays on the sections because the tests slice by it). The custom property `--brf-key-w` is set on `.brf-door-line` and overridden per door. The thresholds are `max-width: 768px` (phone, `mobile.css`) and `min-width: 900px` (bands, `layout.css`).
+CSS classes this plan introduces, all on the city page: `brf-key`, `brf-key--bad`, `brf-row-link`, `brf-row-date`, `brf-row-rest` (M1); `brf-band`, `brf-band-col` (M2); `brf-council-note` (M3). Classes it retires: `brf-amount` (M1); the `.brf-door` width rule (M2; the class itself stays on the sections because the tests slice by it). The custom property `--brf-key-w` (the key's text width; the column adds `--space-3` of padding on the key's right, and the row has no column gap) is set on `.brf-door-line` and overridden per door. The thresholds are `max-width: 768px` (phone, `mobile.css`) and `min-width: 900px` (bands, `layout.css`).
 
 Debt and specs: `D62` is edited in M1 as Plan of Work gives it; `D60` and `D61` must not trip, which the untouched `briefing.py` guarantees; `docs/specs/city-page.md` is edited in every milestone. Identifiers already spent on `origin/main`: debt rows through `D73`, decisions through `0066`.
 
 ## Revision note
 
 Authored 2026-10-21 from the operator's goal and the read-only scope brief, with the brief folded into Purpose and Context as prose. The plan deliberately leaves out: the "0 items" rows of "Recent meetings" and the opener headline that clips mid-word (the goal excludes them); the mockup's "How these are counted →" link (no destination page exists, so the window sentence ships without a link); any change to `/al/<slug>/council/` beyond the shared card's copy (the phone list is scoped to `.brf-council`); the dissenter name form (the stored name prints as today); the five `D60` sentences and the `D61` guard (the layout needs no `briefing.py` edit, and taking them would make this a service change); reusing `format_dollars` (it prints `$50.0M`); folding the 768px and 900px thresholds into one; the blog rail and the search field; and the open issues #107 and #73. It adds, beyond the brief, the `--space-5` token and the `tests/integration/test_f4_browse_by_priority.py` edits that the research found.
+
+Revised 2026-10-21, before any milestone ran, from the operator's external review of the plan. Four changes, each with a Decision Log entry: the desktop row's gap moves from `column-gap` into the key column so no gap falls between the date and the rest, with a no-break space before the dot and a default key width of `12ch`; the phone stacking is scoped to the money and disagreement doors so date-less count rows stay one line; the two band wrappers are guarded by their sections' own conditions; and `compact_dollars` drops its trailing `.0` with `removesuffix`. The review's `align-items: baseline` and `:has()` suggestions were not taken, for the reasons the entries give; its check of the phone council's tap targets (`.cc` keeps `position: relative` from `layout.css` and `.cc-dissent` its `z-index: 1`, so the dissent link stays above the stretched member link) and of the Jinja whitespace in the rest span found nothing to change. No milestone text, acceptance command, or test description changed.
