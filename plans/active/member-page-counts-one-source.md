@@ -12,7 +12,7 @@ After this plan a reader notices three things. The member page without `since` p
 
 ## Progress
 
-- [ ] M1: `get_member_stats` and the counts of `get_member_vote_summary` in `src/docket/services/query.py` take one source per meeting through `briefing.chosen_source_cte` by a function-local import, the undated Dissent filter of `list_member_voting_history` is `AGAINST_OUTCOME_PREDICATE`, four new unit tests in `tests/unit/test_query_member_history.py` fail before the change and pass after, the three assertions that pinned the old behaviour are updated, decision `0066` is written, `D58` is deleted, and decisions `0056` and `0057` cite the paid row
+- [x] (2026-10-21 00:13Z) M1: `get_member_stats` and the counts of `get_member_vote_summary` in `src/docket/services/query.py` take one source per meeting through `briefing.chosen_source_cte` by a function-local import, the undated Dissent filter of `list_member_voting_history` is `AGAINST_OUTCOME_PREDICATE`, four new unit tests in `tests/unit/test_query_member_history.py` fail before the change and pass after, the three assertions that pinned the old behaviour are updated, decision `0066` is written, `D58` is deleted, and decisions `0056` and `0057` cite the paid row
 - [ ] M2: `member_detail.html` shows each history row's source in its own column ("official minutes" or "video OCR") sized in `layout.css` and wrapped on phones in `mobile.css`, one line under the stat strip says minutes are counted where a meeting has them and video OCR otherwise, and the member smoke test in `tests/web/test_new_routes_p4.py` seeds one meeting with one vote and sees the column and the note
 - [ ] M3: `docs/specs/votes.md` states the member page's counting rule in Two sources and corrects the sentence in When resolution runs, `docs/specs/city-page.md` line 53 and the `votes.md` row of `docs/specs/index.md` follow, `D68` is deleted, and `D66` notes that its one-time sweep may now run
 
@@ -28,6 +28,12 @@ After this plan a reader notices three things. The member page without `since` p
   Evidence: the two runs above, 2026-10-20, then `tools/test-db --drop`.
 - Observation: `tests/integration/test_transcript_pipeline.py` line 194 opens a docstring with `D58:` meaning a transcript row state, not the member page's Dissent filter; it is a leftover from before the register was renumbered and is not touched by this plan, so a grep for `D58` across `tests/` still prints that line after M1.
   Evidence: `grep -rn 'D58' ...` at authoring printed that line among the six real citations.
+- Observation (M1 session, 2026-10-21): the M1 acceptance check `grep -n 'D58' src/docket/services/query.py tests/unit/test_query_member_history.py tests/web/test_city_briefing.py docs/DEBT.md` does not print nothing after the `D58` row is deleted: it prints one line, the `D70` row of `docs/DEBT.md`, whose text says pull request #128 "spends rows D58 to D65". That is a true historical statement about a numbering collision, not a citation of the paid debt, and `D70` is outside this milestone, so it was left alone. The stricter check `grep -n '^| D58 ' docs/DEBT.md` prints nothing; the other three files print nothing under the original grep. Recorded as a carve-out against the M1 acceptance clause in Validation and Acceptance.
+  Evidence: the two greps, run in the worktree after the `docs/DEBT.md` edit, 2026-10-21, shortly before the 00:13Z tick.
+- Observation (M1 session): the fixture `member_with_both_sources_one_meeting` needs a second vote on the meeting `_add_vote_meeting` created, and the plan's helper signature inserts one meeting with one vote; a second small helper, `_add_vote_to_meeting(meeting_id, member_id, *, source, result, position) -> int`, was added to the test file for the video row. Decision Log has the entry.
+  Evidence: `tests/unit/test_query_member_history.py`, the two helpers above the fixture.
+- Observation (M1 session): the first run of the unit file against the finished code printed `14 passed, 1 warning in 0.39s` under `-q`; the rerun without `-q`, piped through `grep -i -A8 'warnings summary'`, printed nothing, and `./tools/verify` passed, so the warning's text was not captured. Noted, not chased: it did not recur and no test failed.
+  Evidence: the two runs on `docket_test_b3b359fd`, 2026-10-21.
 
 ## Decision Log
 
@@ -55,6 +61,12 @@ After this plan a reader notices three things. The member page without `since` p
 - Decision: on phones (the `max-width: 768px` layer in `mobile.css`) the source column drops under the row's body by `order: 1; grid-column: 2 / -1` instead of staying a fourth column.
   Rationale: the desktop grid `110px 1fr auto auto` leaves about 13 px for the title on a 375 px screen once the date, the source, and the position chip take theirs; the `order` property moves the source last in auto-placement so the position chip keeps its place beside the title and the source wraps beneath, with no change to the markup.
   Date/Author: 2026-10-20, plan author.
+- Decision: the M1 test file gains a second helper, `_add_vote_to_meeting`, beside the planned `_add_vote_meeting`, to put the `video_ocr` row on meeting X; the planned helper's signature is kept as written.
+  Rationale: the plan's `_add_vote_meeting` inserts one meeting with one vote, and the fixture needs two votes on one meeting; widening the planned helper to take an optional existing meeting id would change the signature the plan spent, while inlining the second insert in the fixture would repeat the insert the helper exists to own. A second helper is the smallest resolution inside the milestone's boundary.
+  Date/Author: 2026-10-21, M1 session (Claude, under `cycle-run`).
+- Decision: the `D70` row is not edited to make the M1 grep for `D58` print nothing; the carve-out is recorded instead (Surprises & Discoveries, Progress).
+  Rationale: `D70` records that pull request #128 spent rows `D58` to `D65`, which stays true after `D58` is paid, and rewording a debt row this plan does not name would be scope the milestone does not have (`skills/plan-execute/SKILL.md`, Never). The acceptance's intent, that nothing cites the paid row as live debt, is met: the `D58` row is gone and the three code and test files print nothing.
+  Date/Author: 2026-10-21, M1 session.
 
 ## Outcomes & Retrospective
 
@@ -105,6 +117,8 @@ Run one test file:
 At authoring, the three files `tests/unit/test_query_member_history.py tests/web/test_new_routes_p4.py tests/unit/test_query_hidden_meetings.py` run this way printed `38 passed in 1.57s`.
 
 M1 order: run `./tools/verify` (expect `verify: all 6 checks passed`); write the new tests and the assertion changes first and run the unit file, recording the failing summary (expected: the four new tests and the `== 4` assertion fail, `5 failed, 9 passed`); make the `query.py` changes; run the unit file again (expected `14 passed`); run `tests/web/test_city_briefing.py` (expected `58 passed` after its one assertion change; the file alone printed `58 passed in 8.27s` at authoring, and `tests/services/test_briefing_facts.py` alone `21 passed in 0.36s`); write `0066`, delete `D58`, repair `0056` and `0057`; run `./tools/verify`; tick M1 with the observed time; commit.
+
+M1 as run (2026-10-21, one session): `./tools/verify` before any edit printed `verify: all 6 checks passed in 102s.`; the unit file with the new tests against the unchanged `query.py` printed `5 failed, 9 passed in 0.35s` (the four new tests and `test_voting_history_since_dissent_excludes_abstentions_and_tabled`); after the `query.py` edit the unit file printed `14 passed, 1 warning in 0.39s`, `tests/web/test_city_briefing.py` printed `58 passed in 8.71s`, and `tests/services/test_briefing_facts.py tests/unit/test_query_hidden_meetings.py tests/web/test_new_routes_p4.py` together printed `49 passed in 1.45s`; after the records, `./tools/verify` printed `verify: all 6 checks passed in 104s.` The greps are under Artifacts and Notes.
 
 M2 order: `./tools/verify`; the template, the two stylesheets, the test; run `tests/web/test_new_routes_p4.py` (expected `11 passed`); `./tools/verify`; tick; commit.
 
@@ -159,6 +173,31 @@ Observed at authoring, 2026-10-20, in the worktree:
     verify: unit+web+services ... ok (55s)   [1981 passed, 5 skipped, 4 xfailed]
     verify: integration ... ok (47s)          [631 passed]
     verify: all 6 checks passed in 105s.
+
+Observed in the M1 session, 2026-10-21, in the worktree:
+
+    $ ./tools/verify                                  (before any edit)
+    verify: all 6 checks passed in 102s.
+    $ DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_query_member_history.py -q -p no:cacheprovider
+    5 failed, 9 passed in 0.35s                       (tests written, query.py unchanged)
+    ... after the query.py edit:
+    14 passed, 1 warning in 0.39s
+    $ ... tests/web/test_city_briefing.py
+    58 passed in 8.71s
+    $ grep -n 'CASE WHEN bool_or' src/docket/services/query.py
+    (nothing)
+    $ grep -c 'from docket.services.briefing import chosen_source_cte' src/docket/services/query.py
+    1
+    $ grep -n 'D58' src/docket/services/query.py tests/unit/test_query_member_history.py tests/web/test_city_briefing.py docs/DEBT.md
+    docs/DEBT.md:63:| D70 | ... (which spends rows D58 to D65 ...)    (the carve-out; see Surprises)
+    $ grep -n '^| D58 ' docs/DEBT.md
+    (nothing)
+    $ ls docs/decisions/0066-*.md
+    docs/decisions/0066-the-member-page-counts-one-vote-source-per-meeting-through-the-city-pages-fragment.md
+    $ grep -c 'member-page-counts-one-source' docs/decisions/0056-*.md docs/decisions/0057-*.md
+    1 and 1
+    $ ./tools/verify                                  (after every M1 edit)
+    verify: all 6 checks passed in 104s.
 
 The decision record M1 writes, `docs/decisions/0066-the-member-page-counts-one-vote-source-per-meeting-through-the-city-pages-fragment.md`, verbatim:
 
@@ -239,7 +278,7 @@ In `src/docket/services/query.py`, immediately above `def get_member_stats`, def
 
 `get_member_stats(member_id: int) -> dict`, `list_member_voting_history(member_id: int, *, cursor: str | None = None, limit: int = 20, filter_mode: str = "all", since: date | None = None) -> dict`, and `get_member_vote_summary(member_id: int) -> dict` keep their signatures and return shapes; `AGAINST_OUTCOME_PREDICATE` keeps its text. `briefing.chosen_source_cte(scope: str) -> str` is read and not changed; nothing else in `briefing.py` is touched, so `D60`, `D61`, and `D62` do not fire. `member_detail` in `public.py` is not changed. The CSS classes this plan introduces are `member-history-source` and `member-count-note`; the Jinja expression for the source is `{{ 'video OCR' if row.source == 'video_ocr' else 'official minutes' }}`.
 
-Identifiers spent by this plan: decision `0066`; test names `test_get_member_stats_counts_one_source_per_meeting`, `test_get_member_stats_counts_ocr_only_meeting`, `test_get_member_stats_excludes_flagged_vote_and_history_lists_it`, `test_get_member_vote_summary_counts_under_rule`, `test_member_detail_shows_source_column_and_count_note`; fixture `member_with_both_sources_one_meeting`; helpers `_add_vote_meeting` and `_seed_one_vote`; seed names `TEST_MH_Lee`, `TEST_MH_X`, `TEST_MH_Y`, `TEST_MH_Z`, `TEST_P4_meeting`. Debt rows deleted: `D58` (M1), `D68` (M3). Debt rows edited: `D66` (M3). Debt rows cited and left: `D28`, `D57`, `D70`.
+Identifiers spent by this plan: decision `0066`; test names `test_get_member_stats_counts_one_source_per_meeting`, `test_get_member_stats_counts_ocr_only_meeting`, `test_get_member_stats_excludes_flagged_vote_and_history_lists_it`, `test_get_member_vote_summary_counts_under_rule`, `test_member_detail_shows_source_column_and_count_note`; fixture `member_with_both_sources_one_meeting`; helpers `_add_vote_meeting`, `_add_vote_to_meeting` (added in M1, Decision Log), and `_seed_one_vote`; seed names `TEST_MH_Lee`, `TEST_MH_X`, `TEST_MH_Y`, `TEST_MH_Z`, `TEST_P4_meeting`. Debt rows deleted: `D58` (M1), `D68` (M3). Debt rows edited: `D66` (M3). Debt rows cited and left: `D28`, `D57`, `D70`.
 
 ## Milestones
 
@@ -258,3 +297,4 @@ At the end of this milestone `docs/specs/votes.md` states the rule's reach in Tw
 ## Revision notes
 
 - 2026-10-20, authored by the plan author (Claude, under `cycle-plan`) from the operator's goal and the scope brief, in the worktree cut from `origin/main` at `2a322fd`. Left out on purpose, as the brief's out-of-scope list and the Decision Log say: deleting `get_member_vote_summary` (no caller in `src/`, the operator said keep it; it gets the rule and a direct test); a needs-review marker on the history rows (the meeting page the row links to shows the callout); putting the undated history list itself under the rule (the operator wants every row listed, one per source, with the source column telling them apart); repairing the wrong path in the `D68` row (the row is deleted); any change to `briefing.py`, so `D60`, `D61`, and `D62` do not fire; and any edit to `tests/unit/test_query_hidden_meetings.py`, whose `source = 'test'` vote sits on a hidden meeting outside every scope. The slugs `member-page-one-source-per-meeting` and `member-counts-one-source-per-meeting` were also free; the shortest was taken.
+- 2026-10-21, M1 session (Claude, under `cycle-run`): M1 ticked; Surprises & Discoveries, Decision Log, Concrete Steps, Artifacts and Notes, and the spent-identifier list carry the observed evidence, the `_add_vote_to_meeting` helper, and the carve-out that the M1 grep for `D58` prints the `D70` row. No other section changed.
