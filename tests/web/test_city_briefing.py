@@ -510,12 +510,15 @@ def test_topics_door_priorities_and_busiest_excluding_routine(client, seeded):
     door = _section(_page(client), "brf-door-topics")
     assert door is not None
     assert "What they keep dealing with" in door
-    assert "Tracked in Birmingham" in door
-    # Item A carries blight_accountability (confidence 0.9, significance 5).
+    assert "Tracked in Birmingham · since " in door
+    assert "Busiest topics · since " in door
+    # Item A carries blight_accountability (confidence 0.9, significance 5);
+    # the row is its count as the key figure and its linked name, with no
+    # example headline (plan city-page-less-narrow-less-dense, M2).
     assert 'href="/al/birmingham/blight_accountability/"' in door
     assert "Blight Accountability" in door
-    assert "1 item since" in door
-    assert f'href="/al/birmingham/items/{seeded["items"]["A"]}/"' in door
+    assert '<span class="brf-key t-mono">1 item</span>' in door
+    assert "/al/birmingham/items/" not in door
     # The other three priorities have no qualifying item ever, so no line.
     for slug in ("housing_stability", "property_recovery", "public_safety_tech_privacy"):
         assert f"/al/birmingham/{slug}/" not in door
@@ -530,7 +533,6 @@ def test_topics_door_priorities_and_busiest_excluding_routine(client, seeded):
     assert "/topics/routine/" not in door
     assert "Routine" not in door
     assert door.count('<li class="brf-door-line">') == 6
-    assert f'href="/al/birmingham/items/{seeded["items"]["C"]}/"' in door
 
 
 @pytest.mark.parametrize("seeded", [{"old_split": True}], indirect=True)
@@ -548,14 +550,16 @@ def test_topics_door_quiet_priority_shows_last_item(client, seeded):
     door = _section(_page(client), "brf-door-topics")
     assert door is not None
     old = seeded["old_meeting_date"]
-    line = door[door.index('href="/al/birmingham/housing_stability/"'):]
+    at = door.index('href="/al/birmingham/housing_stability/"')
+    line = door[door.rindex('<li class="brf-door-line">', 0, at):]
     line = line[: line.index("</li>")]
     assert "Housing Stability" in line
     assert f"last item {old.strftime('%B')} {old.day}, {old.year}" in line
-    assert f'href="/al/birmingham/items/{seeded["items"]["E"]}/"' in line
+    assert "/items/" not in line
     assert "since" not in line
+    assert '<span class="brf-key t-mono">0 items</span>' in line
     # The window's priority is unchanged beside it.
-    assert "1 item since" in door
+    assert '<span class="brf-key t-mono">1 item</span>' in door
 
 
 def test_topics_door_absent_without_items(client):
@@ -587,9 +591,13 @@ def test_signals_only_nonzero_in_plain_words(client, seeded):
     section = _section(html, "brf-signals")
     assert section is not None
     assert "Signals in the last 30 days" in section
-    lines = re.findall(r'<li class="brf-door-line">\s*<a href="([^"]+)">([^<]+)</a>', section)
-    assert lines == [("/al/birmingham/hidden_on_consent/",
-                      "Passed without discussion, on the consent agenda — 1 item")]
+    lines = re.findall(
+        r'<li class="brf-door-line">\s*<span class="brf-key t-mono">([^<]+)</span>'
+        r'\s*<a class="brf-row-link" href="([^"]+)">([^<]+)</a>',
+        section,
+    )
+    assert lines == [("1 item", "/al/birmingham/hidden_on_consent/",
+                      "Passed without discussion, on the consent agenda")]
     assert "Legal settlements" not in section
     assert "hidden_on_consent —" not in section  # the slug never shows; the label does
 
@@ -598,6 +606,27 @@ def test_signals_only_nonzero_in_plain_words(client, seeded):
 def test_signals_absent_when_all_zero(client, seeded):
     html = _page(client)
     assert _section(html, "brf-signals") is None
+
+
+def test_bands_hold_the_doors_in_order(client, facts):
+    """The page wraps money with disagreed in one band and topics with
+    signals over the quote in a second (plan city-page-less-narrow-less-dense,
+    M2), the council between them and the meetings list after; the order of
+    the sections is money, disagreed, council, topics, signals, said, meetings.
+    """
+    html = _page(client)
+    band1 = html.index('<div class="brf-band">')
+    money = html.index("brf-door-money", band1)
+    disagreed = html.index("brf-door-disagreed", money)
+    council = html.index('class="council brf-council"', disagreed)
+    band2 = html.index('<div class="brf-band">', council)
+    topics = html.index("brf-door-topics", band2)
+    col = html.index('<div class="brf-band-col">', topics)
+    signals = html.index("brf-signals", col)
+    said = html.index("brf-door-said", signals)
+    meetings = html.index("brf-meetings-section", said)
+    assert band1 < money < disagreed < council < band2 < topics < col < signals < said < meetings
+    assert html.count('<div class="brf-band">') == 2
     assert "Signals in the last 30 days" not in html
 
 

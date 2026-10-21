@@ -46,6 +46,8 @@ How to see it working: `./tools/verify` passes at the end of every milestone wit
   Evidence: the run, 2026-10-21, logged at the session's scratchpad `verify-end.log`.
 - Observation: correction to the two M1 entries above: the times written as `14:0xZ` and `14:1xZ` were estimates; the machine's clock printed `13:55Z` at the session's start and `14:02Z` at the tick, so every run between them, the acceptance runs included, happened between 13:57Z and 14:02Z.
   Evidence: `date -u` at the start (`2026-10-21 13:55Z`) and at the tick (`2026-10-21 14:02Z`).
+- Observation: M2 session, 2026-10-21 14:05Z by the machine's clock, on `b2531fc`. The starting `./tools/verify` printed `verify: all 6 checks passed in 104s.` (tier lines `2000 passed, 5 skipped, 4 xfailed, 1 warning in 54.27s`, `631 passed, 1 warning in 47.11s`, `judge fixtures: 12 of 12 passed`, `84 passed in 0.72s`, `verify: plans ... ok (0s)`); `.env` was present and `git status --porcelain` printed nothing. The rewritten and new tests were committed failing before any template or stylesheet change: `pytest tests/web/test_city_briefing.py tests/web/test_city_briefing_a11y.py tests/integration/test_f4_browse_by_priority.py -q -p no:cacheprovider` printed `7 failed, 96 passed in 12.36s`, the seven being `test_topics_door_priorities_and_busiest_excluding_routine` (first failing assertion `'Tracked in Birmingham · since ' in door`, line 513), `test_topics_door_quiet_priority_shows_last_item` (`'/items/' not in line`, line 558), `test_signals_only_nonzero_in_plain_words` (`assert [] == [('1 item', ...)]`, line 599), `test_bands_hold_the_doors_in_order` (`ValueError: substring not found` on `html.index('<div class="brf-band">')`, line 618), `test_headings_are_the_eight_the_design_names` (the heading list, a11y line 160), `test_city_page_links_four_priorities_under_topics_door` (`'Priority-blight_accountability' not in door`, line 466), and `test_city_page_signal_line_shows_count` (the key-then-link regex, line 504).
+  Evidence: the runs above against `docket_test_63e81421`, 2026-10-21 14:07Z to 14:08Z.
 
 ## Decision Log
 
@@ -104,6 +106,9 @@ How to see it working: `./tools/verify` passes at the end of every milestone wit
 - Decision: `TestCompactDollarsFilter` imports `compact_dollars` inside its one test method rather than at the top of `tests/unit/test_dollar_tier.py`.
   Rationale: Plan of Work says "importing the function directly"; a module-level import would have made the whole file fail collection (71 existing tests) while the filter was absent, so the before state could not have been committed as "12 failed" beside the rest passing. Every other test in the file imports its filter inside the method, so this follows the file's convention and the plan's intent (the function, not the Jinja environment, is what is tested).
   Date/Author: 2026-10-21, M1 session (Claude, under `cycle-run`).
+- Decision: in `test_topics_door_quiet_priority_shows_last_item`, the row slice starts at the `<li class="brf-door-line">` found by `rindex` before the priority's `href`, not at the `href` itself as the test did.
+  Rationale: Plan of Work asks the test to assert `'<span class="brf-key t-mono">0 items</span>' in line`, but the key span precedes the name's `<a>` in the M2 markup, so a slice that begins at the `href` can never contain it; starting at the row's `<li>` holds the whole row and keeps every other assertion on `line` as the plan gives it. Asserting the key against the whole door instead was rejected because the window's active priority prints `1 item`, and the test's point is that the quiet row, specifically, prints zero.
+  Date/Author: 2026-10-21, M2 session (Claude, under `cycle-run`).
 
 ## Outcomes & Retrospective
 

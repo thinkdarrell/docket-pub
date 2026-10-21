@@ -439,10 +439,12 @@ def test_city_page_signals_section_renders_only_with_nonzero_count(bag, client):
 
 
 def test_city_page_links_four_priorities_under_topics_door(bag, client):
-    """The four BHM policy badges are the "Tracked in Birmingham" lines of
+    """The four BHM policy badges are the "Tracked in Birmingham" rows of
     the "What they keep dealing with" door (plan birmingham-city-briefing,
-    M4), each a link to its category landing with one example item. A
-    priority with no qualifying item ever has no line, so each gets one.
+    M4), each its count as the key figure and its name linked to its
+    category landing, with no example headline (plan
+    city-page-less-narrow-less-dense, M2). A priority with no qualifying
+    item ever has no row, so each gets one.
     """
     m = bag.add_meeting(date.today().isoformat())
     slugs = ("blight_accountability", "housing_stability",
@@ -461,8 +463,8 @@ def test_city_page_links_four_priorities_under_topics_door(bag, client):
         assert f'href="/al/birmingham/{slug}/"' in door, (
             f"priority link for {slug} missing from the topics door"
         )
-        assert f"Priority-{slug}" in door
-    assert door.count("1 item since") >= 4
+        assert f"Priority-{slug}" not in door
+    assert door.count('<span class="brf-key t-mono">1 item</span>') >= 4
 
 
 def test_city_page_lists_no_zero_count_signal(client):
@@ -482,9 +484,10 @@ def test_city_page_lists_no_zero_count_signal(client):
 
 
 def test_city_page_signal_line_shows_count(bag, client):
-    """The signal line is the plain-words label, a dash, and the count:
-    two consent items in the window read "2 items" beside the label, and
-    the line links to the category landing page.
+    """The signal row is the count as the key figure, then the plain-words
+    label linked to the category landing page: two consent items in the
+    window read "2 items" before the label (plan
+    city-page-less-narrow-less-dense, M2).
     """
     today = date.today()
     m1 = bag.add_meeting((today - timedelta(days=5)).isoformat())
@@ -499,8 +502,9 @@ def test_city_page_signal_line_shows_count(bag, client):
     section = section[: section.index("</section>")]
     import re
     assert re.search(
-        r'<a href="/al/birmingham/hidden_on_consent/">'
-        r'Passed without discussion, on the consent agenda — 2 items</a>',
+        r'<span class="brf-key t-mono">2 items</span>\s*'
+        r'<a class="brf-row-link" href="/al/birmingham/hidden_on_consent/">'
+        r'Passed without discussion, on the consent agenda</a>',
         section,
     ), section
     assert "this year" not in section

@@ -22,14 +22,16 @@ from docket.web import create_app
 from tests.support import briefing_seed
 
 # The eight headings the design names, in page order: the six doors and the
-# meetings list (design sections 3 to 9) and the blog rail (section 10).
+# meetings list (design sections 3 to 9) and the blog rail (section 10). The
+# order follows plan city-page-less-narrow-less-dense, which moved the signals
+# beside the topics, above the quote.
 DESIGN_HEADINGS = [
     "Where the money went",
     "Where they disagreed",
     "The council",
     "What they keep dealing with",
-    "Said at the meeting",
     "Signals in the last 30 days",
+    "Said at the meeting",
     "Recent meetings",
     "From the blog",
 ]
