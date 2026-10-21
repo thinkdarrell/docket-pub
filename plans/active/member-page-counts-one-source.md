@@ -14,7 +14,7 @@ After this plan a reader notices three things. The member page without `since` p
 
 - [x] (2026-10-21 00:13Z) M1: `get_member_stats` and the counts of `get_member_vote_summary` in `src/docket/services/query.py` take one source per meeting through `briefing.chosen_source_cte` by a function-local import, the undated Dissent filter of `list_member_voting_history` is `AGAINST_OUTCOME_PREDICATE`, four new unit tests in `tests/unit/test_query_member_history.py` fail before the change and pass after, the three assertions that pinned the old behaviour are updated, decision `0066` is written, `D58` is deleted, and decisions `0056` and `0057` cite the paid row
 - [x] (2026-10-21 00:24Z) M2: `member_detail.html` shows each history row's source in its own column ("official minutes" or "video OCR") sized in `layout.css` and wrapped on phones in `mobile.css`, one line under the stat strip says minutes are counted where a meeting has them and video OCR otherwise, and the member smoke test in `tests/web/test_new_routes_p4.py` seeds one meeting with one vote and sees the column and the note
-- [ ] M3: `docs/specs/votes.md` states the member page's counting rule in Two sources and corrects the sentence in When resolution runs, `docs/specs/city-page.md` line 53 and the `votes.md` row of `docs/specs/index.md` follow, `D68` is deleted, and `D66` notes that its one-time sweep may now run
+- [x] (2026-10-21 00:33Z) M3: `docs/specs/votes.md` states the member page's counting rule in Two sources and corrects the sentence in When resolution runs, `docs/specs/city-page.md` line 53 and the `votes.md` row of `docs/specs/index.md` follow, `D68` is deleted, and `D66` notes that its one-time sweep may now run
 
 ## Surprises & Discoveries
 
@@ -150,7 +150,7 @@ M2 as run (2026-10-21, one session): `./tools/verify` before any edit printed `v
 
 M3 order: `./tools/verify`; the four documents and the two debt edits; the grep checks in Validation; `./tools/verify` (its sixth check reads this plan); tick; commit.
 
-M3 as run (2026-10-21, one session): `./tools/verify` before any edit printed `verify: all 6 checks passed in 103s.`; the six edits (three to `docs/specs/votes.md`, one each to `docs/specs/city-page.md` and `docs/specs/index.md`, the `D68` deletion and the `D66` clause in `docs/DEBT.md`) were applied by one script of anchored replacements, each anchor asserted to occur once, and `git diff --stat` listed those four files with 7 insertions and 6 deletions; the eight acceptance greps and the `src` diff check printed as Validation asks (transcript under Artifacts and Notes). The closing `./tools/verify` line is recorded there when observed.
+M3 as run (2026-10-21, one session): `./tools/verify` before any edit printed `verify: all 6 checks passed in 103s.`; the six edits (three to `docs/specs/votes.md`, one each to `docs/specs/city-page.md` and `docs/specs/index.md`, the `D68` deletion and the `D66` clause in `docs/DEBT.md`) were applied by one script of anchored replacements, each anchor asserted to occur once, and `git diff --stat` listed those four files with 7 insertions and 6 deletions; the eight acceptance greps and the `src` diff check printed as Validation asks (transcript under Artifacts and Notes). The closing `./tools/verify`, run after the work was committed as `f34d569` and before the tick, printed `verify: all 6 checks passed in 105s.` (unit+web+services 55s, integration 49s, plans ok).
 
 Operator step. None of this runs in a milestone session. Before merge, read-only, from the WSL checkout with `psql` against the `DATABASE_PUBLIC_URL` of the `docket-web` Railway service (the way `plans/completed/member-votes-name-their-member.md` had its queries run), the two queries below; the results go into this plan's Surprises & Discoveries as a dated operator entry committed on this branch before merge, and a shape the design does not assume (a `source` value other than `minutes_text` and `video_ocr`, or no meeting holding both) is a Decision Log entry too.
 
@@ -272,6 +272,11 @@ Observed in the M3 session, 2026-10-21, in the worktree:
      src/docket/web/templates/member_detail.html |  2 +
     $ git diff --stat HEAD -- src
     (nothing)
+    $ ./tools/verify                                  (after the M3 commit, before the tick)
+    verify: unit+web+services ... ok (55s)
+    verify: integration ... ok (49s)
+    verify: plans ... ok (0s)
+    verify: all 6 checks passed in 105s.
 
 The decision record M1 writes, `docs/decisions/0066-the-member-page-counts-one-vote-source-per-meeting-through-the-city-pages-fragment.md`, verbatim:
 
