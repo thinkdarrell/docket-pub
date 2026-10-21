@@ -420,6 +420,37 @@ class TestFormatDollarsFilter:
         assert format_dollars({"x": 1}) == ""
 
 
+class TestCompactDollarsFilter:
+    """Direct unit tests for ``docket.web.filters.compact_dollars``, the key
+    figure of the city page's money door (plan city-page-less-narrow-less-dense,
+    M1): the integer with separators below a million, then millions to one
+    decimal with a trailing ``.0`` dropped, then billions once the millions
+    would round to 1000 or more, so 999,950,000 prints ``$1B``.
+    """
+
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            (50_000_000, "$50M"),
+            (10_125_000, "$10.1M"),
+            (850_000, "$850,000"),
+            (1_200_000_000, "$1.2B"),
+            (999_950_000, "$1B"),
+            (1_000_000, "$1M"),
+            (1_050_000, "$1.1M"),
+            (Decimal("2300000.00"), "$2.3M"),
+            (850_000.42, "$850,000"),
+            (None, ""),
+            (0, ""),
+            ("abc", ""),
+        ],
+    )
+    def test_compact_dollars(self, value, expected):
+        from docket.web.filters import compact_dollars
+
+        assert compact_dollars(value) == expected
+
+
 # ---------------------------------------------------------------------------
 # Partial: dollar_tier.html — per-tier rendering
 # ---------------------------------------------------------------------------

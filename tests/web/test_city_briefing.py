@@ -863,6 +863,35 @@ def test_disagreed_video_sourced_vote_carries_label(client, facts):
     assert "1 split vote" in _meeting_row(html, facts["past_meeting_id"])
 
 
+def test_disagreed_failed_tone_and_abstainer_clause(client, facts):
+    """A failed vote's key carries the bad tone and the word; an abstainer gets
+    its own clause after the nays; a passed vote with abstentions prints a
+    three-part tally and no word."""
+    names = list(facts["members"])
+    with db() as conn:
+        with briefing_seed._cur(conn) as cur:
+            briefing_seed._insert_vote(
+                cur, facts["past_meeting_id"], result="failed", yeas=1, nays=6,
+                item_ids=[facts["items"]["B"]], roster=facts["members"],
+                positions={**{n: "nay" for n in names[1:7]}, **{n: "absent" for n in names[7:9]}},
+            )
+            briefing_seed._insert_vote(
+                cur, facts["past_meeting_id"], result="passed", yeas=8, nays=0, abstentions=1,
+                roster=facts["members"], positions={names[7]: "abstain"},
+            )
+        conn.commit()
+    briefing.recompute_city_facts(facts["municipality_id"])
+    briefing_seed.clear_caches()
+    door = _section(_page(client), "brf-door-disagreed")
+    assert door is not None
+    assert door.count('<li class="brf-door-line">') == 3
+    assert '<span class="brf-key t-mono brf-key--bad">1–6 failed</span>' in door
+    assert '<span class="brf-key t-mono">8–0–1</span>' in door
+    assert f'<a href="/al/birmingham/council/{facts["members"][names[7]]}/">{escape(names[7])}</a> abstained' in door
+    assert "failed 1 to 6" not in door
+    assert "(abstained)" not in door
+
+
 @pytest.mark.parametrize("seeded", [{"transcript": "low_speech"}], indirect=True)
 def test_said_absent_when_transcript_low_speech(client, seeded):
     html = _page(client)
