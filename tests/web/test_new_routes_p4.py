@@ -108,7 +108,39 @@ def test_member_detail_shows_source_column_and_count_note(client, two_cities_wit
         "Counted from the official minutes where a meeting has them "
         "and from video OCR otherwise"
     ) in body
-    assert "1 roll calls" in body
+    assert ">1 roll call<" in body
+    assert "1 roll calls" not in body
+
+
+def test_member_detail_count_note_matches_view(client, two_cities_with_members):
+    """D71: the counting note's clause about flagged votes says what the view
+    below it does. Undated, flagged votes are listed and not counted; with
+    ``since`` the history drops them, so they are neither listed nor counted;
+    the sponsored view lists agenda items, so the note has no vote clause."""
+    fx = two_cities_with_members
+    _seed_one_vote(fx)
+    base = f"/al/{fx['alpha_slug']}/council/{fx['alpha_member_id']}/"
+    rule = (
+        "Counted from the official minutes where a meeting has them "
+        "and from video OCR otherwise"
+    )
+    listed = "a vote flagged for review is listed below but not counted."
+    dropped = "a vote flagged for review is neither listed below nor counted."
+
+    body = client.get(base).get_data(as_text=True)
+    assert rule + "; " + listed in body
+    assert dropped not in body
+
+    body = client.get(base + "?since=2098-01-01").get_data(as_text=True)
+    assert rule + "; " + dropped in body
+    assert listed not in body
+
+    body = client.get(base + "?filter=dissent&since=2098-01-01").get_data(as_text=True)
+    assert rule + "; " + dropped in body
+
+    body = client.get(base + "?filter=sponsored").get_data(as_text=True)
+    assert rule + "." in body
+    assert "flagged for review" not in body
 
 
 def test_member_detail_404_unknown_member(client, two_cities_with_members):
