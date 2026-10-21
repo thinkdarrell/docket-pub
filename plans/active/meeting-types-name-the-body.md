@@ -23,6 +23,10 @@ Nothing has been executed. Every entry below is open. A completed entry is writt
 - [ ] M5: cards, the meeting page, the home strip, and the meetings list show the label; the meeting page quotes the clip name as provenance; the filter row renders; the admin form sets and clears an override through `services/meeting_types`; `docs/specs/meeting-types.md` exists and `docs/specs/city-page.md` and `README.md` are edited; the web and integration tests pass.
 - [ ] M6: migration 039 adds the CHECK constraints on `meeting_type` and `session_kind` after the production reclassification is recorded; `tests/integration/test_039_migration.py` passes; the durable decisions graduate to `docs/decisions/`; the plan moves to `plans/completed/`.
 
+Baseline observed by the M1 session on 2026-10-21 at 22:58Z, before any edit, from `./tools/verify` in the worktree (whose gitignored `.env` names the `D57` peer-authentication role, so `test-db` built `docket_test_02a9eab9`): `unit+web+services ... ok (55s)` with `2001 passed, 5 skipped, 4 xfailed`; `integration ... ok (49s)` with `631 passed`; `judge-fixtures ... ok (1s)`; `workflows ... ok (0s)`; `transcriber ... ok (1s)` with `84 passed`; `plans ... ok (0s)`; `verify: all 6 checks passed in 106s.` `tests/unit/test_helpers.py` alone: `39 passed`.
+
+M1 before state, observed 2026-10-21 23:05Z after the tests were written and before the code: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_helpers.py tests/unit/test_meeting_labels.py -q -p no:cacheprovider` printed `69 failed, 35 passed`; the four re-expected existing tests (`test_special`, `test_called`, `test_work_session`, `test_budget_work_session`) fail on the old vocabulary and every new test fails on the missing symbols, imported inside the test functions so both files collect.
+
 ## Surprises & Discoveries
 
 Observations made while authoring (2026-10-21). Each executing session appends its own below these, with evidence.
