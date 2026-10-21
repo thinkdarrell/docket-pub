@@ -12,7 +12,7 @@ The undated Dissent view had kept an older filter that listed an abstention and 
 
 ## Date
 
-2026-10-20, the plan author (Claude, cycle-plan) from the operator's goal, in `plans/active/member-page-counts-one-source.md`, written in its M1.
+2026-10-20, the plan author (Claude, cycle-plan) from the operator's goal, in `plans/completed/member-page-counts-one-source.md`, written in its M1.
 
 ## Status
 
