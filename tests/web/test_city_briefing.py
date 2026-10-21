@@ -234,7 +234,7 @@ def test_meetings_list_rows_and_ghost_excluded(client, seeded):
     assert "Regular City Council Meeting" not in section, "the ghost meeting must not be listed"
     assert f'href="/al/birmingham/meetings/{seeded["past_meeting_id"]}/"' in section
     assert f'href="/al/birmingham/meetings/{seeded["upcoming_meeting_id"]}/"' in section
-    assert "upcoming" in section
+    assert "<span>upcoming</span>" in section
     assert "4 items" in section
     assert "1 split vote" in section
     assert "agenda · minutes · video" in section
@@ -311,7 +311,9 @@ def test_money_door_full_three_lines_in_amount_order(client, seeded):
     b = door.index(f'href="/al/birmingham/items/{sidewalk}/"')
     c = door.index(f'href="/al/birmingham/items/{roof}/"')
     assert a < b < c, "lines must be in descending amount order"
-    assert "$10.1 million" in door and "$2.3 million" in door and "$850,000" in door
+    for key in ("$10.1M", "$2.3M", "$850,000"):
+        assert f'<span class="brf-key t-mono">{key}</span>' in door
+    assert "$10.1 million" not in door
     assert "passed on the consent agenda" in door
     assert 'href="/search?city=birmingham&amp;order=amount"' in door
     assert "More →" in door
@@ -329,9 +331,10 @@ def test_money_door_partial_fewer_than_three(client, seeded):
     door = _section(_page(client), "brf-door-money")
     assert door is not None
     assert door.count('<li class="brf-door-line">') == 1
-    assert "$10.1 million" in door
+    assert '<span class="brf-key t-mono">$10.1M</span>' in door
+    assert "$10.1 million" not in door
     # The amount is printed once, not repeated from the headline.
-    assert door.count("$10.1 million") == 1
+    assert door.count("$10.1M") == 1
 
 
 @pytest.mark.parametrize("seeded", [{"dollars": False}], indirect=True)
@@ -350,8 +353,9 @@ def test_disagreed_full_lists_split_with_dissenter_links(client, facts):
     assert "Where they disagreed" in door
     assert door.count('<li class="brf-door-line">') == 1
     assert f'href="/al/birmingham/items/{facts["items"]["A"]}/"' in door
-    assert "passed 8 to 1" in door
-    assert f'<a href="/al/birmingham/council/{facts["nay_member_id"]}/">Hunter Williams</a>' in door
+    assert '<span class="brf-key t-mono">8–1</span>' in door
+    assert "passed 8 to 1" not in door
+    assert f'against: <a href="/al/birmingham/council/{facts["nay_member_id"]}/">Hunter Williams</a>' in door
     assert "from the video" not in door
     assert 'href="/al/birmingham/split_vote/"' in door
     assert "More →" in door
@@ -426,10 +430,14 @@ def test_council_door_nine_cards_in_district_order_with_numbers(client, facts):
     # Two chosen-source roll calls on the past meeting (the review-flagged
     # video vote is excluded): Hunter Williams voted no once; Clinton P.
     # Woods was absent once.
-    assert section.count("Attended 2 of 2 roll calls in the last 12 months") == 8
-    assert "Attended 1 of 2 roll calls in the last 12 months" in section
-    assert section.count("Voted against the outcome 1 time<") == 1
-    assert section.count("Voted against the outcome 0 times") == 8
+    assert section.count("Attended 2 of 2 roll calls</div>") == 8
+    assert "Attended 1 of 2 roll calls</div>" in section
+    assert section.count("Against the outcome 1 time<") == 1
+    assert section.count("Against the outcome 0 times") == 8
+    # The window is stated once under the grid, not on every card
+    # (plan city-page-less-narrow-less-dense, M3).
+    assert section.count("Roll calls counted over the last 12 months.") == 1
+    assert "in the last 12 months</div>" not in section
     assert "photo · placeholder" not in section
     assert section.count("View record →") == 9
 
@@ -440,7 +448,8 @@ def test_council_door_numbers_omitted_without_facts_row(client, seeded):
     assert section.count('class="cc-district-num') == 9
     assert "roll calls" not in section
     assert "cc-stats" not in section
-    assert "Voted against" not in section
+    assert "Against the outcome" not in section
+    assert "Roll calls counted" not in section
 
 
 def test_council_card_links_dissent_since_and_member_page_matches_count(client, facts):
@@ -448,9 +457,17 @@ def test_council_card_links_dissent_since_and_member_page_matches_count(client, 
     assert section is not None
     since = (briefing.get_city_facts(facts["municipality_id"])["member_counts"]["payload"]["since"])
     href = f'/al/birmingham/council/{facts["nay_member_id"]}/?filter=dissent&amp;since={since}'
-    assert f'<a class="cc-dissent" href="{href}">Voted against the outcome 1 time</a>' in section
+    assert f'<a class="cc-dissent" href="{href}">Against the outcome 1 time</a>' in section
     # A zero is not a door: the other eight members' second line has no link.
     assert section.count('class="cc-dissent"') == 1
+    # The roster page shares the card without the numbers, carries no window
+    # note, and is not the city page's section (its phone list is scoped to
+    # brf-council, plan city-page-less-narrow-less-dense, M3).
+    resp = client.get("/al/birmingham/council/")
+    assert resp.status_code == 200
+    roster = resp.get_data(as_text=True)
+    assert "Roll calls counted" not in roster
+    assert "brf-council" not in roster
 
     resp = client.get(href.replace("&amp;", "&"))
     assert resp.status_code == 200
@@ -506,12 +523,15 @@ def test_topics_door_priorities_and_busiest_excluding_routine(client, seeded):
     door = _section(_page(client), "brf-door-topics")
     assert door is not None
     assert "What they keep dealing with" in door
-    assert "Tracked in Birmingham" in door
-    # Item A carries blight_accountability (confidence 0.9, significance 5).
+    assert "Tracked in Birmingham · since " in door
+    assert "Busiest topics · since " in door
+    # Item A carries blight_accountability (confidence 0.9, significance 5);
+    # the row is its count as the key figure and its linked name, with no
+    # example headline (plan city-page-less-narrow-less-dense, M2).
     assert 'href="/al/birmingham/blight_accountability/"' in door
     assert "Blight Accountability" in door
-    assert "1 item since" in door
-    assert f'href="/al/birmingham/items/{seeded["items"]["A"]}/"' in door
+    assert '<span class="brf-key t-mono">1 item</span>' in door
+    assert "/al/birmingham/items/" not in door
     # The other three priorities have no qualifying item ever, so no line.
     for slug in ("housing_stability", "property_recovery", "public_safety_tech_privacy"):
         assert f"/al/birmingham/{slug}/" not in door
@@ -526,7 +546,6 @@ def test_topics_door_priorities_and_busiest_excluding_routine(client, seeded):
     assert "/topics/routine/" not in door
     assert "Routine" not in door
     assert door.count('<li class="brf-door-line">') == 6
-    assert f'href="/al/birmingham/items/{seeded["items"]["C"]}/"' in door
 
 
 @pytest.mark.parametrize("seeded", [{"old_split": True}], indirect=True)
@@ -544,14 +563,16 @@ def test_topics_door_quiet_priority_shows_last_item(client, seeded):
     door = _section(_page(client), "brf-door-topics")
     assert door is not None
     old = seeded["old_meeting_date"]
-    line = door[door.index('href="/al/birmingham/housing_stability/"'):]
+    at = door.index('href="/al/birmingham/housing_stability/"')
+    line = door[door.rindex('<li class="brf-door-line">', 0, at):]
     line = line[: line.index("</li>")]
     assert "Housing Stability" in line
     assert f"last item {old.strftime('%B')} {old.day}, {old.year}" in line
-    assert f'href="/al/birmingham/items/{seeded["items"]["E"]}/"' in line
+    assert "/items/" not in line
     assert "since" not in line
+    assert '<span class="brf-key t-mono">0 items</span>' in line
     # The window's priority is unchanged beside it.
-    assert "1 item since" in door
+    assert '<span class="brf-key t-mono">1 item</span>' in door
 
 
 def test_topics_door_absent_without_items(client):
@@ -583,9 +604,13 @@ def test_signals_only_nonzero_in_plain_words(client, seeded):
     section = _section(html, "brf-signals")
     assert section is not None
     assert "Signals in the last 30 days" in section
-    lines = re.findall(r'<li class="brf-door-line">\s*<a href="([^"]+)">([^<]+)</a>', section)
-    assert lines == [("/al/birmingham/hidden_on_consent/",
-                      "Passed without discussion, on the consent agenda — 1 item")]
+    lines = re.findall(
+        r'<li class="brf-door-line">\s*<span class="brf-key t-mono">([^<]+)</span>'
+        r'\s*<a class="brf-row-link" href="([^"]+)">([^<]+)</a>',
+        section,
+    )
+    assert lines == [("1 item", "/al/birmingham/hidden_on_consent/",
+                      "Passed without discussion, on the consent agenda")]
     assert "Legal settlements" not in section
     assert "hidden_on_consent —" not in section  # the slug never shows; the label does
 
@@ -595,6 +620,27 @@ def test_signals_absent_when_all_zero(client, seeded):
     html = _page(client)
     assert _section(html, "brf-signals") is None
     assert "Signals in the last 30 days" not in html
+
+
+def test_bands_hold_the_doors_in_order(client, facts):
+    """The page wraps money with disagreed in one band and topics with
+    signals over the quote in a second (plan city-page-less-narrow-less-dense,
+    M2), the council between them and the meetings list after; the order of
+    the sections is money, disagreed, council, topics, signals, said, meetings.
+    """
+    html = _page(client)
+    band1 = html.index('<div class="brf-band">')
+    money = html.index("brf-door-money", band1)
+    disagreed = html.index("brf-door-disagreed", money)
+    council = html.index('class="council brf-council"', disagreed)
+    band2 = html.index('<div class="brf-band">', council)
+    topics = html.index("brf-door-topics", band2)
+    col = html.index('<div class="brf-band-col">', topics)
+    signals = html.index("brf-signals", col)
+    said = html.index("brf-door-said", signals)
+    meetings = html.index("brf-meetings-section", said)
+    assert band1 < money < disagreed < council < band2 < topics < col < signals < said < meetings
+    assert html.count('<div class="brf-band">') == 2
 
 
 def test_page_sources_names_host_count_and_date(client, seeded):
@@ -799,9 +845,9 @@ def test_council_card_count_matches_dated_dissent_view_with_abstention_and_table
     briefing_seed.clear_caches()
     section = _council(_page(client))
     assert section is not None
-    assert section.count("Voted against the outcome 1 time<") == 1
-    assert section.count("Voted against the outcome 0 times") == 8
-    assert "Attended 4 of 4 roll calls in the last 12 months" in _card(section, abstainer)
+    assert section.count("Against the outcome 1 time<") == 1
+    assert section.count("Against the outcome 0 times") == 8
+    assert "Attended 4 of 4 roll calls</div>" in _card(section, abstainer)
     assert section.count('class="cc-dissent"') == 1
     since = briefing.get_city_facts(facts["municipality_id"])["member_counts"]["payload"]["since"]
     # The card's one against-the-outcome vote is the one row of the dated Dissent view.
@@ -836,9 +882,11 @@ def test_disagreed_partial_tally_only_no_names(client, facts):
     assert door is not None
     assert door.count('<li class="brf-door-line">') == 1
     assert f'href="/al/birmingham/items/{facts["items"]["A"]}/"' in door
-    assert "passed 8 to 1" in door
+    assert '<span class="brf-key t-mono">8–1</span>' in door
+    assert "passed 8 to 1" not in door
     assert "/council/" not in door
-    assert "(abstained)" not in door
+    assert "abstained" not in door
+    assert 'class="brf-row-rest"' not in door
     # The opener's split sentence ends at the tally, and the beat's action
     # link carries the vote's anchor.
     first = _beats(html)[0]
@@ -857,10 +905,39 @@ def test_disagreed_video_sourced_vote_carries_label(client, facts):
     door = _section(html, "brf-door-disagreed")
     assert door is not None
     assert door.count('<li class="brf-door-line">') == 1
-    assert "· from the video" in door
+    assert '· from the video</span>' in door
     assert f'<a href="/al/birmingham/council/{facts["nay_member_id"]}/">Hunter Williams</a>' in door
     assert "voting no from the video." in _opener(html)
     assert "1 split vote" in _meeting_row(html, facts["past_meeting_id"])
+
+
+def test_disagreed_failed_tone_and_abstainer_clause(client, facts):
+    """A failed vote's key carries the bad tone and the word; an abstainer gets
+    its own clause after the nays; a passed vote with abstentions prints a
+    three-part tally and no word."""
+    names = list(facts["members"])
+    with db() as conn:
+        with briefing_seed._cur(conn) as cur:
+            briefing_seed._insert_vote(
+                cur, facts["past_meeting_id"], result="failed", yeas=1, nays=6,
+                item_ids=[facts["items"]["B"]], roster=facts["members"],
+                positions={**{n: "nay" for n in names[1:7]}, **{n: "absent" for n in names[7:9]}},
+            )
+            briefing_seed._insert_vote(
+                cur, facts["past_meeting_id"], result="passed", yeas=8, nays=0, abstentions=1,
+                roster=facts["members"], positions={names[7]: "abstain"},
+            )
+        conn.commit()
+    briefing.recompute_city_facts(facts["municipality_id"])
+    briefing_seed.clear_caches()
+    door = _section(_page(client), "brf-door-disagreed")
+    assert door is not None
+    assert door.count('<li class="brf-door-line">') == 3
+    assert '<span class="brf-key t-mono brf-key--bad">1–6 failed</span>' in door
+    assert '<span class="brf-key t-mono">8–0–1</span>' in door
+    assert f'<a href="/al/birmingham/council/{facts["members"][names[7]]}/">{escape(names[7])}</a> abstained' in door
+    assert "failed 1 to 6" not in door
+    assert "(abstained)" not in door
 
 
 @pytest.mark.parametrize("seeded", [{"transcript": "low_speech"}], indirect=True)
@@ -903,7 +980,7 @@ def test_council_card_without_roll_calls_shows_name_alone(client, facts):
     card = _card(section, str(escape(quiet)))
     assert "cc-stats" not in card
     assert "roll calls" not in card
-    assert section.count("roll calls in the last 12 months") == 8
+    assert section.count("roll calls</div>") == 8
 
 
 # --- M9: cancelled meetings, withdrawn items, the tabled verb, and the empty window ---
@@ -985,7 +1062,8 @@ def test_tabled_split_is_written_tabled(client, facts):
     assert "failed" not in _opener(html)
     door = _section(html, "brf-door-disagreed")
     assert door is not None
-    assert "· tabled 5 to 4" in door
+    assert '<span class="brf-key t-mono">5–4 tabled</span>' in door
+    assert "brf-key--bad" not in door
     assert "failed" not in door
 
 

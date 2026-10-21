@@ -10,4 +10,5 @@
 | `boundary-lint` | specced | — |
 | `isolated-env` | specced | — |
 | `prose-duplication` | specced | — |
+| `css-tokens` | specced | — |
 | `judge-milestone` | built | `./tools/verify` (the fixture self-test); `cycle-run` (the judge itself, before and after every milestone session) |

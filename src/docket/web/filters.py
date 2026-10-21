@@ -33,6 +33,14 @@ Currently exposes:
   ``bool`` / ``NaN`` / ``Infinity`` / non-numeric input. Used by the
   dollar-tier partial (spec §6.1, decisions #71 + #75).
 
+- ``compact_dollars(amount)`` — Render an amount as the key figure of the
+  city page's money door (plan city-page-less-narrow-less-dense): the
+  integer with separators below $1M (``$850,000``), millions to one decimal
+  with a trailing ``.0`` dropped from $1M (``$50M``, ``$10.1M``), and
+  billions the same way once the millions would round to 1000 or more
+  (``$1.2B``, and ``$1B`` for 999,950,000). Same defensive contract as
+  ``format_dollars``; returns ``""`` for anything it cannot format.
+
 - ``dollar_tier(amount)`` — Return a :class:`DollarTier` NamedTuple
   ``(color, symbol, description)`` for use by ``partials/dollar_tier.html``,
   or ``None`` for missing/invalid input so the partial can short-circuit.
@@ -55,7 +63,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import NamedTuple
 
 from flask import Flask
@@ -312,6 +320,30 @@ def format_dollars(value: Decimal | float | int | str | None) -> str:
     # Full precision for sub-$1M, dropping cents. ``:,`` adds thousands
     # separators; ``int(...)`` truncates fractional dollars.
     return f"${int(amount):,}"
+
+
+def compact_dollars(value: Decimal | float | int | str | None) -> str:
+    """``50_000_000`` → ``"$50M"``; ``10_125_000`` → ``"$10.1M"``; ``850_000`` → ``"$850,000"``;
+    ``1_200_000_000`` → ``"$1.2B"``. The key figure of the city page's money door.
+
+    Coerces through ``_coerce_amount`` (None, zero, negative, bool, NaN, and
+    non-numeric input give ``""``). Below one million the integer with
+    thousands separators, cents dropped. From one million, the amount in
+    millions rounded half up to one decimal with a trailing ``.0`` dropped;
+    when that rounds to 1000 or more, the amount in billions the same way,
+    so 999,950,000 prints ``$1B``, never ``$1000M``.
+    """
+    amount = _coerce_amount(value)
+    if amount is None:
+        return ""
+    if amount < _ABBREVIATE_AT:
+        return f"${int(amount):,}"
+    scaled = (amount / _ABBREVIATE_AT).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
+    unit = "M"
+    if scaled >= 1000:
+        scaled = (amount / (_ABBREVIATE_AT * 1000)).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
+        unit = "B"
+    return f"${format(scaled, 'f').removesuffix('.0')}{unit}"
 
 
 class DollarTier(NamedTuple):
@@ -616,6 +648,7 @@ def register(app: Flask) -> None:
     app.jinja_env.filters["format_date"] = format_date
     app.jinja_env.filters["format_timestamp"] = format_timestamp
     app.jinja_env.filters["format_dollars"] = format_dollars
+    app.jinja_env.filters["compact_dollars"] = compact_dollars
     app.jinja_env.filters["dollar_tier"] = dollar_tier
     app.jinja_env.filters["dollar_tier_chip"] = dollar_tier_chip
     app.jinja_env.filters["funding_source_label"] = funding_source_label

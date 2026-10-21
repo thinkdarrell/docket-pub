@@ -1,12 +1,14 @@
 {# What they keep dealing with: the city's tracked priorities (its policy
-   badges) and the five busiest topics of the last 90 days, each with one
-   example item.
+   badges) and the five busiest topics of the last 90 days, each row the count
+   as a key figure and the linked name, the window stated once in each
+   sub-label (plan city-page-less-narrow-less-dense, M2). A quiet priority
+   prints "0 items" and "last item <Month D, YYYY>" on its second line.
 
    Args:
      municipality (dict) — required: slug, name.
      topics_door (dict) — from briefing.topics_door: since_text, priorities
        [{slug, name, count, example | None, latest | None}], topics
-       [{slug, name, count, example}], each example {item_id, headline,
+       [{slug, name, count, example}]; latest is {item_id, headline,
        date_text, date_long}. Renders only when one of the lists is non-empty. #}
 {% if topics_door and (topics_door.priorities or topics_door.topics) %}
 <section class="brf-door brf-door-topics" aria-labelledby="brf-topics-h">
@@ -14,30 +16,26 @@
     <h2 id="brf-topics-h" class="brf-h2">What they keep dealing with</h2>
   </header>
   {% if topics_door.priorities %}
-  <p class="brf-sublabel">Tracked in {{ municipality.name }}</p>
+  <p class="brf-sublabel">Tracked in {{ municipality.name }} · since {{ topics_door.since_text }}</p>
   <ul class="brf-door-list brf-priorities">
     {% for p in topics_door.priorities %}
     <li class="brf-door-line">
-      <a href="{{ url_for('public.category_landing', slug=municipality.slug, badge_slug=p.slug) }}">{{ p.name }}</a>
-      {%- if p.example %} · {{ p.count }} item{{ 's' if p.count != 1 else '' }} since {{ topics_door.since_text }}
-      · <a href="{{ url_for('public.item_detail', slug=municipality.slug, item_id=p.example.item_id) }}">{{ p.example.headline }}</a>
-      {%- else %} · last item {{ p.latest.date_long }}
-      · <a href="{{ url_for('public.item_detail', slug=municipality.slug, item_id=p.latest.item_id) }}">{{ p.latest.headline }}</a>
+      <span class="brf-key t-mono">{{ p.count }} item{{ 's' if p.count != 1 else '' }}</span>
+      <a class="brf-row-link" href="{{ url_for('public.category_landing', slug=municipality.slug, badge_slug=p.slug) }}">{{ p.name }}</a>
+      {%- if p.latest %}
+      <span class="brf-row-date">last item {{ p.latest.date_long }}</span>
       {%- endif %}
     </li>
     {% endfor %}
   </ul>
   {% endif %}
   {% if topics_door.topics %}
-  <p class="brf-sublabel">Busiest topics</p>
+  <p class="brf-sublabel">Busiest topics · since {{ topics_door.since_text }}</p>
   <ul class="brf-door-list brf-topics">
     {% for t in topics_door.topics %}
     <li class="brf-door-line">
-      <a href="{{ url_for('public.topic_detail', topic=t.slug, city=municipality.slug) }}">{{ t.name }}</a>
-      · {{ t.count }} item{{ 's' if t.count != 1 else '' }} since {{ topics_door.since_text }}
-      {%- if t.example %}
-      · <a href="{{ url_for('public.item_detail', slug=municipality.slug, item_id=t.example.item_id) }}">{{ t.example.headline }}</a>
-      {%- endif %}
+      <span class="brf-key t-mono">{{ t.count }} item{{ 's' if t.count != 1 else '' }}</span>
+      <a class="brf-row-link" href="{{ url_for('public.topic_detail', topic=t.slug, city=municipality.slug) }}">{{ t.name }}</a>
     </li>
     {% endfor %}
   </ul>

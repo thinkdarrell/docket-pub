@@ -9,8 +9,13 @@
 {% include 'partials/briefing/search.html' %}
 
 {# ── The doors (plan birmingham-city-briefing, M3, M4): each renders only when its data exists ── #}
+{# Band one (plan city-page-less-narrow-less-dense, M2): money beside disagreed from 900px #}
+{% if money or disagreed %}
+<div class="brf-band">
 {% include 'partials/briefing/door_money.html' %}
 {% include 'partials/briefing/door_disagreed.html' %}
+</div>
+{% endif %}
 
 {# ── The council: the roster by district with the twelve-month counts (M4) ── #}
 {% if members %}
@@ -23,16 +28,25 @@
         {% include "partials/council_card.html" %}
         {% endfor %}
     </div>
+    {# The window, stated once under the grid when any card carries counts (plan city-page-less-narrow-less-dense, M3) #}
+    {% if members | selectattr('briefing') | list %}
+    <p class="brf-council-note">Roll calls counted over the last 12 months.</p>
+    {% endif %}
 </section>
 {% endif %}
 
+{# Band two: topics beside signals (M5) over the quote (M6); a band renders only when it will hold a section #}
+{% if (topics_door and (topics_door.priorities or topics_door.topics)) or signals or said %}
+<div class="brf-band">
 {% include 'partials/briefing/door_topics.html' %}
-
-{# ── Said at the meeting: one transcript excerpt (M6) ── #}
-{% include 'partials/briefing/door_said.html' %}
-
-{# ── Signals in the last 30 days: nonzero process badges in plain words (M5) ── #}
+{% if signals or said %}
+<div class="brf-band-col">
 {% include 'partials/briefing/signals.html' %}
+{% include 'partials/briefing/door_said.html' %}
+</div>
+{% endif %}
+</div>
+{% endif %}
 
 {# ── Recent meetings (one list; replaces the two strips and the table) ── #}
 {% include 'partials/briefing/meetings.html' %}
