@@ -668,4 +668,19 @@
     grid-template-columns: 1fr;
     grid-template-areas: "date" "title" "facts" "docs";
   }
+
+  /* City briefing door rows (plan city-page-less-narrow-less-dense, M1): in the
+     money and disagreement doors the key figure and the date share one small
+     line above the headline. The count rows of the topics and signals doors
+     (M2) keep the desktop shape, the key beside the name. */
+  .brf-key { font-size: 13px; }
+  .brf-door-money .brf-door-line, .brf-door-disagreed .brf-door-line {
+    grid-template-columns: max-content 1fr;
+    grid-template-areas: "key date" "head head" "rest rest";
+    column-gap: var(--space-2);
+  }
+  .brf-door-money .brf-key, .brf-door-disagreed .brf-key { padding: 0; }
+  .brf-door-money .brf-row-date, .brf-door-disagreed .brf-row-date { white-space: normal; }
+  .brf-door-money .brf-row-date::before, .brf-door-disagreed .brf-row-date::before { content: "· "; }
+  .brf-door-money .brf-row-date + .brf-row-rest::before, .brf-door-disagreed .brf-row-date + .brf-row-rest::before { content: none; }
 }

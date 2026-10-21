@@ -1,10 +1,15 @@
 {# Where the money went: the largest items of the last 90 days whose own
-   text backs their stored amount (briefing.passes_dollar_check).
+   text backs their stored amount (briefing.passes_dollar_check). Each row
+   is two-tier (plan city-page-less-narrow-less-dense, M1): the amount as
+   the key figure in the mono face, in its compact form (compact_dollars),
+   the headline linked to the item page beside it, and a muted second line
+   of the date and, when it applies, "passed on the consent agenda".
 
    Args:
      municipality (dict) — required: slug.
-     money (list[dict]) — from briefing.money_items: item_id, amount_text,
-       headline, date_text, is_consent. Renders only when non-empty. #}
+     money (list[dict]) — from briefing.money_items: item_id, amount,
+       amount_text, headline, date_text, is_consent. Renders only when
+       non-empty. #}
 {% if money %}
 <section class="brf-door brf-door-money" aria-labelledby="brf-money-h">
   <header class="brf-head">
@@ -13,9 +18,12 @@
   <ul class="brf-door-list">
     {% for it in money %}
     <li class="brf-door-line">
-      <a href="{{ url_for('public.item_detail', slug=municipality.slug, item_id=it.item_id) }}">
-        <span class="brf-amount">{{ it.amount_text }}</span> — {{ it.headline }} · {{ it.date_text }}{% if it.is_consent %} · passed on the consent agenda{% endif %}
-      </a>
+      <span class="brf-key t-mono">{{ it.amount | compact_dollars }}</span>
+      <a class="brf-row-link" href="{{ url_for('public.item_detail', slug=municipality.slug, item_id=it.item_id) }}">{{ it.headline }}</a>
+      <span class="brf-row-date">{{ it.date_text }}</span>
+      {%- if it.is_consent %}
+      <span class="brf-row-rest">passed on the consent agenda</span>
+      {%- endif %}
     </li>
     {% endfor %}
   </ul>

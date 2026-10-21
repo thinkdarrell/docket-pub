@@ -1,6 +1,11 @@
 {# Where they disagreed: the split votes of the last 180 days from the
    precomputed city_briefing_facts row (worker task briefing_facts), or the
-   unanimity sentence with the last split ever.
+   unanimity sentence with the last split ever. Each split is a two-tier
+   row (plan city-page-less-narrow-less-dense, M1): the tally "<y>–<n>[–<a>]"
+   as the key figure, followed by " failed" in the bad tone or " tabled"
+   plain when the stored result is not passed, the item clause linked
+   beside it, and a muted second line of the date, then "against: <names>",
+   then "<names> abstained", then "from the video".
 
    Args:
      municipality (dict) — required: slug.
@@ -17,16 +22,19 @@
   {% if disagreed.mode == 'splits' %}
   <ul class="brf-door-list">
     {% for s in disagreed.splits %}
+    {%- set nays = s.dissenters | rejectattr('abstained') | list %}
+    {%- set abstainers = s.dissenters | selectattr('abstained') | list %}
     <li class="brf-door-line">
-      <a href="{{ s.clause_href }}">{{ s.clause }}</a>
-      · {{ s.verb }} {{ s.yeas }} to {{ s.nays }}{% if s.abstentions %} to {{ s.abstentions }} abstaining{% endif %}
-      · {{ s.date_text }}
-      {%- if s.dissenters %} ·
-        {%- for d in s.dissenters %}
-        {% if d.href %}<a href="{{ d.href }}">{{ d.name }}</a>{% else %}{{ d.name }}{% endif %}{% if d.abstained %} (abstained){% endif %}{% if not loop.last %},{% endif %}
-        {%- endfor %}
+      <span class="brf-key t-mono{% if s.verb == 'failed' %} brf-key--bad{% endif %}">{{ s.yeas }}–{{ s.nays }}{% if s.abstentions %}–{{ s.abstentions }}{% endif %}{% if s.verb != 'passed' %} {{ s.verb }}{% endif %}</span>
+      <a class="brf-row-link" href="{{ s.clause_href }}">{{ s.clause }}</a>
+      <span class="brf-row-date">{{ s.date_text }}</span>
+      {%- if s.dissenters or s.from_video %}
+      <span class="brf-row-rest">
+        {%- if nays %}against: {% for d in nays %}{% if d.href %}<a href="{{ d.href }}">{{ d.name }}</a>{% else %}{{ d.name }}{% endif %}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}
+        {%- if abstainers %}{% if nays %} · {% endif %}{% for d in abstainers %}{% if d.href %}<a href="{{ d.href }}">{{ d.name }}</a>{% else %}{{ d.name }}{% endif %}{% if not loop.last %}, {% endif %}{% endfor %} abstained{% endif %}
+        {%- if s.from_video %}{% if s.dissenters %} · {% endif %}from the video{% endif -%}
+      </span>
       {%- endif %}
-      {%- if s.from_video %} · from the video{% endif %}
     </li>
     {% endfor %}
   </ul>

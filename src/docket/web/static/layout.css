@@ -1406,13 +1406,36 @@
 .brf-meetings-foot, .brf-follow { font-size: 14px; margin: var(--space-3) 0 0; }
 .brf-follow { color: var(--ink-3); }
 
-/* The doors (plan birmingham-city-briefing, M3): one list of linked lines each */
+/* The doors (plan city-page-less-narrow-less-dense, M1): two-tier rows. The key
+   figure sits in a fixed mono column, the linked headline beside it, and the
+   muted second line (the date, then the rest) under the headline. The phone
+   layer in mobile.css moves the key and the date onto one line above it. */
 .brf-door { max-width: 68ch; }
 .brf-door-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--rule); }
-.brf-door-line { padding: var(--space-2) 0; border-bottom: 1px solid var(--rule); line-height: 1.5; min-height: 44px; }
+.brf-door-line {
+  --brf-key-w: 12ch;
+  display: grid;
+  grid-template-columns: calc(var(--brf-key-w) + var(--space-3)) max-content 1fr;
+  grid-template-areas: "key head head" "key date rest";
+  align-items: start;
+  column-gap: 0;
+  row-gap: 2px;
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--rule);
+  line-height: 1.5;
+  min-height: 44px;
+}
+.brf-door-money .brf-door-line { --brf-key-w: 9ch; }
+.brf-key { grid-area: key; font-size: 14px; line-height: 1.5; padding: 1px var(--space-3) 0 0; font-weight: 500; color: var(--ink); white-space: nowrap; }
+.brf-key--bad { color: var(--bad); }
+.brf-row-link { grid-area: head; }
 .brf-door-line a { color: var(--ink); text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 3px; }
 .brf-door-line a:hover { color: var(--accent-ink); }
-.brf-amount { font-weight: 600; font-variant-numeric: tabular-nums; }
+.brf-row-date, .brf-row-rest { font-size: 13px; line-height: 1.5; color: var(--ink-3); }
+.brf-row-date { grid-area: date; white-space: nowrap; }
+.brf-row-rest { grid-area: rest; min-width: 0; }
+.brf-row-date + .brf-row-rest::before { content: "\00a0· "; }
+.brf-row-rest a { color: var(--ink-2); }
 .brf-door-text { line-height: 1.5; margin: 0; }
 .brf-door-text a { color: var(--ink); text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 3px; }
 .brf-sublabel { font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-3); margin: var(--space-3) 0 var(--space-2); }
@@ -1437,7 +1460,6 @@
   text-decoration: none;
 }
 .skip-link:focus { left: 8px; outline: 2px solid var(--accent); outline-offset: 2px; }
-.brf-signals .brf-door-line a { display: inline-block; }
 
 /* The transcript door (M6): one quote, its attribution, the transcript link. */
 .brf-quote { margin: 0; padding: var(--space-1) 0 var(--space-1) var(--space-3); border-left: 3px solid var(--accent); }

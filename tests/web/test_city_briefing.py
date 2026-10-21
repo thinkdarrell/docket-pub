@@ -234,7 +234,7 @@ def test_meetings_list_rows_and_ghost_excluded(client, seeded):
     assert "Regular City Council Meeting" not in section, "the ghost meeting must not be listed"
     assert f'href="/al/birmingham/meetings/{seeded["past_meeting_id"]}/"' in section
     assert f'href="/al/birmingham/meetings/{seeded["upcoming_meeting_id"]}/"' in section
-    assert "upcoming" in section
+    assert "<span>upcoming</span>" in section
     assert "4 items" in section
     assert "1 split vote" in section
     assert "agenda · minutes · video" in section
@@ -311,7 +311,9 @@ def test_money_door_full_three_lines_in_amount_order(client, seeded):
     b = door.index(f'href="/al/birmingham/items/{sidewalk}/"')
     c = door.index(f'href="/al/birmingham/items/{roof}/"')
     assert a < b < c, "lines must be in descending amount order"
-    assert "$10.1 million" in door and "$2.3 million" in door and "$850,000" in door
+    for key in ("$10.1M", "$2.3M", "$850,000"):
+        assert f'<span class="brf-key t-mono">{key}</span>' in door
+    assert "$10.1 million" not in door
     assert "passed on the consent agenda" in door
     assert 'href="/search?city=birmingham&amp;order=amount"' in door
     assert "More →" in door
@@ -329,9 +331,10 @@ def test_money_door_partial_fewer_than_three(client, seeded):
     door = _section(_page(client), "brf-door-money")
     assert door is not None
     assert door.count('<li class="brf-door-line">') == 1
-    assert "$10.1 million" in door
+    assert '<span class="brf-key t-mono">$10.1M</span>' in door
+    assert "$10.1 million" not in door
     # The amount is printed once, not repeated from the headline.
-    assert door.count("$10.1 million") == 1
+    assert door.count("$10.1M") == 1
 
 
 @pytest.mark.parametrize("seeded", [{"dollars": False}], indirect=True)
@@ -350,8 +353,9 @@ def test_disagreed_full_lists_split_with_dissenter_links(client, facts):
     assert "Where they disagreed" in door
     assert door.count('<li class="brf-door-line">') == 1
     assert f'href="/al/birmingham/items/{facts["items"]["A"]}/"' in door
-    assert "passed 8 to 1" in door
-    assert f'<a href="/al/birmingham/council/{facts["nay_member_id"]}/">Hunter Williams</a>' in door
+    assert '<span class="brf-key t-mono">8–1</span>' in door
+    assert "passed 8 to 1" not in door
+    assert f'against: <a href="/al/birmingham/council/{facts["nay_member_id"]}/">Hunter Williams</a>' in door
     assert "from the video" not in door
     assert 'href="/al/birmingham/split_vote/"' in door
     assert "More →" in door
@@ -836,9 +840,11 @@ def test_disagreed_partial_tally_only_no_names(client, facts):
     assert door is not None
     assert door.count('<li class="brf-door-line">') == 1
     assert f'href="/al/birmingham/items/{facts["items"]["A"]}/"' in door
-    assert "passed 8 to 1" in door
+    assert '<span class="brf-key t-mono">8–1</span>' in door
+    assert "passed 8 to 1" not in door
     assert "/council/" not in door
-    assert "(abstained)" not in door
+    assert "abstained" not in door
+    assert 'class="brf-row-rest"' not in door
     # The opener's split sentence ends at the tally, and the beat's action
     # link carries the vote's anchor.
     first = _beats(html)[0]
@@ -857,7 +863,7 @@ def test_disagreed_video_sourced_vote_carries_label(client, facts):
     door = _section(html, "brf-door-disagreed")
     assert door is not None
     assert door.count('<li class="brf-door-line">') == 1
-    assert "· from the video" in door
+    assert '· from the video</span>' in door
     assert f'<a href="/al/birmingham/council/{facts["nay_member_id"]}/">Hunter Williams</a>' in door
     assert "voting no from the video." in _opener(html)
     assert "1 split vote" in _meeting_row(html, facts["past_meeting_id"])
@@ -1014,7 +1020,8 @@ def test_tabled_split_is_written_tabled(client, facts):
     assert "failed" not in _opener(html)
     door = _section(html, "brf-door-disagreed")
     assert door is not None
-    assert "· tabled 5 to 4" in door
+    assert '<span class="brf-key t-mono">5–4 tabled</span>' in door
+    assert "brf-key--bad" not in door
     assert "failed" not in door
 
 
