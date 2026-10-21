@@ -42,6 +42,10 @@ After this plan a reader notices three things. The member page without `since` p
   Evidence: the closing `./tools/verify` log of the M2 session, its two `warnings summary` blocks.
 - Observation (M2 session): the M2 tick was stamped `00:24Z` while the clock read `2026-10-21 00:23Z` when the tick commit was made (`date -u` printed in the same command); the stamp is one minute ahead and is left as written because a Progress line's text is not reworded once written.
   Evidence: the output of the tick command, 2026-10-21.
+- Observation (M3 session, 2026-10-21): after the `D68` row is deleted, one citation of `D68` remains outside this plan, in the Rationale of decision `0066` ("(`D68` in `docs/DEBT.md`, observed on the throwaway database as ...)"), the record M1 wrote verbatim from Artifacts and Notes; M3's named edits do not include `0066`. A check of every `docs/decisions/0*.md` against the live rows of `docs/DEBT.md` found the same shape already in the register before this plan: `0049` cites `D55` and `0052` cites `D15`, both rows deleted and never repaired, so a paid row cited from the rationale that paid it is the register's existing state, not a reference this plan broke. Left as written; Decision Log has the entry.
+  Evidence: `grep -rn 'D68' docs src tests plans/active` minus this plan printed the one `0066` line; the per-record check against `grep -o '^| D[0-9]*' docs/DEBT.md` (56 live rows) listed `0049`/`D55`, `0052`/`D15`, `0050`/`D58`, `0056`/`D58`, `0057`/`D58`, `0066`/`D58`, `0066`/`D68`.
+- Observation (M3 session): all eight M3 acceptance greps printed what Validation and Acceptance asks on the first run, and `git diff --stat HEAD -- src` printed nothing, so M3 changed no file under `src/`; `git diff --stat origin/main -- src` lists only the four files M1 and M2 changed (`query.py`, `layout.css`, `mobile.css`, `member_detail.html`).
+  Evidence: the grep transcript under Artifacts and Notes, 2026-10-21 00:28Z.
 
 ## Decision Log
 
@@ -75,10 +79,22 @@ After this plan a reader notices three things. The member page without `since` p
 - Decision: the `D70` row is not edited to make the M1 grep for `D58` print nothing; the carve-out is recorded instead (Surprises & Discoveries, Progress).
   Rationale: `D70` records that pull request #128 spent rows `D58` to `D65`, which stays true after `D58` is paid, and rewording a debt row this plan does not name would be scope the milestone does not have (`skills/plan-execute/SKILL.md`, Never). The acceptance's intent, that nothing cites the paid row as live debt, is met: the `D58` row is gone and the three code and test files print nothing.
   Date/Author: 2026-10-21, M1 session.
+- Decision: decision `0066` keeps its citation of `D68` unrepaired after M3 deletes the row.
+  Rationale: `0066` is the record that pays `D68`, and its Rationale cites the row as the problem it describes in the past tense; `docs/decisions/DECISION_FORMAT.md` allows repairing a reference in place, but M3's work names four documents and two debt edits and not `0066`, and the register already holds two records (`0049` on `D55`, `0052` on `D15`) that cite deleted rows the same way, so the citation follows the repository's existing convention for paid debt and widening the milestone to repair it would be scope the session does not have. A reader who follows the citation finds the row's text in the `D68` description that `0066` itself summarises and in this plan's Context and Orientation.
+  Date/Author: 2026-10-21, M3 session (Claude, under `cycle-run`).
+- Decision: the sentence M3 adds to Tests that pin this in `docs/specs/votes.md` is appended to the section's one existing paragraph, after the sentence about `tests/integration/test_video_ocr_persistence.py`, not as a paragraph of its own.
+  Rationale: Plan of Work says "add to Tests that pin this the sentence given there" without placing it; the section is one paragraph listing the tests that pin the spec, and a second paragraph for two files would separate the member-page tests from the list they belong to.
+  Date/Author: 2026-10-21, M3 session.
 
 ## Outcomes & Retrospective
 
-Nothing has been executed yet. At completion this section compares the result against the purpose: the member page and the council card agree, the two sources stay visible side by side, `D58` and `D68` are gone, and the rule has one owner.
+Written at the end of M3, 2026-10-21, the last milestone; the entries before this paragraph were the authoring placeholder and are kept as history.
+
+Against the purpose: the member page's counting readers (`get_member_stats`, the counts of `get_member_vote_summary`) and the dated history reach the per-meeting rule through `briefing.chosen_source_cte` by one function-local import in one helper, and `grep -n 'CASE WHEN bool_or' src/docket/services/query.py` prints nothing, so the rule has one owner (M1). A meeting holding a minutes vote and a video vote on one motion counts one roll call and lists two rows, pinned by `tests/unit/test_query_member_history.py` (M1). The page shows each row's source in its own column in the meeting page's words and says under the stat strip what is counted, pinned by `tests/web/test_new_routes_p4.py` (M2). The undated Dissent view is `AGAINST_OUTCOME_PREDICATE`, so an abstention and a vote on a tabled motion leave it (M1). `D58` and `D68` are deleted, `D66` says its sweep may now run, decision `0066` records the rule, and `docs/specs/votes.md`, `docs/specs/city-page.md`, and `docs/specs/index.md` state its reach (M1, M3). Every `./tools/verify` in the three sessions passed all six checks.
+
+What remains is outside any milestone session: the operator's two read-only production queries under Concrete Steps, Operator step, whose results are owed to Surprises & Discoveries on this branch before merge; the post-deploy comparison of one member's roll-call total with the council card's; and the close of the plan (move to `plans/completed/`), which the factory's close step does. The dangling `D68` citation in `0066` is recorded in the Decision Log and left under the register's existing convention.
+
+Lessons: the three carve-outs the plan met (`D70`'s historical mention of `D58`, the `1 roll calls` plural, `0066`'s citation of `D68`) were all cases where a grep-shaped acceptance met text whose meaning the author had not read against the grep; a plan that deletes a debt row should list, at authoring, every file that cites it and say for each whether it is repaired or left. Reverting `src/` by patch for one run (M2) gave a failing-before result without a shared stash and is worth reusing.
 
 ## Context and Orientation
 
@@ -133,6 +149,8 @@ M2 order: `./tools/verify`; the template, the two stylesheets, the test; run `te
 M2 as run (2026-10-21, one session): `./tools/verify` before any edit printed `verify: all 6 checks passed in 102s.`; the template, `layout.css`, and `mobile.css` were edited, then the test file; `tests/web/test_new_routes_p4.py` against the edited page printed `11 passed in 0.68s`; the same test file against the page as committed in M1 (the `src/` edits reverted by patch for one run, Surprises) printed `1 failed, 10 passed in 0.72s`; the five greps each printed `1`. The closing `./tools/verify`, run after the work was committed and before the tick, printed `verify: all 6 checks passed in 102s.` (its first tier `1986 passed, 5 skipped, 4 xfailed, 1 warning in 53.55s`).
 
 M3 order: `./tools/verify`; the four documents and the two debt edits; the grep checks in Validation; `./tools/verify` (its sixth check reads this plan); tick; commit.
+
+M3 as run (2026-10-21, one session): `./tools/verify` before any edit printed `verify: all 6 checks passed in 103s.`; the six edits (three to `docs/specs/votes.md`, one each to `docs/specs/city-page.md` and `docs/specs/index.md`, the `D68` deletion and the `D66` clause in `docs/DEBT.md`) were applied by one script of anchored replacements, each anchor asserted to occur once, and `git diff --stat` listed those four files with 7 insertions and 6 deletions; the eight acceptance greps and the `src` diff check printed as Validation asks (transcript under Artifacts and Notes). The closing `./tools/verify` line is recorded there when observed.
 
 Operator step. None of this runs in a milestone session. Before merge, read-only, from the WSL checkout with `psql` against the `DATABASE_PUBLIC_URL` of the `docket-web` Railway service (the way `plans/completed/member-votes-name-their-member.md` had its queries run), the two queries below; the results go into this plan's Surprises & Discoveries as a dated operator entry committed on this branch before merge, and a shape the design does not assume (a `source` value other than `minutes_text` and `video_ocr`, or no meeting holding both) is a Decision Log entry too.
 
@@ -225,6 +243,35 @@ Observed in the M2 session, 2026-10-21, in the worktree:
     verify: unit+web+services ... ok (54s)   [1986 passed, 5 skipped, 4 xfailed, 1 warning]
     verify: integration ... ok (46s)
     verify: all 6 checks passed in 102s.
+
+Observed in the M3 session, 2026-10-21, in the worktree:
+
+    $ ./tools/verify                                  (before any edit)
+    verify: all 6 checks passed in 103s.
+    $ git diff --stat                                 (after the six edits)
+     docs/DEBT.md            | 3 +--
+     docs/specs/city-page.md | 2 +-
+     docs/specs/index.md     | 2 +-
+     docs/specs/votes.md     | 6 ++++--
+    $ grep -n 'members/<id>' docs/specs/votes.md
+    (nothing)
+    $ grep -c 'chosen_source_cte' docs/specs/votes.md; grep -c 'D28' docs/specs/votes.md
+    1, 1
+    $ grep -n 'behaves as before' docs/specs/city-page.md
+    (nothing)
+    $ grep -c '0066' docs/specs/city-page.md; grep -c 'counting rule' docs/specs/index.md
+    1, 1
+    $ grep -n '^| D68 ' docs/DEBT.md
+    (nothing)
+    $ grep -c 'member-page-counts-one-source' docs/DEBT.md
+    1
+    $ git diff --stat origin/main -- src
+     src/docket/services/query.py                | 94 ++++++++++++++++++-----------
+     src/docket/web/static/layout.css            |  3 +
+     src/docket/web/static/mobile.css            | 11 ++++
+     src/docket/web/templates/member_detail.html |  2 +
+    $ git diff --stat HEAD -- src
+    (nothing)
 
 The decision record M1 writes, `docs/decisions/0066-the-member-page-counts-one-vote-source-per-meeting-through-the-city-pages-fragment.md`, verbatim:
 
@@ -326,3 +373,4 @@ At the end of this milestone `docs/specs/votes.md` states the rule's reach in Tw
 - 2026-10-20, authored by the plan author (Claude, under `cycle-plan`) from the operator's goal and the scope brief, in the worktree cut from `origin/main` at `2a322fd`. Left out on purpose, as the brief's out-of-scope list and the Decision Log say: deleting `get_member_vote_summary` (no caller in `src/`, the operator said keep it; it gets the rule and a direct test); a needs-review marker on the history rows (the meeting page the row links to shows the callout); putting the undated history list itself under the rule (the operator wants every row listed, one per source, with the source column telling them apart); repairing the wrong path in the `D68` row (the row is deleted); any change to `briefing.py`, so `D60`, `D61`, and `D62` do not fire; and any edit to `tests/unit/test_query_hidden_meetings.py`, whose `source = 'test'` vote sits on a hidden meeting outside every scope. The slugs `member-page-one-source-per-meeting` and `member-counts-one-source-per-meeting` were also free; the shortest was taken.
 - 2026-10-21, M1 session (Claude, under `cycle-run`): M1 ticked; Surprises & Discoveries, Decision Log, Concrete Steps, Artifacts and Notes, and the spent-identifier list carry the observed evidence, the `_add_vote_to_meeting` helper, and the carve-out that the M1 grep for `D58` prints the `D70` row. No other section changed.
 - 2026-10-21, M2 session (Claude, under `cycle-run`): M2 executed; Surprises & Discoveries, Concrete Steps, and Artifacts and Notes carry the observed evidence (the failing-before and passing-after runs of `tests/web/test_new_routes_p4.py`, the greps, both `./tools/verify` lines). No carve-out against the M2 acceptance. No other section changed beyond the M2 tick.
+- 2026-10-21, M3 session (Claude, under `cycle-run`): M3 executed, the last milestone; Surprises & Discoveries, Decision Log, Outcomes & Retrospective, Concrete Steps, and Artifacts and Notes carry the observed evidence, the placement of the Tests sentence, and the `0066`/`D68` citation left under the register's convention. No carve-out against the M3 acceptance. The plan stays under `plans/active/` for the factory's close step.
