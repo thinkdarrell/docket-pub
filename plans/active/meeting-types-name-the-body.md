@@ -44,6 +44,8 @@ M3 baseline, observed by the M3 session on 2026-10-21 at 23:21Z, before any edit
 
 M3 before state, observed 2026-10-21 23:23Z after the tests were written and before the code: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_city_calendar.py tests/integration/test_city_calendar_refresh.py tests/unit/test_worker_scheduler.py tests/unit/test_worker_tasks.py tests/unit/test_worker_health.py -q -p no:cacheprovider` printed `25 failed, 44 passed`: the 15 parser and fetch tests and the 5 service tests fail on the missing modules (imported inside the test functions, so both files collect), `test_build_scheduler_registers_all_jobs`, `test_build_scheduler_job_hours[city_calendar-5]`, and the new minute test fail on the missing job, and the two task tests fail on `docket.worker.tasks` having no `city_calendar`.
 
+M3 after state, observed 2026-10-21 23:24Z with the code in place (commit after `30edab8`): the same five-file command printed `69 passed` (15 in `test_city_calendar.py`, 5 in `test_city_calendar_refresh.py`, the rest the existing worker tests with their new assertions); the acceptance one-file command on `tests/unit/test_city_calendar.py` alone printed `15 passed`. The first run of the five files with the code printed `1 failed, 68 passed`: `test_tasks_registry_has_all_jobs` in `tests/unit/test_worker_tasks.py`, an existing test that pins the TASKS keys and that the milestone did not name, failed on the extra `city_calendar`; it was re-expected (Decision Log). `DATABASE_URL=$(tools/test-db) venv/bin/python -m docket.worker.scheduler --run-once city_calendar` against the throwaway database (whose Birmingham row carries `calendar_url` from 038; the developer `docket_db` was not touched) printed `city_calendar: birmingham 4 events upserted` and `city_calendar: refreshed 1 cities`; the SELECT in the acceptance printed the four events at `2026-10-20 09:30`, `2026-10-20 11:30`, `2026-10-21 15:30`, and `2026-10-26 14:00` Chicago (transcript in Artifacts and Notes); `count(*)` was 4 after the first run and 4 after the second. `grep -c "city_calendar" src/docket/worker/scheduler.py` printed `2` (a first draft of the job comment named the `city_calendar_events` table and made it 3; the comment was reworded). `docs/runbooks/cron-worker.md` has the `city_calendar` row, the env var in the setup block, the `docket-city-calendar` check, and the `--run-once` line. `HEALTHCHECK_CITY_CALENDAR_UUID` is not set on Railway by this session (the factory session cannot reach Railway); the operator sets it when convenient and the ping is a no-op until then.
+
 ## Surprises & Discoveries
 
 Observations made while authoring (2026-10-21). Each executing session appends its own below these, with evidence.
@@ -359,6 +361,28 @@ M1 acceptance one-liners, observed 2026-10-21 23:04Z in the worktree (`venv/bin/
     DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_helpers.py tests/unit/test_meeting_labels.py -q -p no:cacheprovider
     before the code (commit 45b12d6): 69 failed, 35 passed in 0.55s
     after the code:                   104 passed in 0.43s
+
+M3 acceptance, observed 2026-10-21 23:24Z in the worktree against the throwaway database `docket_test_02a9eab9` (the task made one real request to the city page):
+
+    DATABASE_URL=$(tools/test-db) venv/bin/python -m docket.worker.scheduler --run-once city_calendar
+    2026-10-21 18:24:53,087 INFO docket.services.city_calendar: city_calendar: birmingham 4 events upserted
+    2026-10-21 18:24:53,087 INFO docket.worker.tasks: city_calendar: refreshed 1 cities
+
+    psql "$DATABASE_URL" -X -At -F ' | ' -c "SELECT title, starts_at AT TIME ZONE 'America/Chicago' FROM city_calendar_events ORDER BY starts_at"
+    BIRMINGHAM CITY COUNCIL MEETING, October 20, 2026 | 2026-10-20 09:30:00
+    ECONOMIC & WORKFORCE DEVELOPMENT/TOURISM COMMITTEE MEETING, October 20, 2026 | 2026-10-20 11:30:00
+    COMMITTEE OF THE WHOLE/ADMINISTRATION & GOVERNMENTAL AFFAIRS COMMITTEE MEETING, October 21, 2026 | 2026-10-21 15:30:00
+    TRANSPORTATION AND INFRASTRUCTURE COMMITTEE MEETING, October 26, 2026 | 2026-10-26 14:00:00
+
+    count(*) after run 1: 4; after run 2 (same two log lines): 4
+    source_url 4848 -> https://www.birminghamal.gov/events/2026-10-20birmingham-city-council-meeting-october-20-2026; categories stored as JSON arrays, e.g. 4854 -> ["Committee of the Whole / Administration & Governmental Affairs", "Community Development Committee"]
+
+    grep -c "city_calendar" src/docket/worker/scheduler.py
+    2
+
+    DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_city_calendar.py tests/integration/test_city_calendar_refresh.py tests/unit/test_worker_scheduler.py tests/unit/test_worker_tasks.py tests/unit/test_worker_health.py -q -p no:cacheprovider
+    before the code (commit 30edab8): 25 failed, 44 passed in 1.04s
+    after the code:                   69 passed in 0.88s
 
 ## Interfaces and Dependencies
 

@@ -5,7 +5,7 @@ Two modes:
   python -m docket.worker.scheduler                   # daemon mode (Railway worker)
   python -m docket.worker.scheduler --run-once <task> # foreground one-shot
 
-The daemon registers all fifteen jobs with the timezone in $WORKER_TIMEZONE
+The daemon registers all sixteen jobs with the timezone in $WORKER_TIMEZONE
 (default America/Chicago, read through docket.config) and calls
 scheduler.start(), which blocks.
 
@@ -30,13 +30,24 @@ log = logging.getLogger(__name__)
 
 
 def build_scheduler(timezone: str = "America/Chicago") -> BlockingScheduler:
-    """Build a scheduler with all fifteen jobs registered. Does not start it."""
+    """Build a scheduler with all sixteen jobs registered. Does not start it."""
     sched = BlockingScheduler(timezone=timezone)
 
     sched.add_job(
         TASKS["repair_empty_agendas"],
         CronTrigger(day_of_week=0, hour=5, minute=0, timezone=timezone),
         id="repair_empty_agendas",
+        coalesce=True,
+        max_instances=1,
+    )
+    # Read each city's own calendar page (Birmingham's council page) into
+    # the calendar events table before ingest_all (06:00) resolves meeting
+    # types against it. One request per city per day.
+    # Plan: plans/active/meeting-types-name-the-body.md (M3).
+    sched.add_job(
+        TASKS["city_calendar"],
+        CronTrigger(hour=5, minute=30, timezone=timezone),
+        id="city_calendar",
         coalesce=True,
         max_instances=1,
     )

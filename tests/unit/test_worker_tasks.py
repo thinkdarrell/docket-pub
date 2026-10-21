@@ -171,6 +171,6 @@ def test_tasks_registry_has_all_jobs():
         "repair_empty_agendas", "process_badges", "calibration_report",
         "process_batches", "refresh_backfill_ratio_mv", "prune_analytics",
         "recast_post_meeting_ai", "transcript_pipeline", "resolve_member_votes",
-        "briefing_facts",
+        "briefing_facts", "city_calendar",
     }
     assert set(tasks.TASKS.keys()) == expected
