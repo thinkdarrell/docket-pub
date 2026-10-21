@@ -159,6 +159,7 @@ Undecided, left to the operator: the visual check at 1,200, 900, and 375 pixels 
 Observed after the routed edits were committed, at HEAD `0954be3` (started 14:41Z, finished 14:42Z): `./tools/verify` printed `verify: test-db ... ok (0s) postgresql://thinkdarrell@/docket_test_63e81421`, `2001 passed, 5 skipped, 4 xfailed, 1 warning in 54.37s`, `631 passed, 1 warning in 46.32s`, `judge fixtures: 12 of 12 passed`, `84 passed in 0.72s`, `plans: 1 of 1 ok`, and `verify: all 6 checks passed in 103s.`, exit 0; the log is at the session's scratchpad `verify-retro.log`. The move to `plans/completed/` is the commit after this one; no file outside this plan cites its `plans/active/` path (`grep -rn 'plans/active/city-page'` over the tracked tree printed only the review record's own line).
 
 Observed in the move commit, with this file at `plans/completed/` and `plans/active/` empty: `tools/check-plans` printed `plans: no active plans`, exit 0. Correction, appended rather than reworded: the closing retrospective's heading time was written as `14:4xZ`, an estimate; the closing commit `e6a3989` is timestamped 09:43Z.
+Correction to that correction, appended: `09:43Z` was the commit's local-zone time (`2026-10-21T09:43:54-05:00`) printed with a `Z` by the script that wrote it; in UTC the closing commit `e6a3989` is 14:43Z, which the verify run it records (14:41Z to 14:42Z) precedes as expected.
 
 ## Context and Orientation
 
