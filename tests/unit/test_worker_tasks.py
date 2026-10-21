@@ -44,6 +44,23 @@ def test_safe_run_does_not_re_raise():
     assert result is None
 
 
+# --- task_city_calendar -------------------------------------------------------
+
+def test_city_calendar_calls_refresh_all_and_logs_the_count(caplog):
+    with patch("docket.worker.tasks.city_calendar.refresh_all", return_value=1) as mock_refresh, \
+         caplog.at_level("INFO"):
+        tasks._do_city_calendar()
+    mock_refresh.assert_called_once_with()
+    assert any("city_calendar: refreshed 1 cities" in r.getMessage() for r in caplog.records)
+
+
+def test_city_calendar_is_registered_and_safe_run_wrapped():
+    with patch("docket.worker.tasks.health.ping") as mock_ping, \
+         patch("docket.worker.tasks.city_calendar.refresh_all", return_value=0):
+        tasks.TASKS["city_calendar"]()
+    assert [c.args for c in mock_ping.call_args_list] == [("city_calendar", "start"), ("city_calendar", "success")]
+
+
 # --- task_ingest_all ---------------------------------------------------------
 
 def test_ingest_all_loops_active_municipalities():
