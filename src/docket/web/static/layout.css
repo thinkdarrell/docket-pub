@@ -1410,7 +1410,6 @@
    figure sits in a fixed mono column, the linked headline beside it, and the
    muted second line (the date, then the rest) under the headline. The phone
    layer in mobile.css moves the key and the date onto one line above it. */
-.brf-door { max-width: 68ch; }
 .brf-door-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--rule); }
 .brf-door-line {
   --brf-key-w: 12ch;
@@ -1426,6 +1425,7 @@
   min-height: 44px;
 }
 .brf-door-money .brf-door-line { --brf-key-w: 9ch; }
+.brf-door-topics .brf-door-line, .brf-signals .brf-door-line { --brf-key-w: 9ch; }
 .brf-key { grid-area: key; font-size: 14px; line-height: 1.5; padding: 1px var(--space-3) 0 0; font-weight: 500; color: var(--ink); white-space: nowrap; }
 .brf-key--bad { color: var(--bad); }
 .brf-row-link { grid-area: head; }
@@ -1446,6 +1446,20 @@
 .brf-more a { color: var(--accent-ink); text-decoration: none; }
 .brf-more a:hover { text-decoration: underline; }
 
+/* Two bands (plan city-page-less-narrow-less-dense, M2): from 900px, money sits
+   beside disagreed and topics beside signals over the quote; a column per
+   section present, so a lone section takes the width. Below 900px they stack. */
+.brf-band-col { min-width: 0; }
+@media (min-width: 900px) {
+  .brf-band {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    column-gap: var(--space-8);
+    align-items: start;
+  }
+}
+
 /* Skip link (plan birmingham-city-briefing, M5): the first element in <body>,
    hidden off-screen until a keyboard user tabs to it, then shown above the page. */
 .skip-link {
@@ -1461,7 +1475,9 @@
 }
 .skip-link:focus { left: 8px; outline: 2px solid var(--accent); outline-offset: 2px; }
 
-/* The transcript door (M6): one quote, its attribution, the transcript link. */
+/* The transcript door (M6): one quote, its attribution, the transcript link.
+   The quote is prose and keeps the 68ch measure the lists lost (M2). */
+.brf-door-said { max-width: 68ch; }
 .brf-quote { margin: 0; padding: var(--space-1) 0 var(--space-1) var(--space-3); border-left: 3px solid var(--accent); }
 .brf-quote p { margin: 0; font-size: 18px; line-height: 1.5; }
 .brf-attribution { font-size: 14px; line-height: 1.5; color: var(--ink-2); margin: var(--space-2) 0 0; }

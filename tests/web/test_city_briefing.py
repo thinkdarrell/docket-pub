@@ -606,6 +606,7 @@ def test_signals_only_nonzero_in_plain_words(client, seeded):
 def test_signals_absent_when_all_zero(client, seeded):
     html = _page(client)
     assert _section(html, "brf-signals") is None
+    assert "Signals in the last 30 days" not in html
 
 
 def test_bands_hold_the_doors_in_order(client, facts):
@@ -627,7 +628,6 @@ def test_bands_hold_the_doors_in_order(client, facts):
     meetings = html.index("brf-meetings-section", said)
     assert band1 < money < disagreed < council < band2 < topics < col < signals < said < meetings
     assert html.count('<div class="brf-band">') == 2
-    assert "Signals in the last 30 days" not in html
 
 
 def test_page_sources_names_host_count_and_date(client, seeded):
