@@ -35,6 +35,10 @@ M2 baseline, observed by the M2 session on 2026-10-21 at 23:11Z, before any edit
 
 M2 before state, observed 2026-10-21 23:12Z after the tests were written and before the code: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/integration/test_038_migration.py tests/integration/test_ingest_meeting_types.py tests/unit/test_meeting_models.py -q -p no:cacheprovider` printed `13 failed, 7 passed, 2 errors`: the 7 passing are the five existing model tests, `test_038_down_removes_all` (trivially true while 038 does not exist: `rollback_migration(conn, 38)` prints `Migration 38 is not applied.` and the columns are absent), and the model tests' neighbours; the 2 errors are the foreign-key fixture's teardown deleting from `city_calendar_events`, which does not exist yet; every ingest test fails on `column "session_kind" does not exist` or on the stale `meeting_type`, and the model tests on `AttributeError: 'Meeting' object has no attribute 'session_kind'`.
 
+Correction appended by the same session: the 7 passing in the before state are the six existing model tests and `test_038_down_removes_all`; "the model tests' neighbours" above was a miscount and is left as written.
+
+M2 after state, observed 2026-10-21 23:13Z with the code in place (commit after `23d9927`): the same three-file command printed `20 passed` (5 in `test_038_migration.py`, 7 in `test_ingest_meeting_types.py`, 8 in `test_meeting_models.py`, two of them new); `tools/test-db` printed `Applying migration 38: docket.migrations.038_meeting_types` / `Applied migration 38` while building. The four-upsert scenario in the acceptance is the four tests `test_insert_classifies_from_the_title`, `test_update_reclassifies_while_the_source_is_the_title`, `test_calendar_rung_survives_the_upsert`, and `test_lock_survives_the_upsert_while_the_title_updates`; the session added, beyond the acceptance, a schedule-rule twin of the calendar case and two tests of the `_try_upgrade_event_row` path, since the milestone's Work gates that path too.
+
 ## Surprises & Discoveries
 
 Observations made while authoring (2026-10-21). Each executing session appends its own below these, with evidence.
