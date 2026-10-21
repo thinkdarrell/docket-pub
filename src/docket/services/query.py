@@ -809,8 +809,9 @@ def list_member_voting_history(
     Args:
         cursor: opaque token from previous page's ``next_cursor``.
         limit:  rows per page.
-        filter_mode: ``"all"`` or ``"dissent"`` (dissent = position was in the
-                     minority for the vote, i.e. *not* aligned with result).
+        filter_mode: ``"all"`` or ``"dissent"`` (dissent = voted against the
+                     outcome: a no on a motion that passed or a yes on one
+                     that failed, ``AGAINST_OUTCOME_PREDICATE``).
         since: when given, only votes in meetings dated on or after it, and
                only the meeting's chosen source (``briefing.chosen_source_cte``:
                minutes over manual over api over video) with ``needs_review``
