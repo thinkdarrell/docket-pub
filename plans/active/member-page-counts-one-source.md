@@ -13,7 +13,7 @@ After this plan a reader notices three things. The member page without `since` p
 ## Progress
 
 - [x] (2026-10-21 00:13Z) M1: `get_member_stats` and the counts of `get_member_vote_summary` in `src/docket/services/query.py` take one source per meeting through `briefing.chosen_source_cte` by a function-local import, the undated Dissent filter of `list_member_voting_history` is `AGAINST_OUTCOME_PREDICATE`, four new unit tests in `tests/unit/test_query_member_history.py` fail before the change and pass after, the three assertions that pinned the old behaviour are updated, decision `0066` is written, `D58` is deleted, and decisions `0056` and `0057` cite the paid row
-- [ ] M2: `member_detail.html` shows each history row's source in its own column ("official minutes" or "video OCR") sized in `layout.css` and wrapped on phones in `mobile.css`, one line under the stat strip says minutes are counted where a meeting has them and video OCR otherwise, and the member smoke test in `tests/web/test_new_routes_p4.py` seeds one meeting with one vote and sees the column and the note
+- [x] (2026-10-21 00:24Z) M2: `member_detail.html` shows each history row's source in its own column ("official minutes" or "video OCR") sized in `layout.css` and wrapped on phones in `mobile.css`, one line under the stat strip says minutes are counted where a meeting has them and video OCR otherwise, and the member smoke test in `tests/web/test_new_routes_p4.py` seeds one meeting with one vote and sees the column and the note
 - [ ] M3: `docs/specs/votes.md` states the member page's counting rule in Two sources and corrects the sentence in When resolution runs, `docs/specs/city-page.md` line 53 and the `votes.md` row of `docs/specs/index.md` follow, `D68` is deleted, and `D66` notes that its one-time sweep may now run
 
 ## Surprises & Discoveries
@@ -126,7 +126,7 @@ M1 as run (2026-10-21, one session): `./tools/verify` before any edit printed `v
 
 M2 order: `./tools/verify`; the template, the two stylesheets, the test; run `tests/web/test_new_routes_p4.py` (expected `11 passed`); `./tools/verify`; tick; commit.
 
-M2 as run (2026-10-21, one session): `./tools/verify` before any edit printed `verify: all 6 checks passed in 102s.`; the template, `layout.css`, and `mobile.css` were edited, then the test file; `tests/web/test_new_routes_p4.py` against the edited page printed `11 passed in 0.68s`; the same test file against the page as committed in M1 (the `src/` edits reverted by patch for one run, Surprises) printed `1 failed, 10 passed in 0.72s`; the five greps each printed `1`. The closing `./tools/verify` line is under Artifacts and Notes.
+M2 as run (2026-10-21, one session): `./tools/verify` before any edit printed `verify: all 6 checks passed in 102s.`; the template, `layout.css`, and `mobile.css` were edited, then the test file; `tests/web/test_new_routes_p4.py` against the edited page printed `11 passed in 0.68s`; the same test file against the page as committed in M1 (the `src/` edits reverted by patch for one run, Surprises) printed `1 failed, 10 passed in 0.72s`; the five greps each printed `1`. The closing `./tools/verify`, run after the work was committed and before the tick, printed `verify: all 6 checks passed in 102s.` (its first tier `1986 passed, 5 skipped, 4 xfailed, 1 warning in 53.55s`).
 
 M3 order: `./tools/verify`; the four documents and the two debt edits; the grep checks in Validation; `./tools/verify` (its sixth check reads this plan); tick; commit.
 
@@ -218,7 +218,9 @@ Observed in the M2 session, 2026-10-21, in the worktree:
     $ grep -c 'member-count-note' src/docket/web/templates/member_detail.html src/docket/web/static/layout.css
     1, 1
     $ ./tools/verify                                  (after every M2 edit)
-    (recorded below once run)
+    verify: unit+web+services ... ok (54s)   [1986 passed, 5 skipped, 4 xfailed, 1 warning]
+    verify: integration ... ok (46s)
+    verify: all 6 checks passed in 102s.
 
 The decision record M1 writes, `docs/decisions/0066-the-member-page-counts-one-vote-source-per-meeting-through-the-city-pages-fragment.md`, verbatim:
 
