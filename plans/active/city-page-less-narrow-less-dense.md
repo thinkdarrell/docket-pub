@@ -44,6 +44,8 @@ How to see it working: `./tools/verify` passes at the end of every milestone wit
   Evidence: the runs above against `docket_test_63e81421`, 2026-10-21 14:1xZ.
 - Observation: the closing `./tools/verify` of M1, after `a0d8171` with the database dropped first, printed `verify: all 6 checks passed in 102s.`, with `2000 passed, 5 skipped, 4 xfailed, 1 warning in 53.45s` (1,987 at the start plus the twelve `compact_dollars` cases and the one disagreement test), `631 passed, 1 warning in 46.46s`, `judge fixtures: 12 of 12 passed`, `84 passed in 0.70s`, and `verify: plans ... ok (0s)`.
   Evidence: the run, 2026-10-21, logged at the session's scratchpad `verify-end.log`.
+- Observation: correction to the two M1 entries above: the times written as `14:0xZ` and `14:1xZ` were estimates; the machine's clock printed `13:55Z` at the session's start and `14:02Z` at the tick, so every run between them, the acceptance runs included, happened between 13:57Z and 14:02Z.
+  Evidence: `date -u` at the start (`2026-10-21 13:55Z`) and at the tick (`2026-10-21 14:02Z`).
 
 ## Decision Log
 
