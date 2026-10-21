@@ -16,7 +16,7 @@ How to see it working once the whole plan has shipped and the operator has run t
 
 Nothing has been executed. Every entry below is open. A completed entry is written as `- [x] (YYYY-MM-DD HH:MMZ) <text>` with the time the work was observed, never an estimate, and an entry's text is never reworded once written (decision `0037`; the judge in `docs/capabilities/judge-milestone.md` identifies entries by text).
 
-- [ ] M1: `classify_title` returns body, session kind, and body name for every title in the inventory; `classify_meeting` wraps it; `label_for` builds the display label; the tests in `tests/unit/test_helpers.py` and the new `tests/unit/test_meeting_labels.py` fail before and pass after.
+- [x] (2026-10-21 23:06Z) M1: `classify_title` returns body, session kind, and body name for every title in the inventory; `classify_meeting` wraps it; `label_for` builds the display label; the tests in `tests/unit/test_helpers.py` and the new `tests/unit/test_meeting_labels.py` fail before and pass after.
 - [ ] M2: migration 038 adds the four columns and the audit pair to `meetings`, creates `city_calendar_events`, and writes `council_schedule` and `calendar_url` into Birmingham's metadata; `Meeting.from_row` reads the new columns; ingest writes `session_kind` and `body_name` from the title and leaves a locked row's classification alone; `tests/integration/test_038_migration.py` and the new ingest tests pass.
 - [ ] M3: the Birmingham calendar fetcher parses the city council page's embedded JSON into `city_calendar_events` rows; the worker task `city_calendar` runs daily at 05:30 CT; the fixture test passes; the runbook table has the row.
 - [ ] M4: `services/meeting_types.resolve` applies the ladder (admin lock, calendar match, schedule rule, title) and ingest calls it after agenda items; `scripts/reclassify_meetings.py` prints a before-and-after table and writes one statement per city; the briefing's council predicate excludes work sessions; the operator has run the script on production and its printed table is recorded here.
@@ -26,6 +26,10 @@ Nothing has been executed. Every entry below is open. A completed entry is writt
 Baseline observed by the M1 session on 2026-10-21 at 22:58Z, before any edit, from `./tools/verify` in the worktree (whose gitignored `.env` names the `D57` peer-authentication role, so `test-db` built `docket_test_02a9eab9`): `unit+web+services ... ok (55s)` with `2001 passed, 5 skipped, 4 xfailed`; `integration ... ok (49s)` with `631 passed`; `judge-fixtures ... ok (1s)`; `workflows ... ok (0s)`; `transcriber ... ok (1s)` with `84 passed`; `plans ... ok (0s)`; `verify: all 6 checks passed in 106s.` `tests/unit/test_helpers.py` alone: `39 passed`.
 
 M1 before state, observed 2026-10-21 23:05Z after the tests were written and before the code: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_helpers.py tests/unit/test_meeting_labels.py -q -p no:cacheprovider` printed `69 failed, 35 passed`; the four re-expected existing tests (`test_special`, `test_called`, `test_work_session`, `test_budget_work_session`) fail on the old vocabulary and every new test fails on the missing symbols, imported inside the test functions so both files collect.
+
+Correction appended by the same session: the "23:05Z" above was written before the clock was read and is an estimate; the before-state run happened between the `39 passed` baseline at 23:01Z and the acceptance run at 23:04Z. The text is left as written because Progress text is never reworded.
+
+M1 after state, observed 2026-10-21 23:04Z: the same two-file command printed `104 passed` (39 baseline plus 65 added: 43 in `TestClassifyTitle`, 22 in `test_meeting_labels.py`); every acceptance one-liner printed the value the milestone states (transcript in Artifacts and Notes). `./tools/verify` at 23:06Z: `unit+web+services ... ok (54s)` with `2066 passed, 5 skipped, 4 xfailed`; `integration ... ok (47s)` with `631 passed`; `judge-fixtures`, `workflows`, `transcriber` (`84 passed`), `plans` all ok; `verify: all 6 checks passed in 103s.` Carve-outs against the acceptance: none. Two existing tests the acceptance did not name were re-expected to follow the stated rules (Surprises, Decision Log). Next: M2.
 
 ## Surprises & Discoveries
 
@@ -43,6 +47,10 @@ Observations made while authoring (2026-10-21). Each executing session appends i
   Evidence: the real rows in `tests/unit/test_granicus_adapter.py`: the archive row's `1778569200` is 2026-05-12T07:00Z, which is 00:00 Pacific and 02:00 Chicago, so an archived clip stores `02:00`; the upcoming row's `1779206400` is 2026-05-19T16:00Z beside the visible text "09:00 AM", which is 09:00 Pacific and 11:00 Chicago, the two-hour error issue #88 reports. Fixing the adapter is outside this plan (Decision Log); the tie-breaker uses documents instead.
 - Observation: the local database on the authoring machine is a stale copy (newest Birmingham row 2026-05-19, zero agenda items on every row), so every count in Context taken from it is approximate and the production counts are taken by the operator with the queries Context gives.
   Evidence: `SELECT max(meeting_date) FROM meetings ... birmingham` printed `2026-05-19`; `SELECT count(*) FROM agenda_items` joined to Birmingham printed 0 for every row listed.
+- Observation (M1 session, 2026-10-21): the body rules as written in M1 yield `other` for three titles the same milestone's test list says expect `council` ("Special Called Meeting", "Called Meeting - Emergency", "Budget Work Session"), because none contains "council" and only "Budget Hearing"/"Budget Meeting" make the kind `budget_hearing`; and they yield `other` for "Parks and Recreation Work Session", which the acceptance says prints `board`, because that title contains neither "board" nor "commission". Both gaps were closed inside the milestone (Decision Log).
+  Evidence: the first run of the rules as literally written, before the two additions, failed `test_special`, `test_called`, `test_budget_work_session`, and the inventory row for "Parks and Recreation Work Session" in the session's own dry run; after the additions the two files printed `104 passed`.
+- Observation (M1 session): two existing tests in `tests/unit/test_helpers.py` that the milestone did not list changed meaning under the new rules: `test_zoning` ("Zoning Board Meeting", old `planning`) and `test_case_insensitive` ("SPECIAL CALLED MEETING", old `special`).
+  Evidence: after the code landed, the two-file run printed `2 failed, 102 passed` naming exactly those two; re-expected to `board` and `council` it printed `104 passed`.
 
 ## Decision Log
 
@@ -91,10 +99,24 @@ Observations made while authoring (2026-10-21). Each executing session appends i
 - Decision: the calendar fetcher is a daily worker task reading one page per city with a `calendar_url` in its metadata (Birmingham only at first) and storing rows in `city_calendar_events`; there is no backfill of past calendar events.
   Rationale: the city site exposes upcoming events only (its list and calendar pages render "No results were found" without the browser's filter form, and its open-data portal lists no meetings dataset), so the calendar can name bodies from the day the task first runs onward; the schedule rule covers history.
   Date/Author: 2026-10-21, the author.
+- Decision: the body falls back to `council` when the title names a sitting but no body: the rule reads "`council` if it contains 'council' or 'budget', or the session kind is not `regular`", after the committee, planning, and board rules have had their turn.
+  Rationale: M1's rules as written and M1's test expectations disagreed (Surprises); the expectations are the more specific statement of intent, and every feed this site reads is the council department's, so "Special Called Meeting" or "Budget Work Session" with no body named is the council's. Named bodies are checked first, so "Special Called Finance Committee" and "Design Review Board Special Meeting" are unaffected. The alternative, changing the three tests' titles to say "council", would have reworded the plan's stated expectations rather than met them.
+  Date/Author: 2026-10-21, the M1 session.
+- Decision: "parks and recreation" joins "board" and "commission" as a board keyword, with a comment naming Vestavia Hills' parks board as the reason.
+  Rationale: its work-session clips omit the word "board", and the acceptance's `Parks and Recreation Work Session` -> `board`, `work_session`, `Parks and Recreation` is otherwise unreachable. A city-specific word in the generic classifier is already the pattern ("granicus test"); a metadata-driven body list is a larger design than this milestone owns.
+  Date/Author: 2026-10-21, the M1 session.
+- Decision: `test_zoning` now expects `board` and `test_case_insensitive` expects `council`.
+  Rationale: the milestone's rule lists planning as the planning-commission and BZA phrases only, so "Zoning Board Meeting" is a board by the stated rule, and "SPECIAL CALLED MEETING" is the uppercase twin of `test_special`, which the milestone re-expects as `council`. Widening the planning list to "zoning board" would have been a rule the plan did not state.
+  Date/Author: 2026-10-21, the M1 session.
+- Decision: `label_for` applies the " (cancelled)" suffix to every body except `other`, rather than comparing the label string to the title.
+  Rationale: the milestone's wording ("when the label is not the title itself") names the `other` branch, whose label is the title; a string comparison would also drop the suffix from a committee whose body name happens to equal its title, which is not what the wording means.
+  Date/Author: 2026-10-21, the M1 session.
 
 ## Outcomes & Retrospective
 
 Not started. This section is written at the end of each milestone that changes what a reader can observe, and in full when the plan completes.
+
+M1 (2026-10-21): nothing a reader can observe changed; the site still prints `meetings.title`. What exists now: `classify_title`, `Classification`, `MEETING_TYPES`, `SESSION_KINDS`, and `label_for` in `src/docket/adapters/_helpers.py`; `classify_meeting` is the wrapper and the four adapters and `archived_meetings.py` call it unchanged, so their `RawMeeting.meeting_type` now reads the body under the new vocabulary (a `special` or `work_session` title becomes `council` or its named body) from the next ingest, which the M2 writers will pair with `session_kind`. `query.CANCELLED_TITLE_PATTERN` and `query.is_cancelled_title` exist beside the unchanged SQL predicate. Lesson: the milestone's prose rules and its test expectations were written separately and disagreed in four titles; a later author lists the test table first and derives the rules from it.
 
 ## Context and Orientation
 
@@ -295,6 +317,23 @@ Expected label for each after M5, assuming the calendar task had not yet seen th
 
 Transcripts and tables from the milestone sessions are appended here, concise, as they are observed.
 
+M1 acceptance one-liners, observed 2026-10-21 23:04Z in the worktree (`venv/bin/python`, `classify_title` and `label_for` from `docket.adapters._helpers`):
+
+    'City Council Regular Work Session' -> Classification(meeting_type='council', session_kind='work_session', body_name=None)
+    'Special Called Special Issues Committee' -> Classification(meeting_type='committee', session_kind='special', body_name='Special Issues Committee')
+    'Regular City Council Meeting - Cancelled (Next Regular Meeting 03/24/2026)' -> Classification(meeting_type='council', session_kind='regular', body_name=None)
+    'Granicus Test' -> Classification(meeting_type='other', session_kind='regular', body_name=None)
+    'Design Review Board Special Meeting' -> Classification(meeting_type='board', session_kind='special', body_name='Design Review Board')
+    'Parks and Recreation Work Session' -> Classification(meeting_type='board', session_kind='work_session', body_name='Parks and Recreation')
+    'City Council Special Work Session' -> Classification(meeting_type='council', session_kind='work_session', body_name=None)
+    label_for('board', 'special', 'Design Review Board', ..., cancelled=False)        -> 'Design Review Board (special called)'
+    label_for('board', 'work_session', 'Parks and Recreation', ..., cancelled=False)  -> 'Parks and Recreation (work session)'
+    label_for('council', 'regular', None, 'Regular City Council Meeting - Cancelled (...)', cancelled=True) -> 'City Council meeting (cancelled)'
+
+    DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_helpers.py tests/unit/test_meeting_labels.py -q -p no:cacheprovider
+    before the code (commit 45b12d6): 69 failed, 35 passed in 0.55s
+    after the code:                   104 passed in 0.43s
+
 ## Interfaces and Dependencies
 
 In `src/docket/adapters/_helpers.py` (no new dependencies):
@@ -377,3 +416,5 @@ Dependencies: no new packages. `requests` and `beautifulsoup4` are already in `r
 2026-10-21: authored. Nothing executed.
 
 2026-10-21, after an outside review of the draft, still before any execution. Changes, each with its reason in the Decision Log entries dated "after the review": the three ingest writers set the classification only on INSERT or when `type_source = 'title'`, so a resolved row no longer flickers to the clip name between ingest stages; the schedule rule drops its zero-items condition, since the Committee of the Whole carries the next council agenda; `calendar_event_id` is stored on `meetings` in 038 instead of recomputed; the calendar tie-break reads documents and never `start_time`, whose stored values the fixture rows prove wrong (issue #88, cause recorded in Surprises); `label_for` takes a `cancelled` flag and appends " (cancelled)" and " (work session)", with the cancelled pattern given one owner in `query.py`; body-name stripping handles " special meeting" and " work session" so "Design Review Board Special Meeting" no longer labels as "Design Review Board Special (special called)"; the production step clears the AI summaries of rows that leave `council`; the meeting page's `title` block takes the label; a third production query lists the pre-2026 rows the rule touches; the redundant "planning and committee" clause is gone from M1. Validation clauses re-read against the new rules: M1's command outputs, M2's four-upsert scenario, M4's resolve cases and script output, M5's page checks. Not taken from the review: fixing the adapter's timestamp reading inside this plan (out of scope, handed to issue #88 with its cause), and reading `eventCategories` (unreliable, Surprises).
+
+2026-10-21, M1 session: M1 executed and ticked. Living sections gained the verify baseline, the before and after states, two Surprises (the rule-versus-expectation gaps; the two unlisted tests), four Decision Log entries resolving them inside the milestone, an M1 paragraph in Outcomes & Retrospective, and the acceptance transcript in Artifacts and Notes. No milestone text was changed.

@@ -34,7 +34,9 @@ class TestClassifyMeeting:
         assert classify_meeting("Board of Zoning Adjustment (BZA)") == "planning"
 
     def test_zoning(self):
-        assert classify_meeting("Zoning Board Meeting") == "planning"
+        # "planning" is the planning commission and the BZA; a zoning board
+        # with neither phrase is a board.
+        assert classify_meeting("Zoning Board Meeting") == "board"
 
     def test_budget_work_session(self):
         assert classify_meeting("Budget Work Session") == "council"
@@ -49,7 +51,7 @@ class TestClassifyMeeting:
         assert classify_meeting("") == "other"
 
     def test_case_insensitive(self):
-        assert classify_meeting("SPECIAL CALLED MEETING") == "special"
+        assert classify_meeting("SPECIAL CALLED MEETING") == "council"
 
     def test_board(self):
         assert classify_meeting("Design Review Board Meeting") == "board"
