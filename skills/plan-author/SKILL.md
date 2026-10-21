@@ -86,7 +86,16 @@ constrains:
    Context lists each hit as an edit or a leave-alone. Two consecutive
    plans left a sentence of the old rule standing, four prose sites in one
    and a producer docstring in the next, and each was found after the
-   milestones closed, by the retro and by the closing review.
+   milestones closed, by the retro and by the closing review. The same
+   grep is run for an identifier the work retires, a debt row id or a
+   decision number, and Context lists each hit the same way, before any
+   acceptance clause says the id will print nowhere: a paid row stays
+   cited by the record that paid it and by any row that names it as
+   history, so such a clause is written from the hits that remain. One
+   plan's clause that `D58` print nothing from four files met the `D70`
+   row, which lists the rows a pull request spent, and its own decision
+   `0066` kept citing the `D68` row the plan deleted; each became a
+   carve-out the session recorded in place of a check the author had run.
    When the work has a page write a sentence about a row (the council
    met, an item passed, a vote failed, this was the largest), the research
    lists the states of that row's table that would make the sentence
