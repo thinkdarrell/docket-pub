@@ -34,6 +34,10 @@ After this plan a reader notices three things. The member page without `since` p
   Evidence: `tests/unit/test_query_member_history.py`, the two helpers above the fixture.
 - Observation (M1 session): the first run of the unit file against the finished code printed `14 passed, 1 warning in 0.39s` under `-q`; the rerun without `-q`, piped through `grep -i -A8 'warnings summary'`, printed nothing, and `./tools/verify` passed, so the warning's text was not captured. Noted, not chased: it did not recur and no test failed.
   Evidence: the two runs on `docket_test_b3b359fd`, 2026-10-21.
+- Observation (M2 session, 2026-10-21): the failing-before run was obtained without a stash: `git diff -- src` was saved to a patch file in the session scratchpad, `git checkout -- src` reverted the page, the test file (already edited) ran, and `git apply` restored the three `src/` files; `git diff --stat` afterwards listed the same four files with the same line counts as before the revert. The new test failed on its first assertion, the source column, which is the expected shape: the unchanged page has neither the column nor the note.
+  Evidence: `1 failed, 10 passed in 0.72s`, with `FAILED tests/web/test_new_routes_p4.py::test_member_detail_shows_source_column_and_count_note` and `E       assert 'class="member-history-source t-meta">official minutes<' in '<!DOCTYPE html>...'`.
+- Observation (M2 session): the stat strip's sub-line reads `1 roll calls` for one roll call, the plural the existing `partials/num_stat.html` call in the template has always printed (`sub=(stats.votes_total ~ ' roll calls')`), and the plan's acceptance asserts that exact text. Left as it is: the wording predates this plan and changing it is outside the milestone.
+  Evidence: the body assertion `"1 roll calls" in body` passed in the `11 passed` run.
 
 ## Decision Log
 
@@ -122,6 +126,8 @@ M1 as run (2026-10-21, one session): `./tools/verify` before any edit printed `v
 
 M2 order: `./tools/verify`; the template, the two stylesheets, the test; run `tests/web/test_new_routes_p4.py` (expected `11 passed`); `./tools/verify`; tick; commit.
 
+M2 as run (2026-10-21, one session): `./tools/verify` before any edit printed `verify: all 6 checks passed in 102s.`; the template, `layout.css`, and `mobile.css` were edited, then the test file; `tests/web/test_new_routes_p4.py` against the edited page printed `11 passed in 0.68s`; the same test file against the page as committed in M1 (the `src/` edits reverted by patch for one run, Surprises) printed `1 failed, 10 passed in 0.72s`; the five greps each printed `1`. The closing `./tools/verify` line is under Artifacts and Notes.
+
 M3 order: `./tools/verify`; the four documents and the two debt edits; the grep checks in Validation; `./tools/verify` (its sixth check reads this plan); tick; commit.
 
 Operator step. None of this runs in a milestone session. Before merge, read-only, from the WSL checkout with `psql` against the `DATABASE_PUBLIC_URL` of the `docket-web` Railway service (the way `plans/completed/member-votes-name-their-member.md` had its queries run), the two queries below; the results go into this plan's Surprises & Discoveries as a dated operator entry committed on this branch before merge, and a shape the design does not assume (a `source` value other than `minutes_text` and `video_ocr`, or no meeting holding both) is a Decision Log entry too.
@@ -198,6 +204,21 @@ Observed in the M1 session, 2026-10-21, in the worktree:
     1 and 1
     $ ./tools/verify                                  (after every M1 edit)
     verify: all 6 checks passed in 104s.
+
+Observed in the M2 session, 2026-10-21, in the worktree:
+
+    $ ./tools/verify                                  (before any edit)
+    verify: all 6 checks passed in 102s.
+    $ DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/web/test_new_routes_p4.py -q -p no:cacheprovider
+    11 passed in 0.68s                                (template, stylesheets, test edited)
+    ... the same, with src/ reverted to the M1 commit for one run:
+    1 failed, 10 passed in 0.72s                      (test_member_detail_shows_source_column_and_count_note)
+    $ grep -c 'member-history-source' src/docket/web/templates/member_detail.html src/docket/web/static/layout.css src/docket/web/static/mobile.css
+    1, 1, 1
+    $ grep -c 'member-count-note' src/docket/web/templates/member_detail.html src/docket/web/static/layout.css
+    1, 1
+    $ ./tools/verify                                  (after every M2 edit)
+    (recorded below once run)
 
 The decision record M1 writes, `docs/decisions/0066-the-member-page-counts-one-vote-source-per-meeting-through-the-city-pages-fragment.md`, verbatim:
 
@@ -298,3 +319,4 @@ At the end of this milestone `docs/specs/votes.md` states the rule's reach in Tw
 
 - 2026-10-20, authored by the plan author (Claude, under `cycle-plan`) from the operator's goal and the scope brief, in the worktree cut from `origin/main` at `2a322fd`. Left out on purpose, as the brief's out-of-scope list and the Decision Log say: deleting `get_member_vote_summary` (no caller in `src/`, the operator said keep it; it gets the rule and a direct test); a needs-review marker on the history rows (the meeting page the row links to shows the callout); putting the undated history list itself under the rule (the operator wants every row listed, one per source, with the source column telling them apart); repairing the wrong path in the `D68` row (the row is deleted); any change to `briefing.py`, so `D60`, `D61`, and `D62` do not fire; and any edit to `tests/unit/test_query_hidden_meetings.py`, whose `source = 'test'` vote sits on a hidden meeting outside every scope. The slugs `member-page-one-source-per-meeting` and `member-counts-one-source-per-meeting` were also free; the shortest was taken.
 - 2026-10-21, M1 session (Claude, under `cycle-run`): M1 ticked; Surprises & Discoveries, Decision Log, Concrete Steps, Artifacts and Notes, and the spent-identifier list carry the observed evidence, the `_add_vote_to_meeting` helper, and the carve-out that the M1 grep for `D58` prints the `D70` row. No other section changed.
+- 2026-10-21, M2 session (Claude, under `cycle-run`): M2 executed; Surprises & Discoveries, Concrete Steps, and Artifacts and Notes carry the observed evidence (the failing-before and passing-after runs of `tests/web/test_new_routes_p4.py`, the greps, both `./tools/verify` lines). No carve-out against the M2 acceptance. No other section changed beyond the M2 tick.

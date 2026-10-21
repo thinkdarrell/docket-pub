@@ -640,6 +640,17 @@
     scroll-snap-align: start;
   }
 
+  /* Member page history (plan member-page-counts-one-source, M2): the source
+     column drops under the row's body so the title keeps its width. */
+  .member-history-row.vote-row {
+    grid-template-columns: 110px 1fr auto;
+  }
+  .member-history-source {
+    order: 1;
+    grid-column: 2 / -1;
+    white-space: normal;
+  }
+
   /* Item detail hero → stack dollar chip below text on narrow screens. */
   .item-detail-hero-top {
     flex-direction: column;

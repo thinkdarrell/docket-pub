@@ -16,6 +16,9 @@ from docket.db import db
 def _cleanup() -> None:
     with db() as conn:
         with conn.cursor() as cur:
+            # Meetings first: votes and member votes cascade from meetings, but
+            # meetings.municipality_id does not cascade from municipalities.
+            cur.execute("DELETE FROM meetings WHERE title LIKE 'TEST_P4_%'")
             cur.execute("DELETE FROM council_members WHERE name LIKE 'TEST_P4_%'")
             cur.execute("DELETE FROM municipalities WHERE slug LIKE 'p4test_%'")
         conn.commit()
@@ -55,12 +58,57 @@ def two_cities_with_members():
     _cleanup()
 
 
+def _seed_one_vote(fx) -> int:
+    """Insert into the alpha city one council meeting ``TEST_P4_meeting``
+    (2099-01-01) holding one ``minutes_text`` vote that passed 1 to 0 and one
+    member vote (``yea``) for the alpha member; return the meeting id."""
+    with db() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """INSERT INTO meetings (municipality_id, title, meeting_date, meeting_type)
+                   VALUES (%s, 'TEST_P4_meeting', '2099-01-01', 'council') RETURNING id""",
+                (fx["alpha_id"],),
+            )
+            meeting_id = cur.fetchone()["id"]
+            cur.execute(
+                """INSERT INTO votes (meeting_id, source, result, yeas, nays, abstentions,
+                                       confidence, needs_review)
+                   VALUES (%s, 'minutes_text', 'passed', 1, 0, 0, 'high', FALSE) RETURNING id""",
+                (meeting_id,),
+            )
+            vote_id = cur.fetchone()["id"]
+            cur.execute(
+                """INSERT INTO member_votes (vote_id, council_member_id, member_name, position)
+                   VALUES (%s, %s, 'TEST_P4_Alpha Member', 'yea')""",
+                (vote_id, fx["alpha_member_id"]),
+            )
+        conn.commit()
+    return meeting_id
+
+
 def test_member_detail_200(client, two_cities_with_members):
     fx = two_cities_with_members
     resp = client.get(f"/al/{fx['alpha_slug']}/council/{fx['alpha_member_id']}/")
     assert resp.status_code == 200
     body = resp.get_data(as_text=True)
     assert "TEST_P4_Alpha Member" in body
+
+
+def test_member_detail_shows_source_column_and_count_note(client, two_cities_with_members):
+    """Plan member-page-counts-one-source, M2: each vote row shows its source
+    in its own column in the meeting page's words, the note under the stat
+    strip states the counting rule, and the one minutes vote counts once."""
+    fx = two_cities_with_members
+    _seed_one_vote(fx)
+    resp = client.get(f"/al/{fx['alpha_slug']}/council/{fx['alpha_member_id']}/")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert 'class="member-history-source t-meta">official minutes<' in body
+    assert (
+        "Counted from the official minutes where a meeting has them "
+        "and from video OCR otherwise"
+    ) in body
+    assert "1 roll calls" in body
 
 
 def test_member_detail_404_unknown_member(client, two_cities_with_members):

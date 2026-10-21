@@ -49,6 +49,7 @@
       {% include 'partials/num_stat.html' with context %}
     {% endwith %}
   </div>
+  <p class="t-meta member-count-note">Counted from the official minutes where a meeting has them and from video OCR otherwise; a vote flagged for review is listed below but not counted.</p>
 </section>
 
 {# ── Filter chips ─────────────────────────────────── #}
@@ -113,6 +114,7 @@
             </div>
             <div class="t-meta">{{ row.yeas }}–{{ row.nays }} · {{ row.result }}</div>
           </div>
+          <span class="member-history-source t-meta">{{ 'video OCR' if row.source == 'video_ocr' else 'official minutes' }}</span>
           <span class="chip chip-{{ row.position }}">{{ row.position | upper }}</span>
         </a>
         {% endfor %}
