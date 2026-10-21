@@ -28,6 +28,10 @@
         {% include "partials/council_card.html" %}
         {% endfor %}
     </div>
+    {# The window, stated once under the grid when any card carries counts (plan city-page-less-narrow-less-dense, M3) #}
+    {% if members | selectattr('briefing') | list %}
+    <p class="brf-council-note">Roll calls counted over the last 12 months.</p>
+    {% endif %}
 </section>
 {% endif %}
 

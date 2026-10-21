@@ -1440,6 +1440,7 @@
 .brf-door-text a { color: var(--ink); text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 3px; }
 .brf-sublabel { font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-3); margin: var(--space-3) 0 var(--space-2); }
 .brf-council .council-grid { margin-top: var(--space-2); }
+.brf-council-note { font-size: 13px; color: var(--ink-3); margin: var(--space-3) 0 0; }
 .member-since { margin: var(--space-2) 0 0; }
 .member-count-note { margin: 0; max-width: 68ch; }
 .brf-more { font-size: 14px; margin: var(--space-3) 0 0; }

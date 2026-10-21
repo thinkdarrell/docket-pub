@@ -683,4 +683,27 @@
   .brf-door-money .brf-row-date, .brf-door-disagreed .brf-row-date { white-space: normal; }
   .brf-door-money .brf-row-date::before, .brf-door-disagreed .brf-row-date::before { content: "· "; }
   .brf-door-money .brf-row-date + .brf-row-rest::before, .brf-door-disagreed .brf-row-date + .brf-row-rest::before { content: none; }
+
+  /* The city page's council as nine rows (plan city-page-less-narrow-less-dense,
+     M3): initials square, district, name, the two numbers. /al/<slug>/council/
+     carries no brf-council and keeps the three-column tiles above. */
+  .brf-council .council-grid { grid-template-columns: 1fr; gap: 0; border-top: 1px solid var(--rule); }
+  .brf-council .cc {
+    display: grid;
+    grid-template-columns: 40px 1fr;
+    column-gap: var(--space-3);
+    align-items: center;
+    border: 0;
+    border-bottom: 1px solid var(--rule);
+    border-radius: 0;
+    padding: var(--space-2) 0;
+  }
+  .brf-council .cc-portrait { width: 40px; aspect-ratio: 1; border-radius: 6px; }
+  .brf-council .cc-initials { font-size: 14px; text-shadow: none; }
+  .brf-council .cc-body { padding: 0; gap: 2px; }
+  .brf-council .cc-district-num { font-size: 12px; color: var(--ink-3); }
+  .brf-council .cc-name { font-size: 15px; display: block; -webkit-line-clamp: none; overflow: visible; }
+  .brf-council .cc-stats { flex-direction: row; flex-wrap: wrap; gap: 0 var(--space-3); font-size: 12px; }
+  .brf-council .cc-stat { min-height: 0; }
+  .brf-council .cc-dissent { display: inline-block; padding: 4px 0; }
 }

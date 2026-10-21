@@ -6,7 +6,10 @@
    not know their councilor's name does know their district); the name links
    to the member record and that link is stretched over the card; the second
    twelve-month number links to the record's Dissent filter dated to the
-   window the count was taken from, and is plain text when it is zero. #}
+   window the count was taken from, and is plain text when it is zero. The
+   window itself is stated once under the city page's grid (the
+   brf-council-note in city.html), not on every card (plan
+   city-page-less-narrow-less-dense, M3). #}
 {% set hue = (m.id * 137) % 360 %}
 <article class="cc">
     <div class="cc-portrait" style="background: oklch(0.45 0.12 {{ hue }})">
@@ -26,12 +29,12 @@
 
         {% if m.briefing %}
           <div class="cc-stats">
-            <div class="cc-stat">Attended {{ m.briefing.attended }} of {{ m.briefing.roll_calls }} roll call{{ 's' if m.briefing.roll_calls != 1 else '' }} in the last 12 months</div>
+            <div class="cc-stat">Attended {{ m.briefing.attended }} of {{ m.briefing.roll_calls }} roll call{{ 's' if m.briefing.roll_calls != 1 else '' }}</div>
             <div class="cc-stat">
               {%- if m.briefing.dissent_href -%}
-                <a class="cc-dissent" href="{{ m.briefing.dissent_href }}">Voted against the outcome {{ m.briefing.against }} time{{ 's' if m.briefing.against != 1 else '' }}</a>
+                <a class="cc-dissent" href="{{ m.briefing.dissent_href }}">Against the outcome {{ m.briefing.against }} time{{ 's' if m.briefing.against != 1 else '' }}</a>
               {%- else -%}
-                Voted against the outcome {{ m.briefing.against }} times
+                Against the outcome {{ m.briefing.against }} time{{ 's' if m.briefing.against != 1 else '' }}
               {%- endif -%}
             </div>
           </div>
