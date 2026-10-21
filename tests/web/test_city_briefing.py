@@ -430,10 +430,14 @@ def test_council_door_nine_cards_in_district_order_with_numbers(client, facts):
     # Two chosen-source roll calls on the past meeting (the review-flagged
     # video vote is excluded): Hunter Williams voted no once; Clinton P.
     # Woods was absent once.
-    assert section.count("Attended 2 of 2 roll calls in the last 12 months") == 8
-    assert "Attended 1 of 2 roll calls in the last 12 months" in section
-    assert section.count("Voted against the outcome 1 time<") == 1
-    assert section.count("Voted against the outcome 0 times") == 8
+    assert section.count("Attended 2 of 2 roll calls</div>") == 8
+    assert "Attended 1 of 2 roll calls</div>" in section
+    assert section.count("Against the outcome 1 time<") == 1
+    assert section.count("Against the outcome 0 times") == 8
+    # The window is stated once under the grid, not on every card
+    # (plan city-page-less-narrow-less-dense, M3).
+    assert section.count("Roll calls counted over the last 12 months.") == 1
+    assert "in the last 12 months</div>" not in section
     assert "photo · placeholder" not in section
     assert section.count("View record →") == 9
 
@@ -444,7 +448,8 @@ def test_council_door_numbers_omitted_without_facts_row(client, seeded):
     assert section.count('class="cc-district-num') == 9
     assert "roll calls" not in section
     assert "cc-stats" not in section
-    assert "Voted against" not in section
+    assert "Against the outcome" not in section
+    assert "Roll calls counted" not in section
 
 
 def test_council_card_links_dissent_since_and_member_page_matches_count(client, facts):
@@ -452,9 +457,17 @@ def test_council_card_links_dissent_since_and_member_page_matches_count(client, 
     assert section is not None
     since = (briefing.get_city_facts(facts["municipality_id"])["member_counts"]["payload"]["since"])
     href = f'/al/birmingham/council/{facts["nay_member_id"]}/?filter=dissent&amp;since={since}'
-    assert f'<a class="cc-dissent" href="{href}">Voted against the outcome 1 time</a>' in section
+    assert f'<a class="cc-dissent" href="{href}">Against the outcome 1 time</a>' in section
     # A zero is not a door: the other eight members' second line has no link.
     assert section.count('class="cc-dissent"') == 1
+    # The roster page shares the card without the numbers, carries no window
+    # note, and is not the city page's section (its phone list is scoped to
+    # brf-council, plan city-page-less-narrow-less-dense, M3).
+    resp = client.get("/al/birmingham/council/")
+    assert resp.status_code == 200
+    roster = resp.get_data(as_text=True)
+    assert "Roll calls counted" not in roster
+    assert "brf-council" not in roster
 
     resp = client.get(href.replace("&amp;", "&"))
     assert resp.status_code == 200
@@ -832,9 +845,9 @@ def test_council_card_count_matches_dated_dissent_view_with_abstention_and_table
     briefing_seed.clear_caches()
     section = _council(_page(client))
     assert section is not None
-    assert section.count("Voted against the outcome 1 time<") == 1
-    assert section.count("Voted against the outcome 0 times") == 8
-    assert "Attended 4 of 4 roll calls in the last 12 months" in _card(section, abstainer)
+    assert section.count("Against the outcome 1 time<") == 1
+    assert section.count("Against the outcome 0 times") == 8
+    assert "Attended 4 of 4 roll calls</div>" in _card(section, abstainer)
     assert section.count('class="cc-dissent"') == 1
     since = briefing.get_city_facts(facts["municipality_id"])["member_counts"]["payload"]["since"]
     # The card's one against-the-outcome vote is the one row of the dated Dissent view.
@@ -967,7 +980,7 @@ def test_council_card_without_roll_calls_shows_name_alone(client, facts):
     card = _card(section, str(escape(quiet)))
     assert "cc-stats" not in card
     assert "roll calls" not in card
-    assert section.count("roll calls in the last 12 months") == 8
+    assert section.count("roll calls</div>") == 8
 
 
 # --- M9: cancelled meetings, withdrawn items, the tabled verb, and the empty window ---

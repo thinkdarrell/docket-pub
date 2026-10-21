@@ -551,8 +551,10 @@ def test_card_v2_fallback_legislation_idiom_structure(render_partial):
 
 def test_council_card_renders_attendance_alignment_when_provided(render_partial):
     """The stats block renders when the member dict carries ``briefing``
-    (plan birmingham-city-briefing, M4): the two twelve-month lines, the
-    second a link to the dated Dissent view when the count is not zero."""
+    (plan birmingham-city-briefing, M4): the two count lines, the second a
+    link to the dated Dissent view when the count is not zero; the window is
+    stated once under the city page's grid, not on the card (plan
+    city-page-less-narrow-less-dense, M3)."""
     m = {
         'id': 7, 'name': 'Jane Doe', 'district_name': 'District 3', 'district_number': 3,
         'briefing': {'roll_calls': 40, 'attended': 37, 'against': 4, 'since_iso': '2025-10-19',
@@ -561,8 +563,9 @@ def test_council_card_renders_attendance_alignment_when_provided(render_partial)
     municipality = {'slug': 'birmingham'}
     html = render_partial("partials/council_card.html", m=m, municipality=municipality)
     assert 'cc-stats' in html
-    assert 'Attended 37 of 40 roll calls in the last 12 months' in html
-    assert '<a class="cc-dissent" href="/al/birmingham/council/7/?filter=dissent&amp;since=2025-10-19">Voted against the outcome 4 times</a>' in html
+    assert 'Attended 37 of 40 roll calls' in html
+    assert 'in the last 12 months' not in html, "the window is stated once under the city page's grid"
+    assert '<a class="cc-dissent" href="/al/birmingham/council/7/?filter=dissent&amp;since=2025-10-19">Against the outcome 4 times</a>' in html
     assert html.index('District 3') < html.index('Jane Doe'), "the district comes first"
 
 
