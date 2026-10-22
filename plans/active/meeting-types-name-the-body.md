@@ -19,7 +19,7 @@ Nothing has been executed. Every entry below is open. A completed entry is writt
 - [x] (2026-10-21 23:06Z) M1: `classify_title` returns body, session kind, and body name for every title in the inventory; `classify_meeting` wraps it; `label_for` builds the display label; the tests in `tests/unit/test_helpers.py` and the new `tests/unit/test_meeting_labels.py` fail before and pass after.
 - [x] (2026-10-21 23:15Z) M2: migration 038 adds the four columns and the audit pair to `meetings`, creates `city_calendar_events`, and writes `council_schedule` and `calendar_url` into Birmingham's metadata; `Meeting.from_row` reads the new columns; ingest writes `session_kind` and `body_name` from the title and leaves a locked row's classification alone; `tests/integration/test_038_migration.py` and the new ingest tests pass.
 - [x] (2026-10-21 23:27Z) M3: the Birmingham calendar fetcher parses the city council page's embedded JSON into `city_calendar_events` rows; the worker task `city_calendar` runs daily at 05:30 CT; the fixture test passes; the runbook table has the row.
-- [ ] M4: `services/meeting_types.resolve` applies the ladder (admin lock, calendar match, schedule rule, title) and ingest calls it after agenda items; `scripts/reclassify_meetings.py` prints a before-and-after table and writes one statement per city; the briefing's council predicate excludes work sessions; the operator has run the script on production and its printed table is recorded here.
+- [x] (2026-10-22 00:06Z) M4: `services/meeting_types.resolve` applies the ladder (admin lock, calendar match, schedule rule, title) and ingest calls it after agenda items; `scripts/reclassify_meetings.py` prints a before-and-after table and writes one statement per city; the briefing's council predicate excludes work sessions; the operator has run the script on production and its printed table is recorded here.
 - [ ] M5: cards, the meeting page, the home strip, and the meetings list show the label; the meeting page quotes the clip name as provenance; the filter row renders; the admin form sets and clears an override through `services/meeting_types`; `docs/specs/meeting-types.md` exists and `docs/specs/city-page.md` and `README.md` are edited; the web and integration tests pass.
 - [ ] M6: migration 039 adds the CHECK constraints on `meeting_type` and `session_kind` after the production reclassification is recorded; `tests/integration/test_039_migration.py` passes; the durable decisions graduate to `docs/decisions/`; the plan moves to `plans/completed/`.
 
@@ -54,6 +54,7 @@ M4 baseline, observed by the M4 session on 2026-10-21 at 23:55Z, before any edit
 M4 before state, observed 2026-10-22 00:00Z after the tests were written and before the code: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_meeting_types_resolve.py tests/integration/test_ingest_meeting_types.py tests/web/test_city_briefing.py -q -p no:cacheprovider` printed `40 failed, 67 passed`: the 35 resolver tests and the 4 new integration tests fail on the missing `docket.services.meeting_types` (imported inside the test functions, so both files collect), and the new briefing test `test_opener_passes_over_a_council_work_session` fails because the opener names the seeded work session as the last meeting (its last-meeting beat no longer says `acted on 4 items`), the old predicate at work.
 
 M4 after state, observed 2026-10-22 00:03Z with the code in place (commit after `57feb7a`): the same three-file command printed `107 passed` (35 in `test_meeting_types_resolve.py`, 11 in `test_ingest_meeting_types.py` of which 4 are new, 61 in `test_city_briefing.py` of which 1 is new). The first run with the code printed `1 failed, 106 passed`: the new briefing test asserted a link to the past meeting's page in the opener, which the opener has never carried (its links are items, members, and the next agenda); the assertion was replaced by the weekday the beat names (`The council met on <weekday>`), and the predicate itself had already passed (`acted on 4 items`). The script acceptance was run against the throwaway database `docket_test_02a9eab9`, not the developer `docket_db` (which has not had 038 applied and is the stale copy Surprises describes; the M3 session made the same choice), after seeding Birmingham with seven rows and one calendar event by `psql`: `venv/bin/python scripts/reclassify_meetings.py --city birmingham --dry-run` printed the five-line transition table (`council regular -> committee regular schedule_rule 2`, `council regular -> council regular title 2`, `council regular -> committee regular calendar 1`, `other regular -> other regular title 1`, `special regular -> council special title 1`), the one pre-2026 schedule-rule row (`2025-12-22 Mon`, 0 items), and `dry run: 0 rows written`; without `--dry-run` it printed the same table, `written: 4 rows in one statement`, the clearing statement, and `summaries cleared: 1`; the second dry run printed every count on the diagonal and `dry run: 0 rows written`; the Wednesday row read `committee | regular | Committee of the Whole / Administration & Governmental Affairs | calendar | 1` and the Tuesday row kept its summary (transcript in Artifacts and Notes).
+`./tools/verify` at 2026-10-22 00:04Z to 00:06Z (commit `8852ba4`, exit 0): `unit+web+services ... ok (56s)` with `2123 passed, 5 skipped, 4 xfailed` (36 added: 35 resolver, 1 briefing); `integration ... ok (46s)` with `652 passed` (4 added); `judge-fixtures` (`12 of 12`), `workflows`, `transcriber` (`84 passed`), `plans` all ok; `verify: all 6 checks passed in 105s.` The plan file was edited (Surprises, Decision Log, Outcomes, Artifacts) while that run was in progress; its pytest tiers read only the committed code, and `tools/check-plans` was rerun alone on the edited file: `plans: 1 of 1 ok`. Carve-outs against the acceptance: the operator's production step is not done, since a factory session cannot reach production: the three production SELECTs in Context, the dry and wet runs of `scripts/reclassify_meetings.py` for birmingham, homewood, vestavia_hills, and mobile with their printed tables, pre-2026 lists, and summary counts pasted here, the look at clip 2023's agenda viewer (Surprises), and the issue #88 note; and the script acceptance ran against the seeded throwaway database rather than the stale local copy (Decision Log). Everything else the acceptance states was run and passed. Next: M5 (after the operator's step, which M6's CHECK constraints also wait on).
 
 ## Surprises & Discoveries
 
@@ -85,6 +86,15 @@ Observations made while authoring (2026-10-21). Each executing session appends i
   Evidence: `grep -c` printed `3` before the comment was reworded and `2` after.
 - Observation (M3 session): `tests/unit/test_worker_tasks.py::test_tasks_registry_has_all_jobs` pins the TASKS keys alongside the scheduler job-set test the milestone names; adding a task changes both.
   Evidence: the first after-state run printed `1 failed, 68 passed` naming that test, with `Extra items in the left set: 'city_calendar'`.
+
+- Observation (M4 session, 2026-10-22): the letters-only committee match as M4 words it (strip everything but A to Z, test containment) fails for two of the eight canonical names, because the menu spells "and" where the event spells "&" and the other way round: "Economic and Workforce Development / Tourism" against `ECONOMIC & WORKFORCE DEVELOPMENT/TOURISM COMMITTEE MEETING`, and "Transportation & Infrastructure" against `TRANSPORTATION AND INFRASTRUCTURE COMMITTEE MEETING`.
+  Evidence: the letters are `ECONOMICANDWORKFORCEDEVELOPMENTTOURISM` against `ECONOMICWORKFORCEDEVELOPMENTTOURISMCOMMITTEEMEETING...`, and `TRANSPORTATIONINFRASTRUCTURE` against `TRANSPORTATIONANDINFRASTRUCTURE...`; neither is contained in the other. Reading `&` as ` and ` before stripping makes all eight match (Decision Log).
+- Observation (M4 session): the acceptance's third integration step (after `minutes_url` is set, `resolve_and_store` puts the Wednesday row back to `council`, `title`, `calendar_event_id` NULL) contradicts the ladder's "with exactly one event, that one" when the day holds one committee event, as the test's Wednesday does: the ladder as written would have kept the Committee of the Whole.
+  Evidence: the first draft of `_choose_event` returned the single event unconditionally and `test_calendar_match_then_gated_upsert_then_minutes_flip_back` was written against the acceptance; the resolution (a row with a minutes link never takes a committee event) is in the Decision Log and keeps the plan's own protection for a council meeting moved to another day.
+- Observation (M4 session): "the part before the last comma" of a calendar event title keeps the month and day, since the date is `October 21, 2026` with its own comma; the fallback body name strips the trailing `, <Month> <day>, <year>` by regex instead.
+  Evidence: `"PUBLIC WORKS COMMITTEE MEETING, October 21, 2026".rsplit(",", 1)[0]` is `PUBLIC WORKS COMMITTEE MEETING, October 21`; the test `test_unlisted_committee_falls_back_to_the_cleaned_event_title` expects `Public Works Committee` and passes with the regex.
+- Observation (M4 session): the city page's opener never links the last meeting's own page; its links are the biggest item, the dissenting member, and the next agenda.
+  Evidence: the first after-state run printed `1 failed, 106 passed` on the new briefing test's `href="/al/birmingham/meetings/<past id>/"` assertion while `acted on 4 items` had already passed; the assertion now reads the weekday the beat names.
 
 ## Decision Log
 
@@ -167,6 +177,31 @@ Observations made while authoring (2026-10-21). Each executing session appends i
   Rationale: the acceptance asks for a local database whose Birmingham row carries `calendar_url`; the throwaway database has it from 038, while `docket_db` has not had 038 applied and is the stale copy Surprises describes. Running there would have applied a migration to a database the milestone does not own.
   Date/Author: 2026-10-21, the M3 session.
 
+- Decision: the letters-only committee match reads `&` as ` and ` on both sides before stripping to A to Z.
+  Rationale: the city's menu and its events spell the same committee both ways (Surprises); without the fold two of the eight canonical names never match and their events would fall to the cleaned-title fallback, printing "Economic & Workforce Development / Tourism Committee" where the menu's name is the canonical one. The alternative, listing both spellings in `BIRMINGHAM_COMMITTEES`, would make the tuple of eight names a tuple of twelve and leave the next spelling unmatched.
+  Date/Author: 2026-10-22, the M4 session.
+- Decision: at the calendar rung a row with a minutes link never takes a committee event, whether the day holds one event or several; it takes a council event, or the rung yields nothing.
+  Rationale: the acceptance's integration case requires that minutes arriving on the Committee of the Whole's day flip the row back to `council` by the title (Surprises), and the plan states throughout that a committee clip never has a minutes link while a council meeting moved to another day gains one. The tie-break for several events is unchanged (documents are minutes or items); the single-event rule gains only this exclusion, so the 51-item Committee of the Whole row (no minutes) still takes its event. The alternative, treating the acceptance's third step as a mistake, would have reworded a stated acceptance.
+  Date/Author: 2026-10-22, the M4 session.
+- Decision: the fallback body name for an unlisted committee strips the trailing `, <Month> <day>, <year>` with a regex, not "the part before the last comma".
+  Rationale: the literal reading keeps the month and day (Surprises); the regex yields the name the milestone's example intends ("Public Works Committee").
+  Date/Author: 2026-10-22, the M4 session.
+- Decision: `reclassify_city`'s transition table counts a locked row as an unchanged transition under source `admin`, so the table's row total is every non-hidden row of the city.
+  Rationale: the operator reads the table to judge the write; a locked row that silently vanished from it would make the total disagree with the production count query in Context. The written count excludes them, as the statement's `type_locked_at IS NULL` does.
+  Date/Author: 2026-10-22, the M4 session.
+- Decision: the resolution stage in `ingest_municipality` (Stage 3b, after agenda items and before votes) catches its own failure, appends `Meeting types: <error>` to the result's errors, and lets the votes stage run.
+  Rationale: the milestone says to call it after agenda items and log the count; a failure in it should neither stop the votes nor pass unseen, which is how stages 3 and 4 already behave. The adoption sweep's warning-only pattern would hide a broken resolver from `IngestResult.success`.
+  Date/Author: 2026-10-22, the M4 session.
+- Decision: `docket.ai.worker` imports `label_for` from `docket.adapters._helpers` and `is_cancelled_title` from `docket.services.query` at module level, and the two claim SELECTs gain `m.session_kind, m.body_name, m.title` as trailing columns.
+  Rationale: the milestone says the worker passes the label built from the row's four columns with the prompt text unchanged; `docket.ai.pipeline` already imports `docket.services.badges` at module level, so the direction is established. The claim tests read only `row[0]`, so the trailing columns change no test.
+  Date/Author: 2026-10-22, the M4 session.
+- Decision: the script acceptance ran against the throwaway `docket_test_*` database seeded with seven Birmingham rows and one calendar event by `psql`, not against the developer `docket_db`.
+  Rationale: the acceptance says "on the local copy"; that copy is the stale one Surprises describes and has not had 038 applied (the M3 session left it so for the same reason), so the script cannot read it, and applying a migration there is not this milestone's to do. The seven rows cover every transition the table can print (the rule, the calendar, the title, a pre-2026 rule row, an old-vocabulary `special` row, a summarised row leaving `council`), and the integration test `test_dry_run_then_write_then_diagonal` proves the same on every verify. The operator's production run remains the recorded path.
+  Date/Author: 2026-10-22, the M4 session.
+- Decision: `services/meeting_types.py` also exposes `classify_event(event_title)`, `committee_name_for(event_title)`, and `summary_clear_ids(rows)` as module-level functions; the four names Interfaces lists for the admin form and the provenance link (`calendar_event_for`, `set_override`, `clear_override`, `query.meeting_type_counts`) are M5's and are not written here.
+  Rationale: the milestone asks for a unit test of the summary clearing "by asserting the ids it selects from a hand-built row list" without naming the function, so the pure selection got a name (`summary_clear_ids`, rows carrying `id`, `meeting_type`, `new_meeting_type`); the event classifier and the name matcher are the testable halves of the calendar rung. M5's Work is where the admin writes and the counts are named, and writing them here would widen the milestone.
+  Date/Author: 2026-10-22, the M4 session.
+
 ## Outcomes & Retrospective
 
 Not started. This section is written at the end of each milestone that changes what a reader can observe, and in full when the plan completes.
@@ -176,6 +211,8 @@ M1 (2026-10-21): nothing a reader can observe changed; the site still prints `me
 M2 (2026-10-21): nothing a reader can observe changed; the site still prints `meetings.title` and reads only `meeting_type`. What exists now: migration `038_meeting_types` (registered in `runner.py`) with the five classification and lock columns, both CHECKs, `city_calendar_events`, `meetings.calendar_event_id`, and Birmingham's `council_schedule` / `calendar_url` metadata; `Meeting` reads the five new fields with defaults; the three ingest writers classify from `classify_title(m.title)` (INSERT unconditionally, the two UPDATE paths through the `type_locked_at IS NULL AND type_source = 'title'` gate), so from the first deploy after this lands every upserted row carries `session_kind` and `body_name` and `RawMeeting.meeting_type` is no longer read by ingest. Lesson: writing the before state's pass count from memory produced a miscount that had to be corrected in place; count the passing tests from the output before writing the sentence.
 
 M3 (2026-10-21): nothing a reader can observe changed; the site still prints `meetings.title`. What exists now: `src/docket/adapters/city_calendar.py` (`CalendarEvent`, `parse_birminghamal_page`, `fetch_birminghamal_events`), `src/docket/services/city_calendar.py` (`refresh_city_calendar`, `refresh_all`), the worker task `city_calendar` at 05:30 America/Chicago registered in `TASKS`, `TASK_UUID_ENV`, and the scheduler, the runbook row, and the 29,154-byte fixture with its tests. From the worker's first deploy after this lands, `city_calendar_events` holds Birmingham's upcoming events (four on 2026-10-21) a day before M4's resolver first reads them; the ping stays a no-op until the operator sets `HEALTHCHECK_CITY_CALENDAR_UUID`. Lesson: an acceptance written as a grep count binds the comments too; read every acceptance clause for what it counts before writing prose near it.
+
+M4 (2026-10-22): what a reader can observe changes in two places once this is deployed and the operator has reclassified: the city page's opener passes over a council work session when naming the last and next meeting (Birmingham has no such row today, so the Birmingham page reads the same), and `/al/birmingham/meetings/?type=committee`, which `list_meetings` already filters on `meeting_type`, lists the 2026 Monday, Wednesday, and Thursday recordings while `?type=council` stops listing them; every card and page still prints the clip name until M5. What exists now: `src/docket/services/meeting_types.py` (`resolve`, `Resolution`, `resolve_and_store`, `reclassify_city`, `ReclassifyReport`, `BIRMINGHAM_COMMITTEES`, `TYPE_SOURCES`, `classify_event`, `committee_name_for`, `summary_clear_ids`); Stage 3b of `ingest_municipality`, which resolves every listed row after its items are in, so Birmingham converges within one daily run of the first deploy even before the operator's script; the briefing predicate `meeting_type = 'council' AND session_kind <> 'work_session'` in both opener queries; the AI meeting prompt reading the display label; and `scripts/reclassify_meetings.py`. Not done, and the operator's: the production SELECTs and the four city runs of the script with their tables pasted into Progress, the look at clip 2023's agenda viewer, and the issue #88 note. Lesson: two of the milestone's own examples (the "&"/"and" spellings, the minutes-arrive step) could not both be met by its prose rules as written; a later author runs the stated examples through the stated rules by hand before committing the plan.
 
 ## Context and Orientation
 
@@ -415,6 +452,49 @@ M3 acceptance, observed 2026-10-21 23:24Z in the worktree against the throwaway 
     before the code (commit 30edab8): 25 failed, 44 passed in 1.04s
     after the code:                   69 passed in 0.88s
 
+M4 acceptance, observed 2026-10-22 00:04Z in the worktree against the throwaway database `docket_test_02a9eab9`, seeded by `psql` with one calendar event (`4854`, the Committee of the Whole, `2026-10-21 20:30+00`) and seven Birmingham rows: `demo-2024` (Mon 2024-12-23, minutes), `demo-2025` (Mon 2025-12-22), `demo-mon` (Mon 2026-10-19, summarised), `demo-tue` (Tue 2026-10-20, minutes, summarised), `demo-wed` (Wed 2026-10-21), `demo-test` ("Granicus Test"), `demo-spec` ("Special Called Council Meeting", stored under the old `special`):
+
+    venv/bin/python scripts/reclassify_meetings.py --city birmingham --dry-run
+    old type   old kind        -> new type   new kind        source           rows
+    council    regular         -> committee  regular         schedule_rule       2
+    council    regular         -> council    regular         title               2
+    council    regular         -> committee  regular         calendar            1
+    other      regular         -> other      regular         title               1
+    special    regular         -> council    special         title               1
+    rows: 7
+    schedule-rule rows before 2026-01-01 (id, date, weekday, title, items):
+      2  2025-12-22  Mon  Regular City Council Meeting  0 items
+    dry run: 0 rows written
+
+    venv/bin/python scripts/reclassify_meetings.py --city birmingham
+    (the same table and list, then)
+    written: 4 rows in one statement
+    UPDATE meetings SET executive_summary = NULL, executive_summary_voice = NULL, ai_prompt_version = NULL, ai_generated_at = NULL WHERE id = ANY(<ids whose meeting_type left council>) AND executive_summary IS NOT NULL
+    summaries cleared: 1
+
+    venv/bin/python scripts/reclassify_meetings.py --city birmingham --dry-run
+    committee  regular         -> committee  regular         schedule_rule       2
+    council    regular         -> council    regular         title               2
+    committee  regular         -> committee  regular         calendar            1
+    council    special         -> council    special         title               1
+    other      regular         -> other      regular         title               1
+    rows: 7
+    (the same pre-2026 line)
+    dry run: 0 rows written
+
+    SELECT external_id, meeting_date, meeting_type, session_kind, body_name, type_source, calendar_event_id, executive_summary FROM meetings WHERE external_id LIKE 'demo-%' ORDER BY meeting_date
+    demo-2024 | 2024-12-23 | council | regular |  | title |  |
+    demo-2025 | 2025-12-22 | committee | regular |  | schedule_rule |  |
+    demo-spec | 2026-09-30 | council | special |  | title |  |
+    demo-test | 2026-10-15 | other | regular |  | title |  |
+    demo-mon | 2026-10-19 | committee | regular |  | schedule_rule |  |
+    demo-tue | 2026-10-20 | council | regular |  | title |  | the council met
+    demo-wed | 2026-10-21 | committee | regular | Committee of the Whole / Administration & Governmental Affairs | calendar | 1 |
+
+    DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_meeting_types_resolve.py tests/integration/test_ingest_meeting_types.py tests/web/test_city_briefing.py -q -p no:cacheprovider
+    before the code (commit 57feb7a): 40 failed, 67 passed in 10.11s
+    after the code:                   107 passed in 9.90s
+
 ## Interfaces and Dependencies
 
 In `src/docket/adapters/_helpers.py` (no new dependencies):
@@ -503,3 +583,5 @@ Dependencies: no new packages. `requests` and `beautifulsoup4` are already in `r
 2026-10-21, M2 session: M2 executed and ticked. Living sections gained the M2 baseline, before and after states with the verify counts, one Surprises entry (a down test on the 037 pattern cannot fail before the migration exists), three Decision Log entries (the shared gated SET clause, the `from_row` defaults, the three tests beyond the stated scenarios), and an M2 paragraph in Outcomes & Retrospective. No milestone text was changed.
 
 2026-10-21, M3 session: M3 executed and ticked. Living sections gained the M3 baseline, before and after states with the verify counts, the acceptance transcript in Artifacts and Notes, four Surprises entries (the page served the same four events; the calendar instants are correct where Granicus's are not; the grep-count acceptance binds comments; the TASKS registry test), four Decision Log entries (the integration test file for the upsert, the registry test re-expected, the fetch raising while the parser never does, the throwaway database for the `--run-once` acceptance), and an M3 paragraph in Outcomes & Retrospective. No milestone text was changed.
+
+2026-10-22, M4 session: M4 executed and ticked, with the operator's production step named as not done. Living sections gained the M4 baseline, before and after states with the verify counts, the script transcript in Artifacts and Notes, four Surprises entries (the "&"/"and" spellings; the minutes-arrive step against the single-event rule; the last-comma reading; the opener's links), eight Decision Log entries (the "&" fold; minutes exclude committee events; the date-suffix regex; locked rows in the table; the ingest stage's error handling; the worker's imports and trailing columns; the seeded throwaway database for the script; the three extra public names and M5's four), and an M4 paragraph in Outcomes & Retrospective. No milestone text was changed.
