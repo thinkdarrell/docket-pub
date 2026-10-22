@@ -208,11 +208,13 @@ def city_meetings(slug):
     total_pages = (result.total + per_page - 1) // per_page
 
     kpi_stats = query._kpi_stats_for_municipality(municipality)
+    type_counts = query.meeting_type_counts(slug)
 
     return render_template(
         "meetings.html",
         municipality=municipality,
         meetings=result.meetings,
+        type_counts=type_counts,
         total=result.total,
         page=page,
         total_pages=total_pages,
@@ -276,8 +278,12 @@ def meeting_detail(slug, meeting_id):
         if current_app.config.get("MINUTES_VS_VIDEO_UI") else []
     )
 
+    from docket.services import meeting_types as mtsvc
+    calendar_event = mtsvc.calendar_event_for(meeting_id) if meeting.calendar_event_id else None
+
     return render_template(
         "meeting_detail.html",
+        calendar_event=calendar_event,
         discrepancies=discrepancies,
         has_transcript=has_transcript,
         municipality=municipality,

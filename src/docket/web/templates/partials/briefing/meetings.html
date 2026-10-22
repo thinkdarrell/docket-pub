@@ -3,7 +3,8 @@
    Args:
      municipality (dict) — required: slug, name.
      briefing_meetings (list[dict]) — from briefing.list_briefing_meetings:
-       id, title, date_text, upcoming, cancelled, item_count,
+       id, title, meeting_type, session_kind, body_name, type_source (the row
+       prints meeting_label(m), not the title), date_text, upcoming, cancelled, item_count,
        total_dollars_text, split_count, from_video, agenda_url, minutes_url,
        video_url. A split count whose source is the video says so after it.
        A cancelled row (title matches query.CANCELLED_PREDICATE_SQL) says
@@ -18,7 +19,7 @@
     {% for m in briefing_meetings %}
     <li class="brf-meeting">
       <a class="brf-meeting-date" href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=m.id) }}">{{ m.date_text }}</a>
-      <span class="brf-meeting-title">{{ m.title }}</span>
+      <span class="brf-meeting-title">{{ meeting_label(m) }}</span>
       <span class="brf-meeting-facts">
         {%- if m.cancelled -%}
           <span>cancelled</span>

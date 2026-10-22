@@ -626,3 +626,18 @@ a.link:hover { border-bottom-color: var(--accent); }
 }
 .coverage-chip__notes { color: var(--accent); }
 .coverage-chip__cites { color: var(--ink); }
+
+/* ── meeting type filter, provenance line, admin override (M5 of
+      plans/active/meeting-types-name-the-body.md) ───────────────────── */
+.type-filter { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; font-family: var(--font-mono); font-size: 12px; }
+.type-filter__item {
+  display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px;
+  border: 1px solid var(--rule-strong); border-radius: 999px;
+  color: var(--ink-2); text-decoration: none; white-space: nowrap;
+}
+.type-filter__item.is-active { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.type-filter__item.is-empty { color: var(--ink-3); border-style: dashed; }
+.type-filter__count { opacity: .7; }
+.meeting-provenance { margin: 8px 0 16px; max-width: 720px; }
+.admin-meeting-type { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 1rem; }
+.admin-meeting-type select, .admin-meeting-type input { margin-left: 4px; }

@@ -799,6 +799,7 @@ _BRIEFING_MEETINGS_SQL = (
     + f"""
     )
     SELECT mt.id, mt.title, mt.meeting_date, mt.start_time,
+           mt.meeting_type, mt.session_kind, mt.body_name, mt.type_source,
            mt.agenda_url, mt.minutes_url, mt.video_url,
            {_UPCOMING_MT} AS upcoming,
            {_CANCELLED_MT} AS cancelled,
@@ -817,7 +818,8 @@ _BRIEFING_MEETINGS_SQL = (
 def list_briefing_meetings(slug: str, limit: int = 6) -> list[dict]:
     """The newest meetings that have an agenda item or a document link, past or upcoming.
 
-    Each row: ``id, title, meeting_date, start_time, upcoming, cancelled``
+    Each row: ``id, title, meeting_type, session_kind, body_name, type_source``
+    (the four columns ``meeting_label`` reads), ``meeting_date, start_time, upcoming, cancelled``
     (the title matches ``query.CANCELLED_PREDICATE_SQL``), ``item_count,
     total_dollars`` (None when no item has an amount, else with
     ``total_dollars_text``), ``split_count`` (None when the meeting has no

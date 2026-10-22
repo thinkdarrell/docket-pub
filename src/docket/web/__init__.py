@@ -151,6 +151,38 @@ def create_app() -> Flask:
 
     app.jinja_env.globals["is_upcoming"] = _is_upcoming_template
 
+    # ``meeting_label(meeting)`` — the display label a reader sees in place of
+    # the clip name: the four classification columns and the title go through
+    # ``adapters._helpers.label_for`` (plans/active/meeting-types-name-the-body.md, M5).
+    # Accepts a Meeting or a row dict. A value outside MEETING_TYPES (a row
+    # without the columns, an older fixture) falls back to the title itself:
+    # source or silence, never a label the row does not support.
+    from docket.adapters._helpers import MEETING_TYPES, SESSION_KINDS, label_for
+
+    def _meeting_label_template(meeting) -> str:
+        if meeting is None:
+            return ""
+        if isinstance(meeting, dict):
+            get = meeting.get
+        else:
+            def get(key, default=None):
+                return getattr(meeting, key, default)
+        title = get("title") or ""
+        meeting_type = get("meeting_type")
+        if meeting_type not in MEETING_TYPES:
+            return title
+        return label_for(
+            meeting_type,
+            get("session_kind") or "regular",
+            get("body_name"),
+            title,
+            cancelled=_query.is_cancelled_title(title),
+        )
+
+    app.jinja_env.globals["meeting_label"] = _meeting_label_template
+    app.jinja_env.globals["MEETING_TYPES"] = MEETING_TYPES
+    app.jinja_env.globals["SESSION_KINDS"] = SESSION_KINDS
+
     # Register blueprints
     from docket.web.admin import bp as admin_bp
     from docket.web.admin_badge_review import bp as admin_badge_review_bp

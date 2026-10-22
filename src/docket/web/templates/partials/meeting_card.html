@@ -15,8 +15,12 @@
    linking to public.meeting_detail.
 
    Required context:
-     meeting      — object with .id, .meeting_date (date), .title, .meeting_type,
-                    .summary, .agenda_count, .dollars_total
+     meeting      — object or row dict with .id, .meeting_date (date), .title,
+                    .meeting_type, .session_kind, .body_name (the h3 prints
+                    meeting_label(meeting), the Jinja global registered in
+                    docket.web.create_app; a row without the classification
+                    columns prints its title), .summary, .agenda_count,
+                    .dollars_total
      variant      — 'strip' or 'grid'
      municipality — object with .slug (for url_for)
 #}
@@ -38,7 +42,7 @@
     {% endif %}
   </div>
 
-  <h3 class="meeting-card__title">{{ meeting.title }}</h3>
+  <h3 class="meeting-card__title">{{ meeting_label(meeting) }}</h3>
 
   {% if variant == 'grid' and meeting.summary %}
     <p class="meeting-card__summary">{{ meeting.summary }}</p>
