@@ -1136,3 +1136,18 @@ def test_meetings_row_video_sourced_split_count_carries_label(client, facts):
     row = _meeting_row(_page(client), default["past_meeting_id"])
     assert "1 split vote" in row
     assert "from the video" not in row
+
+
+# ---------------------------------------------------------------------------
+# M5 of meeting-types-name-the-body: the list prints the label, not the clip name
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("seeded", [{"work_session": True}], indirect=True)
+def test_meetings_list_rows_print_the_label_not_the_clip_name(client, seeded):
+    html = _page(client)
+    section = html[html.index("brf-meetings-section"):]
+    assert '<span class="brf-meeting-title">City Council meeting</span>' in section
+    assert '<span class="brf-meeting-title">Council work session</span>' in section
+    assert briefing_seed.PREFIX + "City Council Meeting" not in section
+    assert briefing_seed.PREFIX + "City Council Regular Work Session" not in section
