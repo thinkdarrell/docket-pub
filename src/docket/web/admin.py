@@ -19,8 +19,9 @@ from flask import (
 )
 from werkzeug.routing.exceptions import BuildError
 
+from docket.adapters._helpers import MEETING_TYPES, SESSION_KINDS
 from docket.db import db, db_cursor
-from docket.services import query
+from docket.services import meeting_types, query
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
 
@@ -1562,6 +1563,54 @@ def profile_update_display_name():
             "UPDATE admin_users SET display_name = %s WHERE id = %s", (new_name, uid)
         )
     return redirect(url_for("admin.profile"))
+
+
+# --- Meeting type override (plans/active/meeting-types-name-the-body.md, M5) ---
+
+
+def _meeting_page(meeting_id: int) -> str | None:
+    """The public URL of a meeting, or None when no such meeting exists."""
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT m.slug FROM meetings mt JOIN municipalities m ON m.id = mt.municipality_id WHERE mt.id = %s",
+            (meeting_id,),
+        )
+        row = cur.fetchone()
+    if row is None:
+        return None
+    return url_for("public.meeting_detail", slug=row["slug"], meeting_id=meeting_id)
+
+
+@bp.post("/meetings/<int:meeting_id>/type")
+def set_meeting_type(meeting_id: int):
+    """Set a meeting's type, sitting, and body by hand and lock the row.
+
+    The values are checked against the two vocabularies (400 otherwise);
+    the SQL lives in ``meeting_types.set_override``. The lock survives
+    ingest and the resolver until ``unlock_meeting_type`` lifts it.
+    """
+    page = _meeting_page(meeting_id)
+    if page is None:
+        abort(404)
+    meeting_type = (request.form.get("meeting_type") or "").strip()
+    session_kind = (request.form.get("session_kind") or "").strip()
+    body_name = (request.form.get("body_name") or "").strip() or None
+    if meeting_type not in MEETING_TYPES or session_kind not in SESSION_KINDS:
+        abort(400)
+    meeting_types.set_override(meeting_id, meeting_type, session_kind, body_name, session.get("admin_user_id"))
+    flash(f"Meeting {meeting_id} set to {meeting_type} ({session_kind}) by hand.")
+    return redirect(request.headers.get("Referer") or page)
+
+
+@bp.post("/meetings/<int:meeting_id>/type/unlock")
+def unlock_meeting_type(meeting_id: int):
+    """Lift the admin lock and re-resolve the row through the ladder."""
+    page = _meeting_page(meeting_id)
+    if page is None:
+        abort(404)
+    meeting_types.clear_override(meeting_id)
+    flash(f"Meeting {meeting_id} unlocked and re-resolved.")
+    return redirect(request.headers.get("Referer") or page)
 
 
 # --- Meeting visibility (hide / unhide) -------------------------------------

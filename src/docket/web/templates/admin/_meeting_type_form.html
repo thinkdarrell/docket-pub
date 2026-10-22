@@ -1,0 +1,29 @@
+{# Admin-only meeting type override (plans/active/meeting-types-name-the-body.md, M5).
+   Included by meeting_detail.html inside the admin block. Posts to
+   admin.set_meeting_type; when the row is locked, shows when and an Unlock
+   button posting to admin.unlock_meeting_type. MEETING_TYPES and
+   SESSION_KINDS are Jinja globals registered in docket.web.create_app. #}
+<form method="post" action="{{ url_for('admin.set_meeting_type', meeting_id=meeting.id) }}"
+      class="admin-action-form admin-meeting-type">
+  <label class="t-meta">Type
+    <select name="meeting_type">
+      {% for t in MEETING_TYPES %}<option value="{{ t }}"{% if t == meeting.meeting_type %} selected{% endif %}>{{ t }}</option>{% endfor %}
+    </select>
+  </label>
+  <label class="t-meta">Sitting
+    <select name="session_kind">
+      {% for k in SESSION_KINDS %}<option value="{{ k }}"{% if k == meeting.session_kind %} selected{% endif %}>{{ k | replace('_', ' ') }}</option>{% endfor %}
+    </select>
+  </label>
+  <label class="t-meta">Body
+    <input type="text" name="body_name" value="{{ meeting.body_name or '' }}" placeholder="Public Safety Committee" maxlength="120">
+  </label>
+  <button type="submit" class="btn btn-sm">Save</button>
+</form>
+{% if meeting.type_locked_at %}
+<form method="post" action="{{ url_for('admin.unlock_meeting_type', meeting_id=meeting.id) }}"
+      class="admin-action-form admin-meeting-type">
+  <span class="t-meta">Set by hand on {{ meeting.type_locked_at.strftime('%b %-d, %Y') }}.</span>
+  <button type="submit" class="btn btn-sm">Unlock</button>
+</form>
+{% endif %}

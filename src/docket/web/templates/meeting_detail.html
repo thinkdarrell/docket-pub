@@ -1,9 +1,10 @@
 {% extends "base.html" %}
-{% block title %}{{ meeting.title }} — {{ municipality.name }} — docket.pub{% endblock %}
+{% block title %}{{ meeting_label(meeting) or meeting.title }} — {{ municipality.name }} — docket.pub{% endblock %}
 {% block crumb %}meetings/{{ meeting.id }}{% endblock %}
 
 {% block content %}
-{% set _crumb_label = meeting.title if meeting.title else (meeting.meeting_date.strftime('%b %-d, %Y') if meeting.meeting_date else 'Meeting') %}
+{% set _label = meeting_label(meeting) %}
+{% set _crumb_label = _label if _label else (meeting.meeting_date.strftime('%b %-d, %Y') if meeting.meeting_date else 'Meeting') %}
 {% set crumbs = [
   {'label': 'Home',            'url': url_for('public.index')},
   {'label': municipality.name, 'url': url_for('public.city_overview', slug=municipality.slug)},
@@ -36,6 +37,7 @@
     </div>
   {% endif %}
   {% include "admin/_rescan_ocr_button.html" %}
+  {% include "admin/_meeting_type_form.html" %}
 {% endif %}
 
 <section class="hero hero--detail">
@@ -43,6 +45,9 @@
         <div>
             <div class="t-eyebrow detail-eyebrow">
                 <span class="chip meeting-type-pill">{{ meeting.meeting_type or 'meeting' }}</span>
+                {% if meeting.session_kind and meeting.session_kind != 'regular' %}
+                <span class="chip session-kind-pill">{{ {'special': 'special called', 'work_session': 'work session', 'budget_hearing': 'budget hearing'}.get(meeting.session_kind, meeting.session_kind) }}</span>
+                {% endif %}
                 {% if is_upcoming(meeting) %}
                 <span class="chip is-warn meeting-detail-upcoming"><span class="dot"></span>upcoming</span>
                 {% endif %}
@@ -52,7 +57,7 @@
                 <span class="t-meta">{{ meeting.meeting_date.strftime('%A, %B %-d, %Y') }}</span>
                 {% endif %}
             </div>
-            <h1 class="hero-title t-display">{{ meeting.title }}</h1>
+            <h1 class="hero-title t-display">{{ _crumb_label }}</h1>
         </div>
     </div>
 
@@ -68,6 +73,18 @@
         {% endwith %}
     </div>
 </section>
+
+{# ── Provenance: the clip name the city's archive carries, and which rung
+      named the body (plans/active/meeting-types-name-the-body.md, M5).
+      Printed only when the label differs from the title. #}
+{% if _label and _label != meeting.title %}
+<p class="t-meta meeting-provenance">The city's archive lists this recording as “{{ meeting.title }}”.
+  {%- if meeting.type_source == 'schedule_rule' %} It is not on the council's regular meeting day and the city calendar did not name the body.
+  {%- elif meeting.type_source == 'calendar' %} The city's calendar names it.
+    {%- if calendar_event and calendar_event.source_url %} <a class="link" href="{{ calendar_event.source_url }}" target="_blank" rel="noreferrer">See the event ↗</a>{% endif %}
+  {%- endif %}
+</p>
+{% endif %}
 
 {# ── Executive Summary ────────────────────────────── #}
 {# Upcoming meetings: if we have a forward-voice exec summary (Layer 2,

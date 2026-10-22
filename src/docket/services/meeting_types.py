@@ -52,7 +52,7 @@ from zoneinfo import ZoneInfo
 
 import psycopg2.extras
 
-from docket.adapters._helpers import Classification, classify_title
+from docket.adapters._helpers import MEETING_TYPES, SESSION_KINDS, Classification, classify_title
 from docket.db import db
 from docket.services.query import is_cancelled_title
 
@@ -408,3 +408,67 @@ def reclassify_city(slug: str, *, dry_run: bool) -> ReclassifyReport:
             cleared = cur.rowcount
         log.info("reclassify %s: %d rows written, %d summaries cleared", slug, written, cleared)
         return ReclassifyReport(transitions, rule_rows, written, cleared)
+
+
+# --- the admin override and the calendar event behind a row (M5) ---------------
+
+_CALENDAR_EVENT_FOR_SQL = """
+    SELECT e.id, e.title, e.starts_at, e.ends_at, e.source_url, e.categories
+      FROM meetings m
+      JOIN city_calendar_events e ON e.id = m.calendar_event_id
+     WHERE m.id = %s
+"""
+
+_SET_OVERRIDE_SQL = """
+    UPDATE meetings
+       SET meeting_type = %s, session_kind = %s, body_name = %s, type_source = 'admin',
+           type_locked_at = now(), type_locked_by = %s, calendar_event_id = NULL
+     WHERE id = %s
+"""
+
+_CLEAR_OVERRIDE_SQL = """
+    UPDATE meetings
+       SET type_locked_at = NULL, type_locked_by = NULL
+     WHERE id = %s
+ RETURNING municipality_id
+"""
+
+
+def calendar_event_for(meeting_id: int) -> dict | None:
+    """The ``city_calendar_events`` row a meeting's ``calendar_event_id`` points at, or ``None``."""
+    with db() as conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(_CALENDAR_EVENT_FOR_SQL, (meeting_id,))
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def set_override(
+    meeting_id: int,
+    meeting_type: str,
+    session_kind: str,
+    body_name: str | None,
+    admin_user_id: int | None,
+) -> None:
+    """Write the admin's classification and lock the row (the ladder's first rung).
+
+    The lock is ``type_locked_at``; ingest's gated SET clauses and the
+    resolver's ``WHERE type_locked_at IS NULL`` both leave a locked row alone
+    until ``clear_override`` lifts it.
+    """
+    if meeting_type not in MEETING_TYPES:
+        raise ValueError(f"unknown meeting_type: {meeting_type!r}")
+    if session_kind not in SESSION_KINDS:
+        raise ValueError(f"unknown session_kind: {session_kind!r}")
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(_SET_OVERRIDE_SQL, (meeting_type, session_kind, body_name or None, admin_user_id, meeting_id))
+        conn.commit()
+
+
+def clear_override(meeting_id: int) -> None:
+    """Lift the admin lock and put the row back on the ladder by resolving it once."""
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(_CLEAR_OVERRIDE_SQL, (meeting_id,))
+        row = cur.fetchone()
+        conn.commit()
+    if row is not None:
+        resolve_and_store(int(row[0]), [meeting_id])

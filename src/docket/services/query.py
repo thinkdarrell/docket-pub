@@ -126,6 +126,26 @@ def list_meetings(
         return PaginatedMeetings(meetings=meetings, total=total, limit=limit, offset=offset)
 
 
+def meeting_type_counts(municipality_slug: str) -> dict[str, int]:
+    """How many visible meetings the city has of each ``meeting_type`` (one GROUP BY).
+
+    Feeds the filter row on the meetings page; a type absent from the dict
+    has no rows.
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT mt.meeting_type, COUNT(*) AS n
+              FROM meetings mt
+              JOIN municipalities m ON mt.municipality_id = m.id
+             WHERE m.slug = %s AND mt.is_hidden = FALSE
+             GROUP BY mt.meeting_type
+            """,
+            (municipality_slug,),
+        )
+        return {row["meeting_type"]: int(row["n"]) for row in cur.fetchall()}
+
+
 def get_meeting(meeting_id: int) -> Meeting | None:
     """Return a single meeting by ID."""
     with db_cursor() as cur:

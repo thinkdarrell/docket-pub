@@ -21,6 +21,23 @@
     </div>
 </section>
 
+{# ── Filter row (plans/active/meeting-types-name-the-body.md, M5) ──
+   One link per meeting_type with its count from query.meeting_type_counts;
+   a type with no rows is text, not a link. #}
+{% set _type_words = [('council', 'Council'), ('committee', 'Committees'), ('planning', 'Planning'), ('board', 'Boards'), ('other', 'Other')] %}
+{% set _type_total = type_counts.values() | sum if type_counts else 0 %}
+<nav class="type-filter" aria-label="Filter by meeting type">
+  <a class="type-filter__item{% if not meeting_type %} is-active{% endif %}" href="{{ url_for('public.city_meetings', slug=municipality.slug) }}">All <span class="type-filter__count">{{ _type_total }}</span></a>
+  {%- for _key, _word in _type_words %}
+  {%- set _n = type_counts.get(_key, 0) if type_counts else 0 %}
+  {%- if _n %}
+  <a class="type-filter__item{% if meeting_type == _key %} is-active{% endif %}" href="{{ url_for('public.city_meetings', slug=municipality.slug, type=_key) }}">{{ _word }} <span class="type-filter__count">{{ _n }}</span></a>
+  {%- else %}
+  <span class="type-filter__item is-empty">{{ _word }} <span class="type-filter__count">0</span></span>
+  {%- endif %}
+  {%- endfor %}
+</nav>
+
 {# ── Meetings table ──────────────────────────────── #}
 {% if meetings %}
 <section class="feed">

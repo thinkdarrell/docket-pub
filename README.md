@@ -196,7 +196,7 @@ id, municipality_id, external_id, title, meeting_date, meeting_type,
 agenda_url, minutes_url, video_url, source_url, minutes_adopted_at,
 search_vector (TSVECTOR, auto-updated), created_at, updated_at
 ```
-- `meeting_type`: `'council'` | `'work_session'` | `'planning'` | `'special'` | `'committee'` | `'board'` | `'other'`
+- `meeting_type`: the body, `'council'` | `'committee'` | `'planning'` | `'board'` | `'other'`; `session_kind`: the sitting, `'regular'` | `'special'` | `'work_session'` | `'budget_hearing'`; `body_name`, `type_source` (`title`, `calendar`, `schedule_rule`, `admin`), and the admin lock `type_locked_at` / `type_locked_by` — the vocabularies live in `src/docket/adapters/_helpers.py` and the rules in `docs/specs/meeting-types.md`
 - `source_url`: Always links back to the original page on the city's website
 - `minutes_adopted_at`: TIMESTAMPTZ NULL until council formally adopts the minutes for this meeting at a later meeting; set by `services.minutes_adoption.sweep_adoptions`. Used to gate the strict re-parse that promotes provisional consent links to official, and to flip the AI meeting summary from `phase=provisional` to `phase=adopted`.
 - `executive_summary`, `ai_metadata`, `ai_prompt_version`, `ai_generated_at`: AI-generated 2-3 sentence executive summary + metadata (phase, is_substantive, substantive_item_count, confidence, model) + prompt versioning. NULL until processed. Two-pass: provisional summary when items are processed; adopted summary overwrites after `minutes_adopted_at` is set.
@@ -319,7 +319,7 @@ class Meeting:
     external_id: str | None
     title: str                    # "City Council Meeting", "Special Called Meeting"
     meeting_date: str | None      # "2026-04-27"
-    meeting_type: str | None      # "council", "special", "work_session", "planning"
+    meeting_type: str | None      # the adapter's guess; ingest classifies from the title into "council", "committee", "planning", "board", "other" (docs/specs/meeting-types.md)
     agenda_url: str | None        # Link to agenda on city's website
     minutes_url: str | None       # Link to minutes on city's website
     video_url: str | None         # Link to video (if available)
