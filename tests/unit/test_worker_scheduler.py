@@ -16,7 +16,7 @@ def test_build_scheduler_registers_all_jobs():
         "repair_empty_agendas", "process_badges", "calibration_report",
         "process_batches", "refresh_backfill_ratio_mv", "prune_analytics",
         "recast_post_meeting_ai", "transcript_pipeline", "resolve_member_votes",
-        "briefing_facts",
+        "briefing_facts", "city_calendar",
     }
 
 
@@ -45,6 +45,7 @@ def test_build_scheduler_uses_supplied_timezone():
     ("prune_analytics",      4),
     ("recast_post_meeting_ai", 4),
     ("briefing_facts",       9),
+    ("city_calendar",        5),
 ])
 def test_build_scheduler_job_hours(job_id, expected_hour):
     sched = scheduler.build_scheduler(timezone="America/Chicago")
@@ -87,6 +88,16 @@ def test_build_scheduler_briefing_facts_at_45_minutes():
     job = sched.get_job("briefing_facts")
     fields = {f.name: str(f) for f in job.trigger.fields}
     assert fields["minute"] == "45"
+
+
+def test_build_scheduler_city_calendar_at_30_minutes_before_ingest():
+    """05:30 so the calendar rows exist before ingest_all (06:00) resolves against them."""
+    sched = scheduler.build_scheduler(timezone="America/Chicago")
+    job = sched.get_job("city_calendar")
+    fields = {f.name: str(f) for f in job.trigger.fields}
+    assert fields["hour"] == "5"
+    assert fields["minute"] == "30"
+    assert fields["day_of_week"] == "*"
 
 
 def test_build_scheduler_repair_runs_only_on_monday():

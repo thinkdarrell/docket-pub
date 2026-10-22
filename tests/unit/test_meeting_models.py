@@ -77,3 +77,34 @@ def test_meeting_from_row_reads_is_hidden_true():
     }
     m = Meeting.from_row(row)
     assert m.is_hidden is True
+
+
+def test_meeting_from_row_classification_defaults_when_keys_missing():
+    """A row dict lacking the M2 columns yields the column defaults (plan meeting-types-name-the-body)."""
+    row = {
+        "id": 1, "municipality_id": 1, "external_id": "x",
+        "title": "t", "meeting_date": None, "meeting_type": "council",
+        "agenda_url": None, "minutes_url": None, "video_url": None,
+        "source_url": None,
+    }
+    m = Meeting.from_row(row)
+    assert m.session_kind == "regular"
+    assert m.body_name is None
+    assert m.type_source == "title"
+    assert m.type_locked_at is None
+    assert m.calendar_event_id is None
+
+
+def test_meeting_from_row_reads_classification_columns():
+    row = {
+        "id": 1, "municipality_id": 1, "external_id": "x",
+        "title": "Regular City Council Meeting", "meeting_date": None, "meeting_type": "committee",
+        "agenda_url": None, "minutes_url": None, "video_url": None,
+        "source_url": None,
+        "session_kind": "special", "body_name": "Finance Committee",
+        "type_source": "calendar", "type_locked_at": None, "calendar_event_id": 7,
+    }
+    m = Meeting.from_row(row)
+    assert (m.meeting_type, m.session_kind, m.body_name, m.type_source, m.calendar_event_id) == (
+        "committee", "special", "Finance Committee", "calendar", 7,
+    )

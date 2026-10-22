@@ -15,7 +15,7 @@ class RawMeeting:
     municipality_slug: str
     title: str
     meeting_date: date
-    meeting_type: str  # 'council' | 'work_session' | 'bza' | 'planning' | 'special'
+    meeting_type: str  # the body: 'council' | 'committee' | 'planning' | 'board' | 'other'
     agenda_url: str | None
     minutes_url: str | None
     video_url: str | None

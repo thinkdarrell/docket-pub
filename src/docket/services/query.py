@@ -5,6 +5,7 @@ Every read operation goes through this module. Returns dataclasses or dicts.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, replace
 from datetime import date, datetime
 from typing import Iterable, Sequence
@@ -28,8 +29,17 @@ _UPCOMING_PREDICATE_MT = (
 # meeting queries, the money query, and the meetings list in
 # docket.services.briefing, by list_items_by_amount below, and by
 # maintenance.repair_empty_agendas (plan birmingham-city-briefing, M9).
-CANCELLED_PREDICATE_SQL = "(title ~* 'cancell?ed')"
+# The one owner of what a cancelled title looks like; the SQL predicate and
+# the Python test below are both built from it.
+CANCELLED_TITLE_PATTERN = r"cancell?ed"
+CANCELLED_PREDICATE_SQL = f"(title ~* '{CANCELLED_TITLE_PATTERN}')"
 CANCELLED_PREDICATE_MT = CANCELLED_PREDICATE_SQL.replace("title", "mt.title")
+_CANCELLED_TITLE_RE = re.compile(CANCELLED_TITLE_PATTERN, re.IGNORECASE)
+
+
+def is_cancelled_title(title: str | None) -> bool:
+    """Python twin of CANCELLED_PREDICATE_SQL: does this title say cancelled?"""
+    return bool(title) and _CANCELLED_TITLE_RE.search(title) is not None
 
 
 @dataclass(frozen=True)

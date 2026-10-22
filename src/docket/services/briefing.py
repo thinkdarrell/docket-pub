@@ -478,7 +478,7 @@ _LAST_MEETING_SQL = f"""
       FROM meetings mt
      WHERE mt.municipality_id = %s
        AND mt.is_hidden = FALSE
-       AND mt.meeting_type = 'council'
+       AND mt.meeting_type = 'council' AND mt.session_kind <> 'work_session'
        AND mt.meeting_date IS NOT NULL
        AND NOT {_UPCOMING_MT}
        AND NOT {_CANCELLED_MT}
@@ -493,7 +493,7 @@ _NEXT_MEETING_SQL = f"""
       FROM meetings mt
      WHERE mt.municipality_id = %s
        AND mt.is_hidden = FALSE
-       AND mt.meeting_type = 'council'
+       AND mt.meeting_type = 'council' AND mt.session_kind <> 'work_session'
        AND mt.meeting_date IS NOT NULL
        AND {_UPCOMING_MT}
        AND NOT {_CANCELLED_MT}

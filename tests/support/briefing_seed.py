@@ -33,7 +33,9 @@ no agenda, minutes, video, or source link; ``cancelled=True`` adds a council
 meeting two days back whose title says it was cancelled (the only mark
 Birmingham's cancelled rows carry), with agenda and video links and one
 posted consent item of $12 million, and ``cancelled="upcoming"`` the same
-meeting two days ahead. ``cleanup``
+meeting two days ahead; ``work_session=True`` adds a council work session
+(``session_kind`` ``work_session``) two days back with one item, which the
+opener's "last meeting" must pass over. ``cleanup``
 removes everything by the prefix, plus Birmingham's ``city_briefing_facts``
 rows; ``seed`` calls it first, so a run killed midway is tidied by the next.
 """
@@ -116,6 +118,13 @@ UNDOCUMENTED_ITEM = {
     "topic": "appointments",
 }
 
+WORK_SESSION_ITEM = {
+    "item_number": "1",
+    "title": PREFIX + "Discussion of the capital budget",
+    "description": "Discussion only; no action taken.",
+    "topic": "budget",
+}
+
 # Above item A's amount so that, unfiltered, it would head the money door
 # and the opener.
 CANCELLED_ITEM = {
@@ -154,14 +163,14 @@ def _roster(cur, municipality_id: int) -> dict[str, int]:
 
 
 def _insert_meeting(cur, municipality_id, *, external_id, title, meeting_date, start_time=None,
-                    meeting_type="council", agenda_url=None, minutes_url=None, video_url=None,
-                    source_url=None) -> int:
+                    meeting_type="council", session_kind="regular", agenda_url=None, minutes_url=None,
+                    video_url=None, source_url=None) -> int:
     cur.execute(
         """INSERT INTO meetings (municipality_id, external_id, title, meeting_date, meeting_type,
-                                 start_time, agenda_url, minutes_url, video_url, source_url)
-           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
-        (municipality_id, PREFIX + external_id, title, meeting_date, meeting_type, start_time,
-         agenda_url, minutes_url, video_url, source_url),
+                                 session_kind, start_time, agenda_url, minutes_url, video_url, source_url)
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+        (municipality_id, PREFIX + external_id, title, meeting_date, meeting_type, session_kind,
+         start_time, agenda_url, minutes_url, video_url, source_url),
     )
     mid = cur.fetchone()["id"]
     cur.execute("INSERT INTO processing_status (meeting_id) VALUES (%s)", (mid,))
@@ -292,7 +301,7 @@ def cleanup(conn) -> None:
 def seed(conn, *, votes: str = "split", transcript: bool | str = True, upcoming: bool = True,
          dollars: bool = True, badges: bool = True, ghost: bool = True, old_split: bool = False,
          resolved_speaker: bool = True, past_days: int = 7, undocumented: bool = False,
-         cancelled: bool | str = False) -> dict:
+         cancelled: bool | str = False, work_session: bool = False) -> dict:
     """Insert the Birmingham rows; returns the ids created.
 
     ``votes`` is ``"split"`` (the default), ``"unanimous"`` (no split vote on
@@ -314,7 +323,8 @@ def seed(conn, *, votes: str = "split", transcript: bool | str = True, upcoming:
     (``CANCELLED_ITEM``, $12 million, above item A), returned as
     ``out["cancelled_meeting_id"]`` and ``out["items"]["cancelled"]``;
     ``cancelled="upcoming"`` adds the same meeting two days ahead, before the
-    seed's upcoming meeting.
+    seed's upcoming meeting. ``work_session=True`` adds a council work
+    session two days back with one item (``out["work_session_meeting_id"]``).
     """
     if votes not in ("split", "unanimous", "none", "many_splits", "tally_only", "video"):
         raise ValueError(f"unknown votes option {votes!r}")
@@ -396,6 +406,17 @@ def seed(conn, *, votes: str = "split", transcript: bool | str = True, upcoming:
             out["cancelled_meeting_id"] = can
             out["cancelled_meeting_date"] = today + offset
             out["items"]["cancelled"] = _insert_item(cur, can, CANCELLED_ITEM)
+
+        if work_session:
+            ws = _insert_meeting(
+                cur, city, external_id="work_session",
+                title=PREFIX + "City Council Regular Work Session",
+                meeting_date=today - timedelta(days=2), start_time=time(14, 0),
+                session_kind="work_session",
+                agenda_url="https://example.test/agendas/work_session.pdf",
+            )
+            out["work_session_meeting_id"] = ws
+            out["items"]["work_session"] = _insert_item(cur, ws, WORK_SESSION_ITEM)
 
         if ghost:
             out["ghost_meeting_id"] = _insert_meeting(

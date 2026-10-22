@@ -25,6 +25,15 @@ class Meeting:
     ai_generated_at: datetime | None = None
     start_time: time | None = None
     is_hidden: bool = False
+    # Classification (migration 038): the body is `meeting_type`; the sitting,
+    # the body's name, which evidence decided them, the admin lock, and the
+    # matched city-calendar event. Defaults match the columns' defaults so
+    # row dicts built before 038 still read.
+    session_kind: str = "regular"
+    body_name: str | None = None
+    type_source: str = "title"
+    type_locked_at: datetime | None = None
+    calendar_event_id: int | None = None
 
     @classmethod
     def from_row(cls, row: dict) -> Meeting:
@@ -46,4 +55,9 @@ class Meeting:
             ai_generated_at=row.get("ai_generated_at"),
             start_time=row.get("start_time"),
             is_hidden=bool(row.get("is_hidden", False)),
+            session_kind=row.get("session_kind") or "regular",
+            body_name=row.get("body_name"),
+            type_source=row.get("type_source") or "title",
+            type_locked_at=row.get("type_locked_at"),
+            calendar_event_id=row.get("calendar_event_id"),
         )

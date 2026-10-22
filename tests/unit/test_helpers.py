@@ -1,5 +1,7 @@
 """Unit tests for shared adapter helpers."""
 
+import pytest
+
 from docket.adapters._helpers import classify_meeting, is_consent_item, normalize_title
 
 
@@ -10,13 +12,17 @@ class TestClassifyMeeting:
         assert classify_meeting("Regular City Council Meeting") == "council"
 
     def test_special(self):
-        assert classify_meeting("Special Called Meeting") == "special"
+        # A special called sitting with no body named is the council's; the
+        # sitting itself lives on session_kind (classify_title).
+        assert classify_meeting("Special Called Meeting") == "council"
 
     def test_called(self):
-        assert classify_meeting("Called Meeting - Emergency") == "special"
+        assert classify_meeting("Called Meeting - Emergency") == "council"
 
     def test_work_session(self):
-        assert classify_meeting("Council Work Session") == "work_session"
+        # A council work session is the council's; "work_session" is a
+        # session_kind, not a body.
+        assert classify_meeting("Council Work Session") == "council"
 
     def test_committee(self):
         assert classify_meeting("Finance Committee Meeting") == "committee"
@@ -28,10 +34,12 @@ class TestClassifyMeeting:
         assert classify_meeting("Board of Zoning Adjustment (BZA)") == "planning"
 
     def test_zoning(self):
-        assert classify_meeting("Zoning Board Meeting") == "planning"
+        # "planning" is the planning commission and the BZA; a zoning board
+        # with neither phrase is a board.
+        assert classify_meeting("Zoning Board Meeting") == "board"
 
     def test_budget_work_session(self):
-        assert classify_meeting("Budget Work Session") == "work_session"
+        assert classify_meeting("Budget Work Session") == "council"
 
     def test_budget_hearing(self):
         assert classify_meeting("Budget Hearing") == "council"
@@ -43,7 +51,7 @@ class TestClassifyMeeting:
         assert classify_meeting("") == "other"
 
     def test_case_insensitive(self):
-        assert classify_meeting("SPECIAL CALLED MEETING") == "special"
+        assert classify_meeting("SPECIAL CALLED MEETING") == "council"
 
     def test_board(self):
         assert classify_meeting("Design Review Board Meeting") == "board"
@@ -56,6 +64,87 @@ class TestClassifyMeeting:
 
     def test_commission(self):
         assert classify_meeting("Planning and Zoning Commission Meeting") == "planning"
+
+
+# One row per title in the inventory the plan's Context lists (Homewood,
+# Vestavia Hills, Mobile, the Birmingham variants, and the three `other`
+# shapes): (title, meeting_type, session_kind, body_name).
+TITLE_INVENTORY = [
+    # Homewood (generic_cms): titles name the body.
+    ("Council Meeting", "council", "regular", None),
+    ("Finance Committee", "committee", "regular", "Finance Committee"),
+    ("Special Called Special Issues Committee", "committee", "special", "Special Issues Committee"),
+    ("Public Works Committee", "committee", "regular", "Public Works Committee"),
+    ("Public Safety Committee", "committee", "regular", "Public Safety Committee"),
+    ("Planning & Development Committee", "committee", "regular", "Planning & Development Committee"),
+    ("Board of Zoning Adjustment", "planning", "regular", "Board of Zoning Adjustment"),
+    ("Board of Zoning Adjustment (BZA)", "planning", "regular", "Board of Zoning Adjustment"),
+    ("Planning Commission", "planning", "regular", "Planning Commission"),
+    ("Historic Preservation Commission", "board", "regular", "Historic Preservation Commission"),
+    ("Special Called Council Meeting", "council", "special", None),
+    ("Library Board", "board", "regular", "Library Board"),
+    ("Pre-Council Work Session", "council", "work_session", None),
+    ("Special Called Finance Committee", "committee", "special", "Finance Committee"),
+    # Vestavia Hills (civicclerk).
+    ("City Council Meeting", "council", "regular", None),
+    ("Parks and Recreation Board Meeting", "board", "regular", "Parks and Recreation Board"),
+    ("Parks and Recreation Board Meeting - March 2026", "board", "regular", "Parks and Recreation Board"),
+    ("Planning and Zoning Commission Meeting", "planning", "regular", "Planning and Zoning Commission"),
+    ("Board of Zoning Adjustment Meeting", "planning", "regular", "Board of Zoning Adjustment"),
+    ("Design Review Board Meeting", "board", "regular", "Design Review Board"),
+    ("Library Board of Trustees Meeting", "board", "regular", "Library Board of Trustees"),
+    ("City Council Organizational Meeting", "council", "regular", None),
+    ("City Council Regular Work Session", "council", "work_session", None),
+    ("Parks and Recreation Work Session", "board", "work_session", "Parks and Recreation"),
+    ("Standing Annexation Committee", "committee", "regular", "Standing Annexation Committee"),
+    ("Design Review Board Special Meeting", "board", "special", "Design Review Board"),
+    ("City Council Special Meeting", "council", "special", None),
+    ("City Council Special Work Session", "council", "work_session", None),
+    # Mobile (civicclerk, council category only).
+    ("One Time Event", "other", "regular", None),
+    # Birmingham (granicus): the generic title and its variants.
+    ("Regular City Council Meeting", "council", "regular", None),
+    ("Regular City Council Meeting - Cancelled (Next Regular Meeting 03/24/2026)", "council", "regular", None),
+    ("Regular City Council Meeting Part II", "council", "regular", None),
+    ("Virtual Regular City Council Meeting - See agenda for access", "council", "regular", None),
+    ("Budget Hearing", "council", "budget_hearing", None),
+    ("FY2026 Budget Meeting", "council", "budget_hearing", None),
+    # The three `other` shapes, plus the empty and bare-date titles.
+    ("Granicus Test", "other", "regular", None),
+    ("Press Conference", "other", "regular", None),
+    ("Municipal Election Results", "other", "regular", None),
+    ("April 23, 2024", "other", "regular", None),
+    ("", "other", "regular", None),
+]
+
+
+class TestClassifyTitle:
+    """Tests for classify_title(): body, session kind, and body name per title."""
+
+    @pytest.mark.parametrize("title,meeting_type,session_kind,body_name", TITLE_INVENTORY)
+    def test_inventory(self, title, meeting_type, session_kind, body_name):
+        from docket.adapters._helpers import Classification, classify_title
+
+        assert classify_title(title) == Classification(meeting_type, session_kind, body_name)
+
+    def test_vocabulary_tuples(self):
+        from docket.adapters._helpers import MEETING_TYPES, SESSION_KINDS
+
+        assert MEETING_TYPES == ("council", "committee", "planning", "board", "other")
+        assert SESSION_KINDS == ("regular", "special", "work_session", "budget_hearing")
+
+    def test_every_inventory_value_is_in_the_vocabulary(self):
+        from docket.adapters._helpers import MEETING_TYPES, SESSION_KINDS
+
+        for _, meeting_type, session_kind, _ in TITLE_INVENTORY:
+            assert meeting_type in MEETING_TYPES
+            assert session_kind in SESSION_KINDS
+
+    def test_classify_meeting_is_the_body(self):
+        from docket.adapters._helpers import classify_meeting, classify_title
+
+        for title, *_ in TITLE_INVENTORY:
+            assert classify_meeting(title) == classify_title(title).meeting_type
 
 
 class TestIsConsentItem:

@@ -22,9 +22,10 @@ from dataclasses import dataclass
 from datetime import date
 
 from docket.adapters import get_adapter
-from docket.adapters._helpers import normalize_title
+from docket.adapters._helpers import classify_title, normalize_title
 from docket.db import db, db_cursor
 from docket.models.protocol import RawMeeting
+from docket.services import meeting_types
 from docket.services.enrichment import enrich_agenda_item
 from docket.services.member_votes import load_roster_index
 
@@ -36,6 +37,20 @@ logger = logging.getLogger(__name__)
 # pre-recording PDF, we extract the agenda item_number from this title
 # so we can match by item_number rather than position-in-list.
 _AGENDA_ITEM_NUMBER_RE = re.compile(r"\bITEM\s+(\d+)\b", re.IGNORECASE)
+
+# The classification columns an UPDATE path writes, gated so a row an admin
+# locked (type_locked_at) or the resolver placed on the calendar or
+# schedule rung (type_source <> 'title') keeps its classification while the
+# title, dates, and links still update. Only services.meeting_types moves a
+# row between rungs. Three positional parameters: meeting_type,
+# session_kind, body_name, in that order.
+_CLASSIFICATION_GATE = "type_locked_at IS NULL AND type_source = 'title'"
+_CLASSIFICATION_UPDATE_SQL = (
+    f"meeting_type = CASE WHEN {_CLASSIFICATION_GATE} THEN %s ELSE meeting_type END, "
+    f"session_kind = CASE WHEN {_CLASSIFICATION_GATE} THEN %s ELSE session_kind END, "
+    f"body_name = CASE WHEN {_CLASSIFICATION_GATE} THEN %s ELSE body_name END, "
+    f"type_source = CASE WHEN {_CLASSIFICATION_GATE} THEN 'title' ELSE type_source END"
+)
 
 
 @dataclass
@@ -105,6 +120,23 @@ def ingest_municipality(slug: str, since: date | None = None) -> IngestResult:
 
     logger.info("Agenda items: %d inserted", total_items)
 
+    # Stage 3b: resolve each listed row's body and sitting now that its
+    # items are in (the calendar match reads them). Every listed row, every
+    # run, so a row that gained minutes or a cancelled title moves back
+    # down the ladder on its own (docket.services.meeting_types).
+    try:
+        with db_cursor() as cur:
+            cur.execute(
+                "SELECT id FROM meetings WHERE municipality_id = %s AND external_id = ANY(%s)",
+                (municipality_id, [m.external_id for m in raw_meetings]),
+            )
+            listed_ids = [r["id"] for r in cur.fetchall()]
+        resolved = meeting_types.resolve_and_store(municipality_id, listed_ids)
+        logger.info("Meeting types: %d of %d rows reclassified", resolved, len(listed_ids))
+    except Exception as e:
+        errors.append(f"Meeting types: {e}")
+        logger.error("  Failed to resolve meeting types for %s: %s", slug, e)
+
     # Stage 4: Extract votes from minutes (if adapter supports it)
     total_votes = 0
     for raw_meeting in raw_meetings:
@@ -157,19 +189,22 @@ def _upsert_meetings(municipality_id: int, raw_meetings: list[RawMeeting]) -> tu
                     (municipality_id, m.external_id),
                 )
                 existing = cur.fetchone()
+                cls = classify_title(m.title)
 
                 if existing:
                     cur.execute(
-                        """
+                        f"""
                         UPDATE meetings SET
-                            title = %s, meeting_date = %s, meeting_type = %s,
+                            title = %s, meeting_date = %s,
+                            {_CLASSIFICATION_UPDATE_SQL},
                             agenda_url = %s, minutes_url = %s, video_url = %s,
                             source_url = %s,
                             start_time = COALESCE(%s, start_time)
                         WHERE municipality_id = %s AND external_id = %s
                         """,
                         (
-                            m.title, m.meeting_date, m.meeting_type,
+                            m.title, m.meeting_date,
+                            cls.meeting_type, cls.session_kind, cls.body_name,
                             m.agenda_url, m.minutes_url, m.video_url,
                             m.source_url, m.start_time,
                             municipality_id, m.external_id,
@@ -186,17 +221,20 @@ def _upsert_meetings(municipality_id: int, raw_meetings: list[RawMeeting]) -> tu
                         updated += 1
                         continue
 
+                # A new row has no lock and no resolution: the title decides.
                 cur.execute(
                     """
                     INSERT INTO meetings (
                         municipality_id, external_id, title, meeting_date,
-                        meeting_type, agenda_url, minutes_url, video_url,
+                        meeting_type, session_kind, body_name, type_source,
+                        agenda_url, minutes_url, video_url,
                         source_url, start_time
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, 'title', %s, %s, %s, %s, %s)
                     """,
                     (
                         municipality_id, m.external_id, m.title, m.meeting_date,
-                        m.meeting_type, m.agenda_url, m.minutes_url, m.video_url,
+                        cls.meeting_type, cls.session_kind, cls.body_name,
+                        m.agenda_url, m.minutes_url, m.video_url,
                         m.source_url, m.start_time,
                     ),
                 )
@@ -251,17 +289,20 @@ def _try_upgrade_event_row(cur, municipality_id: int, m: RawMeeting) -> bool:
         )
         return False
 
+    cls = classify_title(m.title)
     cur.execute(
-        """
+        f"""
         UPDATE meetings SET
-            external_id = %s, title = %s, meeting_type = %s,
+            external_id = %s, title = %s,
+            {_CLASSIFICATION_UPDATE_SQL},
             agenda_url = %s, minutes_url = %s, video_url = %s,
             source_url = %s,
             start_time = COALESCE(%s, start_time)
         WHERE id = %s
         """,
         (
-            m.external_id, m.title, m.meeting_type,
+            m.external_id, m.title,
+            cls.meeting_type, cls.session_kind, cls.body_name,
             m.agenda_url, m.minutes_url, m.video_url,
             m.source_url, m.start_time, chosen[0],
         ),

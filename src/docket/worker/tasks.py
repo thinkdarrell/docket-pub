@@ -21,7 +21,7 @@ import psycopg2 as psycopg
 from docket.ai.worker import BudgetExceededError, run_once
 from docket.analysis.vote_matcher import match_all_unmatched
 from docket.db import db, db_cursor
-from docket.services import briefing
+from docket.services import briefing, city_calendar
 from docket.services.ingest import ingest_municipality
 from docket.services.maintenance import repair_empty_agendas
 from docket.services.member_votes import resolve_unresolved_member_votes
@@ -440,6 +440,22 @@ def task_briefing_facts() -> None:
     _safe_run("briefing_facts", _do_briefing_facts)
 
 
+def _do_city_calendar() -> None:
+    """Fill city_calendar_events from each city whose metadata names a ``calendar_url``.
+
+    One GET per city per day (Birmingham only at first), a handful of upserts;
+    runs at 05:30 so the rows exist before ingest_all (06:00) resolves meeting
+    types against them. A city's failure is logged and does not block the
+    others. Plan: plans/active/meeting-types-name-the-body.md (M3).
+    """
+    n = city_calendar.refresh_all()
+    log.info("city_calendar: refreshed %d cities", n)
+
+
+def task_city_calendar() -> None:
+    _safe_run("city_calendar", _do_city_calendar)
+
+
 # --- registry — used by scheduler.py and the --run-once flag -----------------
 
 TASKS: dict[str, Callable[[], None]] = {
@@ -458,4 +474,5 @@ TASKS: dict[str, Callable[[], None]] = {
     "refresh_backfill_ratio_mv": task_refresh_backfill_ratio_mv,
     "prune_analytics": task_prune_analytics,
     "briefing_facts": task_briefing_facts,
+    "city_calendar": task_city_calendar,
 }

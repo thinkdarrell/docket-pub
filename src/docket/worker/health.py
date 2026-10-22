@@ -50,6 +50,10 @@ TASK_UUID_ENV: dict[str, str] = {
     # Check docket-briefing-facts; set after the first deploy of the task
     # (docs/runbooks/cron-worker.md). ping() short-circuits until then.
     "briefing_facts": "HEALTHCHECK_BRIEFING_FACTS_UUID",
+    # Check docket-city-calendar; the operator sets the variable on the
+    # worker service when convenient after the first deploy of the task
+    # (docs/runbooks/cron-worker.md). ping() short-circuits until then.
+    "city_calendar": "HEALTHCHECK_CITY_CALENDAR_UUID",
 }
 
 PingStatus = Literal["start", "success", "fail"]

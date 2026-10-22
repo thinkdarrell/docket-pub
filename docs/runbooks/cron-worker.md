@@ -1,7 +1,7 @@
 # Cron Worker Runbook
 
 The Railway `worker` service runs `python -m docket.worker.scheduler` and fires
-**fifteen scheduled tasks** (see the design spec at
+**sixteen scheduled tasks** (see the design spec at
 `docs/superpowers/specs/2026-05-04-cron-worker-design.md`; subsequent additions
 documented in `~/docket-pub/CLAUDE.md`).
 
@@ -15,6 +15,7 @@ documented in `~/docket-pub/CLAUDE.md`).
 | `refresh_backfill_ratio_mv` | Daily 04:30 | `HEALTHCHECK_REFRESH_BACKFILL_RATIO_UUID` | Refreshes `mv_city_backfill_ratio` (concurrent) |
 | `recast_post_meeting_ai` | Daily 04:45 | `HEALTHCHECK_RECAST_POST_MEETING_UUID` (optional) | Re-queues forward-voice items + summary once a meeting is past and has video/minutes |
 | `prune_analytics` | Day 1, 04:00 (monthly) | `HEALTHCHECK_PRUNE_ANALYTICS_UUID` *(silent-by-design)* | Drops Umami events older than 24 months |
+| `city_calendar` | Daily 05:30 | `HEALTHCHECK_CITY_CALENDAR_UUID` (optional) | Reads each city's own calendar page (`metadata.calendar_url`; Birmingham only at first) into `city_calendar_events`, one request per city; per-city failure isolation; before `ingest_all` so the resolver sees the day's events |
 | `ingest_all` | Daily 06:00 | `HEALTHCHECK_INGEST_UUID` | Loops all municipalities; per-city failure isolation |
 | `video_ocr` | Daily 06:30 | `HEALTHCHECK_VIDEO_OCR_UUID` | Claim pattern; 3-attempt cap; 60-day window |
 | `ai_items` | Daily 07:00 | `HEALTHCHECK_AI_ITEMS_UUID` | v3 pipeline; gated by `AI_DAILY_BUDGET_USD` |
@@ -45,6 +46,7 @@ railway variables --service worker --set HEALTHCHECK_REFRESH_BACKFILL_RATIO_UUID
 railway variables --service worker --set HEALTHCHECK_VIDEO_OCR_UUID=<uuid>
 railway variables --service worker --set HEALTHCHECK_BRIEFING_FACTS_UUID=<uuid>
 railway variables --service worker --set HEALTHCHECK_RESOLVE_MEMBER_VOTES_UUID=<uuid>
+railway variables --service worker --set HEALTHCHECK_CITY_CALENDAR_UUID=<uuid>
 # silent-by-design (do not set unless you want active alerting):
 # railway variables --service worker --set HEALTHCHECK_CALIBRATION_UUID=<uuid>
 # railway variables --service worker --set HEALTHCHECK_PRUNE_ANALYTICS_UUID=<uuid>
@@ -54,6 +56,7 @@ Suggested schedule + grace per check:
 
 | Check name                       | Schedule           | Grace |
 |----------------------------------|--------------------|-------|
+| docket-city-calendar             | Daily 05:30        | 2h    |
 | docket-ingest                    | Daily 06:00        | 2h    |
 | docket-video-ocr                 | Daily 06:30        | 2h    |
 | docket-ai-items                  | Daily 07:00        | 2h    |
@@ -95,6 +98,7 @@ railway ssh --service worker
 python -m docket.worker.scheduler --run-once repair_empty_agendas
 python -m docket.worker.scheduler --run-once refresh_backfill_ratio_mv
 python -m docket.worker.scheduler --run-once recast_post_meeting_ai
+python -m docket.worker.scheduler --run-once city_calendar
 python -m docket.worker.scheduler --run-once ingest_all
 python -m docket.worker.scheduler --run-once video_ocr
 python -m docket.worker.scheduler --run-once ai_items
