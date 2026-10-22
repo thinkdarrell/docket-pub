@@ -49,6 +49,10 @@ M3 after state, observed 2026-10-21 23:24Z with the code in place (commit after 
 
 Correction appended by the same session: the unit tier added 19 tests, not 20 (2068 to 2087): 15 parser and fetch, 2 scheduler (the hour-table row and the minute test), 2 task; the registry test was re-expected, not added. The sentence above is left as written.
 
+M4 baseline, observed by the M4 session on 2026-10-21 at 23:55Z, before any edit, from `./tools/verify` in the worktree at commit `745684f` (exit 0): `test-db ... ok (0s)` (`docket_test_02a9eab9`), `unit+web+services ... ok (56s)` with `2087 passed, 5 skipped, 4 xfailed`; `integration ... ok (47s)` with `648 passed`; `judge-fixtures ... ok (0s)` (`12 of 12`); `workflows ... ok (0s)`; `transcriber ... ok (1s)` with `84 passed`; `plans ... ok (0s)`; `verify: all 6 checks passed in 104s.`
+
+M4 before state, observed 2026-10-22 00:00Z after the tests were written and before the code: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_meeting_types_resolve.py tests/integration/test_ingest_meeting_types.py tests/web/test_city_briefing.py -q -p no:cacheprovider` printed `40 failed, 67 passed`: the 35 resolver tests and the 4 new integration tests fail on the missing `docket.services.meeting_types` (imported inside the test functions, so both files collect), and the new briefing test `test_opener_passes_over_a_council_work_session` fails because the opener names the seeded work session as the last meeting (its last-meeting beat no longer says `acted on 4 items`), the old predicate at work.
+
 ## Surprises & Discoveries
 
 Observations made while authoring (2026-10-21). Each executing session appends its own below these, with evidence.

@@ -164,6 +164,18 @@ def test_opener_partial_no_upcoming(client, seeded):
     assert "acted on 4 items" in op
 
 
+@pytest.mark.parametrize("seeded", [{"work_session": True}], indirect=True)
+def test_opener_passes_over_a_council_work_session(client, seeded):
+    """A council work session newer than the last regular meeting, with an
+    item, is not "the council met": the opener still names the regular one
+    (``meeting_type = 'council' AND session_kind <> 'work_session'``)."""
+    op = _opener(_page(client))
+    assert "acted on 4 items" in op
+    assert f'href="/al/birmingham/meetings/{seeded["past_meeting_id"]}/"' in op
+    assert f'href="/al/birmingham/meetings/{seeded["work_session_meeting_id"]}/"' not in op
+    assert "acted on 1 item" not in op
+
+
 @pytest.mark.parametrize("seeded", [{"dollars": False}], indirect=True)
 def test_opener_drops_dollar_clause_when_no_item_passes(client, seeded):
     op = _opener(_page(client))
