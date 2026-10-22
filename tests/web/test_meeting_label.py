@@ -229,3 +229,25 @@ def test_meetings_list_filtered_to_committee_lists_only_committee_rows(client, r
     assert f"/al/birmingham/meetings/{rows['calendar']}/" in html
     assert f"/al/birmingham/meetings/{rows['council']}/" not in html
     assert f"/al/birmingham/meetings/{rows['budget']}/" not in html
+
+
+# --- the item page (review finding: the clip name leaked through its crumb and hero link) ---
+
+
+@pytest.fixture
+def item_on_rule_row(rows):
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            """INSERT INTO agenda_items (meeting_id, item_number, title, external_id, processing_status)
+               VALUES (%s, '1', 'Sidewalk repair contract', %s, 'pending') RETURNING id""",
+            (rows["rule"], PREFIX + "item"),
+        )
+        item_id = cur.fetchone()[0]
+        conn.commit()
+    return item_id
+
+
+def test_item_page_names_the_meeting_by_its_label(client, rows, item_on_rule_row):
+    html = _get(client, f"/al/birmingham/items/{item_on_rule_row}/")
+    assert "Council committee meeting" in html
+    assert CLIP not in html

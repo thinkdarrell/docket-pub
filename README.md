@@ -319,7 +319,7 @@ class Meeting:
     external_id: str | None
     title: str                    # "City Council Meeting", "Special Called Meeting"
     meeting_date: str | None      # "2026-04-27"
-    meeting_type: str | None      # the adapter's guess; ingest classifies from the title into "council", "committee", "planning", "board", "other" (docs/specs/meeting-types.md)
+    meeting_type: str | None      # the adapter's guess; ingest classifies from the title into "council", "committee", "planning", "board", "other" and a session_kind of "regular", "special", "work_session", "budget_hearing" (docs/specs/meeting-types.md)
     agenda_url: str | None        # Link to agenda on city's website
     minutes_url: str | None       # Link to minutes on city's website
     video_url: str | None         # Link to video (if available)

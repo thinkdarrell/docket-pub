@@ -3,7 +3,7 @@
 {% block crumb %}meetings/{{ item.meeting_id }}/items/{{ item.id }}{% endblock %}
 
 {% block content %}
-{% set _meeting_label = (meeting.title if meeting and meeting.title else (meeting.meeting_date.strftime('%b %-d, %Y') if meeting and meeting.meeting_date else 'Meeting')) %}
+{% set _meeting_label = (meeting_label(meeting) if meeting and meeting_label(meeting) else (meeting.meeting_date.strftime('%b %-d, %Y') if meeting and meeting.meeting_date else 'Meeting')) %}
 {% set _item_label = item.headline or item.title or ('Item #' ~ (item.item_number or item.id)) %}
 {% set crumbs = [
   {'label': 'Home',            'url': url_for('public.index')},
@@ -45,7 +45,7 @@
                 {% endif %}
                 <a class="link t-meta"
                    href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=item.meeting_id, _anchor='item-' ~ item.id) }}">
-                    {{ meeting.title if meeting else 'Meeting' }}
+                    {{ _meeting_label }}
                 </a>
             </div>
             <h1 class="hero-title t-display">{% if is_upcoming(item) and (item.ai_rewrite_voice or '') != 'upcoming' %}{{ item.title }}{% else %}{{ item.headline or item.title }}{% endif %}</h1>

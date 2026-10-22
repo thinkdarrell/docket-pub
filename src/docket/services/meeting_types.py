@@ -227,6 +227,10 @@ def resolve(
     if base != _GENERIC:
         return Resolution(base, "title", None)
 
+    if meeting.get("meeting_date") is None:
+        # The calendar and the schedule rule both need a date; a dated-less
+        # row can only be what its title says.
+        return Resolution(base, "title", None)
     meta = _metadata(municipality)
     meeting_date = _as_date(meeting["meeting_date"])
     has_minutes = bool(meeting.get("minutes_url"))
@@ -465,10 +469,20 @@ def set_override(
 
 
 def clear_override(meeting_id: int) -> None:
-    """Lift the admin lock and put the row back on the ladder by resolving it once."""
-    with db() as conn, conn.cursor() as cur:
+    """Lift the admin lock and put the row back on the ladder by resolving it once.
+
+    One transaction: the lock is lifted and the row re-resolved under the same
+    cursor, so a failure leaves the lock in place rather than a half-unlocked row.
+    """
+    with db() as conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(_CLEAR_OVERRIDE_SQL, (meeting_id,))
         row = cur.fetchone()
+        if row is None:
+            return
+        municipality_id = int(row["municipality_id"])
+        cur.execute(_MUNICIPALITY_SQL.format(where="id = %s"), (municipality_id,))
+        municipality = cur.fetchone()
+        if municipality is not None:
+            meetings, events = _load(cur, municipality_id, "m.id = %s", (meeting_id,))
+            _write(cur, _changes(dict(municipality), meetings, events))
         conn.commit()
-    if row is not None:
-        resolve_and_store(int(row[0]), [meeting_id])

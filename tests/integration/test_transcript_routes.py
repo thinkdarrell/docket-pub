@@ -220,3 +220,16 @@ def test_transcript_404_for_wrong_municipality_and_hidden_meeting(client, meetin
     finally:
         with db_cursor() as cur:
             cur.execute("UPDATE meetings SET is_hidden = FALSE WHERE id = %s", [mid])
+
+
+def test_transcript_page_prints_the_meeting_label_not_the_clip_name(client, meeting_with_transcript):
+    """M5 of meeting-types-name-the-body: the transcript page's title and h1 carry the label."""
+    fx = meeting_with_transcript; _publish(fx["transcript_id"])
+    with db_cursor() as cur:
+        cur.execute("""UPDATE meetings SET meeting_type='committee', session_kind='regular',
+                              body_name='Public Safety Committee', type_source='calendar'
+                        WHERE id=%s""", [fx["meeting_id"]])
+    html = client.get(f"/al/birmingham/meetings/{fx['meeting_id']}/transcript/").get_data(as_text=True)
+    assert "<title>Transcript — Public Safety Committee — docket.pub</title>" in html
+    assert '<h1 class="hero-title t-display">Public Safety Committee</h1>' in html
+    assert "TR test" not in html

@@ -42,12 +42,13 @@ class _Bag:
         self.meeting_ids: list[int] = []
         self.admin_id: int | None = None
 
-    def add_meeting(self, *, external_id: str = "1", title: str = "Regular City Council Meeting") -> int:
+    def add_meeting(self, *, external_id: str = "1", title: str = "Regular City Council Meeting",
+                    meeting_date: date | None = date(2026, 10, 13)) -> int:
         with db() as conn, conn.cursor() as cur:
             cur.execute(
                 """INSERT INTO meetings (municipality_id, external_id, title, meeting_date, meeting_type)
-                   VALUES (%s, %s, %s, '2026-10-13', 'council') RETURNING id""",
-                (self.city_id, PREFIX + external_id, title),
+                   VALUES (%s, %s, %s, %s, 'council') RETURNING id""",
+                (self.city_id, PREFIX + external_id, title, meeting_date),
             )
             mid = cur.fetchone()[0]
             conn.commit()
@@ -208,3 +209,16 @@ def test_the_meeting_page_shows_the_admin_form_and_the_lock_line(admin_client, b
     html = admin_client.get(f"/al/birmingham/meetings/{mid}/").get_data(as_text=True)
     assert "Set by hand on" in html
     assert f'action="/admin/meetings/{mid}/type/unlock"' in html
+
+
+def test_unlock_re_resolves_a_row_without_a_date(admin_client, bag):
+    """Review finding: a generic-titled row with no meeting_date reached ``_as_date(None)``
+    in ``resolve`` after the lock was already lifted, so the unlock half-ran and 500ed."""
+    mid = bag.add_meeting(external_id="7", meeting_date=None)
+    admin_client.post(f"/admin/meetings/{mid}/type", data=FORM)
+    rv = admin_client.post(f"/admin/meetings/{mid}/type/unlock", follow_redirects=False)
+    assert rv.status_code in (302, 303)
+    cols = _columns(mid)
+    assert cols["type_locked_at"] is None
+    assert (cols["meeting_type"], cols["session_kind"], cols["body_name"], cols["type_source"]) == (
+        "council", "regular", None, "title")
