@@ -91,7 +91,8 @@ def claim_meetings_sql() -> str:
       (b) adopted pass:      minutes_adopted_at IS NOT NULL AND ai_metadata.phase != 'adopted'
     """
     return """
-        SELECT m.id, m.meeting_type, m.meeting_date, m.minutes_adopted_at, m.ai_metadata
+        SELECT m.id, m.meeting_type, m.meeting_date, m.minutes_adopted_at, m.ai_metadata,
+               m.session_kind, m.body_name, m.title
         FROM meetings m
         WHERE (
             -- (a) provisional pass
@@ -162,7 +163,8 @@ def claim_meetings_v3_sql() -> str:
     historical backfill.
     """
     return f"""
-        SELECT m.id, m.meeting_type, m.meeting_date, m.minutes_adopted_at, m.ai_metadata
+        SELECT m.id, m.meeting_type, m.meeting_date, m.minutes_adopted_at, m.ai_metadata,
+               m.session_kind, m.body_name, m.title
         FROM meetings m
         WHERE {meetings_pending_v3_where()}
         ORDER BY m.meeting_date DESC NULLS LAST, m.id
@@ -321,6 +323,8 @@ def mark_meeting_empty(conn, meeting_id: int, *, phase: str) -> None:
 from dataclasses import dataclass, field
 from typing import Literal
 
+from docket.adapters._helpers import label_for
+from docket.services.query import is_cancelled_title
 from docket.ai.client import AIClient
 from docket.ai.contexts import AgendaItemContext, MeetingContext
 from docket.ai.exceptions import (
@@ -507,8 +511,17 @@ def _process_meetings(conn, client: AIClient, limit: int, summary: RunSummary) -
         rows = cur.fetchall()
 
     for row in rows:
-        meeting_id, meeting_type, meeting_date, minutes_adopted_at, ai_metadata = row
+        (meeting_id, meeting_type, meeting_date, minutes_adopted_at, ai_metadata,
+         session_kind, body_name, title) = row
         phase = "adopted" if minutes_adopted_at else "provisional"
+        # The prompt reads "Meeting: {meeting_type} on {date}"; it gets the
+        # display label ("Committee of the Whole / ...", "City Council
+        # meeting") rather than the bare body. The prompt text is unchanged,
+        # so no version bump (decision 0016).
+        meeting_label = label_for(
+            meeting_type, session_kind or "regular", body_name, title or "",
+            cancelled=is_cancelled_title(title),
+        )
         with conn.cursor() as cur:
             cur.execute(MEETING_ITEM_ROWS_SQL, (meeting_id,))
             item_rows = [
@@ -524,7 +537,7 @@ def _process_meetings(conn, client: AIClient, limit: int, summary: RunSummary) -
 
         ctx = MeetingContext.from_meeting_items(
             meeting_id=meeting_id,
-            meeting_type=meeting_type,
+            meeting_type=meeting_label,
             meeting_date=meeting_date,
             phase=phase,
             rows=item_rows,

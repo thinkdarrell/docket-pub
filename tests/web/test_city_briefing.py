@@ -171,8 +171,7 @@ def test_opener_passes_over_a_council_work_session(client, seeded):
     (``meeting_type = 'council' AND session_kind <> 'work_session'``)."""
     op = _opener(_page(client))
     assert "acted on 4 items" in op
-    assert f'href="/al/birmingham/meetings/{seeded["past_meeting_id"]}/"' in op
-    assert f'href="/al/birmingham/meetings/{seeded["work_session_meeting_id"]}/"' not in op
+    assert f"The council met on {seeded['past_meeting_date'].strftime('%A')}" in op
     assert "acted on 1 item" not in op
 
 

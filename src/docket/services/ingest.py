@@ -25,6 +25,7 @@ from docket.adapters import get_adapter
 from docket.adapters._helpers import classify_title, normalize_title
 from docket.db import db, db_cursor
 from docket.models.protocol import RawMeeting
+from docket.services import meeting_types
 from docket.services.enrichment import enrich_agenda_item
 from docket.services.member_votes import load_roster_index
 
@@ -118,6 +119,23 @@ def ingest_municipality(slug: str, since: date | None = None) -> IngestResult:
             logger.error("  Failed to scrape agenda for %s: %s", raw_meeting.external_id, e)
 
     logger.info("Agenda items: %d inserted", total_items)
+
+    # Stage 3b: resolve each listed row's body and sitting now that its
+    # items are in (the calendar match reads them). Every listed row, every
+    # run, so a row that gained minutes or a cancelled title moves back
+    # down the ladder on its own (docket.services.meeting_types).
+    try:
+        with db_cursor() as cur:
+            cur.execute(
+                "SELECT id FROM meetings WHERE municipality_id = %s AND external_id = ANY(%s)",
+                (municipality_id, [m.external_id for m in raw_meetings]),
+            )
+            listed_ids = [r["id"] for r in cur.fetchall()]
+        resolved = meeting_types.resolve_and_store(municipality_id, listed_ids)
+        logger.info("Meeting types: %d of %d rows reclassified", resolved, len(listed_ids))
+    except Exception as e:
+        errors.append(f"Meeting types: {e}")
+        logger.error("  Failed to resolve meeting types for %s: %s", slug, e)
 
     # Stage 4: Extract votes from minutes (if adapter supports it)
     total_votes = 0
