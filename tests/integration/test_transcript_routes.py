@@ -106,6 +106,15 @@ def test_meeting_page_links_to_transcript_with_hx_attrs(client, meeting_with_tra
     assert 'hx-get="/al/birmingham/meetings/' in html and 'hx-push-url="true"' in html
 
 
+def test_transcript_link_swap_scrolls_the_loaded_transcript_into_view(client, meeting_with_transcript):
+    """The link sits in the Source links row at the foot of the page and the target
+    section sits above the regular agenda; without a show: modifier the swap lands
+    off-screen and the click looks like it did nothing."""
+    fx = meeting_with_transcript; _publish(fx["transcript_id"])
+    html = client.get(f"/al/birmingham/meetings/{fx['meeting_id']}/").get_data(as_text=True)
+    assert 'hx-target="#transcript-tab" hx-swap="innerHTML show:#transcript-tab:top"' in html
+
+
 def test_htmx_partial_uses_namespaced_item_ids(client, meeting_with_transcript):
     fx = meeting_with_transcript; _publish(fx["transcript_id"])
     url = f"/al/birmingham/meetings/{fx['meeting_id']}/transcript/"

@@ -420,7 +420,7 @@
         {% if has_transcript %}
         <a class="rail-link" href="/al/{{ municipality.slug }}/meetings/{{ meeting.id }}/transcript/"
            hx-get="/al/{{ municipality.slug }}/meetings/{{ meeting.id }}/transcript/"
-           hx-target="#transcript-tab" hx-swap="innerHTML" hx-push-url="true"
+           hx-target="#transcript-tab" hx-swap="innerHTML show:#transcript-tab:top" hx-push-url="true"
            style="flex: 1; min-width: 180px;">
             <div><div class="rail-link-label">Transcript</div><div class="t-meta">machine-generated</div></div>
             <span class="t-mono">→</span>
