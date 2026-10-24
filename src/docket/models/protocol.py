@@ -21,6 +21,7 @@ class RawMeeting:
     video_url: str | None
     source_url: str
     start_time: time | None = None
+    duration_s: int | None = None  # recording length in seconds, when the source states it
 
 
 @dataclass(frozen=True)

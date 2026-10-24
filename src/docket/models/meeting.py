@@ -34,6 +34,8 @@ class Meeting:
     type_source: str = "title"
     type_locked_at: datetime | None = None
     calendar_event_id: int | None = None
+    # Recording length in seconds (migration 040), from Granicus or YouTube.
+    duration_s: int | None = None
 
     @classmethod
     def from_row(cls, row: dict) -> Meeting:
@@ -60,4 +62,5 @@ class Meeting:
             type_source=row.get("type_source") or "title",
             type_locked_at=row.get("type_locked_at"),
             calendar_event_id=row.get("calendar_event_id"),
+            duration_s=row.get("duration_s"),
         )

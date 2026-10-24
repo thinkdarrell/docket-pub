@@ -25,6 +25,9 @@ NEW_COLUMNS = (
 def fresh_038():
     with db() as conn:
         runner.apply_migrations(conn)
+        # 040 re-creates the type_source CHECK that 038's down drops with
+        # the column; roll it back first so re-applying restores both.
+        runner.rollback_migration(conn, 40)
         runner.rollback_migration(conn, 38)
     yield
     with db() as conn:

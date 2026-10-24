@@ -30,6 +30,23 @@ from docket.models.protocol import RawAgendaItem, RawMeeting, RawVote
 
 logger = logging.getLogger(__name__)
 
+_DURATION_RE = re.compile(r"^(?:(\d+)h)?\s*(?:(\d+)m)?\s*(?:(\d+)s)?$")
+
+
+def parse_duration_cell(text: str) -> int | None:
+    """Seconds from a publisher-page Duration cell such as ``01h 27m``.
+
+    The live page separates the tokens with a non-breaking space, so
+    whitespace is normalised first; any of the hour, minute, and second
+    tokens may be absent. An empty cell, or one with no token, is None.
+    """
+    normalised = " ".join((text or "").split())
+    match = _DURATION_RE.match(normalised)
+    if not normalised or not match or not any(match.groups()):
+        return None
+    hours, minutes, seconds = (int(g) if g else 0 for g in match.groups())
+    return hours * 3600 + minutes * 60 + seconds
+
 
 class GranicusAdapter:
     """Adapter for cities using the Granicus CMS."""
@@ -342,6 +359,9 @@ class GranicusAdapter:
             logger.warning("Could not parse date for meeting '%s', using today", title)
             meeting_date = date.today()
 
+        duration_cell = row.find("td", headers="Duration")
+        duration_s = parse_duration_cell(duration_cell.get_text()) if duration_cell else None
+
         # Extract clip_id from any link
         clip_id = self._extract_clip_id(row)
         if not clip_id:
@@ -380,6 +400,7 @@ class GranicusAdapter:
             video_url=video_url,
             source_url=self._source_url(clip_id),
             start_time=start_time,
+            duration_s=duration_s,
         )
 
     @staticmethod
