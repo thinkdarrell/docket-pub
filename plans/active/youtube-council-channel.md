@@ -103,7 +103,11 @@ M5 session, 2026-10-24 (observed):
 - Observation: the baseline before any edit passed.
   Evidence: `./tools/verify` from 22:57Z to 22:59Z printed `verify: all 6 checks passed in 108s.`
 - Observation: the new web tests fail before the code, each on the missing piece; the two that guard unchanged behaviour (a `yt-` row shows one watch link, a row without recordings shows no YouTube link) pass before as they should.
-  Evidence: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/web/test_meeting_recordings.py -q -p no:cacheprovider` printed `7 failed, 2 passed`; the reasons were `AttributeError: module 'docket.services.query' has no attribute 'videos_for_meeting'`, `KeyError: 'source_hosts'`, and five `AssertionError`s on the missing rail link, part link, provenance sentence, footer hosts, and source-health hosts.
+  Evidence: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/web/test_meeting_recordings.py -q -p no:cacheprovider` printed `7 failed, 2 passed`; the reasons were `AttributeError: module 'docket.services.query' has no attribute 'videos_for_meeting'`, `KeyError: 'source_hosts'`, and five `AssertionError`s on the missing rail link, part link, provenance sentence, footer hosts, and source-health hosts. Committed failing as `e7f2241`.
+- Observation: with `videos_for_meeting`, `source_hosts`, and the four templates written, the new file and its neighbours pass, and so does the whole web tier.
+  Evidence: at 23:04Z `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/web/test_meeting_recordings.py tests/web/test_city_briefing.py tests/web/test_meeting_label.py tests/web/test_source_health_briefing.py tests/unit/test_youtube_titles.py -q -p no:cacheprovider` printed `125 passed in 10.77s`; `pytest tests/web` printed `275 passed, 5 skipped in 15.48s`.
+- Observation: none of M5's operator steps could be done from this session: no `YOUTUBE_API_KEY` exists in the worktree, a factory session cannot reach the Google Cloud console or Railway, and `AGENTS.md` reserves deploys to humans (`scripts/deploy.sh` is denied in `.claude/settings.json`). So no API key exists, nothing is deployed, the backfill has not run on production, and the production counts and the dry-run-after-write transcript the acceptance asks for are not here.
+  Evidence: `grep -c YOUTUBE_API_KEY .env` in the M4 session printed nothing for the key; this session ran no production command.
 
 ## Decision Log
 
@@ -182,6 +186,22 @@ M5 session, 2026-10-24 (observed):
 - Decision (M4): the task catches any per-city exception besides `QuotaExceeded`, logs it, and goes on, as `_do_ingest_all` does; `tests/unit/test_worker_scheduler.py` and `tests/unit/test_worker_tasks.py`'s registry sets gain `youtube_ingest`, and `.env.example` gains `YOUTUBE_API_KEY=`.
   Rationale: per-city isolation is the worker's existing pattern; the registry tests pin the exact task set and would fail otherwise; the example file lists every key the app reads.
   Date/Author: 2026-10-24, Claude (M4 session).
+
+- Decision (M5): `query.videos_for_meeting` also returns `part` (the title's `Pt. N` number, through a new public `youtube_meetings.part_number`, which ignores the date token and checks nothing else); the line under the links reads "Other recordings of this meeting:" followed by each non-primary recording as "Part N" or "another recording".
+  Rationale: the stored `meeting_videos.title` keeps the part marker but no column holds the number, and the page must not re-implement the title grammar; `parse_title` would refuse an old or future-dated title, which a stored recording must still be labelled by. "continues in" was rejected as wording because the non-primary recording is often the earlier part (Pt. 1 is the short one).
+  Date/Author: 2026-10-24, Claude (M5 session).
+- Decision (M5): the provenance sentence for a `video` row links "See the recording ↗" to the row's first YouTube recording (primary first), and "Watch on YouTube" links the same recording.
+  Rationale: the rung reads the primary's clean title first, so the primary is the recording that named the row; the milestone names no link text, and "See the recording" follows the calendar rung's "See the event".
+  Date/Author: 2026-10-24, Claude (M5 session).
+- Decision (M5): `source_hosts` counts URLs per hostname in Python (`briefing._source_hosts` over the window's `source_url`s, newest first, through the existing `_source_host`), ties broken by host name; when the 180-day window holds no row, it falls back to the newest row's host with `rows` 0, so a city with only old records still names its source and the source-health page prints no count for it. `source_host` is now the most-rows host, not the newest row's.
+  Rationale: one parser of hostnames keeps the footer and the old `source_host` agreeing; a few hundred rows a city, cached five minutes, cost nothing. The fallback keeps the pre-M5 behaviour for cities with nothing recent (the panel would otherwise drop its host clause). The milestone says `source_host` "stays the first host", which is the most-rows host; for Birmingham both readings give bhamal.granicus.com today.
+  Date/Author: 2026-10-24, Claude (M5 session).
+- Decision (M5): the Source health page reads the list through the `city_provenance` Jinja global inside `source_health.html`, under the existing Source stage link, with each host's meeting count; `public.source_health` and `query.source_health_for_city` are unchanged. `docs/specs/city-page.md` gains a sentence for it beside the footer note.
+  Rationale: one owner of the host list; the route needs no new argument.
+  Date/Author: 2026-10-24, Claude (M5 session).
+- Decision (M5): the session ticks M5 with its operator steps named as not done, as `plans/active/meeting-types-name-the-body.md` did for its M4, and the operator appends the production evidence to Progress when the steps run.
+  Rationale: the judge (`docs/capabilities/judge-milestone.md`) counts a milestone only when its open entry is ticked and forbids rewording it, so a split into a code entry and an operator entry is not available; the operator steps need a Google Cloud key, Railway, and a deploy, none of which a factory session may touch. M6's operator step (the transcript on the site) also depends on this backfill having run.
+  Date/Author: 2026-10-24, Claude (M5 session).
 
 ## Outcomes & Retrospective
 

@@ -154,6 +154,29 @@ def get_meeting(meeting_id: int) -> Meeting | None:
         return Meeting.from_row(dict(row)) if row else None
 
 
+def videos_for_meeting(meeting_id: int) -> list[dict]:
+    """The meeting's recordings in ``meeting_videos`` (plan
+    youtube-council-channel, M5), primary first and then by id:
+    ``{provider, video_id, url, title, duration_s, is_primary, part}``,
+    where ``part`` is the title's ``Pt. N`` number or None."""
+    # Local import: youtube_meetings imports the ladder, which this module
+    # must not pull in at import time.
+    from docket.services.youtube_meetings import part_number
+
+    with db_cursor() as cur:
+        cur.execute(
+            """SELECT provider, video_id, url, title, duration_s, is_primary
+                 FROM meeting_videos
+                WHERE meeting_id = %s
+                ORDER BY is_primary DESC, id""",
+            (meeting_id,),
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+    for r in rows:
+        r["part"] = part_number(r["title"])
+    return rows
+
+
 def list_agenda_items(meeting_id: int) -> list[AgendaItem]:
     """Return agenda items for a meeting (list-page shape, A8).
 

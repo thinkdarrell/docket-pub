@@ -47,6 +47,16 @@
         {% else %}
         <div class="t-meta">No upstream URL recorded.</div>
         {% endif %}
+        {#- Every host of the last 180 days, the list the footer and the
+            sources paragraph name (plans/active/youtube-council-channel.md, M5). #}
+        {%- set _hosts = city_provenance(municipality).source_hosts %}
+        {% if _hosts %}
+        <ul class="t-meta source-stage-hosts">
+          {% for h in _hosts %}
+          <li><a class="link" href="{{ h.source_url }}" target="_blank" rel="noreferrer">{{ h.host }}</a>{% if h.rows %} · {{ '{:,}'.format(h.rows) }} meeting{{ '' if h.rows == 1 else 's' }} in the last 180 days{% endif %}</li>
+          {% endfor %}
+        </ul>
+        {% endif %}
       </div>
       <div class="source-stage-dot is-good" aria-hidden="true"></div>
     </li>

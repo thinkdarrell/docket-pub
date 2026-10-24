@@ -119,9 +119,23 @@ def parse_title(title: str, *, today: date | None = None) -> ParsedTitle | None:
     rest = title[: m.start()] + " " + title[m.end() :]
     if not _MEETING_WORDS.search(rest) or _REJECT_WORDS.search(rest):
         return None
-    part_m = _PART.search(rest)
-    part = int(part_m.group(1)) if part_m else None
-    return ParsedTitle(meeting_date, clean_title(title), part)
+    return ParsedTitle(meeting_date, clean_title(title), _part_of(rest))
+
+
+def _part_of(text: str) -> int | None:
+    part_m = _PART.search(text)
+    return int(part_m.group(1)) if part_m else None
+
+
+def part_number(title: str) -> int | None:
+    """The ``Pt. N`` / ``Part N`` number of a channel title, or None; the
+    date token is ignored, and nothing else about the title is checked
+    (the meeting page labels a stored recording with it)."""
+    found = _find_date(title)
+    if found:
+        m, _ = found
+        title = title[: m.start()] + " " + title[m.end() :]
+    return _part_of(title)
 
 
 def body_key(clean: str) -> str:

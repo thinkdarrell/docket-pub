@@ -31,7 +31,9 @@ The label is the card's heading on the meetings list, the home page's strips, an
 
 ## Provenance
 
-When the label differs from the title, the meeting page prints below the hero: `The city's archive lists this recording as “<title>”.` A row named by the schedule rule continues: "It is not on the council's regular meeting day and the city calendar did not name the body." A row named by the calendar continues: "The city's calendar names it." with a link to the event's `source_url` (`meeting_types.calendar_event_for`). A row whose label is its title prints nothing.
+When the label differs from the title, the meeting page prints below the hero: `The city's archive lists this recording as “<title>”.` A row named by the schedule rule continues: "It is not on the council's regular meeting day and the city calendar did not name the body." A row named by the calendar continues: "The city's calendar names it." with a link to the event's `source_url` (`meeting_types.calendar_event_for`). A row named by the `video` rung continues: "The council's YouTube recording names it." with a link, "See the recording", to its first YouTube recording's `url` (`query.videos_for_meeting`, primary first). A row whose label is its title prints nothing.
+
+The same page lists a row's recordings from `meeting_videos`: when a row's own `video_url` is not on YouTube and it has a YouTube recording, the source links gain "Watch on YouTube" (meta "council channel") beside "Watch video"; when it has more than one recording, a line under the links reads "Other recordings of this meeting:" and links each non-primary one as "Part N" (the title's `Pt. N` / `Part N`, `youtube_meetings.part_number`) or "another recording".
 
 ## The filter row
 

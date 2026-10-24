@@ -1210,6 +1210,33 @@ _NEWEST_SOURCE_URL_SQL = """
     ORDER BY meeting_date DESC, id DESC LIMIT 1
 """
 
+# Every host the city's records came from lately (plan
+# youtube-council-channel, M5): Birmingham has two since the council's
+# YouTube channel became a source, and the newest row alone would name
+# whichever published last.
+SOURCE_HOSTS_WINDOW_DAYS = 180
+
+_RECENT_SOURCE_URLS_SQL = """
+    SELECT source_url FROM meetings
+    WHERE municipality_id = %s AND source_url IS NOT NULL AND is_hidden = FALSE
+      AND meeting_date >= current_date - %s
+    ORDER BY meeting_date DESC, id DESC
+"""
+
+
+def _source_hosts(urls: list[str]) -> list[dict]:
+    """``[{"host", "source_url", "rows"}]`` over ``urls`` (newest first):
+    one entry per hostname, most rows first (ties by host), each carrying
+    the newest URL seen for that host."""
+    hosts: dict[str, dict] = {}
+    for url in urls:
+        host = _source_host(url)
+        if not host:
+            continue
+        entry = hosts.setdefault(host, {"host": host, "source_url": url, "rows": 0})
+        entry["rows"] += 1
+    return sorted(hosts.values(), key=lambda h: (-h["rows"], h["host"]))
+
 
 def _source_host(url: str | None) -> str | None:
     from urllib.parse import urlparse
@@ -1223,11 +1250,15 @@ def _source_host(url: str | None) -> str | None:
 
 
 def city_provenance(municipality_id: int) -> dict:
-    """``{"last_ingest_at", "meeting_count", "source_host", "source_url"}``:
-    the one owner of the facts the freshness chip, the source panel, and the
-    footer state (``query.most_recent_ingest_at``, ``query.count_meetings_lifetime``,
-    and the hostname of the newest non-hidden meeting's ``source_url``),
-    cached per city for ``PROVENANCE_TTL_SECONDS``."""
+    """``{"last_ingest_at", "meeting_count", "source_host", "source_url",
+    "source_hosts"}``: the one owner of the facts the freshness chip, the
+    source panel, and the footer state (``query.most_recent_ingest_at``,
+    ``query.count_meetings_lifetime``, and the hosts of the non-hidden
+    meetings' ``source_url`` dated within ``SOURCE_HOSTS_WINDOW_DAYS``, most
+    rows first, each with its newest URL; the newest row's host alone, with
+    ``rows`` 0, when the window holds none). ``source_host`` and
+    ``source_url`` are the first host's. Cached per city for
+    ``PROVENANCE_TTL_SECONDS``."""
     import time
 
     from docket.services import query
@@ -1237,14 +1268,22 @@ def city_provenance(municipality_id: int) -> dict:
     if cached and now - cached[0] < PROVENANCE_TTL_SECONDS:
         return cached[1]
     with db_cursor() as cur:
-        cur.execute(_NEWEST_SOURCE_URL_SQL, (municipality_id,))
-        row = cur.fetchone()
-    source_url = row["source_url"] if row else None
+        cur.execute(_RECENT_SOURCE_URLS_SQL, (municipality_id, SOURCE_HOSTS_WINDOW_DAYS))
+        source_hosts = _source_hosts([r["source_url"] for r in cur.fetchall()])
+        if not source_hosts:
+            # Nothing in the window: the newest row's host, as before.
+            cur.execute(_NEWEST_SOURCE_URL_SQL, (municipality_id,))
+            row = cur.fetchone()
+            source_hosts = [
+                {**h, "rows": 0} for h in _source_hosts([row["source_url"]] if row else [])
+            ]
+    first = source_hosts[0] if source_hosts else None
     result = {
         "last_ingest_at": query.most_recent_ingest_at(municipality_id),
         "meeting_count": query.count_meetings_lifetime(municipality_id),
-        "source_host": _source_host(source_url),
-        "source_url": source_url,
+        "source_host": first["host"] if first else None,
+        "source_url": first["source_url"] if first else None,
+        "source_hosts": source_hosts,
     }
     _provenance_cache[municipality_id] = (now, result)
     return result
