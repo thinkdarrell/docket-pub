@@ -65,6 +65,15 @@ M2 session, 2026-10-24 (observed):
 - Observation: the whole check passes with M2's code in place.
   Evidence: `./tools/verify` from 22:30Z to 22:32Z printed `verify: all 6 checks passed in 107s.`
 
+M3 session, 2026-10-24 (observed):
+
+- Observation: the baseline before any edit passed.
+  Evidence: `./tools/verify` from 22:35Z to 22:36Z printed `verify: all 6 checks passed in 108s.`
+- Observation: the file the plan names for M3's tests, `tests/unit/test_meeting_types.py`, does not exist; the ladder's unit tests live in `tests/unit/test_meeting_types_resolve.py`, whose `TestVocabulary` also pins `TYPE_SOURCES`.
+  Evidence: `grep -n` over that path printed `No such file or directory`; `grep -rln meeting_types tests/` listed `tests/unit/test_meeting_types_resolve.py`.
+- Observation: the new M3 tests fail before the code, each on the missing piece.
+  Evidence: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_meeting_types_resolve.py tests/integration/test_ingest_meeting_types.py -q -p no:cacheprovider` printed `13 failed, 47 passed`; the reasons were 10 × `TypeError: resolve() got an unexpected keyword argument 'video_titles'`, 1 × the `TYPE_SOURCES` tuple lacking `video`, 1 × `assert [] == [10]` (`_changes` not passing `video_titles`), 1 × `assert 0 == 1` (`resolve_and_store` not reading `meeting_videos`).
+
 ## Decision Log
 
 - Decision: the source is the YouTube Data API v3 with an API key, not yt-dlp, for the web and worker images.
@@ -116,6 +125,10 @@ M2 session, 2026-10-24 (observed):
 - Decision (M2): `test_040_migration.py` also pins `meeting_videos`' constraints (provider vocabulary, `UNIQUE (provider, video_id)`, one primary per meeting and provider, cascade on meeting delete), and the ingest tests also cover the event-upgrade path writing `duration_s`.
   Rationale: the milestone names those constraints and the `_try_upgrade_event_row` write; M4's matching and absorption depend on them, so they are tested where they are created.
   Date/Author: 2026-10-24, Claude (M2 session).
+
+- Decision (M3): the new unit cases go into `tests/unit/test_meeting_types_resolve.py` as `TestVideoRung`, not into the `tests/unit/test_meeting_types.py` the plan names, and one integration case goes into `tests/integration/test_ingest_meeting_types.py`'s `TestResolveAndStore`.
+  Rationale: the named file does not exist and the existing resolve tests, with their fixtures (`BIRMINGHAM`, `_meeting`, `_triple`), are in the other file; a second file for one rung would split the ladder's tests. The integration case is the only test that runs `_MEETING_ROWS_SQL` against a real `meeting_videos` table, which the milestone changes; it also pins primary-first ordering.
+  Date/Author: 2026-10-24, Claude (M3 session).
 
 ## Outcomes & Retrospective
 

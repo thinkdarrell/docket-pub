@@ -257,9 +257,90 @@ class TestVocabulary:
     def test_type_sources_and_committees(self):
         from docket.services.meeting_types import BIRMINGHAM_COMMITTEES, TYPE_SOURCES
 
-        assert TYPE_SOURCES == ("title", "calendar", "schedule_rule", "admin")
+        assert TYPE_SOURCES == ("title", "video", "calendar", "schedule_rule", "admin")
         assert len(BIRMINGHAM_COMMITTEES) == 8
         assert "Committee of the Whole / Administration & Governmental Affairs" in BIRMINGHAM_COMMITTEES
+
+
+class TestVideoRung:
+    """The rung between the specific title and the calendar: a YouTube
+    recording attached to the row (``meeting_videos``) whose cleaned title
+    names a body. Plan: plans/active/youtube-council-channel.md (M3)."""
+
+    def test_generic_row_takes_the_body_from_its_youtube_recording(self):
+        from docket.services.meeting_types import resolve
+
+        res = resolve(BIRMINGHAM, _meeting(GENERIC, TUESDAY), calendar_events=[], item_count=0,
+                      video_titles=["Budget and Finance Committee Meeting"])
+        assert _triple(res) == ("committee", "regular", "Budget and Finance Committee", "video", None)
+
+    def test_video_outranks_the_calendar(self):
+        from docket.services.meeting_types import resolve
+
+        res = resolve(BIRMINGHAM, _meeting(GENERIC, TUESDAY), calendar_events=[COUNCIL_TUE, ECON_TUE],
+                      item_count=0, video_titles=["Budget and Finance Committee Meeting"])
+        assert _triple(res) == ("committee", "regular", "Budget and Finance Committee", "video", None)
+
+    def test_video_outranks_the_schedule_rule(self):
+        from docket.services.meeting_types import resolve
+
+        res = resolve(BIRMINGHAM, _meeting(GENERIC, MONDAY), calendar_events=[], item_count=0,
+                      video_titles=["Committee of the Whole Meeting"])
+        assert _triple(res) == ("committee", "regular", "Committee of the Whole", "video", None)
+
+    def test_generic_video_title_falls_through_to_the_title_rung(self):
+        from docket.services.meeting_types import resolve
+
+        res = resolve(BIRMINGHAM, _meeting(GENERIC, TUESDAY), calendar_events=[], item_count=0,
+                      video_titles=["Birmingham City Council Meeting"])
+        assert _triple(res) == ("council", "regular", None, "title", None)
+
+    def test_generic_video_title_falls_through_to_the_calendar(self):
+        from docket.services.meeting_types import resolve
+
+        res = resolve(BIRMINGHAM, _meeting(GENERIC, TUESDAY), calendar_events=[COUNCIL_TUE, ECON_TUE],
+                      item_count=0, video_titles=["Birmingham City Council Meeting"])
+        assert _triple(res)[3] == "calendar"
+
+    def test_first_specific_entry_decides(self):
+        from docket.services.meeting_types import resolve
+
+        res = resolve(BIRMINGHAM, _meeting(GENERIC, TUESDAY), calendar_events=[], item_count=0,
+                      video_titles=["Birmingham City Council Meeting", "Public Safety Committee Meeting",
+                                    "Budget and Finance Committee Meeting"])
+        assert _triple(res) == ("committee", "regular", "Public Safety Committee", "video", None)
+
+    def test_specific_title_keeps_the_title_rung(self):
+        from docket.services.meeting_types import resolve
+
+        res = resolve(BIRMINGHAM, _meeting("Budget Hearing", TUESDAY), calendar_events=[], item_count=0,
+                      video_titles=["Budget and Finance Committee Meeting"])
+        assert _triple(res) == ("council", "budget_hearing", None, "title", None)
+
+    def test_locked_row_returns_none(self):
+        from docket.services.meeting_types import resolve
+
+        m = _meeting(type_locked_at=datetime(2026, 10, 1, tzinfo=timezone.utc))
+        assert resolve(BIRMINGHAM, m, calendar_events=[], item_count=0,
+                       video_titles=["Budget and Finance Committee Meeting"]) is None
+
+    @pytest.mark.parametrize("titles", [None, []])
+    def test_no_video_titles_behaves_as_before(self, titles):
+        from docket.services.meeting_types import resolve
+
+        res = resolve(BIRMINGHAM, _meeting(GENERIC, MONDAY), calendar_events=[], item_count=0, video_titles=titles)
+        assert _triple(res) == ("committee", "regular", None, "schedule_rule", None)
+
+    def test_changes_passes_the_rows_video_titles(self):
+        from docket.services.meeting_types import _changes
+
+        row = _meeting(GENERIC, TUESDAY)
+        row.update(item_count=0, meeting_type="council", session_kind="regular", body_name=None,
+                   type_source="title", calendar_event_id=None,
+                   video_titles=["Budget and Finance Committee Meeting"])
+        changed = _changes(BIRMINGHAM, [row], [])
+        assert [m["id"] for m in changed] == [10]
+        assert changed[0]["resolution"].type_source == "video"
 
 
 class TestSummaryClearing:

@@ -294,6 +294,27 @@ class TestResolveAndStore:
         assert _five(_row(muni_id, "mtype-tue")) == ("council", "regular", None, "title", None)
         assert _five(_row(muni_id, "mtype-locked")) == ("board", "regular", "Library Board", "admin", None)
 
+    def test_youtube_recording_names_the_row_primary_first(self, muni_id):
+        """`_MEETING_ROWS_SQL` carries the row's YouTube clean titles, primary
+        first. Plan: plans/active/youtube-council-channel.md (M3)."""
+        from docket.services.meeting_types import resolve_and_store
+
+        _upsert_meetings(muni_id, [_meeting("mtype-yt", GENERIC, TUESDAY)])
+        mid = _row(muni_id, "mtype-yt")["id"]
+        with db() as conn, conn.cursor() as cur:
+            for vid, clean, primary in (("mtypeA", "Public Safety Committee Meeting", False),
+                                        ("mtypeB", "Budget and Finance Committee Meeting", True)):
+                cur.execute(
+                    "INSERT INTO meeting_videos (meeting_id, provider, video_id, url, title, clean_title, is_primary) "
+                    "VALUES (%s, 'youtube', %s, %s, %s, %s, %s)",
+                    (mid, vid, f"https://www.youtube.com/watch?v={vid}", clean + " 10.20.26", clean, primary),
+                )
+        assert resolve_and_store(muni_id, [mid]) == 1
+        assert _five(_row(muni_id, "mtype-yt")) == (
+            "committee", "regular", "Budget and Finance Committee", "video", None,
+        )
+        assert resolve_and_store(muni_id, [mid]) == 0
+
     def test_empty_id_list_writes_nothing(self, muni_id):
         from docket.services.meeting_types import resolve_and_store
 
