@@ -52,6 +52,13 @@ M1 session, 2026-10-24 (observed):
 - Observation: the whole check passes with M1 committed (`685d2cc`).
   Evidence: `./tools/verify` printed `verify: all 6 checks passed in 109s.`
 
+M2 session, 2026-10-24 (observed):
+
+- Observation: the baseline before any edit passed.
+  Evidence: `./tools/verify` from 22:24Z to 22:26Z printed `verify: all 6 checks passed in 110s.`
+- Observation: the new M2 tests fail before the code, each on the missing piece and not on collection.
+  Evidence: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/integration/test_040_migration.py tests/unit/test_granicus_adapter.py tests/integration/test_ingest_meeting_types.py -q -p no:cacheprovider` printed `12 failed, 33 passed`; the reasons were 4 × `UndefinedTable: relation "meeting_videos" does not exist`, 1 × `CheckViolation ... "meetings_type_source_check"`, 1 × `assert False` (no table after the up), 3 × `AttributeError: 'RawMeeting' object has no attribute 'duration_s'`, 2 × `TypeError: RawMeeting.__init__() got an unexpected keyword argument 'duration_s'`, 1 × `ImportError: cannot import name 'parse_duration_cell'`.
+
 ## Decision Log
 
 - Decision: the source is the YouTube Data API v3 with an API key, not yt-dlp, for the web and worker images.

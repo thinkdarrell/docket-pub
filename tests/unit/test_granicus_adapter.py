@@ -452,3 +452,39 @@ def test_parse_archive_row_extracts_start_time():
     raw = adapter._parse_archive_row(row)
     assert raw is not None
     assert raw.start_time == time(17, 30)
+
+
+# --- duration extraction (plans/active/youtube-council-channel.md, M2) ------
+# `parse_duration_cell` is imported inside each test so the file still
+# collects before the function exists.
+
+
+class TestDuration:
+    def test_archive_row_reads_its_duration_cell(self):
+        row = BeautifulSoup(ARCHIVE_ROW_HTML, "html.parser").find("tr")
+        raw = _adapter()._parse_archive_row(row)
+        assert raw is not None
+        assert raw.duration_s == 5220
+
+    def test_archive_row_with_the_live_non_breaking_space(self):
+        html = ARCHIVE_ROW_HTML.replace(">01h 27m<", ">01h&nbsp;27m<")
+        row = BeautifulSoup(html, "html.parser").find("tr")
+        assert _adapter()._parse_archive_row(row).duration_s == 5220
+
+    def test_upcoming_row_has_no_duration(self):
+        row = BeautifulSoup(UPCOMING_ROW_HTML, "html.parser").find("tr")
+        raw = _adapter()._parse_upcoming_row(row)
+        assert raw is not None
+        assert raw.duration_s is None
+
+    def test_parse_duration_cell(self):
+        from docket.adapters.granicus import parse_duration_cell
+
+        assert parse_duration_cell("01h\xa027m") == 5220
+        assert parse_duration_cell("01h 27m") == 5220
+        assert parse_duration_cell("43m") == 2580
+        assert parse_duration_cell("01h 27m 12s") == 5232
+        assert parse_duration_cell("45s") == 45
+        assert parse_duration_cell("00h 06m") == 360
+        assert parse_duration_cell("") is None
+        assert parse_duration_cell("Video") is None
