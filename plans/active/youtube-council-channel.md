@@ -80,6 +80,13 @@ M3 session, 2026-10-24 (observed):
 - Observation: the whole check passes with M3's code in place.
   Evidence: `./tools/verify` from 22:38Z to 22:40Z printed `verify: all 6 checks passed in 108s.`
 
+M4 session, 2026-10-24 (observed):
+
+- Observation: the baseline before any edit passed.
+  Evidence: `./tools/verify` from 22:43Z to 22:45Z printed `verify: all 6 checks passed in 106s.`
+- Observation: the new M4 tests fail before the code, each on the missing piece and not on collection.
+  Evidence: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/integration/test_youtube_sync.py tests/unit/test_worker_tasks.py tests/unit/test_worker_scheduler.py -q -p no:cacheprovider` printed `21 failed, 39 passed`; the reasons were 14 × `ImportError: cannot import name 'sync_city' from 'docket.services.youtube_meetings'`, 3 × `ModuleNotFoundError: No module named 'docket.worker.tasks.config'` (the task module does not import `config` yet), 2 × the task and job sets lacking `youtube_ingest`, 2 × `AttributeError: 'NoneType' object has no attribute 'trigger'` (no `youtube_ingest` job).
+
 ## Decision Log
 
 - Decision: the source is the YouTube Data API v3 with an API key, not yt-dlp, for the web and worker images.
