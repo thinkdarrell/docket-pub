@@ -16,7 +16,12 @@ The evidence ladder, top rung first:
    board) is final. Only the generic case, ``council`` and ``regular``
    ("Regular City Council Meeting", which Birmingham's clerk puts on every
    clip), goes on to the next rungs.
-3. **calendar** — the city's own calendar page (``city_calendar_events``,
+3. **video** — for a generic title, a YouTube recording attached to the row
+   (``meeting_videos``) whose cleaned title names a body is final; the
+   council's own name for its stream outranks the calendar and the rule.
+   The row's YouTube clean titles are read primary first, and the first one
+   whose ``classify_title`` is not the generic council reading decides.
+4. **calendar** — the city's own calendar page (``city_calendar_events``,
    filled daily by the worker task ``city_calendar``) lists an event on the
    meeting's day. The match reads documents and never ``start_time``, whose
    stored values are wrong (issue #88): with one event on the day, that
@@ -26,19 +31,20 @@ The evidence ladder, top rung first:
    exists, and otherwise the rung yields nothing. A row with a minutes link
    never takes a committee event, since committees have no minutes and a
    council meeting moved to a committee's day is told apart by them.
-4. **schedule_rule** — the city's metadata names the council's regular
+5. **schedule_rule** — the city's metadata names the council's regular
    weekday (``council_schedule.weekday``, Monday 0), the row falls on
    another weekday, has no minutes link, and is not cancelled: it is a
    council-department recording that is not the regular meeting, labelled
    "Council committee meeting" with no body name. Agenda items are not a
    condition (the Committee of the Whole carries the next council agenda).
-5. Otherwise the title's classification stands, with source ``title``.
+6. Otherwise the title's classification stands, with source ``title``.
 
 :func:`resolve` is pure; :func:`resolve_and_store` loads the rows and writes
 the ones that changed in one statement; :func:`reclassify_city` is the
 operator's one-time pass over a whole city (``scripts/reclassify_meetings.py``).
 
-Plan: plans/active/meeting-types-name-the-body.md (M4).
+Plan: plans/active/meeting-types-name-the-body.md (M4); the video rung,
+plans/active/youtube-council-channel.md (M3).
 """
 
 from __future__ import annotations
@@ -58,7 +64,7 @@ from docket.services.query import is_cancelled_title
 
 log = logging.getLogger(__name__)
 
-TYPE_SOURCES: tuple[str, ...] = ("title", "calendar", "schedule_rule", "admin")
+TYPE_SOURCES: tuple[str, ...] = ("title", "video", "calendar", "schedule_rule", "admin")
 
 # The council's eight standing committees for 2025 to 2027, as the city
 # council page's menu names them. A calendar event is matched to one by
@@ -211,13 +217,16 @@ def resolve(
     *,
     calendar_events: list[dict],
     item_count: int,
+    video_titles: list[str] | None = None,
 ) -> Resolution | None:
     """Run the ladder for one row; ``None`` when the row is locked.
 
     ``municipality`` needs ``metadata``; ``meeting`` needs ``title``,
     ``meeting_date``, ``minutes_url``, and ``type_locked_at``;
     ``calendar_events`` are the city's rows (``id``, ``title``,
-    ``starts_at``), any day; ``item_count`` is the row's agenda items.
+    ``starts_at``), any day; ``item_count`` is the row's agenda items;
+    ``video_titles`` are the clean titles of the row's YouTube recordings,
+    primary first (``None`` or empty when it has none).
     ``start_time`` is never read.
     """
     if meeting.get("type_locked_at") is not None:
@@ -226,6 +235,11 @@ def resolve(
     base = classify_title(title)
     if base != _GENERIC:
         return Resolution(base, "title", None)
+
+    for video_title in video_titles or ():
+        named = classify_title(video_title or "")
+        if named != _GENERIC:
+            return Resolution(named, "video", None)
 
     if meeting.get("meeting_date") is None:
         # The calendar and the schedule rule both need a date; a dated-less
@@ -279,7 +293,10 @@ _MEETING_ROWS_SQL = """
     SELECT m.id, m.title, m.meeting_date, m.minutes_url, m.type_locked_at,
            m.meeting_type, m.session_kind, m.body_name, m.type_source, m.calendar_event_id,
            m.executive_summary IS NOT NULL AS has_summary,
-           (SELECT count(*) FROM agenda_items a WHERE a.meeting_id = m.id) AS item_count
+           (SELECT count(*) FROM agenda_items a WHERE a.meeting_id = m.id) AS item_count,
+           (SELECT array_agg(v.clean_title ORDER BY v.is_primary DESC, v.id)
+              FROM meeting_videos v
+             WHERE v.meeting_id = m.id AND v.provider = 'youtube') AS video_titles
       FROM meetings m
      WHERE m.municipality_id = %s AND {where}
      ORDER BY m.meeting_date, m.id
@@ -316,7 +333,8 @@ def _changes(municipality: dict, meetings: list[dict], events: list[dict]) -> li
     with ``resolution`` attached."""
     changed = []
     for m in meetings:
-        res = resolve(municipality, m, calendar_events=events, item_count=int(m["item_count"] or 0))
+        res = resolve(municipality, m, calendar_events=events, item_count=int(m["item_count"] or 0),
+                      video_titles=m.get("video_titles"))
         m["resolution"] = res
         if res is None:
             continue
