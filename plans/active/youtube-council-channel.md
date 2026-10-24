@@ -98,6 +98,13 @@ M4 session, 2026-10-24 (observed):
 - Observation: the whole check passes with M4's code in place.
   Evidence: `./tools/verify` from 22:52Z to 22:54Z printed `verify: all 6 checks passed in 107s.`
 
+M5 session, 2026-10-24 (observed):
+
+- Observation: the baseline before any edit passed.
+  Evidence: `./tools/verify` from 22:57Z to 22:59Z printed `verify: all 6 checks passed in 108s.`
+- Observation: the new web tests fail before the code, each on the missing piece; the two that guard unchanged behaviour (a `yt-` row shows one watch link, a row without recordings shows no YouTube link) pass before as they should.
+  Evidence: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/web/test_meeting_recordings.py -q -p no:cacheprovider` printed `7 failed, 2 passed`; the reasons were `AttributeError: module 'docket.services.query' has no attribute 'videos_for_meeting'`, `KeyError: 'source_hosts'`, and five `AssertionError`s on the missing rail link, part link, provenance sentence, footer hosts, and source-health hosts.
+
 ## Decision Log
 
 - Decision: the source is the YouTube Data API v3 with an API key, not yt-dlp, for the web and worker images.
