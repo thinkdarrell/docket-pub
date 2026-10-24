@@ -112,6 +112,15 @@ M5 session, 2026-10-24 (observed):
 - Observation: the whole check passes with M5's code committed (`7a4c764`).
   Evidence: `./tools/verify` from 23:05Z to 23:07Z printed `verify: all 6 checks passed in 111s.` (test-db, unit+web+services, integration, judge-fixtures `12 of 12`, workflows, transcriber `84 passed`, plans all `ok`).
 
+M6 session, 2026-10-24 (observed):
+
+- Observation: the baseline before any edit passed.
+  Evidence: `./tools/verify` from 23:10Z to 23:12Z printed `verify: all 6 checks passed in 110s.`
+- Observation: the repository's `venv/`, which `./tools/verify` uses for the `transcriber` check, has no yt-dlp; only the transcriber's Docker image will. So `audio.py` imports `yt_dlp` inside `source_for`, and the tests install a stand-in `yt_dlp` module through `sys.modules`.
+  Evidence: `venv/bin/python -c "import yt_dlp"` printed `ModuleNotFoundError: No module named 'yt_dlp'`.
+- Observation: the new M6 tests fail before the code, each on the missing piece and not on collection.
+  Evidence: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest transcriber/tests -q -p no:cacheprovider` printed `9 failed, 85 passed`; the reasons were 4 × `ImportError: cannot import name 'source_for' from 'transcriber.audio'`, 3 × `AttributeError: <module 'transcriber.cli' ...> has no attribute 'source_for'`, 1 × `assert (None is not None)` (`claim_next` skipping the `yt-` row), 1 × `assert None == 'yt-tdbTEST0001'` (`meeting_source`). `pytest tests/integration/test_transcript_pipeline.py` printed `1 failed, 14 passed` (the `yt-` row missing from `list_transcript_debt`).
+
 ## Decision Log
 
 - Decision: the source is the YouTube Data API v3 with an API key, not yt-dlp, for the web and worker images.

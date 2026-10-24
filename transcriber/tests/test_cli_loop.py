@@ -235,3 +235,63 @@ def test_exit_code_is_one_whenever_a_meeting_id_run_uploaded_nothing():
     assert cli.exit_code({"uploaded": 0, "failed": 0, "low_speech": 0}, 2543) == 1
     assert cli.exit_code({"uploaded": 1, "failed": 0, "low_speech": 0}, 2543) == 0
     assert cli.exit_code({"uploaded": 0, "failed": 0, "low_speech": 0}, None) == 0
+
+
+# --- yt- meetings (plan youtube-council-channel M6) ---
+
+def _yt_source(monkeypatch, calls):
+    """cli.source_for stand-in: a yt- id 'downloads' <work_dir>/<id>.m4a, as yt-dlp would."""
+    def fake_source_for(external_id, work_dir):
+        calls.append(external_id)
+        if not external_id.startswith("yt-"):
+            return f"granicus:{external_id}"
+        Path(work_dir).mkdir(parents=True, exist_ok=True)
+        p = Path(work_dir) / f"{external_id}.m4a"
+        p.write_bytes(b"\0" * 64)
+        return str(p)
+    monkeypatch.setattr(cli, "source_for", fake_source_for)
+
+
+def test_yt_claim_reads_the_download_and_removes_it(monkeypatch, cfg):
+    claim = Claim(7, 107, "yt-6Cocqqq95Ew", "Committee of the Whole", date(2026, 9, 30), "claimed")
+    fdb = FakeDB([claim]); _wire(monkeypatch, fdb)
+    calls, fetched = [], []
+    _yt_source(monkeypatch, calls)
+    real_fetch = cli.fetch_audio
+    monkeypatch.setattr(cli, "fetch_audio", lambda src, wav, **kw: (fetched.append(src), real_fetch(src, wav))[1])
+    counts = cli.run_loop(FakeConn(), FakeEngine(), cfg)
+    assert counts == {"uploaded": 1, "failed": 0, "low_speech": 0}
+    assert calls == ["yt-6Cocqqq95Ew"]
+    assert fetched == [str(cfg.work_dir / "yt-6Cocqqq95Ew.m4a")]
+    assert not list(cfg.work_dir.glob("yt-6Cocqqq95Ew.*"))   # the yt-dlp download is gone
+    assert not list(cfg.work_dir.rglob("*.wav"))
+
+
+def test_yt_claim_download_failure_marks_failed_and_removes_partials(monkeypatch, cfg):
+    claim = Claim(8, 108, "yt-abc", "Public Safety Committee", date(2026, 10, 13), "claimed")
+    fdb = FakeDB([claim]); _wire(monkeypatch, fdb)
+    def failing_source_for(external_id, work_dir):
+        from transcriber.audio import AudioFetchError
+        Path(work_dir).mkdir(parents=True, exist_ok=True)
+        (Path(work_dir) / f"{external_id}.webm.part").write_bytes(b"\0")
+        raise AudioFetchError("yt-dlp could not download yt-abc: Sign in to confirm")
+    monkeypatch.setattr(cli, "source_for", failing_source_for)
+    counts = cli.run_loop(FakeConn(), FakeEngine(), cfg)
+    assert counts["failed"] == 1
+    assert any(s == "failed" and "Sign in" in (e or "") for _, s, e in fdb.status)
+    assert not list(cfg.work_dir.glob("yt-abc.*"))
+
+
+def test_cached_audio_spares_the_yt_download(monkeypatch, cfg):
+    from transcriber import inputs
+    claim = Claim(9, 109, "yt-abc", "Public Safety Committee", date(2026, 10, 13), "claimed")
+    fdb = FakeDB([claim]); _wire(monkeypatch, fdb)
+    calls = []
+    _yt_source(monkeypatch, calls)
+    flac = inputs.audio_path(cfg.archive_dir, 109)
+    flac.parent.mkdir(parents=True, exist_ok=True); flac.write_bytes(b"fLaC")
+    monkeypatch.setattr(cli, "get_audio", lambda source, wav, flac, *, fetch: (
+        Path(wav).parent.mkdir(parents=True, exist_ok=True), Path(wav).write_bytes(b"RIFF" + b"\0" * 100), True)[2])
+    counts = cli.run_loop(FakeConn(), FakeEngine(), cfg)
+    assert counts["uploaded"] == 1
+    assert calls == []                                        # source_for never ran
