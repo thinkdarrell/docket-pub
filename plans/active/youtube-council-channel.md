@@ -139,6 +139,8 @@ M7 session, 2026-10-24 (observed):
   Evidence: `grep -n 'completed' .claude/workflows/cycle-run.js` printed lines 490 and 500 (the retro prompt naming the move) and 517 (the doc-garden prompt reading "it has been moved to plans/completed/").
 - Observation: no other branch has used decision numbers after 0066 or debt ids after D75.
   Evidence: `git ls-tree --name-only <branch> docs/decisions/` over every local branch listed nothing from 0067 on; the highest `| Dn` row on every branch's `docs/DEBT.md` was D75 or lower, and `git log --all -p -- docs/DEBT.md` printed no D76 to D89.
+- Observation: two docs outside the three specs the milestone names had become false because of this plan: `docs/specs/transcripts.md` said `_MEETING_SQL` admits only "a numeric Granicus id", `docs/runbooks/transcripts.md` said the producer "fetches audio from Granicus with ffmpeg" and that the adapter "does not read yet" the Duration column. All three sentences were corrected in this session; `docs/specs/meeting-types.md` already carried the `video` rung (M3) and the recordings and provenance (M5) in the present tense but said nothing about how recordings arrive, so it gained a section "The council's YouTube channel".
+  Evidence: `grep -n 'numeric Granicus id' docs/specs/transcripts.md` printed line 23; `sed -n 10,20p` and `sed -n 298,320p docs/runbooks/transcripts.md` printed the two runbook sentences; `git diff --stat` after the edits printed `docs/runbooks/transcripts.md | 8`, `docs/specs/meeting-types.md | 12`, `docs/specs/operations.md | 2`, `docs/specs/transcripts.md | 2`.
 
 ## Decision Log
 
