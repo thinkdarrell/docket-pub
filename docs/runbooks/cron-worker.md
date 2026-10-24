@@ -1,7 +1,7 @@
 # Cron Worker Runbook
 
 The Railway `worker` service runs `python -m docket.worker.scheduler` and fires
-**sixteen scheduled tasks** (see the design spec at
+**seventeen scheduled tasks** (see the design spec at
 `docs/superpowers/specs/2026-05-04-cron-worker-design.md`; subsequent additions
 documented in `~/docket-pub/CLAUDE.md`).
 
@@ -18,6 +18,7 @@ documented in `~/docket-pub/CLAUDE.md`).
 | `city_calendar` | Daily 05:30 | `HEALTHCHECK_CITY_CALENDAR_UUID` (optional) | Reads each city's own calendar page (`metadata.calendar_url`; Birmingham only at first) into `city_calendar_events`, one request per city; per-city failure isolation; before `ingest_all` so the resolver sees the day's events |
 | `ingest_all` | Daily 06:00 | `HEALTHCHECK_INGEST_UUID` | Loops all municipalities; per-city failure isolation |
 | `video_ocr` | Daily 06:30 | `HEALTHCHECK_VIDEO_OCR_UUID` | Claim pattern; 3-attempt cap; 60-day window |
+| `youtube_ingest` | Daily 06:45 | `HEALTHCHECK_YOUTUBE_INGEST_UUID` (optional) | Reads the council's YouTube uploads of the last 30 days; attaches recordings to Granicus rows or creates yt- rows after 3 days; Birmingham only at first |
 | `ai_items` | Daily 07:00 | `HEALTHCHECK_AI_ITEMS_UUID` | v3 pipeline; gated by `AI_DAILY_BUDGET_USD` |
 | `ai_meetings` | Daily 08:00 | `HEALTHCHECK_AI_MEETINGS_UUID` | Sonnet 4.6; two-phase (provisional → adopted) |
 | `resolve_member_votes` | Daily 08:45 | `HEALTHCHECK_RESOLVE_MEMBER_VOTES_UUID` | Gives every `member_votes` row with no `council_member_id` its member from the roster; the rule is `docs/specs/votes.md` |
@@ -59,6 +60,7 @@ Suggested schedule + grace per check:
 | docket-city-calendar             | Daily 05:30        | 2h    |
 | docket-ingest                    | Daily 06:00        | 2h    |
 | docket-video-ocr                 | Daily 06:30        | 2h    |
+| docket-youtube-ingest            | Daily 06:45        | 2h    |
 | docket-ai-items                  | Daily 07:00        | 2h    |
 | docket-ai-meetings               | Daily 08:00        | 2h    |
 | docket-resolve-member-votes      | Daily 08:45        | 2h    |
@@ -101,6 +103,7 @@ python -m docket.worker.scheduler --run-once recast_post_meeting_ai
 python -m docket.worker.scheduler --run-once city_calendar
 python -m docket.worker.scheduler --run-once ingest_all
 python -m docket.worker.scheduler --run-once video_ocr
+python -m docket.worker.scheduler --run-once youtube_ingest
 python -m docket.worker.scheduler --run-once ai_items
 python -m docket.worker.scheduler --run-once ai_meetings
 python -m docket.worker.scheduler --run-once resolve_member_votes

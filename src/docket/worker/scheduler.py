@@ -5,7 +5,7 @@ Two modes:
   python -m docket.worker.scheduler                   # daemon mode (Railway worker)
   python -m docket.worker.scheduler --run-once <task> # foreground one-shot
 
-The daemon registers all sixteen jobs with the timezone in $WORKER_TIMEZONE
+The daemon registers all seventeen jobs with the timezone in $WORKER_TIMEZONE
 (default America/Chicago, read through docket.config) and calls
 scheduler.start(), which blocks.
 
@@ -30,7 +30,7 @@ log = logging.getLogger(__name__)
 
 
 def build_scheduler(timezone: str = "America/Chicago") -> BlockingScheduler:
-    """Build a scheduler with all sixteen jobs registered. Does not start it."""
+    """Build a scheduler with all seventeen jobs registered. Does not start it."""
     sched = BlockingScheduler(timezone=timezone)
 
     sched.add_job(
@@ -62,6 +62,17 @@ def build_scheduler(timezone: str = "America/Chicago") -> BlockingScheduler:
         TASKS["video_ocr"],
         CronTrigger(hour=6, minute=30, timezone=timezone),
         id="video_ocr",
+        coalesce=True,
+        max_instances=1,
+    )
+    # Match the council's YouTube recordings to meeting rows after ingest_all
+    # (06:00) has listed the day's Granicus clips and stored their durations.
+    # About three Data API quota units a day.
+    # Plan: plans/active/youtube-council-channel.md (M4).
+    sched.add_job(
+        TASKS["youtube_ingest"],
+        CronTrigger(hour=6, minute=45, timezone=timezone),
+        id="youtube_ingest",
         coalesce=True,
         max_instances=1,
     )

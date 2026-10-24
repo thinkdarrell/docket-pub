@@ -244,7 +244,8 @@ def test_two_bodyless_clips_and_one_video_pair_by_duration_and_list_the_day(bhm)
 
     report = _sync([_video("bf2", "Budget and Finance Committee Meeting 6.10.19", 1380)])
 
-    assert _actions(report) == ["attach"]
+    assert _actions(report) == ["attach", "ambiguous"]
+    assert "m4t-3" in report.decisions[-1][2]
     assert _videos_of(long_) == [("M4Tbf2", True)]
     assert _videos_of(short) == []
     assert d in report.ambiguous_days
@@ -277,7 +278,7 @@ def test_the_october_13_shape_creates_two_rows_and_leaves_the_short_clip(bhm):
         _video("pz2", "Planning and Zoning Committee Meeting 6.11.19", 1320),
     ])
 
-    assert sorted(_actions(report)) == ["create", "create"]
+    assert sorted(_actions(report)) == ["ambiguous", "create", "create"]
     assert _by_ext(bhm, "yt-M4Tps2")["body_name"] == "Public Safety Committee"
     assert _by_ext(bhm, "yt-M4Tpz2")["body_name"] == "Planning and Zoning Committee"
     assert _videos_of(clip) == []
@@ -288,15 +289,17 @@ def test_the_october_13_shape_creates_two_rows_and_leaves_the_short_clip(bhm):
 
 def test_a_two_part_group_is_compared_by_its_total(bhm):
     d = date(2019, 6, 24)  # Monday
-    clip = _row(bhm, "m4t-9", d, meeting_type="committee", type_source="schedule_rule", duration_s=2100)
+    # The primary alone (2,400 s) is 1,200 s from the clip against a 900 s
+    # allowance; the group's total (3,600 s) pairs.
+    clip = _row(bhm, "m4t-9", d, meeting_type="committee", type_source="schedule_rule", duration_s=3600)
     other = _row(bhm, "m4t-10", d, meeting_type="committee", type_source="schedule_rule", duration_s=600)
 
     report = _sync([
-        _video("ap1", "Arts and Parks Committee Meeting 6.24.19 Pt. 1", 300),
-        _video("ap2", "Arts and Parks Committee Meeting 6.24.19 Pt. 2", 1800),
+        _video("ap1", "Arts and Parks Committee Meeting 6.24.19 Pt. 1", 1200),
+        _video("ap2", "Arts and Parks Committee Meeting 6.24.19 Pt. 2", 2400),
     ])
 
-    assert _actions(report) == ["attach"]
+    assert _actions(report) == ["attach", "ambiguous"]
     assert _videos_of(clip) == [("M4Tap2", True), ("M4Tap1", False)]
     assert _videos_of(other) == []
 
