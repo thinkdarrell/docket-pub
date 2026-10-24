@@ -41,6 +41,13 @@ Found while authoring, on 2026-10-24, before any milestone ran:
 - Observation: `meetings.start_time` cannot pair a YouTube stream with a Granicus clip: the stored Granicus values are wrong by construction (issue #88, archived clips carry 02:00). Durations can: Granicus 25 minutes against YouTube 23 minutes on 2026-09-28, Granicus 6 minutes against YouTube 13 minutes on 2026-10-05.
   Evidence: the view 2 duration cells and the yt-dlp duration field, same day.
 
+M1 session, 2026-10-24 (observed):
+
+- Observation: the baseline before any edit passed; the tool printed six checks, not the seven the Concrete Steps guessed.
+  Evidence: `./tools/verify` at 22:14Z printed `verify: all 6 checks passed in 107s.` (test-db, unit+web+services, integration, judge-fixtures, workflows, transcriber, plans lines all `ok`).
+- Observation: the two new test files fail before the modules exist, each test failing on its own import rather than the files failing collection.
+  Evidence: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_youtube_titles.py tests/unit/test_youtube_adapter.py -q -p no:cacheprovider` printed `59 failed in 0.54s`; the reasons were 18 × `ModuleNotFoundError: No module named 'docket.adapters.youtube'` and 41 × `ModuleNotFoundError: No module named 'docket.services.youtube_meetings'`.
+
 ## Decision Log
 
 - Decision: the source is the YouTube Data API v3 with an API key, not yt-dlp, for the web and worker images.
