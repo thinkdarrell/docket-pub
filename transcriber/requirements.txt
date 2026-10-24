@@ -5,3 +5,4 @@ torchaudio>=2.6,<2.9
 huggingface_hub<1.0  # pyannote.audio 3.x passes use_auth_token, removed in hub 1.0
 psycopg2-binary>=2.9
 python-dotenv>=1.0
+yt-dlp>=2025.1  # reads yt- meetings (the council's YouTube recordings); see README

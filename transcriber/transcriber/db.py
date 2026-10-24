@@ -46,7 +46,7 @@ _CANDIDATE_SQL = """
      WHERE mu.slug = 'birmingham'
        AND m.video_url IS NOT NULL
        AND m.is_hidden = FALSE
-       AND m.external_id ~ '^[0-9]+$'
+       AND (m.external_id ~ '^[0-9]+$' OR m.external_id LIKE 'yt-%%')
        AND m.meeting_date >= %(since)s
        AND (
             t.id IS NULL
@@ -101,12 +101,12 @@ _MEETING_SQL = """
        AND mu.slug = 'birmingham'
        AND m.video_url IS NOT NULL
        AND m.is_hidden = FALSE
-       AND m.external_id ~ '^[0-9]+$'
+       AND (m.external_id ~ '^[0-9]+$' OR m.external_id LIKE 'yt-%%')
 """
 
 
 def meeting_source(conn, meeting_id: int) -> str | None:
-    """The Granicus clip id of an eligible Birmingham meeting (the same filter as
+    """The clip id or yt- id of an eligible Birmingham meeting (the same filter as
     _MEETING_SQL), or None. Read-only: the cache and capture passes never claim."""
     with conn.cursor() as cur:
         cur.execute(
@@ -117,7 +117,7 @@ def meeting_source(conn, meeting_id: int) -> str | None:
                   AND mu.slug = 'birmingham'
                   AND m.video_url IS NOT NULL
                   AND m.is_hidden = FALSE
-                  AND m.external_id ~ '^[0-9]+$'""",
+                  AND (m.external_id ~ '^[0-9]+$' OR m.external_id LIKE 'yt-%%')""",
             [meeting_id],
         )
         row = cur.fetchone()

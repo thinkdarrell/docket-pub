@@ -119,7 +119,13 @@ M6 session, 2026-10-24 (observed):
 - Observation: the repository's `venv/`, which `./tools/verify` uses for the `transcriber` check, has no yt-dlp; only the transcriber's Docker image will. So `audio.py` imports `yt_dlp` inside `source_for`, and the tests install a stand-in `yt_dlp` module through `sys.modules`.
   Evidence: `venv/bin/python -c "import yt_dlp"` printed `ModuleNotFoundError: No module named 'yt_dlp'`.
 - Observation: the new M6 tests fail before the code, each on the missing piece and not on collection.
-  Evidence: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest transcriber/tests -q -p no:cacheprovider` printed `9 failed, 85 passed`; the reasons were 4 × `ImportError: cannot import name 'source_for' from 'transcriber.audio'`, 3 × `AttributeError: <module 'transcriber.cli' ...> has no attribute 'source_for'`, 1 × `assert (None is not None)` (`claim_next` skipping the `yt-` row), 1 × `assert None == 'yt-tdbTEST0001'` (`meeting_source`). `pytest tests/integration/test_transcript_pipeline.py` printed `1 failed, 14 passed` (the `yt-` row missing from `list_transcript_debt`).
+  Evidence: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest transcriber/tests -q -p no:cacheprovider` printed `9 failed, 85 passed`; the reasons were 4 × `ImportError: cannot import name 'source_for' from 'transcriber.audio'`, 3 × `AttributeError: <module 'transcriber.cli' ...> has no attribute 'source_for'`, 1 × `assert (None is not None)` (`claim_next` skipping the `yt-` row), 1 × `assert None == 'yt-tdbTEST0001'` (`meeting_source`). `pytest tests/integration/test_transcript_pipeline.py` printed `1 failed, 14 passed` (the `yt-` row missing from `list_transcript_debt`). Committed failing as `f5fd30a`.
+- Observation: with `source_for`, the three `cli.py` sites, the widened filters, and `list_transcript_debt` written, the same files pass.
+  Evidence: at 23:15Z `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest transcriber/tests -q -p no:cacheprovider` printed `94 passed in 1.18s`; `pytest tests/integration/test_transcript_pipeline.py tests/unit -k transcript` printed `69 passed, 1861 deselected`.
+- Observation: a transcriber image built before this change has no `yt_dlp`, and `import yt_dlp` would raise `ModuleNotFoundError`, which `process_claim` does not catch (it catches `AudioFetchError` and `TimeoutExpired`), so the first `yt-` claim would have ended the whole run. `source_for` now turns the `ImportError` into an `AudioFetchError` naming the rebuild; the case `test_source_for_without_yt_dlp_is_an_audio_fetch_error` was written after that code and was not observed failing first.
+  Evidence: after it, the transcriber suite printed `95 passed in 1.20s`.
+- Observation: `src/docket/services/video_ocr.py` still filters numeric ids, as the milestone requires.
+  Evidence: `grep -n external_id src/docket/services/video_ocr.py` printed line 122 `AND m.external_id ~ '^[0-9]+$'`, and `git diff --stat` lists no change to that file.
 
 ## Decision Log
 
@@ -214,6 +220,19 @@ M6 session, 2026-10-24 (observed):
 - Decision (M5): the session ticks M5 with its operator steps named as not done, as `plans/active/meeting-types-name-the-body.md` did for its M4, and the operator appends the production evidence to Progress when the steps run.
   Rationale: the judge (`docs/capabilities/judge-milestone.md`) counts a milestone only when its open entry is ticked and forbids rewording it, so a split into a code entry and an operator entry is not available; the operator steps need a Google Cloud key, Railway, and a deploy, none of which a factory session may touch. M6's operator step (the transcript on the site) also depends on this backfill having run.
   Date/Author: 2026-10-24, Claude (M5 session).
+
+- Decision (M6): `cli.py` does not call `source_for` before `get_audio`; `process_claim` and `capture_inputs` pass `get_audio` a `fetch` built by `_fetch_for(external_id, work_dir)` that calls `source_for` and then `fetch_audio` only when the archive has no `audio.flac`. `cache_audio`, which returns early on a cached FLAC, calls `fetch_audio(source_for(...), wav)` directly, inside its existing `try`.
+  Rationale: the milestone's literal swap (`source = source_for(x, cfg.work_dir)` before `get_audio`) would download a three-hour recording on every re-run whose FLAC is cached, and in `process_claim` it sat outside the `try`, so a download error would escape the per-meeting failure handling. Pinned by `test_cached_audio_spares_the_yt_download`.
+  Date/Author: 2026-10-24, Claude (M6 session).
+- Decision (M6): the download cleanup is `audio.remove_downloads(external_id, work_dir)`, which deletes `work_dir.glob(f"{external_id}.*")` only for a `yt-` id; `process_claim` calls it as soon as the work WAV exists (and on the fetch-failure return), not in the later `finally`, and `cache_audio` and `capture_inputs` call it in their `finally`.
+  Rationale: the rest of the run reads only the WAV, so the download is dead weight during transcription; a numeric clip id has no download and its glob could only match an unrelated file. The milestone's `finally` placement would also keep the file through the GPU work.
+  Date/Author: 2026-10-24, Claude (M6 session).
+- Decision (M6): `audio.py` imports `yt_dlp` inside `source_for`, and an `ImportError` becomes `AudioFetchError("...; rebuild the transcriber image")`; `ytdlp_options(external_id, work_dir)` is a separate function returning the option dict. The tests replace `sys.modules["yt_dlp"]` with a stand-in module rather than installing yt-dlp in the repository venv.
+  Rationale: `./tools/verify` runs `transcriber/tests` with the repository's venv, which has no yt-dlp, and the web and worker images must not gain it (Interfaces: "No new dependency for the web or worker image"). A file `source_for` finds is any `<id>.*` that is not `.part`, `.ytdl`, `.temp`, or `.wav`.
+  Date/Author: 2026-10-24, Claude (M6 session).
+- Decision (M6): the cookie file needs no `docker-compose.yml` change: the README tells the operator to put it in `C:\docket-archive` (already mounted at `/archive`) and set `TRANSCRIBER_YTDLP_COOKIES=/archive/youtube-cookies.txt`; `transcriber/.env.example` carries the line commented out. The yt- `cli.py` tests (three) and the `test_db.py` tests (three, including `meeting_source` and `claim_meeting`) go beyond the cases the milestone lists.
+  Rationale: one mount already exists for operator files; the extra tests pin the call sites and the third filter the milestone changes.
+  Date/Author: 2026-10-24, Claude (M6 session).
 
 ## Outcomes & Retrospective
 

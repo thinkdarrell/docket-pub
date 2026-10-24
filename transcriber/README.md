@@ -1,6 +1,7 @@
 # docket.pub transcript producer (Lenovo Legion)
 
-GPU-only. Fetches Birmingham council audio from Granicus, runs faster-whisper
+GPU-only. Fetches Birmingham council audio from Granicus (and, for meetings
+recorded only on the council's YouTube channel, from YouTube), runs faster-whisper
 large-v3 and pyannote diarization, and uploads raw segments to Railway Postgres
 as the narrow `transcriber` role. All thinking (names, events, comparison)
 happens on the Railway worker.
@@ -87,6 +88,31 @@ Operating from PowerShell on the Legion:
 Task Scheduler (optional): a basic task "At log on" running
 `docker compose -f C:\path\to\transcriber\docker-compose.yml run --rm transcriber --max-hours 4`.
 
+## YouTube recordings
+
+A meeting the council recorded only on its YouTube channel (citycouncilbham) is a
+row whose `external_id` is `yt-<video id>`; the worker's `youtube_ingest` task
+creates them. The producer claims these like Granicus clips. For a `yt-` id it
+downloads the video's best audio track with yt-dlp into `C:\docket-archive\work\`
+(`yt-<video id>.m4a`, `.webm`, or `.opus`, whichever YouTube serves), reads it
+with ffmpeg as usual, and deletes the download as soon as the work WAV exists.
+A cached `audio.flac` spares the download on a re-run.
+
+yt-dlp is in `requirements.txt`, so **rebuild the image** (`docker compose build`)
+after pulling this change; an image built before it fails every `yt-` meeting
+with `No module named 'yt_dlp'`. When YouTube changes its pages, yt-dlp needs a
+newer release: rebuild with `docker compose build --no-cache` to pick it up.
+
+`TRANSCRIBER_YTDLP_COOKIES` (optional) names a Netscape-format cookie file that
+yt-dlp sends with each download. Leave it unset: YouTube answers this home
+address without signing in. Set it only if `yt-` meetings start failing with
+"Sign in to confirm you're not a bot": export the youtube.com cookies from a
+signed-in browser (a "cookies.txt" export extension), save the file as
+`C:\docket-archive\youtube-cookies.txt`, and add
+`TRANSCRIBER_YTDLP_COOKIES=/archive/youtube-cookies.txt` to `.env` (the archive
+folder is already mounted at `/archive`). The file is a sign-in; keep it out of
+the repository.
+
 ## Where things land
 
 - `C:\docket-archive\transcripts\<meeting_id>\transcript.json` — the upload contract (kept)
@@ -96,6 +122,7 @@ Task Scheduler (optional): a basic task "At log on" running
 - `C:\docket-archive\transcripts\<meeting_id>\diarization.json` — pyannote's turns and embeddings (kept, never uploaded)
 - `C:\docket-archive\transcripts\<meeting_id>\replay.json` — written by `--replay`, never over `transcript.json`
 - `C:\docket-archive\work\*.wav` — the decoded work copy, deleted after each meeting
+- `C:\docket-archive\work\yt-*.*` — a YouTube recording's downloaded audio, deleted once decoded
 
 `raw.json` and `diarization.json` are everything `build_output()` takes, so a change to the
 post-processing in `engine.py` can be checked on every archived meeting in seconds, on the CPU:

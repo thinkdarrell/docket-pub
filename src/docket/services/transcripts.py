@@ -316,7 +316,7 @@ def list_transcript_debt(municipality_id: int, limit: int = 50) -> list[dict]:
                 WHERE m.municipality_id = %s
                   AND m.is_hidden = FALSE
                   AND m.video_url IS NOT NULL
-                  AND m.external_id ~ '^[0-9]+$'
+                  AND (m.external_id ~ '^[0-9]+$' OR m.external_id LIKE 'yt-%%')
                   AND (
                         t.status IN ('failed', 'needs_review')
                      OR (t.status = 'low_speech'

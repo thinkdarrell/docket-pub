@@ -137,3 +137,10 @@ def test_source_for_passes_the_cookie_file_only_when_set(monkeypatch, tmp_path):
     monkeypatch.setenv("TRANSCRIBER_YTDLP_COOKIES", "/secrets/cookies.txt")
     source_for("yt-def", tmp_path)
     assert seen["opts"]["cookiefile"] == "/secrets/cookies.txt"
+
+
+def test_source_for_without_yt_dlp_is_an_audio_fetch_error(monkeypatch, tmp_path):
+    from transcriber.audio import source_for
+    monkeypatch.setitem(sys.modules, "yt_dlp", None)     # import yt_dlp now raises ImportError
+    with pytest.raises(AudioFetchError, match="rebuild"):
+        source_for("yt-abc", tmp_path)
