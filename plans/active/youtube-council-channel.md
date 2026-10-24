@@ -47,6 +47,8 @@ M1 session, 2026-10-24 (observed):
   Evidence: `./tools/verify` at 22:14Z printed `verify: all 6 checks passed in 107s.` (test-db, unit+web+services, integration, judge-fixtures, workflows, transcriber, plans lines all `ok`).
 - Observation: the two new test files fail before the modules exist, each test failing on its own import rather than the files failing collection.
   Evidence: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_youtube_titles.py tests/unit/test_youtube_adapter.py -q -p no:cacheprovider` printed `59 failed in 0.54s`; the reasons were 18 × `ModuleNotFoundError: No module named 'docket.adapters.youtube'` and 41 × `ModuleNotFoundError: No module named 'docket.services.youtube_meetings'`.
+- Observation: with `src/docket/adapters/youtube.py` and `src/docket/services/youtube_meetings.py` written, the same files pass.
+  Evidence: the same command printed `59 passed in 0.38s`.
 
 ## Decision Log
 
@@ -77,6 +79,18 @@ M1 session, 2026-10-24 (observed):
 - Decision: a group's duration for pairing is the total over its parts, and a group whose date has a Granicus candidate with no stored duration is never created (`no_duration`).
   Rationale: from the operator's external review of the plan. Granicus records one clip where the stream broke into parts, so the primary alone under-measures; and the historical backfill runs over rows whose `duration_s` is filled by the first ingest after deploy, so a run before that ingest must refuse rather than twin every clip. Two further points from the same review were taken as written: paging stops only after a whole page is older than the cutoff, and the duration parser accepts any subset of hour, minute, and second tokens (the live page uses a non-breaking space between them). Two were declined: hyphenated or spaced date tokens (none exist in the 2,021 titles inventoried; the inventory is the contract, and a new shape is a one-line test and regex later), and a yt-dlp cookie file as a requirement (kept optional through `TRANSCRIBER_YTDLP_COOKIES`, since the transcriber runs from a home address that YouTube does not challenge today).
   Date/Author: 2026-10-24, Claude, from the operator's review.
+- Decision (M1): `parse_title` and `group_videos` take an optional keyword `today: date | None = None` (default `date.today()`), which the "after tomorrow" bound reads; the positional signatures in Interfaces are unchanged.
+  Rationale: the tests pin `today` to 2026-10-24 so they keep passing as the calendar moves; M4's `sync_city` already has a `today` and passes it through.
+  Date/Author: 2026-10-24, Claude (M1 session).
+- Decision (M1): the reject words (`highlights`, `recap`, `tease`, `test`, `edition`) match as whole words, and the meeting words (`meeting`, `committee`, `council`, `hearing`) as substrings; both are tested against the title with its date token removed.
+  Rationale: whole words keep a future "Contest" or "Protest" title from being dropped by `test`; substrings let "Meetings" and "Councilor" count, which only widens what a human would also call a meeting title. Every inventory title classifies as the plan lists either way.
+  Date/Author: 2026-10-24, Claude (M1 session).
+- Decision (M1): `Candidate.total_duration_s` is implemented in M1 with the dataclass, though only M4 compares it; `pairs` is left to M4.
+  Rationale: the property belongs to the dataclass Interfaces defines and is one loop; `pairs` is matching logic M4's tests pin, so it lands with them.
+  Date/Author: 2026-10-24, Claude (M1 session).
+- Decision (M1): `fill_details` returns a video the API no longer answers for (deleted or private) unchanged, so its `duration_s` stays `None` and `group_videos` drops it; `list_uploads` falls back to `snippet.publishedAt` when `contentDetails.videoPublishedAt` is absent and skips an item with neither. A `channels` answer with no items raises `YouTubeAPIError(200, "channelNotFound")`.
+  Rationale: none of these is named by the plan; each is the choice that writes nothing on missing evidence.
+  Date/Author: 2026-10-24, Claude (M1 session).
 
 ## Outcomes & Retrospective
 
