@@ -131,6 +131,15 @@ M6 session, 2026-10-24 (observed):
 - Observation: none of M6's operator steps could be done from this session, and they could not have succeeded yet anyway: the Committee of the Whole of 2026-09-30 exists on production only after M5's operator steps (key, deploy, backfill write), which have not run. This session cannot reach the Legion's Docker or production, so no image was rebuilt, no `yt-` meeting was transcribed, and no real yt-dlp download was attempted.
   Evidence: this session ran no production or Docker command; M5's Progress carve-out records that no API key exists and nothing is deployed.
 
+M7 session, 2026-10-24 (observed):
+
+- Observation: the baseline before any edit passed.
+  Evidence: `./tools/verify` from 23:21Z to 23:23Z printed `verify: all 6 checks passed in 113s.` (test-db, unit+web+services, integration, judge-fixtures, workflows, transcriber, plans all `ok`; `plans: 2 of 2 ok`).
+- Observation: moving this file to `plans/completed/` inside the milestone would break the factory run that executes it. `cycle-run` judges the session with `tools/judge-milestone judge plans/active/youtube-council-channel.md ...`, its review-record agent then appends to the same `plans/active/` path, and its retro stage is the one that runs `git mv` to `plans/completed/` (`.claude/workflows/cycle-run.js`, stage 4, "moving the file to plans/completed/${slug}.md with `git mv`").
+  Evidence: `grep -n 'completed' .claude/workflows/cycle-run.js` printed lines 490 and 500 (the retro prompt naming the move) and 517 (the doc-garden prompt reading "it has been moved to plans/completed/").
+- Observation: no other branch has used decision numbers after 0066 or debt ids after D75.
+  Evidence: `git ls-tree --name-only <branch> docs/decisions/` over every local branch listed nothing from 0067 on; the highest `| Dn` row on every branch's `docs/DEBT.md` was D75 or lower, and `git log --all -p -- docs/DEBT.md` printed no D76 to D89.
+
 ## Decision Log
 
 - Decision: the source is the YouTube Data API v3 with an API key, not yt-dlp, for the web and worker images.
@@ -240,6 +249,13 @@ M6 session, 2026-10-24 (observed):
 - Decision (M6): the cookie file needs no `docker-compose.yml` change: the README tells the operator to put it in `C:\docket-archive` (already mounted at `/archive`) and set `TRANSCRIBER_YTDLP_COOKIES=/archive/youtube-cookies.txt`; `transcriber/.env.example` carries the line commented out. The yt- `cli.py` tests (three) and the `test_db.py` tests (three, including `meeting_source` and `claim_meeting`) go beyond the cases the milestone lists.
   Rationale: one mount already exists for operator files; the extra tests pin the call sites and the third filter the milestone changes.
   Date/Author: 2026-10-24, Claude (M6 session).
+
+- Decision (M7): the M7 session does every step of its milestone except `git mv` to `plans/completed/`, which it leaves to the factory's closing retro stage; the file stays in `plans/active/` when M7 is ticked.
+  Rationale: the judge that rules on this session and the review-record agent after it both read the `plans/active/` path, and the retro stage moves the file itself (Surprises, M7); a move here would halt the run at the judge. The milestone's other steps do not depend on where the file sits. The many `plans/active/youtube-council-channel.md` citations in code and test docstrings (twenty-odd, `grep -rn youtube-council-channel src tests transcriber scripts`) are left for the doc-garden stage that follows the move, since rewriting them before the move would make them wrong until it happens.
+  Date/Author: 2026-10-24, Claude (M7 session).
+- Decision (M7): four decisions graduate, as `0067` (the `video` rung, with the rule that the YouTube pass never writes a classification), `0068` (duration as the pairing key, with the ambiguous-day create and the `no_duration` guard), `0069` (the 3-day wait and absorption), and `0070` (YouTube as Birmingham's second source through the Data API, yt-dlp only in the transcriber, and the footer listing every source host). The other entries of this Decision Log stay here.
+  Rationale: the milestone names the first four topics; the ambiguous-day rule and the `no_duration` guard are what stop the pairing being "fixed" into a merge, so they ride with `0068`; the footer-hosts rule is what stops a reader of `city_provenance` restoring "the newest row's host", so it rides with `0070`. Migration 040's number, M1's title-grammar details, and M4's readings of silent plan text are implementation choices that the code and `docs/specs/meeting-types.md` carry.
+  Date/Author: 2026-10-24, Claude (M7 session).
 
 ## Outcomes & Retrospective
 
