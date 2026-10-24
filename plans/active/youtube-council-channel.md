@@ -16,7 +16,7 @@ How to see it working once the whole plan has shipped and the operator has run t
 
 Nothing has been executed. Every entry below is open. A completed entry is written as `- [x] (YYYY-MM-DD HH:MMZ) <text>` with the time the work was observed, never an estimate, and an entry's text is never reworded once written (decision `0037`; the judge in `docs/capabilities/judge-milestone.md` identifies entries by text).
 
-- [ ] M1: `docket.adapters.youtube` lists a channel's uploads through the YouTube Data API v3 from a fake transport in tests; `docket.services.youtube_meetings.parse_title` reads the date and the cleaned title out of every title shape in the inventory and rejects the non-meeting ones; `group_videos` folds parts and test streams into one candidate per date and body with the longest video as the recording; `tests/unit/test_youtube_adapter.py` and `tests/unit/test_youtube_titles.py` fail before and pass after.
+- [x] (2026-10-24 22:21Z) M1: `docket.adapters.youtube` lists a channel's uploads through the YouTube Data API v3 from a fake transport in tests; `docket.services.youtube_meetings.parse_title` reads the date and the cleaned title out of every title shape in the inventory and rejects the non-meeting ones; `group_videos` folds parts and test streams into one candidate per date and body with the longest video as the recording; `tests/unit/test_youtube_adapter.py` and `tests/unit/test_youtube_titles.py` fail before and pass after.
 - [ ] M2: migration 040 creates `meeting_videos`, adds `meetings.duration_s`, re-creates the `type_source` CHECK with `video`, and writes `youtube_channel` and `youtube_channel_id` into Birmingham's metadata; `RawMeeting.duration_s` exists, the Granicus adapter fills it from the archive row's Duration cell, and `_upsert_meetings` writes it on INSERT and UPDATE; `tests/integration/test_040_migration.py` and the new cases in `tests/unit/test_granicus_adapter.py` and `tests/integration/test_ingest_meeting_types.py` pass.
 - [ ] M3: the ladder's new rung `video` names a row from its YouTube recording's cleaned title; `_MEETING_ROWS_SQL` carries the row's YouTube clean titles; `TYPE_SOURCES` lists `video`; the admin override still sits above it; `docs/specs/meeting-types.md` describes the rung; the new cases in `tests/unit/test_meeting_types.py` pass.
 - [ ] M4: `youtube_meetings.sync_city` runs the matching ladder (attach to council, attach to the day's committee candidate, pair by duration, create after 3 days), the absorption check, and the resolver call over the rows it touched; the worker task `youtube_ingest` runs daily at 06:45; `scripts/backfill_youtube_meetings.py --city birmingham --dry-run` prints a decision per date; `docs/runbooks/cron-worker.md` has the row; `tests/integration/test_youtube_sync.py` passes.
@@ -49,6 +49,8 @@ M1 session, 2026-10-24 (observed):
   Evidence: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_youtube_titles.py tests/unit/test_youtube_adapter.py -q -p no:cacheprovider` printed `59 failed in 0.54s`; the reasons were 18 × `ModuleNotFoundError: No module named 'docket.adapters.youtube'` and 41 × `ModuleNotFoundError: No module named 'docket.services.youtube_meetings'`.
 - Observation: with `src/docket/adapters/youtube.py` and `src/docket/services/youtube_meetings.py` written, the same files pass.
   Evidence: the same command printed `59 passed in 0.38s`.
+- Observation: the whole check passes with M1 committed (`685d2cc`).
+  Evidence: `./tools/verify` printed `verify: all 6 checks passed in 109s.`
 
 ## Decision Log
 
@@ -95,6 +97,8 @@ M1 session, 2026-10-24 (observed):
 ## Outcomes & Retrospective
 
 Nothing has shipped. The yardstick is the Purpose above: the Committee of the Whole of 2026-09-30 visible once, named, with video and transcript, and no 2026 date on the Birmingham list showing two rows for one meeting. Each milestone session appends its outcome here; the M7 session writes the retrospective.
+
+M1 (2026-10-24): the repository can turn a channel listing into meeting candidates without a network. `src/docket/adapters/youtube.py` holds `YouTubeVideo`, `YouTubeClient` (`uploads_playlist_id`, `list_uploads` with whole-page cutoff termination, `fill_details` in batches of 50), `parse_iso_duration`, `YouTubeAPIError` (with `.status` and `.reason`) and `QuotaExceeded`; `src/docket/services/youtube_meetings.py` holds `ParsedTitle`, `Candidate` (with `total_duration_s`), the three constants, `parse_title`, `clean_title`, `body_key`, and `group_videos`. Tests: `tests/unit/test_youtube_titles.py` and `tests/unit/test_youtube_adapter.py`, 59 cases, failing before (commit `8ba4d5a`) and passing after (`685d2cc`). No carve-out against M1's acceptance. Nothing in the database, the worker, or the site changed; `pairs` and `sync_city` remain for M4.
 
 ## Context and Orientation
 
