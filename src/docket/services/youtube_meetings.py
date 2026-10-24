@@ -146,19 +146,42 @@ def body_key(clean: str) -> str:
     return re.sub(r"[^a-z]", "", text)
 
 
-def group_videos(videos: list[YouTubeVideo], *, today: date | None = None) -> list[Candidate]:
+def _looks_like_a_meeting(title: str) -> bool:
+    return bool(_MEETING_WORDS.search(title)) and not _REJECT_WORDS.search(title)
+
+
+def group_videos(
+    videos: list[YouTubeVideo],
+    *,
+    today: date | None = None,
+    dropped: list[tuple[YouTubeVideo, str]] | None = None,
+) -> list[Candidate]:
     """Fold finished meeting videos of at least ``MIN_RECORDING_S`` into one candidate per date and body.
 
     The longest video of a group is its primary recording; the rest are sorted
     by part number, then duration. Live and upcoming streams, videos of unknown
-    or short duration, and non-meeting titles are dropped.
+    or short duration, and non-meeting titles are dropped. A finished upload
+    whose title looks like a meeting but has no readable date, or whose
+    duration is unknown, is appended to ``dropped`` with that reason, so the
+    caller can report what it left out.
     """
     groups: dict[tuple[date, str], list[tuple[YouTubeVideo, ParsedTitle]]] = {}
     for video in videos:
-        if video.broadcast != "none" or video.duration_s is None or video.duration_s < MIN_RECORDING_S:
+        if video.broadcast != "none":
+            continue
+        if video.duration_s is None:
+            if dropped is not None and _looks_like_a_meeting(video.title):
+                dropped.append((video, "no known duration"))
+            continue
+        if video.duration_s < MIN_RECORDING_S:
             continue
         parsed = parse_title(video.title, today=today)
         if parsed is None:
+            if dropped is not None and _looks_like_a_meeting(video.title) and (
+                (found := _find_date(video.title)) is None
+                or not _EARLIEST <= found[1] <= (today or date.today()) + timedelta(days=1)
+            ):
+                dropped.append((video, "no readable date"))
             continue
         groups.setdefault((parsed.meeting_date, body_key(parsed.clean_title)), []).append((video, parsed))
 
@@ -198,7 +221,7 @@ def group_videos(videos: list[YouTubeVideo], *, today: date | None = None) -> li
 # Nothing here writes a classification: ``meeting_types.resolve_and_store``
 # runs over every touched row and its ``video`` rung names them.
 
-ACTIONS: tuple[str, ...] = ("attach", "create", "defer", "no_duration", "skip_seen", "absorb", "ambiguous")
+ACTIONS: tuple[str, ...] = ("attach", "create", "defer", "no_duration", "skip_seen", "absorb", "ambiguous", "unparsed")
 
 _CITY_TZ = ZoneInfo("America/Chicago")
 _WATCH_URL = "https://www.youtube.com/watch?v={}"
@@ -257,7 +280,7 @@ _MUNICIPALITY_SQL = "SELECT id, metadata FROM municipalities WHERE slug = %s"
 
 _DAY_ROWS_SQL = """
     SELECT m.id, m.external_id, m.title, m.meeting_type, m.body_name, m.minutes_url,
-           m.duration_s, m.is_hidden,
+           m.duration_s, m.is_hidden, m.created_at,
            (SELECT count(*) FROM agenda_items a WHERE a.meeting_id = m.id) AS item_count,
            EXISTS (SELECT 1 FROM meeting_videos v
                     WHERE v.meeting_id = m.id AND v.provider = 'youtube') AS has_youtube
@@ -287,7 +310,7 @@ _INSERT_MEETING_SQL = """
 """
 
 _YOUNG_YT_ROWS_SQL = """
-    SELECT m.id, m.external_id, m.meeting_date, m.meeting_type, m.duration_s
+    SELECT m.id, m.external_id, m.meeting_date, m.meeting_type, m.duration_s, m.created_at
       FROM meetings m
      WHERE m.municipality_id = %s
        AND m.external_id LIKE 'yt-%%'
@@ -514,6 +537,10 @@ class _Run:
                 ([y for y in yts if y["meeting_type"] != "council"], committee),
                 ([y for y in yts if y["meeting_type"] == "council"], council),
             ):
+                # Only a clip that arrived after a yt- row may absorb it: a clip
+                # that was already there when the row was created is one the
+                # group stage declined (an unsettled day creates rather than merges).
+                cands = [c for c in cands if any(c["created_at"] > y["created_at"] for y in kind_yts)]
                 if not kind_yts or not cands:
                     continue
                 if any(c["duration_s"] is None for c in cands):
@@ -524,7 +551,8 @@ class _Run:
                 else:
                     matches, _, _ = _pair_by_duration(kind_yts, cands, lambda y: y["duration_s"])
                 for yt, row in matches:
-                    self.absorb(meeting_date, yt, row)
+                    if row["created_at"] > yt["created_at"]:
+                        self.absorb(meeting_date, yt, row)
 
     def absorb(self, meeting_date: date, yt: dict, row: dict) -> None:
         self.claimed.add(row["id"])
@@ -587,7 +615,11 @@ def sync_city(
     cutoff_day = today - timedelta(days=DAILY_WINDOW_DAYS) if since is None else since
     published_after = datetime.combine(cutoff_day, time.min, tzinfo=timezone.utc)
     videos = client.fill_details(client.list_uploads(playlist_id, published_after=published_after))
-    groups = group_videos(videos, today=today)
+    dropped: list[tuple[YouTubeVideo, str]] = []
+    groups = group_videos(videos, today=today, dropped=dropped)
+    for video, reason in dropped:
+        log.info("youtube %s: left out %s %r: %s", slug, video.video_id, video.title, reason)
+        report.add(video.published_at.date(), "unparsed", f"{video.video_id} {video.title!r}: {reason}")
 
     by_day: dict[date, list[Candidate]] = {}
     for g in groups:

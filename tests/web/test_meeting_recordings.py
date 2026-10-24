@@ -199,3 +199,13 @@ def test_source_health_lists_both_hosts(client, rows):
 def rows_city_id() -> int:
     with db() as conn, conn.cursor() as cur:
         return _city_id(cur, "birmingham")
+
+
+def test_yt_row_provenance_names_the_youtube_channel_not_the_archive(client, rows):
+    # Review record, severe: a YouTube-only row's title comes from the
+    # council's channel; the page must not say the city's archive listed it.
+    html = _get(client, f"/al/birmingham/meetings/{rows['yt']}/")
+    provenance = html[html.index('class="t-meta meeting-provenance"'):]
+    provenance = provenance[:provenance.index("</p>")]
+    assert "The city's archive" not in provenance
+    assert "The council's YouTube channel titles this recording “Committee of the Whole Meeting”." in provenance

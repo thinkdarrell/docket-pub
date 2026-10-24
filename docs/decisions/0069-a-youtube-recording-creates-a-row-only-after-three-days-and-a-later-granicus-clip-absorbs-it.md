@@ -2,7 +2,7 @@
 
 ## Decision
 
-`sync_city` creates a `yt-<video id>` row for an unmatched recording only when the video was published at least `CREATE_AFTER_DAYS` (3) days before the run, and defers it otherwise. Each run then absorbs: a `yt-` row of the last 30 days with no agenda items, on a date that now has an unmatched Granicus candidate pairing with it by duration (or being the day's one candidate where the day has one of each), has its `meeting_videos` rows moved to the Granicus row and is deleted, or hidden when a `transcripts` row references it, logged at WARNING with both ids.
+`sync_city` creates a `yt-<video id>` row for an unmatched recording only when the video was published at least `CREATE_AFTER_DAYS` (3) days before the run, and defers it otherwise. Each run then absorbs: a `yt-` row of the last 30 days with no agenda items, on a date that now has an unmatched Granicus candidate created after the `yt-` row (`meetings.created_at`) and pairing with it by duration (or being the day's one such candidate where the day has one of each), has its `meeting_videos` rows moved to the Granicus row and is deleted, or hidden when a `transcripts` row references it, logged at WARNING with both ids.
 
 ## Rationale
 

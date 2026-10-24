@@ -218,3 +218,28 @@ class TestGroupVideos:
         assert cand.classification.meeting_type == "committee"
         assert cand.classification.body_name == "Committee of the Whole"
         assert cand.total_duration_s == 11406
+
+    def test_meeting_titled_uploads_it_cannot_read_are_reported_not_silently_dropped(self):
+        # Review record, minor: a meeting-worded recording with no readable
+        # date, or with no known duration, is handed back with its reason.
+        from docket.services.youtube_meetings import group_videos
+
+        dropped = []
+        groups = group_videos(
+            [
+                _video("hyph", "Committee of the Whole Meeting 9-30-26", 11400),
+                _video("nodate", "Public Safety Committee Meeting", 3600),
+                _video("nodur", "Budget and Finance Committee Meeting 9.28.26", None),
+                _video("promo", "City Council Highlights 9.30.26", 600),
+                _video("short", "Birmingham City Council Meeting 10.13.26", 30),
+                _video("live", "Birmingham City Council Meeting 10.13.26", None, broadcast="live"),
+            ],
+            today=TODAY,
+            dropped=dropped,
+        )
+        assert groups == []
+        assert [(v.video_id, reason) for v, reason in dropped] == [
+            ("hyph", "no readable date"),
+            ("nodate", "no readable date"),
+            ("nodur", "no known duration"),
+        ]

@@ -353,6 +353,29 @@ def test_a_young_yt_row_is_absorbed_by_a_clip_that_arrived_later(bhm):
     assert clip in report.touched_ids
 
 
+def test_a_yt_row_created_beside_an_unpaired_clip_is_not_absorbed_into_it_next_run(bhm):
+    # Review record, severe: the first run pairs one recording, creates a
+    # yt- row for the other, and leaves the 600 s clip alone; the next run
+    # must not merge that row into the clip it already declined.
+    d = TODAY - timedelta(days=8)
+    paired = _row(bhm, "m4t-15", d, meeting_type="committee", type_source="schedule_rule", duration_s=1500)
+    short = _row(bhm, "m4t-16", d, meeting_type="committee", type_source="schedule_rule", duration_s=600)
+    listing = [
+        _video("bf2", f"Budget and Finance Committee Meeting {d.month}.{d.day}.19", 1400, days_ago=8),
+        _video("cw2", f"Committee of the Whole Meeting {d.month}.{d.day}.19", 3000, days_ago=8),
+    ]
+
+    first = _sync(listing)
+    second = _sync(listing)
+
+    assert sorted(_actions(first)) == ["ambiguous", "attach", "create"]
+    assert "absorb" not in _actions(second)
+    assert _videos_of(paired) == [("M4Tbf2", True)]
+    assert _videos_of(short) == []
+    yt = _by_ext(bhm, "yt-M4Tcw2")
+    assert yt is not None and _videos_of(yt["id"]) == [("M4Tcw2", True)]
+
+
 def test_a_yt_row_with_a_transcript_is_hidden_instead_of_deleted(bhm):
     d = TODAY - timedelta(days=5)
     yt = _yt_row(bhm, "tr2", d, 1400, "Transportation Committee Meeting")
