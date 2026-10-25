@@ -396,3 +396,63 @@ def test_claim_meeting_after_a_crashed_low_speech_rerun_stays_hidden(conn, bham_
     conn.commit()
     status, _, uploaded_at, _ = _status_attempted_uploaded(conn, c.transcript_id)
     assert status == "failed" and uploaded_at is None             # hidden; the held tab needs uploaded_at
+
+
+# --- yt- meetings are eligible, event- placeholders are not (plan youtube-council-channel M6) ---
+
+def _insert_meeting(conn, external_id: str, video_url: str) -> int:
+    with conn.cursor() as cur:
+        cur.execute("SELECT id FROM municipalities WHERE slug='birmingham'")
+        muni = cur.fetchone()[0]
+        cur.execute(
+            """INSERT INTO meetings (municipality_id, title, meeting_date, external_id, video_url, is_hidden)
+               VALUES (%s, 'TDB yt test', %s, %s, %s, FALSE) RETURNING id""",
+            [muni, date(2027, 3, 2), external_id, video_url],
+        )
+        mid = cur.fetchone()[0]
+    conn.commit()
+    return mid
+
+
+def _delete_meeting(conn, mid: int) -> None:
+    conn.rollback()
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM meetings WHERE id = %s", [mid])
+    conn.commit()
+
+
+@pytest.fixture
+def yt_meeting(conn):
+    mid = _insert_meeting(conn, "yt-tdbTEST0001", "https://www.youtube.com/watch?v=tdbTEST0001")
+    yield mid
+    _delete_meeting(conn, mid)
+
+
+@pytest.fixture
+def event_meeting(conn):
+    mid = _insert_meeting(conn, "event-999902", "https://bhamal.granicus.com/MediaPlayer.php?view_id=2&event_id=999902")
+    yield mid
+    _delete_meeting(conn, mid)
+
+
+def test_claim_next_returns_a_yt_meeting(conn, yt_meeting):
+    c = tdb.claim_next(conn, since=SINCE, host="legion")
+    conn.commit()
+    assert c is not None and c.meeting_id == yt_meeting
+    assert c.external_id == "yt-tdbTEST0001" and c.status == "claimed"
+
+
+def test_claim_next_skips_an_event_placeholder(conn, event_meeting):
+    c = tdb.claim_next(conn, since=SINCE, host="legion")
+    conn.commit()
+    assert c is None or c.meeting_id != event_meeting
+
+
+def test_meeting_source_and_claim_meeting_admit_yt_ids_only(conn, yt_meeting, event_meeting):
+    assert tdb.meeting_source(conn, yt_meeting) == "yt-tdbTEST0001"
+    assert tdb.meeting_source(conn, event_meeting) is None
+    assert tdb.claim_meeting(conn, meeting_id=event_meeting, host="legion") is None
+    conn.rollback()
+    c = tdb.claim_meeting(conn, meeting_id=yt_meeting, host="legion")
+    conn.commit()
+    assert c is not None and c.external_id == "yt-tdbTEST0001"

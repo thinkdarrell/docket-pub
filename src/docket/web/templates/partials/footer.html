@@ -31,12 +31,14 @@
             source panel (the Jinja global city_provenance, plan
             birmingham-city-briefing, M5); it is omitted when no city is in
             context or nothing has been indexed, and the Source cell when
-            no source website is known. -#}
+            no source website is known. Every host of the last 180 days is
+            named, joined by "and" (plan youtube-council-channel, M5). -#}
         {% if municipality is defined and municipality %}
         {%- set prov = city_provenance(municipality) -%}
         {% if prov.last_ingest_at %}
         <div class="footnote-grid t-mono">
-            {% if prov.source_host %}<div><span class="t-label">Source</span><div>{{ prov.source_host }} · public domain</div></div>{% endif %}
+            {%- set hosts = prov.source_hosts or ([{'host': prov.source_host}] if prov.source_host else []) %}
+            {% if hosts %}<div><span class="t-label">Source</span><div>{{ hosts | map(attribute='host') | join(' and ') }} · public domain</div></div>{% endif %}
             <div><span class="t-label">Updated</span><div>{{ prov.last_ingest_at.strftime('%b %d, %Y') }}</div></div>
         </div>
         {% endif %}

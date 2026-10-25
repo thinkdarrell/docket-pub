@@ -12,7 +12,8 @@ Plan 1: `docs/superpowers/plans/2026-10-07-transcripts-foundation.md` (PR #99).
 
 - **Producer** (`transcriber/`): runs on the Lenovo Legion (Windows 11, RTX 5070 Ti)
   inside Docker with WSL2 GPU passthrough. faster-whisper large-v3 plus pyannote 3.1.
-  It claims Birmingham meetings newest-first, fetches audio from Granicus with ffmpeg,
+  It claims Birmingham meetings newest-first, fetches audio from Granicus with ffmpeg
+  (or, for a `yt-` meeting recorded only on YouTube, downloads it with yt-dlp first),
   transcribes, diarizes, and uploads raw segments to Railway Postgres through the
   public proxy as the narrow `transcriber` role. It never calls an LLM.
   Setup and run commands: `transcriber/README.md`, which also has the desktop
@@ -307,8 +308,9 @@ Tells: Monday date, a real meeting the next day, no votes, no minutes, zero or a
 handful of agenda items that duplicate the Tuesday agenda. Real Monday meetings
 exist (2024-12-23 before Christmas Eve, 2019-12-30, 2010-05-10) and are all over
 an hour with full agendas, so **duration is the discriminator, not the weekday**.
-The Granicus listing exposes a `Duration` column per clip that the adapter does
-not read yet; an ingest-side auto-hide for short clips is the open follow-up.
+The Granicus listing exposes a `Duration` column per clip, which the adapter
+stores in `meetings.duration_s` (migration 040); an ingest-side auto-hide for
+short clips is the open follow-up.
 
 What the producer does with them: the speech floor catches the silent ones as
 `low_speech`; a mic-check clip with real speech passes and uploads a tiny

@@ -31,7 +31,8 @@ from . import __version__
 from . import db as tdb
 from . import inputs
 from .inputs import get_audio
-from .audio import AudioFetchError, download_url_for, fetch_audio, probe_duration, sha256_file
+from .audio import (AudioFetchError, fetch_audio, probe_duration, remove_downloads, sha256_file,
+                    source_for)
 from .contract import TranscriptOutput
 from .engine import (TRANSCRIPT_VERSION, Engine, build_output, clean_segments, is_low_speech,
                      speech_seconds)
@@ -96,6 +97,15 @@ def _upload_or_fail(conn, claim: tdb.Claim, out: TranscriptOutput) -> str:
     return "uploaded"
 
 
+def _fetch_for(external_id: str, work_dir: Path):
+    """The ``fetch`` that get_audio calls only when the archive holds no audio.flac: it
+    resolves the meeting's source then (a ``yt-`` id downloads its recording through
+    yt-dlp, which a cached FLAC spares) and reads it with fetch_audio."""
+    def fetch(_source, wav):
+        return fetch_audio(source_for(external_id, work_dir), wav)
+    return fetch
+
+
 def process_claim(conn, engine: Engine, claim: tdb.Claim, cfg: Config) -> str:
     json_path = _archive_path(cfg, claim.meeting_id)
     if claim.status == "transcribed" and json_path.exists():
@@ -103,9 +113,9 @@ def process_claim(conn, engine: Engine, claim: tdb.Claim, cfg: Config) -> str:
         return _upload_or_fail(conn, claim, out)
 
     wav = cfg.work_dir / f"{claim.meeting_id}.wav"
-    source = download_url_for(claim.external_id)
     try:
-        if get_audio(source, wav, inputs.audio_path(cfg.archive_dir, claim.meeting_id), fetch=fetch_audio):
+        if get_audio(claim.external_id, wav, inputs.audio_path(cfg.archive_dir, claim.meeting_id),
+                     fetch=_fetch_for(claim.external_id, cfg.work_dir)):
             log.info("meeting %s: audio from the archive's audio.flac", claim.meeting_id)
         duration = probe_duration(str(wav))
         sha = sha256_file(wav)
@@ -116,7 +126,9 @@ def process_claim(conn, engine: Engine, claim: tdb.Claim, cfg: Config) -> str:
         conn.rollback()
         _end_without_upload(conn, claim, "failed", error=str(e))
         wav.unlink(missing_ok=True)
+        remove_downloads(claim.external_id, cfg.work_dir)
         return "failed"
+    remove_downloads(claim.external_id, cfg.work_dir)   # the wav is all the rest of the run reads
 
     try:
         roster = tdb.roster_for_meeting(conn, claim.meeting_id)
@@ -236,13 +248,14 @@ def cache_audio(conn, cfg: Config, meeting_id: int) -> str:
         return "ineligible"
     wav = cfg.work_dir / f"{meeting_id}.wav"
     try:
-        fetch_audio(download_url_for(external_id), wav)
+        fetch_audio(source_for(external_id, cfg.work_dir), wav)
         inputs.store_flac(wav, flac)
     except (AudioFetchError, OSError, subprocess.TimeoutExpired) as e:
         log.error("meeting %s: %s", meeting_id, e)
         return "failed"
     finally:
         wav.unlink(missing_ok=True)
+        remove_downloads(external_id, cfg.work_dir)
     return "fetched"
 
 
@@ -256,8 +269,8 @@ def capture_inputs(conn, engine: Engine, cfg: Config, meeting_id: int) -> str:
         return "ineligible"
     wav = cfg.work_dir / f"{meeting_id}.wav"
     try:
-        get_audio(download_url_for(external_id), wav, inputs.audio_path(cfg.archive_dir, meeting_id),
-                  fetch=fetch_audio)
+        get_audio(external_id, wav, inputs.audio_path(cfg.archive_dir, meeting_id),
+                  fetch=_fetch_for(external_id, cfg.work_dir))
         duration = probe_duration(str(wav))
         sha = sha256_file(wav)
         try:
@@ -275,6 +288,7 @@ def capture_inputs(conn, engine: Engine, cfg: Config, meeting_id: int) -> str:
         return "failed"
     finally:
         wav.unlink(missing_ok=True)
+        remove_downloads(external_id, cfg.work_dir)
     return "captured"
 
 

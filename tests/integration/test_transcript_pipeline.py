@@ -307,3 +307,25 @@ def test_housekeeping_runs_even_when_model_validation_is_fatal(monkeypatch):
     with pytest.raises(AIFatalError):
         P.run_transcript_pipeline(limit=1, notes="t", client=MagicMock())
     assert calls == ["sweep", "stall"]
+
+
+def test_transcript_debt_lists_an_untranscribed_yt_meeting():
+    """A YouTube-only row (plan youtube-council-channel M6) older than 14 days with no transcript is
+    transcript debt like a Granicus clip; an event- placeholder still is not."""
+    from datetime import timedelta
+    day = max(date.today() - timedelta(days=30), date.fromisoformat("2025-11-01"))
+    ids = []
+    with db_cursor() as cur:
+        cur.execute("SELECT id FROM municipalities WHERE slug='birmingham'")
+        muni = cur.fetchone()["id"]
+        for ext, url in (("yt-debtTEST001", "https://www.youtube.com/watch?v=debtTEST001"),
+                         ("event-999803", "https://bhamal.granicus.com/MediaPlayer.php?view_id=2&event_id=999803")):
+            cur.execute("""INSERT INTO meetings (municipality_id, title, meeting_date, external_id, video_url)
+                           VALUES (%s, 'Debt yt test', %s, %s, %s) RETURNING id""", [muni, day, ext, url])
+            ids.append(cur.fetchone()["id"])
+    try:
+        listed = {d["meeting_id"] for d in tsvc.list_transcript_debt(muni, limit=500)}
+        assert ids[0] in listed
+        assert ids[1] not in listed
+    finally:
+        _rm(*({"meeting_id": i} for i in ids))

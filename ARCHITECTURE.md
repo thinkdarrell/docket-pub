@@ -9,7 +9,7 @@ docket.pub is a Python application with three runtime processes sharing one Post
 ### Adapters
 
 - Lives in: `src/docket/adapters/`
-- Owns: fetching meetings, agenda items, and document links from one vendor platform (Granicus, CivicClerk, CivicPlus, generic HTML archive) and returning them as the raw dataclasses in `src/docket/models/protocol.py`.
+- Owns: fetching meetings, agenda items, and document links from one vendor platform (Granicus, CivicClerk, CivicPlus, generic HTML archive) and returning them as the raw dataclasses in `src/docket/models/protocol.py`; and two read-only clients outside that protocol that return their own records for a service to interpret: the city's calendar page (`city_calendar.py`, read by `services/city_calendar.py`) and the council's YouTube channel through the YouTube Data API (`youtube.py`, read by `services/youtube_meetings.py`; decision `0070`).
 - Does not: write to the database or decide what a meeting means; `services/ingest.py` does both.
 
 ### Models
@@ -99,7 +99,7 @@ From outermost to innermost: entry points (`web/`, `worker/`, `ai/cli.py`, `enri
 ## Known rough edges
 
 - Some web modules still execute SQL directly, contrary to the web rule above. `D7` in `docs/DEBT.md` lists them.
-- `src/docket/ai/` imports from `src/docket/services/` at six sites, an inward layer reaching outward: the badge-slug lookup (`D8` in `docs/DEBT.md`) and the transcript speaker helpers (`D42`).
+- `src/docket/ai/` imports from `src/docket/services/`, an inward layer reaching outward: the badge-slug lookup (`D8` in `docs/DEBT.md`), the transcript speaker helpers (`D42`), and the cancelled-title check (`D83`); those rows list the sites.
 - `src/docket/rosters/` is an empty leftover from an early layout; council rosters are stored by migration and resolved in `src/docket/analysis/ocr/rosters.py`. Deleting it is `D33` in `docs/DEBT.md`.
 - A few modules read `os.environ` for settings that belong in `src/docket/config.py`, contrary to the configuration invariant above. `D34` in `docs/DEBT.md` lists them.
-- `src/docket/worker/tasks.py` opens its own transactions in six task bodies, contrary to the services invariant above and the Worker rule. `D65` in `docs/DEBT.md` lists them.
+- `src/docket/worker/tasks.py` opens its own transactions in some task bodies, contrary to the services invariant above and the Worker rule. `D65` in `docs/DEBT.md` lists them and counts them.

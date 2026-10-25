@@ -75,13 +75,21 @@
 </section>
 
 {# ── Provenance: the clip name the city's archive carries, and which rung
-      named the body (plans/active/meeting-types-name-the-body.md, M5).
-      Printed only when the label differs from the title. #}
+      named the body (plans/active/meeting-types-name-the-body.md, M5; the
+      YouTube rung, plans/completed/youtube-council-channel.md, M5).
+      Printed only when the label differs from the title. A row whose source
+      is the council's YouTube channel (a yt- row) took its title from there,
+      not from the city's archive. #}
 {% if _label and _label != meeting.title %}
-<p class="t-meta meeting-provenance">The city's archive lists this recording as “{{ meeting.title }}”.
+<p class="t-meta meeting-provenance">
+  {%- if 'youtube.com' in (meeting.source_url or '') %}The council's YouTube channel titles this recording “{{ meeting.title }}”.
+  {%- else %}The city's archive lists this recording as “{{ meeting.title }}”.{% endif %}
   {%- if meeting.type_source == 'schedule_rule' %} It is not on the council's regular meeting day and the city calendar did not name the body.
   {%- elif meeting.type_source == 'calendar' %} The city's calendar names it.
     {%- if calendar_event and calendar_event.source_url %} <a class="link" href="{{ calendar_event.source_url }}" target="_blank" rel="noreferrer">See the event ↗</a>{% endif %}
+  {%- elif meeting.type_source == 'video' %} The council's YouTube recording names it.
+    {%- set _named_by = (recordings or []) | selectattr('provider', 'equalto', 'youtube') | first %}
+    {%- if _named_by %} <a class="link" href="{{ _named_by.url }}" target="_blank" rel="noreferrer">See the recording ↗</a>{% endif %}
   {%- endif %}
 </p>
 {% endif %}
@@ -417,6 +425,16 @@
             <span class="t-mono">↗</span>
         </a>
         {% endif %}
+        {#- A YouTube recording of a row whose own video is elsewhere (a
+            Granicus clip the council also streamed): a second rail link
+            (plans/completed/youtube-council-channel.md, M5). #}
+        {%- set _youtube = (recordings or []) | selectattr('provider', 'equalto', 'youtube') | first %}
+        {% if _youtube and 'youtube.com' not in (meeting.video_url or '') %}
+        <a class="rail-link" href="{{ _youtube.url }}" target="_blank" rel="noreferrer" style="flex: 1; min-width: 180px;">
+            <div><div class="rail-link-label">Watch on YouTube</div><div class="t-meta">council channel</div></div>
+            <span class="t-mono">↗</span>
+        </a>
+        {% endif %}
         {% if has_transcript %}
         <a class="rail-link" href="/al/{{ municipality.slug }}/meetings/{{ meeting.id }}/transcript/"
            hx-get="/al/{{ municipality.slug }}/meetings/{{ meeting.id }}/transcript/"
@@ -433,5 +451,9 @@
         </a>
         {% endif %}
     </div>
+    {% if recordings and recordings | length > 1 %}
+    <p class="t-meta mtg-recordings">Other recordings of this meeting:
+      {%- for r in recordings[1:] %}{% if not loop.first %}{% if loop.last %} and{% else %},{% endif %}{% endif %} <a class="link" href="{{ r.url }}" target="_blank" rel="noreferrer">{% if r.part %}Part {{ r.part }}{% else %}another recording{% endif %}</a>{% endfor %}.</p>
+    {% endif %}
 </section>
 {% endblock %}

@@ -185,6 +185,38 @@ class TestEventUpgradePath:
         )
 
 
+class TestDuration:
+    """`duration_s` is written on INSERT and kept by an UPDATE that brings none (plans/completed/youtube-council-channel.md, M2)."""
+
+    @staticmethod
+    def _duration(muni_id: int, external_id: str):
+        with db_cursor() as cur:
+            cur.execute(
+                "SELECT duration_s FROM meetings WHERE municipality_id = %s AND external_id = %s",
+                (muni_id, external_id),
+            )
+            return cur.fetchone()["duration_s"]
+
+    def test_insert_writes_and_a_null_update_keeps_the_duration(self, muni_id):
+        from dataclasses import replace
+
+        with_duration = replace(_meeting("mtype-dur", "Regular City Council Meeting"), duration_s=1500)
+        assert _upsert_meetings(muni_id, [with_duration]) == (1, 0)
+        assert self._duration(muni_id, "mtype-dur") == 1500
+        assert _upsert_meetings(muni_id, [_meeting("mtype-dur", "Regular City Council Meeting")]) == (0, 1)
+        assert self._duration(muni_id, "mtype-dur") == 1500
+        assert _upsert_meetings(muni_id, [replace(with_duration, duration_s=1560)]) == (0, 1)
+        assert self._duration(muni_id, "mtype-dur") == 1560
+
+    def test_event_upgrade_writes_the_duration(self, muni_id):
+        from dataclasses import replace
+
+        _upsert_meetings(muni_id, [_meeting("event-9003", "Regular City Council Meeting")])
+        clip = replace(_meeting("mtype-9003", "Regular City Council Meeting"), duration_s=360)
+        assert _upsert_meetings(muni_id, [clip]) == (0, 1)
+        assert self._duration(muni_id, "mtype-9003") == 360
+
+
 # --- M4: resolution after ingest -------------------------------------------
 
 GENERIC = "Regular City Council Meeting"
@@ -261,6 +293,27 @@ class TestResolveAndStore:
         assert _five(_row(muni_id, "mtype-mon")) == ("committee", "regular", None, "schedule_rule", None)
         assert _five(_row(muni_id, "mtype-tue")) == ("council", "regular", None, "title", None)
         assert _five(_row(muni_id, "mtype-locked")) == ("board", "regular", "Library Board", "admin", None)
+
+    def test_youtube_recording_names_the_row_primary_first(self, muni_id):
+        """`_MEETING_ROWS_SQL` carries the row's YouTube clean titles, primary
+        first. Plan: plans/completed/youtube-council-channel.md (M3)."""
+        from docket.services.meeting_types import resolve_and_store
+
+        _upsert_meetings(muni_id, [_meeting("mtype-yt", GENERIC, TUESDAY)])
+        mid = _row(muni_id, "mtype-yt")["id"]
+        with db() as conn, conn.cursor() as cur:
+            for vid, clean, primary in (("mtypeA", "Public Safety Committee Meeting", False),
+                                        ("mtypeB", "Budget and Finance Committee Meeting", True)):
+                cur.execute(
+                    "INSERT INTO meeting_videos (meeting_id, provider, video_id, url, title, clean_title, is_primary) "
+                    "VALUES (%s, 'youtube', %s, %s, %s, %s, %s)",
+                    (mid, vid, f"https://www.youtube.com/watch?v={vid}", clean + " 10.20.26", clean, primary),
+                )
+        assert resolve_and_store(muni_id, [mid]) == 1
+        assert _five(_row(muni_id, "mtype-yt")) == (
+            "committee", "regular", "Budget and Finance Committee", "video", None,
+        )
+        assert resolve_and_store(muni_id, [mid]) == 0
 
     def test_empty_id_list_writes_nothing(self, muni_id):
         from docket.services.meeting_types import resolve_and_store

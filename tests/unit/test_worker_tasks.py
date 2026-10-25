@@ -61,6 +61,41 @@ def test_city_calendar_is_registered_and_safe_run_wrapped():
     assert [c.args for c in mock_ping.call_args_list] == [("city_calendar", "start"), ("city_calendar", "success")]
 
 
+# --- task_youtube_ingest -----------------------------------------------------
+
+def test_youtube_ingest_logs_and_returns_when_the_key_is_unset(caplog):
+    with patch("docket.worker.tasks.config.YOUTUBE_API_KEY", None), \
+         patch("docket.worker.tasks.youtube_meetings.sync_city") as mock_sync, \
+         caplog.at_level("WARNING"):
+        tasks._do_youtube_ingest()
+    mock_sync.assert_not_called()
+    assert any("YOUTUBE_API_KEY" in r.getMessage() for r in caplog.records)
+
+
+def test_youtube_ingest_is_registered_and_safe_run_wrapped():
+    with patch("docket.worker.tasks.health.ping") as mock_ping, \
+         patch("docket.worker.tasks.config.YOUTUBE_API_KEY", None):
+        tasks.TASKS["youtube_ingest"]()
+    assert [c.args for c in mock_ping.call_args_list] == [("youtube_ingest", "start"), ("youtube_ingest", "success")]
+
+
+def test_youtube_ingest_runs_each_city_with_a_channel_and_survives_quota(caplog):
+    from docket.adapters.youtube import QuotaExceeded
+
+    fake_cursor = MagicMock()
+    fake_cursor.__enter__ = MagicMock(return_value=fake_cursor)
+    fake_cursor.__exit__ = MagicMock(return_value=False)
+    fake_cursor.fetchall.return_value = [{"slug": "birmingham"}, {"slug": "elsewhere"}]
+    with patch("docket.worker.tasks.config.YOUTUBE_API_KEY", "k"), \
+         patch("docket.worker.tasks.db_cursor", return_value=fake_cursor), \
+         patch("docket.worker.tasks.youtube_meetings.sync_city",
+               side_effect=[QuotaExceeded(403, "quotaExceeded"), MagicMock(counts={"create": 1})]) as mock_sync, \
+         caplog.at_level("INFO"):
+        tasks._do_youtube_ingest()
+    assert [c.args[0] for c in mock_sync.call_args_list] == ["birmingham", "elsewhere"]
+    assert any("quota" in r.getMessage().lower() for r in caplog.records)
+
+
 # --- task_ingest_all ---------------------------------------------------------
 
 def test_ingest_all_loops_active_municipalities():
@@ -171,6 +206,6 @@ def test_tasks_registry_has_all_jobs():
         "repair_empty_agendas", "process_badges", "calibration_report",
         "process_batches", "refresh_backfill_ratio_mv", "prune_analytics",
         "recast_post_meeting_ai", "transcript_pipeline", "resolve_member_votes",
-        "briefing_facts", "city_calendar",
+        "briefing_facts", "city_calendar", "youtube_ingest",
     }
     assert set(tasks.TASKS.keys()) == expected

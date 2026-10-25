@@ -147,6 +147,13 @@ constrains:
    whose output only makes sense once the next one lands cannot be verified on
    its own, so it is either one milestone with the next or cut on a different
    seam.
+   In a plan `cycle-run` will execute, no milestone moves the plan to
+   `plans/completed/` or writes the closing retrospective: the judge and the review record read
+   the `plans/active/` path after the last milestone, and the retro stage
+   makes the move itself. The closing milestone graduates decisions,
+   reflects specs, and records debt; the lifecycle's last two steps are
+   the retro's. `calibration-float-scores` M2 and `youtube-council-channel`
+   M7 each named the move and each carved it out.
 6. Write down the contracts later sessions cannot rediscover: names and file
    layouts to be created, formats to conform to, identifiers already spent,
    and the reasoning behind each one. A fresh session re-derives none of this
@@ -187,6 +194,20 @@ constrains:
    branch-protection write, each found by the session that could not run
    it, and its specs stated a protection as fact for an hour before the
    operator set it, which the closing review halted on as severe.
+   An operator step that can only follow the merge (an API key created, a
+   variable set on Railway, a deploy, a production backfill, a rebuilt
+   image on the Legion) is never a clause of a milestone's acceptance or
+   of its Progress entry's text. `cycle-run` hands every open Progress
+   entry to an agent as a milestone, the judge counts a milestone only
+   when its entry is ticked, and the entry's text may not be reworded
+   (decision `0037`), so a session that cannot take the step must tick a
+   line that says it was taken. Such steps go in Validation and
+   Acceptance under the operator's name, and the closing milestone's
+   acceptance includes the `docs/DEBT.md` row that lists them in order
+   with "the pull request merges" as its trigger. Two consecutive plans
+   ticked entries this way, `meeting-types-name-the-body` M4 and
+   `youtube-council-channel` M5 and M6, and the second's closing review
+   rated the ticked text important.
 9. Commit the plan by itself, and report: its path, the milestone count, what
    the first milestone is, and what you deliberately left out of the plan.
 

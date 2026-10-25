@@ -6,7 +6,9 @@
    (src/docket/web/public.py, backed by briefing.city_provenance), the one
    owner of the last ingest time, the indexed meeting count, and the source
    website that the freshness chip and the footer also read (plan
-   birmingham-city-briefing, M5). A clause whose fact is missing is dropped,
+   birmingham-city-briefing, M5); it names every source host of the last
+   180 days, each linked to its newest record (plan youtube-council-channel,
+   M5). A clause whose fact is missing is dropped,
    never defaulted (docs/PRINCIPLES.md, source or silence).
 
    Args (all from the render context):
@@ -20,7 +22,9 @@
     <header class="page-sources-head">
       <div class="page-sources-eyebrow t-mono">Where these records come from</div>
       <p class="page-sources-lede">
-        {%- if prov.source_host %}The records on this page come from <a class="page-sources-host" href="{{ prov.source_url }}" rel="external noopener">{{ prov.source_host }}</a>. {% endif -%}
+        {%- set hosts = prov.source_hosts or ([{'host': prov.source_host, 'source_url': prov.source_url}] if prov.source_host else []) -%}
+        {%- if hosts %}The records on this page come from
+          {%- for h in hosts %}{% if not loop.first %}{% if loop.last %} and{% else %},{% endif %}{% endif %} <a class="page-sources-host" href="{{ h.source_url }}" rel="external noopener">{{ h.host }}</a>{% endfor %}. {% endif -%}
         docket.pub has indexed {{ "{:,}".format(prov.meeting_count) }} {{ municipality.name }} meeting{{ '' if prov.meeting_count == 1 else 's' }}
         {%- if prov.last_ingest_at %}; the last was added {{ prov.last_ingest_at.strftime('%B %-d, %Y') }}{% endif %}.
       </p>

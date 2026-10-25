@@ -49,6 +49,7 @@ MIGRATIONS = [
     "docket.migrations.036_discrepancy_anchor_and_minutes_check",
     "docket.migrations.037_city_briefing_facts",
     "docket.migrations.038_meeting_types",
+    "docket.migrations.040_youtube_recordings",
 ]
 
 

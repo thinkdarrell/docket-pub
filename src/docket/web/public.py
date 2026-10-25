@@ -79,7 +79,8 @@ def city_provenance(municipality):
     Accepts the municipality dict the routes pass or any object with an
     ``id``; without one (a partial rendered with a stand-in) it returns
     the empty shape without touching the database."""
-    empty = {"last_ingest_at": None, "meeting_count": 0, "source_host": None, "source_url": None}
+    empty = {"last_ingest_at": None, "meeting_count": 0, "source_host": None, "source_url": None,
+             "source_hosts": []}
     if not municipality:
         return empty
     if isinstance(municipality, dict):
@@ -281,9 +282,12 @@ def meeting_detail(slug, meeting_id):
     from docket.services import meeting_types as mtsvc
     calendar_event = mtsvc.calendar_event_for(meeting_id) if meeting.calendar_event_id else None
 
+    recordings = query.videos_for_meeting(meeting_id)
+
     return render_template(
         "meeting_detail.html",
         calendar_event=calendar_event,
+        recordings=recordings,
         discrepancies=discrepancies,
         has_transcript=has_transcript,
         municipality=municipality,

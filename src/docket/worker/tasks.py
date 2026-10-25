@@ -14,14 +14,18 @@ from __future__ import annotations
 import logging
 import os
 import traceback
+from datetime import datetime
 from typing import Callable
+from zoneinfo import ZoneInfo
 
 import psycopg2 as psycopg
 
+from docket import config
+from docket.adapters.youtube import QuotaExceeded, YouTubeClient
 from docket.ai.worker import BudgetExceededError, run_once
 from docket.analysis.vote_matcher import match_all_unmatched
 from docket.db import db, db_cursor
-from docket.services import briefing, city_calendar
+from docket.services import briefing, city_calendar, youtube_meetings
 from docket.services.ingest import ingest_municipality
 from docket.services.maintenance import repair_empty_agendas
 from docket.services.member_votes import resolve_unresolved_member_votes
@@ -456,6 +460,45 @@ def task_city_calendar() -> None:
     _safe_run("city_calendar", _do_city_calendar)
 
 
+def _do_youtube_ingest() -> None:
+    """Match the council's YouTube recordings of the last 30 days to meeting rows.
+
+    For every active city whose metadata names a ``youtube_channel_id``
+    (Birmingham only at first): attach recordings to Granicus rows, create
+    ``yt-`` rows for meetings Granicus never had once their video is three days
+    old, absorb young ``yt-`` rows into clips that arrived later
+    (``youtube_meetings.sync_city``). Without ``YOUTUBE_API_KEY`` it logs and
+    returns. An exhausted quota ends that city, not the task; any other failure
+    is logged and does not block the other cities.
+    Plan: plans/completed/youtube-council-channel.md (M4).
+    """
+    if not config.YOUTUBE_API_KEY:
+        log.warning("youtube_ingest: YOUTUBE_API_KEY is not set; nothing read")
+        return
+    client = YouTubeClient(config.YOUTUBE_API_KEY)
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT slug FROM municipalities WHERE active = TRUE "
+            "AND metadata ? 'youtube_channel_id' ORDER BY slug"
+        )
+        slugs = [r["slug"] for r in cur.fetchall()]
+    today = datetime.now(ZoneInfo(config.WORKER_TIMEZONE)).date()
+    for slug in slugs:
+        try:
+            report = youtube_meetings.sync_city(slug, client=client, since=None, today=today)
+        except QuotaExceeded:
+            log.warning("youtube_ingest %s: YouTube quota exceeded; the city's run ended", slug)
+            continue
+        except Exception:
+            log.exception("youtube_ingest failed for %s", slug)
+            continue
+        log.info("youtube_ingest %s: %s", slug, ", ".join(f"{a}={n}" for a, n in report.counts.items()))
+
+
+def task_youtube_ingest() -> None:
+    _safe_run("youtube_ingest", _do_youtube_ingest)
+
+
 # --- registry — used by scheduler.py and the --run-once flag -----------------
 
 TASKS: dict[str, Callable[[], None]] = {
@@ -475,4 +518,5 @@ TASKS: dict[str, Callable[[], None]] = {
     "prune_analytics": task_prune_analytics,
     "briefing_facts": task_briefing_facts,
     "city_calendar": task_city_calendar,
+    "youtube_ingest": task_youtube_ingest,
 }

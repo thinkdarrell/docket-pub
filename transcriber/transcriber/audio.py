@@ -1,13 +1,20 @@
-"""Pull 16 kHz mono audio from a Granicus clip (or a local file) with ffmpeg.
+"""Pull 16 kHz mono audio from a Granicus clip, a YouTube recording, or a local file with ffmpeg.
 
 Granicus serves archive video through CloudFront, which answers 403 to
 non-browser user agents. Same constant and same download endpoint as the
 OCR pipeline in the main repo (src/docket/analysis/ocr/frame_io.py and
 src/docket/services/video_ocr.py). Audio only: we never keep video.
+
+A meeting whose only recording is on the council's YouTube channel carries the
+external id ``yt-<video id>``. ffmpeg cannot read a YouTube page, so
+``source_for`` first downloads that video's best audio track with yt-dlp into the
+work directory and hands ffmpeg the file. The caller removes ``<work_dir>/<id>.*``
+afterwards, since yt-dlp chooses the extension.
 """
 from __future__ import annotations
 
 import hashlib
+import os
 import subprocess
 import time
 from pathlib import Path
@@ -25,6 +32,57 @@ class AudioFetchError(RuntimeError):
 
 def download_url_for(external_id: str) -> str:
     return f"{GRANICUS_DOWNLOAD_URL}&clip_id={external_id}"
+
+
+YOUTUBE_WATCH_URL = "https://www.youtube.com/watch?v="
+YOUTUBE_PREFIX = "yt-"
+# yt-dlp's own scratch files, never the finished download
+_PARTIAL_SUFFIXES = (".part", ".ytdl", ".temp")
+
+
+def ytdlp_options(external_id: str, work_dir: Path) -> dict:
+    """yt-dlp options for one download. TRANSCRIBER_YTDLP_COOKIES names a Netscape-format
+    cookie file exported from a signed-in browser, for when YouTube asks this address to
+    sign in; unset, no cookies are sent."""
+    opts = {"format": "bestaudio/best", "outtmpl": str(Path(work_dir) / f"{external_id}.%(ext)s"),
+            "quiet": True, "noplaylist": True}
+    cookies = os.environ.get("TRANSCRIBER_YTDLP_COOKIES")
+    if cookies:
+        opts["cookiefile"] = cookies
+    return opts
+
+
+def source_for(external_id: str, work_dir: Path) -> str:
+    """What ffmpeg reads for a meeting: the Granicus download URL for a clip id, or, for a
+    ``yt-`` id, the path of the recording's audio downloaded into ``work_dir`` by yt-dlp.
+    Raises AudioFetchError when yt-dlp cannot download it."""
+    if not external_id.startswith(YOUTUBE_PREFIX):
+        return download_url_for(external_id)
+    try:
+        import yt_dlp  # only the transcriber image carries it; Granicus clips never need it
+    except ImportError as e:  # an image built before yt-dlp was added: fail this meeting, not the run
+        raise AudioFetchError(f"{e}; rebuild the transcriber image") from None
+
+    work_dir = Path(work_dir)
+    work_dir.mkdir(parents=True, exist_ok=True)
+    url = YOUTUBE_WATCH_URL + external_id[len(YOUTUBE_PREFIX):]
+    try:
+        with yt_dlp.YoutubeDL(ytdlp_options(external_id, work_dir)) as ydl:
+            ydl.download([url])
+    except yt_dlp.utils.DownloadError as e:
+        raise AudioFetchError(f"yt-dlp could not download {url}: {e}") from None
+    files = sorted(p for p in work_dir.glob(f"{external_id}.*")
+                   if p.suffix not in _PARTIAL_SUFFIXES and p.suffix != ".wav")
+    if not files:
+        raise AudioFetchError(f"yt-dlp wrote no file for {url}")
+    return str(files[0])
+
+
+def remove_downloads(external_id: str, work_dir: Path) -> None:
+    """Delete what source_for downloaded for a ``yt-`` id (any extension, partials too)."""
+    if external_id.startswith(YOUTUBE_PREFIX):
+        for p in Path(work_dir).glob(f"{external_id}.*"):
+            p.unlink(missing_ok=True)
 
 
 def _is_http(src: str) -> bool:
