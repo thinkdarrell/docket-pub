@@ -12,7 +12,7 @@ A second source makes "the host of the newest row" wrong: it would flip the foot
 
 ## Date
 
-2026-10-24, the operator (the API key, transcripts in scope) and Claude, in `plans/active/youtube-council-channel.md` (built in its M1, M4, M5, and M6; the file moves to `plans/completed/` when the plan closes).
+2026-10-24, the operator (the API key, transcripts in scope) and Claude, in `plans/completed/youtube-council-channel.md` (built in its M1, M4, M5, and M6; the file moves to `plans/completed/` when the plan closes).
 
 ## Status
 

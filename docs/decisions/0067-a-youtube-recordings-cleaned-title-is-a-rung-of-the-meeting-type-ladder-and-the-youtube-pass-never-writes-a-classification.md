@@ -12,7 +12,7 @@ The rung outranks the calendar and the rule because the stream's title is the co
 
 ## Date
 
-2026-10-24, Claude, after the design review, in `plans/active/youtube-council-channel.md` (built in its M3 and M4; the file moves to `plans/completed/` when the plan closes).
+2026-10-24, Claude, after the design review, in `plans/completed/youtube-council-channel.md` (built in its M3 and M4; the file moves to `plans/completed/` when the plan closes).
 
 ## Status
 

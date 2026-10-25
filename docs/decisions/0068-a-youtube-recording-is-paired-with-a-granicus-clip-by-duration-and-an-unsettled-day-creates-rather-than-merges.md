@@ -12,7 +12,7 @@ On an ambiguous day the choice is between a cosmetic duplicate and a wrong merge
 
 ## Date
 
-2026-10-24, Claude, with the guard and the group total from the operator's external review, in `plans/active/youtube-council-channel.md` (built in its M2 and M4; the file moves to `plans/completed/` when the plan closes).
+2026-10-24, Claude, with the guard and the group total from the operator's external review, in `plans/completed/youtube-council-channel.md` (built in its M2 and M4; the file moves to `plans/completed/` when the plan closes).
 
 ## Status
 

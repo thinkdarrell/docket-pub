@@ -315,6 +315,8 @@ Lifecycle. The behavioural outcome is reflected in `docs/specs/meeting-types.md`
 
 Observed after the routed edits were committed (HEAD `f2e8305`, before this entry), from 00:04Z to 00:05Z: `./tools/verify` printed `verify: test-db ... ok (0s)`, `unit+web+services ... ok (57s)`, `integration ... ok (50s)`, `judge-fixtures ... ok (0s)`, `workflows ... ok (0s)`, `transcriber ... ok (2s)`, `plans ... ok (0s)`, and `verify: all 6 checks passed in 109s.`
 
+Observed in the move commit, with this file at `plans/completed/`: `tools/check-plans` printed `plans: plans/active/meeting-types-name-the-body.md ... ok` and `plans: 1 of 1 ok`, exit 0, and decisions `0067` to `0070` now cite the completed path in their Date line. The twenty-odd `plans/active/youtube-council-channel.md` citations in code and test docstrings (Decision Log, M7) are left to the doc-garden stage that follows.
+
 ## Context and Orientation
 
 docket.pub is a Flask application over PostgreSQL in `src/docket/`, run on Railway as a web service and a cron worker, with a GPU transcriber in `transcriber/` that runs on the operator's home machine. Read `AGENTS.md` first; it is the map.

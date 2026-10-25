@@ -12,7 +12,7 @@ Absorption deletes rather than merges because every foreign key that points at `
 
 ## Date
 
-2026-10-24, Claude, in `plans/active/youtube-council-channel.md` (built in its M4; the file moves to `plans/completed/` when the plan closes).
+2026-10-24, Claude, in `plans/completed/youtube-council-channel.md` (built in its M4; the file moves to `plans/completed/` when the plan closes).
 
 ## Status
 
