@@ -243,3 +243,31 @@ class TestGroupVideos:
             ("nodate", "no readable date"),
             ("nodur", "no known duration"),
         ]
+
+    def test_a_special_called_stream_is_its_own_group_beside_the_regular_one(self):
+        # Review record (second panel), important: a same-day special-called
+        # council stream must not fold into the regular meeting as a part.
+        from docket.services.youtube_meetings import group_videos
+
+        groups = group_videos(
+            [
+                _video("reg", "Birmingham City Council Meeting 9.29.26", 7200),
+                _video("spc", "Special Called Birmingham City Council Meeting 9.29.26", 900),
+            ],
+            today=TODAY,
+        )
+        assert sorted((g.primary.video_id, [v.video_id for v in g.others], g.classification.session_kind)
+                      for g in groups) == [("reg", [], "regular"), ("spc", [], "special")]
+
+    def test_numbered_parts_still_fold_across_a_special_called_prefix(self):
+        from docket.services.youtube_meetings import group_videos
+
+        (cand,) = group_videos(
+            [
+                _video("p1", "Special Called Community Development Committee Meeting 9.8.26 Pt. 1", 1200),
+                _video("p2", "Community Development Committee Meeting 9.8.26 Pt. 2", 2400),
+            ],
+            today=TODAY,
+        )
+        assert cand.primary.video_id == "p2"
+        assert [v.video_id for v in cand.others] == ["p1"]

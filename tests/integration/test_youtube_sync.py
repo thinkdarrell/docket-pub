@@ -376,6 +376,50 @@ def test_a_yt_row_created_beside_an_unpaired_clip_is_not_absorbed_into_it_next_r
     assert yt is not None and _videos_of(yt["id"]) == [("M4Tcw2", True)]
 
 
+def _hide(mid: int) -> None:
+    with db_cursor() as cur:
+        cur.execute("UPDATE meetings SET is_hidden = TRUE, hidden_at = now() WHERE id = %s", (mid,))
+
+
+def test_a_hidden_clip_never_takes_a_recording(bhm):
+    # Review record (second panel), important: a row an admin hid is not an
+    # attach target; the recording gets its own visible row instead.
+    d = date(2019, 6, 20)
+    hidden = _row(bhm, "m4t-17", d, meeting_type="committee", type_source="schedule_rule", duration_s=1500)
+    _hide(hidden)
+
+    report = _sync([_video("hd1", "Committee of the Whole Meeting 6.20.19", 1400)])
+
+    assert _actions(report) == ["create"]
+    assert _videos_of(hidden) == []
+    assert _by_ext(bhm, "yt-M4Thd1") is not None
+
+
+def test_a_hidden_council_row_is_passed_over_for_the_visible_one(bhm):
+    d = date(2019, 6, 4)
+    hidden = _row(bhm, "m4t-18", d, duration_s=3600, items=20)
+    visible = _row(bhm, "m4t-19", d, duration_s=3500, items=5)
+    _hide(hidden)
+
+    report = _sync([_video("hc1", "Birmingham City Council Meeting 6.4.19", 3600)])
+
+    assert _actions(report) == ["attach"]
+    assert _videos_of(hidden) == []
+    assert _videos_of(visible) == [("M4Thc1", True)]
+
+
+def test_a_hidden_clip_never_absorbs_a_yt_row(bhm):
+    d = TODAY - timedelta(days=5)
+    yt = _yt_row(bhm, "hd2", d, 1400, "Transportation Committee Meeting")
+    clip = _row(bhm, "m4t-20", d, meeting_type="committee", type_source="schedule_rule", duration_s=1500)
+    _hide(clip)
+
+    report = _sync([])
+
+    assert "absorb" not in _actions(report)
+    assert _meeting(yt) is not None and _videos_of(yt) == [("M4Thd2", True)]
+
+
 def test_a_yt_row_with_a_transcript_is_hidden_instead_of_deleted(bhm):
     d = TODAY - timedelta(days=5)
     yt = _yt_row(bhm, "tr2", d, 1400, "Transportation Committee Meeting")

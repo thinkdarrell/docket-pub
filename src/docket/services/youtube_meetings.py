@@ -156,7 +156,8 @@ def group_videos(
     today: date | None = None,
     dropped: list[tuple[YouTubeVideo, str]] | None = None,
 ) -> list[Candidate]:
-    """Fold finished meeting videos of at least ``MIN_RECORDING_S`` into one candidate per date and body.
+    """Fold finished meeting videos of at least ``MIN_RECORDING_S`` into one candidate per date and body
+    (a special-called meeting apart from a regular one; numbered parts join either).
 
     The longest video of a group is its primary recording; the rest are sorted
     by part number, then duration. Live and upcoming streams, videos of unknown
@@ -165,7 +166,7 @@ def group_videos(
     duration is unknown, is appended to ``dropped`` with that reason, so the
     caller can report what it left out.
     """
-    groups: dict[tuple[date, str], list[tuple[YouTubeVideo, ParsedTitle]]] = {}
+    accepted: list[tuple[YouTubeVideo, ParsedTitle]] = []
     for video in videos:
         if video.broadcast != "none":
             continue
@@ -183,10 +184,22 @@ def group_videos(
             ):
                 dropped.append((video, "no readable date"))
             continue
-        groups.setdefault((parsed.meeting_date, body_key(parsed.clean_title)), []).append((video, parsed))
+        accepted.append((video, parsed))
+
+    # A special-called stream is its own meeting beside a regular one of the
+    # same body and date; only a numbered part may join a group across that
+    # difference (a stream broken into parts is not always titled alike).
+    groups: dict[tuple[date, str, bool], list[tuple[YouTubeVideo, ParsedTitle]]] = {}
+    for video, parsed in sorted(accepted, key=lambda vp: vp[1].part is not None):
+        special = classify_title(parsed.clean_title).session_kind == "special"
+        key = (parsed.meeting_date, body_key(parsed.clean_title), special)
+        other = (key[0], key[1], not special)
+        if parsed.part is not None and key not in groups and other in groups:
+            key = other
+        groups.setdefault(key, []).append((video, parsed))
 
     candidates = []
-    for (meeting_date, _key), members in groups.items():
+    for (meeting_date, _key, _special), members in groups.items():
         members.sort(key=lambda vp: (-(vp[0].duration_s or 0), vp[0].video_id))
         primary, primary_parsed = members[0]
         rest = sorted(
@@ -439,6 +452,17 @@ class _Run:
 
     # --- one day ----------------------------------------------------------------
 
+    def _day_rows(self, meeting_date: date) -> list[dict]:
+        """The day's rows a recording may attach to or be absorbed into: an
+        admin-hidden row never is, so a recording never vanishes into one."""
+        self.cur.execute(_DAY_ROWS_SQL, (self.municipality_id, meeting_date))
+        rows = [dict(r) for r in self.cur.fetchall()]
+        hidden = [r for r in rows if r["is_hidden"]]
+        if hidden:
+            log.info("youtube %s: passing over hidden rows %s", meeting_date,
+                     ", ".join(f"{r['id']} ({r['external_id']})" for r in hidden))
+        return [r for r in rows if not r["is_hidden"]]
+
     def day(self, meeting_date: date, groups: list[Candidate]) -> None:
         fresh: list[Candidate] = []
         for g in groups:
@@ -459,8 +483,7 @@ class _Run:
         if not fresh:
             return
 
-        self.cur.execute(_DAY_ROWS_SQL, (self.municipality_id, meeting_date))
-        rows = [dict(r) for r in self.cur.fetchall()]
+        rows = self._day_rows(meeting_date)
         candidates = [r for r in _committee_candidates(rows) if r["id"] not in self.claimed]
         blocked = any(r["duration_s"] is None for r in candidates)
 
@@ -525,8 +548,7 @@ class _Run:
         for r in young:
             by_day.setdefault(r["meeting_date"], []).append(r)
         for meeting_date, yts in sorted(by_day.items()):
-            self.cur.execute(_DAY_ROWS_SQL, (self.municipality_id, meeting_date))
-            rows = [dict(r) for r in self.cur.fetchall()]
+            rows = self._day_rows(meeting_date)
             committee = [r for r in _committee_candidates(rows) if r["id"] not in self.claimed]
             council = [
                 r for r in rows
