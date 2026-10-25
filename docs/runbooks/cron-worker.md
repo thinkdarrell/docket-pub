@@ -2,8 +2,8 @@
 
 The Railway `worker` service runs `python -m docket.worker.scheduler` and fires
 **seventeen scheduled tasks** (see the design spec at
-`docs/superpowers/specs/2026-05-04-cron-worker-design.md`; subsequent additions
-documented in `~/docket-pub/CLAUDE.md`).
+`docs/superpowers/specs/2026-05-04-cron-worker-design.md`; the schedule itself
+is `src/docket/worker/scheduler.py`).
 
 **Status:** Live in production since 2026-05-04. Task count grew from the original 5 through 2026-05 as Phase 2/3 features shipped (`process_badges`, `calibration_report`, `process_batches`, `refresh_backfill_ratio_mv`, `prune_analytics`, `video_ocr`).
 
