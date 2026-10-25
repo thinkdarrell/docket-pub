@@ -147,6 +147,13 @@ constrains:
    whose output only makes sense once the next one lands cannot be verified on
    its own, so it is either one milestone with the next or cut on a different
    seam.
+   In a plan `cycle-run` will execute, no milestone moves the plan to
+   `plans/completed/` or writes the closing retrospective: the judge and the review record read
+   the `plans/active/` path after the last milestone, and the retro stage
+   makes the move itself. The closing milestone graduates decisions,
+   reflects specs, and records debt; the lifecycle's last two steps are
+   the retro's. `calibration-float-scores` M2 and `youtube-council-channel`
+   M7 each named the move and each carved it out.
 6. Write down the contracts later sessions cannot rediscover: names and file
    layouts to be created, formats to conform to, identifiers already spent,
    and the reasoning behind each one. A fresh session re-derives none of this
