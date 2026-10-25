@@ -1,6 +1,6 @@
 # Meeting types
 
-What a meeting's type, sitting, and body name mean, how a row gets them, and what a reader sees. Present tense; the plan that built this is `plans/completed/meeting-types-name-the-body.md` once it closes, and `plans/active/` until then; the `video` rung and the council's YouTube channel came with `youtube-council-channel` (in `plans/active/` until it closes, then `plans/completed/`).
+What a meeting's type, sitting, and body name mean, how a row gets them, and what a reader sees. Present tense; the plan that built this is `plans/completed/meeting-types-name-the-body.md` once it closes, and `plans/active/` until then; the `video` rung and the council's YouTube channel came with `plans/completed/youtube-council-channel.md`.
 
 ## The vocabularies
 
