@@ -13,7 +13,7 @@ the external id prefix ``m4t-`` and every video id starts ``M4T``, which is what
 the cleanup deletes by. ``sync_city`` is imported inside each test so the file
 collects before the function exists.
 
-Plan: plans/active/youtube-council-channel.md (M4).
+Plan: plans/completed/youtube-council-channel.md (M4).
 """
 
 from __future__ import annotations

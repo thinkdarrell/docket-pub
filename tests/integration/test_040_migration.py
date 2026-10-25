@@ -1,6 +1,6 @@
 """Verify migration 040: `meeting_videos`, `meetings.duration_s`, the `video` type source, and Birmingham's YouTube metadata; down removes all of them.
 
-Pattern: tests/integration/test_038_migration.py. Plan: plans/active/youtube-council-channel.md (M2).
+Pattern: tests/integration/test_038_migration.py. Plan: plans/completed/youtube-council-channel.md (M2).
 """
 from datetime import date
 

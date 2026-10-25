@@ -14,7 +14,7 @@ Pattern: ``client`` from ``tests/web/conftest.py``; rows seeded directly
 with an ``external_id`` prefix and deleted after (``meeting_videos`` rows go
 with them by cascade). Runs in the web tier against the throwaway database.
 
-Plan: plans/active/youtube-council-channel.md (M5).
+Plan: plans/completed/youtube-council-channel.md (M5).
 """
 
 from __future__ import annotations

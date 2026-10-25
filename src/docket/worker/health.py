@@ -56,7 +56,7 @@ TASK_UUID_ENV: dict[str, str] = {
     "city_calendar": "HEALTHCHECK_CITY_CALENDAR_UUID",
     # Check docket-youtube-ingest; optional, set when convenient after the
     # first deploy of the task. ping() short-circuits until then.
-    # Plan: plans/active/youtube-council-channel.md (M4).
+    # Plan: plans/completed/youtube-council-channel.md (M4).
     "youtube_ingest": "HEALTHCHECK_YOUTUBE_INGEST_UUID",
 }
 

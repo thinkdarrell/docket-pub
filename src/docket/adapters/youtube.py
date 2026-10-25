@@ -15,7 +15,7 @@ The HTTP call is injected (``get``, default ``requests.get``) so tests drive the
 client with canned pages and no network. Nothing here touches the database;
 ``docket.services.youtube_meetings`` decides what the videos mean.
 
-Plan: plans/active/youtube-council-channel.md (M1).
+Plan: plans/completed/youtube-council-channel.md (M1).
 """
 
 from __future__ import annotations

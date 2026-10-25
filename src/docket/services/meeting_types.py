@@ -44,7 +44,7 @@ the ones that changed in one statement; :func:`reclassify_city` is the
 operator's one-time pass over a whole city (``scripts/reclassify_meetings.py``).
 
 Plan: plans/active/meeting-types-name-the-body.md (M4); the video rung,
-plans/active/youtube-council-channel.md (M3).
+plans/completed/youtube-council-channel.md (M3).
 """
 
 from __future__ import annotations

@@ -7,7 +7,7 @@ like the API's own answers.
 The symbols under test are imported inside each test, so the file collects
 and reads as failing, not as a collection error, before the module exists.
 
-Plan: plans/active/youtube-council-channel.md (M1).
+Plan: plans/completed/youtube-council-channel.md (M1).
 """
 
 from datetime import datetime, timezone

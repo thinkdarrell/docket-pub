@@ -186,7 +186,7 @@ class TestEventUpgradePath:
 
 
 class TestDuration:
-    """`duration_s` is written on INSERT and kept by an UPDATE that brings none (plans/active/youtube-council-channel.md, M2)."""
+    """`duration_s` is written on INSERT and kept by an UPDATE that brings none (plans/completed/youtube-council-channel.md, M2)."""
 
     @staticmethod
     def _duration(muni_id: int, external_id: str):
@@ -296,7 +296,7 @@ class TestResolveAndStore:
 
     def test_youtube_recording_names_the_row_primary_first(self, muni_id):
         """`_MEETING_ROWS_SQL` carries the row's YouTube clean titles, primary
-        first. Plan: plans/active/youtube-council-channel.md (M3)."""
+        first. Plan: plans/completed/youtube-council-channel.md (M3)."""
         from docket.services.meeting_types import resolve_and_store
 
         _upsert_meetings(muni_id, [_meeting("mtype-yt", GENERIC, TUESDAY)])

@@ -7,7 +7,7 @@ inventory is the contract: a new title shape is a new case here.
 The symbols under test are imported inside each test, so the file collects
 and reads as failing, not as a collection error, before the module exists.
 
-Plan: plans/active/youtube-council-channel.md (M1).
+Plan: plans/completed/youtube-council-channel.md (M1).
 """
 
 from datetime import date, datetime, timezone

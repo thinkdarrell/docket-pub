@@ -43,7 +43,7 @@ BLOG_PREVIEW_TOKEN = os.environ.get("BLOG_PREVIEW_TOKEN", "")
 
 # YouTube Data API v3 key for the youtube_ingest task and
 # scripts/backfill_youtube_meetings.py; unset, both read nothing
-# (plans/active/youtube-council-channel.md, M4).
+# (plans/completed/youtube-council-channel.md, M4).
 YOUTUBE_API_KEY: str | None = os.environ.get("YOUTUBE_API_KEY")
 
 # Transcripts: meetings dated before this have no transcript and are not data

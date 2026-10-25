@@ -22,7 +22,7 @@ Birmingham's metadata gains `youtube_channel` and `youtube_channel_id`;
 the down removes both keys.
 
 Number 039 is left to plans/active/meeting-types-name-the-body.md (M6).
-Plan: plans/active/youtube-council-channel.md (M2).
+Plan: plans/completed/youtube-council-channel.md (M2).
 """
 
 from __future__ import annotations

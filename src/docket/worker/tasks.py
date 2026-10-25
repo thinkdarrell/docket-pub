@@ -470,7 +470,7 @@ def _do_youtube_ingest() -> None:
     (``youtube_meetings.sync_city``). Without ``YOUTUBE_API_KEY`` it logs and
     returns. An exhausted quota ends that city, not the task; any other failure
     is logged and does not block the other cities.
-    Plan: plans/active/youtube-council-channel.md (M4).
+    Plan: plans/completed/youtube-council-channel.md (M4).
     """
     if not config.YOUTUBE_API_KEY:
         log.warning("youtube_ingest: YOUTUBE_API_KEY is not set; nothing read")

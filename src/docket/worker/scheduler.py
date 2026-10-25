@@ -68,7 +68,7 @@ def build_scheduler(timezone: str = "America/Chicago") -> BlockingScheduler:
     # Match the council's YouTube recordings to meeting rows after ingest_all
     # (06:00) has listed the day's Granicus clips and stored their durations.
     # About three Data API quota units a day.
-    # Plan: plans/active/youtube-council-channel.md (M4).
+    # Plan: plans/completed/youtube-council-channel.md (M4).
     sched.add_job(
         TASKS["youtube_ingest"],
         CronTrigger(hour=6, minute=45, timezone=timezone),

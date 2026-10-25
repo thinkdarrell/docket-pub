@@ -14,7 +14,7 @@ Granicus clips' durations (a ``no_duration`` count says it has not):
     YOUTUBE_API_KEY=... python scripts/backfill_youtube_meetings.py --city birmingham
 
 Against production the operator sets DATABASE_URL to DATABASE_PUBLIC_URL
-(plans/active/youtube-council-channel.md, M4 and M5). Exits 1 without a key.
+(plans/completed/youtube-council-channel.md, M4 and M5). Exits 1 without a key.
 """
 
 import argparse

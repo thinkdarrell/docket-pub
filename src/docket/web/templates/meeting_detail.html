@@ -76,7 +76,7 @@
 
 {# ── Provenance: the clip name the city's archive carries, and which rung
       named the body (plans/active/meeting-types-name-the-body.md, M5; the
-      YouTube rung, plans/active/youtube-council-channel.md, M5).
+      YouTube rung, plans/completed/youtube-council-channel.md, M5).
       Printed only when the label differs from the title. A row whose source
       is the council's YouTube channel (a yt- row) took its title from there,
       not from the city's archive. #}
@@ -427,7 +427,7 @@
         {% endif %}
         {#- A YouTube recording of a row whose own video is elsewhere (a
             Granicus clip the council also streamed): a second rail link
-            (plans/active/youtube-council-channel.md, M5). #}
+            (plans/completed/youtube-council-channel.md, M5). #}
         {%- set _youtube = (recordings or []) | selectattr('provider', 'equalto', 'youtube') | first %}
         {% if _youtube and 'youtube.com' not in (meeting.video_url or '') %}
         <a class="rail-link" href="{{ _youtube.url }}" target="_blank" rel="noreferrer" style="flex: 1; min-width: 180px;">

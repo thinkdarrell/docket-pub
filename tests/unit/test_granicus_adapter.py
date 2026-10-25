@@ -454,7 +454,7 @@ def test_parse_archive_row_extracts_start_time():
     assert raw.start_time == time(17, 30)
 
 
-# --- duration extraction (plans/active/youtube-council-channel.md, M2) ------
+# --- duration extraction (plans/completed/youtube-council-channel.md, M2) ------
 # `parse_duration_cell` is imported inside each test so the file still
 # collects before the function exists.
 

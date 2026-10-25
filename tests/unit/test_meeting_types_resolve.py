@@ -265,7 +265,7 @@ class TestVocabulary:
 class TestVideoRung:
     """The rung between the specific title and the calendar: a YouTube
     recording attached to the row (``meeting_videos``) whose cleaned title
-    names a body. Plan: plans/active/youtube-council-channel.md (M3)."""
+    names a body. Plan: plans/completed/youtube-council-channel.md (M3)."""
 
     def test_generic_row_takes_the_body_from_its_youtube_recording(self):
         from docket.services.meeting_types import resolve

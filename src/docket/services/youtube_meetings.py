@@ -11,7 +11,7 @@ The title functions are pure; ``sync_city`` reads and writes the database. The t
 channel's inventory of 2026-10-24 (``tests/unit/test_youtube_titles.py``); a
 new shape is a new test case and a regex change.
 
-Plan: plans/active/youtube-council-channel.md (M1 the pure half; M4 ``sync_city``).
+Plan: plans/completed/youtube-council-channel.md (M1 the pure half; M4 ``sync_city``).
 """
 
 from __future__ import annotations
