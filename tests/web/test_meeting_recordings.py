@@ -209,3 +209,21 @@ def test_yt_row_provenance_names_the_youtube_channel_not_the_archive(client, row
     provenance = provenance[:provenance.index("</p>")]
     assert "The city's archive" not in provenance
     assert "The council's YouTube channel titles this recording “Committee of the Whole Meeting”." in provenance
+
+
+def test_archived_row_with_a_manifest_title_names_no_title_source(client):
+    # Review record (second panel), important: a 2023 Boutwell row's title
+    # came from the operator's manifest, not the channel or the archive, so
+    # the page names neither as its source.
+    with db() as conn, conn.cursor() as cur:
+        bhm = _city_id(cur, "birmingham")
+        mid = _meeting(cur, bhm, "yt-boutwell", CLIP, date(2023, 3, 7),
+                       video_url=_watch("zSAn_DKfBJY"), source_url=_watch("zSAn_DKfBJY"))
+        conn.commit()
+    try:
+        html = _get(client, f"/al/birmingham/meetings/{mid}/")
+        assert "meeting-provenance" not in html
+    finally:
+        with db() as conn, conn.cursor() as cur:
+            _cleanup(cur)
+            conn.commit()

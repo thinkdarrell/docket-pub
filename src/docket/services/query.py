@@ -157,7 +157,7 @@ def get_meeting(meeting_id: int) -> Meeting | None:
 def videos_for_meeting(meeting_id: int) -> list[dict]:
     """The meeting's recordings in ``meeting_videos`` (plan
     youtube-council-channel, M5), primary first and then by id:
-    ``{provider, video_id, url, title, duration_s, is_primary, part}``,
+    ``{provider, video_id, url, title, clean_title, duration_s, is_primary, part}``,
     where ``part`` is the title's ``Pt. N`` number or None."""
     # Local import: youtube_meetings imports the ladder, which this module
     # must not pull in at import time.
@@ -165,7 +165,7 @@ def videos_for_meeting(meeting_id: int) -> list[dict]:
 
     with db_cursor() as cur:
         cur.execute(
-            """SELECT provider, video_id, url, title, duration_s, is_primary
+            """SELECT provider, video_id, url, title, clean_title, duration_s, is_primary
                  FROM meeting_videos
                 WHERE meeting_id = %s
                 ORDER BY is_primary DESC, id""",
