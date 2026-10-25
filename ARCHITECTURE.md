@@ -9,7 +9,7 @@ docket.pub is a Python application with three runtime processes sharing one Post
 ### Adapters
 
 - Lives in: `src/docket/adapters/`
-- Owns: fetching meetings, agenda items, and document links from one vendor platform (Granicus, CivicClerk, CivicPlus, generic HTML archive) and returning them as the raw dataclasses in `src/docket/models/protocol.py`.
+- Owns: fetching meetings, agenda items, and document links from one vendor platform (Granicus, CivicClerk, CivicPlus, generic HTML archive) and returning them as the raw dataclasses in `src/docket/models/protocol.py`; and two read-only clients outside that protocol that return their own records for a service to interpret: the city's calendar page (`city_calendar.py`, read by `services/city_calendar.py`) and the council's YouTube channel through the YouTube Data API (`youtube.py`, read by `services/youtube_meetings.py`; decision `0070`).
 - Does not: write to the database or decide what a meeting means; `services/ingest.py` does both.
 
 ### Models
