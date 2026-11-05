@@ -295,14 +295,9 @@ Seven tables for meeting transcripts and the planned minutes comparison. Written
 - `producer_heartbeats`: `host`, `last_seen_at`, `last_status`, `last_meeting_id`, `producer_version`.
 - `minutes_texts`, `meeting_events`, `minutes_discrepancies`: plan 2. Event timelines from both transcript and minutes, and the discrepancies between them with `review_state` (`proposed` → `approved` | `rejected`) and citation checks.
 
-Full-text search is **already wired into the schema** via PostgreSQL tsvector:
+Full-text search is PostgreSQL tsvector columns with GIN indexes: `meetings.search_vector`, `agenda_items.search_vector`, and `transcript_segments.search_vector`, each filled by the database. What the agenda-item vector holds (the item's own fields and, for an item with one, its hidden search card from `agenda_item_search_cards`), its weights, how a typed query is parsed, and how results are ranked are in `docs/specs/search.md`, which owns them; they are not restated here.
 
-- `meetings.search_vector` — auto-populated from `title` via trigger
-- `agenda_items.search_vector` — auto-populated from `title + description` via trigger
-- GIN indexes on both columns for fast querying
-- Query with: `WHERE search_vector @@ to_tsquery('english', 'search terms')`
-
-The search service functions are `search_meetings` and `search_agenda_items` in `src/docket/services/query.py` and `search_transcripts` in `src/docket/services/transcripts.py`.
+The search service functions are `search_meetings`, `search_agenda_items`, and `build_search_sql` in `src/docket/services/query.py`, the query parser in `src/docket/services/search_query.py`, and `search_transcripts` and `moments_for_items` in `src/docket/services/transcripts.py`.
 
 ---
 
@@ -440,7 +435,7 @@ The query service (`src/docket/services/query.py`) provides the read layer. Flas
 | Function | Returns | Description |
 |---|---|---|
 | `search_meetings(query, city?, limit, offset)` | `list[dict]` | FTS on meeting titles, city-scoped by default |
-| `search_agenda_items(query, city?, limit, offset)` | `list[dict]` | FTS on agenda item text, city-scoped by default |
+| `search_agenda_items(query, city?, limit, offset)` | `list[AgendaItem]` | Ranked search over agenda items and their hidden search cards: no word is required, items carrying a typed identifier come first, then items matching more of the typed words (`docs/specs/search.md`); every active city when no city is given |
 
 **Topic / dollar browsing:**
 

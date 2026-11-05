@@ -77,5 +77,11 @@ TRANSCRIPT_PER_TICK: int = int(os.environ.get("TRANSCRIPT_PER_TICK", "5"))
 # Granicus junk clips (a 6-minute mic check had 24 words) get transcribed;
 # anything under this many words is not a meeting and gets no LLM call.
 TRANSCRIPT_MIN_WORDS: int = int(os.environ.get("TRANSCRIPT_MIN_WORDS", "300"))
+# Search cards (docket.ai.transcripts.cards): hidden search text for each agenda
+# item a transcript places, written once per meeting after the events stage.
+# The default is the events model; whatever is named needs a PRICING entry.
+AI_TRANSCRIPT_CARDS_MODEL: str = os.environ.get("AI_TRANSCRIPT_CARDS_MODEL", "claude-sonnet-5-5")
+# Meetings carded per transcript_pipeline tick, newest first. 0 turns the stage off.
+TRANSCRIPT_CARDS_PER_TICK: int = int(os.environ.get("TRANSCRIPT_CARDS_PER_TICK", "2"))
 # Outbound alert webhook (Slack or Discord incoming webhook). Unset = silent.
 ALERT_WEBHOOK_URL: str | None = os.environ.get("ALERT_WEBHOOK_URL") or None

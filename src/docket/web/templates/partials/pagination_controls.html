@@ -14,12 +14,17 @@
    path and only rewrites the `page` value. Filters / sort options
    carried in the URL survive pagination clicks for free.
 
+   Optional context:
+     drop_params — names of query params to leave out of the links (the
+                   search page drops `tpage`, the page of its lower list,
+                   which starts again on another page of results)
+
    Renders nothing when page <= 1 and there's no next page (single-page
    result set — no nav needed).
 #}
 {%- macro _page_url(new_page) -%}
   {%- set parts = [] -%}
-  {%- for k, v in request.args.items() if k != 'page' -%}
+  {%- for k, v in request.args.items() if k != 'page' and k not in (drop_params | default([])) -%}
     {%- set _ = parts.append(k ~ '=' ~ (v | urlencode)) -%}
   {%- endfor -%}
   {%- set _ = parts.append('page=' ~ new_page) -%}

@@ -15,6 +15,13 @@ from docket.models.agenda import AgendaItem
 from docket.models.meeting import Meeting
 from docket.models.vote import AgendaItemLink, MemberVote, Vote
 from docket.services.meeting_time import UPCOMING_PREDICATE_SQL as _RAW_UPCOMING_PREDICATE
+from docket.services.search_query import (
+    SearchQuery,
+    coverage_sql,
+    ident_sql,
+    or_tsquery_sql,
+    parse_query,
+)
 
 # Prefixed for use inside queries that alias the meetings table as `mt`.
 _UPCOMING_PREDICATE_MT = (
@@ -1214,15 +1221,182 @@ def search_meetings(
         return [dict(row) for row in cur.fetchall()]
 
 
+# The order of search results, written once and used twice by
+# build_search_sql: to choose a page's rows, and to return them. The names
+# are the ranked CTE's columns and the two tables' aliases, which mean the
+# same in both places. `{recency}` is SEARCH_RECENCY_ORDER_SQL when the
+# query held new, recent, or latest, and empty otherwise. In words: items
+# carrying a typed identifier first, then items matching more of the typed
+# words and phrases, then (for a recency word) newer meetings, then
+# ts_rank, then newer meetings, then the item id so that paging never
+# repeats or skips a row.
+SEARCH_ORDER_SQL = (
+    "ident_hits DESC, coverage DESC, "
+    "{recency}"
+    "rank DESC, mt.meeting_date DESC NULLS LAST, ai.id DESC"
+)
+SEARCH_RECENCY_ORDER_SQL = "mt.meeting_date DESC NULLS LAST, "
+
+# What a search result carries: the columns of the Smart Brevity Card chain,
+# the same shape as list_items_by_badge. `rank` follows it in the statement.
+_SEARCH_SELECT_SQL = """\
+SELECT
+    ai.id,
+    ai.meeting_id,
+    ai.external_id,
+    ai.item_number,
+    ai.title,
+    ai.description,
+    ai.section,
+    ai.is_consent,
+    ai.sponsor,
+    ai.dollars_amount,
+    ai.topic,
+    ai.significance_score,
+    ai.consent_placement_score,
+    ai.summary,
+    ai.ai_metadata,
+    ai.ai_prompt_version,
+    ai.ai_generated_at,
+    ai.data_quality::text       AS data_quality,
+    ai.data_debt_priority::text AS data_debt_priority,
+    ai.processing_status::text  AS processing_status,
+    ai.ai_extraction_version,
+    ai.ai_rewrite_version,
+    ai.ai_rewrite_voice,
+    ai.ai_confidence,
+    ai.headline,
+    ai.why_it_matters,
+    ai.source_anchor,
+    CASE
+        WHEN ai.extracted_facts IS NULL THEN NULL
+        ELSE jsonb_strip_nulls(jsonb_build_object(
+            'counterparty',       ai.extracted_facts->>'counterparty',
+            'funding_source',     ai.extracted_facts->>'funding_source',
+            'procurement_method', ai.extracted_facts->>'procurement_method',
+            'action_type',        ai.extracted_facts->>'action_type',
+            'location',           ai.extracted_facts->'location',
+            'next_steps',         ai.extracted_facts->'next_steps'
+        ))
+    END AS extracted_facts,
+    COALESCE(b_agg.badges, '[]'::jsonb) AS badges,
+    mt.title AS meeting_title,
+    mt.meeting_date,
+    m.name AS municipality_name,
+    m.slug AS municipality_slug
+"""
+
+_SEARCH_BADGES_SQL = """\
+LEFT JOIN LATERAL (
+    SELECT jsonb_agg(jsonb_build_object(
+               'kind',        b.kind,
+               'slug',        b.badge_slug,
+               'confidence',  b.confidence,
+               'name',        t.name,
+               'icon',        t.icon,
+               'description', t.description
+           ) ORDER BY b.detected_at DESC) AS badges
+    FROM agenda_item_badges b
+    JOIN priority_badge_templates t ON t.slug = b.badge_slug
+    WHERE b.agenda_item_id = ai.id
+      AND b.status = 'applied'
+) b_agg ON true
+"""
+
+
+def build_search_sql(
+    sq: SearchQuery,
+    municipality_slug: str | None,
+    limit: int,
+    offset: int,
+) -> tuple[str, dict]:
+    """The ranked agenda-item search for a parsed query: one statement and its named parameters.
+
+    Two steps, so that only the page's rows pay for the wide select. The CTE
+    `ranked` reads every visible item whose search vector matches any unit
+    of the query and none of its excluded words or phrases, computes for each how many
+    typed identifiers it carries (`ident_hits`), how many typed words and
+    phrases it matches (`coverage`), and its `ts_rank`, orders them by
+    SEARCH_ORDER_SQL, and keeps `limit` rows from `offset`. The outer select
+    joins those rows back to their item, meeting, municipality, and badges
+    and returns them in the same order.
+
+    `search_agenda_items` executes this. It is a function of its own so that
+    `scripts/search_scale_check.py` can time the same statement on the
+    connection that holds its uncommitted rows. The caller checks that
+    `sq.units` is not empty; with none the statement matches nothing.
+    """
+    vector = "ai.search_vector"
+    any_unit, params = or_tsquery_sql(sq.units, "u")
+    coverage, coverage_params = coverage_sql(sq.units, vector, "u")
+    ident_hits, ident_params = ident_sql(sq.units, vector, "u")
+    params = {**params, **coverage_params, **ident_params, "limit": limit, "offset": offset}
+
+    where = ["m.active = TRUE", "mt.is_hidden = FALSE"]
+    if municipality_slug:
+        where.append("m.slug = %(slug)s")
+        params["slug"] = municipality_slug
+    where.append(f"{vector} @@ {any_unit}")
+    for n, word in enumerate(sq.excluded):
+        where.append(f"NOT ({vector} @@ plainto_tsquery('english', %(x{n})s))")
+        params[f"x{n}"] = word
+    for n, phrase in enumerate(sq.excluded_phrases):
+        where.append(f"NOT ({vector} @@ phraseto_tsquery('english', %(xp{n})s))")
+        params[f"xp{n}"] = phrase
+
+    order = SEARCH_ORDER_SQL.format(recency=SEARCH_RECENCY_ORDER_SQL if sq.prefer_recent else "")
+    sql = f"""
+WITH ranked AS (
+    SELECT ai.id,
+           {ident_hits} AS ident_hits,
+           {coverage} AS coverage,
+           ts_rank({vector}, {any_unit}) AS rank
+      FROM agenda_items ai
+      JOIN meetings mt ON ai.meeting_id = mt.id
+      JOIN municipalities m ON mt.municipality_id = m.id
+     WHERE {" AND ".join(where)}
+     ORDER BY {order}
+     LIMIT %(limit)s OFFSET %(offset)s
+)
+{_SEARCH_SELECT_SQL.rstrip()},
+    ranked.rank AS rank
+FROM ranked
+JOIN agenda_items ai ON ai.id = ranked.id
+JOIN meetings mt ON ai.meeting_id = mt.id
+JOIN municipalities m ON mt.municipality_id = m.id
+{_SEARCH_BADGES_SQL.rstrip()}
+ORDER BY {order}
+"""
+    return sql, params
+
+
 def search_agenda_items(
     query: str,
     municipality_slug: str | None = None,
     limit: int = 20,
     offset: int = 0,
 ) -> list[AgendaItem]:
-    """Full-text search across agenda item titles and descriptions.
+    """Ranked search of agenda items from loose, everyday words.
 
-    Scoped to a single city by default. Pass municipality_slug=None for cross-city.
+    The typed text is parsed by `docket.services.search_query.parse_query`
+    into units (words, quoted phrases, identifiers such as `26-50`),
+    excluded words (`-word`), and a recency preference (`new`, `recent`,
+    `latest`). An item is returned when its search vector matches at least
+    one unit and no excluded word; no word is required. The vector holds
+    the item's title, headline, description, and extracted fields, and,
+    where the meeting has a machine transcript, the hidden text of the
+    item's search card (migration 041), so a word that was only said aloud
+    can find the item.
+
+    The order is SEARCH_ORDER_SQL: items carrying a typed identifier first,
+    then items matching more of the typed words and phrases, then newer
+    meetings when a recency word was typed, then `ts_rank`. A query that
+    parses to no units (nothing typed, stop words only, excluded words
+    only) returns an empty list without a statement.
+
+    Items of hidden meetings and of inactive municipalities are never
+    returned. With ``municipality_slug`` the search is that city's; with
+    None, the default, it is every active city's.
 
     Returns ``AgendaItem`` instances enriched with the cross-meeting context
     columns (``meeting_title``, ``meeting_date``, ``municipality_name``,
@@ -1231,84 +1405,12 @@ def search_agenda_items(
     shape as ``list_items_by_badge`` so search-result cards reach parity
     with category-landing cards.
     """
+    sq = parse_query(query)
+    if not sq.units:
+        return []
+    sql, params = build_search_sql(sq, municipality_slug, limit, offset)
     with db_cursor() as cur:
-        where = "m.active = TRUE AND mt.is_hidden = FALSE AND ai.search_vector @@ websearch_to_tsquery('english', %s)"
-        params: list = [query]
-
-        if municipality_slug:
-            where += " AND m.slug = %s"
-            params.append(municipality_slug)
-
-        cur.execute(
-            f"""
-            SELECT
-                ai.id,
-                ai.meeting_id,
-                ai.external_id,
-                ai.item_number,
-                ai.title,
-                ai.description,
-                ai.section,
-                ai.is_consent,
-                ai.sponsor,
-                ai.dollars_amount,
-                ai.topic,
-                ai.significance_score,
-                ai.consent_placement_score,
-                ai.summary,
-                ai.ai_metadata,
-                ai.ai_prompt_version,
-                ai.ai_generated_at,
-                ai.data_quality::text       AS data_quality,
-                ai.data_debt_priority::text AS data_debt_priority,
-                ai.processing_status::text  AS processing_status,
-                ai.ai_extraction_version,
-                ai.ai_rewrite_version,
-                ai.ai_rewrite_voice,
-                ai.ai_confidence,
-                ai.headline,
-                ai.why_it_matters,
-                ai.source_anchor,
-                CASE
-                    WHEN ai.extracted_facts IS NULL THEN NULL
-                    ELSE jsonb_strip_nulls(jsonb_build_object(
-                        'counterparty',       ai.extracted_facts->>'counterparty',
-                        'funding_source',     ai.extracted_facts->>'funding_source',
-                        'procurement_method', ai.extracted_facts->>'procurement_method',
-                        'action_type',        ai.extracted_facts->>'action_type',
-                        'location',           ai.extracted_facts->'location',
-                        'next_steps',         ai.extracted_facts->'next_steps'
-                    ))
-                END AS extracted_facts,
-                COALESCE(b_agg.badges, '[]'::jsonb) AS badges,
-                mt.title AS meeting_title,
-                mt.meeting_date,
-                m.name AS municipality_name,
-                m.slug AS municipality_slug,
-                ts_rank(ai.search_vector, websearch_to_tsquery('english', %s)) AS rank
-            FROM agenda_items ai
-            JOIN meetings mt ON ai.meeting_id = mt.id
-            JOIN municipalities m ON mt.municipality_id = m.id
-            LEFT JOIN LATERAL (
-                SELECT jsonb_agg(jsonb_build_object(
-                           'kind',        b.kind,
-                           'slug',        b.badge_slug,
-                           'confidence',  b.confidence,
-                           'name',        t.name,
-                           'icon',        t.icon,
-                           'description', t.description
-                       ) ORDER BY b.detected_at DESC) AS badges
-                FROM agenda_item_badges b
-                JOIN priority_badge_templates t ON t.slug = b.badge_slug
-                WHERE b.agenda_item_id = ai.id
-                  AND b.status = 'applied'
-            ) b_agg ON true
-            WHERE {where}
-            ORDER BY rank DESC, mt.meeting_date DESC
-            LIMIT %s OFFSET %s
-            """,
-            (query, *params, limit, offset),
-        )
+        cur.execute(sql, params)
         return [AgendaItem.from_row(dict(row)) for row in cur.fetchall()]
 
 

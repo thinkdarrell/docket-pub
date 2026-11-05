@@ -68,10 +68,20 @@ extracted, usually a scan that needs OCR or a different URL) go straight to
 unavailable and retried daily.
 A transcript that was uploaded stays public through `failed`/`needs_review`.
 Every call writes `ai_runs` (stages `transcript_speakers`, `transcript_events`,
-`transcript_compare`, `transcript_ab`) so `AI_DAILY_BUDGET_USD` applies.
+`transcript_compare`, `transcript_ab`, `transcript_cards`) so `AI_DAILY_BUDGET_USD` applies.
 Manual run: `railway ssh --service worker` then `python -m docket.worker.scheduler --run-once transcript_pipeline`.
 One meeting: `venv/bin/python scripts/transcript_recompare.py --meeting-id N --now` (laptop, public DB URL, API key);
 add `--minutes-changed` when the minutes PDF changed, or `--transcript-changed` after re-extracting the transcript events (see Re-comparison).
+
+Search cards. After the three stages the same tick builds search cards (hidden search text for each
+agenda item the transcript places; `src/docket/ai/transcripts/cards.py`). The stage is not a status.
+`docs/specs/search.md` owns its rules and this runbook does not restate them: Search cards says what
+a card is and how a reply is validated, and Card runs says which transcripts the stage claims and how
+many a tick, what `done`, `failed` (with or without `incomplete:`), and `held` mean and when each is
+retried, what a 429 does, and the lines the stage logs. `docs/specs/transcripts.md` (Search cards)
+says where the stage sits and what it never writes. The by-hand command,
+`scripts/build_search_cards.py`, and its flags are in `docs/specs/operations.md` (Railway specifics);
+what the operator records from it goes under Search cards: measurements below.
 
 ## Worker environment
 
@@ -79,6 +89,8 @@ add `--minutes-changed` when the minutes PDF changed, or `--transcript-changed` 
 `AI_TRANSCRIPT_COMPARE_MODEL` (default `claude-opus-5-5`), `AI_TRANSCRIPT_AB_MODEL`
 (A/B script only), `TRANSCRIPT_TOKEN_CEILING`,
 `TRANSCRIPT_CANDIDATE_CAP`, `TRANSCRIPT_PER_TICK`, `TRANSCRIPT_MIN_WORDS`,
+`AI_TRANSCRIPT_CARDS_MODEL` (the search-card model, default `claude-sonnet-5-5`; it needs a `PRICING` entry),
+`TRANSCRIPT_CARDS_PER_TICK` (meetings given search cards per tick, default 2; 0 turns the card stage off),
 `ALERT_WEBHOOK_URL` (Slack or Discord incoming webhook; unset = silent),
 `HEALTHCHECK_TRANSCRIPT_PIPELINE_UUID`. Web service: `MINUTES_VS_VIDEO_UI` (see ship gate).
 `AI_DAILY_BUDGET_USD` is shared with `ai_items` and `ai_meetings`; when it is exhausted the
@@ -322,6 +334,61 @@ return 404, the producer skips it, and the hidden-meetings admin list keeps it
 reversible. Existing transcript rows stay attached to the hidden meeting.
 On 2026-10-11, 19 such meetings were hidden this way (all 18 unhidden Monday test
 streams since 2025-10-28 plus the one-minute 2019-12-30 clip).
+
+## Search cards: measurements
+
+What the card stage and ranked search measured on real rows. The factory sessions of plan
+`search-finds-what-was-said` (2026-11) had no API key and no production database, so they
+filled in only what they could observe; every heading below marked "not yet run" is the
+operator's, in the order of the operator-steps row in `docs/DEBT.md` (`D86`). Record each
+result under its heading with the date, and delete that row in the same commit as the last one.
+
+### Live smoke report and cost (step 1, before the merge)
+
+Not yet run. The command, in the worktree with a real key:
+
+    DATABASE_URL=$(tools/test-db) ANTHROPIC_API_KEY=<key> venv/bin/python -m pytest -m live tests/live/test_transcript_cards_live.py -v -s -p no:cacheprovider; tools/test-db --drop
+
+Record the printed `cards: meeting ...` report line whole: placed items and cards, details
+kept, re-pointed, and dropped by the citation guard, bounds kept and dropped, starts moved
+20 seconds or more, tokens in and out, and the dollars. A 400 from the API naming the schema
+is a defect to fix before merging. The only figures so far are from a fake client on meeting
+2543's real rows (nine placed items, a 74,651-character message), which say nothing about
+what a model replies or costs.
+
+### Production counts (step 2, before the merge)
+
+Not yet run. The four read-only queries are in `plans/completed/search-finds-what-was-said.md`,
+Context and Orientation, through
+`DATABASE_PUBLIC_URL`. Record each result beside its assumption:
+
+- Birmingham meetings with a public transcript, by status. Assumed: 50 to 150 in all, nearly all at `compared` or `events_extracted`.
+- Placed items in those meetings. Assumed: about one item in five.
+- `SELECT count(*) FROM agenda_items`. Assumed: about 60,000.
+- Median and 95th-percentile `pg_column_size(search_vector)`. Assumed: a median no more than twice the scale check's. The scale check at 60,000 synthetic rows printed, on 2026-11-05 on the development machine, `scale: 60000 rows; vector median 3.2 kB, p95 5.2 kB; rare-word 2 ms; three-word 339 ms; common-words 435 ms`. If production's median is larger, re-run `scripts/search_scale_check.py --rows 60000 --desc-words LOW-HIGH` wider until the medians agree and record both lines; a timing at or over 2,000 ms is a design question, not a tuning one.
+
+### Backfill log (steps 4 and 5, after the deploy)
+
+Not yet run. Record the `--count` line before the first build, the two report lines of
+`scripts/build_search_cards.py --meeting-id 2224 --meeting-id 2231 --dry-run`, then for each
+`--limit N` run its date, its last line (`cards: built N, held N, failed N, stopped: ...`),
+and the day's cost from `/admin/ai` (stage `transcript_cards`), until `--count` shows none
+waiting. Note any run `held` or `failed` with its `last_error`.
+
+### Golden check, before and after (step 6)
+
+Before, 2026-11-05 01:27Z, against production as it was before this plan's deploy (every-word
+matching, no cards, no nested moments), run by the plan's first session:
+
+    golden: 3 of 45 targets on the first page (top 3: 3, top 10: 3, top 20: 3); 0 with spoken moments; 42 queries
+
+After: not yet run. Record the summary line of
+`venv/bin/python scripts/golden_search.py --base-url https://docket.pub` once after the
+deploy with no cards built (ranked matching and placement-based moments alone) if convenient,
+and once after the backfill; whether items 58824 and 58874 are on the first page of
+`new late night ordinance`; where the excerpt on `/al/birmingham/items/58824/` begins (it
+should be near 1:45:10); and the time of one common-word search
+(`curl -s -o /dev/null -w '%{time_total}\n' 'https://docket.pub/search?q=city+ordinance+resolution+contract&city=birmingham'`).
 
 ## Tests
 
