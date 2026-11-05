@@ -1392,8 +1392,8 @@ def search_agenda_items(
     only) returns an empty list without a statement.
 
     Items of hidden meetings and of inactive municipalities are never
-    returned. Scoped to a single city by default. Pass
-    municipality_slug=None for cross-city.
+    returned. With ``municipality_slug`` the search is that city's; with
+    None, the default, it is every active city's.
 
     Returns ``AgendaItem`` instances enriched with the cross-meeting context
     columns (``meeting_title``, ``meeting_date``, ``municipality_name``,
