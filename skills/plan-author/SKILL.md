@@ -242,6 +242,15 @@ against the new rule. One plan left four test clauses that no session could
 satisfy as written, two because a review changed the rule after the test was
 specified and two because the stated geometry did not add up; each cost the
 executing session a divergence it had to log instead of a check it could run.
+A case a plan gives to tell one rule from another is worked under both before
+it is written: the plan states what the other rule returns for it, and the
+test asserts that half as well. Two consecutive plans gave a case that did
+not test what it named, `youtube-council-channel`'s two-part recording (300 s
+and 1,800 s against 2,100 s) and `search-finds-what-was-said` M5's line
+holding two of the query's words against a line repeating one of them three
+times, which `ts_rank` alone already orders the way the new term was meant
+to; each was caught by the executing session, the second only because that
+session wrote a precondition the plan had not asked for.
 
 When a plan is audited against a convention that changed under it, record the
 audit's outcome in the plan even if nothing needed to change — an audit that
