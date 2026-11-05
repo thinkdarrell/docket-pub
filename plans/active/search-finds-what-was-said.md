@@ -125,6 +125,14 @@ The entries from here on were observed by the M4 session (Claude, one fresh sess
 - Observation: the factory shell has no API key, so no model call was possible in this session, as the plan says.
   Evidence: `venv/bin/python scripts/build_search_cards.py --limit 1; echo "exit=$?"` on a disposable database at 2026-11-05 02:18Z printed `cards: fatal: ANTHROPIC_API_KEY is not set` and `exit=1`, before anything was claimed.
 
+The entries from here on were observed by the M5 session (Claude, one fresh session of `/cycle-run`), starting at commit `1695cd4` on 2026-11-05 (UTC; the machine's clock read 2026-11-05 02:26Z when the session began).
+
+- Observation: `./tools/verify` passed at `1695cd4` before any edit, with M4's closing totals.
+  Evidence: exit 0, finished 2026-11-05 02:28Z; `2302 passed, 5 skipped, 4 xfailed, 2 warnings in 56.72s` (unit+web+services), `772 passed, 2 warnings in 53.88s` (integration), `judge fixtures: 12 of 12 passed`, `workflows: 2 of 2 ok`, `95 passed, 1 warning in 1.14s` (transcriber), `plans: 2 of 2 ok`, `verify: all 6 checks passed in 114s.` on `postgresql://thinkdarrell@/docket_test_b97d950a`.
+
+- Observation: with `tests/integration/test_search_moments.py` written and none of `item_ranges`, `SNAPPED_OWNER_SQL`, `moments_for_items`, the excerpt's change, or `src/docket/services/search_query.py` created, the file collects, the two tests of behaviour that does not change pass, and every other test fails.
+  Evidence: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/integration/test_search_moments.py -q -p no:cacheprovider; tools/test-db --drop` at 2026-11-05 02:33Z printed `37 failed, 2 passed, 1 warning in 3.03s`. The file holds 39 test functions (`grep -c "^def test_"`), none parametrized. It reads the names M5 adds off `docket.services.transcripts` inside the tests and imports `docket.services.search_query` and `docket.ai.transcripts.cards` inside helpers, so nothing fails at collection. The failures: 12 are an `AttributeError` for `moments_for_items` and 4 for `item_ranges`, 8 a `ModuleNotFoundError` for `docket.services.search_query`, 6 a `KeyError: 'snapped'`, and 7 an assertion on where today's excerpt starts and ends (for the item filed from segment 3 with a card at 5 to 8, `[[3, 4], [5], [6, 7], [8, 9]]` where the test wants `[[5], [6, 7], [8]]`; the item page lacks the link to `#t-5`). The two that pass are `test_a_low_speech_transcript_has_no_excerpt` and `test_an_item_with_nothing_filed_and_no_card_has_no_excerpt`, which is today's behaviour and stays. This is the commit before the code, so the before state is readable from git.
+
 ## Decision Log
 
 Every entry below is an authoring decision, dated 2026-11-04, by the plan-author session (Claude) unless it names the operator.
