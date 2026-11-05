@@ -1015,11 +1015,17 @@ def search():
     per_page = 20
     offset = (page - 1) * per_page
 
+    # The `speaker:name` token is the transcript search's filter, so it is
+    # taken out before the item search sees the text: `speaker:oquinn budget`
+    # searches items for "budget", and a `speaker:`-only query has no items.
+    from docket.services import transcripts as tsvc
+    clean_q, speaker = tsvc.parse_speaker_token(q) if q else ("", None)
+
     results = []
     has_next = False
     if q:
         results = query.search_agenda_items(
-            q,
+            clean_q,
             municipality_slug=city,
             limit=per_page,
             offset=offset,
@@ -1045,14 +1051,11 @@ def search():
     else:
         order = None
 
-    from docket.services import transcripts as tsvc
     transcript_hits: list[dict] = []
-    if q:
-        clean_q, speaker = tsvc.parse_speaker_token(q)
-        if clean_q or speaker:
-            transcript_hits = tsvc.search_transcripts(
-                clean_q, municipality_slug=city, speaker=speaker, limit=10, offset=offset // 2,
-            )
+    if clean_q or speaker:
+        transcript_hits = tsvc.search_transcripts(
+            clean_q, municipality_slug=city, speaker=speaker, limit=10, offset=offset // 2,
+        )
 
     municipalities = query.list_municipalities()
 
