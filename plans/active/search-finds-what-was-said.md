@@ -63,6 +63,14 @@ The entries from here on were observed on 2026-11-04 by the revision session (th
 - Observation: the May 12 discussion contains the words of the pair `administration apology Felder ordinance`, and the spike's prompt captured them as written.
   Evidence: the spike's input for meeting 2231 has, in one turn, "The administration and I want to take full responsibility of how we got here related to this ordinance" and "so I apologize to you publicly", and the spike's card for item 58874 holds the detail "A speaker called on as Mayor Woodfin publicly apologized for social media comments made Saturday." at turn 147 with the quote "I want to publicly apologize".
 
+The entries from here on were observed by the M1 session (Claude, one fresh session of `/cycle-run`), starting at commit `cac470c` on 2026-11-05 (UTC; the machine's clock read 2026-11-05 01:18Z when the session began).
+
+- Observation: the worktree now has its `.env`, and `./tools/verify` passed before any edit with the totals the author recorded.
+  Evidence: `./tools/verify` at `cac470c`, run twice before the first edit (the second time to keep its whole output), both exit 0. The second run printed `2228 passed, 5 skipped, 4 xfailed, 2 warnings in 55.97s` (unit+web+services), `690 passed, 2 warnings in 49.33s` (integration), `judge fixtures: 12 of 12 passed`, `workflows: 2 of 2 ok`, `95 passed, 1 warning in 1.13s` (transcriber), `plans: 2 of 2 ok`, and `verify: all 6 checks passed in 109s.` on `postgresql://thinkdarrell@/docket_test_b97d950a`.
+
+- Observation: with the fixture and the test file written and `scripts/golden_search.py` not yet created, the test file collects, its two fixture tests pass, and the fourteen tests that load the script fail.
+  Evidence: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_golden_search.py -q -p no:cacheprovider; tools/test-db --drop` at 2026-11-05 01:24Z printed `14 failed, 2 passed, 1 warning in 0.09s`; each failure is the `FileNotFoundError` of loading the script by path inside the test. This is the commit before the script, so the before state is readable from git.
+
 ## Decision Log
 
 Every entry below is an authoring decision, dated 2026-11-04, by the plan-author session (Claude) unless it names the operator.
@@ -152,6 +160,24 @@ The entries from here on are the revision of 2026-11-04, made before any milesto
 - Decision: the card prompt is unchanged.
   Rationale: the review proposed asking the model for guessed spelling variants of unusual names, and for wording aimed at the pair `administration apology Felder ordinance`. A guessed variant is text that is in neither the agenda nor the transcript, which the prompt's last rule excludes, the operator's goal defines a variant as the transcript's spelling, and the goal leaves phonetic matching to a later plan; guessed variants go in the follow-ups row. The second proposal rests on the claim that the May 12 transcript lacks the words "administration" and "apology"; it has both, and the spike's card captured the apology with the prompt as written.
   Date/Author: 2026-11-04, plan revision session (Claude), review point G.
+
+The entries from here on are the M1 session's (Claude, 2026-11-05 UTC). Each resolves something M1's text left open inside M1's own boundary; none changes another milestone's scope.
+
+- Decision: `parse_results` does not read an item link that sits inside a `<li class="search-transcript-hit">` element into `items`. On today's markup this changes nothing, because a transcript line links only to the transcript page.
+  Rationale: M1's text says `items` is every agenda item id linked after `Refine search`, and it was written against today's page, where the only such links are the result cards. M7 adds to each line of the lower list the words `during <a href="/al/<slug>/items/<id>/">`, naming the item the line is filed under, and M7 leaves out of that list the lines of the page's own results, so every item named there is by construction an item the search did not return. Read literally, such an item would be given a position after the last result card, and on a page of fewer than twenty results a golden target the search missed would be counted as on the first page, in the after measurement only. The check exists to say where the search ranks the target, so a position is a position among result cards. The lower list is still counted, as `loose`. M7's test needs only that the carded item is in `items` and that the nested moments are read, and both hold.
+  Date/Author: 2026-11-05, M1 session (Claude).
+
+- Decision: the script's HTTP fetcher treats a page that does not contain `Refine search` as a failed fetch (`golden: fetch failed for <url>: ...`, exit 1); `parse_results` itself, given such a page, returns no items and raises nothing.
+  Rationale: M1's text defines the results as the part of the page after that text and does not say what a page without it is. An error page, a maintenance page, or a later template that renamed the heading would otherwise score as "no target found" and print a summary line that looks like a measurement. A check that is not a gate still has to tell a miss from a page it could not read. The alternative, reading item links from the whole page when the heading is absent, would count links in the page chrome. A fetcher passed by a test is not checked, since the check lives in the HTTP fetcher.
+  Date/Author: 2026-11-05, M1 session (Claude).
+
+- Decision: the first page is counted as "the target is among the page's result cards" and the three top-N counts as a position of at most N; "with spoken moments" counts targets that are on the page with at least one nested moment read for them. `run(pairs, fetch)` takes a fetcher of one argument, the query, and returns the score; `http_fetcher(base_url, city, delay, *, opener, sleep)` builds the fetcher `main` uses, with the opener and the sleep as parameters so the tests can observe the URL, the header, the 60-second timeout, and the sleep before each request without a network. `load_pairs(path)` refuses a row missing one of the four keys.
+  Rationale: the search page holds twenty results, so "on the first page" and "top 20" are the same number on the site as it is, and the summary line prints both because the plan's line does; defining the first as presence keeps it true if the page size changes. The two helper names are not in Interfaces and Dependencies, which lists the five functions the plan requires; they are recorded here so a later session does not invent others.
+  Date/Author: 2026-11-05, M1 session (Claude).
+
+- Decision: `tests/unit/test_golden_search.py` loads the script inside each test (a cached helper), not at the top of the module as `tests/integration/test_transcript_scale_check.py` does, and resolves the script and the fixture from the test file's own location, not the working directory.
+  Rationale: `skills/plan-execute/SKILL.md` asks for the failing test to be committed before the code, and a module-level load of a script that does not exist is one collection error that hides every test in the file. The loading call is the same `importlib.util.spec_from_file_location` the plan names.
+  Date/Author: 2026-11-05, M1 session (Claude).
 
 ## Outcomes & Retrospective
 
