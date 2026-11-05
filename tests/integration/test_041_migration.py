@@ -1,6 +1,6 @@
 """Verify migration 041: `agenda_item_search_cards`, `transcript_card_runs`, and the search trigger function that folds a card's hidden text into `agenda_items.search_vector`; down removes the tables and restores migration 015's function.
 
-Pattern: tests/integration/test_040_migration.py. Plan: plans/active/search-finds-what-was-said.md (M2).
+Pattern: tests/integration/test_040_migration.py. Plan: plans/completed/search-finds-what-was-said.md (M2).
 
 The migration module is imported inside the fixtures and tests, not at the
 top of this file, so the file collects before the migration exists.

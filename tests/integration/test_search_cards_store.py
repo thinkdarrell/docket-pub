@@ -1,6 +1,6 @@
 """The search-card store: `write_cards` replaces a transcript's cards and refreshes those items' search vectors.
 
-Plan: plans/active/search-finds-what-was-said.md (M2). Nothing here calls a
+Plan: plans/completed/search-finds-what-was-said.md (M2). Nothing here calls a
 model; the cards are written by hand.
 
 `docket.ai.transcripts.cards` and the migration module are imported inside

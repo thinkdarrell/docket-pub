@@ -1,6 +1,6 @@
 """The readers of a search card: the item excerpt and the spoken moments under a search result.
 
-Plan: plans/active/search-finds-what-was-said.md (M5). Cards are written by
+Plan: plans/completed/search-finds-what-was-said.md (M5). Cards are written by
 hand through `write_cards`; nothing here calls a model.
 
 `docket.services.search_query`, `docket.ai.transcripts.cards`, and the names

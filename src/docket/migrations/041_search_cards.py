@@ -37,7 +37,7 @@ own `SQL_UP`, and drops both tables. Item vectors keep any card text they
 hold until each row is next written.
 
 Number 039 is left to plans/active/meeting-types-name-the-body.md (M6).
-Plan: plans/active/search-finds-what-was-said.md (M2).
+Plan: plans/completed/search-finds-what-was-said.md (M2).
 """
 
 from __future__ import annotations

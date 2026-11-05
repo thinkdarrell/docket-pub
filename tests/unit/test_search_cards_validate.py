@@ -1,6 +1,6 @@
 """The search card without the model: the prompt, the response schema, the meeting renderer, and the validator.
 
-Plan: plans/active/search-finds-what-was-said.md (M3). No database and no
+Plan: plans/completed/search-finds-what-was-said.md (M3). No database and no
 model call: replies are written by hand and segments are plain dicts.
 
 The symbols under test are imported inside the helpers and tests, not at the

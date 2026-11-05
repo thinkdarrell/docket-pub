@@ -1,6 +1,6 @@
 """The search results page: spoken moments nested under each result, and the transcript lines left over.
 
-Plan: plans/active/search-finds-what-was-said.md (M7). Cards are written by
+Plan: plans/completed/search-finds-what-was-said.md (M7). Cards are written by
 hand through `write_cards`; nothing here calls a model.
 
 The page is requested through the Flask test client and read with

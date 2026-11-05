@@ -1,6 +1,6 @@
 """The search query parser: typed text becomes units, excluded words, and a recency preference.
 
-Plan: plans/active/search-finds-what-was-said.md (M6). Pure: no database.
+Plan: plans/completed/search-finds-what-was-said.md (M6). Pure: no database.
 
 The names M6 adds to `docket.services.search_query` (`parse_query`,
 `ident_sql`, `MAX_UNITS`, `RECENCY_WORDS`, `STOP_WORDS`) are read off the

@@ -9,7 +9,7 @@ Run, with a real key, on a disposable database:
 It prints the stage's report line: how many placed items were carded, how many
 spoken details the citation guard kept, re-pointed, and dropped, how many
 starts moved, the tokens, and the dollars. Plan:
-plans/active/search-finds-what-was-said.md (M4, operator step 1).
+plans/completed/search-finds-what-was-said.md (M4, operator step 1).
 """
 import os
 

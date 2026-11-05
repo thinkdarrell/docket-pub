@@ -1,6 +1,6 @@
 """The search scale check: it times the ranked statement on synthetic rows and leaves none behind.
 
-Plan: plans/active/search-finds-what-was-said.md (M6). The 60,000-row run
+Plan: plans/completed/search-finds-what-was-said.md (M6). The 60,000-row run
 and its promotion rule are the session's and the operator's; this file runs
 2,000 rows and proves the check measures what its line says and cleans up.
 

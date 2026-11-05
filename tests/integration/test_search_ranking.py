@@ -1,6 +1,6 @@
 """Ranked matching: which agenda items a typed query returns, and in what order.
 
-Plan: plans/active/search-finds-what-was-said.md (M6). Cards are written by
+Plan: plans/completed/search-finds-what-was-said.md (M6). Cards are written by
 hand through `write_cards`; nothing here calls a model.
 
 The rows are shaped like the five the plan's author ran the ranking SQL on

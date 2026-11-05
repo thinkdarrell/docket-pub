@@ -1,6 +1,6 @@
 """The search-card stage: the claim, the build, the run row, the `ai_runs` row, the tick, and the command.
 
-Plan: plans/active/search-finds-what-was-said.md (M4). No model is called:
+Plan: plans/completed/search-finds-what-was-said.md (M4). No model is called:
 `FakeClient` stands where `StructuredClient` does, reads the rendered meeting
 it is handed, and replies with one card per item marker, as the prompt asks.
 
