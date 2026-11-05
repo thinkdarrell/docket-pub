@@ -504,7 +504,7 @@ The author ran this form on `tests/unit/test_transcript_search_parse.py` and it 
     venv/bin/python scripts/build_search_cards.py; echo "exit=$?"                             # M4; no mode given
     DATABASE_URL=$(tools/test-db) venv/bin/python scripts/search_scale_check.py --rows 60000; tools/test-db --drop    # M6
 
-The author ran `venv/bin/python -m docket.migrations.runner --help` (it lists `--status` and `--down VERSION`), one live request per added query (Surprises & Discoveries), and the ranking SQL shapes on temporary rows (Artifacts and Notes). The scripts named above do not exist yet, so their lines have not been run.
+The author ran `venv/bin/python -m docket.migrations.runner --help` (it lists `--status` and `--down VERSION`), one live request per added query (Surprises & Discoveries), and the ranking SQL shapes on temporary rows (Artifacts and Notes). The scripts named above do not exist yet, so their lines have not been run. (M1 session, 2026-11-05: `scripts/golden_search.py` now exists and its line has been run; what it printed is under Artifacts and Notes, "M1 evidence". The other scripts still do not exist.)
 
 Commits: every commit of a milestone session changes this plan file (decision `0037`); git hooks are never bypassed.
 
@@ -642,6 +642,23 @@ The ranking shapes, run by the author on temporary rows on the local PostgreSQL 
 
 `phraseto_tsquery('english','26-50')` matched only the 58874 row; `plainto_tsquery('english','Kelvin') || plainto_tsquery('english','Felder')` matched the 58824 and 58874 rows; `plainto_tsquery('english','the') || plainto_tsquery('english','night') || phraseto_tsquery('english','26-50')` printed `'night' | '26' <-> '-50'`; and `numnode(plainto_tsquery('english','the') || plainto_tsquery('english','of'))` printed `0`.
 
+M1 evidence, observed by the M1 session on 2026-11-05 (UTC) in this worktree. Every line below is a command the session ran and what it printed.
+
+The test file, with the script in place (2026-11-05 01:25Z); the file holds 16 test functions (`grep -c "^def test_" tests/unit/test_golden_search.py` printed `16`):
+
+    $ DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_golden_search.py -q -p no:cacheprovider; tools/test-db --drop
+    16 passed, 1 warning in 0.03s
+
+The same command one commit earlier (`49d0125`, the script absent) printed `14 failed, 2 passed` (Surprises & Discoveries). `venv/bin/ruff check scripts/golden_search.py tests/unit/test_golden_search.py` printed `All checks passed!`.
+
+Clause (c), the refused delay (2026-11-05 01:25Z). The refusal is argparse's, on standard error, before any pair is loaded or any request built:
+
+    $ venv/bin/python scripts/golden_search.py --base-url https://docket.pub --delay 0.5; echo "exit=$?"
+    usage: golden_search.py [-h] --base-url BASE_URL [--pairs PAIRS] [--city CITY]
+                            [--delay DELAY] [--out FILE]
+    golden_search.py: error: --delay must be at least 1.0 seconds: the check asks a site no faster than one request a second. Nothing was fetched.
+    exit=2
+
 ## Interfaces and Dependencies
 
 No new library. PostgreSQL full-text search stays the engine (decision `0003`); the Anthropic SDK is reached only through `StructuredClient`. At the end of the plan these exist.
@@ -691,7 +708,7 @@ In `src/docket/services/transcripts.py`:
                           per_item: int = 3) -> dict[int, list[dict]]
     def search_transcripts(..., exclude_item_ids: list[int] | None = None)     # rows gain agenda_item_id, item_title
 
-In `src/docket/services/query.py`: `build_search_sql(sq: SearchQuery, municipality_slug: str | None, limit: int, offset: int) -> tuple[str, dict]` and `search_agenda_items(query, municipality_slug=None, limit=20, offset=0) -> list[AgendaItem]`, same signature, ranked. Scripts: `scripts/golden_search.py` (`parse_results`, `score`, `format_report`, `run`, `main`), `scripts/build_search_cards.py`, `scripts/search_scale_check.py` (`run_scale_check(conn, rows, desc_words=(40, 400))`). Migration: `src/docket/migrations/041_search_cards.py`. The markup contract between the page and the golden check is `<li class="search-moment" data-item-id="<id>">` holding a link that ends `/transcript/#t-<seq>`, and `<li class="search-transcript-hit"` for the lower list.
+In `src/docket/services/query.py`: `build_search_sql(sq: SearchQuery, municipality_slug: str | None, limit: int, offset: int) -> tuple[str, dict]` and `search_agenda_items(query, municipality_slug=None, limit=20, offset=0) -> list[AgendaItem]`, same signature, ranked. Scripts: `scripts/golden_search.py` (`parse_results`, `score`, `format_report`, `run`, `main`; as built in M1 also `load_pairs(path)`, `http_fetcher(base_url, city, delay, *, opener=None, sleep=None)`, the exception `FetchFailed` with `url` and `error`, and the constants `DEFAULT_PAIRS`, `RESULTS_MARKER`, `USER_AGENT`, `MIN_DELAY_S`; `run(pairs, fetch)` calls `fetch(query)` and returns the dict `score` returns, whose keys are `rows`, `pairs`, `queries`, `first_page`, `top3`, `top10`, `top20`, `with_moments`, each row holding the pair's four keys plus `position` and `moments`), `scripts/build_search_cards.py`, `scripts/search_scale_check.py` (`run_scale_check(conn, rows, desc_words=(40, 400))`). Migration: `src/docket/migrations/041_search_cards.py`. The markup contract between the page and the golden check is `<li class="search-moment" data-item-id="<id>">` holding a link that ends `/transcript/#t-<seq>`, and `<li class="search-transcript-hit"` for the lower list.
 
 Revision note, 2026-11-04, plan author: this is the plan as first authored from the operator's goal and the scope brief; nothing has been revised. Deliberately left out, each stated in the goal or the brief as a later plan or a separate fix: linking items across meetings into one matter with a timeline (the matters table and lineage linker), which is also why the `new late night ordinance` to item 58874 pair is measured and not promised; embeddings, pgvector, reciprocal rank fusion, and phonetic hashing; a `transcript_chunks` table, typeahead or JSON search endpoints, an admin override drawer, changes to Whisper priming, and changes to speaker naming (the unnamed May 12 speaker is an issue for the operator to file); the product spec's UUID keys, millisecond columns, verification flags, and BM25; search facets and extra sorts (`D22`); issue #66 and issue #107; `search_meetings` and coverage search, which keep every-word matching; agenda items or cards for YouTube-only committee meetings (`D76`); dropping the weight-D summary term (`D11`); carrying manual speaker rows across a re-transcription (`D54`) and diarizer over-splitting (`D53`); the comparison-stage defects `D51` and `D52`, re-deferred in writing; other cities' pages and a home page; meeting-types M5 and M6 and migration 039; the Batches wrapper; a new worker task; a moment fallback from a card's cited segments and the retirement of cards whose transcript stops being public (both in the follow-ups row); the worktree `.env` (`D57`); and the deploy, the production counts, the live model run, the backfill, and the after measurement, which are the operator's steps and are written out above.
 
