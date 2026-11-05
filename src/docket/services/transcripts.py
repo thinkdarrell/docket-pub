@@ -12,10 +12,14 @@ import re as _re
 
 from markupsafe import Markup, escape
 
+from docket.ai.transcripts.shared import SPEAKER_CONFIDENCE_FLOOR, speaker_ordinals
 from docket.config import TRANSCRIPT_BACKFILL_SINCE, TRANSCRIPT_MIN_WORDS
 from docket.db import db_cursor
 
-SPEAKER_CONFIDENCE_FLOOR = 0.6
+# SPEAKER_CONFIDENCE_FLOOR and speaker_ordinals are owned by
+# docket.ai.transcripts.shared, which the transcript stages import directly.
+# They stay importable from this module: docket.services.speaker_correction
+# and the routes read them from here.
 
 # A transcript is public once uploaded, whatever the producer or a worker
 # stage does to its status afterwards (a re-claim for re-transcription, a
@@ -94,24 +98,6 @@ def list_segments(transcript_id: int) -> list[dict]:
             [transcript_id],
         )
         return [dict(r) for r in cur.fetchall()]
-
-
-def speaker_ordinals(transcript_id: int) -> dict[str, int]:
-    """cluster_label -> 1-based ordinal by first appearance over the whole meeting.
-
-    The transcript page and the item excerpt both number unresolved speakers
-    from this map, so "Speaker 3" means the same voice on every surface.
-    """
-    with db_cursor() as cur:
-        cur.execute(
-            """SELECT cluster_label, MIN(seq) AS first_seq
-                 FROM transcript_segments
-                WHERE transcript_id = %s AND is_silence = FALSE AND cluster_label IS NOT NULL
-                GROUP BY cluster_label
-                ORDER BY first_seq""",
-            [transcript_id],
-        )
-        return {r["cluster_label"]: i + 1 for i, r in enumerate(cur.fetchall())}
 
 
 def _label(seg: dict, ordinals: dict[str, int], floor: float) -> tuple[str, int | None]:

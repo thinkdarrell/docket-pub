@@ -19,9 +19,9 @@ from docket.ai.pricing import Usage, calculate_cost_usd, usage_capture
 from docket.ai.transcripts.events import load_agenda, load_segments_with_speakers, render_agenda, render_transcript
 from docket.ai.transcripts.prompts import EVENTS_TRANSCRIPT_SYSTEM
 from docket.ai.transcripts.schemas import EVENTS_SCHEMA, EventList, ExtractedEvent
+from docket.ai.transcripts.shared import speaker_ordinals
 from docket.config import AI_TRANSCRIPT_AB_MODEL, AI_TRANSCRIPT_EVENTS_MODEL
 from docket.db import db, db_cursor
-from docket.services.transcripts import speaker_ordinals
 log = logging.getLogger(__name__)
 
 HAIKU_WINDOW_TOKENS = 180_000      # Haiku 4.5 has a 200K window; leave room for output

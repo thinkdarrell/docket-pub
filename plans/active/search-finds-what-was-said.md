@@ -71,6 +71,17 @@ The entries from here on were observed by the M1 session (Claude, one fresh sess
 - Observation: with the fixture and the test file written and `scripts/golden_search.py` not yet created, the test file collects, its two fixture tests pass, and the fourteen tests that load the script fail.
   Evidence: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_golden_search.py -q -p no:cacheprovider; tools/test-db --drop` at 2026-11-05 01:24Z printed `14 failed, 2 passed, 1 warning in 0.09s`; each failure is the `FileNotFoundError` of loading the script by path inside the test. This is the commit before the script, so the before state is readable from git.
 
+The entries from here on were observed by the M2 session (Claude, one fresh session of `/cycle-run`), starting at commit `daeca7f` on 2026-11-05 (UTC; the machine's clock read 2026-11-05 01:33Z when the session began).
+
+- Observation: `./tools/verify` passed at `daeca7f` before any edit, with M1's closing totals.
+  Evidence: exit 0; `2244 passed, 5 skipped, 4 xfailed, 2 warnings in 57.59s` (unit+web+services), `690 passed, 2 warnings in 49.48s` (integration), `judge fixtures: 12 of 12 passed`, `workflows: 2 of 2 ok`, `95 passed, 1 warning in 1.15s` (transcriber), `plans: 2 of 2 ok`, `verify: all 6 checks passed in 110s.` on `postgresql://thinkdarrell@/docket_test_b97d950a`.
+
+- Observation: the debt register named `D42` in a second row, which clause (c) of M2's acceptance also greps: `D83` described its site as "a seventh site ... tracked by neither `D8` nor `D42`".
+  Evidence: before the edit, `grep -rn "D42" ARCHITECTURE.md docs/DEBT.md src` printed three lines: `ARCHITECTURE.md:102`, the `D42` row at `docs/DEBT.md:38`, and the `D83` row at `docs/DEBT.md:74`. `grep -rn "docket.services" src/docket/ai` printed seven import sites: three for badges (`D8`), the three `D42` sites, and `src/docket/ai/worker.py:327` (`D83`). The Decision Log says what was done with the `D83` row.
+
+- Observation: moving the two helpers leaves both import orders working, and importing the new module alone does not load the service module.
+  Evidence: after the move, `import docket.services.transcripts` first printed `speaker_ordinals.__module__` as `docket.ai.transcripts.shared` and the floor as `0.6`; importing `events`, `compare`, and `ab` first and then the service module and `docket.services.speaker_correction` printed `True` for all five names being the one function; `import docket.ai.transcripts.shared` alone left `docket.services.transcripts` out of `sys.modules`; `create_app()` built. Six transcript integration files (`test_events_stage`, `test_compare_stage`, `test_transcript_routes`, `test_admin_speakers`, `test_transcript_search`, `test_transcript_pipeline`) run by hand on a disposable database printed `62 passed, 1 warning in 4.74s`. `ruff check` on the four edited source files printed the same counts as at `daeca7f` (1, 3, 5, and 3 findings, all there before) and `All checks passed!` on `shared.py`.
+
 ## Decision Log
 
 Every entry below is an authoring decision, dated 2026-11-04, by the plan-author session (Claude) unless it names the operator.
@@ -178,6 +189,16 @@ The entries from here on are the M1 session's (Claude, 2026-11-05 UTC). Each res
 - Decision: `tests/unit/test_golden_search.py` loads the script inside each test (a cached helper), not at the top of the module as `tests/integration/test_transcript_scale_check.py` does, and resolves the script and the fixture from the test file's own location, not the working directory.
   Rationale: `skills/plan-execute/SKILL.md` asks for the failing test to be committed before the code, and a module-level load of a script that does not exist is one collection error that hides every test in the file. The loading call is the same `importlib.util.spec_from_file_location` the plan names.
   Date/Author: 2026-11-05, M1 session (Claude).
+
+The entries from here on are the M2 session's (Claude, 2026-11-05 UTC). Each resolves something M2's text left open inside M2's own boundary; none changes another milestone's scope.
+
+- Decision: the `D83` row of `docs/DEBT.md` is reworded where it named `D42`: "a seventh site ... tracked by neither `D8` nor `D42`" becomes "a fourth site ... (the seventh when it was found; plan `search-finds-what-was-said` M2, 2026-11, moved the three transcript speaker-helper sites into `src/docket/ai/transcripts/shared.py` and closed their row) ... not tracked by `D8`". Nothing else in that row changes, and `D83` itself is neither paid nor re-deferred.
+  Rationale: M2's text names two places that mention `D42` (the row and `ARCHITECTURE.md` line 102), and its clause (c) requires `grep -rn "D42" ARCHITECTURE.md docs/DEBT.md src` to print nothing; the `D83` row was a third place the author did not list. Leaving it would fail the clause and leave a live row pointing at a deleted one, and its count would be wrong as well, since after the move four sites remain where `src/docket/ai/` imports `src/docket/services/`, not seven. The alternative, carving the row out of clause (c), keeps a sentence the milestone itself made false. The register's ids are never reused, so the note names the plan instead of the closed id.
+  Date/Author: 2026-11-05, M2 session (Claude).
+
+- Decision: `docket.services.transcripts` keeps both names importable by importing them from `docket.ai.transcripts.shared`, with a comment saying who owns them and no `__all__`.
+  Rationale: the module uses both names itself (`group_turns`' default floor, `excerpt_for_item`'s ordinals), so the import is not an unused one and needs no re-export marker; an `__all__` naming two of the module's many public functions would misstate the rest. `docket.services.speaker_correction` and the routes go on reading them from the service module, as Context and Orientation says they must.
+  Date/Author: 2026-11-05, M2 session (Claude).
 
 ## Outcomes & Retrospective
 

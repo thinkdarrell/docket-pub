@@ -19,10 +19,10 @@ from docket.ai.transcripts.guard import find_citation
 from docket.ai.transcripts.minutes import MinutesCapture, capture_minutes, load_minutes, page_for_offset
 from docket.ai.transcripts.prompts import EVENTS_MINUTES_SYSTEM, EVENTS_PROMPT_VERSION, EVENTS_TRANSCRIPT_SYSTEM
 from docket.ai.transcripts.schemas import EVENTS_SCHEMA, EventList, ExtractedEvent
+from docket.ai.transcripts.shared import SPEAKER_CONFIDENCE_FLOOR, speaker_ordinals
 from docket.ai.transcripts.speakers import RosterMember, hms, mentioned_members, roster_for_meeting
 from docket.config import AI_TRANSCRIPT_EVENTS_MODEL, TRANSCRIPT_TOKEN_CEILING
 from docket.db import db_cursor
-from docket.services.transcripts import SPEAKER_CONFIDENCE_FLOOR, speaker_ordinals
 
 log = logging.getLogger(__name__)
 
