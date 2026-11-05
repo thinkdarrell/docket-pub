@@ -74,27 +74,14 @@ One meeting: `venv/bin/python scripts/transcript_recompare.py --meeting-id N --n
 add `--minutes-changed` when the minutes PDF changed, or `--transcript-changed` after re-extracting the transcript events (see Re-comparison).
 
 Search cards. After the three stages the same tick builds search cards (hidden search text for each
-agenda item the transcript places; `src/docket/ai/transcripts/cards.py`) for up to
-`TRANSCRIPT_CARDS_PER_TICK` (default 2; 0 turns it off) meetings, newest first. It claims a Birmingham
-transcript at `events_extracted` or `compared` that has no card run for its current upload and the
-current card prompt, calls the model once for the meeting, and writes `agenda_item_search_cards`. It
-is not a status: it never writes the `transcripts` row, and its bookkeeping is one row per transcript
-in `transcript_card_runs` (`claimed`, `done`, `failed`, `held`). It is skipped on a tick whose stage
-loop stopped on the budget or a rate limit, and it stops itself at `AI_DAILY_BUDGET_USD`. Each call
-writes an `ai_runs` row with the stage `transcript_cards` and logs one line beginning
-`cards: meeting N transcript N:` with what was placed, carded, kept, and dropped, the tokens, and the
-dollars; the pipeline's summary line (`transcript_pipeline PipelineSummary(...)`) carries `cards_built` and
-`cards_failed`, and the task's shorter `transcript_pipeline processed=...` line does not. A run `failed` with a
-`last_error` beginning `incomplete:` means the model skipped a placed item: the cards it did write are
-in place and the run retries itself, three attempts 24 hours apart, like any other `failed` run. A
-`held` run (a refusal, a truncated or malformed reply, the token ceiling) is not retried until the
-meeting is re-uploaded or the card prompt version is raised. A 429 hands the attempt back and ends
-the tick's card work for the day.
-By hand (laptop, public DB URL, API key): `venv/bin/python scripts/build_search_cards.py --count` reads
-where the archive stands; `--limit N` builds the N newest meetings still waiting; `--meeting-id N`
-(repeatable) rebuilds a meeting whatever its run row says; `--dry-run` with either calls the model and
-prints the report line without writing a card or a run row. The command refuses to run without
-exactly one of `--count`, `--limit`, or `--meeting-id`.
+agenda item the transcript places; `src/docket/ai/transcripts/cards.py`). The stage is not a status.
+`docs/specs/search.md` owns its rules and this runbook does not restate them: Search cards says what
+a card is and how a reply is validated, and Card runs says which transcripts the stage claims and how
+many a tick, what `done`, `failed` (with or without `incomplete:`), and `held` mean and when each is
+retried, what a 429 does, and the lines the stage logs. `docs/specs/transcripts.md` (Search cards)
+says where the stage sits and what it never writes. The by-hand command,
+`scripts/build_search_cards.py`, and its flags are in `docs/specs/operations.md` (Railway specifics);
+what the operator records from it goes under Search cards: measurements below.
 
 ## Worker environment
 
