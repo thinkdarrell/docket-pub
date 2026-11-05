@@ -198,6 +198,48 @@ def test_excluded_words_keep_the_first_twelve():
     assert [(u.kind, u.text) for u in sq.units] == _words("ordinance")
 
 
+def test_a_hyphen_before_a_quoted_phrase_excludes_the_phrase():
+    sq = _parse('-"late night" ordinance')
+    assert [(u.kind, u.text) for u in sq.units] == _words("ordinance")
+    assert sq.excluded_phrases == ("late night",)
+    assert sq.excluded == ()
+
+
+def test_an_excluded_phrase_alone_is_no_units():
+    sq = _parse('-"late  night"')
+    assert sq.units == ()
+    assert sq.excluded_phrases == ("late night",)
+
+
+def test_a_hyphen_ending_a_word_before_a_quote_excludes_nothing():
+    sq = _parse('well-"late night"')
+    assert (sqm.PHRASE, "late night") in [(u.kind, u.text) for u in sq.units]
+    assert sq.excluded_phrases == ()
+
+
+def test_an_excluded_phrase_of_stop_words_or_of_nothing_excludes_nothing():
+    sq = _parse('ordinance -"the of" -"" -" "')
+    assert sq.excluded_phrases == () and sq.excluded == ()
+    assert [(u.kind, u.text) for u in sq.units] == _words("ordinance")
+
+
+def test_duplicate_excluded_phrases_are_dropped_whatever_their_case():
+    assert _parse('paving -"Late Night" -"late night"').excluded_phrases == ("Late Night",)
+
+
+def test_excluded_words_and_phrases_share_the_cap_in_the_order_typed():
+    q = "ordinance " + " ".join(f"-zq{chr(97 + n)}" for n in range(10)) + ' -"one two" -"three four" -zqz -"five six"'
+    sq = _parse(q)
+    assert sq.excluded == tuple(f"zq{chr(97 + n)}" for n in range(10))
+    assert sq.excluded_phrases == ("one two", "three four")
+    assert len(sq.excluded) + len(sq.excluded_phrases) == sqm.MAX_EXCLUDED
+
+
+def test_a_query_built_without_excluded_phrases_has_none():
+    sq = sqm.SearchQuery(units=(), excluded=(), prefer_recent=False, raw="")
+    assert sq.excluded_phrases == ()
+
+
 def test_the_cap_counts_units_after_stop_words_and_duplicates_are_gone():
     q = "the alpha of alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike"
     units = _units(q)

@@ -30,10 +30,11 @@ WORD, PHRASE, IDENTIFIER = "word", "phrase", "identifier"
 
 # The most units a query keeps; the words typed after the twelfth are ignored.
 MAX_UNITS = 12
-# The most excluded words a query keeps; the `-word` tokens typed after the
-# twelfth are ignored. Each one is a predicate the item search evaluates for
-# every candidate row, so without a cap the cost of one request would be
-# bounded only by the length of its URL.
+# The most excluded words and phrases a query keeps, counted together; the
+# `-word` and `-"phrase"` tokens typed after the twelfth are ignored. Each
+# one is a predicate the item search evaluates for every candidate row, so
+# without a cap the cost of one request would be bounded only by the length
+# of its URL.
 MAX_EXCLUDED = 12
 
 # Typed outside quotes, these ask for newer meetings first and are not
@@ -67,9 +68,10 @@ class Unit:
 @dataclass(frozen=True)
 class SearchQuery:
     units: tuple[Unit, ...]
-    excluded: tuple[str, ...]
+    excluded: tuple[str, ...]            # excluded words: `-zoning`
     prefer_recent: bool
     raw: str
+    excluded_phrases: tuple[str, ...] = ()   # excluded phrases: `-"late night"`
 
 
 def _unit_tsquery(unit: Unit, name: str) -> str:
@@ -131,9 +133,12 @@ def ident_sql(units, vector: str, prefix: str) -> tuple[str, dict]:
     return "(" + " + ".join(parts) + ")", params
 
 
-# A double-quoted run, or a run of anything that is neither whitespace nor a
-# quote. A quote that is never closed matches neither branch and is skipped.
-_TOKEN_RE = re.compile(r'"([^"]*)"|[^\s"]+')
+# A double-quoted run, with the hyphen that starts a token right before it if
+# there is one, or a run of anything that is neither whitespace nor a quote.
+# A quote that is never closed matches neither branch and is skipped. A
+# hyphen that ends a word before a quote (`well-"known"`) belongs to the
+# word, because the second branch has already taken it.
+_TOKEN_RE = re.compile(r'(-?)"([^"]*)"|[^\s"]+')
 # Sentence punctuation and brackets round a typed token are not part of it.
 _EDGE_PUNCTUATION = ".,;:!?()[]{}"
 _DIGIT_RE = re.compile(r"\d")
@@ -149,20 +154,23 @@ def parse_query(q: str) -> SearchQuery:
     """Turn typed text into units, excluded words, and a recency preference.
 
     The text is split on whitespace, and a double-quoted run is one phrase
-    unit. Outside quotes, in this order: punctuation round a token is
+    unit, or an excluded phrase when a hyphen comes right before its opening
+    quote (`-"late night"`); an excluded phrase of stop words alone is
+    dropped. Outside quotes, in this order: punctuation round a token is
     removed and a token with no letter or digit is dropped; a stop word is
     dropped; `-word` is an excluded word; a token whose hyphen-separated
     parts each hold a digit is an identifier; anything else is a word.
     `new`, `recent`, and `latest` are then taken out of the units and set
     `prefer_recent`, unless that would leave no unit, in which case they stay
     as ordinary words. Duplicates are dropped whatever their case, and the
-    first MAX_UNITS units and the first MAX_EXCLUDED excluded words are kept.
-    A unit's text is as typed.
+    first MAX_UNITS units and the first MAX_EXCLUDED excluded words and
+    phrases, counted together in the order typed, are kept. A unit's text is
+    as typed.
     """
     units: list[Unit] = []
-    excluded: list[str] = []
+    excluded: list[tuple[str, str]] = []   # (WORD or PHRASE, text), in the order typed
     seen_units: set[tuple[str, str]] = set()
-    seen_excluded: set[str] = set()
+    seen_excluded: set[tuple[str, str]] = set()
 
     def add(kind: str, text: str) -> None:
         key = (kind, text.lower())
@@ -170,10 +178,18 @@ def parse_query(q: str) -> SearchQuery:
             seen_units.add(key)
             units.append(Unit(kind, text))
 
+    def exclude(kind: str, text: str) -> None:
+        key = (kind, text.lower())
+        if key not in seen_excluded and not all(w in STOP_WORDS for w in text.lower().split()):
+            seen_excluded.add(key)
+            excluded.append((kind, text))
+
     for match in _TOKEN_RE.finditer(q or ""):
-        if match.group(1) is not None:
-            phrase = " ".join(match.group(1).split())
-            if phrase:
+        if match.group(2) is not None:
+            phrase = " ".join(match.group(2).split())
+            if phrase and match.group(1):
+                exclude(PHRASE, phrase)
+            elif phrase:
                 add(PHRASE, phrase)
             continue
         token = match.group(0).strip(_EDGE_PUNCTUATION)
@@ -182,10 +198,7 @@ def parse_query(q: str) -> SearchQuery:
         if token.lower() in STOP_WORDS:
             continue
         if token[0] == "-" and token[1:2].isalpha():
-            word = token[1:]
-            if word.lower() not in STOP_WORDS and word.lower() not in seen_excluded:
-                seen_excluded.add(word.lower())
-                excluded.append(word)
+            exclude(WORD, token[1:])
             continue
         add(IDENTIFIER if _is_identifier(token) else WORD, token)
 
@@ -196,5 +209,8 @@ def parse_query(q: str) -> SearchQuery:
     prefer_recent = bool(searched) and len(searched) < len(units)
     if searched:
         units = searched
-    return SearchQuery(units=tuple(units[:MAX_UNITS]), excluded=tuple(excluded[:MAX_EXCLUDED]),
-                       prefer_recent=prefer_recent, raw=q)
+    kept = excluded[:MAX_EXCLUDED]
+    return SearchQuery(units=tuple(units[:MAX_UNITS]),
+                       excluded=tuple(text for kind, text in kept if kind == WORD),
+                       prefer_recent=prefer_recent, raw=q,
+                       excluded_phrases=tuple(text for kind, text in kept if kind == PHRASE))

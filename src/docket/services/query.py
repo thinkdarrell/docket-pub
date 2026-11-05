@@ -1314,7 +1314,7 @@ def build_search_sql(
 
     Two steps, so that only the page's rows pay for the wide select. The CTE
     `ranked` reads every visible item whose search vector matches any unit
-    of the query and none of its excluded words, computes for each how many
+    of the query and none of its excluded words or phrases, computes for each how many
     typed identifiers it carries (`ident_hits`), how many typed words and
     phrases it matches (`coverage`), and its `ts_rank`, orders them by
     SEARCH_ORDER_SQL, and keeps `limit` rows from `offset`. The outer select
@@ -1340,6 +1340,9 @@ def build_search_sql(
     for n, word in enumerate(sq.excluded):
         where.append(f"NOT ({vector} @@ plainto_tsquery('english', %(x{n})s))")
         params[f"x{n}"] = word
+    for n, phrase in enumerate(sq.excluded_phrases):
+        where.append(f"NOT ({vector} @@ phraseto_tsquery('english', %(xp{n})s))")
+        params[f"xp{n}"] = phrase
 
     order = SEARCH_ORDER_SQL.format(recency=SEARCH_RECENCY_ORDER_SQL if sq.prefer_recent else "")
     sql = f"""

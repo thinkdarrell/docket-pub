@@ -162,7 +162,7 @@ def item_anchor_map(turns: list[Turn]) -> dict[int, str]:
 # (`source_uploaded_at` equals the transcript row's `uploaded_at`); the
 # bounds of any other card point into segments that no longer exist.
 # `source_uploaded_at` is selected so that the statement, used as a CTE named
-# `c`, is the `c` SNAPPED_OWNER_SQL reads.
+# `c`, is the `c` SNAPPED_OWNER_SQL and PLACED_OWNER_SQL read.
 _ITEM_RANGES_SQL = f"""
     SELECT ai.id AS item_id, t.id AS transcript_id, t.meeting_id, mu.slug AS municipality_slug,
            t.uploaded_at AS source_uploaded_at, card.start_seq, card.end_seq
@@ -175,18 +175,21 @@ _ITEM_RANGES_SQL = f"""
             AND card.source_uploaded_at = t.uploaded_at AND card.start_seq IS NOT NULL
      WHERE ai.id = ANY(%(item_ids)s)"""
 
-# Which segments of a snapped range belong to the item. `c` is the item's
-# current card (or a row of _ITEM_RANGES_SQL with bounds) and `s` a segment of
-# its transcript. Items voted as a block are each given the block's ending, so
-# ranges overlap; a segment inside the range of an item opened later belongs
-# to that item. Of a block each item owns its own reading and the last owns
-# the shared ending, and an item always owns its own start segment. This is
-# the one statement of the rule: every reader of a snapped range uses it.
+# Which segments of a snapped range belong to the item. `c` is a row of
+# _ITEM_RANGES_SQL with bounds and `s` a segment of its transcript. Items
+# voted as a block are each given the block's ending, so ranges overlap; a
+# segment inside the range of an item opened later belongs to that item. Of
+# a block each item owns its own reading and the last owns the shared ending,
+# and an item always owns its own start segment, unless another item's range
+# starts at the same segment: then the item with the greater id, the one
+# created later as a later item on the agenda is, counts as opened later.
+# This is the one statement of the rule: every reader of a snapped range
+# uses it.
 SNAPPED_OWNER_SQL = """s.seq BETWEEN c.start_seq AND c.end_seq
                AND NOT EXISTS (SELECT 1 FROM agenda_item_search_cards c2
                                 WHERE c2.transcript_id = c.transcript_id
                                   AND c2.source_uploaded_at = c.source_uploaded_at
-                                  AND c2.start_seq > c.start_seq
+                                  AND (c2.start_seq, c2.agenda_item_id) > (c.start_seq, c.item_id)
                                   AND s.seq BETWEEN c2.start_seq AND c2.end_seq)"""
 
 # Which of the segments filed under an item belong to it when the item has no

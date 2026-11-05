@@ -376,12 +376,29 @@ def test_of_three_overlapping_ranges_each_item_owns_up_to_the_next_start(block):
     assert _moment_seqs(moments, block["r"]) == [8, 9]
 
 
-def test_two_items_whose_ranges_start_together_do_not_take_each_others_segments(block):
-    """Only a later start takes a segment; an equal one leaves both ranges whole."""
+def test_of_two_ranges_that_start_together_the_later_item_owns_the_overlap(block):
+    """Equal starts are broken by the item's id: q was created after p, as a later item on the agenda is."""
+    assert block["q"] > block["p"]
     _write_cards(block, {"p": (5, 9), "q": (5, 9)})
 
-    assert _seqs(tsvc.excerpt_for_item(block["p"], max_turns=10)) == [5, 6, 7, 8, 9]
-    assert _seqs(tsvc.excerpt_for_item(block["q"], max_turns=10)) == [5, 6, 7, 8, 9]
+    first = tsvc.excerpt_for_item(block["p"], max_turns=10)
+    second = tsvc.excerpt_for_item(block["q"], max_turns=10)
+
+    assert second["snapped"] is True and _seqs(second) == [5, 6, 7, 8, 9]
+    # p owns nothing inside its bounds, so it falls back to what is filed under it outside every card's bounds.
+    assert first["snapped"] is False and _seqs(first) == [4]
+    moments = tsvc.moments_for_items([block["p"], block["q"]], _query("ordinance", "parking"), per_item=10)
+    assert _moment_seqs(moments, block["p"]) == []
+    assert _moment_seqs(moments, block["q"]) == [5, 6, 7, 8, 9]
+
+
+def test_ranges_that_start_together_and_end_apart_share_no_segment(block):
+    _write_cards(block, {"p": (5, 9), "q": (5, 7)})
+
+    moments = tsvc.moments_for_items([block["p"], block["q"]], _query("ordinance", "ordinances"), per_item=10)
+
+    assert _moment_seqs(moments, block["q"]) == [5, 6, 7]
+    assert _moment_seqs(moments, block["p"]) == [8, 9]
 
 
 def test_a_line_inside_a_neighbours_bounds_is_not_a_moment_of_the_item_it_is_filed_under(main):

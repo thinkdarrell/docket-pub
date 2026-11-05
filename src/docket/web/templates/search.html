@@ -92,8 +92,8 @@
         </div>
         {% endwith %}
     </section>
-    {% include 'partials/pagination_controls.html' %}
-    {% elif not transcript_hits %}
+    {% with drop_params=['tpage'] %}{% include 'partials/pagination_controls.html' %}{% endwith %}
+    {% elif not transcript_hits and tpage == 1 %}
     <section class="feed">
         <div class="feed-head">
             <div>
@@ -117,20 +117,36 @@
     </section>
     {# Pagination still renders here so users on page 2+ with an empty
        page (off-by-one beyond the last) can click Previous. #}
-    {% include 'partials/pagination_controls.html' %}
+    {% with drop_params=['tpage'] %}{% include 'partials/pagination_controls.html' %}{% endwith %}
     {% endif %}
     {# The transcript lines not nested under a result above: each says which
-       agenda item it was said during, or that it was outside any. #}
-    {% if transcript_hits %}
-    <section class="feed">
+       agenda item it was said during, or that it was outside any. The list
+       has pages of its own (`tpage`), ten lines each; its links keep the
+       results page and every other parameter, and return to the list. #}
+    {% if transcript_hits or tpage > 1 %}
+    <section class="feed" id="also-said">
         <div class="feed-head"><div>
             <div class="t-eyebrow">From transcripts</div>
             <h2 class="feed-title t-display" style="font-size: 24px;">Also said at meetings</h2>
             <div class="t-meta">Tip: add <code>speaker:name</code> to filter by who said it.</div>
         </div></div>
+        {% if transcript_hits %}
         <ul class="search-transcript-hits" style="list-style:none; padding:0;">
         {% for hit in transcript_hits %}{% include 'partials/search_transcript_hit.html' %}{% endfor %}
         </ul>
+        {% else %}
+        <p class="t-meta">No more transcript lines for this search.</p>
+        {% endif %}
+        {% if tpage > 1 or lines_has_next %}
+        <div class="pagination-controls t-mono">
+            {% if tpage > 1 %}
+            <a class="link" href="{{ url_for('public.search', q=query, city=city or none, page=page if page > 1 else none, tpage=(tpage - 1) if tpage > 2 else none) }}#also-said">← Earlier lines</a>
+            {% endif %}
+            {% if lines_has_next %}
+            <a class="link" href="{{ url_for('public.search', q=query, city=city or none, page=page if page > 1 else none, tpage=tpage + 1) }}#also-said">More lines →</a>
+            {% endif %}
+        </div>
+        {% endif %}
     </section>
     {% endif %}
 {% elif order == 'amount' and city %}
@@ -173,11 +189,11 @@
     </div>
 </section>
 {% endif %}
-{% if query and page == 1 %}
+{% if query and page == 1 and tpage == 1 %}
 <script>
-  // Fires ONLY on the initial search results page (page == 1). search.html paginates
-  // in PR #64 — without the page-1 gate, every paginated next-page view would re-fire
-  // the same search_submit and inflate the count.
+  // Fires ONLY on the initial search results page (page == 1, and the first page of the
+  // lower list, tpage == 1). search.html paginates in PR #64 — without the gate, every
+  // paginated next-page view would re-fire the same search_submit and inflate the count.
   //
   // sanitizeProps in track.js drops `query` if it exceeds 40 chars (PII guardrail);
   // result_count is always recorded so zero-result-rate stats survive that drop.

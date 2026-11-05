@@ -188,6 +188,18 @@ def crowded():
     _delete_all()
 
 
+@pytest.fixture
+def long_list():
+    """One result with three matching lines filed under it, then twenty-five matching lines outside any item."""
+    _delete_all()
+    segments = ([(seq, CROWD_LINE, "S0", "club") for seq in range(3)]
+                + [(seq, CROWD_LINE, "S0", None) for seq in range(3, 28)])
+    inst = _install("999983", date(2026, 10, 27), {"club": CLUB_TITLE}, segments)
+    _write_cards(inst, {"club": (None, "late night establishment rules")})
+    yield inst
+    _delete_all()
+
+
 def _get(client, url: str) -> str:
     resp = client.get(url)
     assert resp.status_code == 200
@@ -404,6 +416,67 @@ def test_search_transcripts_rows_name_their_item_and_hide_an_unsure_speaker(seed
     # Every key the function returned before M7 is still there.
     assert {"meeting_id", "municipality_slug", "meeting_title", "meeting_date", "seq", "start_s", "speaker_name",
             "rank", "headline", "anchor_url"} <= set(by_seq[1])
+
+
+# --- The lower list's own pages -------------------------------------------------------------------------
+
+
+def _lower_seqs(html: str, inst: dict, upto: int) -> list[int]:
+    lower = _lower(html)
+    return [seq for seq in range(upto) if _anchor(inst, seq) in lower]
+
+
+def test_the_lower_list_has_pages_of_its_own_cut_from_one_list(long_list, client):
+    """Twenty-five lines below one result: ten a page, each line on exactly one of the list's pages."""
+    pages = [_get(client, URL + (f"&tpage={n}" if n > 1 else "")) for n in (1, 2, 3)]
+    for html in pages:
+        assert _golden().parse_results(html)["moments"][long_list["club"]] == [0, 1, 2]
+    assert _lower_seqs(pages[0], long_list, 28) == list(range(3, 13))
+    assert _lower_seqs(pages[1], long_list, 28) == list(range(13, 23))
+    assert _lower_seqs(pages[2], long_list, 28) == list(range(23, 28))
+
+
+def test_the_lower_lists_links_go_to_its_next_and_previous_page_and_keep_the_query(long_list, client):
+    first, second, third = (_get(client, URL + (f"&tpage={n}" if n > 1 else "")) for n in (1, 2, 3))
+    more = re.search(r'<a class="link" href="([^"]*)">More lines', first)
+    assert more, "the first page of the list links to the second"
+    href = more.group(1).replace("&amp;", "&")
+    assert "tpage=2" in href and "q=new" in href and "city=birmingham" in href and href.endswith("#also-said")
+    assert _lower_seqs(_get(client, href.split("#")[0]), long_list, 28) == list(range(13, 23))
+    assert "Earlier lines" not in first
+    assert "Earlier lines" in second and "More lines" in second
+    assert "Earlier lines" in third and "More lines" not in third
+    assert 'id="also-said"' in first
+
+
+def test_a_list_that_fits_on_one_page_has_no_links(crowded, client):
+    html = _get(client, URL)
+    assert "More lines" not in html and "Earlier lines" not in html
+
+
+def test_the_lower_list_does_not_move_with_the_results_page(long_list, client):
+    """Page two of the results has no result, so nothing is nested and the list starts at its top."""
+    html = _get(client, URL + "&page=2")
+    assert _golden().parse_results(html)["items"] == []
+    assert _lower_seqs(html, long_list, 28) == list(range(10))
+
+
+def test_the_results_pager_does_not_carry_the_lists_page(long_list, client):
+    """Twenty newer results fill page one, so the results have a Next link; it leaves `tpage` behind."""
+    titles = {f"filler{n}": f"A late night ordinance, filler number {n}" for n in range(20)}
+    _install("999982", date(2026, 10, 28), titles, [])
+    html = _get(client, URL + "&tpage=2")
+    nxt = re.search(r'<a class="link" href="([^"]*)">Next', html)
+    assert nxt, "the results have a second page"
+    assert "page=2" in nxt.group(1) and "tpage" not in nxt.group(1)
+
+
+def test_past_the_end_of_the_list_the_page_says_so_and_links_back(long_list, client):
+    html = _get(client, URL + "&tpage=9")
+    assert long_list["club"] in _golden().parse_results(html)["items"]
+    assert "No more transcript lines" in _lower(html)
+    assert "Earlier lines" in html and "More lines" not in html
+    assert ">No results<" not in html
 
 
 # --- Other shapes of the request ------------------------------------------------------------------------

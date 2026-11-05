@@ -1014,6 +1014,11 @@ def search():
     page = max(1, request.args.get("page", 1, type=int))
     per_page = 20
     offset = (page - 1) * per_page
+    # The lower list of transcript lines has pages of its own (`tpage`), ten
+    # lines each, so that every line is reachable however few results the
+    # query has and the list's pages do not move with the results' pages.
+    tpage = max(1, request.args.get("tpage", 1, type=int))
+    lines_per_page = 10
 
     # The `speaker:name` token is the transcript search's filter, so it is
     # taken out before the item search sees the text: `speaker:oquinn budget`
@@ -1066,14 +1071,21 @@ def search():
     # The transcript lines left over, listed below the results. Only the
     # lines nested above are left out, in SQL and so ahead of the limit: a
     # line that holds every typed word is nested under its result or is
-    # eligible for this list, never neither.
+    # eligible for this list, never neither. The nested lines are those of
+    # the results page being shown, which does not change while the list is
+    # paged, so the list's pages are cut from one list. One line more than a
+    # page is read to learn whether another page follows.
     transcript_hits: list[dict] = []
+    lines_has_next = False
     if clean_q or speaker:
         nested = sorted({(m["meeting_id"], m["seq"]) for ms in moments_by_item.values() for m in ms})
         transcript_hits = tsvc.search_transcripts(
-            clean_q, municipality_slug=city, speaker=speaker, limit=10, offset=offset // 2,
+            clean_q, municipality_slug=city, speaker=speaker,
+            limit=lines_per_page + 1, offset=(tpage - 1) * lines_per_page,
             exclude_segments=nested or None,
         )
+        lines_has_next = len(transcript_hits) > lines_per_page
+        transcript_hits = transcript_hits[:lines_per_page]
 
     municipalities = query.list_municipalities()
 
@@ -1093,6 +1105,8 @@ def search():
         results=results,
         moments_by_item=moments_by_item,
         transcript_hits=transcript_hits,
+        tpage=tpage,
+        lines_has_next=lines_has_next,
         city=city,
         municipalities=municipalities,
         page=page,

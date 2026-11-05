@@ -229,6 +229,13 @@ def test_an_excluded_word_removes_its_items(carded):
     assert sorted(found) == sorted(["felder", "old", "recall"])
 
 
+def test_an_excluded_phrase_removes_the_items_holding_its_words_side_by_side(carded):
+    assert sorted(_found(carded, "ordinance")) == sorted(["felder", "old", "recall", "rezone"])
+    assert sorted(_found(carded, 'ordinance -"late night"')) == sorted(["recall", "rezone"])
+    # The same words in the other order are in no item side by side, so nothing is removed.
+    assert sorted(_found(carded, 'ordinance -"night late"')) == sorted(["felder", "old", "recall", "rezone"])
+
+
 # --- Identifiers -------------------------------------------------------------------------------
 
 
