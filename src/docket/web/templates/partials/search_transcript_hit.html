@@ -4,5 +4,5 @@
     {% if hit.speaker_name %}<strong>{{ hit.speaker_name }}:</strong>{% endif %}
     {{ hit.headline }}
   </a>
-  <div class="t-meta">{{ hit.meeting_title }} · {{ hit.meeting_date | format_date }} · machine transcript</div>
+  <div class="t-meta">{% if hit.agenda_item_id %}during <a class="link" href="/al/{{ hit.municipality_slug }}/items/{{ hit.agenda_item_id }}/">{{ (hit.item_title or 'an agenda item') | truncate(90, false, '…', 0) }}</a> · {% else %}outside any agenda item · {% endif %}{{ hit.meeting_title }} · {{ hit.meeting_date | format_date }} · machine transcript</div>
 </li>

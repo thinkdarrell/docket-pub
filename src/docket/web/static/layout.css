@@ -1484,3 +1484,19 @@
 .brf-attribution { font-size: 14px; line-height: 1.5; color: var(--ink-2); margin: var(--space-2) 0 0; }
 .brf-attribution a { color: var(--ink); text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 3px; }
 .brf-attribution a:hover { color: var(--accent-ink); }
+
+/* Search results (plan search-finds-what-was-said, M7): the spoken moments
+   nested under a result card. Indented under the card and tied to it by a
+   rule; the label uses the meta colour .t-meta already gives it. */
+.search-moments {
+  list-style: none;
+  margin: -4px 0 var(--space-3) var(--space-4);
+  padding: 0 0 0 var(--space-3);
+  border-left: 1px solid var(--rule);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.search-moment { font-size: 14px; line-height: 1.5; max-width: 80ch; }
+.search-moment .t-mono { margin-right: var(--space-1); }
+.search-moments-label { margin-top: var(--space-1); }

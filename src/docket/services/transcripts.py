@@ -299,7 +299,20 @@ def _speaker_predicate(placeholder: str) -> str:
 
 
 def search_transcripts(q: str, *, municipality_slug: str | None, speaker: str | None,
-                       limit: int = 10, offset: int = 0) -> list[dict]:
+                       limit: int = 10, offset: int = 0,
+                       exclude_item_ids: list[int] | None = None) -> list[dict]:
+    """Single transcript segments that hold every word of `q`, with the `speaker:` filter.
+
+    The search page's lower list. Each row names the agenda item its segment
+    is filed under (`agenda_item_id` and `item_title`, both None for a line
+    outside any item). `speaker_name` is None when the site is not confident
+    of the name, the rule the transcript page applies; the `speaker` filter
+    still matches a resolved name whatever its confidence.
+
+    `exclude_item_ids` leaves out the lines filed under those items, in SQL
+    and so ahead of the limit: the page's own results show their lines
+    nested, and those lines must not use up the list.
+    """
     where = ["mu.active = TRUE", "m.is_hidden = FALSE", public_predicate("t"), "s.is_silence = FALSE"]
     params: list = []
     if municipality_slug:
@@ -307,6 +320,9 @@ def search_transcripts(q: str, *, municipality_slug: str | None, speaker: str | 
     if speaker:
         where.append(_speaker_predicate("%s"))
         params.extend([speaker, speaker])
+    if exclude_item_ids:
+        where.append("(s.agenda_item_id IS NULL OR s.agenda_item_id <> ALL(%s))")
+        params.append(list(exclude_item_ids))
     if q:
         where.append("s.search_vector @@ websearch_to_tsquery('english', %s)"); params.append(q)
         select_rank = "ts_rank(s.search_vector, websearch_to_tsquery('english', %s)) AS rank,"
@@ -327,7 +343,8 @@ def search_transcripts(q: str, *, municipality_slug: str | None, speaker: str | 
         cur.execute(
             f"""SELECT m.id AS meeting_id, mu.slug AS municipality_slug, m.title AS meeting_title,
                        m.meeting_date, s.seq, s.start_s,
-                       {_SPEAKER_NAME} AS speaker_name,
+                       {_SPEAKER_NAME} AS speaker_name, sp.confidence AS speaker_confidence,
+                       s.agenda_item_id, ai.title AS item_title,
                        {select_rank}
                        {headline}
                   FROM transcript_segments s
@@ -336,6 +353,7 @@ def search_transcripts(q: str, *, municipality_slug: str | None, speaker: str | 
                   JOIN municipalities mu ON mu.id = m.municipality_id
                   LEFT JOIN transcript_speakers sp ON sp.id = s.speaker_id
                   LEFT JOIN council_members cm ON cm.id = sp.council_member_id
+                  LEFT JOIN agenda_items ai ON ai.id = s.agenda_item_id
                  WHERE {' AND '.join(where)}
                  {order}
                  LIMIT %s OFFSET %s""",
@@ -343,6 +361,9 @@ def search_transcripts(q: str, *, municipality_slug: str | None, speaker: str | 
         )
         rows = [dict(r) for r in cur.fetchall()]
     for r in rows:
+        confidence = r["speaker_confidence"]
+        if confidence is not None and confidence < SPEAKER_CONFIDENCE_FLOOR:
+            r["speaker_name"] = None
         r["headline"] = _safe_headline(r["headline"] or "", pre_escaped=pre_escaped)
         r["anchor_url"] = f"/al/{r['municipality_slug']}/meetings/{r['meeting_id']}/transcript/#t-{r['seq']}"
     return rows
