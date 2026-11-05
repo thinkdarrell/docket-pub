@@ -559,3 +559,100 @@ Unknown until real meetings run:
 4. Section 6b, `details_differ`. These thresholds (jaccard 0.5 / 0.4, fuzzy 0.92) are judgment calls with tests but no production data behind them yet.
 5. Section 2b and `reconcile`. Walk the minutes-changed path end to end: sweep → `minutes_changed` → compare → stale → re-proposed.
 6. Section 9. Confirm which public surfaces ship flag-off and that you are comfortable with "Who spoke" and `speaker:` search being live at merge.
+
+---
+
+## 13. Search cards (`cards.py`)
+
+Added by plan `search-finds-what-was-said` (2026-11). Line numbers in this
+section are as of commit `bc275f9` on branch `plan/search-finds-what-was-said`,
+not `336a949`. The card stage is not a fourth status: it runs after the stage
+loop of the same tick, keeps its own bookkeeping table, and never writes the
+`transcripts` row. What a card is, and what search does with it, is
+`docs/specs/search.md`.
+
+**Entry:** `_build_cards` `pipeline.py:268`, called at `pipeline.py:320` after
+the stage loop, only when the loop did not stop on the budget or a 429 and
+`TRANSCRIPT_CARDS_PER_TICK` is above 0. It calls `run_cards` `cards.py:644`
+with `limit=TRANSCRIPT_CARDS_PER_TICK`. By hand: `scripts/build_search_cards.py`
+(`--count`, `--limit N`, `--meeting-id N`, `--dry-run`).
+
+```
+run_cards :644      model has a PRICING entry, else AIFatalError before any claim
+  per meeting, up to limit:
+    _today_spend >= AI_DAILY_BUDGET_USD → stopped_reason "budget"
+    CLAIM   claim_cards :482   CLAIM_CARDS_SQL :136
+            Birmingham, numeric Granicus id, not hidden, uploaded,
+            status events_extracted or compared, and no current run:
+            no row · row from an earlier upload · row under an older prompt ·
+            claimed/failed with attempts < 3 and 24 h behind it
+            FOR UPDATE OF t SKIP LOCKED, newest meeting first
+            upsert transcript_card_runs: status claimed, attempts + 1
+            (attempts restart at 1 for a new upload or prompt)
+    process_run :582   opens an ai_runs row, stage transcript_cards
+      CALL     build_for_transcript :511
+               load_card_items :176      placed items, ordered by first segment
+                 none placed → done, no model call
+               render_cards_input :216   one line per spoken segment, an
+                                         ITEM MARKER block before each item's first
+               count_tokens > TRANSCRIPT_TOKEN_CEILING → TranscriptHeld
+               client.call(CARDS_SYSTEM prompts.py:127, CARDS_SCHEMA schemas.py:124)
+               CardList.model_validate → ValidationError → TranscriptHeld
+      VALIDATE validate_cards :352
+               unplaced or duplicate card → extra · placed item with no card → missing
+               each spoken detail's quote through the citation guard at its
+                 segment, then two segments either side  _locate_quote :241
+                 found beside → re-pointed · found nowhere → detail dropped
+               bounds within CARD_SNAP_MAX_S (600 s) of the placement, both
+                 ends  _valid_bounds :318 · else bounds null, text kept
+               search_texts :331 → search_b (weight B), search_c (weight C)
+      WRITE    write_cards :441   one transaction
+               lock the transcript row; uploaded_at changed → -1, nothing written
+               delete the transcript's cards, insert the new set
+               touch_search_vectors :428  UPDATE agenda_items SET search_vector =
+                 search_vector for old and new ids → the trigger recomputes them
+               a reply that carded nothing is not written
+      REPORT   format_report :548  one INFO line per validated reply:
+               cards: meeting N transcript N: P placed, C cards (D discussed,
+               M missing, E extra), details K kept R re-pointed X dropped,
+               bounds K kept X dropped, S starts moved 20 s or more, I in O out, $cost
+      FINISH   _finish_run :561  status, last_error, counts, model together
+               every placed item carded      → done
+               a placed item without a card  → failed, "incomplete: C of P ..."
+               write refused                 → failed, "transcript changed during the run"
+               TranscriptHeld / permanent    → held (no retry until re-upload or prompt bump)
+               AIRateLimited                 → attempt handed back :570, loop stops
+               AITransientError / a bug      → failed
+               AIFatalError                  → re-raised, row left claimed
+               closes the ai_runs row with the cost
+```
+
+**Where the counts show up:** the pipeline's own summary line
+(`transcript_pipeline PipelineSummary(... cards_built=N, cards_failed=N)`,
+where `cards_failed` is failed plus held) and the `cards: meeting ...` report
+lines. The task's shorter `transcript_pipeline processed=...` line in
+`tasks.py` does not print them. A held or failed card run posts no webhook;
+`scripts/build_search_cards.py --count` reports how many are held and how many
+are out of attempts (`count_card_runs` `cards.py:504`).
+
+**Knobs:** `AI_TRANSCRIPT_CARDS_MODEL` (default `claude-sonnet-5-5`),
+`TRANSCRIPT_CARDS_PER_TICK` (default 2; 0 turns the stage off),
+`CARDS_PROMPT_VERSION` 200 (`prompts.py:19`; raising it re-cards every meeting,
+two a day), and the shared `TRANSCRIPT_TOKEN_CEILING` and `AI_DAILY_BUDGET_USD`.
+
+**Readers of a card:** `item_ranges` `services/transcripts.py:195`,
+`excerpt_for_item` `:217`, and `moments_for_items` `:372`, all through
+`SNAPPED_OWNER_SQL` `:185`; a card whose `source_uploaded_at` is not the
+transcript's `uploaded_at` contributes no bounds.
+
+**Tests:** `tests/unit/test_search_cards_validate.py`,
+`tests/integration/test_search_cards_store.py`, `test_cards_stage.py`,
+`test_041_migration.py`, `test_search_moments.py`, and the live smoke
+`tests/live/test_transcript_cards_live.py`.
+
+**What to probe:**
+
+- Can the card stage change what any reader of `transcripts.status` sees? (No: `CLAIM_CARDS_SQL` locks the row and writes only `transcript_card_runs`; `test_cards_stage.py` compares every column of the row before and after.)
+- What does a re-upload during a model call leave behind? (`write_cards` returns -1, the run is `failed`, the old cards stay with their text and are not current; the next claim sees a new `uploaded_at` and starts at one attempt once the transcript is past the events stage again.)
+- What stops a model's sentence reaching a reader? (Nothing in a card is rendered. A card contributes search text and bounds; every line a page shows is a `transcript_segments` row.)
+- A reply that skips an item: is the meeting stuck? (No: `failed` with `incomplete:`, the other cards written, retried up to three attempts 24 hours apart.)
