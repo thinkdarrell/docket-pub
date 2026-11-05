@@ -687,6 +687,14 @@ def test_card_models_accept_what_the_schema_allows_and_refuse_an_unknown_outcome
         S.CardList.model_validate({"cards": [{"item_id": ITEM_A}]})
 
 
+def test_card_models_allow_exactly_the_outcomes_and_kinds_the_schema_lists():
+    from typing import get_args
+
+    S = _schemas()
+    assert get_args(S.CardOutcome.model_fields["result"].annotation) == S.CARD_OUTCOMES
+    assert get_args(S.CardIdentifier.model_fields["kind"].annotation) == S.IDENTIFIER_KINDS
+
+
 # --- the prompt -------------------------------------------------------------------
 
 def test_cards_prompt_is_version_200_and_carries_the_quote_rule_and_the_marker_format():

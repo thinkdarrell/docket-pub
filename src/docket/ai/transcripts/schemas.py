@@ -21,6 +21,8 @@ CATEGORIES = ("vote_outcome", "omission", "addition", "wording", "sequence", "sp
 SEVERITIES = ("material", "minor")
 ROLES = ("council", "mayor", "clerk", "attorney", "staff", "public", "unknown")
 SPEAKER_METHODS = ("roll_call", "addressed_by_chair", "self_identification", "sample_inference")
+CARD_OUTCOMES = ("passed", "failed", "delayed", "withdrawn", "recalled", "referred", "no_action", "unclear")
+IDENTIFIER_KINDS = ("ordinance", "resolution", "case", "contract", "agenda_number", "other")
 
 
 def _nullable(t: str) -> dict:
@@ -114,6 +116,40 @@ HUNTER_SCHEMA = _obj({
         "minutes_quote": _nullable("string"),
         "minutes_page": _nullable("integer"),
         "confidence": {"type": "number"},
+    }))
+})
+
+# A search card (cards.py). Five nullable types, inside the API's cap of 16, and no enum
+# beside one: an absent `refers_to` is the empty string in `text`, not a null object.
+CARDS_SCHEMA = _obj({
+    "cards": _arr(_obj({
+        "item_id": {"type": "integer"},
+        "discussed": {"type": "boolean"},
+        "start_seq": _nullable("integer"),
+        "end_seq": _nullable("integer"),
+        "aliases": _STR_ARR,
+        "spoken_details": _arr(_obj({
+            "text": {"type": "string"},
+            "seq": {"type": "integer"},
+            "quote": {"type": "string"},
+        })),
+        "identifiers": _arr(_obj({
+            "kind": {"type": "string", "enum": list(IDENTIFIER_KINDS)},
+            "value": {"type": "string"},
+            "seq": _nullable("integer"),
+        })),
+        "names": _arr(_obj({
+            "name": {"type": "string"},
+            "variants": _STR_ARR,
+        })),
+        "outcome": _obj({
+            "result": {"type": "string", "enum": list(CARD_OUTCOMES)},
+            "seq": _nullable("integer"),
+        }),
+        "refers_to": _obj({
+            "text": {"type": "string"},
+            "seq": _nullable("integer"),
+        }),
     }))
 })
 
@@ -228,3 +264,47 @@ class HuntedDiscrepancy(BaseModel):
 
 class HunterResult(BaseModel):
     discrepancies: list[HuntedDiscrepancy]
+
+
+class SpokenDetail(BaseModel):
+    text: str
+    seq: int
+    quote: str
+
+
+class CardIdentifier(BaseModel):
+    kind: Literal["ordinance", "resolution", "case", "contract", "agenda_number", "other"]
+    value: str
+    seq: int | None
+
+
+class CardName(BaseModel):
+    name: str
+    variants: list[str]
+
+
+class CardOutcome(BaseModel):
+    result: Literal["passed", "failed", "delayed", "withdrawn", "recalled", "referred", "no_action", "unclear"]
+    seq: int | None
+
+
+class CardRefersTo(BaseModel):
+    text: str   # "" when speakers tied the item to no other action
+    seq: int | None
+
+
+class SearchCard(BaseModel):
+    item_id: int
+    discussed: bool
+    start_seq: int | None
+    end_seq: int | None
+    aliases: list[str]
+    spoken_details: list[SpokenDetail]
+    identifiers: list[CardIdentifier]
+    names: list[CardName]
+    outcome: CardOutcome
+    refers_to: CardRefersTo
+
+
+class CardList(BaseModel):
+    cards: list[SearchCard]
