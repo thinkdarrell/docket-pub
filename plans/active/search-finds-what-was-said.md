@@ -18,7 +18,7 @@ This is the first of three plans cut from an operator-supplied product spec ("Ci
 
 Eight milestones. A completed entry is written as `- [x] (YYYY-MM-DD HH:MMZ) <text>` with the time the work was observed, and an entry's text is never reworded once written (decision `0037`; the judge in `docs/capabilities/judge-milestone.md` identifies entries by their text). No entry names an operator step; those are listed under Validation and Acceptance.
 
-- [ ] M1: `scripts/golden_search.py` reads the 45 query-to-item pairs in `tests/fixtures/golden_search/queries.json`, fetches each distinct query's first results page from a site base URL at one request a second, and prints how many targets land in the top 3, top 10, and top 20 and how many carry nested spoken moments; `tests/unit/test_golden_search.py` passes; the script's run against https://docket.pub, summary or refusal, is recorded in this plan.
+- [x] (2026-11-05 01:29Z) M1: `scripts/golden_search.py` reads the 45 query-to-item pairs in `tests/fixtures/golden_search/queries.json`, fetches each distinct query's first results page from a site base URL at one request a second, and prints how many targets land in the top 3, top 10, and top 20 and how many carry nested spoken moments; `tests/unit/test_golden_search.py` passes; the script's run against https://docket.pub, summary or refusal, is recorded in this plan.
 - [ ] M2: migration 041 creates `agenda_item_search_cards` and `transcript_card_runs` and teaches the search trigger to fold a card's hidden text into `agenda_items.search_vector`; `docket.ai.transcripts.cards.write_cards` replaces a transcript's cards and refreshes those items' vectors in one statement; the two speaker helpers move to `src/docket/ai/transcripts/shared.py` and debt row `D42` is deleted; `tests/integration/test_041_migration.py` and `tests/integration/test_search_cards_store.py` pass.
 - [ ] M3: the card prompt, the response schema, the meeting renderer, and the validator exist in `src/docket/ai/transcripts/` with no model call: a spoken detail whose quote the citation guard cannot find at its cited segment or the two segments on either side is dropped, a quote found beside its cited segment is re-pointed to it, bounds far from the item's placement are dropped, and the card's two search texts are built; `tests/unit/test_search_cards_validate.py` passes.
 - [ ] M4: `run_cards` claims Birmingham transcripts that have passed the events stage and lack a current card run, newest meeting first, calls the model once per meeting through `StructuredClient` under `AI_DAILY_BUDGET_USD`, and records an `ai_runs` row with stage `transcript_cards`; the daily `transcript_pipeline` tick runs it for up to `TRANSCRIPT_CARDS_PER_TICK` meetings; `scripts/build_search_cards.py` offers `--count`, `--limit`, `--meeting-id`, and `--dry-run`; `tests/integration/test_cards_stage.py` passes against a fake client and `tests/live/test_transcript_cards_live.py` collects.
@@ -182,6 +182,8 @@ The entries from here on are the M1 session's (Claude, 2026-11-05 UTC). Each res
 ## Outcomes & Retrospective
 
 Nothing has been executed yet. This section is written as milestones land and at completion.
+
+M1 (2026-11-05, M1 session). The golden check exists and the before number is measured, not inferred: `scripts/golden_search.py --base-url https://docket.pub` printed `golden: 3 of 45 targets on the first page (top 3: 3, top 10: 3, top 20: 3); 0 with spoken moments; 42 queries`, the line the author predicted from single requests, and exited 0. All three acceptance clauses were run and met, with no carve-out: the unit tier rose from 2228 to 2244 passed (the 16 test functions of `tests/unit/test_golden_search.py`), the production run printed 45 per-pair lines and the summary, and `--delay 0.5` was refused with exit 2. Two things go beyond M1's text and are in the Decision Log, the first narrowing its letter and the second filling a gap it left: an item link inside a line of the lower transcript list is not read as a result, and a fetched page without `Refine search` is a failed fetch, not a page of misses. Neither changes today's number. What remains is everything the measurement is for: the 42 targets the site does not find. Lesson for the sessions after this one: the check reads the page's markup, so M7 must keep the heading text `Refine search` above the results and must render the classes and the `data-item-id` attribute exactly as Interfaces and Dependencies states them; M7's own test reads its page through `parse_results`, which is what holds the two together. Next is M2.
 
 ## Context and Orientation
 
@@ -711,6 +713,16 @@ Clause (b), the before measurement against production. Started 2026-11-05 01:26:
     exit=0
 
 The summary line is the one the author expected (Plan of Work, M1). The three targets found are the three the author's single requests found on 2026-11-04: `Kelvyn Felder` lists item 58874 first and item 58824 second, and `26-50` lists item 58874 first. This is the before number every later measurement is set beside; no page carries a nested moment, because the markup M7 adds does not exist yet.
+
+Clause (a), the closing `./tools/verify`, run at commit `95315a8` with the tree clean and finished at 2026-11-05 01:29Z, exit 0. The only change since is to this file.
+
+    2244 passed, 5 skipped, 4 xfailed, 2 warnings in 56.70s        (unit+web+services; 2228 at the start, plus this file's 16)
+    690 passed, 2 warnings in 50.08s                               (integration, unchanged)
+    judge fixtures: 12 of 12 passed
+    workflows: 2 of 2 ok
+    95 passed, 1 warning in 1.18s                                  (transcriber, unchanged)
+    plans: 2 of 2 ok
+    verify: all 6 checks passed in 110s.
 
 ## Interfaces and Dependencies
 
