@@ -123,8 +123,12 @@ constrains:
    and agree on: a command together with the output it prints, or a named
    artifact with a property that is true or false on inspection. A check that
    counts says what it counts: `grep -c` counts lines, not occurrences; a
-   pytest total is the baseline plus the test functions added, not the tests
-   touched; no check greps the plan file itself, since the plan's own
+   pytest total is the baseline plus the tests the added functions collect,
+   not the tests touched, and a parametrized function collects one test per
+   case (one plan's three clauses said a tier would rise "by its test
+   functions" and it rose by 58, 59, and 49 from files of 51, 47, and 34
+   functions, so each session recorded a reading where the clause should
+   have been a count); no check greps the plan file itself, since the plan's own
    later sections quote the phrase the check looks for; a check that greps
    a directory the plan's own prescribed texts will land in is run against
    those texts, not only against the tree as it stood at authoring (one
