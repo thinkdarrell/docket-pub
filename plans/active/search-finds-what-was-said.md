@@ -21,7 +21,7 @@ Eight milestones. A completed entry is written as `- [x] (YYYY-MM-DD HH:MMZ) <te
 - [x] (2026-11-05 01:29Z) M1: `scripts/golden_search.py` reads the 45 query-to-item pairs in `tests/fixtures/golden_search/queries.json`, fetches each distinct query's first results page from a site base URL at one request a second, and prints how many targets land in the top 3, top 10, and top 20 and how many carry nested spoken moments; `tests/unit/test_golden_search.py` passes; the script's run against https://docket.pub, summary or refusal, is recorded in this plan.
 - [x] (2026-11-05 01:48Z) M2: migration 041 creates `agenda_item_search_cards` and `transcript_card_runs` and teaches the search trigger to fold a card's hidden text into `agenda_items.search_vector`; `docket.ai.transcripts.cards.write_cards` replaces a transcript's cards and refreshes those items' vectors in one statement; the two speaker helpers move to `src/docket/ai/transcripts/shared.py` and debt row `D42` is deleted; `tests/integration/test_041_migration.py` and `tests/integration/test_search_cards_store.py` pass.
 - [x] (2026-11-05 02:03Z) M3: the card prompt, the response schema, the meeting renderer, and the validator exist in `src/docket/ai/transcripts/` with no model call: a spoken detail whose quote the citation guard cannot find at its cited segment or the two segments on either side is dropped, a quote found beside its cited segment is re-pointed to it, bounds far from the item's placement are dropped, and the card's two search texts are built; `tests/unit/test_search_cards_validate.py` passes.
-- [ ] M4: `run_cards` claims Birmingham transcripts that have passed the events stage and lack a current card run, newest meeting first, calls the model once per meeting through `StructuredClient` under `AI_DAILY_BUDGET_USD`, and records an `ai_runs` row with stage `transcript_cards`; the daily `transcript_pipeline` tick runs it for up to `TRANSCRIPT_CARDS_PER_TICK` meetings; `scripts/build_search_cards.py` offers `--count`, `--limit`, `--meeting-id`, and `--dry-run`; `tests/integration/test_cards_stage.py` passes against a fake client and `tests/live/test_transcript_cards_live.py` collects.
+- [x] (2026-11-05 02:23Z) M4: `run_cards` claims Birmingham transcripts that have passed the events stage and lack a current card run, newest meeting first, calls the model once per meeting through `StructuredClient` under `AI_DAILY_BUDGET_USD`, and records an `ai_runs` row with stage `transcript_cards`; the daily `transcript_pipeline` tick runs it for up to `TRANSCRIPT_CARDS_PER_TICK` meetings; `scripts/build_search_cards.py` offers `--count`, `--limit`, `--meeting-id`, and `--dry-run`; `tests/integration/test_cards_stage.py` passes against a fake client and `tests/live/test_transcript_cards_live.py` collects.
 - [ ] M5: `excerpt_for_item` starts and ends at an item's snapped bounds when a current card has them and falls back to the placement otherwise, and `moments_for_items` returns the best-matching transcript segments inside each item's range; `tests/integration/test_search_moments.py` passes.
 - [ ] M6: `search_agenda_items` ranks instead of requiring every word: items carrying a typed identifier first, then items matching more of the query's words, with `new`, `recent`, and `latest` read as a newest-first preference; `tests/unit/test_search_query.py` and `tests/integration/test_search_ranking.py` pass, and `scripts/search_scale_check.py --rows 60000` prints three timings that are recorded in this plan.
 - [ ] M7: the search page nests each result's spoken moments under its card, lists the remaining transcript lines below with the item each belongs to or the words "outside any agenda item", and says it searches agenda items and what was said; `tests/integration/test_search_page_nested.py` passes, including the golden parser reading the nested moments off the rendered page.
@@ -356,6 +356,10 @@ Three things go beyond M2's text and are in the Decision Log. The `D83` row name
 M3 (2026-11-05, M3 session). Everything about a card that can be decided without a model exists, and nothing calls one. `prompts.py` holds `CARDS_PROMPT_VERSION` and `CARDS_SYSTEM`; `schemas.py` holds `CARDS_SCHEMA`, the two value lists, and the seven models; `cards.py` holds `load_card_items`, `render_cards_input`, `validate_cards`, and `search_texts` beside M2's store. What the milestone promised is observed in `tests/unit/test_search_cards_validate.py`: a quote copied in capitals without its comma is kept, a quote that straddles two segments is re-pointed to the first, a quote from another part of the meeting is dropped while the rest of its card survives, bounds 700 seconds before the placement or ending 700 seconds after it are dropped while the card's text is kept, two overlapping ranges both keep their bounds, and the item 58824 card puts "late night establishment rules" in `search_b` and "footage" in `search_c`. Both acceptance clauses were run and met, with no carve-out. One reading is stated so the number can be checked: the unit tier rose from 2244 to 2302 passed, which is 58 tests from the file's 51 test functions, two of them parametrized; the clause says "by its test functions". On the real rows of meeting 2543 the loader, the renderer, the validator, and M2's store ran end to end in a scratch script with a hand-built reply (Surprises & Discoveries).
 
 Where the session went beyond or read M3's text, the Decision Log says how: the validator fills the two search texts itself, so its rows go to `write_cards` unchanged; the counts are defined so each adds up to what the reply held; a `seq` is a segment only when it is a non-silence segment; an over-long identifier is dropped, not cut; every placed item gets a marker even when its first segment has no text; and `load_card_items` waits for M4's stage test. Lessons for the sessions after this one. M4's `build_for_transcript` calls `validate_cards` and passes its rows to `write_cards` as they are; it does not call `search_texts` again, and its report line reads the eleven count keys as the Decision Log defines them. M4 adds the runner to `cards.py` and owes its module docstring a line. `cards.py` now imports `events.py`, so `events.py` must never import `cards.py` at module level. The guard matches punctuation only through its fuzzy pass, so the operator's live smoke run (step 1) is where the share of quotes a real model gets dropped is first seen; the report line's `dropped` count is the number to read. Next is M4.
+
+M4 (2026-11-05, M4 session). The card stage runs, bounded, from the worker's tick and from a command, and no model has been called yet. `cards.py` holds the runner: `run_cards` claims a Birmingham transcript at `events_extracted` or `compared` that has no card run for its current upload and the current prompt, newest meeting first, reads the day's spend before each meeting, opens an `ai_runs` row with the stage `transcript_cards`, makes one call through the structured client, validates, writes, and records how the attempt ended in `transcript_card_runs`. `run_transcript_pipeline` builds up to `TRANSCRIPT_CARDS_PER_TICK` meetings after its stage loop and reports `cards_built` and `cards_failed`; `scripts/build_search_cards.py` offers `--count`, `--limit`, `--meeting-id`, and `--dry-run` and refuses to run without exactly one bound. What the milestone promised is observed in `tests/integration/test_cards_stage.py` with a fake client that reads the rendered meeting and replies with one card per marker: a claimed meeting's items become findable by a word only their cards hold; a second run claims nothing; a later upload or an older prompt version makes the meeting claimable again at one attempt; a transcript before the events stage, a `low_speech` one, a hidden meeting, and a `yt-` meeting are never claimed; a transient error waits 24 hours and stops after three attempts; a hold is not retried; a reply that skips a placed item writes the others, is `failed` with `incomplete: 1 of 2 placed items carded`, and is retried; a reply with no card leaves the earlier cards in place; a meeting with nothing placed is `done` without a call; a dry run writes only its `ai_runs` row; a day's spend at the budget stops before any claim; every column of the transcripts row reads the same after the stage has run on it, once to `done` and once to `failed`. All four acceptance clauses were run and met, with no carve-out. One reading is stated so the number can be checked: the integration tier rose from 713 to 772 passed, which is 59 tests from the file's 47 test functions, four of them parametrized; the clause says "by its test functions". On the real rows of meeting 2543 the tick built nine cards for nine placed items from a 74,651-character message (Surprises & Discoveries); the tokens and dollars in that line are the fake's.
+
+Where the session went beyond or read M4's text, the Decision Log says how: the build returns a twelfth count, `written`; `built` means a run that ended `done`; a dry run peeks at each waiting meeting once and records nothing; a named meeting that cannot be carded is passed over with a warning; every finish rewrites the run row's status, error, counts, and model together; the stage posts no alert; the `--count` line's last four numbers are a partition; and the command refuses `--limit 0` and `--count --dry-run`. One test was wrong before the runner was: it re-uploaded a transcript without moving it back to `uploaded`, which the producer never does. Lessons for the sessions after this one. Any test that calls `run_transcript_pipeline` and gets past its stage loop now also runs the card stage on whatever the database holds; a test that does not want that sets `pipeline.TRANSCRIPT_CARDS_PER_TICK` to 0, and one that does replaces `docket.ai.worker._today_spend`, as the stage file does. M5 to M7 write their cards through `write_cards` directly and need none of the runner. M8 owes the record four things this milestone found: the task's own log line in `src/docket/worker/tasks.py` does not print the card counts, so the specs and the pipeline map should point at the pipeline's line and the `cards: meeting ...` report lines; the `--count` line's terms are defined only in the Decision Log and `COUNT_CARDS_SQL` until `docs/specs/search.md` states them; a held or failed card run raises no alert, which belongs in the follow-ups row if the operator wants one; and `docs/runbooks/transcripts.md` already has the stage's paragraph and the two variables, so M8 adds only the measurements section there. Operator step 1 is unchanged and is now runnable: it is the first time a real reply meets `CARDS_SCHEMA`, the validator, and a price. Next is M5.
 
 ## Context and Orientation
 
@@ -958,6 +962,52 @@ The first acceptance clause, the closing `./tools/verify`, run at commit `0a31d7
     95 passed, 1 warning in 1.30s                                  (transcriber, unchanged)
     plans: 2 of 2 ok
     verify: all 6 checks passed in 111s.
+
+M4 evidence, observed by the M4 session on 2026-11-05 (UTC) in this worktree. Every line below is a command the session ran and what it printed. No model was called: the factory shell has no API key (Surprises & Discoveries), so the live smoke test was collected and not run, and it remains operator step 1.
+
+Clause (a), the stage file alone, at commit `168d699` (2026-11-05 02:23Z). The file holds 47 test functions (`grep -c "^def test_" tests/integration/test_cards_stage.py` printed `47`), four of them parametrized over five, two, six, and three cases, which makes 59 tests:
+
+    $ DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/integration/test_cards_stage.py -q -p no:cacheprovider; tools/test-db --drop
+    59 passed, 1 warning in 4.36s
+
+The same command one commit earlier (`43bd1fc`, none of the code written) printed `59 failed, 1 warning in 3.55s`. One test was changed with the code, the one about an upload landing during the call (Surprises & Discoveries). `venv/bin/ruff check` on `src/docket/ai/transcripts/cards.py`, `src/docket/config.py`, `scripts/build_search_cards.py`, and the two new test files printed `All checks passed!`; on `src/docket/ai/transcripts/pipeline.py` it printed `Found 3 errors.` before the edit and after it.
+
+Clause (b), at `168d699` (02:23Z). The author's count was 12; the new live file holds one test (`venv/bin/python -m pytest -m live --collect-only -q tests/live/test_transcript_cards_live.py 2>&1 | tail -3` ended `1 test collected in 0.63s`):
+
+    $ venv/bin/python -m pytest -m live --collect-only -q tests/live 2>&1 | tail -1
+    13 tests collected in 0.67s
+
+Clause (c), at `168d699` (02:23Z):
+
+    $ venv/bin/python scripts/build_search_cards.py; echo "exit=$?"
+    usage: build_search_cards.py [-h] [--count] [--limit N] [--meeting-id N]
+                                 [--dry-run] [--force-budget]
+    build_search_cards.py: error: exactly one of --count, --limit N, or --meeting-id N is required
+    exit=2
+
+Clause (d), at `168d699` (02:23Z; `origin/main` is `ca289dd`). It printed nothing:
+
+    $ git diff --stat origin/main -- src/docket/worker src/docket/ai/batches.py src/docket/web/admin.py; echo "exit=$?"
+    exit=0
+
+The command's other modes, on a disposable database fresh from the migrations, which holds no meeting (02:18Z):
+
+    $ venv/bin/python scripts/build_search_cards.py --count; echo "exit=$?"
+    cards: 0 Birmingham meetings with a public transcript; 0 past the events stage; 0 with current cards; 0 waiting; 0 held; 0 failed
+    exit=0
+    $ venv/bin/python scripts/build_search_cards.py --limit 1; echo "exit=$?"
+    cards: fatal: ANTHROPIC_API_KEY is not set
+    exit=1
+
+The closing `./tools/verify`, run at commit `168d699` with the tree clean and finished at 2026-11-05 02:22Z, exit 0. The only change since is to this file.
+
+    2302 passed, 5 skipped, 4 xfailed, 2 warnings in 56.37s        (unit+web+services, unchanged)
+    772 passed, 2 warnings in 53.41s                               (integration; 713 at the start, plus this file's 59 tests, which are its 47 functions)
+    judge fixtures: 12 of 12 passed
+    workflows: 2 of 2 ok
+    95 passed, 1 warning in 1.34s                                  (transcriber, unchanged)
+    plans: 2 of 2 ok
+    verify: all 6 checks passed in 113s.
 
 ## Interfaces and Dependencies
 
