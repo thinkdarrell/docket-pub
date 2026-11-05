@@ -7,6 +7,7 @@ hand through `write_cards`; nothing here calls a model.
 M5 adds to `docket.services.transcripts` are read inside the helpers and
 tests, not at the top of this file, so the file collects before they exist.
 """
+import dataclasses
 import importlib
 from datetime import date
 
@@ -502,18 +503,31 @@ def test_the_speaker_filter_narrows_the_moments(carded):
 
 def test_a_line_matching_two_words_is_chosen_over_an_earlier_line_repeating_one(carded):
     """Segment 10 says "paving" three times; segment 11 says "paving" and "late" once each."""
-    sq = _query("paving", "late")
-    with db_cursor() as cur:
-        cur.execute("""SELECT s.seq, ts_rank(s.search_vector, plainto_tsquery('english', 'paving')
-                                                              || plainto_tsquery('english', 'late')) AS rank
-                         FROM transcript_segments s
-                        WHERE s.transcript_id = %s AND s.seq IN (10, 11)""", [carded["transcript_id"]])
-        rank = {r["seq"]: r["rank"] for r in cur.fetchall()}
-    assert rank[10] >= rank[11], "by rank and seq alone the earlier line would lead"
-
-    moments = tsvc.moments_for_items([carded["b"]], sq, per_item=1)
+    moments = tsvc.moments_for_items([carded["b"]], _query("paving", "late"), per_item=1)
 
     assert _moment_seqs(moments, carded["b"]) == [11]
+
+
+def test_matched_words_lead_where_rank_alone_would_choose_the_other_line(carded):
+    """A line repeating two of three words ten times each outranks a line holding all three once; the fuller line leads."""
+    with db_cursor() as cur:
+        cur.execute("""INSERT INTO transcript_segments (transcript_id, seq, start_s, end_s, text, cluster_label,
+                                                        agenda_item_id, assignment_method)
+                       VALUES (%s, 15, 150, 159, %s, 'S4', %s, 'index_point'),
+                              (%s, 16, 160, 169, 'the sewer and the drain and the culvert', 'S4', %s, 'index_point')""",
+                    [carded["transcript_id"], " ".join(["sewer drain"] * 10), carded["b"],
+                     carded["transcript_id"], carded["b"]])
+        cur.execute("""SELECT s.seq, ts_rank(s.search_vector, plainto_tsquery('english', 'sewer')
+                                                              || plainto_tsquery('english', 'drain')
+                                                              || plainto_tsquery('english', 'culvert')) AS rank
+                         FROM transcript_segments s
+                        WHERE s.transcript_id = %s AND s.seq IN (15, 16)""", [carded["transcript_id"]])
+        rank = {r["seq"]: r["rank"] for r in cur.fetchall()}
+    assert rank[15] > rank[16], "by rank alone the repeating line would lead"
+
+    moments = tsvc.moments_for_items([carded["b"]], _query("sewer", "drain", "culvert"), per_item=1)
+
+    assert _moment_seqs(moments, carded["b"]) == [16]
 
 
 def test_a_phrase_unit_matches_only_the_words_side_by_side(carded):
@@ -609,7 +623,7 @@ def test_a_parsed_query_and_its_units_are_immutable_values():
 
     assert sq.units == (m.Unit("word", "late"),)
     assert (sq.excluded, sq.prefer_recent, sq.raw) == ((), False, "late")
-    with pytest.raises(Exception):
+    with pytest.raises(dataclasses.FrozenInstanceError):
         sq.raw = "other"
-    with pytest.raises(Exception):
+    with pytest.raises(dataclasses.FrozenInstanceError):
         sq.units[0].text = "other"
