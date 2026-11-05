@@ -16,7 +16,7 @@ The trap is a second statement of the ownership rule (a reader that joins the ca
 
 ## Date
 
-2026-11-04, Claude, in plan `search-finds-what-was-said` (the storage in its authoring; the end limit in its revision of the same day, from an external review the operator supplied, and the one-owner rule found by that revision while checking the review; built in its M2, M3, and M5; `plans/active/search-finds-what-was-said.md`, under `plans/completed/` once the plan closes).
+2026-11-04, Claude, in plan `search-finds-what-was-said` (the storage in its authoring; the end limit in its revision of the same day, from an external review the operator supplied, and the one-owner rule found by that revision while checking the review; built in its M2, M3, and M5; `plans/completed/search-finds-what-was-said.md`).
 
 ## Status
 

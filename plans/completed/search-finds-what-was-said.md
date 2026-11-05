@@ -611,6 +611,8 @@ Observed after the routed edits were committed (HEAD `039b735`, before this entr
 
 The next commit moves this file to `plans/completed/` and repairs the four references to its `plans/active/` path in documents (decisions `0071` to `0073` and `docs/runbooks/transcripts.md`). The eleven in the docstrings of `src/docket/migrations/041_search_cards.py` and ten test files are left to the doc-garden stage that follows, as the closing of the plan before this one left its own; `grep -rn "plans/active/search-finds-what-was-said" src tests` lists them.
 
+Observed in the move commit, with this file at `plans/completed/` (2026-11-05 04:13Z): `tools/check-plans` printed `plans: plans/active/meeting-types-name-the-body.md ... ok` and `plans: 1 of 1 ok`, exit 0; decisions `0071` to `0073` and "Search cards: measurements" in `docs/runbooks/transcripts.md` name the completed path; and `grep -rln "plans/active/search-finds-what-was-said" src tests scripts | wc -l` printed `11`, the docstrings left to the doc-garden stage.
+
 ## Context and Orientation
 
 docket.pub is a Flask application over PostgreSQL. Everything below was read in the worktree at commit `ca289dd` on 2026-11-04.

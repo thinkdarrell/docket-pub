@@ -18,7 +18,7 @@ The trap is rendering a card field because it is already there and reads well: a
 
 ## Date
 
-2026-11-04, the operator (the goal: hidden cards, shown transcript lines) and Claude, in plan `search-finds-what-was-said` (authored and revised 2026-11-04; built in its M2 to M5 and M7; `plans/active/search-finds-what-was-said.md`, under `plans/completed/` once the plan closes).
+2026-11-04, the operator (the goal: hidden cards, shown transcript lines) and Claude, in plan `search-finds-what-was-said` (authored and revised 2026-11-04; built in its M2 to M5 and M7; `plans/completed/search-finds-what-was-said.md`).
 
 ## Status
 

@@ -371,8 +371,8 @@ what a model replies or costs.
 
 ### Production counts (step 2, before the merge)
 
-Not yet run. The four read-only queries are in `plans/active/search-finds-what-was-said.md`,
-Context and Orientation (`plans/completed/` once the plan closes), through
+Not yet run. The four read-only queries are in `plans/completed/search-finds-what-was-said.md`,
+Context and Orientation, through
 `DATABASE_PUBLIC_URL`. Record each result beside its assumption:
 
 - Birmingham meetings with a public transcript, by status. Assumed: 50 to 150 in all, nearly all at `compared` or `events_extracted`.

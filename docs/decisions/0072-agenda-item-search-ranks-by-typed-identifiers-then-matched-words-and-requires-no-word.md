@@ -18,7 +18,7 @@ The trap is restoring an every-word requirement because a ranked page shows weak
 
 ## Date
 
-2026-11-04, the operator (the goal's rule) and Claude, in plan `search-finds-what-was-said` (built in its M5 and M6; measured before in its M1; `plans/active/search-finds-what-was-said.md`, under `plans/completed/` once the plan closes).
+2026-11-04, the operator (the goal's rule) and Claude, in plan `search-finds-what-was-said` (built in its M5 and M6; measured before in its M1; `plans/completed/search-finds-what-was-said.md`).
 
 ## Status
 
