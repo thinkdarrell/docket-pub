@@ -25,7 +25,7 @@ Eight milestones. A completed entry is written as `- [x] (YYYY-MM-DD HH:MMZ) <te
 - [x] (2026-11-05 02:40Z) M5: `excerpt_for_item` starts and ends at an item's snapped bounds when a current card has them and falls back to the placement otherwise, and `moments_for_items` returns the best-matching transcript segments inside each item's range; `tests/integration/test_search_moments.py` passes.
 - [x] (2026-11-05 03:03Z) M6: `search_agenda_items` ranks instead of requiring every word: items carrying a typed identifier first, then items matching more of the query's words, with `new`, `recent`, and `latest` read as a newest-first preference; `tests/unit/test_search_query.py` and `tests/integration/test_search_ranking.py` pass, and `scripts/search_scale_check.py --rows 60000` prints three timings that are recorded in this plan.
 - [x] (2026-11-05 03:19Z) M7: the search page nests each result's spoken moments under its card, lists the remaining transcript lines below with the item each belongs to or the words "outside any agenda item", and says it searches agenda items and what was said; `tests/integration/test_search_page_nested.py` passes, including the golden parser reading the nested moments off the rendered page.
-- [ ] M8: `docs/specs/search.md` exists and `docs/specs/transcripts.md`, `docs/specs/city-page.md`, `docs/specs/operations.md`, `docs/specs/index.md`, `README.md`, and the two transcript runbooks describe what ships; the durable decisions are in `docs/decisions/`; `docs/DEBT.md` carries the operator's steps as one row, the follow-ups as another, and the re-deferrals of `D22`, `D51`, and `D52`.
+- [x] (2026-11-05 03:39Z) M8: `docs/specs/search.md` exists and `docs/specs/transcripts.md`, `docs/specs/city-page.md`, `docs/specs/operations.md`, `docs/specs/index.md`, `README.md`, and the two transcript runbooks describe what ships; the durable decisions are in `docs/decisions/`; `docs/DEBT.md` carries the operator's steps as one row, the follow-ups as another, and the re-deferrals of `D22`, `D51`, and `D52`.
 
 ## Surprises & Discoveries
 
@@ -572,6 +572,12 @@ M7 (2026-11-05, M7 session). The search page shows what was said under the resul
 
 Where the session went beyond or read M7's text, the Decision Log says how: moments are computed only for a typed query; `search_transcripts` returns `speaker_confidence` beside the two keys the plan names, and the `speaker:` filter still matches a low-confidence name while the page withholds it; the title beside "during" is cut at a word boundary with the ellipsis inside the 90; the styles are in `layout.css`; and the test file holds tests beyond the cases the text lists, each named in the Decision Log. One thing was found and not fixed, because the plan's text is what produces it: a lower line's "during" is the placement's, a segment is filed whole under the item it starts in, and so a line can show the clerk reading the next item beside the name of the one before (segment 127 of meeting 2543). Lessons for the sessions after this one. M8 owes `docs/specs/search.md` the page as built: what is nested and how many, which lines go to the lower list and why the page's own items are left out of it, the two labels, that the lower list still requires every word in one segment while the items and the moments do not, that moments appear for a placed item with no card (from the placement), and that a `speaker:` token narrows both lists. M8's follow-ups row should carry the "during" label's grain beside the moment fallback already listed there, with the trigger that row has. Nobody has looked at the page in a browser: the styles were written from the stylesheet's tokens and the card's margins, and operator step 6 is the first look, on production, where a nested list under a card with a status pill or a long facts strip has not been seen at all. The golden check's "with spoken moments" count can be above zero after the deploy before any card is built, since a placed item's filed lines are nested (seen on meeting 2543 with no card); the count that says what cards added is the first-page count. Next is M8.
 
+M8 (2026-11-05, M8 session). The repository now describes what the first seven milestones built, in the present tense, and the operator's remaining work is one debt row. `docs/specs/search.md` is new and is the owner of how a query is read, which items match and in what order, what an item's search vector holds, the search card (which items have one, its fields, its validation, when it is current, what a re-upload does), card runs, spoken moments and the one-owner rule, the lower list, the page's labels, and the two measuring commands; `docs/specs/index.md` lists it. `docs/specs/transcripts.md` says what the item excerpt reads and has a "Search cards" section on the stage's place and bookkeeping; `docs/specs/city-page.md` says where the door's quoted turn begins; `docs/specs/operations.md` has the two variables, the backfill command with its bound, and how the golden check is run; `README.md` points at the spec where it used to describe the trigger wrongly; `docs/runbooks/transcripts-pipeline-map.md` has section 13 and `docs/runbooks/transcripts.md` a measurements section whose two observed lines are filled and whose other headings say "Not yet run". Three decisions graduated as `0071` (a card is hidden search text tied to one upload and never displayed), `0072` (ranking by identifiers, then matched words, no word required), and `0073` (snapped bounds beside the placement, one owner where ranges overlap). `docs/DEBT.md` notes `D9`, `D22`, `D51`, and `D52` and gains `D86` (the operator's eight steps, in order) and `D87` (the follow-ups). All five acceptance clauses were run and met, with no carve-out; `./tools/verify` passed before the first edit and on the final committed tree with the same counts (`2351 passed`, `877 passed`), since M8 adds no code and no test, and `git diff --stat b1c4c3e HEAD -- src tests scripts transcriber tools .claude` prints nothing.
+
+What M8 did not and could not establish, stated so nobody reads the documents as more than they are. They were written from the code, the tests' names, and the earlier sessions' recorded output, and checked by reading each statement against the code; no page was rendered, no model was called, and no production row was read in this session. One sentence of the spec was wrong on that reading and two were missing against the earlier retrospectives; all three are corrected and recorded (Surprises & Discoveries), and the closing verify was run a second time because of the last two. A spec sentence about what a model replies, what the backfill costs, or what the page looks like in a browser does not exist, because none of those has been observed; `D86` is where they are owed. Where the session went beyond or read M8's text, the Decision Log says how: two sections of the spec that the list names as topics, the excerpt sentence's place in the transcripts spec and the rollback order stated there, the README row's two other cells, runbook sections that carry commands and the two observed lines, two follow-ups the M4 and M7 retrospectives asked for, the `D51` and `D52` notes placed in their "Why deferred" cells with the triggers untouched, and the records dated 2026-11-04.
+
+For whoever closes the plan. M8 is the last milestone; the plan file stays under `plans/active/` and the closing retrospective is not written here, because the factory's retro stage owns both (M8's scope sentence). When the file moves, three decision records and one runbook section name it by its `plans/active/` path, each with the words "under `plans/completed/` once the plan closes"; those references are the retro's to repair. Pull request #139 edits the end of the debt register too (it deletes `D78` to `D81` and adds `D84` and `D85` after `D83`), so whichever of the two pull requests merges second has a textual conflict there and no id collision. The whole-plan acceptance is not observable until operator step 6: nothing in this branch has shown that a real card puts item 58824 on the first page of `new late night ordinance`, only that a hand-written card does on seeded rows (M6, M7). Operator steps 1 and 2 come before the merge. There is no next milestone.
+
 ## Context and Orientation
 
 docket.pub is a Flask application over PostgreSQL. Everything below was read in the worktree at commit `ca289dd` on 2026-11-04.
@@ -893,7 +899,7 @@ The author ran this form on `tests/unit/test_transcript_search_parse.py` and it 
     venv/bin/python scripts/build_search_cards.py; echo "exit=$?"                             # M4; no mode given
     DATABASE_URL=$(tools/test-db) venv/bin/python scripts/search_scale_check.py --rows 60000; tools/test-db --drop    # M6
 
-The author ran `venv/bin/python -m docket.migrations.runner --help` (it lists `--status` and `--down VERSION`), one live request per added query (Surprises & Discoveries), and the ranking SQL shapes on temporary rows (Artifacts and Notes). The scripts named above do not exist yet, so their lines have not been run. (M1 session, 2026-11-05: `scripts/golden_search.py` now exists and its line has been run; what it printed is under Artifacts and Notes, "M1 evidence". The other scripts still do not exist.) (M2 session, 2026-11-05: the M2 line, the runner's `--status` on a disposable database, has been run; what it printed is under Artifacts and Notes, "M2 evidence".) (M3 session, 2026-11-05: M3 has no line in this list; its test file was run in the by-hand form shown above and what it printed is under Artifacts and Notes, "M3 evidence".) (M4 session, 2026-11-05: both M4 lines have been run, `scripts/build_search_cards.py` now exists, and what they printed is under Artifacts and Notes, "M4 evidence". `scripts/search_scale_check.py` still does not exist.) (M5 session, 2026-11-05: M5 has no line in this list; its test file and `tests/web/test_city_briefing.py` were run in the by-hand form shown above and what they printed is under Artifacts and Notes, "M5 evidence".) (M6 session, 2026-11-05: the M6 line has been run three times, `scripts/search_scale_check.py` now exists, and what it printed is under Artifacts and Notes, "M6 evidence". Every script this list names now exists.) (M7 session, 2026-11-05: M7 has no line in this list; its test file and the two files its acceptance names were run in the by-hand form shown above and what they printed is under Artifacts and Notes, "M7 evidence".)
+The author ran `venv/bin/python -m docket.migrations.runner --help` (it lists `--status` and `--down VERSION`), one live request per added query (Surprises & Discoveries), and the ranking SQL shapes on temporary rows (Artifacts and Notes). The scripts named above do not exist yet, so their lines have not been run. (M1 session, 2026-11-05: `scripts/golden_search.py` now exists and its line has been run; what it printed is under Artifacts and Notes, "M1 evidence". The other scripts still do not exist.) (M2 session, 2026-11-05: the M2 line, the runner's `--status` on a disposable database, has been run; what it printed is under Artifacts and Notes, "M2 evidence".) (M3 session, 2026-11-05: M3 has no line in this list; its test file was run in the by-hand form shown above and what it printed is under Artifacts and Notes, "M3 evidence".) (M4 session, 2026-11-05: both M4 lines have been run, `scripts/build_search_cards.py` now exists, and what they printed is under Artifacts and Notes, "M4 evidence". `scripts/search_scale_check.py` still does not exist.) (M5 session, 2026-11-05: M5 has no line in this list; its test file and `tests/web/test_city_briefing.py` were run in the by-hand form shown above and what they printed is under Artifacts and Notes, "M5 evidence".) (M6 session, 2026-11-05: the M6 line has been run three times, `scripts/search_scale_check.py` now exists, and what it printed is under Artifacts and Notes, "M6 evidence". Every script this list names now exists.) (M7 session, 2026-11-05: M7 has no line in this list; its test file and the two files its acceptance names were run in the by-hand form shown above and what they printed is under Artifacts and Notes, "M7 evidence".) (M8 session, 2026-11-05: M8 has no line in this list and adds no test; it ran `ls docs/decisions | tail -3`, `gh pr list --state open`, and `gh pr diff 139` before spending a number, as Context and Orientation says, and its five acceptance clauses, and what they printed is under Surprises & Discoveries and Artifacts and Notes, "M8 evidence".)
 
 Commits: every commit of a milestone session changes this plan file (decision `0037`); git hooks are never bypassed.
 
@@ -1365,6 +1371,86 @@ The closing `./tools/verify`, run at commit `bc275f9` with the tree clean, start
     plans: 2 of 2 ok
     verify: all 6 checks passed in 118s.
 
+M8 evidence, observed by the M8 session on 2026-11-05 (UTC) in this worktree. Every line below is a command the session ran and what it printed. M8 changes documents only.
+
+The five acceptance clauses, run at commit `0d71a19` (2026-11-05 03:39Z, after the closing verify; the only uncommitted change was to this file). They had printed the same at 03:32Z, before the decision records and the debt rows were committed, and at 03:36Z at commit `eb45ee6`. Long lines are cut here at the width shown; nothing else is left out.
+
+    $ grep -n "search.md" docs/specs/index.md | cut -c1-150
+    29:| `search.md` | The search page at `/search`: how typed text is read (words, quoted phrases, identifiers, excluded words, stop words, the three rec
+    $ ls docs/decisions | tail -4
+    0071-a-search-card-is-hidden-search-text-tied-to-one-transcript-upload-and-never-displayed.md
+    0072-agenda-item-search-ranks-by-typed-identifiers-then-matched-words-and-requires-no-word.md
+    0073-snapped-bounds-are-stored-beside-the-placement-and-never-overwrite-it.md
+    DECISION_FORMAT.md
+    $ grep -c "^| D8[67] " docs/DEBT.md
+    2
+    $ grep -n "search-finds-what-was-said" docs/DEBT.md | cut -c1-14
+    10:| D9 | No p
+    21:| D22 | Sea
+    46:| D51 | On
+    47:| D52 | Two
+    73:| D83 | `sr
+    74:| D86 | Pla
+    75:| D87 | Fol
+    $ ls plans/active
+    meeting-types-name-the-body.md
+    search-finds-what-was-said.md
+
+Clause (a): the new row. Clause (b): three new records above `DECISION_FORMAT.md`. Clause (c): `2`, the two numbers the plan expected, `D86` and `D87`. Clause (d): the `D9`, `D22`, `D51`, and `D52` rows are among the lines; the `D83` line is M2's note and the last two are the new rows. Clause (e): the plan file is under `plans/active/`, and `ls plans/completed | grep -c search-finds` printed `0`.
+
+Each document M8 names carries its edit (run at `0d71a19`):
+
+    $ grep -n "^## " docs/specs/search.md
+    5:## What the page searches
+    13:## How a query is read
+    31:## Which items match, and in what order
+    45:## What an item's search vector holds
+    49:## Search cards
+    77:## Card runs
+    91:## Spoken moments
+    103:## The lower list
+    111:## The page's labels
+    115:## Measuring
+    126:## Not built
+    $ grep -n "^## Search cards\|^## 13\. Search cards\|^## Search cards: measurements\|^### " docs/specs/transcripts.md docs/runbooks/transcripts-pipeline-map.md docs/runbooks/transcripts.md | grep -i "search cards\|smoke\|Production counts\|Backfill log\|Golden"
+    docs/runbooks/transcripts.md:351:## Search cards: measurements
+    docs/runbooks/transcripts.md:359:### Live smoke report and cost (step 1, before the merge)
+    docs/runbooks/transcripts.md:372:### Production counts (step 2, before the merge)
+    docs/runbooks/transcripts.md:383:### Backfill log (steps 4 and 5, after the deploy)
+    docs/runbooks/transcripts.md:391:### Golden check, before and after (step 6)
+    docs/specs/transcripts.md:29:## Search cards
+    docs/runbooks/transcripts-pipeline-map.md:565:## 13. Search cards (`cards.py`)
+
+`grep -c "snapped" docs/specs/city-page.md` printed `1` (the "Said at the meeting" paragraph), `grep -c "TRANSCRIPT_CARDS_PER_TICK\|build_search_cards\|golden_search" docs/specs/operations.md` printed `2` (the flags paragraph and the new backfill paragraph), and `grep -n "docs/specs/search.md" README.md` printed lines 298 and 438 (the paragraph that replaced the four bullets, and the service-table row, which was line 443 before the bullets above it became one paragraph).
+
+What the milestone's four commits before this one changed outside this file (`git diff --stat b1c4c3e HEAD -- . ':!plans'` at `0d71a19`; the commits are `1b3a451`, `a4c5d12`, `eb45ee6`, and `0d71a19`), and that no code, test, script, tool, or workflow is among it:
+
+    README.md                                          |  11 +-
+    docs/DEBT.md                                       |  10 +-
+    ...to-one-transcript-upload-and-never-displayed.md |  25 ++++
+    ...iers-then-matched-words-and-requires-no-word.md |  25 ++++
+    ...-beside-the-placement-and-never-overwrite-it.md |  23 ++++
+    docs/runbooks/transcripts-pipeline-map.md          |  97 ++++++++++++++++
+    docs/runbooks/transcripts.md                       |  55 +++++++++
+    docs/specs/city-page.md                            |   2 +-
+    docs/specs/index.md                                |   7 +-
+    docs/specs/operations.md                           |   4 +-
+    docs/specs/search.md                               | 128 +++++++++++++++++++++
+    docs/specs/transcripts.md                          |  12 +-
+    12 files changed, 380 insertions(+), 19 deletions(-)
+    $ git diff --stat b1c4c3e HEAD -- src tests scripts transcriber tools .claude; echo "exit=$?"
+    exit=0
+
+The closing `./tools/verify`, run at commit `0d71a19` with the tree clean (`git status --short | wc -l` printed `0`), started 2026-11-05 03:37Z and finished 03:39Z, exit 0. The only change since is to this file. It is the second closing run; the first, at `eb45ee6`, passed with the same counts and was repeated because two sentences were added to the spec after it (Surprises & Discoveries).
+
+    2351 passed, 5 skipped, 4 xfailed, 2 warnings in 57.09s        (unit+web+services, unchanged)
+    877 passed, 2 warnings in 59.07s                               (integration, unchanged; M8 adds no test)
+    judge fixtures: 12 of 12 passed
+    workflows: 2 of 2 ok
+    95 passed, 1 warning in 1.15s                                  (transcriber, unchanged)
+    plans: 2 of 2 ok
+    verify: all 6 checks passed in 120s.
+
 ## Interfaces and Dependencies
 
 No new library. PostgreSQL full-text search stays the engine (decision `0003`); the Anthropic SDK is reached only through `StructuredClient`. At the end of the plan these exist.
@@ -1421,6 +1507,8 @@ As built in M5. `src/docket/services/search_query.py` exists with `Unit`, `Searc
 As built in M6. `src/docket/services/search_query.py` now also holds `MAX_UNITS = 12`, `RECENCY_WORDS`, `STOP_WORDS` (a frozenset of 127 lowercase words), `parse_query(q) -> SearchQuery`, and `ident_sql(units, vector, prefix)`, which returns `("((<vector> @@ phraseto_tsquery('english', %(<prefix><n>)s))::int + ...)", params)` over the identifier units and `("0", {})` when there is none. `parse_query` returns units whose `text` is as typed (edge punctuation removed outside quotes, whitespace inside a phrase collapsed), `excluded` as a tuple of the words after their hyphens, `prefer_recent`, and `raw`, the text it was given; it accepts the empty string and returns no units. In `src/docket/services/query.py`: `SEARCH_ORDER_SQL` (a string with the slot `{recency}`), `SEARCH_RECENCY_ORDER_SQL`, and `build_search_sql(sq, municipality_slug, limit, offset)`, which returns the statement and a dict whose keys are `u<n>` for each unit, `x<n>` for each excluded word, `limit`, `offset`, and `slug` when a city is given; the statement's first column is `id` and its last is `rank`, and it runs on any psycopg2 cursor. `search_agenda_items(query, municipality_slug=None, limit=20, offset=0)` parses `query` itself, so a caller passes typed text, not a `SearchQuery`; it returns `[]` without a statement when the text has no units. The route `search()` in `src/docket/web/public.py` now computes `clean_q, speaker = tsvc.parse_speaker_token(q)` before the item search and passes `clean_q` to both searches; M7 parses `clean_q` again with `parse_query` for the moments, which is the same parse the item search made. `scripts/search_scale_check.py` exposes `run_scale_check(conn, rows, desc_words=(40, 400)) -> dict` (keys `rows`, `vector_median_bytes`, `vector_p95_bytes`, `log`, and, each a dict keyed by `rare-word`, `three-word`, and `common-words` in that order, `timings_ms`, `returned`, `candidates`, and `plans`), `format_line(out) -> str`, `vocabulary(size, seed)`, and `main(argv=None) -> int`, with the options `--rows`, `--desc-words LOW-HIGH`, and `--explain`.
 
 As built in M7. `search_transcripts(q, *, municipality_slug, speaker, limit=10, offset=0, exclude_item_ids=None)`: each row has every key it had (`meeting_id`, `municipality_slug`, `meeting_title`, `meeting_date`, `seq`, `start_s`, `speaker_name`, `rank`, `headline`, `anchor_url`) plus `agenda_item_id` and `item_title` (both None for a segment filed under no item) and `speaker_confidence`; `speaker_name` is None when the confidence is present and below `SPEAKER_CONFIDENCE_FLOOR`; `exclude_item_ids`, when it is a non-empty list, adds `(s.agenda_item_id IS NULL OR s.agenda_item_id <> ALL(%s))` to the WHERE, and None or an empty list leaves nothing out. The route `search()` passes the template `moments_by_item` (always a dict: item id to the list `moments_for_items` returns, only for items that have a moment) beside what it passed before, and `transcript_hits` no longer holds a line of one of the page's items or a line nested above. `src/docket/web/templates/search.html` writes, after a result card whose item has moments, `<ul class="search-moments" aria-label="What was said">` holding one `<li class="search-moment" data-item-id="<id>">` per moment (a link to `anchor_url` with the time, the speaker label when there is one, and the headline) and a last `<li class="t-meta search-moments-label">What was said at the meeting · machine transcript</li>`; the lower section has the eyebrow `From transcripts` and the heading `Also said at meetings`; the heading `Refine search` is unchanged and still precedes the results. `partials/search_transcript_hit.html` begins its meta line with `during <a class="link" href="/al/<slug>/items/<id>/"><title cut to 90 characters></a> · ` or `outside any agenda item · `. The styles are `.search-moments`, `.search-moment`, and `.search-moments-label` in `src/docket/web/static/layout.css`.
+
+As built in M8. No interface changed. The documents that now own what the interfaces above do: `docs/specs/search.md` (the page, the parser, the order, the card, card runs, moments, the lower list, the golden and scale checks), `docs/specs/transcripts.md` "Search cards" (the stage's place and `transcript_card_runs`), `docs/runbooks/transcripts-pipeline-map.md` section 13 (the stage's flow with `file:line` as of `bc275f9`), `docs/runbooks/transcripts.md` "Search cards: measurements" (what the operator records), and decisions `0071`, `0072`, and `0073`. Debt rows `D86` (operator steps) and `D87` (follow-ups) are spent; `D84` and `D85` belong to pull request #139.
 
 Revision note, 2026-11-04, plan author: this is the plan as first authored from the operator's goal and the scope brief; nothing has been revised. Deliberately left out, each stated in the goal or the brief as a later plan or a separate fix: linking items across meetings into one matter with a timeline (the matters table and lineage linker), which is also why the `new late night ordinance` to item 58874 pair is measured and not promised; embeddings, pgvector, reciprocal rank fusion, and phonetic hashing; a `transcript_chunks` table, typeahead or JSON search endpoints, an admin override drawer, changes to Whisper priming, and changes to speaker naming (the unnamed May 12 speaker is an issue for the operator to file); the product spec's UUID keys, millisecond columns, verification flags, and BM25; search facets and extra sorts (`D22`); issue #66 and issue #107; `search_meetings` and coverage search, which keep every-word matching; agenda items or cards for YouTube-only committee meetings (`D76`); dropping the weight-D summary term (`D11`); carrying manual speaker rows across a re-transcription (`D54`) and diarizer over-splitting (`D53`); the comparison-stage defects `D51` and `D52`, re-deferred in writing; other cities' pages and a home page; meeting-types M5 and M6 and migration 039; the Batches wrapper; a new worker task; a moment fallback from a card's cited segments and the retirement of cards whose transcript stops being public (both in the follow-ups row); the worktree `.env` (`D57`); and the deploy, the production counts, the live model run, the backfill, and the after measurement, which are the operator's steps and are written out above.
 
