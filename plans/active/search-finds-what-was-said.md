@@ -91,6 +91,14 @@ The entries from here on were observed by the M2 session (Claude, one fresh sess
 - Observation: three integration files depend on rows an earlier tier leaves behind, so a hand run of a few integration files on a fresh disposable database fails or skips where `./tools/verify` passes.
   Evidence: `tests/integration/test_035_migration.py`, `test_036_migration.py`, `test_041_migration.py`, `test_migration_013.py`, `test_search_cards_store.py`, and `test_search_vector_v3.py` run together on a database fresh from `tools/test-db` at 2026-11-05 01:46Z printed `2 failed, 32 passed, 8 skipped`: `test_discrepancy_requires_one_event` (035) and `test_down_tolerates_null_anchored_rows_and_reup_works` (036) failed with `TypeError: 'NoneType' object is not subscriptable` on `SELECT id FROM meetings ORDER BY id LIMIT 1`, and the eight tests of `test_search_vector_v3.py` skipped with `No meetings in DB`. In `./tools/verify` the unit, web, and services tier runs first on the same database and leaves meetings. This was there before M2 and is not changed by it; the two new files seed their own meetings and passed in that run.
 
+The entries from here on were observed by the M3 session (Claude, one fresh session of `/cycle-run`), starting at commit `a890c6f` on 2026-11-05 (UTC; the machine's clock read 2026-11-05 01:52Z when the session began).
+
+- Observation: `./tools/verify` passed at `a890c6f` before any edit, with M2's closing totals.
+  Evidence: exit 0, finished 2026-11-05 01:54Z; `2244 passed, 5 skipped, 4 xfailed, 2 warnings in 56.47s` (unit+web+services), `713 passed, 2 warnings in 49.53s` (integration), `judge fixtures: 12 of 12 passed`, `workflows: 2 of 2 ok`, `95 passed, 1 warning in 1.17s` (transcriber), `plans: 2 of 2 ok`, `verify: all 6 checks passed in 110s.` on `postgresql://thinkdarrell@/docket_test_b97d950a`.
+
+- Observation: with `tests/unit/test_search_cards_validate.py` written and none of the prompt, the schema, the renderer, or the validator created, the file collects and every test in it fails.
+  Evidence: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_search_cards_validate.py -q -p no:cacheprovider; tools/test-db --drop` at 2026-11-05 01:57Z printed `57 failed, 1 warning in 1.81s`. The file holds 50 test functions (`grep -c "^def test_"`), two of them parametrized over four and five cases, which is the 57. It imports `cards`, `schemas`, and `prompts` inside its helpers and tests, so nothing fails at collection; each failure is an `AttributeError` for a name M3 adds (`schemas.CardList` for 42 of them, `cards.render_cards_input` for 7). This is the commit before the code, so the before state is readable from git.
+
 ## Decision Log
 
 Every entry below is an authoring decision, dated 2026-11-04, by the plan-author session (Claude) unless it names the operator.
