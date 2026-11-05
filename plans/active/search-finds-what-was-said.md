@@ -203,6 +203,14 @@ The entries from here on are the M2 session's (Claude, 2026-11-05 UTC). Each res
   Rationale: the module uses both names itself (`group_turns`' default floor, `excerpt_for_item`'s ordinals), so the import is not an unused one and needs no re-export marker; an `__all__` naming two of the module's many public functions would misstate the rest. `docket.services.speaker_correction` and the routes go on reading them from the service module, as Context and Orientation says they must.
   Date/Author: 2026-11-05, M2 session (Claude).
 
+- Decision: migration 041's `SQL_DOWN` restores the function by executing migration 015's own `SQL_UP` (the module imports it and appends the two `DROP TABLE` statements); it does not hold a second copy of 015's body. The up body is written out in full, since the card lookup and the two new terms sit inside it.
+  Rationale: M2's text says the down "restores migration 015's `SQL_UP` function body exactly". A copy is exact on the day it is made and has a second owner from then on (`docs/PRINCIPLES.md`, One owner per fact); 015's own down copied 013's body, which is the pattern this avoids. Executing 015's statement is exact by construction, and `test_041_down_removes_tables_and_restores_015_function` reads the function's stored source after the down and compares it with 015's text. For the up body, `test_041_function_keeps_every_015_term_and_adds_two` compares the two migrations' `setweight` terms in order, so "unchanged term for term" is checked and not only asserted. The function is replaced before the tables are dropped, so nothing reads the card table as it goes.
+  Date/Author: 2026-11-05, M2 session (Claude).
+
+- Decision: `write_cards` returns -1 also when the transcript row does not exist or its `uploaded_at` is null, and it inserts with a plain `INSERT`, so two cards for one item in one call, or a card for an item another transcript has carded, raise `UniqueViolation` and roll the whole write back.
+  Rationale: M2's text names one refusal, an `uploaded_at` that differs from `source_uploaded_at`. A missing row and a null `uploaded_at` are the same fact from the caller's side (there is no upload these `seq` values describe), and a null would otherwise reach the `NOT NULL` column as an error instead of a refusal. For duplicates, an upsert would silently keep whichever card came last; M3's validator already drops a second card for an item, and an agenda item belongs to one meeting, which has one transcript row, so a conflict here means a caller bug and should be loud. `test_a_write_that_fails_leaves_the_earlier_cards_in_place` shows the earlier cards and vectors survive it. `touch_search_vectors` deduplicates and sorts the ids and runs no statement for an empty list.
+  Date/Author: 2026-11-05, M2 session (Claude).
+
 ## Outcomes & Retrospective
 
 Nothing has been executed yet. This section is written as milestones land and at completion.
@@ -530,7 +538,7 @@ The author ran this form on `tests/unit/test_transcript_search_parse.py` and it 
     venv/bin/python scripts/build_search_cards.py; echo "exit=$?"                             # M4; no mode given
     DATABASE_URL=$(tools/test-db) venv/bin/python scripts/search_scale_check.py --rows 60000; tools/test-db --drop    # M6
 
-The author ran `venv/bin/python -m docket.migrations.runner --help` (it lists `--status` and `--down VERSION`), one live request per added query (Surprises & Discoveries), and the ranking SQL shapes on temporary rows (Artifacts and Notes). The scripts named above do not exist yet, so their lines have not been run. (M1 session, 2026-11-05: `scripts/golden_search.py` now exists and its line has been run; what it printed is under Artifacts and Notes, "M1 evidence". The other scripts still do not exist.)
+The author ran `venv/bin/python -m docket.migrations.runner --help` (it lists `--status` and `--down VERSION`), one live request per added query (Surprises & Discoveries), and the ranking SQL shapes on temporary rows (Artifacts and Notes). The scripts named above do not exist yet, so their lines have not been run. (M1 session, 2026-11-05: `scripts/golden_search.py` now exists and its line has been run; what it printed is under Artifacts and Notes, "M1 evidence". The other scripts still do not exist.) (M2 session, 2026-11-05: the M2 line, the runner's `--status` on a disposable database, has been run; what it printed is under Artifacts and Notes, "M2 evidence".)
 
 Commits: every commit of a milestone session changes this plan file (decision `0037`); git hooks are never bypassed.
 
@@ -747,6 +755,19 @@ Clause (a), the closing `./tools/verify`, run at commit `95315a8` with the tree 
     95 passed, 1 warning in 1.18s                                  (transcriber, unchanged)
     plans: 2 of 2 ok
     verify: all 6 checks passed in 110s.
+
+M2 evidence, observed by the M2 session on 2026-11-05 (UTC) in this worktree. Every line below is a command the session ran and what it printed.
+
+The two new test files, with migration 041 and the store in place (2026-11-05 01:42Z). They hold 12 and 11 test functions (`grep -c "^def test_"` printed `12` for `tests/integration/test_041_migration.py` and `11` for `tests/integration/test_search_cards_store.py`):
+
+    $ DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/integration/test_041_migration.py tests/integration/test_search_cards_store.py -q -p no:cacheprovider; tools/test-db --drop
+    23 passed, 1 warning in 1.72s
+
+The same command one commit earlier (`c3f6031`, the migration and `cards.py` absent) printed `1 warning, 23 errors in 0.16s` (Surprises & Discoveries). `venv/bin/ruff check` on the two test files, `src/docket/migrations/041_search_cards.py`, `src/docket/ai/transcripts/cards.py`, and `src/docket/migrations/runner.py` printed `All checks passed!`.
+
+Old against new on real rows (2026-11-05 01:43Z). No card exists when the migration runs, so the claim to check is that an item with no card has the same vector under migration 015's function and under 041's. A scratch script (not committed) installed the real rows of meeting 2543 from `tests/fixtures/transcript_2543/` on a disposable database, recomputed all 66 agenda items' vectors under 041's function, executed migration 015's `SQL_UP`, recomputed them again, and compared the two as text. These rows have titles only (the fixture holds no descriptions or headlines), so this compares the title term on real text and the other terms on nulls:
+
+    compare: 66 real agenda items of meeting 2543, no cards: 66 vectors identical under 015 and 041, 0 differ; 66 non-empty
 
 ## Interfaces and Dependencies
 

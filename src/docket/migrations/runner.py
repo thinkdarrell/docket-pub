@@ -50,6 +50,7 @@ MIGRATIONS = [
     "docket.migrations.037_city_briefing_facts",
     "docket.migrations.038_meeting_types",
     "docket.migrations.040_youtube_recordings",
+    "docket.migrations.041_search_cards",
 ]
 
 
