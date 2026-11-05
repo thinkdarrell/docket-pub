@@ -114,7 +114,7 @@ The hero eyebrow reads "Search · agenda items and what was said", and the field
 
 ## Measuring
 
-The golden check, `scripts/golden_search.py`, asks a deployment of the site 42 loose queries aimed at 45 known Birmingham items (`tests/fixtures/golden_search/queries.json`) and prints one line per pair and a summary:
+The golden check, `scripts/golden_search.py`, asks a deployment of the site 42 loose queries, in 45 query-and-item pairs aimed at 20 known Birmingham items (`tests/fixtures/golden_search/queries.json`; the summary's "targets" are the pairs), and prints one line per pair and a summary:
 
     venv/bin/python scripts/golden_search.py --base-url https://docket.pub
     golden: 3 of 45 targets on the first page (top 3: 3, top 10: 3, top 20: 3); 0 with spoken moments; 42 queries
