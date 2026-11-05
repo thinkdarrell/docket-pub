@@ -15,7 +15,13 @@ from pathlib import Path
 
 import pytest
 
-from docket.ai.exceptions import AIFatalError, AIPermanentRowError, AIRateLimited, AITransientError, TranscriptHeld
+from docket.ai.exceptions import (
+    AIFatalError,
+    AIPermanentRowError,
+    AIRateLimited,
+    AITransientError,
+    TranscriptHeld,
+)
 from docket.ai.pricing import Usage, calculate_cost_usd, track_usage
 from docket.ai.transcripts import cards as C
 from docket.ai.transcripts import pipeline as P
@@ -290,9 +296,9 @@ def test_the_report_line_has_the_contracted_shape(make):
     inst = make()
     summary = _run(FakeClient())
     assert summary.reports == [
-        f"cards: meeting {inst.meeting_id} transcript {inst.transcript_id}: 2 placed, 2 cards "
-        "(2 discussed, 0 missing, 0 extra), details 2 kept 0 re-pointed 0 dropped, bounds 2 kept 0 dropped, "
-        "0 starts moved 20 s or more, 1200 in 300 out, $0.0054"
+        (f"cards: meeting {inst.meeting_id} transcript {inst.transcript_id}: 2 placed, 2 cards "
+         "(2 discussed, 0 missing, 0 extra), details 2 kept 0 re-pointed 0 dropped, bounds 2 kept 0 dropped, "
+         "0 starts moved 20 s or more, 1200 in 300 out, $0.0054")
     ]
 
 
@@ -542,20 +548,25 @@ def test_a_meeting_with_no_placed_item_is_done_without_a_call(make):
     assert _run(fake).built == 0   # done is done: it is not claimed on every tick
 
 
-def test_an_upload_that_lands_during_the_call_writes_nothing_and_is_claimable_at_once(make):
+def test_an_upload_that_lands_during_the_call_writes_nothing_and_is_carded_once_it_is_past_events_again(make):
     inst = make()
 
-    def reupload():
+    def reupload():   # what the producer's upload() does to the row: new segments, a new uploaded_at, status uploaded
         with db_cursor() as cur:
-            cur.execute("UPDATE transcripts SET uploaded_at = uploaded_at + interval '1 hour' WHERE id = %s",
-                        [inst.transcript_id])
+            cur.execute("""UPDATE transcripts SET uploaded_at = uploaded_at + interval '1 hour', status = 'uploaded'
+                            WHERE id = %s""", [inst.transcript_id])
 
     summary = _run(FakeClient(on_call=reupload))
-    assert (summary.built, summary.failed) == (0, 1)
+    assert (summary.built, summary.failed) == (0, 1) and len(summary.reports) == 1
     run = _run_row(inst)
     assert run["status"] == "failed" and run["last_error"] == "transcript changed during the run"
-    assert _card_rows(inst) == []
-    assert _run(FakeClient()).built == 1
+    assert run["counts"]["written"] == -1 and _card_rows(inst) == []
+    fake = FakeClient()
+    assert _run(fake).built == 0 and fake.calls == []   # not past the events stage any more
+    with db_cursor() as cur:
+        cur.execute("UPDATE transcripts SET status = 'events_extracted' WHERE id = %s", [inst.transcript_id])
+    assert _run(fake).built == 1   # at once: the failed run describes the earlier upload
+    assert (_run_row(inst)["status"], _run_row(inst)["attempts"]) == ("done", 1)
     assert {c["source_uploaded_at"] for c in _card_rows(inst)} == {_uploaded_at(inst)}
 
 

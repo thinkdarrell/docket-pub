@@ -68,10 +68,33 @@ extracted, usually a scan that needs OCR or a different URL) go straight to
 unavailable and retried daily.
 A transcript that was uploaded stays public through `failed`/`needs_review`.
 Every call writes `ai_runs` (stages `transcript_speakers`, `transcript_events`,
-`transcript_compare`, `transcript_ab`) so `AI_DAILY_BUDGET_USD` applies.
+`transcript_compare`, `transcript_ab`, `transcript_cards`) so `AI_DAILY_BUDGET_USD` applies.
 Manual run: `railway ssh --service worker` then `python -m docket.worker.scheduler --run-once transcript_pipeline`.
 One meeting: `venv/bin/python scripts/transcript_recompare.py --meeting-id N --now` (laptop, public DB URL, API key);
 add `--minutes-changed` when the minutes PDF changed, or `--transcript-changed` after re-extracting the transcript events (see Re-comparison).
+
+Search cards. After the three stages the same tick builds search cards (hidden search text for each
+agenda item the transcript places; `src/docket/ai/transcripts/cards.py`) for up to
+`TRANSCRIPT_CARDS_PER_TICK` (default 2; 0 turns it off) meetings, newest first. It claims a Birmingham
+transcript at `events_extracted` or `compared` that has no card run for its current upload and the
+current card prompt, calls the model once for the meeting, and writes `agenda_item_search_cards`. It
+is not a status: it never writes the `transcripts` row, and its bookkeeping is one row per transcript
+in `transcript_card_runs` (`claimed`, `done`, `failed`, `held`). It is skipped on a tick whose stage
+loop stopped on the budget or a rate limit, and it stops itself at `AI_DAILY_BUDGET_USD`. Each call
+writes an `ai_runs` row with the stage `transcript_cards` and logs one line beginning
+`cards: meeting N transcript N:` with what was placed, carded, kept, and dropped, the tokens, and the
+dollars; the pipeline's summary line (`transcript_pipeline PipelineSummary(...)`) carries `cards_built` and
+`cards_failed`, and the task's shorter `transcript_pipeline processed=...` line does not. A run `failed` with a
+`last_error` beginning `incomplete:` means the model skipped a placed item: the cards it did write are
+in place and the run retries itself, three attempts 24 hours apart, like any other `failed` run. A
+`held` run (a refusal, a truncated or malformed reply, the token ceiling) is not retried until the
+meeting is re-uploaded or the card prompt version is raised. A 429 hands the attempt back and ends
+the tick's card work for the day.
+By hand (laptop, public DB URL, API key): `venv/bin/python scripts/build_search_cards.py --count` reads
+where the archive stands; `--limit N` builds the N newest meetings still waiting; `--meeting-id N`
+(repeatable) rebuilds a meeting whatever its run row says; `--dry-run` with either calls the model and
+prints the report line without writing a card or a run row. The command refuses to run without
+exactly one of `--count`, `--limit`, or `--meeting-id`.
 
 ## Worker environment
 
@@ -79,6 +102,8 @@ add `--minutes-changed` when the minutes PDF changed, or `--transcript-changed` 
 `AI_TRANSCRIPT_COMPARE_MODEL` (default `claude-opus-5-5`), `AI_TRANSCRIPT_AB_MODEL`
 (A/B script only), `TRANSCRIPT_TOKEN_CEILING`,
 `TRANSCRIPT_CANDIDATE_CAP`, `TRANSCRIPT_PER_TICK`, `TRANSCRIPT_MIN_WORDS`,
+`AI_TRANSCRIPT_CARDS_MODEL` (the search-card model, default `claude-sonnet-5-5`; it needs a `PRICING` entry),
+`TRANSCRIPT_CARDS_PER_TICK` (meetings given search cards per tick, default 2; 0 turns the card stage off),
 `ALERT_WEBHOOK_URL` (Slack or Discord incoming webhook; unset = silent),
 `HEALTHCHECK_TRANSCRIPT_PIPELINE_UUID`. Web service: `MINUTES_VS_VIDEO_UI` (see ship gate).
 `AI_DAILY_BUDGET_USD` is shared with `ai_items` and `ai_meetings`; when it is exhausted the

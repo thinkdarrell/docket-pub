@@ -7,7 +7,7 @@ through `agenda_items.search_vector`: the trigger function
 `agenda_items_search_update()` reads the item's card row whenever the item
 row is written, so the writer of a card refreshes the item rows itself.
 
-This module holds everything about a card except the model call:
+This module holds the whole card stage:
 
 - `load_card_items` reads the placed items of a transcript, and
   `render_cards_input` writes the meeting as the user message `CARDS_SYSTEM`
@@ -15,17 +15,45 @@ This module holds everything about a card except the model call:
 - `validate_cards` turns a parsed reply (`CardList`, schemas.py) into rows for
   the store, dropping what the citation guard cannot find and bounds far from
   the item's placement, and `search_texts` builds a card's two search texts;
-- `write_cards` and `touch_search_vectors` are the store.
+- `write_cards` and `touch_search_vectors` are the store;
+- `run_cards` is the runner: it claims transcripts that have passed the events
+  stage and have no current card run (`CLAIM_CARDS_SQL`), calls the model once
+  per meeting (`build_for_transcript`), and records each attempt in
+  `transcript_card_runs` and in `ai_runs` under the stage `transcript_cards`.
+  It never writes the `transcripts` table. The daily `transcript_pipeline`
+  tick calls it (pipeline.py) and so does `scripts/build_search_cards.py`,
+  whose `--count` line `count_card_runs` supplies.
 """
 from __future__ import annotations
 
 import json
+import logging
+from dataclasses import dataclass, field
 
-from docket.ai.transcripts.events import _label
+from pydantic import ValidationError
+
+from docket.ai.exceptions import (
+    AIFatalError,
+    AIPermanentRowError,
+    AIRateLimited,
+    AITransientError,
+    TranscriptHeld,
+)
+from docket.ai.pricing import PRICING, Usage, usage_capture
+from docket.ai.transcripts.events import _label, _meeting, load_segments_with_speakers
 from docket.ai.transcripts.guard import find_citation
-from docket.ai.transcripts.schemas import CardList, SearchCard
+from docket.ai.transcripts.prompts import CARDS_PROMPT_VERSION, CARDS_SYSTEM
+from docket.ai.transcripts.schemas import CARDS_SCHEMA, CardList, SearchCard
+from docket.ai.transcripts.shared import speaker_ordinals
 from docket.ai.transcripts.speakers import hms
-from docket.db import db_cursor
+from docket.config import (
+    AI_DAILY_BUDGET_USD,
+    AI_TRANSCRIPT_CARDS_MODEL,
+    TRANSCRIPT_TOKEN_CEILING,
+)
+from docket.db import db, db_cursor
+
+log = logging.getLogger(__name__)
 
 CARD_SNAP_MAX_S = 600.0        # snapped bounds further than this from the item's placement are not believed
 START_MOVED_S = 20.0           # a kept start this far from the placement's start is counted as moved
@@ -38,6 +66,111 @@ MAX_NAMES, MAX_VARIANTS = 12, 6
 
 COUNT_KEYS = ("placed", "cards", "missing", "extra", "discussed", "details_kept", "details_repointed",
               "details_dropped", "bounds_kept", "bounds_dropped", "starts_moved")
+
+RUN_NAME = "transcript_cards"  # the `ai_runs` stage; /admin/ai lists every stage whose name begins `transcript_`
+
+# Which transcripts can be carded at all. The two statuses mean "the events stage has run", which is the
+# stage that settles placement, and both are public: `low_speech` is not among them and `uploaded_at` is
+# required. Only Birmingham meetings with a numeric Granicus id, as in `pipeline.CLAIM_SQL`: a `yt-`
+# committee meeting has no agenda items and so nothing to card.
+_CARDABLE_SQL = """
+          FROM transcripts t
+          JOIN meetings m        ON m.id  = t.meeting_id
+          JOIN municipalities mu ON mu.id = m.municipality_id
+          LEFT JOIN transcript_card_runs r ON r.transcript_id = t.id
+         WHERE mu.slug = 'birmingham'
+           AND m.external_id ~ '^[0-9]+$'
+           AND m.is_hidden = FALSE
+           AND t.uploaded_at IS NOT NULL
+           AND t.status IN ('events_extracted', 'compared')"""
+
+# Which of those lack a current card run: never run, run from an earlier upload, run under an older prompt
+# (a floor, decision 0014), or an attempt that did not finish and has tries and its 24 hours behind it.
+_WAITING_SQL = """(r.transcript_id IS NULL
+                OR r.source_uploaded_at <> t.uploaded_at
+                OR r.prompt_version < %(version)s
+                OR (r.status IN ('claimed', 'failed') AND r.attempts < 3
+                    AND (r.last_attempted_at IS NULL OR r.last_attempted_at < now() - interval '24 hours')))"""
+
+_NAMED_SQL = "t.meeting_id = %(meeting_id)s"
+
+
+def _claim_sql(eligible: str) -> str:
+    """The claim: one candidate, locked, newest meeting first, its attempt counted in `transcript_card_runs`.
+
+    The pattern is `pipeline.CLAIM_SQL`'s, but the bookkeeping is the card
+    stage's own table and nothing is written to `transcripts`. A run row that
+    described another upload or an older prompt starts again at one attempt.
+    """
+    return f"""
+    WITH candidate AS (
+        SELECT t.id, t.meeting_id, t.uploaded_at{_CARDABLE_SQL}
+           AND {eligible}
+         ORDER BY m.meeting_date DESC, t.id
+         LIMIT 1
+         FOR UPDATE OF t SKIP LOCKED
+    )
+    INSERT INTO transcript_card_runs AS r (transcript_id, meeting_id, source_uploaded_at, prompt_version,
+                                           status, attempts, last_attempted_at)
+    SELECT id, meeting_id, uploaded_at, %(version)s, 'claimed', 1, now() FROM candidate
+    ON CONFLICT (transcript_id) DO UPDATE
+       SET attempts = CASE WHEN r.source_uploaded_at = EXCLUDED.source_uploaded_at
+                            AND r.prompt_version = EXCLUDED.prompt_version THEN r.attempts + 1 ELSE 1 END,
+           source_uploaded_at = EXCLUDED.source_uploaded_at, prompt_version = EXCLUDED.prompt_version,
+           status = 'claimed', last_attempted_at = now(), last_error = NULL, updated_at = now()
+    RETURNING r.transcript_id, r.meeting_id, r.source_uploaded_at, r.attempts
+    """
+
+
+def _peek_sql(eligible: str) -> str:
+    """What the claim would take next, read and not taken: a dry run's candidate."""
+    return f"""
+    SELECT t.id AS transcript_id, t.meeting_id, t.uploaded_at AS source_uploaded_at, 0 AS attempts{_CARDABLE_SQL}
+       AND {eligible}
+       AND t.id <> ALL(%(seen)s)
+     ORDER BY m.meeting_date DESC, t.id
+     LIMIT 1
+    """
+
+
+CLAIM_CARDS_SQL = _claim_sql(_WAITING_SQL)
+# A named meeting is claimed whatever its run row says, so an operator can rebuild it.
+CLAIM_CARDS_MEETING_SQL = _claim_sql(_NAMED_SQL)
+
+# The partition `scripts/build_search_cards.py --count` prints. Every public transcript past the events
+# stage is in exactly one of the last four: `current` (a done run for this upload and prompt), `held`,
+# `failed` (out of attempts), or `waiting` (the claim will take it, now or once its 24 hours are up).
+COUNT_CARDS_SQL = """
+SELECT count(*) AS public,
+       count(*) FILTER (WHERE past) AS past_events,
+       count(*) FILTER (WHERE past AND is_current AND run_status = 'done') AS current,
+       count(*) FILTER (WHERE past AND NOT (is_current AND (run_status IN ('done', 'held') OR attempts >= 3))) AS waiting,
+       count(*) FILTER (WHERE past AND is_current AND run_status = 'held') AS held,
+       count(*) FILTER (WHERE past AND is_current AND run_status IN ('claimed', 'failed') AND attempts >= 3) AS failed
+  FROM (SELECT t.status IN ('events_extracted', 'compared') AS past,
+               (r.transcript_id IS NOT NULL AND r.source_uploaded_at = t.uploaded_at
+                AND r.prompt_version >= %(version)s) AS is_current,
+               r.status AS run_status, r.attempts
+          FROM transcripts t
+          JOIN meetings m        ON m.id  = t.meeting_id
+          JOIN municipalities mu ON mu.id = m.municipality_id
+          LEFT JOIN transcript_card_runs r ON r.transcript_id = t.id
+         WHERE mu.slug = 'birmingham'
+           AND m.external_id ~ '^[0-9]+$'
+           AND m.is_hidden = FALSE
+           AND t.uploaded_at IS NOT NULL
+           AND t.status <> 'low_speech') x
+"""
+
+
+@dataclass
+class CardsSummary:
+    """What one `run_cards` call did. `built` counts runs that ended `done`; `reports` holds a line per validated reply."""
+    built: int = 0
+    failed: int = 0
+    held: int = 0
+    stopped_reason: str | None = None
+    reports: list[str] = field(default_factory=list)
 
 
 def load_card_items(meeting_id: int, transcript_id: int) -> list[dict]:
@@ -344,3 +477,220 @@ def write_cards(transcript_id: int, source_uploaded_at, cards: list[dict], *, mo
             )
         touch_search_vectors(cur, old_ids + [c["item_id"] for c in cards])
         return len(cards)
+
+
+def claim_cards(meeting_id: int | None = None) -> dict | None:
+    """Claim the next transcript that lacks a current card run, or the named meeting's whatever its run says.
+
+    Returns the run (`transcript_id`, `meeting_id`, `source_uploaded_at`,
+    `attempts`), or None when nothing can be claimed.
+    """
+    sql = CLAIM_CARDS_SQL if meeting_id is None else CLAIM_CARDS_MEETING_SQL
+    with db_cursor() as cur:
+        cur.execute(sql, {"version": CARDS_PROMPT_VERSION, "meeting_id": meeting_id})
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def peek_cards(meeting_id: int | None = None, seen: list[int] | None = None) -> dict | None:
+    """The run `claim_cards` would return, without claiming it or writing anything; `seen` transcripts are passed over."""
+    sql = _peek_sql(_WAITING_SQL if meeting_id is None else _NAMED_SQL)
+    with db_cursor() as cur:
+        cur.execute(sql, {"version": CARDS_PROMPT_VERSION, "meeting_id": meeting_id, "seen": list(seen or [])})
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def count_card_runs() -> dict:
+    """Read-only counts of Birmingham's public transcripts by where they stand with the card stage (`COUNT_CARDS_SQL`)."""
+    with db_cursor() as cur:
+        cur.execute(COUNT_CARDS_SQL, {"version": CARDS_PROMPT_VERSION})
+        return dict(cur.fetchone())
+
+
+def build_for_transcript(run: dict, *, client, dry_run: bool = False) -> dict:
+    """Write the cards of one claimed transcript: one model call, validated, stored. Returns the counts.
+
+    The counts are `validate_cards`'s eleven plus `written`: the rows
+    `write_cards` stored, 0 when nothing was written (a dry run, a reply that
+    carded nothing, a meeting with no placed item), and -1 when a re-upload
+    landed during the call and `write_cards` refused. A meeting with no placed
+    item returns `placed: 0` and calls the model not at all. A reply that
+    carded nothing is not written, because `write_cards` replaces a
+    transcript's cards and must not wipe the ones already there.
+
+    Raises `TranscriptHeld` when the meeting is over `TRANSCRIPT_TOKEN_CEILING`
+    or the reply does not fit `CardList`, and whatever the client raises.
+    """
+    tid, mid = run["transcript_id"], run["meeting_id"]
+    items = load_card_items(mid, tid)
+    if not items:
+        return {**dict.fromkeys(COUNT_KEYS, 0), "written": 0}
+    segments = load_segments_with_speakers(tid)
+    user = render_cards_input(_meeting(mid), segments, items, speaker_ordinals(tid))
+    model = AI_TRANSCRIPT_CARDS_MODEL
+    tokens = client.count_tokens(model=model, system=CARDS_SYSTEM, user=user)
+    if tokens > TRANSCRIPT_TOKEN_CEILING:
+        raise TranscriptHeld("token_ceiling", f"{tokens} tokens > ceiling {TRANSCRIPT_TOKEN_CEILING}")
+    res = client.call(model=model, system=CARDS_SYSTEM, user=user, schema=CARDS_SCHEMA, max_tokens=64000,
+                      effort="medium")
+    try:
+        parsed = CardList.model_validate(res.data)
+    except ValidationError as e:
+        raise TranscriptHeld("schema_invalid", f"cards response failed validation: {e}") from e
+    rows, counts = validate_cards(parsed, items=items, segments=segments)
+    written = 0
+    if rows and not dry_run:
+        written = write_cards(tid, run["source_uploaded_at"], rows, model=model, prompt_version=CARDS_PROMPT_VERSION)
+    return {**counts, "written": written}
+
+
+def format_report(run: dict, counts: dict, usage: Usage, cost_usd: float) -> str:
+    """The one line a build reports: what was placed, carded, kept, and dropped, and what the call cost."""
+    tokens_in = usage.input_tokens + usage.cache_creation_input_tokens + usage.cache_read_input_tokens
+    return (f"cards: meeting {run['meeting_id']} transcript {run['transcript_id']}: "
+            f"{counts['placed']} placed, {counts['cards']} cards ({counts['discussed']} discussed, "
+            f"{counts['missing']} missing, {counts['extra']} extra), "
+            f"details {counts['details_kept']} kept {counts['details_repointed']} re-pointed "
+            f"{counts['details_dropped']} dropped, "
+            f"bounds {counts['bounds_kept']} kept {counts['bounds_dropped']} dropped, "
+            f"{counts['starts_moved']} starts moved {START_MOVED_S:g} s or more, "
+            f"{tokens_in} in {usage.output_tokens} out, ${cost_usd:.4f}")
+
+
+def _finish_run(transcript_id: int, status: str, *, error: str | None, counts: dict | None, model: str | None) -> None:
+    """Record how a claimed attempt ended. The row then describes that attempt and no earlier one."""
+    with db_cursor() as cur:
+        cur.execute("""UPDATE transcript_card_runs
+                          SET status = %s, last_error = %s, counts = %s::jsonb, model = %s, updated_at = now()
+                        WHERE transcript_id = %s""",
+                    [status, error[:2000] if error else None, json.dumps(counts or {}), model, transcript_id])
+
+
+def _hand_back(transcript_id: int, detail: str) -> None:
+    """A 429 is the API's problem, not the meeting's: return the attempt the claim counted.
+
+    The row stays `claimed` with `last_attempted_at` as the claim set it, so
+    it waits out its 24 hours and is then claimed again.
+    """
+    with db_cursor() as cur:
+        cur.execute("""UPDATE transcript_card_runs
+                          SET last_error = %s, attempts = GREATEST(attempts - 1, 0), updated_at = now()
+                        WHERE transcript_id = %s""", [detail[:2000], transcript_id])
+
+
+def process_run(run: dict, *, client, notes: str, dry_run: bool = False) -> tuple[str, str | None]:
+    """Build one run inside an `ai_runs` row and record how it ended. Returns the outcome and its report line.
+
+    The outcome is `done`, `failed`, `held`, or `rate_limited`. `done` needs a
+    card for every placed item; a reply that skipped one is `failed` with a
+    `last_error` beginning `incomplete:`, its other cards written, and is
+    retried by the claim's own rule. A hold is not retried until a new upload
+    or a prompt bump. `AIFatalError` propagates with the attempt left claimed.
+    A dry run records nothing but its `ai_runs` row, since its call is paid for.
+    """
+    from docket.ai.transcripts.pipeline import _cost
+    from docket.ai.worker import RunSummary, _close_run, _open_run
+
+    tid, mid, model = run["transcript_id"], run["meeting_id"], AI_TRANSCRIPT_CARDS_MODEL
+    with db() as conn:
+        run_id = _open_run(conn, RUN_NAME, model, notes)
+    summary = RunSummary(stage=RUN_NAME)
+    emissions: list[tuple[str, Usage]] = []
+    status, error, counts, report = "failed", None, None, None
+    try:
+        try:
+            with usage_capture() as emissions:
+                counts = build_for_transcript(run, client=client, dry_run=dry_run)
+        finally:
+            summary.cost_usd, summary.usage = _cost(emissions)
+        if counts["placed"]:
+            report = format_report(run, counts, summary.usage, summary.cost_usd)
+            log.info("%s", report)
+        if counts["written"] < 0:
+            error = "transcript changed during the run"
+        elif counts["missing"]:
+            error = f"incomplete: {counts['cards']} of {counts['placed']} placed items carded"
+        else:
+            status = "done"
+    except TranscriptHeld as e:
+        status, error = "held", f"{e.reason}: {e}"
+    except AIPermanentRowError as e:
+        status, error = "held", f"permanent: {e}"
+    except AIRateLimited as e:
+        status, error = "rate_limited", f"rate limited: {e}"
+    except AITransientError as e:
+        error = str(e)
+    except AIFatalError:
+        raise
+    except Exception as e:  # a bug in the build must not take the tick down
+        log.exception("cards: meeting %s transcript %s crashed", mid, tid)
+        error = f"{type(e).__name__}: {e}"
+    finally:
+        summary.rows_processed, summary.rows_failed = (1, 0) if status == "done" else (0, 1)
+        with db() as conn:
+            _close_run(conn, run_id, summary)
+    if status != "done":
+        log.warning("cards: meeting %s transcript %s: %s (%s)", mid, tid, status, error)
+    if not dry_run:
+        if status == "rate_limited":
+            _hand_back(tid, error)
+        else:
+            _finish_run(tid, status, error=error, counts=counts,
+                        model=model if counts and counts["placed"] else None)
+    return status, report
+
+
+def run_cards(*, limit: int, notes: str = "cron_cards", force_budget: bool = False, client=None,
+              meeting_ids: list[int] | None = None, dry_run: bool = False) -> CardsSummary:
+    """Build search cards for up to `limit` meetings, newest first, inside the daily AI budget.
+
+    Without `meeting_ids` it takes transcripts that lack a current card run
+    (`CLAIM_CARDS_SQL`). With them it takes those meetings, in the order
+    given and still no more than `limit`, whatever their run rows say; a named
+    meeting that cannot be carded (no public Birmingham transcript past the
+    events stage) is passed over with a warning. The day's spend is read
+    before each meeting and the loop stops, `stopped_reason = "budget"`, once
+    it has reached `AI_DAILY_BUDGET_USD`, unless `force_budget`. A rate limit
+    stops the loop too. With `dry_run` nothing is claimed and no card or run
+    row is written; the model is still called and its `ai_runs` row written.
+
+    Raises `AIFatalError` when the model has no `PRICING` entry or the client
+    cannot be built, before anything is claimed.
+    """
+    from docket.ai.transcripts.client import StructuredClient
+    from docket.ai.worker import _today_spend
+
+    if AI_TRANSCRIPT_CARDS_MODEL not in PRICING:
+        raise AIFatalError(f"cards model {AI_TRANSCRIPT_CARDS_MODEL!r} has no PRICING entry; add it before running")
+    client = client or StructuredClient()
+    s = CardsSummary()
+    targets: list[int | None] = list(meeting_ids)[:max(limit, 0)] if meeting_ids else [None] * max(limit, 0)
+    seen: list[int] = []
+    for meeting_id in targets:
+        with db() as conn:
+            spent = _today_spend(conn)
+        if spent >= AI_DAILY_BUDGET_USD and not force_budget:
+            s.stopped_reason = "budget"
+            break
+        run = peek_cards(meeting_id, seen) if dry_run else claim_cards(meeting_id)
+        if run is None:
+            if meeting_id is None:
+                break
+            log.warning("cards: meeting %s: nothing to build (it needs a public Birmingham transcript "
+                        "past the events stage)", meeting_id)
+            continue
+        seen.append(run["transcript_id"])
+        outcome, report = process_run(run, client=client, notes=notes, dry_run=dry_run)
+        if report:
+            s.reports.append(report)
+        if outcome == "rate_limited":
+            s.stopped_reason = "rate_limited"
+            break
+        if outcome == "done":
+            s.built += 1
+        elif outcome == "held":
+            s.held += 1
+        else:
+            s.failed += 1
+    return s

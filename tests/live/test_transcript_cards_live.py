@@ -37,7 +37,7 @@ def client():
 
 
 def test_meeting_2543_gets_cards_whose_quotes_are_in_the_transcript(client):
-    from docket.ai.transcripts import cards as C   # inside the test: the runner is M4's
+    from docket.ai.transcripts import cards as C  # inside the test: the runner is M4's
 
     inst = install_bundle(load_bundle("transcript_2543"), external_id="999544", status="events_extracted")
     try:
