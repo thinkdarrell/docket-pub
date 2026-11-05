@@ -659,6 +659,59 @@ Clause (c), the refused delay (2026-11-05 01:25Z). The refusal is argparse's, on
     golden_search.py: error: --delay must be at least 1.0 seconds: the check asks a site no faster than one request a second. Nothing was fetched.
     exit=2
 
+Clause (b), the before measurement against production. Started 2026-11-05 01:26:11Z, ended 01:27:27Z (42 requests, one a second, 76 seconds); nothing was printed on standard error. The output is whole: 45 per-pair lines and the summary. A per-pair line reads `place` (the target's position among the page's result cards, `-` when it is not on the page), `moments` (nested spoken moments read for it), the item, its meeting and the pair's kind, and the query.
+
+    $ venv/bin/python scripts/golden_search.py --base-url https://docket.pub; echo "exit=$?"
+    place  -  moments 0  item 58822 (meeting 2224, paraphrase)  new hotel and condos redmont park
+    place  -  moments 0  item 58822 (meeting 2224, spoken)  hotel project where balloon was flown
+    place  -  moments 0  item 58825 (meeting 2224, paraphrase)  norwood speed humps and sidewalk repairs
+    place  -  moments 0  item 58825 (meeting 2224, spoken)  lawsuit settlement money interstate bridges northside
+    place  -  moments 0  item 58826 (meeting 2224, paraphrase)  help for families of disabled kids
+    place  -  moments 0  item 58826 (meeting 2224, spoken)  inclusive carnival bessie estelle park
+    place  -  moments 0  item 58871 (meeting 2231, paraphrase)  lawyers must show bar membership
+    place  -  moments 0  item 58871 (meeting 2231, spoken)  extra red tape business license lawyers
+    place  -  moments 0  item 58872 (meeting 2231, paraphrase)  blocked train crossings woodlawn fix
+    place  -  moments 0  item 58872 (meeting 2231, spoken)  kids crawling under trains west side
+    place  -  moments 0  item 58873 (meeting 2231, paraphrase)  applying for money to upgrade birmingport
+    place  -  moments 0  item 58873 (meeting 2231, spoken)  never knew birmingham had a port
+    place  -  moments 0  item 61786 (meeting 2487, paraphrase)  ensley lounge wants to serve alcohol
+    place  -  moments 0  item 61786 (meeting 2487, spoken)  live band and comedy ensley
+    place  -  moments 0  item 61787 (meeting 2487, paraphrase)  downtown park place eatery serving alcohol
+    place  -  moments 0  item 61787 (meeting 2487, spoken)  new restaurant inside tutwiler hotel
+    place  -  moments 0  item 61788 (meeting 2487, paraphrase)  late night eatery alcohol permit denied
+    place  -  moments 0  item 61788 (meeting 2487, spoken)  restaurant or club open until 5am
+    place  -  moments 0  item 61266 (meeting 2387, paraphrase)  tall condo building redmont neighbors opposed
+    place  -  moments 0  item 61266 (meeting 2387, spoken)  ski jump exit highland avenue
+    place  -  moments 0  item 61265 (meeting 2387, paraphrase)  house illegally split into two apartments
+    place  -  moments 0  item 61265 (meeting 2387, spoken)  duplex owner couldn't get power on
+    place  -  moments 0  item 61269 (meeting 2387, paraphrase)  warehouse being built on republic street
+    place  -  moments 0  item 61269 (meeting 2387, spoken)  cold storage warehouse no tenant yet
+    place  -  moments 0  item 61904 (meeting 2493, paraphrase)  land use overhaul west side neighborhoods
+    place  -  moments 0  item 61904 (meeting 2493, spoken)  new landfill would need neighborhood approval
+    place  -  moments 0  item 61924 (meeting 2493, paraphrase)  tear down old church jones valley
+    place  -  moments 0  item 61924 (meeting 2493, spoken)  owner says city stealing his property
+    place  -  moments 0  item 62163 (meeting 2543, paraphrase)  outside help fixing city software system
+    place  -  moments 0  item 62163 (meeting 2543, spoken)  employees complaining about new oracle system
+    place  -  moments 0  item 62120 (meeting 2543, paraphrase)  painkiller lawsuit money city attorney office
+    place  -  moments 0  item 62120 (meeting 2543, spoken)  opioid settlement money from pharmacies
+    place  -  moments 0  item 62126 (meeting 2543, paraphrase)  new picks for historic preservation board
+    place  -  moments 0  item 62126 (meeting 2543, spoken)  oak hill cemetery sexton historic board
+    place  -  moments 0  item 61286 (meeting 2387, paraphrase)  911 agency gives city used suv
+    place  -  moments 0  item 61286 (meeting 2387, spoken)  ford explorer vote delayed two weeks
+    place  -  moments 0  item 58824 (meeting 2224, user)  new late night ordinance
+    place  -  moments 0  item 58874 (meeting 2231, user)  new late night ordinance
+    place  2  moments 0  item 58824 (meeting 2224, spec)  Kelvyn Felder
+    place  1  moments 0  item 58874 (meeting 2231, spec)  Kelvyn Felder
+    place  -  moments 0  item 58824 (meeting 2224, spec)  Kelvin Felder
+    place  -  moments 0  item 58874 (meeting 2231, spec)  Kelvin Felder
+    place  -  moments 0  item 58824 (meeting 2224, spec)  clubs security camera footage 30 days
+    place  1  moments 0  item 58874 (meeting 2231, spec)  26-50
+    place  -  moments 0  item 58874 (meeting 2231, spec)  administration apology Felder ordinance
+    golden: 3 of 45 targets on the first page (top 3: 3, top 10: 3, top 20: 3); 0 with spoken moments; 42 queries
+    exit=0
+
+The summary line is the one the author expected (Plan of Work, M1). The three targets found are the three the author's single requests found on 2026-11-04: `Kelvyn Felder` lists item 58874 first and item 58824 second, and `26-50` lists item 58874 first. This is the before number every later measurement is set beside; no page carries a nested moment, because the markup M7 adds does not exist yet.
+
 ## Interfaces and Dependencies
 
 No new library. PostgreSQL full-text search stays the engine (decision `0003`); the Anthropic SDK is reached only through `StructuredClient`. At the end of the plan these exist.
