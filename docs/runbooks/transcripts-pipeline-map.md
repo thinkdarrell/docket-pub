@@ -571,7 +571,7 @@ loop of the same tick, keeps its own bookkeeping table, and never writes the
 `transcripts` row. What a card is, and what search does with it, is
 `docs/specs/search.md`.
 
-**Entry:** `_build_cards` `pipeline.py:268`, called at `pipeline.py:320` after
+**Entry:** `_build_cards` `pipeline.py:270`, called at `pipeline.py:321` after
 the stage loop, only when the loop did not stop on the budget or a 429 and
 `TRANSCRIPT_CARDS_PER_TICK` is above 0. It calls `run_cards` `cards.py:644`
 with `limit=TRANSCRIPT_CARDS_PER_TICK`. By hand: `scripts/build_search_cards.py`
