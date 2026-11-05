@@ -98,7 +98,7 @@ Where snapped ranges overlap, a segment belongs to one item, the one opened late
 
 A speaker is named only when the resolved name's confidence is absent or at least `SPEAKER_CONFIDENCE_FLOOR` (0.6); a cluster label such as `SPEAKER_04` never reaches the page. Transcript text is entity-escaped before the server marks it, so markup in a transcript is shown as text.
 
-The item page's "From the video" excerpt (`excerpt_for_item`) reads the same range: it starts at the snapped start of a current card and ends at its snapped end, and falls back to the placement when there is none; `docs/specs/transcripts.md` says so where it names the function.
+The item page's "From the video" excerpt (`excerpt_for_item`) reads the same range: its first four speaker turns are taken from the segments the item owns inside the snapped bounds of a current card, so it begins where the item is taken up, and from the segments filed under the item when there is no such card or the snapped range holds no spoken segment; `docs/specs/transcripts.md` says so where it names the function.
 
 ## The lower list
 
