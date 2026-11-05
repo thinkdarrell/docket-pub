@@ -166,6 +166,14 @@ constrains:
    executed, so nothing is checked off and no evidence exists; the authoring
    decisions themselves, however, are decisions, and they belong in the log
    now while their alternatives are still in mind.
+   A sentence in a living section that says nothing has run is dated and
+   attributed to the authoring ("As authored on 2026-11-04, nothing has been
+   executed"): later sessions write beneath it and may not tidy it, so an
+   undated one stands above every milestone's entries when the plan closes,
+   and `cycle-run` copies the Outcomes section, that sentence first, into
+   the pull request's description. Four plans carried an undated one above
+   their milestones' entries, and each one's closing review spent a finding
+   on it.
 8. Reread the file in the position of the agent who will execute it, holding
    only this file and a checkout: every path repository-relative and real,
    every term of art defined where it is first used, every choice already
