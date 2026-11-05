@@ -384,6 +384,56 @@ def test_two_items_whose_ranges_start_together_do_not_take_each_others_segments(
     assert _seqs(tsvc.excerpt_for_item(block["q"], max_turns=10)) == [5, 6, 7, 8, 9]
 
 
+def test_a_line_inside_a_neighbours_bounds_is_not_a_moment_of_the_item_it_is_filed_under(main):
+    """Item a's card reaches segment 10, which is filed under item b; b has no bounds, so the card's range keeps it."""
+    _write_cards(main, {"a": (5, 10)})
+
+    moments = tsvc.moments_for_items([main["a"], main["b"]], _query("paving"))
+
+    assert _moment_seqs(moments, main["a"]) == [10]
+    assert _moment_seqs(moments, main["b"]) == [11, 14]
+
+
+def test_a_card_without_bounds_gives_up_the_lines_inside_a_neighbours_bounds_too(main):
+    _write_cards(main, {"a": (5, 10), "b": None})
+
+    moments = tsvc.moments_for_items([main["a"], main["b"]], _query("paving"))
+
+    assert _moment_seqs(moments, main["a"]) == [10]
+    assert _moment_seqs(moments, main["b"]) == [11, 14]
+
+
+def test_the_excerpt_of_an_item_without_bounds_leaves_out_the_lines_inside_a_neighbours_bounds(main):
+    _write_cards(main, {"a": (5, 10)})
+
+    theirs = tsvc.excerpt_for_item(main["a"])
+    ours = tsvc.excerpt_for_item(main["b"])
+
+    assert theirs["snapped"] is True and _seqs(theirs)[-1] == 10
+    assert ours["snapped"] is False
+    assert ours["anchor"] == "t-11"
+    assert _seqs(ours) == [11, 12, 14]
+
+
+def test_an_item_whose_every_filed_line_is_inside_a_neighbours_bounds_has_no_excerpt_and_no_moment(main):
+    """Silence under the item is the safer error (decision 0073)."""
+    _write_cards(main, {"a": (5, 14)})
+
+    assert tsvc.excerpt_for_item(main["b"]) is None
+    assert main["b"] not in tsvc.moments_for_items([main["a"], main["b"]], _query("paving"))
+
+
+def test_bounds_that_are_not_current_take_no_line_from_the_item_it_is_filed_under(main):
+    _write_cards(main, {"a": (5, 10)})
+    _reupload(main)
+
+    moments = tsvc.moments_for_items([main["a"], main["b"]], _query("paving"))
+
+    assert _moment_seqs(moments, main["a"]) == []
+    assert _moment_seqs(moments, main["b"]) == [10, 11, 14]
+    assert _seqs(tsvc.excerpt_for_item(main["b"])) == [10, 11, 12, 14]
+
+
 def test_a_card_that_is_not_current_takes_no_segment_from_a_current_one(block):
     """Cards of one transcript are written together; if one is ever left behind, its range is ignored."""
     _write_cards(block, {"p": (5, 9), "q": (7, 9)})
@@ -395,7 +445,8 @@ def test_a_card_that_is_not_current_takes_no_segment_from_a_current_one(block):
     second = tsvc.excerpt_for_item(block["q"], max_turns=10)
 
     assert _seqs(first) == [5, 6, 7, 8, 9]
-    assert second["snapped"] is False and _seqs(second) == [7, 8, 9], "q's filed segments"
+    # q is now an item without bounds whose every filed segment p's bounds cover: p keeps them.
+    assert second is None
     moments = tsvc.moments_for_items([block["p"]], _query("towing"), per_item=10)
     assert _moment_seqs(moments, block["p"]) == [7, 8]
 

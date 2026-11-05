@@ -189,6 +189,19 @@ SNAPPED_OWNER_SQL = """s.seq BETWEEN c.start_seq AND c.end_seq
                                   AND c2.start_seq > c.start_seq
                                   AND s.seq BETWEEN c2.start_seq AND c2.end_seq)"""
 
+# Which of the segments filed under an item belong to it when the item has no
+# current card with bounds. `c` and `s` are as above. A segment inside the
+# bounds of any current card of the same transcript belongs to that card's
+# item: a card's range is the later and better evidence of where a discussion
+# is, and a line is shown under one item only (decisions 0073 and 0074). An
+# item whose every filed segment a neighbour's bounds cover shows nothing.
+PLACED_OWNER_SQL = """s.agenda_item_id = c.item_id
+               AND NOT EXISTS (SELECT 1 FROM agenda_item_search_cards c2
+                                WHERE c2.transcript_id = c.transcript_id
+                                  AND c2.source_uploaded_at = c.source_uploaded_at
+                                  AND c2.start_seq IS NOT NULL
+                                  AND s.seq BETWEEN c2.start_seq AND c2.end_seq)"""
+
 _RANGE_KEYS = ("transcript_id", "meeting_id", "municipality_slug", "start_seq", "end_seq")
 
 
@@ -198,7 +211,8 @@ def item_ranges(item_ids: list[int]) -> dict[int, dict]:
     Each value has `transcript_id`, `meeting_id`, `municipality_slug`, and
     `start_seq` and `end_seq`: the snapped bounds of the item's current card,
     or two Nones when it has no current card with bounds, in which case the
-    item's range is the segments filed under it (the placement).
+    item's range is the segments filed under it (the placement) that lie
+    outside every current card's bounds (`PLACED_OWNER_SQL`).
     """
     if not item_ids:
         return {}
@@ -219,7 +233,8 @@ def excerpt_for_item(item_id: int, max_turns: int = 4) -> dict | None:
 
     The discussion is the segments the item owns inside its snapped bounds
     when a current search card has them (`snapped` is True), and otherwise
-    the segments filed under the item (`snapped` is False).
+    the segments filed under the item that no current card's bounds cover
+    (`snapped` is False).
     """
     rng = item_ranges([item_id]).get(item_id)
     if rng is None:
@@ -248,13 +263,16 @@ def excerpt_for_item(item_id: int, max_turns: int = 4) -> dict | None:
         snapped = bool(segs)
         if not snapped:
             cur.execute(
-                f"""{_EXCERPT_SELECT}
-                 FROM transcript_segments s
+                f"""WITH c AS ({_ITEM_RANGES_SQL})
+                {_EXCERPT_SELECT}
+                 FROM c
+                 JOIN transcript_segments s ON s.transcript_id = c.transcript_id
                  LEFT JOIN transcript_speakers sp ON sp.id = s.speaker_id
                  LEFT JOIN council_members cm ON cm.id = sp.council_member_id
-                WHERE s.transcript_id = %s AND s.agenda_item_id = %s AND s.is_silence = FALSE
+                WHERE s.is_silence = FALSE
+                  AND {PLACED_OWNER_SQL}
                 ORDER BY s.seq""",
-                [rng["transcript_id"], item_id],
+                {"item_ids": [item_id]},
             )
             segs = [dict(r) for r in cur.fetchall()]
     if not segs:
@@ -300,7 +318,7 @@ def _speaker_predicate(placeholder: str) -> str:
 
 def search_transcripts(q: str, *, municipality_slug: str | None, speaker: str | None,
                        limit: int = 10, offset: int = 0,
-                       exclude_item_ids: list[int] | None = None) -> list[dict]:
+                       exclude_segments: list[tuple[int, int]] | None = None) -> list[dict]:
     """Single transcript segments that hold every word of `q`, with the `speaker:` filter.
 
     The search page's lower list. Each row names the agenda item its segment
@@ -309,9 +327,10 @@ def search_transcripts(q: str, *, municipality_slug: str | None, speaker: str | 
     of the name, the rule the transcript page applies; the `speaker` filter
     still matches a resolved name whatever its confidence.
 
-    `exclude_item_ids` leaves out the lines filed under those items, in SQL
-    and so ahead of the limit: the page's own results show their lines
-    nested, and those lines must not use up the list.
+    `exclude_segments` is `(meeting_id, seq)` pairs, the lines the page has
+    already nested under its results. They are left out in SQL and so ahead
+    of the limit, and nothing else is: a line that holds every word is
+    either nested above or eligible for this list.
     """
     where = ["mu.active = TRUE", "m.is_hidden = FALSE", public_predicate("t"), "s.is_silence = FALSE"]
     params: list = []
@@ -320,9 +339,11 @@ def search_transcripts(q: str, *, municipality_slug: str | None, speaker: str | 
     if speaker:
         where.append(_speaker_predicate("%s"))
         params.extend([speaker, speaker])
-    if exclude_item_ids:
-        where.append("(s.agenda_item_id IS NULL OR s.agenda_item_id <> ALL(%s))")
-        params.append(list(exclude_item_ids))
+    if exclude_segments:
+        where.append("""NOT EXISTS (SELECT 1 FROM unnest(%s::bigint[], %s::bigint[]) AS nested(meeting_id, seq)
+                                     WHERE nested.meeting_id = m.id AND nested.seq = s.seq)""")
+        params.extend([[meeting_id for meeting_id, _ in exclude_segments],
+                       [seq for _, seq in exclude_segments]])
     if q:
         where.append("s.search_vector @@ websearch_to_tsquery('english', %s)"); params.append(q)
         select_rank = "ts_rank(s.search_vector, websearch_to_tsquery('english', %s)) AS rank,"
@@ -375,9 +396,10 @@ def moments_for_items(item_ids: list[int], sq: SearchQuery, *, speaker: str | No
 
     A moment is one non-silence transcript segment inside the item's range
     (the segments the item owns inside its snapped bounds when a current card
-    has them, otherwise the segments filed under it) that matches at least
-    one unit of `sq`. Per item the best `per_item` are kept: a segment
-    matching more of the query's word and phrase units leads, then ts_rank,
+    has them, otherwise the segments filed under it that no current card's
+    bounds cover) that matches at least one unit of `sq`. Per item the best
+    `per_item` are kept: a segment matching more of the query's word and
+    phrase units leads, then ts_rank,
     then the earlier segment. Each item's list is returned in `seq` order,
     and an item with no matching segment is absent. `speaker`, when given, is
     the `speaker:` filter of `search_transcripts`.
@@ -416,7 +438,8 @@ def moments_for_items(item_ids: list[int], sq: SearchQuery, *, speaker: str | No
                    AND s.search_vector @@ {or_sql}
                    AND ((c.start_seq IS NOT NULL
                          AND {SNAPPED_OWNER_SQL})
-                        OR (c.start_seq IS NULL AND s.agenda_item_id = c.item_id))
+                        OR (c.start_seq IS NULL
+                            AND {PLACED_OWNER_SQL}))
                    {speaker_sql}
             )
             SELECT s.item_id, s.meeting_id, s.municipality_slug, s.seq, s.start_s,

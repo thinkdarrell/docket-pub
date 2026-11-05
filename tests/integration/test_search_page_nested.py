@@ -12,8 +12,10 @@ The integration tier shares one database, so an assertion about the page's
 items reads the seeded ids out of what the page lists; rows other files left
 behind may sit beside them and change nothing asserted here.
 
-`exclude_item_ids` and the three row keys M7 adds to `search_transcripts`
-are used inside the tests, so the file collects before they exist.
+The three row keys M7 adds to `search_transcripts` are used inside the tests,
+so the file collects before they exist. The lower list leaves out the lines
+nested above and nothing else (`exclude_segments`), which the fixes after the
+plan's closing review put in place of M7's `exclude_item_ids`.
 """
 import importlib
 import importlib.util
@@ -229,11 +231,23 @@ def test_the_results_moments_are_segments_inside_its_bounds(seeded, client):
     assert {7, 9} <= set(seqs)
 
 
-def test_a_line_filed_under_the_item_but_outside_its_bounds_is_not_nested(seeded, client):
+def test_a_line_filed_under_the_item_but_outside_its_bounds_is_listed_below_and_not_nested(seeded, client):
     """Segment 3 holds every word and is filed under the item; the card says the item starts at segment 5."""
     html = _get(client, URL)
     assert 3 not in _golden().parse_results(html)["moments"][seeded["club"]]
-    assert _anchor(seeded, 3) not in html
+    assert html.count(_anchor(seeded, 3)) == 1
+    line = _lower_line(html, seeded, 3)
+    assert f'during <a class="link" href="/al/birmingham/items/{seeded["club"]}/">' in line
+
+
+def test_a_line_inside_a_results_bounds_is_not_nested_under_the_result_it_is_filed_under(seeded, client):
+    """Both items are results; segment 9 is inside the club card's bounds and filed under paving, which has none."""
+    html = _get(client, "/search?q=late+night+ordinance+paving&city=birmingham")
+    page = _golden().parse_results(html)
+    assert seeded["club"] in page["items"] and seeded["paving"] in page["items"]
+    assert 9 in page["moments"][seeded["club"]]
+    assert page["moments"][seeded["paving"]] == [10, 11]
+    assert html.count(_anchor(seeded, 9)) == 1
 
 
 def test_each_moment_links_to_its_segment_on_the_transcript_page(seeded, client):
@@ -337,33 +351,41 @@ def test_a_line_already_nested_is_not_repeated_in_the_lower_list(seeded, client)
     assert html.count(_anchor(seeded, 7)) == 1
 
 
-def test_the_lines_of_the_pages_results_do_not_use_up_the_lower_list(crowded, client):
-    """Twelve matching lines under the returned item, one outside any item sorting after them: it still shows."""
+def test_every_matching_line_of_a_result_is_nested_or_listed_below(crowded, client):
+    """Twelve matching lines under the returned item and one outside any item: each is on the page once."""
     html = _get(client, URL)
     page = _golden().parse_results(html)
     assert crowded["club"] in page["items"]
-    assert len(page["moments"][crowded["club"]]) == 3
-    assert "outside any agenda item · " in _lower_line(html, crowded, 12)
-    # None of the twelve is in the lower list: three are nested and the rest belong to the result above.
+    nested = page["moments"][crowded["club"]]
+    assert nested == [0, 1, 2]
     lower = _lower(html)
-    assert not [seq for seq in range(12) if _anchor(crowded, seq) in lower]
+    # The three nested lines are left out ahead of the list's limit of ten, so the other ten all fit.
+    assert [seq for seq in range(13) if _anchor(crowded, seq) in lower] == list(range(3, 13))
+    assert all(html.count(_anchor(crowded, seq)) == 1 for seq in range(13))
+    assert "outside any agenda item · " in _lower_line(html, crowded, 12)
+    assert f'/al/birmingham/items/{crowded["club"]}/' in _lower_line(html, crowded, 3)
 
 
-def test_search_transcripts_leaves_out_the_named_items_ahead_of_its_limit(crowded):
+def test_search_transcripts_leaves_out_the_named_segments_ahead_of_its_limit(crowded):
     q = "new late night ordinance"
 
     def ours(rows: list[dict]) -> list[int]:
         return [r["seq"] for r in rows if r["meeting_id"] == crowded["meeting_id"]]
 
-    # Today's call: the twelve lines of the item fill the ten and the line outside any item is cut.
-    assert 12 not in ours(tsvc.search_transcripts(q, municipality_slug="birmingham", speaker=None, limit=10))
+    # With nothing left out the first ten of the thirteen fill the list.
+    assert ours(tsvc.search_transcripts(q, municipality_slug="birmingham", speaker=None, limit=10)) == list(range(10))
+    nested = [(crowded["meeting_id"], seq) for seq in (0, 1, 2)]
     rows = tsvc.search_transcripts(q, municipality_slug="birmingham", speaker=None, limit=10,
-                                   exclude_item_ids=[crowded["club"]])
-    assert ours(rows) == [12]
+                                   exclude_segments=nested)
+    assert ours(rows) == list(range(3, 13))
+    # The same seq of another meeting leaves nothing of this one out.
+    rows = tsvc.search_transcripts(q, municipality_slug="birmingham", speaker=None, limit=100,
+                                   exclude_segments=[(crowded["meeting_id"] + 1000000, 0)])
+    assert ours(rows) == list(range(13))
     # An empty list and None both mean nothing is left out.
     for nothing in ([], None):
         rows = tsvc.search_transcripts(q, municipality_slug="birmingham", speaker=None, limit=100,
-                                       exclude_item_ids=nothing)
+                                       exclude_segments=nothing)
         assert ours(rows) == list(range(13))
 
 

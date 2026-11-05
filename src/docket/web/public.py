@@ -1063,20 +1063,17 @@ def search():
         if sq.units:
             moments_by_item = tsvc.moments_for_items(result_ids, sq, speaker=speaker)
 
-    # The transcript lines left over, listed below the results. The lines
-    # filed under this page's items are left out in SQL, ahead of the limit,
-    # so they cannot use up the ten; a line already nested above (a snapped
-    # range can reach past its item's placement) is dropped here.
+    # The transcript lines left over, listed below the results. Only the
+    # lines nested above are left out, in SQL and so ahead of the limit: a
+    # line that holds every typed word is nested under its result or is
+    # eligible for this list, never neither.
     transcript_hits: list[dict] = []
     if clean_q or speaker:
-        nested = {(m["meeting_id"], m["seq"]) for ms in moments_by_item.values() for m in ms}
-        transcript_hits = [
-            hit for hit in tsvc.search_transcripts(
-                clean_q, municipality_slug=city, speaker=speaker, limit=10, offset=offset // 2,
-                exclude_item_ids=result_ids or None,
-            )
-            if (hit["meeting_id"], hit["seq"]) not in nested
-        ]
+        nested = sorted({(m["meeting_id"], m["seq"]) for ms in moments_by_item.values() for m in ms})
+        transcript_hits = tsvc.search_transcripts(
+            clean_q, municipality_slug=city, speaker=speaker, limit=10, offset=offset // 2,
+            exclude_segments=nested or None,
+        )
 
     municipalities = query.list_municipalities()
 

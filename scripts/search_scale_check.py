@@ -4,7 +4,7 @@ search-finds-what-was-said, M6; house rule `explain_at_scale`).
 
 Everything happens inside one transaction that is rolled back: a synthetic
 Birmingham meeting, N agenda items, ANALYZE, then the statement
-`docket.services.query.build_search_sql` returns, timed for three queries
+`docket.services.query.build_search_sql` returns, timed for four queries
 on the same connection. The rows are uncommitted, so `search_agenda_items`
 itself, which opens its own connection, would not see them; that is why the
 statement is built by a function of its own.
@@ -21,7 +21,7 @@ title of half the rows, independently, and one rare word to a handful.
 
 prints one line:
 
-    scale: 60000 rows; vector median 3.1 kB, p95 5.4 kB; rare-word 12 ms; three-word 85 ms; common-words 640 ms
+    scale: 60000 rows; vector median 3.1 kB, p95 5.4 kB; rare-word 12 ms; three-word 85 ms; common-words 640 ms; excluded-words 700 ms
 
 Each timing is the slowest of three runs of the statement, in wall-clock
 milliseconds from sending it to reading its last row. `--explain` prints
@@ -41,7 +41,7 @@ import time
 from docket.config import DATABASE_URL
 from docket.db import db
 from docket.services.query import build_search_sql
-from docket.services.search_query import STOP_WORDS, or_tsquery_sql, parse_query
+from docket.services.search_query import MAX_EXCLUDED, STOP_WORDS, or_tsquery_sql, parse_query
 
 MEETING_TITLE = "SYNTH search scale"
 MEETING_EXTERNAL_ID = "999997"
@@ -56,11 +56,15 @@ COMMON_WORDS = ("ordinance", "resolution", "city", "contract", "night")
 # Added to the title of one row in RARE_EVERY.
 RARE_WORD = "zeppelin"
 RARE_EVERY = 5000
-# label -> typed query. The last is the worst case: nearly every row is a candidate.
+# label -> typed query. The third is the worst case: nearly every row is a
+# candidate. The fourth is the third with as many excluded words as a query
+# keeps, none of them in any row, so every candidate is tested against all.
+_WORST_CASE = "city ordinance resolution contract"
 QUERIES = (
     ("rare-word", RARE_WORD),
     ("three-word", "late night ordinance"),
-    ("common-words", "city ordinance resolution contract"),
+    ("common-words", _WORST_CASE),
+    ("excluded-words", _WORST_CASE + "".join(f" -zq{chr(97 + n)}" for n in range(MAX_EXCLUDED))),
 )
 RUNS = 3
 PAGE = 20
@@ -71,9 +75,10 @@ RAILWAY_HOSTS = ("railway.internal", "railway.app", "rlwy.net")
 def vocabulary(size: int = VOCABULARY_SIZE, seed: int = SEED) -> list[str]:
     """`size` distinct generated words of two to four consonant-vowel syllables.
 
-    No generated word is a stop word or one of the words the three queries
-    search for, and none contains the letter c, so none stems to "citi" as
-    "city" does. The rows a query matches are therefore the rows the fill
+    No generated word is a stop word or one of the words the queries search
+    for or exclude (no generated word holds a q, and every excluded word
+    does), and none contains the letter c, so none stems to "citi" as "city"
+    does. The rows a query matches are therefore the rows the fill
     put its words in, and no others.
     """
     rng = random.Random(seed)
@@ -130,7 +135,7 @@ def run_scale_check(conn, rows: int, desc_words: tuple[int, int] = DEFAULT_DESC_
     """Fill, measure, and roll back on `conn`. Returns what `format_line` prints, and more.
 
     Keys: `rows`; `vector_median_bytes` and `vector_p95_bytes`, the stored
-    size of the synthetic rows' search vectors; and, keyed by the three
+    size of the synthetic rows' search vectors; and, keyed by the four
     query labels in order, `timings_ms`, `returned` (rows on the page),
     `candidates` (synthetic rows the query's any-word match selects), and
     `plans` (EXPLAIN ANALYZE text); `log` is what happened, line by line.

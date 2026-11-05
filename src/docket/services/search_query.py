@@ -30,6 +30,11 @@ WORD, PHRASE, IDENTIFIER = "word", "phrase", "identifier"
 
 # The most units a query keeps; the words typed after the twelfth are ignored.
 MAX_UNITS = 12
+# The most excluded words a query keeps; the `-word` tokens typed after the
+# twelfth are ignored. Each one is a predicate the item search evaluates for
+# every candidate row, so without a cap the cost of one request would be
+# bounded only by the length of its URL.
+MAX_EXCLUDED = 12
 
 # Typed outside quotes, these ask for newer meetings first and are not
 # searched for, unless the query would otherwise have no unit.
@@ -151,7 +156,8 @@ def parse_query(q: str) -> SearchQuery:
     `new`, `recent`, and `latest` are then taken out of the units and set
     `prefer_recent`, unless that would leave no unit, in which case they stay
     as ordinary words. Duplicates are dropped whatever their case, and the
-    first MAX_UNITS units are kept. A unit's text is as typed.
+    first MAX_UNITS units and the first MAX_EXCLUDED excluded words are kept.
+    A unit's text is as typed.
     """
     units: list[Unit] = []
     excluded: list[str] = []
@@ -190,5 +196,5 @@ def parse_query(q: str) -> SearchQuery:
     prefer_recent = bool(searched) and len(searched) < len(units)
     if searched:
         units = searched
-    return SearchQuery(units=tuple(units[:MAX_UNITS]), excluded=tuple(excluded),
+    return SearchQuery(units=tuple(units[:MAX_UNITS]), excluded=tuple(excluded[:MAX_EXCLUDED]),
                        prefer_recent=prefer_recent, raw=q)

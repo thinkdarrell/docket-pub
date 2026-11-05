@@ -189,6 +189,15 @@ def test_duplicates_are_dropped_whatever_their_case():
     assert sq.excluded == ("zoning",)
 
 
+def test_excluded_words_keep_the_first_twelve():
+    """Each excluded word is one more predicate on every candidate row, so they are capped like the units."""
+    q = "ordinance " + " ".join(f"-zq{chr(97 + n)}" for n in range(15)) + " -ZQA -the"
+    sq = _parse(q)
+    assert sqm.MAX_EXCLUDED == 12
+    assert sq.excluded == tuple(f"zq{chr(97 + n)}" for n in range(12))
+    assert [(u.kind, u.text) for u in sq.units] == _words("ordinance")
+
+
 def test_the_cap_counts_units_after_stop_words_and_duplicates_are_gone():
     q = "the alpha of alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike"
     units = _units(q)

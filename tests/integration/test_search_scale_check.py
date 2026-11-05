@@ -63,24 +63,38 @@ def test_the_synthetic_rows_are_of_a_production_rows_order_of_size(result):
     assert out["vector_p95_bytes"] >= out["vector_median_bytes"]
 
 
-def test_the_three_queries_are_timed_and_each_finds_rows(result):
+def test_the_four_queries_are_timed_and_each_finds_rows(result):
     out = result["out"]
-    assert list(out["timings_ms"]) == ["rare-word", "three-word", "common-words"]
+    assert list(out["timings_ms"]) == ["rare-word", "three-word", "common-words", "excluded-words"]
     assert all(ms > 0 for ms in out["timings_ms"].values())
     # The rare word is planted in a handful of rows; the other two queries fill a page.
     assert 1 <= out["returned"]["rare-word"] <= 20
     assert out["returned"]["three-word"] == 20
     assert out["returned"]["common-words"] == 20
+    assert out["returned"]["excluded-words"] == 20
     # Nearly every row is a candidate of the worst case, and few are of the rare word.
     assert out["candidates"]["common-words"] >= 0.9 * ROWS
     assert out["candidates"]["rare-word"] < 0.05 * ROWS
+    # The fourth query is the worst case again with as many excluded words as a query keeps, none
+    # of them in any row, so every candidate is tested against every one.
+    assert out["candidates"]["excluded-words"] == out["candidates"]["common-words"]
+
+
+def test_the_excluded_words_query_carries_the_most_a_query_keeps():
+    from docket.services.search_query import MAX_EXCLUDED, parse_query
+
+    script = _script()
+    common, excluded = dict(script.QUERIES)["common-words"], dict(script.QUERIES)["excluded-words"]
+    sq = parse_query(excluded)
+    assert len(sq.excluded) == MAX_EXCLUDED
+    assert sq.units == parse_query(common).units
 
 
 def test_the_line_states_the_rows_the_sizes_and_the_timings(result):
     line = _script().format_line(result["out"])
     assert re.fullmatch(
         r"scale: 2000 rows; vector median \d+(\.\d)? kB, p95 \d+(\.\d)? kB; "
-        r"rare-word \d+ ms; three-word \d+ ms; common-words \d+ ms",
+        r"rare-word \d+ ms; three-word \d+ ms; common-words \d+ ms; excluded-words \d+ ms",
         line), line
 
 
