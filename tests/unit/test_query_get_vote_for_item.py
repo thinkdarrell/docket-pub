@@ -480,9 +480,10 @@ def test_ocr_vote_with_a_passing_measurement_gets_youtube_at_the_converted_secon
     assert (past_link.url, past_link.site) == (_PLAYER + clip + "&meta_id=371190", "granicus")
 
     # An item with no cue point has no second of its own, so the link opens
-    # at the vote's own second.
+    # at the vote's own second. (2,401 s, not 2,400 again: two OCR votes of
+    # one meeting cannot share a second, idx_votes_ocr_unique.)
     uncued = _insert_cued_item(meeting_id, "70", clip + "-70")
-    assert _link(uncued, _insert_ocr_vote(meeting_id, 2400.0, uncued)).url == watch + "1764s"
+    assert _link(uncued, _insert_ocr_vote(meeting_id, 2401.0, uncued)).url == watch + "1765s"
 
     # A vote on another meeting opens that meeting's recording at the vote's
     # own second; and there, a consent item with no cue point in a meeting

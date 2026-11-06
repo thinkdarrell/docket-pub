@@ -7,23 +7,25 @@
 
    Required context:
      vote_data    — ItemVoteData | None (from query.get_vote_for_item)
-     item         — AgendaItem (for processing_status branching + meta_id)
+     item         — AgendaItem (for processing_status branching)
      meeting      — Meeting (for minutes_url fallback link)
      municipality — dict with .slug (for url_for in source link macro)
 
-   Source-link priority within the macro: video deep-link (Granicus
-   chapter via meta_id) > minutes PDF > meeting_detail#vote-N fallback.
-   Granicus's MediaPlayer page ignores HTML5 #t= fragments — chapter
-   jumps use the player's native &meta_id= query param, which docket.pub
-   already stores as agenda_items.external_id.
+   Source-link priority within the macro: video link > minutes PDF >
+   meeting_detail#vote-N fallback. The video link is a finished VideoLink
+   from docket.services.video_links, which query.get_vote_for_item sets as
+   v.video_link on a vote read off the video: YouTube at the converted
+   second when a measured recording covers the item's moment, the Granicus
+   chapter otherwise. This template builds no video URL; it prints the
+   link's url and names the site it opens (the link's label).
 #}
-{% macro vote_source_link(v, meta_id=None) -%}
-  {%- if v.video_timestamp and v.video_url -%}
+{% macro vote_source_link(v) -%}
+  {%- if v.video_link -%}
     <a class="link t-meta"
-       href="{{ chapter_url(v.video_url, meta_id) }}"
+       href="{{ v.video_link.url }}"
        data-item-id="{{ item.id }}"
        target="_blank" rel="noreferrer">
-      Watch this vote ↗
+      Watch this vote{% if v.video_link.label %} on {{ v.video_link.label }}{% endif %} ↗
     </a>
   {%- elif v.minutes_url -%}
     <a class="link t-meta"
@@ -60,7 +62,7 @@
             {% if prevailing.is_manual %}
             <span class="chip" title="Manually linked by editor"><span class="dot"></span>manually linked</span>
             {% endif %}
-            <span class="t-meta">{{ vote_source_link(prevailing, meta_id=item.external_id) }}</span>
+            <span class="t-meta">{{ vote_source_link(prevailing) }}</span>
         </div>
     </div>
 
@@ -76,7 +78,7 @@
                 <span class="t-meta">·</span>
                 <span class="t-meta">{% if h.is_consent_block %}on consent{% else %}substantive{% endif %}{% if h.provisional %} · provisional{% endif %}</span>
                 <span class="vote-history-spacer"></span>
-                {{ vote_source_link(h, meta_id=item.external_id) }}
+                {{ vote_source_link(h) }}
             </li>
             {% endfor %}
         </ul>
