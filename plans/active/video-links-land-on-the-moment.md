@@ -869,6 +869,23 @@ The functions under the role's grants, on the throwaway database, from a scratch
 
 Not observed in this session, because no factory session can reach them: the migration on production, the two GRANT statements on the production role, and any real measurement. They are the operator's steps 1, 2, and 4 under Validation and Acceptance.
 
+### M3 as executed, 2026-11-06
+
+Everything in this subsection was observed in the M3 session, in this worktree, on 2026-11-06 (UTC).
+
+The starting state, before any edit. `test -f .env` printed `.env exists` (the file was not read). `./tools/verify`, started at 05:21Z and run a second time at 05:23Z to keep its output, printed `2228 passed, 5 skipped, 4 xfailed, 2 warnings` for the unit, web, and services tier, `695 passed, 2 warnings` for integration, `judge fixtures: 12 of 12 passed`, `110 passed, 1 warning in 4.01s` for the transcriber suite, and `verify: all 6 checks passed in 111s.` (the first run: `in 110s.`); the throwaway database was `postgresql://thinkdarrell@/docket_test_7c0790d1`. These are the totals M2 left.
+
+The before state of the new tests, started at 05:29Z: `transcriber/tests/test_measure.py` written (eleven functions) and two functions added to `transcriber/tests/test_audio.py`; no `transcriber/transcriber/measure.py`, and no change to `audio.py`, `cli.py`, or `__init__.py`.
+
+    $ venv/bin/python -m pytest transcriber/tests/test_measure.py transcriber/tests/test_audio.py transcriber/tests/test_cli_loop.py -q -p no:cacheprovider
+    E       ImportError: cannot import name 'measure' from 'transcriber' (.../transcriber/transcriber/__init__.py)      (ten times, once per test of the pass)
+    E       AttributeError: <module 'transcriber.cli' ...> has no attribute 'measure_pass'                               (the test of main())
+    E       TypeError: fetch_audio() got an unexpected keyword argument 'rate'
+    E       TypeError: ytdlp_options() got an unexpected keyword argument 'audio_format'
+    13 failed, 28 passed, 1 warning in 0.39s
+
+The 13 that fail are the 13 this milestone adds (all eleven of `test_measure.py`, and `test_fetch_audio_rate_is_ffmpegs_ar` and `test_ytdlp_options_takes_the_audio_format_and_sets_a_socket_timeout` in `test_audio.py`); the 28 that pass are the 11 `test_audio.py` held and the 17 of `test_cli_loop.py`. The tests are committed in this state, before the module and the keywords exist, so the before state is readable from git.
+
 ## Interfaces and Dependencies
 
 No new dependency is installed. The matcher uses numpy, already in `requirements.lock` and in the transcriber image; add the line `numpy>=1.26  # the audio matcher (align.py); already present through torch` to `transcriber/requirements.txt` in M1 so the import is declared. Downloads use ffmpeg and the `yt_dlp` module exactly as `transcriber/transcriber/audio.py` does today.
