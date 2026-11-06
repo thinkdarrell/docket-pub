@@ -1400,6 +1400,24 @@ The removal check (Surprises & Discoveries), at 06:23Z: the 89 tests of the four
 
 Not observed in this session, because no factory session can reach production: any of the three links built from a real measurement (the operator's steps 4 to 6 under Validation and Acceptance). Not observed either, and read from `link_for` only: a discrepancy row of a meeting whose own video is on YouTube. The source button was rendered as a partial only; no page includes it.
 
+### M7 as executed, 2026-11-06
+
+Everything in this subsection was observed in the M7 session, in this worktree, on 2026-11-06 (UTC).
+
+The starting state, before any edit. `test -f .env` printed `.env exists` (the file was not read). `./tools/verify`, started at 06:31Z, printed `2251 passed, 5 skipped, 4 xfailed, 2 warnings in 56.21s` for the unit, web, and services tier, `704 passed, 2 warnings in 49.44s` for integration, `judge fixtures: 12 of 12 passed`, `123 passed, 1 warning in 4.00s` for the transcriber suite, `plans: 2 of 2 ok`, and `verify: all 6 checks passed in 112s.`; the throwaway database was `postgresql://thinkdarrell@/docket_test_7c0790d1`. These are the totals M6 left. `tests/integration/test_ingest_backfill_timestamps.py`, run alone on a throwaway database before the first edit, printed `7 passed, 1 warning in 0.52s`, the count the plan's sum starts from. On that database `select slug, adapter_class from municipalities` printed five rows, `birmingham|GranicusAdapter` among them (and `test_backfill_ts`, which the file's own fixture leaves behind).
+
+The before state of the new tests, run at 06:38Z with no file under `src/` or `scripts/` edited: five functions added to `tests/integration/test_ingest_backfill_timestamps.py`, four in a new class `TestBackfillWritesChapterIds` and one in `TestCorrectChapterIds`, with the helpers `_point`, `_add_item`, `_add_meeting`, `_set`, `_rows`, and `_messages`.
+
+    $ DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/integration/test_ingest_backfill_timestamps.py -q -p no:cacheprovider
+    E   At index 0 diff: ('1', 'event-2692-1', 10.0) != ('1', '371101', 10.0)      (numeric ids: timestamp and id together)
+    E   assert 1 == 3      (an item that has its timestamp: the old pass changed one row, the item that lacked a timestamp)
+    E   TypeError: _backfill_video_timestamps() got an unexpected keyword argument 'dry_run'
+    E   At index 0 diff: ('1', 'event-2692-1', 10.0) != ('1', '371101', 10.0)      (duplicated number, taken id)
+    E   ImportError: cannot import name 'correct_chapter_ids' from 'docket.services.ingest'
+    5 failed, 7 passed, 1 warning in 1.39s
+
+The 5 that fail are the five this milestone adds; the 7 that pass are the seven that existed. The tests are committed in this state, before `src/docket/services/ingest.py` is edited or the script exists, so the before state is readable from git. `correct_chapter_ids` is imported inside its test, after the test has inserted its five meetings (one of them under the seeded city `homewood`) and made one call of the existing function, so those statements ran against the real tables in the before state; afterwards `homewood` and `test_backfill_ts` held no meeting.
+
 ## Interfaces and Dependencies
 
 No new dependency is installed. The matcher uses numpy, already in `requirements.lock` and in the transcriber image; add the line `numpy>=1.26  # the audio matcher (align.py); already present through torch` to `transcriber/requirements.txt` in M1 so the import is declared. Downloads use ffmpeg and the `yt_dlp` module exactly as `transcriber/transcriber/audio.py` does today.
