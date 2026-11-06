@@ -3,7 +3,7 @@
 Each test inserts its own Birmingham meetings and the fixture removes them
 (the recordings, measurements, and agenda items go with the meeting). The
 module under test is imported inside each test, so the file collects whether
-or not it exists. Plan: plans/active/video-links-land-on-the-moment.md (M4).
+or not it exists. Plan: plans/completed/video-links-land-on-the-moment.md (M4).
 """
 from datetime import date
 

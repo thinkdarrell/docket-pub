@@ -19,9 +19,9 @@ when its best match anywhere is strong and lies elsewhere (the mark of a
 recording that was cut or edited). ``verdict`` is the pass mark.
 
 The constants below ARE the method. The pass mark was chosen on this exact
-arithmetic from 72 labelled pairs of real recordings (decisions and the table:
-plans/active/video-links-land-on-the-moment.md until that plan closes, then
-docs/decisions/ and docs/specs/video-links.md), so a different window size,
+arithmetic from 72 labelled pairs of real recordings (decision 0078 under
+docs/decisions/ and docs/specs/video-links.md; the table is in
+plans/completed/video-links-land-on-the-moment.md), so a different window size,
 band edge, or normalisation changes the scores the mark was chosen from. Raise
 ``ALIGN_METHOD_VERSION`` with any such change: stored measurements below the
 current version are measured again.

@@ -330,7 +330,7 @@ def test_source_link_fields_surface_for_template(muni_id, cleanup_test_rows):
 #
 # A vote that has both a video_timestamp and a video_url carries a finished
 # VideoLink; the template prints it and builds no URL of its own. Plan:
-# plans/active/video-links-land-on-the-moment.md (M5).
+# plans/completed/video-links-land-on-the-moment.md (M5).
 
 _PLAYER = "https://bhamal.granicus.com/MediaPlayer.php?view_id=2&clip_id="
 

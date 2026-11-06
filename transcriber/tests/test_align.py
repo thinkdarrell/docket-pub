@@ -171,7 +171,7 @@ def test_verdict_reproduces_the_labelled_table():
     import transcriber.align as align
 
     # The nine matched pairs of the revised table in the plan
-    # (plans/active/video-links-land-on-the-moment.md, Artifacts and Notes):
+    # (plans/completed/video-links-land-on-the-moment.md, Artifacts and Notes):
     # score, runner-up, windows counted, windows confirmed, conflicts.
     matched = [
         (23.6, 6.0, 12, 10, 0),    # clip 2026, FR84h22hQvA

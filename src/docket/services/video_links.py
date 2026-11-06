@@ -34,7 +34,7 @@ apart inside that reading. :func:`consent_block` finds the run and
 The functions above the "Database reads" line are pure. The three below it
 read through :func:`docket.db.db_cursor` and write nothing.
 
-Plan: plans/active/video-links-land-on-the-moment.md (M4).
+Plan: plans/completed/video-links-land-on-the-moment.md (M4).
 """
 from __future__ import annotations
 

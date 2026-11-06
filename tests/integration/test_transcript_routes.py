@@ -245,7 +245,7 @@ def test_transcript_page_prints_the_meeting_label_not_the_clip_name(client, meet
 
 
 # The item link on an item's first turn comes from docket.services.video_links
-# (plans/active/video-links-land-on-the-moment.md, M5): it lands on the item's
+# (plans/completed/video-links-land-on-the-moment.md, M5): it lands on the item's
 # moment and names the site it opens.
 
 def _item_link_tags(html):

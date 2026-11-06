@@ -1,6 +1,6 @@
 """Verify migration 042: `meeting_video_alignments`, its two CHECK constraints, one row per recording, and the cascade; down drops the table.
 
-Pattern: tests/integration/test_040_migration.py. Plan: plans/active/video-links-land-on-the-moment.md (M2).
+Pattern: tests/integration/test_040_migration.py. Plan: plans/completed/video-links-land-on-the-moment.md (M2).
 """
 from datetime import date
 

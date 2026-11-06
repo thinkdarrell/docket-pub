@@ -29,7 +29,7 @@ in `scripts/sql/create_transcriber_role.sql`, not here.
 
 Number 039 is left to plans/active/meeting-types-name-the-body.md (M6) and
 041 to pull request #140 (plan/search-finds-what-was-said).
-Plan: plans/active/video-links-land-on-the-moment.md (M2).
+Plan: plans/completed/video-links-land-on-the-moment.md (M2).
 """
 
 from __future__ import annotations

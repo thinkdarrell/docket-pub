@@ -59,7 +59,7 @@ def test_overwrites_existing_meta_id():
 # ---------------------------------------------------------------------------
 # The link builder (docket.services.video_links). Each test imports the
 # module itself, so the file collects whether or not the module exists.
-# Plan: plans/active/video-links-land-on-the-moment.md (M4).
+# Plan: plans/completed/video-links-land-on-the-moment.md (M4).
 # ---------------------------------------------------------------------------
 
 PLAYER = "https://bhamal.granicus.com/MediaPlayer.php?view_id=2&clip_id=2026"
