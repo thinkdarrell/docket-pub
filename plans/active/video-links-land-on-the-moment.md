@@ -1013,6 +1013,21 @@ The row columns are the video id, `granicus_clip_id`, `method_version`, `status`
 
 Not observed in this session, because no factory session can reach them: yt-dlp downloading a recording, ffmpeg reading a Granicus URL, the pass inside the Docker image, and the production role. They are the operator's step 4 under Validation and Acceptance, after steps 1 and 2.
 
+### M4 as executed, 2026-11-06
+
+Everything in this subsection was observed in the M4 session, in this worktree, on 2026-11-06 (UTC).
+
+The starting state, before any edit. `test -f .env` printed `.env exists` (the file was not read). `./tools/verify`, started at 05:41Z, printed `2228 passed, 5 skipped, 4 xfailed, 2 warnings in 55.35s` for the unit, web, and services tier, `695 passed, 2 warnings in 48.28s` for integration, `judge fixtures: 12 of 12 passed`, `123 passed, 1 warning in 4.12s` for the transcriber suite, and `verify: all 6 checks passed in 110s.`; the throwaway database was `postgresql://thinkdarrell@/docket_test_7c0790d1`. These are the totals M3 left.
+
+The before state of the new tests, started at 05:44Z: `tests/unit/test_video_urls.py` moved with `git mv` to `tests/unit/test_video_links.py`, its import line still naming `docket.web.video_urls` (which still exists), and fifteen functions added below its eight; `tests/integration/test_video_link_loader.py` written (five functions); no `src/docket/services/video_links.py`.
+
+    $ DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_video_links.py tests/integration/test_video_link_loader.py -q -p no:cacheprovider
+    E       ImportError: cannot import name 'video_links' from 'docket.services' (.../src/docket/services/__init__.py)      (twenty times, once per new test)
+    20 failed, 8 passed, 1 warning in 0.20s
+    $ tools/test-db --drop      (exit 0)
+
+The 20 that fail are the 20 this milestone adds; the 8 that pass are the moved tests of `chapter_url`. The tests are committed in this state, before the module exists, so the before state is readable from git.
+
 ## Interfaces and Dependencies
 
 No new dependency is installed. The matcher uses numpy, already in `requirements.lock` and in the transcriber image; add the line `numpy>=1.26  # the audio matcher (align.py); already present through torch` to `transcriber/requirements.txt` in M1 so the import is declared. Downloads use ffmpeg and the `yt_dlp` module exactly as `transcriber/transcriber/audio.py` does today.
