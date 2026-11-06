@@ -2,7 +2,7 @@
 
 ## Shape
 
-docket.pub is a Python application with three runtime processes sharing one PostgreSQL database: a Flask web app that serves citizens and an authenticated admin, an APScheduler worker that ingests, analyses, and summarises on a daily schedule, and command-line entry points an operator runs by hand. A fourth process, the transcriber, runs on a separate desktop machine and writes transcripts through a database role restricted to the transcript tables. Every city's meeting platform is reached through an adapter that implements one protocol, so the rest of the system never knows which vendor a city uses. The organising idea is that the service layer owns every transaction: web routes, worker tasks, and CLIs call services, and services call adapters, analysis, enrichment, and the AI pipeline.
+docket.pub is a Python application with three runtime processes sharing one PostgreSQL database: a Flask web app that serves citizens and an authenticated admin, an APScheduler worker that ingests, analyses, and summarises on a daily schedule, and command-line entry points an operator runs by hand. A fourth process, the transcriber, runs on a separate desktop machine and writes through a restricted database role; the Transcriber component below names the tables that role may write. Every city's meeting platform is reached through an adapter that implements one protocol, so the rest of the system never knows which vendor a city uses. The organising idea is that the service layer owns every transaction: web routes, worker tasks, and CLIs call services, and services call adapters, analysis, enrichment, and the AI pipeline.
 
 ## Components
 
