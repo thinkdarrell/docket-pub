@@ -494,6 +494,24 @@ The entries below were made by the M7 session on 2026-11-06.
   Rationale: each pins a clause of M7's prose or of the decisions above that the named cases alone left free; the removal check in Surprises & Discoveries is what shows they are pinned. New functions would have moved the `12 passed` and `709 passed` the acceptance states.
   Date/Author: 2026-11-06, M7 session (Claude).
 
+The entries below were made by the M8 session on 2026-11-06.
+
+- Decision: `docs/specs/video-links.md` has ten sections: the two clocks, which links are timed and each one's moment, the consent rule, how a link chooses its site, what a link says, the measurement table, the measuring pass, the method and the pass mark, where a cue point and a chapter id come from, and the known limits. It states the consent rule's two numbers and the 7-day retry beside the names that own them, names the matcher's constants without their values in the section on the method, and gives a value only where a known limit is a thing a reader of a link can meet (the 2 seconds of `AGREE_S`, the five minutes of a window, the last 150 seconds).
+  Rationale: M8 lists what the spec covers and asks for "the consent rule with its two numbers" and "a pointer to `transcriber/transcriber/align.py` as the owner of the method's constants"; `docs/PRINCIPLES.md`, One owner per fact, is why the pass mark's four numbers are not copied out of that module. A limit stated without its size ("a link may land a little off") would tell the reader nothing they could check, so those three figures are given with the constant or the observation they come from.
+  Date/Author: 2026-11-06, M8 session (Claude).
+
+- Decision: the spec says four things M8's list does not name, each a sentence or a short section: a section on the two clocks (the terms the rest of the file uses, which the plan's Context defines and which leave with the plan when it is archived); how a recording is measured again and how the owner can send every link back to Granicus, from Idempotence and Recovery; that the count the backfill returns is added to the "Agenda items: N inserted" log figure (the M7 session's observation); and, among the limits, that a discrepancy row's chapter is taken from whatever item the row names (the M6 session's decision), which gets no debt row.
+  Rationale: the reflection rule in `docs/specs/index.md` asks for whatever a user or caller can now observe, and a completed plan is an archive, so present behaviour that only the plan states would have no standing home. The cross-meeting discrepancy row has no known instance, no column to guard it with, and no trigger anyone could watch for, so a debt row would be a row nobody can pay; the spec's sentence is where a reader who meets one will find it named.
+  Date/Author: 2026-11-06, M8 session (Claude).
+
+- Decision: the correction script's count query (the second of the operator's read-only queries) is printed in `docs/specs/operations.md` beside the order it is run in, with a clause saying it does not count an item with no id at all; the other five queries stay in this plan, and row `D94` cites them by their ordinal here.
+  Rationale: M8 asks that the order "(dry run, write, the count query) is stated once" in that file, and an order whose third step is a query the reader has to find in an archived plan is not stated. That query is wanted every time the script is run (also after a run of the older timestamp script); the first, third, fifth, and sixth are checks made once around this plan's merge and the fourth is read once after the first measuring runs, so copying them into a standing file would make a second owner of text that is used once. The clause about items with no id is the M7 session's stated cost of treating a NULL id as not a chapter id.
+  Date/Author: 2026-11-06, M8 session (Claude).
+
+- Decision: `ARCHITECTURE.md` is not edited. The M4 session noted that its Services entry does not name timed video links and called that a candidate for this milestone.
+  Rationale: M8 names every file it edits and that file is not among them, and `skills/plan-execute/SKILL.md` does not let a session settle a question about a milestone's boundary by widening it. The entry is also not made false by the new module: it lists some of what the layer owns by name and not all (`git grep -n "youtube_meetings\|meeting_types\|discrepancies" ARCHITECTURE.md` prints one line, in the Adapters entry, so three service modules older than this plan are not named there either). Whether the entry should name `video_links.py` is left to the doc-garden pass of the closing sequence, which sweeps for unreflected outcomes and can weigh it against the modules already missing.
+  Date/Author: 2026-11-06, M8 session (Claude).
+
 ## Outcomes & Retrospective
 
 This section is filled in as milestones complete. The closing retrospective is written by the retro stage after the last milestone, not by a milestone session.
@@ -1619,6 +1637,36 @@ The removal check (Surprises & Discoveries), at 06:42Z: the 12 tests of the file
 One removal's first run printed no result and is recorded as run again: "ids left alone logged below WARNING" alters two calls, and the scratch plugin's own check that a removal's text occurs once stopped it before any test ran; with the check widened for that removal it printed `1 failed, 11 passed` at 06:42Z.
 
 Not observed in this session, because no factory session can reach production or Granicus: the rewrite against a real player page, and the script against production rows (the operator's step 3). The sixth operator query was parsed on the throwaway database and has not been run where it would count anything.
+
+### M8 as executed, 2026-11-06
+
+Everything in this subsection was observed in the M8 session, in this worktree, on 2026-11-06 (UTC). M8 writes documents and no code, so its evidence is the acceptance commands before and after, the checks made on what the documents say, and `./tools/verify`.
+
+The starting state, before any edit. `test -f .env` printed `.env exists` (the file was not read). `./tools/verify`, started at 06:54Z on commit `cc84943` with a clean tree, printed `2251 passed, 5 skipped, 4 xfailed, 2 warnings in 55.98s` for the unit, web, and services tier, `709 passed, 2 warnings in 50.62s` for integration, `judge fixtures: 12 of 12 passed`, `workflows: 2 of 2 ok`, `123 passed, 1 warning in 4.04s` for the transcriber suite, `plans: 2 of 2 ok`, and `verify: all 6 checks passed in 113s.`; the throwaway database was `postgresql://thinkdarrell@/docket_test_7c0790d1`. These are the totals M7 left. No file was edited until it had printed its last line.
+
+The before state of M8's acceptance commands, run at 06:56Z before the first edit:
+
+    $ ls docs/specs/video-links.md
+    ls: cannot access 'docs/specs/video-links.md': No such file or directory
+    $ grep -c "video-links.md" docs/specs/index.md
+    0
+    $ ls docs/decisions | grep -cE "^(007[6-9]|008)"
+    0
+    $ grep -n "^accepted; " docs/decisions/0030-transcriber-role-is-write-limited.md docs/decisions/0070-*.md
+    (nothing)
+    $ grep -c "^| D94 " docs/DEBT.md
+    0
+
+The numbers this milestone spends were checked against every branch this clone knows, without fetching (the session reaches nothing outside the repository): a loop over `git for-each-ref refs/heads refs/remotes` that lists `docs/decisions/` and the last row of `docs/DEBT.md` on each printed decisions above `0070` on one branch only, `plan/search-finds-what-was-said` (`0071` to `0075`, with debt up to `D93`), and `D85` as the highest row on `docs/youtube-rollout-followups`; every other branch stops at `0070` and at `D83` or lower. So `0076` and `D94` are the first free numbers as far as this clone can see, which is what the Decision Log entry of 2026-11-05 says.
+
+The spec and the edited specs. `docs/specs/video-links.md` was written (ten sections, about 3,250 words), with its row in `docs/specs/index.md` and the `D9` sentence there adjusted; one sentence was added to the recordings paragraph of `docs/specs/meeting-types.md` and one to the version paragraph of `docs/specs/transcripts.md`; `docs/specs/operations.md` gained the role's two grants and the image rebuild in its Transcriber section, one sentence on the measuring downloads in the paragraph on Birmingham's YouTube recordings, and a paragraph with the correction script's order and its count query. After those edits, at 07:00Z:
+
+    $ ls docs/specs/video-links.md
+    docs/specs/video-links.md
+    $ grep -c "video-links.md" docs/specs/index.md
+    2
+
+What the spec says was checked against the tree, not against this plan alone. A loop over every backticked path in the new file (`*.py`, `*.md`, `*.html`, `*.sql`) found each on disk, the templates under `src/docket/web/templates/`. A loop over 32 names and 5 log texts the file uses (among them `vote_source_link`, `item_links`, `_attach_video_links`, `consent_block`, `item_moment`, `link_for`, `youtube_id`, `for_meetings`, `CONSENT_GAP_S`, `CONSENT_MIN_ITEMS`, `MIN_METHOD_VERSION`, `ALIGN_METHOD_VERSION`, `measure_pass`, `alignment_candidates`, `MEASURE_PAUSE_S`, `MEASURE_MAX_CONSECUTIVE_FAILURES`, the six matcher constants, `_backfill_video_timestamps`, `correct_chapter_ids`, `TRANSCRIBER_MEASURE_LIMIT`, `MINUTES_VS_VIDEO_UI`, and the log texts) ran `git grep -c -F` over `src`, `transcriber/transcriber`, and `scripts`, and reported two with no match: `measure: stop requested; stopping` and `measure: max-hours reached; stopping`. Both are composed at run time: `transcriber/transcriber/measure.py` line 164 is `log.info("measure: %s; stopping", ended)`, and the two texts are as "As built in M3" gives them. Read from the code for the sentences the plan does not itself state: `GranicusAdapter` sleeps `self.delay` after each request, `config.get("delay", 1.0)` (the "one second unless the city's configuration sets another" of `operations.md`; the plan's step 3 says "a second or more apart"); `_ingest_agenda_items` calls the backfill only for a meeting whose items are already stored and whose id does not begin `event-` (lines 609 to 614 of `src/docket/services/ingest.py`); and `total_items += count` followed by `logger.info("Agenda items: %d inserted", total_items)` in `ingest_municipality`.
 
 ## Interfaces and Dependencies
 
