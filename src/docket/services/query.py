@@ -4112,12 +4112,11 @@ def _attach_video_links(item_id: int, entries: list[VoteEntry]) -> None:
     """Set ``video_link`` on each entry that has a video timestamp and a video URL.
 
     The link stands for the agenda item, so a vote on the item's own meeting
-    opens the item's moment under the consent rule
-    (:func:`docket.services.video_links.item_moment`): the same place on
-    YouTube and on Granicus, which can only open a chapter. When the item has
-    no second of its own (no cue point, and no consent block to stand in for
-    it) the link opens at the vote's own ``video_timestamp``, keeping the
-    chapter id ``item_moment`` returned, if any. A vote on another meeting
+    gets :func:`docket.services.video_links.vote_link`, which owns the rule:
+    the item's moment under the consent rule, the vote's own
+    ``video_timestamp`` when the item has no second of its own, and on
+    YouTube the vote's own second for a consent vote read long after the
+    reading of the consent agenda. A vote on another meeting
     (the item reconsidered) opens that meeting's video at the vote's own
     second with no chapter: the item's chapter id names a chapter of the
     item's own clip. Which site a link opens is
@@ -4139,11 +4138,9 @@ def _attach_video_links(item_id: int, entries: list[VoteEntry]) -> None:
     videos = video_links.for_meetings({e.meeting_id for e in timed})
     for entry in timed:
         video = videos.get(entry.meeting_id)
-        seconds, chapter_id = entry.video_timestamp, None
         if item is not None and entry.meeting_id == item["meeting_id"]:
-            item_seconds, chapter_id = video_links.item_moment(
-                video, is_consent=item["is_consent"],
+            entry.video_link = video_links.vote_link(
+                video, vote_s=entry.video_timestamp, is_consent=item["is_consent"],
                 cue_s=item["video_timestamp_seconds"], external_id=item["external_id"])
-            if item_seconds is not None:
-                seconds = item_seconds
-        entry.video_link = video_links.link_for(video, seconds=seconds, chapter_id=chapter_id)
+        else:
+            entry.video_link = video_links.link_for(video, seconds=entry.video_timestamp)

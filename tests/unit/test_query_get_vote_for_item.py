@@ -426,6 +426,13 @@ def test_ocr_vote_without_a_measurement_gets_the_granicus_chapter_link(muni_id, 
     _insert_recording(meeting_id, "gvfi-rejected", clip, status="rejected")
     assert _link(item_id, vote_id) == link
 
+    # A consent item whose vote was read long after the consent run still
+    # opens the run's chapter: Granicus can only open a chapter.
+    run = [_insert_cued_item(meeting_id, str(n), str(371100 + n), cue_s=cue, is_consent=True)
+           for n, cue in ((1, 1990.0), (2, 2037.5), (3, 2085.0))]
+    late = _link(run[1], _insert_ocr_vote(meeting_id, 3119.0, run[1]))
+    assert (late.url, late.site, late.timed) == (_PLAYER + clip + "&meta_id=371101", "granicus", True)
+
     # An item that kept the id it was given from the agenda PDF has no
     # chapter: the plain player, and the link does not claim to be timed.
     pdf_item = _insert_cued_item(meeting_id, "65", "event-2715-65", cue_s=2300.0)
@@ -469,9 +476,17 @@ def test_ocr_vote_with_a_passing_measurement_gets_youtube_at_the_converted_secon
               for n, cue in ((1, 1990.0), (2, 2037.5), (3, 2085.0))]
     uncued_consent = _insert_cued_item(meeting_id, "7", "event-2715-7", is_consent=True)
     pulled = _insert_cued_item(meeting_id, "5", "371105", cue_s=3000.0, is_consent=True)
-    assert _link(in_run[1], _insert_ocr_vote(meeting_id, 2300.0, in_run[1])).url == watch + "1354s"
-    assert _link(uncued_consent, _insert_ocr_vote(meeting_id, 2301.0, uncued_consent)).url == watch + "1354s"
+    assert _link(in_run[1], _insert_ocr_vote(meeting_id, 2100.0, in_run[1])).url == watch + "1354s"
+    assert _link(uncued_consent, _insert_ocr_vote(meeting_id, 2101.0, uncued_consent)).url == watch + "1354s"
     assert _link(pulled, _insert_ocr_vote(meeting_id, 3100.0, pulled)).url == watch + "2364s"
+
+    # The guard: a vote read more than 120 s after the run ends (2,085 s) on
+    # an item whose moment is the run's opens YouTube at the vote's own
+    # second, not at the reading of the consent agenda.
+    late_vote = _insert_ocr_vote(meeting_id, 3119.0, in_run[2])
+    assert _link(in_run[2], late_vote).url == watch + "2483s"
+    late_uncued = _insert_cued_item(meeting_id, "9", "event-2715-9", is_consent=True)
+    assert _link(late_uncued, _insert_ocr_vote(meeting_id, 2206.0, late_uncued)).url == watch + "1570s"
 
     # An item whose moment is past the recording's coverage opens its
     # Granicus chapter, although the vote's own second is covered.

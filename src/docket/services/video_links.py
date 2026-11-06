@@ -29,7 +29,9 @@ g minus the offset. Everything else falls back to the Granicus chapter.
 A consent item links to the start of the consent agenda: the clerk reads the
 consent items out in one quick run, so their own cue points land seconds
 apart inside that reading. :func:`consent_block` finds the run and
-:func:`item_moment` applies the rule.
+:func:`item_moment` applies the rule. :func:`vote_link` builds the link for
+a vote read off the video, with the one exception to the rule: a vote read
+long after the run opens YouTube at its own second.
 
 The functions above the "Database reads" line are pure. The three below it
 read through :func:`docket.db.db_cursor` and write nothing.
@@ -234,6 +236,39 @@ def item_moment(video: MeetingVideo | None, *, is_consent: bool, cue_s: float | 
         if block is not None and block.start_s <= cue_s <= block.end_s:
             return (block.start_s, block.chapter_id)
     return (cue_s, external_id)
+
+
+def vote_link(video: MeetingVideo | None, *, vote_s: object, is_consent: bool,
+              cue_s: float | None, external_id: str | None) -> VideoLink | None:
+    """Build the link for a vote read off the video at ``vote_s`` on its item's own meeting.
+
+    The link stands for the item, so it opens the item's moment
+    (:func:`item_moment`): the same place on YouTube and on Granicus, which
+    can only open a chapter. An item with no second of its own opens at the
+    vote's second, keeping whatever chapter id ``item_moment`` returned.
+
+    One exception, on YouTube alone. When the item's moment is the consent
+    block's start (a consent item whose cue point is inside the block or
+    missing) and the vote was read more than ``CONSENT_GAP_S`` after the
+    block's end, the vote is not the reading of the consent agenda: an item
+    pulled off consent and voted on later whose cue point the clerk never
+    moved, or the consent agenda's own vote taken minutes after the reading.
+    The link then opens YouTube at the vote's own second, when a recording
+    covers it; when none does, the link is the item's as above.
+    """
+    seconds, chapter_id = item_moment(video, is_consent=is_consent, cue_s=cue_s,
+                                      external_id=external_id)
+    if seconds is None:
+        return link_for(video, seconds=vote_s, chapter_id=chapter_id)
+    block = video.consent if video is not None else None
+    vote = _number(vote_s)
+    if (is_consent and block is not None and vote is not None
+            and (cue_s is None or block.start_s <= cue_s <= block.end_s)
+            and vote > block.end_s + CONSENT_GAP_S):
+        at_the_vote = link_for(video, seconds=vote, chapter_id=chapter_id)
+        if at_the_vote is not None and at_the_vote.site == "youtube":
+            return at_the_vote
+    return link_for(video, seconds=seconds, chapter_id=chapter_id)
 
 
 def link_for(video: MeetingVideo | None, *, seconds: object = None, chapter_id: object = None,

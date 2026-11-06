@@ -159,6 +159,62 @@ def test_item_moment_follows_the_consent_rule():
     assert vl.item_moment(None, is_consent=False, cue_s=2145.0, external_id="371161") == (2145.0, "371161")
 
 
+def test_vote_link_opens_the_items_moment_and_a_late_consent_vote_at_its_own_second():
+    from docket.services import video_links as vl
+
+    block = vl.ConsentBlock(start_s=1990.0, end_s=2085.0, chapter_id="371100")
+    video = _meeting_3184(vl, consent=block)        # offset 635.48, covers 635.5 to 3935.5
+    watch = "https://www.youtube.com/watch?v=" + YT + "&t="
+
+    def url(vote_s, *, is_consent, cue_s, external_id, video=video):
+        return vl.vote_link(video, vote_s=vote_s, is_consent=is_consent, cue_s=cue_s,
+                            external_id=external_id).url
+
+    in_run = dict(is_consent=True, cue_s=2040.0, external_id="371130")
+    uncued = dict(is_consent=True, cue_s=None, external_id="event-2715-7")
+
+    # The link stands for the item: a consent item read out in the run, or
+    # with no cue point, opens the start of the run (1,990 s is t=1354s),
+    # whether the vote was read before the run, inside it, or up to
+    # CONSENT_GAP_S after its end (2,085 + 120 = 2,205 s).
+    for vote_s in (1900.0, 2050.0, 2205.0):
+        assert url(vote_s, **in_run) == watch + "1354s", vote_s
+        assert url(vote_s, **uncued) == watch + "1354s", vote_s
+
+    # The guard: a vote read more than CONSENT_GAP_S after the run is not the
+    # reading of the consent agenda, so on YouTube it opens at its own second.
+    assert url(2205.5, **in_run) == watch + "1570s"
+    assert url(3119.0, **uncued) == watch + "2483s"
+    late = vl.vote_link(video, vote_s=3119.0, **in_run)
+    assert (late.site, late.seconds, late.timed) == ("youtube", 2483, True)
+
+    # The guard is for YouTube alone. Past the recording's coverage the link
+    # is the item's as before: the start of the run, on YouTube.
+    assert url(4000.0, **in_run) == watch + "1354s"
+    # With nothing measured, Granicus can only open a chapter: the run's.
+    unmeasured = vl.MeetingVideo(video_url=PLAYER, consent=block)
+    granicus = vl.vote_link(unmeasured, vote_s=3119.0, **in_run)
+    assert (granicus.url, granicus.site, granicus.timed) == (PLAYER + "&meta_id=371100", "granicus", True)
+
+    # Every other item keeps its own moment however late its vote: a consent
+    # item whose cue point is outside the run, and a non-consent item.
+    assert url(3900.0, is_consent=True, cue_s=3000.0, external_id="371199") == watch + "2364s"
+    assert url(3900.0, is_consent=False, cue_s=2256.0, external_id="371164") == watch + "1620s"
+    # Also a non-consent item that happens to be cued during the run (2,040 s is t=1404s).
+    assert url(3900.0, is_consent=False, cue_s=2040.0, external_id="371131") == watch + "1404s"
+    # An item with no moment of its own opens at the vote's second.
+    assert url(2401.0, is_consent=False, cue_s=None, external_id="x") == watch + "1765s"
+    no_block = _meeting_3184(vl)
+    assert url(2401.0, video=no_block, **uncued) == watch + "1765s"
+
+    # A meeting whose own video is on YouTube needs no conversion.
+    own = vl.MeetingVideo(video_url="https://www.youtube.com/watch?v=" + YT, consent=block)
+    assert url(3119.9, video=own, **in_run) == watch + "3119s"
+    assert url(2100.0, video=own, **in_run) == watch + "1990s"
+
+    assert vl.vote_link(None, vote_s=3119.0, **in_run) is None
+
+
 def test_link_for_opens_youtube_at_the_converted_second():
     from docket.services import video_links as vl
 
