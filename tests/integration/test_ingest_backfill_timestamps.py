@@ -504,8 +504,12 @@ class TestCorrectChapterIds:
         a = seeded["meeting_id"]                        # clip 1981, 2026-05-19
         for n, ts in (("1", 10.0), ("2", 50.0), ("3", 120.0)):
             _set(a, n, video_timestamp_seconds=ts)      # cued, still on agenda-PDF ids
+        # Item 2 already holds a chapter id, another than its point's: it is kept.
         older = _add_meeting(muni_id, "1960", date(2026, 4, 1), [
-            ("event-2600-1", "1", 15.0), ("371201", "2", 60.0)])
+            ("event-2600-1", "1", 15.0), ("371299", "2", 60.0)])
+        # Inserted last and dated latest, so "newest first" is not row order.
+        # Its one cued item has no id at all, which is also not a chapter id.
+        no_id = _add_meeting(muni_id, "1985", date(2026, 5, 21), [(None, "1", 20.0)])
         corrected = _add_meeting(muni_id, "1975", date(2026, 5, 12), [
             ("371301", "1", 10.0), ("371302", "2", 50.0)])
         uncued = _add_meeting(muni_id, "1990", date(2026, 5, 26), [
@@ -521,6 +525,7 @@ class TestCorrectChapterIds:
         points = {
             "1981": [_point(1, 10.0, "371101"), _point(2, 50.0, "371102"), _point(3, 120.0, "371103")],
             "1960": [_point(1, 15.0, "371200"), _point(2, 60.0, "371201")],
+            "1985": [_point(1, 20.0, "371401")],
         }
         failing: set[str] = set()
 
@@ -545,6 +550,7 @@ class TestCorrectChapterIds:
         untouched = {m: _rows(m) for m in (corrected, uncued, upcoming, elsewhere)}
         row_a = {"meeting_id": a, "external_id": "1981", "meeting_date": date(2026, 5, 19)}
         row_older = {"meeting_id": older, "external_id": "1960", "meeting_date": date(2026, 4, 1)}
+        row_no_id = {"meeting_id": no_id, "external_id": "1985", "meeting_date": date(2026, 5, 21)}
         try:
             # The ingest precheck is unchanged: every numbered item has its
             # timestamp, so an ordinary pass asks Granicus nothing.
@@ -552,18 +558,20 @@ class TestCorrectChapterIds:
             assert fetched() == []
 
             from docket.services.ingest import correct_chapter_ids
+            from scripts.correct_agenda_chapter_ids import main
 
-            # A dry run lists the two meetings, newest first, and writes nothing.
-            before = {m: _rows(m) for m in (a, older)}
+            # A dry run lists the three meetings, newest first, and writes nothing.
+            before = {m: _rows(m) for m in (a, older, no_id)}
             assert correct_chapter_ids(TEST_SLUG, dry_run=True) == [
+                {**row_no_id, "changed": 1, "error": None},
                 {**row_a, "changed": 3, "error": None},
                 {**row_older, "changed": 1, "error": None},
             ]
-            assert {m: _rows(m) for m in (a, older)} == before
-            assert fetched() == ["1981", "1960"]
+            assert {m: _rows(m) for m in (a, older, no_id)} == before
+            assert fetched() == ["1985", "1981", "1960"]
             assert built == [("GranicusAdapter", TEST_SLUG,
                               {"view_id": 2, "base_url": "https://bhamal.granicus.com"})]
-            raw = adapter.fetch_agenda_items.call_args_list[1].args[0]
+            raw = adapter.fetch_agenda_items.call_args_list[2].args[0]
             assert raw == RawMeeting(
                 external_id="1960", municipality_slug=TEST_SLUG,
                 title="Regular City Council Meeting", meeting_date=date(2026, 4, 1),
@@ -572,28 +580,46 @@ class TestCorrectChapterIds:
 
             # The limit counts meetings.
             assert correct_chapter_ids(TEST_SLUG, limit=1, dry_run=True) == [
-                {**row_a, "changed": 3, "error": None}]
+                {**row_no_id, "changed": 1, "error": None}]
 
             # One meeting whose player page cannot be read does not stop the next.
             failing.add("1981")
             assert correct_chapter_ids(TEST_SLUG, dry_run=True) == [
+                {**row_no_id, "changed": 1, "error": None},
                 {**row_a, "changed": 0, "error": "RuntimeError: player page 503"},
                 {**row_older, "changed": 1, "error": None},
+            ]
+            capsys.readouterr()
+            assert main(["--city", TEST_SLUG, "--dry-run"]) == 1
+            assert capsys.readouterr().out.splitlines() == [
+                f"meeting {no_id} clip 1985 2026-05-21: 1 rows would change",
+                f"meeting {a} clip 1981 2026-05-19: failed (RuntimeError: player page 503)",
+                f"meeting {older} clip 1960 2026-04-01: 1 rows would change",
+                "3 meetings, 2 rows",
             ]
             failing.clear()
 
             # The script prints one line per meeting and the totals.
-            from scripts.correct_agenda_chapter_ids import main
-            capsys.readouterr()
             assert main(["--city", TEST_SLUG, "--dry-run"]) == 0
             assert capsys.readouterr().out.splitlines() == [
+                f"meeting {no_id} clip 1985 2026-05-21: 1 rows would change",
                 f"meeting {a} clip 1981 2026-05-19: 3 rows would change",
                 f"meeting {older} clip 1960 2026-04-01: 1 rows would change",
-                "2 meetings, 4 rows",
+                "3 meetings, 5 rows",
             ]
-            assert {m: _rows(m) for m in (a, older)} == before
+            assert main(["--city", TEST_SLUG, "--dry-run", "--limit", "2"]) == 0
+            assert capsys.readouterr().out.splitlines()[-1] == "2 meetings, 4 rows"
+            assert {m: _rows(m) for m in (a, older, no_id)} == before
 
             # The real run rewrites.
+            adapter.fetch_agenda_items.reset_mock()
+            assert main(["--city", TEST_SLUG, "--limit", "1"]) == 0
+            assert capsys.readouterr().out.splitlines() == [
+                f"meeting {no_id} clip 1985 2026-05-21: 1 rows changed",
+                "1 meetings, 1 rows",
+            ]
+            assert _rows(no_id) == [("1", "371401", 20.0)]
+            assert {m: _rows(m) for m in (a, older)} == {m: before[m] for m in (a, older)}
             adapter.fetch_agenda_items.reset_mock()
             assert correct_chapter_ids(TEST_SLUG) == [
                 {**row_a, "changed": 3, "error": None},
@@ -601,7 +627,7 @@ class TestCorrectChapterIds:
             ]
             assert fetched() == ["1981", "1960"]
             assert _rows(a) == [("1", "371101", 10.0), ("2", "371102", 50.0), ("3", "371103", 120.0)]
-            assert _rows(older) == [("1", "371200", 15.0), ("2", "371201", 60.0)]
+            assert _rows(older) == [("1", "371200", 15.0), ("2", "371299", 60.0)]
             assert {m: _rows(m) for m in untouched} == untouched
 
             # A second run lists no meeting and asks Granicus nothing.

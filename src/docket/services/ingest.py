@@ -21,6 +21,8 @@ import re
 from dataclasses import dataclass
 from datetime import date
 
+import psycopg2.extras
+
 from docket.adapters import get_adapter
 from docket.adapters._helpers import classify_title, normalize_title
 from docket.db import db, db_cursor
@@ -37,6 +39,17 @@ logger = logging.getLogger(__name__)
 # pre-recording PDF, we extract the agenda item_number from this title
 # so we can match by item_number rather than position-in-list.
 _AGENDA_ITEM_NUMBER_RE = re.compile(r"\bITEM\s+(\d+)\b", re.IGNORECASE)
+
+# A Granicus chapter id (an index point's `data-id`) is all digits; only such
+# an id makes the player jump (`&meta_id=<id>`). One pattern, read by Python
+# and handed to PostgreSQL, so the rewrite and the query that looks for rows
+# still to rewrite cannot disagree about what counts.
+_CHAPTER_ID_PATTERN = "^[0-9]+$"
+_CHAPTER_ID_RE = re.compile(_CHAPTER_ID_PATTERN)
+
+
+def _is_chapter_id(external_id: str | None) -> bool:
+    return external_id is not None and _CHAPTER_ID_RE.fullmatch(external_id) is not None
 
 # The classification columns an UPDATE path writes, gated so a row an admin
 # locked (type_locked_at) or the resolver placed on the calendar or
@@ -318,76 +331,244 @@ def _try_upgrade_event_row(cur, municipality_id: int, m: RawMeeting) -> bool:
 
 
 def _backfill_video_timestamps(
-    adapter, meeting_id: int, raw_meeting: RawMeeting
+    adapter,
+    meeting_id: int,
+    raw_meeting: RawMeeting,
+    *,
+    force: bool = False,
+    dry_run: bool = False,
 ) -> int:
-    """Add video_timestamp_seconds to existing agenda items that lack it.
+    """Fill video timestamps and Granicus chapter ids on existing agenda items.
 
     Runs when a meeting's items were inserted from the pre-recording
-    agenda PDF (no timestamps) and the meeting has since been recorded
-    and reconciled to a clip_id. Fetches MediaPlayer index points and
-    UPDATEs matching items by `item_number` parsed from the index-point
-    titles (since MediaPlayer's RawAgendaItem.item_number is
-    position-in-list, not the real agenda item number).
+    agenda PDF (no timestamps, ids such as `event-2715-1`) and the meeting
+    has since been recorded and reconciled to a clip_id. Fetches the
+    MediaPlayer index points and matches them to items by the `ITEM N`
+    in each point's title (MediaPlayer's own RawAgendaItem.item_number is
+    position-in-list, not the real agenda item number). The first point
+    that names a number speaks for it.
 
-    Preserves any AI summaries and existing item content — only the
-    `video_timestamp_seconds` column is touched. Idempotent: a second
-    call after all timestamps are filled is a cheap NULL-count check
-    that early-exits without HTTP.
+    Two columns are written, and no other (AI summaries and item content
+    are untouched):
 
-    Returns the number of items updated.
+    - `video_timestamp_seconds` is filled where it is NULL. A stored
+      timestamp is never replaced.
+    - `external_id` becomes the point's chapter id when the stored id is
+      not one, the point has one, exactly one item of the meeting carries
+      that item number, and no other row of the meeting holds or is being
+      given that id (`UNIQUE(meeting_id, external_id)`). An id left alone
+      for either of the last two reasons is logged at WARNING.
+
+    Every change of the meeting goes in one UPDATE. Idempotent: a second
+    call after all timestamps are filled is a cheap NULL-count check that
+    early-exits without HTTP. That precheck asks only about timestamps, so
+    a meeting whose items all have one but still carry non-chapter ids is
+    reached with `force=True` (`correct_chapter_ids`), which skips it.
+    `dry_run=True` computes and logs the same changes and writes nothing.
+
+    Returns the number of rows changed (under `dry_run`, that would change).
     """
-    # Cheap precheck: are there any items needing a timestamp? Un-numbered
-    # items (the minutes-approval line) can never be matched below, so they
-    # don't count.
-    with db_cursor() as cur:
-        cur.execute(
-            "SELECT count(*) AS n FROM agenda_items "
-            "WHERE meeting_id = %s AND video_timestamp_seconds IS NULL "
-            "AND item_number IS NOT NULL",
-            (meeting_id,),
-        )
-        null_count = cur.fetchone()["n"]
+    if not force:
+        # Cheap precheck: are there any items needing a timestamp? Un-numbered
+        # items (the minutes-approval line) can never be matched below, so they
+        # don't count.
+        with db_cursor() as cur:
+            cur.execute(
+                "SELECT count(*) AS n FROM agenda_items "
+                "WHERE meeting_id = %s AND video_timestamp_seconds IS NULL "
+                "AND item_number IS NOT NULL",
+                (meeting_id,),
+            )
+            null_count = cur.fetchone()["n"]
 
-    if null_count == 0:
-        return 0
+        if null_count == 0:
+            return 0
 
     # Fetch MediaPlayer index points (have timestamps)
     media_items = adapter.fetch_agenda_items(raw_meeting)
     if not media_items:
         return 0
 
-    # Build item_number → timestamp map by extracting "ITEM N" from titles
-    timestamps_by_num: dict[str, float] = {}
+    # item number → (timestamp, chapter id or None), from the first point
+    # whose title names that "ITEM N"
+    points: dict[str, tuple[float, str | None]] = {}
     for item in media_items:
         if item.video_timestamp_seconds is None:
             continue
         match = _AGENDA_ITEM_NUMBER_RE.search(item.title or "")
         if not match:
             continue
-        item_num = match.group(1)
-        timestamps_by_num.setdefault(item_num, item.video_timestamp_seconds)
+        chapter_id = item.external_id if _is_chapter_id(item.external_id) else None
+        points.setdefault(match.group(1), (item.video_timestamp_seconds, chapter_id))
 
-    if not timestamps_by_num:
+    if not points:
         return 0
 
-    updated = 0
     with db() as conn:
         with conn.cursor() as cur:
-            for item_num, ts in timestamps_by_num.items():
-                cur.execute(
-                    "UPDATE agenda_items SET video_timestamp_seconds = %s "
-                    "WHERE meeting_id = %s AND item_number = %s "
-                    "AND video_timestamp_seconds IS NULL",
-                    (ts, meeting_id, item_num),
-                )
-                updated += cur.rowcount
+            # Every row of the meeting, un-numbered ones too: any of them may
+            # hold an id a numbered item is about to be given.
+            cur.execute(
+                "SELECT id, item_number, external_id, video_timestamp_seconds "
+                "FROM agenda_items WHERE meeting_id = %s ORDER BY id",
+                (meeting_id,),
+            )
+            rows = cur.fetchall()
 
-    if updated > 0:
+            by_number: dict[str, list[tuple]] = {}
+            for row in rows:
+                if row[1] is not None:
+                    by_number.setdefault(row[1], []).append(row)
+            taken = {row[2] for row in rows if row[2] is not None}
+
+            changes: list[tuple[int, float, str | None]] = []
+            filled = rewritten = 0
+            for number, (point_ts, chapter_id) in points.items():
+                same_number = by_number.get(number, [])
+                for item_id, _, stored_id, stored_ts in same_number:
+                    new_ts, new_id = stored_ts, stored_id
+                    if stored_ts is None:
+                        new_ts = point_ts
+                        filled += 1
+                    if chapter_id is not None and not _is_chapter_id(stored_id):
+                        if len(same_number) > 1:
+                            logger.warning(
+                                "chapter id %s not written to agenda item %s of meeting %s: "
+                                "item number %s is on %d rows",
+                                chapter_id, item_id, raw_meeting.external_id,
+                                number, len(same_number),
+                            )
+                        elif chapter_id in taken:
+                            logger.warning(
+                                "chapter id %s not written to agenda item %s of meeting %s: "
+                                "another row of the meeting holds it or was given it",
+                                chapter_id, item_id, raw_meeting.external_id,
+                            )
+                        else:
+                            new_id = chapter_id
+                            taken.add(chapter_id)
+                            rewritten += 1
+                    if (new_ts, new_id) != (stored_ts, stored_id):
+                        changes.append((item_id, new_ts, new_id))
+
+            changed = len(changes)
+            if changes and not dry_run:
+                # One statement for the meeting; each tuple carries the row's
+                # final values, so a column that does not change is set to
+                # itself. page_size keeps execute_values from splitting it.
+                psycopg2.extras.execute_values(
+                    cur,
+                    "UPDATE agenda_items AS a "
+                    "SET video_timestamp_seconds = v.ts, external_id = v.ext "
+                    "FROM (VALUES %s) AS v(id, ts, ext) WHERE a.id = v.id",
+                    changes,
+                    template="(%s::integer, %s::real, %s::text)",
+                    page_size=len(changes),
+                )
+                changed = cur.rowcount
+
+    if changes:
         logger.info(
-            "backfilled video timestamps for %d/%d items on meeting %s",
-            updated, null_count, raw_meeting.external_id,
+            "meeting %s: %d video timestamps filled, %d chapter ids rewritten%s",
+            raw_meeting.external_id, filled, rewritten,
+            " (dry run, nothing written)" if dry_run else "",
         )
-    return updated
+    return changed
+
+
+def correct_chapter_ids(slug: str, *, limit: int = 50, dry_run: bool = False) -> list[dict]:
+    """Write Granicus chapter ids onto cued items that still carry another id.
+
+    The ingest run fetches a meeting's player page only while a numbered
+    item lacks its timestamp, so a meeting whose items were all cued before
+    `_backfill_video_timestamps` wrote chapter ids is never fetched again.
+    This is the supervised pass for those rows
+    (`scripts/correct_agenda_chapter_ids.py`): the city's clip meetings
+    that have a numbered item with a timestamp and an id that is not a
+    chapter id, newest first, at most `limit` of them, each put through
+    `_backfill_video_timestamps(..., force=True)`. One player-page request
+    per meeting, after which the adapter sleeps its polite delay; one
+    UPDATE per meeting. `dry_run=True` makes the same requests and writes
+    nothing.
+
+    Returns one dictionary per meeting visited: `meeting_id`, `external_id`,
+    `meeting_date`, `changed` (rows changed, or that would change), and
+    `error` (None, or the text of what kept this meeting from being
+    corrected; the pass goes on to the next). A meeting that is listed
+    again on a later run with nothing changed holds ids the rewrite leaves
+    alone, each named by a WARNING. Raises ValueError for an unknown slug.
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT id, slug, adapter_class, adapter_config FROM municipalities WHERE slug = %s",
+            (slug,),
+        )
+        muni = cur.fetchone()
+
+    if muni is None:
+        raise ValueError(f"Municipality '{slug}' not found")
+
+    adapter_config = muni["adapter_config"]
+    if isinstance(adapter_config, str):
+        adapter_config = json.loads(adapter_config)
+
+    adapter = get_adapter(muni["adapter_class"], slug, adapter_config)
+
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT m.id, m.external_id, m.title, m.meeting_date, m.meeting_type,
+                   m.agenda_url, m.minutes_url, m.video_url, m.source_url
+            FROM meetings m
+            WHERE m.municipality_id = %s
+              AND m.external_id ~ %s
+              AND EXISTS (
+                  SELECT 1 FROM agenda_items a
+                  WHERE a.meeting_id = m.id
+                    AND a.item_number IS NOT NULL
+                    AND a.video_timestamp_seconds IS NOT NULL
+                    AND (a.external_id IS NULL OR a.external_id !~ %s)
+              )
+            ORDER BY m.meeting_date DESC NULLS LAST, m.id DESC
+            LIMIT %s
+            """,
+            (muni["id"], _CHAPTER_ID_PATTERN, _CHAPTER_ID_PATTERN, limit),
+        )
+        meetings = cur.fetchall()
+
+    results: list[dict] = []
+    for m in meetings:
+        raw_meeting = RawMeeting(
+            external_id=m["external_id"],
+            municipality_slug=slug,
+            title=m["title"],
+            meeting_date=m["meeting_date"],
+            meeting_type=m["meeting_type"],
+            agenda_url=m["agenda_url"],
+            minutes_url=m["minutes_url"],
+            video_url=m["video_url"],
+            source_url=m["source_url"],
+        )
+        error = None
+        try:
+            changed = _backfill_video_timestamps(
+                adapter, m["id"], raw_meeting, force=True, dry_run=dry_run
+            )
+        except Exception as e:
+            changed = 0
+            error = f"{type(e).__name__}: {e}"
+            logger.error(
+                "chapter ids for meeting %s (clip %s) not corrected: %s",
+                m["id"], m["external_id"], error,
+            )
+        results.append({
+            "meeting_id": m["id"],
+            "external_id": m["external_id"],
+            "meeting_date": m["meeting_date"],
+            "changed": changed,
+            "error": error,
+        })
+    return results
 
 
 def _ingest_agenda_items(
@@ -404,7 +585,7 @@ def _ingest_agenda_items(
     lack video timestamps (e.g., the items were inserted from a prior
     PDF scrape and the meeting has since been recorded and reconciled),
     fall through to `_backfill_video_timestamps` which fetches the
-    MediaPlayer index points and UPDATE timestamps in place.
+    MediaPlayer index points and fills timestamps and chapter ids in place.
     """
     # Check if we already have agenda items for this meeting
     with db_cursor() as cur:
