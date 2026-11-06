@@ -843,7 +843,7 @@ The after state, with `src/docket/migrations/042_meeting_video_alignments.py` wr
     26 passed, 1 warning in 0.38s
     $ tools/test-db --drop                                                          (printed nothing, exit 0)
 
-`./tools/verify`, started at 05:15Z after those, with every change of the milestone in the working tree and before the plan's tick was written, printed `2228 passed, 5 skipped, 4 xfailed, 2 warnings` for the unit, web, and services tier, `695 passed, 2 warnings` for integration (690 plus 5), `judge fixtures: 12 of 12 passed`, `110 passed, 1 warning in 4.09s` for the transcriber suite (105 plus 5), and `verify: all 6 checks passed in 110s.`
+`./tools/verify`, started at 05:15Z after those, with every change of the milestone in the working tree and before the plan's tick was written, printed `2228 passed, 5 skipped, 4 xfailed, 2 warnings` for the unit, web, and services tier, `695 passed, 2 warnings` for integration (690 plus 5), `judge fixtures: 12 of 12 passed`, `110 passed, 1 warning in 4.09s` for the transcriber suite (105 plus 5), and `verify: all 6 checks passed in 110s.` After the tick and the living sections were written, `tools/check-plans` (the sixth check, and the only one that reads this file) was run alone and printed `plans: 2 of 2 ok`; the full command was not run again, since nothing but this file changed after it.
 
 The removal check on the candidate query (Surprises & Discoveries), as it printed after the two additions to the tests (the failing tests' names are shortened here and set in parentheses); each line is the five alignment tests run against the two SQL strings of `transcriber.db` with one rule taken out in memory:
 
