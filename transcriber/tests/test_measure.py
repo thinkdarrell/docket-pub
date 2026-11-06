@@ -150,7 +150,9 @@ def test_each_candidate_is_measured_once_saved_once_and_the_work_folder_is_left_
     from transcriber import align, measure
     cfg, conn = _cfg(tmp_path), FakeConn()
     fdb = FakeDB([_cand(11, "FR84h22hQvA", 3184, "2026"), _cand(12, "uvqFjIfPLLU", 3170, "2024")])
-    seen = _wire(monkeypatch, fdb, results={"uvqFjIfPLLU": _measurement("rejected", "windows")})
+    rollbacks_at_measure = []
+    seen = _wire(monkeypatch, fdb, results={"uvqFjIfPLLU": _measurement("rejected", "windows")},
+                 on_measure=lambda video_id: rollbacks_at_measure.append(conn.rollbacks))
     with caplog.at_level(logging.INFO):
         counts = measure.measure_pass(conn, cfg, limit=20, sleep=seen.sleeps.append)
 
@@ -162,6 +164,8 @@ def test_each_candidate_is_measured_once_saved_once_and_the_work_folder_is_left_
     assert first.measurement == _measurement()
     assert second.reason == "windows" and second.measurement.status == "rejected"
     assert first.commits < second.commits <= conn.commits - 1     # each row committed on its own
+    assert rollbacks_at_measure == [1, 1]     # the candidate read's transaction ended before any download
+    assert conn.rollbacks == 2                # and the backlog read's after it
     assert seen.downloads == [("yt-FR84h22hQvA", measure.MEASURE_YTDLP_FORMAT),
                               ("yt-uvqFjIfPLLU", measure.MEASURE_YTDLP_FORMAT)]
     assert measure.MEASURE_YTDLP_FORMAT == "worstaudio/bestaudio/worst"
@@ -196,6 +200,16 @@ def test_two_recordings_of_one_meeting_fetch_the_granicus_audio_once_and_get_a_r
     assert fdb.statuses() == [("96jZkW4zv7U", "passed"), ("E0cpl0Snx20", "passed")]
     assert [g for g, _ in seen.measured] == [("features", "align-72.wav")] * 2   # the same features twice
     assert _left_in(cfg.work_dir) == []
+
+    # a meeting's recordings need not be adjacent in the candidate order (a failure being
+    # retried sorts after the never-measured); they are still measured together
+    fdb = FakeDB([_cand(21, "96jZkW4zv7U", 72, "1831"), _cand(23, "ara-4Ve6XCU", 3150, "2017"),
+                  _cand(22, "E0cpl0Snx20", 72, "1831")])
+    seen = _wire(monkeypatch, fdb)
+    counts = measure.measure_pass(conn, cfg, limit=20, sleep=seen.sleeps.append)
+    assert counts == {"passed": 3, "rejected": 0, "failed": 0}
+    assert _granicus_fetches(seen) == [GRANICUS + "1831", GRANICUS + "2017"]
+    assert fdb.statuses() == [("96jZkW4zv7U", "passed"), ("E0cpl0Snx20", "passed"), ("ara-4Ve6XCU", "passed")]
 
 
 def test_youtube_fetch_error_saves_failed_with_its_reason_and_the_next_recording_is_measured(

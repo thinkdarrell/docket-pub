@@ -11,6 +11,11 @@ Per meeting: claim -> fetch audio (or decode the archive's audio.flac, keeping a
 copy when fetched) -> transcribe (raw.json) -> diarize (diarization.json) -> write
 JSON (status transcribed) -> upload (status uploaded) -> delete the work WAV. Ctrl-C
 finishes the current meeting and exits.
+
+An ordinary run (the first form above) begins with the measuring pass, before the speech
+model is loaded: up to --measure-limit YouTube recordings attached to Granicus meetings are
+measured against their clips (measure.py). --max-hours and Ctrl-C bound the pass and the loop
+as one run. The pass does not run under --meeting-id or any of the other single-purpose forms.
 """
 from __future__ import annotations
 
@@ -36,6 +41,7 @@ from .audio import (AudioFetchError, fetch_audio, probe_duration, remove_downloa
 from .contract import TranscriptOutput
 from .engine import (TRANSCRIPT_VERSION, Engine, build_output, clean_segments, is_low_speech,
                      speech_seconds)
+from .measure import measure_pass
 from .prompt import PromptBudgetError, build_initial_prompt
 
 log = logging.getLogger("transcriber")
@@ -54,6 +60,7 @@ class Config:
     max_consecutive_failures: int = 5
     retry_failed: bool = False
     meeting_id: int | None = None       # --meeting-id: re-transcribe this one meeting and stop
+    measure_limit: int = 20             # --measure-limit: recordings measured before the loop; 0 turns it off
 
 
 class _Stop:
@@ -174,9 +181,13 @@ def process_claim(conn, engine: Engine, claim: tdb.Claim, cfg: Config) -> str:
     return _upload_or_fail(conn, claim, out)
 
 
-def run_loop(conn, engine: Engine, cfg: Config, *, clock=time.monotonic, stop_flag=None) -> dict:
+def run_loop(conn, engine: Engine, cfg: Config, *, clock=time.monotonic, stop_flag=None,
+             started: float | None = None) -> dict:
+    """Claim and transcribe meetings until --limit, --max-hours, Ctrl-C, or nothing is left.
+    ``started`` is the reading of ``clock`` that --max-hours counts from; main() passes the
+    time the measuring pass began, so the pass and the loop share one allowance."""
     counts = {"uploaded": 0, "failed": 0, "low_speech": 0}
-    started = clock()
+    started = clock() if started is None else started
     consecutive_failures = 0
     stop = stop_flag or _Stop()
     tdb.heartbeat(conn, cfg.host, "started", None, cfg.version)
@@ -323,6 +334,10 @@ def main(argv=None) -> int:
                     help="re-queue meetings marked failed")
     ap.add_argument("--meeting-id", type=int, default=None,
                     help="re-transcribe this one meeting, whatever its status; ignores --since and --limit")
+    ap.add_argument("--measure-limit", type=int,
+                    default=int(os.environ.get("TRANSCRIBER_MEASURE_LIMIT", "20")),
+                    help="attached YouTube recordings to measure against their Granicus clips before "
+                         "transcribing (no GPU); 0 turns the measuring off")
     modes = ap.add_mutually_exclusive_group()
     modes.add_argument("--cache-audio", type=int, nargs="+", metavar="MEETING_ID",
                        help="download these meetings' audio into the archive as audio.flac; no GPU, no DB writes")
@@ -344,6 +359,7 @@ def main(argv=None) -> int:
         dry_run_file=args.dry_run, version=__version__,
         max_consecutive_failures=args.max_consecutive_failures,
         retry_failed=args.retry_failed, meeting_id=args.meeting_id,
+        measure_limit=args.measure_limit,
     )
     cfg.work_dir.mkdir(parents=True, exist_ok=True)
 
@@ -374,16 +390,19 @@ def main(argv=None) -> int:
         log.info("cache-audio done %s", results)
         return 1 if any(r in ("failed", "ineligible") for r in results.values()) else 0
 
-    from .engine import FasterWhisperEngine
-    engine = FasterWhisperEngine(model_size=args.model, device=args.device,
-                                 compute_type=args.compute_type,
-                                 hf_token=os.environ.get("HF_TOKEN"))
+    def load_engine():
+        """Loads the speech model onto the graphics card; nothing before this call needs one."""
+        from .engine import FasterWhisperEngine
+        return FasterWhisperEngine(model_size=args.model, device=args.device,
+                                   compute_type=args.compute_type,
+                                   hf_token=os.environ.get("HF_TOKEN"))
 
     if args.dry_run:
-        print(dry_run(engine, args.dry_run, cfg))
+        print(dry_run(load_engine(), args.dry_run, cfg))
         return 0
 
     if args.capture_inputs:
+        engine = load_engine()
         conn = tdb.connect(url)
         try:
             results = {mid: capture_inputs(conn, engine, cfg, mid) for mid in args.capture_inputs}
@@ -394,7 +413,18 @@ def main(argv=None) -> int:
 
     conn = tdb.connect(url)
     try:
-        counts = run_loop(conn, engine, cfg)
+        if args.meeting_id is not None:          # one meeting and stop: nothing is measured
+            engine = load_engine()
+            counts = run_loop(conn, engine, cfg)
+        else:
+            # Measure first, while the graphics card is still free; --max-hours and Ctrl-C
+            # bound the measuring pass and the transcription loop as one run.
+            started = time.monotonic()
+            stop = _Stop()
+            deadline = None if cfg.max_hours is None else started + cfg.max_hours * 3600
+            measure_pass(conn, cfg, limit=cfg.measure_limit, stop=stop, deadline=deadline)
+            engine = load_engine()
+            counts = run_loop(conn, engine, cfg, stop_flag=stop, started=started)
     finally:
         conn.close()
     log.info("done %s oom_fallbacks=%s", counts, getattr(engine, "oom_fallbacks", 0))

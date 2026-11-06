@@ -22,11 +22,11 @@ How to see it working once the plan has shipped and the operator has run the ste
 
 ## Progress
 
-M1 and M2 were executed on 2026-11-06 and their evidence is in "M1 as executed, 2026-11-06" and "M2 as executed, 2026-11-06" under Artifacts and Notes; M3 is next, and nothing from M3 on has been executed. A completed entry is written as `- [x] (YYYY-MM-DD HH:MMZ) <text>` with the time the work was observed, never an estimate, and an entry's text is never reworded once written (decision `0037`; the judge in `docs/capabilities/judge-milestone.md` identifies entries by their text).
+M1, M2, and M3 were executed on 2026-11-06 and their evidence is in "M1 as executed, 2026-11-06", "M2 as executed, 2026-11-06", and "M3 as executed, 2026-11-06" under Artifacts and Notes; M4 is next, and nothing from M4 on has been executed. A completed entry is written as `- [x] (YYYY-MM-DD HH:MMZ) <text>` with the time the work was observed, never an estimate, and an entry's text is never reworded once written (decision `0037`; the judge in `docs/capabilities/judge-milestone.md` identifies entries by their text).
 
 - [x] (2026-11-06 05:01Z) M1: `transcriber/transcriber/align.py` measures where one recording sits on another's clock from two 8 kHz WAV files with numpy alone, and `transcriber/tests/test_align.py` proves it on synthetic audio: a shifted noisy copy recovers its offset and passes, unrelated audio and a recording with a cut are rejected, and the verdict rule reproduces the labelled table in Artifacts and Notes.
 - [x] (2026-11-06 05:17Z) M2: migration 042 creates `meeting_video_alignments`, the `transcriber` role file grants the role SELECT on `meeting_videos` and SELECT, INSERT, UPDATE on the new table, and `transcriber/transcriber/db.py` lists the recordings that need measuring and saves a measurement, proved against the throwaway database.
-- [ ] M3: an ordinary transcriber run measures up to `--measure-limit` attached YouTube recordings before the engine loads, with one stored row and one log line per recording, leaves no audio in the work folder, and carries on to transcription whatever the measuring pass meets; `transcriber/tests/test_measure.py` proves it with stubbed fetches.
+- [x] (2026-11-06 05:35Z) M3: an ordinary transcriber run measures up to `--measure-limit` attached YouTube recordings before the engine loads, with one stored row and one log line per recording, leaves no audio in the work folder, and carries on to transcription whatever the measuring pass meets; `transcriber/tests/test_measure.py` proves it with stubbed fetches.
 - [ ] M4: `src/docket/services/video_links.py` builds a video link from a second on the Granicus clock (YouTube at the converted second when a passing recording covers it, the Granicus chapter otherwise), finds a meeting's consent block, and loads a meeting's passing recordings; `src/docket/web/video_urls.py` is gone and its tests moved.
 - [ ] M5: the item page's vote link and the transcript page's item link come from the link builder, land on the item's moment under the consent rule, and name the site they open.
 - [ ] M6: the minutes-versus-video block, the admin discrepancy row, and the video branch of `partials/source_anchor_button.html` come from the link builder and name the site they open; the `chapter_url` Jinja global is gone.
@@ -72,6 +72,26 @@ From the M2 session, 2026-11-06. One clause of M2's acceptance states a count th
 
 - Observation: one command of this session was mistyped and ran no test. A redirect to a path under an unset `$TMPDIR` failed inside `export DATABASE_URL=$(tools/test-db 2>...)`, so the variable was exported empty for the two pytest commands that followed in that shell. Neither printed a `passed` or `failed` line. Read from the code afterwards, not observed as output: `tests/conftest.py` refuses a database not named `docket_test_*` before collection, and `transcriber/tests/test_db.py` skips when its URL is empty. The command was run again correctly and that run is the evidence recorded.
   Evidence: the correct run printed `Applying migration 42: docket.migrations.042_meeting_video_alignments`, `19 passed`, and `26 passed`.
+
+From the M3 session, 2026-11-06. Every figure in M3's acceptance was observed as written; these are the observations a later session can use.
+
+- Observation: the thirteen new tests passed on the first run of the code, so the session checked that they can fail: the eleven tests of `test_measure.py` were run against copies of `transcriber/transcriber/measure.py` altered in memory, one rule taken out at a time (the committed file was not edited). Each of 27 removals fails at least one test.
+  Evidence: the list under "M3 as executed, 2026-11-06" in Artifacts and Notes. The revised rules each have their own test: with a Granicus failure counted once per row only the three-recordings test fails; with the handler on one recording narrowed to named exception types the `RuntimeError` test fails (and two others); with the count not set back after a measured recording, and with the pass never stopping, only the three-in-a-row test fails.
+
+- Observation: the stubbed tests cannot show that what ffmpeg writes at `-ar 8000` is what `align.read_wav` accepts, nor that an offset survives a lossy codec, so the session ran the pass once from a scratch script with real ffmpeg (8.0.1 on this machine), the real matcher, and the real `transcriber.db` functions on the throwaway database. Only the two network fetches were stood in for. It measured correctly through each format.
+  Evidence: the M1 synthetic pair (seconds 400 to 1,305 of the seed-1 signal, with noise) stored as Opus in WebM at 24 kbit/s against the clip stored as 16 kHz FLAC in the archive printed `passed offset=400.00s covers=400.0-1305.0s score=40.8 runner_up=3.6 windows=4/4`, and against the clip stored as AAC in MP4 printed the same with `score=41.1`; M1 printed 40.9 for the raw samples. The transcript is under "M3 as executed".
+
+- Observation: read from `transcriber/transcriber/cli.py` as this milestone leaves it, not observed in Docker: the speech model is loaded whenever the measuring pass returns, also when there is nothing to transcribe. The backlog command (`--limit 0 --measure-limit 400`) therefore loads the model onto the graphics card and then exits with nothing claimed, and so does a run stopped with Ctrl-C during the measuring. M3 orders the calls this way ("only then does it construct `FasterWhisperEngine`; then it calls `run_loop`"), so it was built as written and `transcriber/README.md` says so. A candidate for the debt rows M8 writes.
+  Evidence: `test_main_measures_before_the_engine_loads_and_meeting_id_skips_the_measuring` records `["connect", "measure", "engine", "loop"]`; nothing between `measure_pass` and `load_engine()` in `main()` reads the limit or the stop flag.
+
+- Observation: also read from the code: the measuring pass writes no row to `producer_heartbeats`. `run_loop` writes `started` when it begins, which is now after the pass and after the model has loaded, so during a long backlog run the heartbeat table shows nothing for the host. The plan asks for no heartbeat from the pass and none was added. A second candidate for M8.
+  Evidence: `transcriber/transcriber/measure.py` calls three functions of `db.py` (`alignment_candidates`, `alignment_backlog`, `save_alignment`) and no other.
+
+- Observation: `cli.main()` calls `load_dotenv()`, which finds this worktree's `.env` from the package folder and puts its `DATABASE_URL` into the process for good. A test that calls `main()` would hand that variable to every test that runs after it in the same process, so the one test that does replaces `cli.load_dotenv` with a function that does nothing.
+  Evidence: from `transcriber/`, with the variable removed from the environment, a one-off command printed `before main: DATABASE_URL set: False` and, after `cli.main(['--help'])`, `after main: DATABASE_URL set: True` (the value was not printed).
+
+- Observation: one scratch command of this session failed before it ran anything. The end-to-end script was first started by its path from `transcriber/`, where Python puts the script's own folder on the import path and not the current one; it stopped at `ModuleNotFoundError: No module named 'transcriber'` before it connected. It was started again with `PYTHONPATH` set to `transcriber/`, and that run is the evidence recorded.
+  Evidence: the first run printed the traceback and `drop exit 0`; no row was written by it.
 
 ## Decision Log
 
@@ -221,6 +241,40 @@ The entries below were made by the M2 session on 2026-11-06.
   Rationale: each is one line beside the case the plan names and pins a clause of the table's CHECK or of the candidate rule that the named cases alone left free (two of them found by the removal check in Surprises & Discoveries). The alternative of new test functions would have moved every total the later milestones state.
   Date/Author: 2026-11-06, M2 session (Claude).
 
+The entries below were made by the M3 session on 2026-11-06.
+
+- Decision: `transcriber/tests/test_measure.py` imports `transcriber.measure` inside each test function, and the before state of M3's acceptance is recorded as `13 failed, 28 passed`.
+  Rationale: `skills/plan-execute/SKILL.md` asks for it, as in M1. M3's acceptance says the command "fails before `measure.py` exists" and names no shape; with the import at the top the file would not have collected and the eleven would have read as one error.
+  Date/Author: 2026-11-06, M3 session (Claude).
+
+- Decision: the pass groups its candidates by meeting in the order each meeting first appears, so a meeting's recordings are measured together even when they are not adjacent in the candidate order.
+  Rationale: M2's order puts a failure being retried after every never-measured recording, so one meeting's two recordings can arrive apart. M3 says "walk them meeting by meeting" and that the Granicus audio is fetched once for a meeting; grouping only adjacent rows would ask Granicus twice for the same clip. The cost is that a retried recording is measured earlier than its place in the order, which harms nothing.
+  Date/Author: 2026-11-06, M3 session (Claude).
+
+- Decision: the 3-second pause is slept after every request to Granicus, whether or not it succeeded, and not at all when the archive's `audio.flac` was read. The two local reads (the FLAC, and the yt-dlp download) call `fetch_audio` with `attempts=1`; the Granicus download keeps `fetch_audio`'s three attempts.
+  Rationale: M3 says "after a download from Granicus" and is silent on a failed one. The pause is owed for the request (`GOALS.md`, polite scraping), and a failing clip is exactly when the next request should not follow at once. `fetch_audio`'s retries, five seconds apart, exist for the network; a local file that ffmpeg cannot read will not read on the second try.
+  Date/Author: 2026-11-06, M3 session (Claude).
+
+- Decision: the stop flag and the deadline are checked before a meeting's Granicus audio is fetched and again before each of its recordings; the deadline has passed when the clock reads more than it, not when it equals it. A pass that stops this way logs `measure: stop requested; stopping` or `measure: max-hours reached; stopping` at INFO and still logs `measure done`.
+  Rationale: M3 says "before each recording". The check before the meeting spares Granicus a request the pass would not use, and the check after it catches a Ctrl-C pressed during that download. The strict comparison is `run_loop`'s own, so one `--max-hours` means one thing in both.
+  Date/Author: 2026-11-06, M3 session (Claude).
+
+- Decision: log levels and texts the plan left open. A `passed` or `rejected` line is INFO and a `failed` line is WARNING. The error inside `failed (...)` and inside `measure: skipped (...)` is put on one line and cut at 300 characters in the log; the stored `reason` keeps the whole text (up to `save_alignment`'s 4,000). In `measure: skipped (...)` a database error prints its own message, which is how the plan's `permission denied ...` example reads, and any other exception prints its class name, a colon, and its message. Three failed fetches log `measure: 3 fetches failed in a row; stopping` at WARNING. `measure done` is logged whenever the pass reaches its end, early or not, and is not logged after `measure: skipped`. The rollback in the top handler is itself guarded, so a dead connection cannot raise out of the pass.
+  Rationale: the plan fixes the texts of the per-recording lines and of the last line and says the pass "ends with a warning"; the rest had to be chosen. A yt-dlp error can carry a page of text, which belongs in the row and not on a log line the operator reads by eye. Leaving `measure done` out after a `skipped` keeps that line meaning that the backlog was read.
+  Date/Author: 2026-11-06, M3 session (Claude).
+
+- Decision: `cli.py` imports `measure_pass` at the top of the module, and `main()` builds the engine through a small inner function, `load_engine()`, called in three places: before `dry_run`, before the `--capture-inputs` connection, and, in the ordinary run, after the connection and the measuring pass. With `--meeting-id` the call is `run_loop(conn, engine, cfg)` exactly as before.
+  Rationale: M3's test replaces `measure_pass` on `cli`, which needs the name there; the price is that every producer command, `--replay` included, now imports numpy, which the image carries and `requirements.txt` has declared since M1. The engine could not stay where it was built (above `--dry-run` and `--capture-inputs`, which need it) and also come after the measuring, so its construction became a function; the two single-purpose modes keep their old order of engine first, connection second.
+  Date/Author: 2026-11-06, M3 session (Claude).
+
+- Decision: the new tests assert more than the plan lists, inside the functions it names and without changing a count. The first also makes its second recording `rejected` (the saved status and reason, and the `rejected (windows)` log line), and checks the `measure done` line, the 8 kHz rate and file name of every conversion, the yt-dlp format, a commit per row, and that the candidate read's transaction is ended before any download. The two-recordings test also runs three candidates in which one meeting's two are not adjacent. The three-in-a-row test also runs fail, fail, measured, fail, fail and expects all five tried. The stop test also covers a flag set before the pass starts and a deadline exactly reached. The privilege test also covers a database error on a later save and a `RuntimeError` from the backlog read. The FLAC test also checks that no pause is slept and that the archive is unchanged. The `main()` test also checks `--measure-limit`, `TRANSCRIBER_MEASURE_LIMIT`, that the pass and the loop get one stop flag and one start time, and the deadline under `--max-hours`. The Granicus-failure test also checks that no YouTube audio is downloaded for the broken clip and that the pause is still slept. The second `test_audio.py` function also checks the default format and that `source_for` hands the format on.
+  Rationale: each is a line or two beside the case the plan names and pins a clause of M3's prose that the named cases alone left free; the removal check in Surprises & Discoveries is what showed they are pinned. New functions would have moved the `41 passed` and `123 passed` the acceptance states.
+  Date/Author: 2026-11-06, M3 session (Claude).
+
+- Decision: in `transcriber/README.md` the log lines are given as forms with one passing line as an example, the minute-a-recording figure is called an estimate, and one line was added to "Where things land" for the `align-*.wav` files.
+  Rationale: no real run of the pass has been observed by any session, so the README does not print a made-up log. The list under "Where things land" names every file the producer leaves in the work folder, and would have been incomplete without the new one.
+  Date/Author: 2026-11-06, M3 session (Claude).
+
 ## Outcomes & Retrospective
 
 This section is filled in as milestones complete. The closing retrospective is written by the retro stage after the last milestone, not by a milestone session.
@@ -228,6 +282,8 @@ This section is filled in as milestones complete. The closing retrospective is w
 M1, 2026-11-06. The matcher exists: `transcriber/transcriber/align.py`, the standard library and numpy only, written from the revised reference arithmetic, with the interface under Interfaces and Dependencies and nothing calling it yet. Its acceptance was met as stated: the ten tests of `transcriber/tests/test_align.py` failed with `ModuleNotFoundError: No module named 'transcriber.align'` before the module existed (committed in that state) and print `10 passed` after, in under 3 seconds; `./tools/verify` printed `verify: all 6 checks passed` with the transcriber suite at `105 passed` and the other tiers at their baseline. `transcriber/requirements.txt` declares numpy. One thing M1 asked for beyond its acceptance was not done: the rerun on the spike's real audio (Surprises & Discoveries, Decision Log). So the claim that the committed module reproduces the revised table on real recordings rests on its following the reference line for line and reproducing the plan's synthetic figures, not on an observation of this session. Lesson for the sessions after this one: because the plan states, case by case, what the revised rule and the authored rule each return, the session could take each revised rule out of a copy of the module and watch the test named for it fail, which is the check that stood in for the audio. M2 is next.
 
 M2, 2026-11-06. The database has a place for measurements and the producer can reach it: migration `042_meeting_video_alignments` (one row per attached recording, two CHECK constraints, cascade from the recording), the role file's two grants (SELECT on `meeting_videos`; SELECT, INSERT, UPDATE and no DELETE on the new table), and `AlignmentCandidate`, `alignment_candidates`, `alignment_backlog`, and `save_alignment` in `transcriber/transcriber/db.py`. Nothing calls the three functions yet; M3's measuring pass will. Acceptance, clause by clause: the ten new tests failed before the code existed (committed in that state, `a5f4ab3`) and pass after; the build of the throwaway database prints `Applying migration 42: docket.migrations.042_meeting_video_alignments`; `transcriber/tests/test_db.py` prints `26 passed`; `./tools/verify` prints `verify: all 6 checks passed` with integration at `695 passed` and the transcriber suite at `110 passed`. One clause is met in a different number than written: the four-file command prints `19 passed` where the plan says `13 passed`, because the plan undercounted the tests the two older migration files already held (Surprises & Discoveries, Decision Log); the tests added are the 3, 2, and 5 the plan names. `ARCHITECTURE.md` and `docs/runbooks/transcripts.md` list the role's wider reach, and both the role file and the runbook say that the production role, created before this migration, has neither grant until the operator runs the two statements (step 2 under Validation and Acceptance). Lesson for the sessions after this one: count a file's tests by running it before the first edit, not by reading its top-level functions, and when a plan lists rules a query must keep, take each rule out of a copy in memory and watch for the test that fails; two of eight had none on the first try. M3 is next.
+
+M3, 2026-11-06. An ordinary producer run now measures before it transcribes: `transcriber/transcriber/measure.py` holds `measure_pass`, `audio.py` takes a sample rate and a yt-dlp format and gives every download a 30-second socket timeout, and `cli.py` has `--measure-limit`, connects first, runs the pass, and only then loads the speech model, with one stop flag and one `--max-hours` allowance for the pass and the loop. The package is `0.5.0`. Acceptance, clause by clause, all as written: the three-file command printed `13 failed, 28 passed` before the code existed (committed in that state, `505214c`) and `41 passed` after; `./tools/verify` printed `verify: all 6 checks passed` with the transcriber suite at `123 passed` and the other tiers where M2 left them; `--help` lists `--measure-limit`. There is no carve-out against the acceptance. What the milestone did not and could not observe is the pass on the Legion: yt-dlp, a Granicus download, Docker, and the production role's grants are the operator's steps 1, 2, and 4 under Validation and Acceptance. What stands between the stubbed tests and that run is one scratch run with real ffmpeg, the real matcher, and the real database functions, which measured the M1 synthetic pair correctly through FLAC, AAC, and Opus and left the work folder empty (Artifacts and Notes). `transcriber/README.md` has the operator's section, `docs/runbooks/transcripts.md` points to it, and `docs/specs/transcripts.md` names `0.5.0`. Two things read from the code are left for M8's debt list: the model loads even when the run will transcribe nothing (the backlog command, or a Ctrl-C during measuring), and the pass writes no heartbeat. Lesson for the sessions after this one: when new tests pass on the first run of the code, that is not yet evidence they test it; taking each rule out of a copy in memory took a minute and is what the session can stand behind, and the one joint no stub covers (here, ffmpeg's output into the matcher's reader) is worth one real run from a scratch script. M4 is next.
 
 ## Context and Orientation
 
@@ -884,7 +940,78 @@ The before state of the new tests, started at 05:29Z: `transcriber/tests/test_me
     E       TypeError: ytdlp_options() got an unexpected keyword argument 'audio_format'
     13 failed, 28 passed, 1 warning in 0.39s
 
-The 13 that fail are the 13 this milestone adds (all eleven of `test_measure.py`, and `test_fetch_audio_rate_is_ffmpegs_ar` and `test_ytdlp_options_takes_the_audio_format_and_sets_a_socket_timeout` in `test_audio.py`); the 28 that pass are the 11 `test_audio.py` held and the 17 of `test_cli_loop.py`. The tests are committed in this state, before the module and the keywords exist, so the before state is readable from git.
+The 13 that fail are the 13 this milestone adds (all eleven of `test_measure.py`, and `test_fetch_audio_rate_is_ffmpegs_ar` and `test_ytdlp_options_takes_the_audio_format_and_sets_a_socket_timeout` in `test_audio.py`); the 28 that pass are the 11 `test_audio.py` held and the 17 of `test_cli_loop.py`. The tests are committed in this state, before the module and the keywords exist, so the before state is readable from git (commit `505214c`).
+
+The after state, with `transcriber/transcriber/measure.py` written, the keywords added in `audio.py`, the wiring in `cli.py`, and `__version__` at `0.5.0`. The acceptance commands, started at 05:33Z:
+
+    $ venv/bin/python -m pytest transcriber/tests/test_measure.py transcriber/tests/test_audio.py transcriber/tests/test_cli_loop.py -q -p no:cacheprovider
+    41 passed, 1 warning in 0.31s
+    $ cd transcriber && ../venv/bin/python -m transcriber.cli --help
+                  [--measure-limit MEASURE_LIMIT]
+      --measure-limit MEASURE_LIMIT
+                            attached YouTube recordings to measure against their
+                            Granicus clips before transcribing (no GPU); 0 turns
+                            the measuring off
+
+(Two assertions were added to `test_measure.py` after the commit above and before this run, both inside functions that already existed: the rollback count in the first test and the three-candidate case in the second. The count stayed at eleven.)
+
+`./tools/verify`, started at 05:33Z with every change of the milestone in the working tree and before the plan's tick was written, printed `2228 passed, 5 skipped, 4 xfailed, 2 warnings` for the unit, web, and services tier, `695 passed, 2 warnings` for integration, `judge fixtures: 12 of 12 passed`, `123 passed, 1 warning in 3.98s` for the transcriber suite (110 plus 13), and `verify: all 6 checks passed in 111s.`
+
+The removal check (Surprises & Discoveries): the eleven tests of `test_measure.py` run against `transcriber.measure` with one rule taken out in memory by a scratch pytest plugin. Each line is the rule removed, how many of the eleven failed, and which (names shortened):
+
+    as committed                                     0 failed
+    Granicus failure counted once per row            1   (granicus_fetch_error_on_a_meeting_with_three_recordings)
+    count not set back after a measured recording    1   (three_youtube_fetch_failures_in_a_row)
+    never stops on failures                          1   (three_youtube_fetch_failures_in_a_row)
+    YouTube download not removed                     9
+    YouTube WAV not removed                          8
+    Granicus WAV not removed                         9
+    archived FLAC ignored                            1   (an_archived_audio_flac_is_the_granicus_source)
+    no pause after a failed Granicus request         1   (granicus_fetch_error_on_a_meeting_with_three_recordings)
+    no pause at all                                  3
+    only named exception types on a recording        3   (youtube_fetch_error, three_youtube_fetch_failures, an_unexpected_error_on_one_recording)
+    only named exception types on the clip           1   (granicus_fetch_error_on_a_meeting_with_three_recordings)
+    no stop check before a recording                 1   (a_set_stop_flag_and_a_passed_deadline)
+    no stop check before a meeting                   1   (the same)
+    stop flag ignored                                1   (the same)
+    deadline ignored                                 1   (the same)
+    deadline passed when merely reached              1   (the same)
+    top handler gone                                 1   (insufficient_privilege_on_the_candidate_read)
+    top handler catches database errors only         1   (the same)
+    no rollback in the top handler                   1   (the same)
+    no rollback after the candidate read             2
+    no commit after a measured row                   1   (each_candidate_is_measured_once)
+    a limit of zero still reads                      1   (a_limit_of_zero_reads_nothing)
+    conversion at the default rate                   1   (each_candidate_is_measured_once)
+    yt-dlp's default format                          3
+    reason without the class name                    4
+    Granicus audio fetched per recording             3
+    failed row saved with no reason                  3
+
+This run was made before the three-candidate case was added to the second test; that case was then seen to pass with the committed module (the `41 passed` above) and was not run against a copy that groups only adjacent rows.
+
+The pass from end to end, started at 05:32Z from a scratch script (not committed) run in `transcriber/` against the throwaway database `postgresql://thinkdarrell@/docket_test_7c0790d1`, which was dropped afterwards. Real: ffmpeg 8.0.1, `align`, and the three `db.py` functions. Stood in for: yt-dlp (`measure.source_for` copied a local file into the work folder, or raised) and the Granicus download URL (`measure.download_url_for` returned a local file). The audio is M1's synthetic signal: the clip is 2,000 seconds from seed 1, a "shifted" recording is seconds 400 to 1,305 of it with noise, and an "unrelated" one is 905 seconds from seed 3. The script inserted three Birmingham meetings and four recordings. Clip 999941 had an archived 16 kHz `audio.flac` and two recordings (the shifted one and the unrelated one, each as Opus in WebM at 24 kbit/s and 48 kHz); clip 999942 had no FLAC, so its audio came from the stand-in download (AAC in MP4 at 44.1 kHz), and one shifted recording; clip 999943's recording raised `AudioFetchError` after leaving a `.part` file. It printed:
+
+    INFO transcriber.measure: measure meeting 1 clip 999941 video m3shifted01: passed offset=400.00s covers=400.0-1305.0s score=40.8 runner_up=3.6 windows=4/4
+    INFO transcriber.measure: measure meeting 1 clip 999941 video m3unrelat01: rejected (score) offset=-84.04s covers=216.0-516.0s score=5.4 runner_up=4.3 windows=1/3
+    INFO transcriber.measure: measure meeting 2 clip 999942 video m3shifted02: passed offset=400.00s covers=400.0-1305.0s score=41.1 runner_up=3.6 windows=4/4
+    WARNING transcriber.measure: measure meeting 3 clip 999943 video m3refused01: failed (AudioFetchError: yt-dlp could not download https://www.youtube.com/watch?v=m3refused01: Sign in to confirm you're not a bot)
+    INFO transcriber.measure: measure done {'passed': 2, 'rejected': 1, 'failed': 1} remaining=0
+    returned: {'passed': 2, 'rejected': 1, 'failed': 1}
+    granicus downloads asked for: ['999942', '999943'] pauses: [3.0, 3.0]
+    work folder: []
+    archive: ['<meeting 999941>', '<meeting 999941>/audio.flac'] flac untouched: True
+    row: ('m3refused01', '999943', 1, 'failed', 'AudioFetchError: yt-dlp could not download https://www.youtu', None, None, None, None, None, None)
+    row: ('m3shifted01', '999941', 1, 'passed', None, Decimal('400.00'), Decimal('400.0'), Decimal('1305.0'), Decimal('40.8'), 4, 4)
+    row: ('m3shifted02', '999942', 1, 'passed', None, Decimal('400.00'), Decimal('400.0'), Decimal('1305.0'), Decimal('41.1'), 4, 4)
+    row: ('m3unrelat01', '999941', 1, 'rejected', 'score', Decimal('-84.04'), Decimal('216.0'), Decimal('516.0'), Decimal('5.4'), 1, 3)
+    INFO transcriber.measure: measure done {'passed': 0, 'rejected': 0, 'failed': 0} remaining=0
+    second pass: {'passed': 0, 'rejected': 0, 'failed': 0} downloads asked for now: ['999942', '999943']
+    rows left: 0
+
+The row columns are the video id, `granicus_clip_id`, `method_version`, `status`, the first 60 characters of `reason`, `offset_s`, `granicus_start_s`, `granicus_end_s`, `score`, `windows_confirmed`, and `windows`. The pauses were recorded, not slept. The second pass found no candidate: the fresh `failed` row is not one for seven days. The same pair measured from raw samples in M1 printed `score=40.9`.
+
+Not observed in this session, because no factory session can reach them: yt-dlp downloading a recording, ffmpeg reading a Granicus URL, the pass inside the Docker image, and the production role. They are the operator's step 4 under Validation and Acceptance, after steps 1 and 2.
 
 ## Interfaces and Dependencies
 
@@ -949,6 +1076,8 @@ In `transcriber/transcriber/measure.py` (M3):
 `MEASURE_MAX_CONSECUTIVE_FAILURES` counts failed fetches in a row (one per meeting for the Granicus side, one per recording for the YouTube side), not `failed` rows; M3 says how. In `transcriber/transcriber/audio.py` (M3), added at the revision of 2026-11-05:
 
     YTDLP_SOCKET_TIMEOUT_S = 30      # ytdlp_options returns it as "socket_timeout" for every download
+
+As built in M3, for the session that writes the spec (M8) and for anyone who reads the log. `measure_pass` reads only `cfg.work_dir` and `cfg.archive_dir`; it raises nothing but `KeyboardInterrupt` and its kind, and returns the counts so far whatever it met. Its work files are `<work_dir>/align-<meeting id>.wav` (the clip), `<work_dir>/align-yt-<video id>.wav` (a recording), and yt-dlp's `<work_dir>/yt-<video id>.<ext>`; none outlives its recording, or its meeting for the first. The logger is `transcriber.measure`. Its lines, exactly: `measure meeting <id> clip <clip id> video <video id>: ` followed by `align.describe()`'s text (INFO), or by `failed (<Class>: <message>)` (WARNING; one line, at most 300 characters of the error); `measure: 3 fetches failed in a row; stopping` (WARNING); `measure: stop requested; stopping` and `measure: max-hours reached; stopping` (INFO); `measure: skipped (<error>)` (WARNING; the database's own message for a `psycopg2.Error`, `<Class>: <message>` otherwise); and `measure done {'passed': p, 'rejected': r, 'failed': f} remaining=<n>` (INFO; whenever the pass reaches its end, not after a `skipped`). A `failed` row's `reason` is `<Class>: <message>` in full. In `audio.py`: `fetch_audio(source, out_wav, *, attempts=3, delay_s=5.0, timeout_s=3600, rate=16000, runner=subprocess.run)`, `ytdlp_options(external_id, work_dir, *, audio_format="bestaudio/best")`, and `source_for(external_id, work_dir, *, audio_format="bestaudio/best")`. In `cli.py`: `Config.measure_limit: int = 20`, the flag `--measure-limit` with its default from `TRANSCRIBER_MEASURE_LIMIT`, and `run_loop(conn, engine, cfg, *, clock=time.monotonic, stop_flag=None, started=None)`. `transcriber.__version__` is `"0.5.0"`.
 
 In `src/docket/services/video_links.py` (M4):
 
