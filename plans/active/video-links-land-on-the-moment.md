@@ -1256,6 +1256,25 @@ The removal check (Surprises & Discoveries), at 06:00Z: the 55 tests of the thre
 
 Not observed in this session, because no factory session can reach production: either link built from a real measurement (the operator's steps 4 to 6 under Validation and Acceptance), and the count of consent votes that fall after their block (the fifth operator query). Not observed either, and read from `link_for` only: the transcript page of a meeting whose own video is on YouTube.
 
+### M6 as executed, 2026-11-06
+
+Everything in this subsection was observed in the M6 session, in this worktree, on 2026-11-06 (UTC).
+
+The starting state, before any edit. `test -f .env` printed `.env exists` (the file was not read). `./tools/verify`, started at 06:09Z, printed `2248 passed, 5 skipped, 4 xfailed, 2 warnings in 55.78s` for the unit, web, and services tier, `702 passed, 2 warnings in 48.70s` for integration, `judge fixtures: 12 of 12 passed`, `workflows: 2 of 2 ok`, `123 passed, 1 warning in 3.95s` for the transcriber suite, `plans: 2 of 2 ok`, and `verify: all 6 checks passed in 111s.`; the throwaway database was `postgresql://thinkdarrell@/docket_test_7c0790d1`. These are the totals M5 left. The four files of M6's acceptance, each run alone on a throwaway database before the first edit, printed `14 passed` (`tests/integration/test_admin_discrepancies.py`), `5 passed` (`tests/integration/test_minutes_vs_video_public.py`), `54 passed, 4 xfailed` (`tests/unit/test_source_anchor.py`), and `11 passed` (`tests/web/test_meeting_recordings.py`), the counts the plan's sum starts from. `git grep -n "chapter_url(" -- src/docket/web` printed two lines, `admin/_discrepancy_row.html:19` and `partials/minutes_vs_video.html:24`.
+
+The before state of the new tests, run at 06:15Z with no file under `src/` edited: one function added to `tests/integration/test_admin_discrepancies.py` with the helpers `_measured_recording`, `_video_link_tags`, and `_queue_row`, and its line-78 comment corrected; one function added to `tests/integration/test_minutes_vs_video_public.py` with the helper `_block_row`; three functions added to `TestVideoBranches` in `tests/unit/test_source_anchor.py`, whose `app` fixture now registers the `video_link` global, whose `_render` takes an optional `video`, and whose test allowlist gains `youtube.com`.
+
+    $ DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/integration/test_admin_discrepancies.py tests/integration/test_minutes_vs_video_public.py tests/unit/test_source_anchor.py tests/web/test_meeting_recordings.py -q -p no:cacheprovider
+    E   '<a href="...MediaPlayer.php?view_id=2&amp;clip_id=1950" target="_blank" rel="noreferrer">video chapter ↗</a>' != '<a href="...clip_id=1950" target="_blank" rel="noreferrer">video on Granicus ↗</a>'      (the admin queue)
+    E   '<a class="link" href="...MediaPlayer.php?view_id=2&amp;clip_id=1950" ...>video chapter ↗</a>' != '<a class="link" href="https://www.youtube.com/watch?v=disc-recording&amp;t=3300s" ...>video on YouTube ↗</a>'      (the public block)
+    E   assert 'href="https://www.youtube.com/watch?v=abc&amp;t=65s"' in '<a href="https://www.youtube.com/watch?v=abc&amp;t=65" ...View Source: video at 1:05 →'
+    E   assert 'href="...MediaPlayer.php?view_id=2&amp;clip_id=2026&amp;meta_id=371120"' in '<a href="...clip_id=2026&amp;t=65" ...View Source: video at ...'
+    E   assert 'href="https://www.youtube.com/watch?v=FR84h22hQvA&amp;t=1620s"' in '<a href="...clip_id=2026&amp;t=2256" ...View Source: video at 37:36 →'
+    5 failed, 84 passed, 4 xfailed, 1 warning in 3.81s
+    $ tools/test-db --drop      (exit 0)
+
+The 5 that fail are the five this milestone adds; the 84 that pass are the 14, 5, 54, and 11 that existed. The tests are committed in this state, before `discrepancies.py`, `src/docket/web/__init__.py`, or any of the three templates is edited, so the before state is readable from git. Each of the two integration tests stopped at its first assertion about a link; the public one had by then installed a second meeting and inserted a recording with its measurement, so those statements ran against the real tables, and the admin one's later statements (an `UPDATE` of the item's id, the same recording helper) had not yet run.
+
 ## Interfaces and Dependencies
 
 No new dependency is installed. The matcher uses numpy, already in `requirements.lock` and in the transcriber image; add the line `numpy>=1.26  # the audio matcher (align.py); already present through torch` to `transcriber/requirements.txt` in M1 so the import is declared. Downloads use ffmpeg and the `yt_dlp` module exactly as `transcriber/transcriber/audio.py` does today.

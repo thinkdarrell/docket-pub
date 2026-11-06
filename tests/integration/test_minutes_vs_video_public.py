@@ -4,7 +4,7 @@ from docket.config import DATABASE_URL
 from docket.db import db_cursor
 from docket.services import transcripts as tsvc
 from docket.web import create_app
-from tests.integration.test_admin_discrepancies import _disc
+from tests.integration.test_admin_discrepancies import _disc, _measured_recording, _video_link_tags
 from tests.support.transcript_fixtures import install_bundle, load_bundle, pilot_bundle
 
 pytestmark = pytest.mark.skipif(
@@ -52,6 +52,65 @@ def test_flag_on_renders_only_approved_rows_with_honesty_copy(app, pilot):
     assert "Statutory ground differs (edited)" in item_html and "Proposed one" not in item_html
     listing = c.get("/minutes-vs-video/").get_data(as_text=True)
     assert "Statutory ground differs (edited)" in listing and HONESTY in listing
+
+
+def _block_row(html, did):
+    """The block's <li> for one discrepancy."""
+    return html.split(f'<li class="mvv-row" id="mvv-{did}"')[1].split("</li>")[0]
+
+
+def test_block_video_link_opens_youtube_when_measured_and_granicus_when_not(app, pilot):
+    """The public block's link comes from docket.services.video_links in all three places it renders, and
+    each row is built from its own meeting's recordings."""
+    app.config["MINUTES_VS_VIDEO_UI"] = True
+    player = "https://bhamal.granicus.com/MediaPlayer.php?view_id=2&amp;clip_id=1950"
+    youtube = ('<a class="link" href="https://www.youtube.com/watch?v=disc-recording&amp;t=3300s" '
+               'target="_blank" rel="noreferrer">video on YouTube ↗</a>')
+    plain = f'<a class="link" href="{player}" target="_blank" rel="noreferrer">video on Granicus ↗</a>'
+
+    def chapter(meta_id):
+        return (f'<a class="link" href="{player}&amp;meta_id={meta_id}" target="_blank" rel="noreferrer">'
+                'video chapter on Granicus ↗</a>')
+
+    mine = _disc(pilot, review_state="approved")             # 3,400 s (56:40)
+    other = install_bundle(pilot_bundle(), external_id="999016", status="compared")   # a second meeting, never measured
+    try:
+        theirs = _disc(other, review_state="approved", title="The other meeting's row")
+        recording = _measured_recording(pilot.meeting_id, "999015")   # offset 100 s, covering 0 to 5,000 s
+        c = app.test_client()
+        meeting_url = f"/al/birmingham/meetings/{pilot.meeting_id}/"
+        item_url = f"/al/birmingham/items/{pilot.item_ids[1501]}/"
+
+        html = c.get(meeting_url).get_data(as_text=True)
+        assert _video_link_tags(_block_row(html, mine)) == [youtube]
+        assert "56:40 in the transcript" in _block_row(html, mine)
+        assert _video_link_tags(_block_row(c.get(item_url).get_data(as_text=True), mine)) == [youtube]
+        listing = c.get("/minutes-vs-video/").get_data(as_text=True)
+        assert _video_link_tags(_block_row(listing, mine)) == [youtube]
+        assert _video_link_tags(_block_row(listing, theirs)) == [plain]     # its own meeting has no recording
+
+        with db_cursor() as cur:
+            cur.execute("DELETE FROM meeting_video_alignments WHERE meeting_video_id = %s", [recording])
+        html = c.get(meeting_url).get_data(as_text=True)
+        assert _video_link_tags(_block_row(html, mine)) == [plain]          # the item's id ('1950-15') is no chapter
+        assert "YouTube ↗" not in _block_row(html, mine) and "meta_id=" not in _block_row(html, mine)
+        assert _video_link_tags(_block_row(c.get(item_url).get_data(as_text=True), mine)) == [plain]
+        listing = c.get("/minutes-vs-video/").get_data(as_text=True)
+        assert _video_link_tags(_block_row(listing, mine)) == [plain] == _video_link_tags(_block_row(listing, theirs))
+
+        # The chapter is the item's under the consent rule. Alone, a consent item cued at 3,309 s keeps its own id...
+        with db_cursor() as cur:
+            cur.execute("UPDATE agenda_items SET external_id = '371115', is_consent = TRUE WHERE id = %s", [pilot.item_ids[1501]])
+        assert _video_link_tags(_block_row(c.get(meeting_url).get_data(as_text=True), mine)) == [chapter(371115)]
+        # ...and inside a run of three consent cue points it takes the chapter the run starts at.
+        with db_cursor() as cur:
+            cur.execute("""INSERT INTO agenda_items (meeting_id, external_id, item_number, title, is_consent, video_timestamp_seconds)
+                           VALUES (%s, '371101', '1', 'Consent one', TRUE, 3300.0), (%s, '371102', '2', 'Consent two', TRUE, 3320.0)""",
+                        [pilot.meeting_id, pilot.meeting_id])
+        assert _video_link_tags(_block_row(c.get(meeting_url).get_data(as_text=True), mine)) == [chapter(371101)]
+        assert _video_link_tags(_block_row(c.get("/minutes-vs-video/").get_data(as_text=True), theirs)) == [plain]
+    finally:
+        other.cleanup()
 
 
 def test_flag_on_with_nothing_approved_renders_no_section(app, pilot):
