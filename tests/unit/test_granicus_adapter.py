@@ -10,6 +10,8 @@ from datetime import date
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+import requests
 from bs4 import BeautifulSoup
 
 from docket.adapters.granicus import GranicusAdapter
@@ -385,6 +387,42 @@ class TestFetchAgendaItemsClipPathUntouched:
         # Item came through with its video timestamp
         assert len(items) == 1
         assert items[0].video_timestamp_seconds == 123.5
+
+
+class TestPlayerPageRequestIsFollowedByThePause:
+    """Every player-page request is followed by the adapter's delay, the
+    ones that fail too: a caller that goes on to the next meeting after an
+    error must not send its requests back to back (`GOALS.md`, polite
+    scraping)."""
+
+    def test_page_that_is_read_is_followed_by_one_pause(self):
+        adapter = _adapter()
+        resp = MagicMock()
+        resp.text = '<div class="index-point" time="5" data-id="371101">ITEM 1</div>'
+        resp.raise_for_status = MagicMock(return_value=None)
+        with patch("docket.adapters.granicus.requests.get", return_value=resp), \
+                patch("docket.adapters.granicus.time.sleep") as sleep:
+            assert len(adapter.fetch_agenda_items(_archive_meeting())) == 1
+        assert [c.args for c in sleep.call_args_list] == [(adapter.delay,)]
+
+    def test_error_status_is_raised_after_one_pause(self):
+        adapter = _adapter()
+        resp = MagicMock()
+        resp.raise_for_status.side_effect = requests.HTTPError("503 Server Error")
+        with patch("docket.adapters.granicus.requests.get", return_value=resp), \
+                patch("docket.adapters.granicus.time.sleep") as sleep:
+            with pytest.raises(requests.HTTPError, match="503"):
+                adapter.fetch_agenda_items(_archive_meeting())
+        assert [c.args for c in sleep.call_args_list] == [(adapter.delay,)]
+
+    def test_request_that_gets_no_answer_is_raised_after_one_pause(self):
+        adapter = _adapter()
+        with patch("docket.adapters.granicus.requests.get",
+                   side_effect=requests.ConnectionError("connection refused")), \
+                patch("docket.adapters.granicus.time.sleep") as sleep:
+            with pytest.raises(requests.ConnectionError):
+                adapter.fetch_agenda_items(_archive_meeting())
+        assert [c.args for c in sleep.call_args_list] == [(adapter.delay,)]
 
 
 # --- start_time extraction tests -------------------------------------------

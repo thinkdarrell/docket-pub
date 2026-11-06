@@ -359,6 +359,14 @@ def _backfill_video_timestamps(
       given that id (`UNIQUE(meeting_id, external_id)`). An id left alone
       for either of the last two reasons is logged at WARNING.
 
+    With `force=True` every other reason a numbered item's id is left
+    alone is logged at WARNING too, one line per meeting and reason: the
+    player page has no index points, none of them names an ITEM number, no
+    point names the item's number, or the item's point carries no chapter
+    id. The ingest run does not log these: it reaches this pass on every
+    run while a numbered item lacks its timestamp (`D102`), and they are
+    there to explain a meeting the supervised pass lists again.
+
     Every change of the meeting goes in one UPDATE. Idempotent: a second
     call after all timestamps are filled is a cheap NULL-count check that
     early-exits without HTTP. That precheck asks only about timestamps, so
@@ -387,6 +395,11 @@ def _backfill_video_timestamps(
     # Fetch MediaPlayer index points (have timestamps)
     media_items = adapter.fetch_agenda_items(raw_meeting)
     if not media_items:
+        if force:
+            logger.warning(
+                "meeting %s (clip %s): no chapter id written: the player page has no index points",
+                meeting_id, raw_meeting.external_id,
+            )
         return 0
 
     # item number → (timestamp, chapter id or None), from the first point
@@ -402,6 +415,12 @@ def _backfill_video_timestamps(
         points.setdefault(match.group(1), (item.video_timestamp_seconds, chapter_id))
 
     if not points:
+        if force:
+            logger.warning(
+                "meeting %s (clip %s): no chapter id written: no index point of the "
+                "player page names an ITEM number",
+                meeting_id, raw_meeting.external_id,
+            )
         return 0
 
     with db() as conn:
@@ -451,6 +470,28 @@ def _backfill_video_timestamps(
                     if (new_ts, new_id) != (stored_ts, stored_id):
                         changes.append((item_id, new_ts, new_id))
 
+            if force:
+                # The item numbers still waiting for a chapter id that the
+                # loop above had nothing to say about, in row order.
+                waiting = [
+                    number for number, same_number in by_number.items()
+                    if any(not _is_chapter_id(row[2]) for row in same_number)
+                ]
+                unnamed = [n for n in waiting if n not in points]
+                without_id = [n for n in waiting if n in points and points[n][1] is None]
+                if unnamed:
+                    logger.warning(
+                        "meeting %s (clip %s): no chapter id written to items %s: "
+                        "no index point of the player page names them",
+                        meeting_id, raw_meeting.external_id, ", ".join(unnamed),
+                    )
+                if without_id:
+                    logger.warning(
+                        "meeting %s (clip %s): no chapter id written to items %s: "
+                        "their index points carry no chapter id",
+                        meeting_id, raw_meeting.external_id, ", ".join(without_id),
+                    )
+
             changed = len(changes)
             if changes and not dry_run:
                 # One statement for the meeting; each tuple carries the row's
@@ -487,16 +528,17 @@ def correct_chapter_ids(slug: str, *, limit: int = 50, dry_run: bool = False) ->
     that have a numbered item with a timestamp and an id that is not a
     chapter id, newest first, at most `limit` of them, each put through
     `_backfill_video_timestamps(..., force=True)`. One player-page request
-    per meeting, after which the adapter sleeps its polite delay; one
-    UPDATE per meeting. `dry_run=True` makes the same requests and writes
+    per meeting, after which the adapter sleeps its polite delay, a request
+    that fails included; one UPDATE per meeting. `dry_run=True` makes the same requests and writes
     nothing.
 
     Returns one dictionary per meeting visited: `meeting_id`, `external_id`,
     `meeting_date`, `changed` (rows changed, or that would change), and
     `error` (None, or the text of what kept this meeting from being
     corrected; the pass goes on to the next). A meeting that is listed
-    again on a later run with nothing changed holds ids the rewrite leaves
-    alone, each named by a WARNING. Raises ValueError for an unknown slug.
+    again on a later run holds ids the rewrite leaves alone, and each run
+    names them at WARNING with the reason (`_backfill_video_timestamps`
+    gives the reasons). Raises ValueError for an unknown slug.
     """
     with db_cursor() as cur:
         cur.execute(

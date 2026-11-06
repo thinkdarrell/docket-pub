@@ -16,6 +16,7 @@ fetches again (`TestCorrectChapterIds`).
 """
 
 import logging
+from dataclasses import replace
 from datetime import date
 from unittest.mock import MagicMock
 
@@ -489,6 +490,94 @@ class TestBackfillWritesChapterIds:
         assert _rows(meeting_id) == expected
         assert len(_messages(caplog, logging.WARNING)) == 4
         assert _messages(caplog, logging.INFO) == []
+
+
+class TestForcedPassSaysWhyAnIdWasLeftAlone:
+    """With the precheck skipped (`correct_chapter_ids`), every numbered
+    item whose id the pass leaves alone is named by a WARNING that gives the
+    reason, so a meeting the script lists again is explained by its lines."""
+
+    @pytest.fixture
+    def cued(self, seeded):
+        """The three items have their timestamps and still carry agenda-PDF ids."""
+        for n, ts in (("1", 10.0), ("2", 50.0), ("3", 120.0)):
+            _set(seeded["meeting_id"], n, video_timestamp_seconds=ts)
+        return seeded["meeting_id"]
+
+    def _forced(self, meeting_id, points, caplog, **kwargs) -> tuple[int, list[str]]:
+        adapter = MagicMock()
+        adapter.fetch_agenda_items.return_value = points
+        caplog.clear()
+        with caplog.at_level(logging.INFO, logger="docket.services.ingest"):
+            changed = _backfill_video_timestamps(
+                adapter, meeting_id, _meeting(), force=True, **kwargs)
+        return changed, _messages(caplog, logging.WARNING)
+
+    def test_player_page_with_no_index_points(self, cued, caplog):
+        assert self._forced(cued, [], caplog) == (0, [
+            f"meeting {cued} (clip 1981): no chapter id written: the player page has no index points",
+        ])
+
+    def test_player_page_whose_points_name_no_item_number(self, cued, caplog):
+        points = [
+            replace(_point(1, 10.0, "371101"), title="Roll Call"),
+            replace(_point(2, 50.0, "371102"), title="Proclamation for the mayor"),
+        ]
+        assert self._forced(cued, points, caplog) == (0, [
+            f"meeting {cued} (clip 1981): no chapter id written: no index point of the player page "
+            "names an ITEM number",
+        ])
+
+    def test_item_number_the_player_page_does_not_name(self, cued, caplog):
+        # Item 2 holds a chapter id already, so it is not left waiting for one.
+        _set(cued, "2", external_id="371102")
+        _add_item(cued, "event-2692-4", "4", 300.0)
+        changed, warnings = self._forced(cued, [_point(1, 10.0, "371101")], caplog)
+        assert changed == 1
+        assert warnings == [
+            f"meeting {cued} (clip 1981): no chapter id written to items 3, 4: "
+            "no index point of the player page names them",
+        ]
+        assert _rows(cued) == [
+            ("1", "371101", 10.0), ("2", "371102", 50.0),
+            ("3", "event-2692-3", 120.0), ("4", "event-2692-4", 300.0),
+        ]
+
+    def test_index_point_that_carries_no_chapter_id(self, cued, caplog):
+        _set(cued, "3", external_id=None)       # no id at all is also not a chapter id
+        points = [
+            _point(1, 10.0, "1981-0"),          # the adapter's fallback id
+            _point(2, 50.0, "371102"),
+            _point(3, 120.0, "3711O3"),         # a letter O
+        ]
+        # The dry run names the same ids as the write does.
+        dry = self._forced(cued, points, caplog, dry_run=True)
+        assert dry == (1, [
+            f"meeting {cued} (clip 1981): no chapter id written to items 1, 3: "
+            "their index points carry no chapter id",
+        ])
+        assert self._forced(cued, points, caplog) == dry
+        assert _rows(cued) == [
+            ("1", "event-2692-1", 10.0), ("2", "371102", 50.0), ("3", None, 120.0),
+        ]
+
+    def test_meeting_fully_corrected_has_no_warning(self, cued, caplog):
+        points = [_point(1, 10.0, "371101"), _point(2, 50.0, "371102"), _point(3, 120.0, "371103")]
+        assert self._forced(cued, points, caplog) == (3, [])
+        # Listed again by mistake: every id is a chapter id, nothing to say.
+        assert self._forced(cued, [_point(1, 10.0, "371101")], caplog) == (0, [])
+
+    def test_ingest_run_does_not_log_these_reasons(self, seeded, caplog):
+        # The daily run reaches the pass on every ingest while a numbered item
+        # lacks its timestamp (`D102`); these lines belong to the supervised pass.
+        meeting_id = seeded["meeting_id"]
+        for points in ([], [replace(_point(1, 10.0, "371101"), title="Roll Call")],
+                       [_point(1, 10.0, "1981-0")]):
+            adapter = MagicMock()
+            adapter.fetch_agenda_items.return_value = points
+            with caplog.at_level(logging.INFO, logger="docket.services.ingest"):
+                _backfill_video_timestamps(adapter, meeting_id, _meeting())
+        assert _messages(caplog, logging.WARNING) == []
 
 
 class TestCorrectChapterIds:

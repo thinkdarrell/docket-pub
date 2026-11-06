@@ -12,11 +12,13 @@ that have a numbered item with a timestamp and an id that is not all digits,
 newest first, at most ``--limit`` of them (default 50).
 
 It requests one Granicus player page per listed meeting, with the adapter's
-polite delay after each, and writes one UPDATE per meeting. It prints one
-line per meeting and then the totals; an id it had to leave alone (an item
-number that repeats in the meeting, or a chapter id another row holds) is a
-WARNING line on stderr. A second run after the write lists only meetings
-that hold such ids, or none.
+polite delay after each (a request that fails included), and writes one
+UPDATE per meeting. It prints one line per meeting and then the totals; an
+id it had to leave alone is named by a WARNING line on stderr that gives the
+reason: an item number that repeats in the meeting, a chapter id another row
+holds, a player page with no index points or none that names an ITEM number,
+an item number no index point names, or an index point with no chapter id. A
+second run after the write lists only meetings that hold such ids, or none.
 
 Dry run first, one city at a time (the dry run makes the same requests and
 writes nothing):

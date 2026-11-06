@@ -137,14 +137,22 @@ class GranicusAdapter:
         MediaPlayer page yet — fetch the agenda PDF and parse it instead.
         For archived meetings, fetch the MediaPlayer index points (the
         existing path, gives items with video timestamps).
+
+        A player-page request is followed by the adapter's delay whether it
+        was answered, answered with an error status, or not answered; the
+        error is raised after the pause, so a caller that goes on to the
+        next meeting never sends its requests back to back.
         """
         if meeting.external_id.startswith("event-"):
             return self._fetch_agenda_items_from_pdf(meeting)
         clip_id = int(meeting.external_id)
         url = self._player_url(clip_id)
 
-        resp = requests.get(url, timeout=30)
-        resp.raise_for_status()
+        try:
+            resp = requests.get(url, timeout=30)
+            resp.raise_for_status()
+        finally:
+            time.sleep(self.delay)
 
         soup = BeautifulSoup(resp.text, "html.parser")
         index_points = soup.find_all("div", class_="index-point")
@@ -170,7 +178,6 @@ class GranicusAdapter:
                     )
                 )
 
-        time.sleep(self.delay)
         return items
 
     def _fetch_agenda_items_from_pdf(self, meeting: RawMeeting) -> list[RawAgendaItem]:
