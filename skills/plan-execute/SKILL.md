@@ -75,6 +75,21 @@ as one collection error that hides every test in the file: one plan's
 test of a new filter did so and its before state read `12 failed, 71
 deselected`, where the module-level import the plan's own wording
 suggested would have failed collection of the file's 71 existing tests.
+New tests that pass on the first run of the code have not yet shown that
+they test it. Before recording them as acceptance, take each rule the
+milestone states out of a copy of the code held in memory, one rule at a
+time (a scratch script or pytest plugin in the session scratchpad that
+compiles the altered source; the committed file is not edited), and run
+the new tests against each copy. A removal that fails no test gets an
+assertion inside a test the plan names, or a Surprises entry saying why
+nothing can tell the clause from its absence; record how many removals
+were tried and how many failed a test, and which assertions were added
+after the commit that holds the tests failing. One plan's seven code
+milestones each made this check, and it found two of eight rules of a
+candidate query unpinned, a rule whose fixture gave the rule and its
+fallback the same value, and four clauses of a correction pass that the
+test committed as failing left free, none of which the failing-first
+commit could show.
 
 Prove acceptance by running it. Every acceptance check the milestone states
 gets executed, and what it printed is what you record. An acceptance check you
