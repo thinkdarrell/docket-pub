@@ -254,17 +254,29 @@ class GranicusAdapter:
 
         return items
 
+    def _download_minutes_pdf(self, url: str) -> bytes | None:
+        """Download a minutes PDF, then sleep the adapter's delay.
+
+        The pause follows the request whatever came back (a PDF, another
+        body, an error status, no answer; `download_minutes_pdf` returns
+        None for all but the first), so a caller that goes on to the next
+        meeting never sends its requests back to back.
+        """
+        try:
+            return download_minutes_pdf(url)
+        finally:
+            time.sleep(self.delay)
+
     def fetch_minutes_text(self, meeting: RawMeeting) -> str | None:
         """Download minutes PDF and extract text."""
         if meeting.minutes_url is None:
             return None
 
-        pdf_bytes = download_minutes_pdf(meeting.minutes_url)
+        pdf_bytes = self._download_minutes_pdf(meeting.minutes_url)
         if pdf_bytes is None:
             return None
 
         text = extract_text_from_pdf(pdf_bytes)
-        time.sleep(self.delay)
         return text or None
 
     def fetch_votes(self, meeting: RawMeeting) -> list[RawVote]:
@@ -276,7 +288,7 @@ class GranicusAdapter:
         if meeting.minutes_url is None:
             return []
 
-        pdf_bytes = download_minutes_pdf(meeting.minutes_url)
+        pdf_bytes = self._download_minutes_pdf(meeting.minutes_url)
         if pdf_bytes is None:
             return []
 
@@ -285,7 +297,6 @@ class GranicusAdapter:
             return []
 
         result = parse_minutes(text)
-        time.sleep(self.delay)
 
         raw_votes = []
         for i, vote in enumerate(result.votes):
