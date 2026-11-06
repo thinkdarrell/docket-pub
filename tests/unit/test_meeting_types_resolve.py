@@ -194,6 +194,22 @@ class TestCalendarRung:
         res = resolve(BIRMINGHAM, _meeting(GENERIC, WEDNESDAY), calendar_events=[ev], item_count=0)
         assert _triple(res) == ("committee", "regular", "Public Safety", "calendar", 5004)
 
+    def test_a_row_with_items_on_the_council_day_does_not_take_a_lone_committee_event(self):
+        """2026-11-03: the calendar table held the day's committee work session but not
+        its council meeting, and the 63-item council clip was named after the committee."""
+        from docket.services.meeting_types import resolve
+
+        ws = {"id": 5005, "title": "ECONOMIC DEVELOPMENT & TOURISM COMMITTEE WORK SESSION, November 3, 2026", "starts_at": _utc(2026, 11, 3, 17, 30)}
+        res = resolve(BIRMINGHAM, _meeting(GENERIC, date(2026, 11, 3)), calendar_events=[ws], item_count=63)
+        assert _triple(res) == ("council", "regular", None, "title", None)
+
+    def test_a_row_without_documents_on_the_council_day_still_takes_a_lone_committee_event(self):
+        from docket.services.meeting_types import resolve
+
+        ws = {"id": 5005, "title": "ECONOMIC DEVELOPMENT & TOURISM COMMITTEE WORK SESSION, November 3, 2026", "starts_at": _utc(2026, 11, 3, 17, 30)}
+        res = resolve(BIRMINGHAM, _meeting(GENERIC, date(2026, 11, 3)), calendar_events=[ws], item_count=0)
+        assert _triple(res) == ("committee", "regular", "Economic Development & Tourism Committee Work Session", "calendar", 5005)
+
     def test_a_row_with_minutes_never_takes_a_committee_event(self):
         from docket.services.meeting_types import resolve
 
