@@ -393,7 +393,7 @@ def _insert_recording(meeting_id, video_id, clip, *, status="passed", offset_s=6
                      (meeting_video_id, granicus_clip_id, method_version, status, reason,
                       offset_s, granicus_start_s, granicus_end_s, score, runner_up,
                       windows, windows_confirmed)
-                   VALUES (%s, %s, 1, %s, %s, %s, %s, %s, 23.6, 6.0, 12, 10)""",
+                   VALUES (%s, %s, 2, %s, %s, %s, %s, %s, 23.6, 6.0, 12, 10)""",
                 (meeting_video_id, clip, status, None if status == "passed" else "score",
                  offset_s, start_s, end_s),
             )

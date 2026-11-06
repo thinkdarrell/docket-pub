@@ -46,7 +46,7 @@ class _Seed:
             return cur.fetchone()["id"]
 
     def measurement(self, meeting_video_id: int, *, status: str = "passed", clip: str = CLIP,
-                    method_version: int = 1, offset_s=635.48, start_s=635.5, end_s=3935.5,
+                    method_version: int = 2, offset_s=635.48, start_s=635.5, end_s=3935.5,
                     reason: str | None = None) -> None:
         with db_cursor() as cur:
             cur.execute(
@@ -120,17 +120,19 @@ def test_a_measurement_below_the_trusted_method_version_is_ignored(seed):
     from docket.services import video_links as vl
 
     meeting_id = seed.meeting()
-    old = seed.recording(meeting_id, "vll-version0", is_primary=True)
-    seed.measurement(old, method_version=0)
+    # Method 1 covered the outer parts of its first and last windows without
+    # checking them (decision 0081), so the site does not use its measurements.
+    old = seed.recording(meeting_id, "vll-version1", is_primary=True)
+    seed.measurement(old, method_version=1)
 
-    assert vl.MIN_METHOD_VERSION == 1
+    assert vl.MIN_METHOD_VERSION == 2
     assert vl.for_meeting(meeting_id).recordings == ()
     assert vl.link_for(vl.for_meeting(meeting_id), seconds=2256.0, chapter_id="371164").site == "granicus"
 
     # The version is a floor: a later method's measurement is trusted.
-    newer = seed.recording(meeting_id, "vll-version2")
-    seed.measurement(newer, method_version=2)
-    assert [r.video_id for r in vl.for_meeting(meeting_id).recordings] == ["vll-version2"]
+    newer = seed.recording(meeting_id, "vll-version3")
+    seed.measurement(newer, method_version=3)
+    assert [r.video_id for r in vl.for_meeting(meeting_id).recordings] == ["vll-version3"]
 
 
 def test_a_measurement_against_another_clip_is_ignored(seed):

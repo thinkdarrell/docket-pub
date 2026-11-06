@@ -48,7 +48,9 @@ from docket.db import db_cursor
 # The lowest method version (``meeting_video_alignments.method_version``,
 # written from the transcriber's ``ALIGN_METHOD_VERSION``) the site trusts.
 # A floor, not an equality: a later method's measurement is used as it is.
-MIN_METHOD_VERSION = 1
+# 2, because method 1 covered the outer parts of a recording's first and last
+# windows without checking them (decision 0081).
+MIN_METHOD_VERSION = 2
 
 # The consent block: the largest run of consent cue points whose neighbours
 # are at most CONSENT_GAP_S apart, when it holds at least CONSENT_MIN_ITEMS.

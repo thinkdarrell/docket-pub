@@ -266,7 +266,7 @@ def test_item_link_opens_youtube_at_the_converted_second_when_a_recording_covers
         cur.execute("""INSERT INTO meeting_video_alignments
                          (meeting_video_id, granicus_clip_id, method_version, status, offset_s,
                           granicus_start_s, granicus_end_s, score, runner_up, windows, windows_confirmed)
-                       VALUES (%s, '999902', 1, 'passed', 100.0, 100.0, 5000.0, 23.6, 6.0, 12, 10)""",
+                       VALUES (%s, '999902', 2, 'passed', 100.0, 100.0, 5000.0, 23.6, 6.0, 12, 10)""",
                     [cur.fetchone()["id"]])
     url = f"/al/birmingham/meetings/{fx['meeting_id']}/transcript/"
     link = ('<a class="t-meta link" href="https://www.youtube.com/watch?v=tr-recording&amp;t=3200s" '

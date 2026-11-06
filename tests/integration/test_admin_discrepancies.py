@@ -74,7 +74,7 @@ def _measured_recording(meeting_id, clip_id, *, video_id="disc-recording", offse
         cur.execute("""INSERT INTO meeting_video_alignments
                          (meeting_video_id, granicus_clip_id, method_version, status, offset_s,
                           granicus_start_s, granicus_end_s, score, runner_up, windows, windows_confirmed)
-                       VALUES (%s, %s, 1, 'passed', %s, %s, %s, 23.6, 6.0, 12, 10)""",
+                       VALUES (%s, %s, 2, 'passed', %s, %s, %s, 23.6, 6.0, 12, 10)""",
                     [recording, clip_id, offset_s, start_s, end_s])
     return recording
 
