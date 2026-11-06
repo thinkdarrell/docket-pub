@@ -1135,6 +1135,25 @@ The full list was run after the first two added assertions and before the third;
 
 Not observed in this session, because nothing renders from the module yet and no factory session can reach production: a `VideoLink` on a page (M5 and M6), and a link built from a real measurement (the operator's steps 4 to 6 under Validation and Acceptance).
 
+### M5 as executed, 2026-11-06
+
+Everything in this subsection was observed in the M5 session, in this worktree, on 2026-11-06 (UTC).
+
+The starting state, before any edit. `test -f .env` printed `.env exists` (the file was not read). `./tools/verify`, started at 05:54Z, printed `2243 passed, 5 skipped, 4 xfailed, 2 warnings in 55.35s` for the unit, web, and services tier, `700 passed, 2 warnings in 49.00s` for integration, `judge fixtures: 12 of 12 passed`, `workflows: 2 of 2 ok`, `123 passed, 1 warning in 3.93s` for the transcriber suite, `plans: 2 of 2 ok`, and `verify: all 6 checks passed in 111s.`; the throwaway database was `postgresql://thinkdarrell@/docket_test_7c0790d1`. These are the totals M4 left. The three files of M5's acceptance, each run alone on a throwaway database before the first edit, printed `19 passed` (`tests/web/test_vote_result_block.py`), `11 passed` (`tests/unit/test_query_get_vote_for_item.py`), and `18 passed` (`tests/integration/test_transcript_routes.py`), the counts the plan's sum starts from.
+
+The before state of the new tests, run at 05:58Z with no file under `src/` edited: in `tests/web/test_vote_result_block.py`, `_FakeVote` given the field `video_link`, `test_source_link_prefers_video_timestamp` rewritten, and two functions added; three functions added to `tests/unit/test_query_get_vote_for_item.py`; two added to `tests/integration/test_transcript_routes.py`.
+
+    $ DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/web/test_vote_result_block.py tests/unit/test_query_get_vote_for_item.py tests/integration/test_transcript_routes.py -q -p no:cacheprovider
+    E       assert 'Watch this vote on Granicus ↗' in '...Watch this vote ↗...'                  (the rewritten test)
+    E       assert 'Watch this vote on YouTube ↗' in '...Watch this vote ↗...'
+    E       assert 'Watch this vote' not in '...Watch this vote ↗...'                         (a vote with a timestamp and no video_link)
+    E       AttributeError: 'VoteEntry' object has no attribute 'video_link'                  (three times)
+    E       ... '...meta_id=77001" target="_blank" rel="noreferrer">video chapter ↗</a>' != ...   (twice: the page still prints "video chapter ↗")
+    8 failed, 47 passed, 1 warning in 2.54s
+    $ tools/test-db --drop      (exit 0)
+
+The 8 that fail are the rewritten test and the seven this milestone adds; the 47 that pass are the other 18, 11, and 18 that existed. The tests are committed in this state, before `query.py`, `public.py`, or either template is edited, so the before state is readable from git.
+
 ## Interfaces and Dependencies
 
 No new dependency is installed. The matcher uses numpy, already in `requirements.lock` and in the transcriber image; add the line `numpy>=1.26  # the audio matcher (align.py); already present through torch` to `transcriber/requirements.txt` in M1 so the import is declared. Downloads use ffmpeg and the `yt_dlp` module exactly as `transcriber/transcriber/audio.py` does today.

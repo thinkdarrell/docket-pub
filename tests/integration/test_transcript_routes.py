@@ -242,3 +242,76 @@ def test_transcript_page_prints_the_meeting_label_not_the_clip_name(client, meet
     assert "<title>Transcript — Public Safety Committee — docket.pub</title>" in html
     assert '<h1 class="hero-title t-display">Public Safety Committee</h1>' in html
     assert "TR test" not in html
+
+
+# The item link on an item's first turn comes from docket.services.video_links
+# (plans/active/video-links-land-on-the-moment.md, M5): it lands on the item's
+# moment and names the site it opens.
+
+def _item_link_tags(html):
+    """The <a> tags of the item links on a rendered transcript, in page order."""
+    import re
+    return re.findall(r'<a class="t-meta link" href="[^"]*" target="_blank" rel="noreferrer">[^<]*</a>', html)
+
+
+def test_item_link_opens_youtube_at_the_converted_second_when_a_recording_covers_it(
+        client, meeting_with_transcript):
+    fx = meeting_with_transcript; _publish(fx["transcript_id"])
+    with db_cursor() as cur:
+        cur.execute("UPDATE agenda_items SET video_timestamp_seconds = 3300.0 WHERE id = %s", [fx["item_id"]])
+        cur.execute("""INSERT INTO meeting_videos (meeting_id, provider, video_id, url, title, clean_title,
+                                                   duration_s, is_primary)
+                       VALUES (%s, 'youtube', 'tr-recording', 'https://www.youtube.com/watch?v=tr-recording',
+                               'TR test 9.2.26', 'TR test', 4900, TRUE) RETURNING id""", [fx["meeting_id"]])
+        cur.execute("""INSERT INTO meeting_video_alignments
+                         (meeting_video_id, granicus_clip_id, method_version, status, offset_s,
+                          granicus_start_s, granicus_end_s, score, runner_up, windows, windows_confirmed)
+                       VALUES (%s, '999902', 1, 'passed', 100.0, 100.0, 5000.0, 23.6, 6.0, 12, 10)""",
+                    [cur.fetchone()["id"]])
+    url = f"/al/birmingham/meetings/{fx['meeting_id']}/transcript/"
+    link = ('<a class="t-meta link" href="https://www.youtube.com/watch?v=tr-recording&amp;t=3200s" '
+            'target="_blank" rel="noreferrer">video on YouTube ↗</a>')
+
+    html = client.get(url).get_data(as_text=True)
+    assert _item_link_tags(html) == [link]       # once, on the item's first turn
+    assert "Granicus ↗" not in html and "meta_id=" not in html
+    # The link to the whole recording in the page's label is the meeting's own.
+    assert 'href="https://bhamal.granicus.com/MediaPlayer.php?view_id=2&amp;clip_id=999902"' in html
+
+    # The HTMX tab load renders the same link.
+    part = client.get(url, headers={"HX-Request": "true"}).get_data(as_text=True)
+    assert _item_link_tags(part) == [link]
+
+    # An item whose cue point is past the recording's coverage opens Granicus.
+    with db_cursor() as cur:
+        cur.execute("UPDATE agenda_items SET video_timestamp_seconds = 5000.0 WHERE id = %s", [fx["item_id"]])
+    html = client.get(url).get_data(as_text=True)
+    assert "video on YouTube" not in html and "meta_id=77001" in html
+
+
+def test_item_link_opens_the_granicus_chapter_when_nothing_is_measured(client, meeting_with_transcript):
+    fx = meeting_with_transcript; _publish(fx["transcript_id"])
+    with db_cursor() as cur:
+        cur.execute("UPDATE agenda_items SET video_timestamp_seconds = 3300.0 WHERE id = %s", [fx["item_id"]])
+    url = f"/al/birmingham/meetings/{fx['meeting_id']}/transcript/"
+    chapter = ('<a class="t-meta link" href="https://bhamal.granicus.com/MediaPlayer.php?view_id=2'
+               '&amp;clip_id=999902&amp;meta_id=77001" target="_blank" rel="noreferrer">'
+               'video chapter on Granicus ↗</a>')
+
+    html = client.get(url).get_data(as_text=True)
+    assert _item_link_tags(html) == [chapter]
+    assert "YouTube" not in html and "t=3300" not in html
+    assert _item_link_tags(client.get(url, headers={"HX-Request": "true"}).get_data(as_text=True)) == [chapter]
+
+    # A later item with no chapter id (it has no external_id at all) links to
+    # the plain player, and the text does not say "chapter".
+    with db_cursor() as cur:
+        cur.execute("""INSERT INTO agenda_items (meeting_id, item_number, title)
+                       VALUES (%s, '16', 'No chapter') RETURNING id""", [fx["meeting_id"]])
+        cur.execute("""INSERT INTO transcript_segments
+                         (transcript_id, seq, start_s, end_s, text, cluster_label, agenda_item_id)
+                       VALUES (%s, 3, 4000.0, 4004.0, 'Item sixteen.', 'S2', %s)""",
+                    [fx["transcript_id"], cur.fetchone()["id"]])
+    plain = ('<a class="t-meta link" href="https://bhamal.granicus.com/MediaPlayer.php?view_id=2'
+             '&amp;clip_id=999902" target="_blank" rel="noreferrer">video on Granicus ↗</a>')
+    assert _item_link_tags(client.get(url).get_data(as_text=True)) == [chapter, plain]
