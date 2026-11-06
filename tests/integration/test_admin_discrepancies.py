@@ -155,6 +155,13 @@ def test_queue_video_link_names_its_site_and_opens_youtube_at_the_rows_own_secon
     assert _video_link_tags(_queue_row(html, no_second)) == []
     assert "56:40" in _queue_row(html, at_5640)              # the printed time stays the transcript's
 
+    # A meeting with no video of its own has no link at all.
+    with db_cursor() as cur:
+        cur.execute("UPDATE meetings SET video_url = NULL WHERE id = %s", [pilot.meeting_id])
+    html = admin.get(url).get_data(as_text=True)
+    assert _video_link_tags(html) == [] and "YouTube" not in html
+    assert [r["video_link"] for r in D.list_queue()] == [None] * 4
+
 
 def test_filters_by_state_category_and_meeting(admin, pilot):
     _disc(pilot, review_state="dismissed_by_model", reject_reason="same words", title="Dismissed one")

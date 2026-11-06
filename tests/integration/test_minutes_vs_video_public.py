@@ -3,6 +3,7 @@ import pytest
 from docket.config import DATABASE_URL
 from docket.db import db_cursor
 from docket.services import transcripts as tsvc
+from docket.services import video_links
 from docket.web import create_app
 from tests.integration.test_admin_discrepancies import _disc, _measured_recording, _video_link_tags
 from tests.support.transcript_fixtures import install_bundle, load_bundle, pilot_bundle
@@ -63,6 +64,8 @@ def test_block_video_link_opens_youtube_when_measured_and_granicus_when_not(app,
     """The public block's link comes from docket.services.video_links in all three places it renders, and
     each row is built from its own meeting's recordings."""
     app.config["MINUTES_VS_VIDEO_UI"] = True
+    # The one global a template may build a link with is the builder itself; chapter_url is no longer one.
+    assert app.jinja_env.globals["video_link"] is video_links.link_for and "chapter_url" not in app.jinja_env.globals
     player = "https://bhamal.granicus.com/MediaPlayer.php?view_id=2&amp;clip_id=1950"
     youtube = ('<a class="link" href="https://www.youtube.com/watch?v=disc-recording&amp;t=3300s" '
                'target="_blank" rel="noreferrer">video on YouTube ↗</a>')

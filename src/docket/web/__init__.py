@@ -98,7 +98,11 @@ def create_app() -> Flask:
     from docket.web import source_security
 
     app.jinja_env.globals["is_source_url_safe"] = source_security.is_url_safe
-    app.jinja_env.globals["chapter_url"] = video_links.chapter_url
+    # ``video_link`` builds a link into a meeting's video (YouTube at a
+    # second, or the Granicus chapter). Only the source-anchor partial calls
+    # it; every other template is handed a finished ``VideoLink`` by its
+    # service.
+    app.jinja_env.globals["video_link"] = video_links.link_for
 
     # ``today`` — re-evaluated per request so templates can flag meetings
     # as upcoming via ``{% if meeting.meeting_date >= today %}``. Used by

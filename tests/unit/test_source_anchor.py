@@ -444,13 +444,14 @@ class TestVideoBranches:
         assert 'rel="noopener noreferrer"' in html
 
         # An item id that is not a chapter id, or no id at all: the plain
-        # player, and the text does not say "chapter".
+        # player, and the text does not say "chapter". A fragment on the
+        # anchor's URL is dropped, as every branch that builds on it does.
         for external_id in ("event-2715-1", None):
             item = {
                 "id": 1,
                 "source_anchor": {
                     "type": "video",
-                    "url": player,
+                    "url": player + "#t=65",
                     "timestamp_seconds": 65,
                 },
             }
@@ -460,7 +461,7 @@ class TestVideoBranches:
             assert f'href="{escaped}"' in html
             assert "View Source: video on Granicus →" in html
             assert "meta_id" not in html and "chapter" not in html
-            assert "?t=" not in html and ";t=" not in html and "1:05" not in html
+            assert "t=65" not in html and "1:05" not in html
 
     def test_granicus_player_anchor_with_a_measured_recording_opens_youtube(self, app):
         from docket.services.video_links import MeetingVideo, Recording
