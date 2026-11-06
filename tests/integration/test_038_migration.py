@@ -27,6 +27,8 @@ def fresh_038():
         runner.apply_migrations(conn)
         # 040 re-creates the type_source CHECK that 038's down drops with
         # the column; roll it back first so re-applying restores both.
+        # 042's table references meeting_videos, which 040's down drops.
+        runner.rollback_migration(conn, 42)
         runner.rollback_migration(conn, 40)
         runner.rollback_migration(conn, 38)
     yield

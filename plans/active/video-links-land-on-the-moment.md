@@ -755,6 +755,43 @@ The module run as a module, on WAV files of the first two cases written to the s
 
 No line from real audio is recorded here: the spike's nine pairs were not rerun (Surprises & Discoveries and the Decision Log say why).
 
+### M2 as executed, 2026-11-06
+
+Everything in this subsection was observed in the M2 session, in this worktree, on 2026-11-06 (UTC).
+
+The starting state, before any edit. `test -f .env` printed `.env exists` (the file was not read). `./tools/verify`, started at 05:05Z and run a second time at 05:08Z to keep its output, printed `2228 passed, 5 skipped, 4 xfailed, 2 warnings` for the unit, web, and services tier, `690 passed, 2 warnings` for integration, `judge fixtures: 12 of 12 passed`, `105 passed, 1 warning` for the transcriber suite, and `verify: all 6 checks passed in 110s.` both times; the throwaway database was `postgresql://thinkdarrell@/docket_test_7c0790d1`. These are the totals M1 left.
+
+The files M2's acceptance names, counted before any edit, against the throwaway database:
+
+    $ DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/integration/test_038_migration.py tests/integration/test_040_migration.py tests/integration/test_transcriber_role.py -q -p no:cacheprovider
+    14 passed, 1 warning in 0.45s          (alone: test_038_migration.py 5 passed, test_040_migration.py 6 passed)
+    $ DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest transcriber/tests/test_db.py -q -p no:cacheprovider
+    21 passed, 1 warning in 0.27s
+
+So the three existing files hold 14 tests, not the 5 that M2's `13 passed` assumes: its "3 and 2 that existed" count the functions at the top level of `test_038_migration.py` and `test_040_migration.py` and miss the two and four tests each file holds in a class. With the 3 and 2 this milestone adds, the first acceptance command can only print `19 passed`. The Decision Log entry of this session says how that was resolved.
+
+The before state of the new tests: `tests/integration/test_042_migration.py` written (three functions), two functions added to `tests/integration/test_transcriber_role.py`, five to `transcriber/tests/test_db.py`, and `runner.rollback_migration(conn, 42)` added before each of the three rollbacks of 040; no migration 042, no change to the role file, and nothing new in `transcriber/transcriber/db.py`.
+
+    $ DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/integration/test_038_migration.py tests/integration/test_040_migration.py tests/integration/test_042_migration.py tests/integration/test_transcriber_role.py -q -p no:cacheprovider
+    FAILED tests/integration/test_042_migration.py::test_042_up_creates_the_table_and_its_checks_refuse_bad_rows
+    FAILED tests/integration/test_042_migration.py::test_042_one_row_per_recording_and_the_meeting_takes_it_along
+    FAILED tests/integration/test_042_migration.py::test_042_down_drops_the_table_and_up_restores_it
+    FAILED tests/integration/test_transcriber_role.py::test_can_read_meeting_videos_and_not_write_them
+    FAILED tests/integration/test_transcriber_role.py::test_can_save_measurements_and_not_delete_them
+    5 failed, 14 passed, 1 warning in 0.59s
+
+The three migration tests fail on `assert _table_exists()` after the up and on `psycopg2.errors.UndefinedTable: relation "meeting_video_alignments" does not exist`; the two role tests fail on `_priv('meeting_videos', 'SELECT')` being false and on the same missing relation. The 14 that existed still pass with the added rollback of 042 in their fixtures, because rolling back a migration that is not applied prints `Migration 42 is not applied.` and returns.
+
+    $ DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest transcriber/tests/test_db.py -q -p no:cacheprovider
+    FAILED transcriber/tests/test_db.py::test_alignment_candidates_newest_meeting_first_primary_first_within_the_limit
+    FAILED transcriber/tests/test_db.py::test_measured_rejected_hidden_and_yt_row_recordings_are_not_alignment_candidates
+    FAILED transcriber/tests/test_db.py::test_lower_version_other_clip_and_old_failure_are_alignment_candidates_again
+    FAILED transcriber/tests/test_db.py::test_save_alignment_twice_leaves_one_row_holding_the_second_calls_values
+    FAILED transcriber/tests/test_db.py::test_alignment_backlog_counts_the_candidates_without_a_limit
+    5 failed, 21 passed, 1 warning in 0.46s
+
+Those five fail on `AttributeError: module 'transcriber.db' has no attribute 'alignment_candidates'` (or `'alignment_backlog'`) and, where a test first stores a measurement, on the missing relation. The tests are committed in this state, before the migration, the grants, and the functions, so the before state is readable from git.
+
 ## Interfaces and Dependencies
 
 No new dependency is installed. The matcher uses numpy, already in `requirements.lock` and in the transcriber image; add the line `numpy>=1.26  # the audio matcher (align.py); already present through torch` to `transcriber/requirements.txt` in M1 so the import is declared. Downloads use ffmpeg and the `yt_dlp` module exactly as `transcriber/transcriber/audio.py` does today.

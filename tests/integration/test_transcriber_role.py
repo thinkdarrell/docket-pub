@@ -1,4 +1,4 @@
-"""The transcriber role can write transcript tables and nothing else."""
+"""The transcriber role can write the transcript tables and its measurements of YouTube recordings, and nothing else."""
 import pytest
 import psycopg2
 from docket.config import DATABASE_URL
@@ -50,3 +50,15 @@ def test_cannot_touch_everything_else(transcriber_role):
     for t in ("votes", "ai_runs", "minutes_discrepancies", "meeting_events", "admin_users"):
         assert not _priv(t, "SELECT"), t
         assert not _priv(t, "INSERT"), t
+
+
+def test_can_read_meeting_videos_and_not_write_them(transcriber_role):
+    assert _priv("meeting_videos", "SELECT")
+    for p in ("INSERT", "UPDATE", "DELETE"):
+        assert not _priv("meeting_videos", p), p
+
+
+def test_can_save_measurements_and_not_delete_them(transcriber_role):
+    for p in ("SELECT", "INSERT", "UPDATE"):
+        assert _priv("meeting_video_alignments", p), p
+    assert not _priv("meeting_video_alignments", "DELETE"), "a re-measure overwrites the row"
