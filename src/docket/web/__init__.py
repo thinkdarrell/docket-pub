@@ -94,11 +94,15 @@ def create_app() -> Flask:
     # Railway redeploy whenever a new municipality was added. The admin
     # endpoint ``POST /admin/source-security/refresh`` invalidates the
     # cache for instant onboarding.
+    from docket.services import video_links
     from docket.web import source_security
-    from docket.web import video_urls
 
     app.jinja_env.globals["is_source_url_safe"] = source_security.is_url_safe
-    app.jinja_env.globals["chapter_url"] = video_urls.chapter_url
+    # ``video_link`` builds a link into a meeting's video (YouTube at a
+    # second, or the Granicus chapter). Only the source-anchor partial calls
+    # it; every other template is handed a finished ``VideoLink`` by its
+    # service.
+    app.jinja_env.globals["video_link"] = video_links.link_for
 
     # ``today`` — re-evaluated per request so templates can flag meetings
     # as upcoming via ``{% if meeting.meeting_date >= today %}``. Used by

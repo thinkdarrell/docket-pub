@@ -10,8 +10,25 @@
      2. PDF + page          → PDF page link.
      3. PDF (bare)          → bare PDF URL.
      4. HTML + anchor       → HTML page with ``#anchor`` fragment.
-     5. Video + timestamp   → ``?t=NNN`` deep link, label includes the
-        formatted timestamp via the ``format_timestamp`` filter.
+     5. Video + timestamp   → a link built by the ``video_link`` Jinja
+        global (``docket.services.video_links.link_for``), which names
+        the site it opens:
+          - YouTube: ``watch?v=<id>&t=<N>s``, built from the video id,
+            labelled "video on YouTube at <time>" with YouTube's own
+            time (``format_timestamp`` of the second the link opens at;
+            no time when the link carries no second).
+          - A Granicus player page (``MediaPlayer.php``): the item's
+            chapter (``&meta_id=<item.external_id>``) when that id is
+            all digits, labelled "video chapter on Granicus"; the plain
+            player otherwise, labelled "video on Granicus". No time is
+            printed and no ``t=`` is written: the Granicus player opens
+            a chapter's start and ignores every way of naming a second.
+          - Any other host: ``?t=NNN`` appended to the anchor's URL,
+            labelled "video at <time>" (``format_timestamp`` of the
+            anchor's own second), as before.
+        When the optional ``video`` variable is given (see Inputs), a
+        Granicus anchor whose second a measured YouTube recording covers
+        opens YouTube at the converted second instead.
      6. Any ``anchor.url``  → bare "View Source" fallback.
      7. ``data_quality == 'no_text_layer'``
                              → unavailable label, plus an admin-only
@@ -46,8 +63,9 @@
      * Pre-existing ``#fragment`` is stripped before we append
        ``#page=N`` or the HTML anchor — otherwise the browser sees
        ``…#section1#page=7`` and ignores the second fragment.
-     * The video branch picks ``?`` vs ``&`` based on whether the URL
-       already contains ``?`` so e.g. a Granicus player URL with
+     * The video branch, for a host that is neither YouTube nor a
+       Granicus player page, picks ``?`` vs ``&`` based on whether the
+       URL already contains ``?`` so e.g. a player URL with
        ``?clip_id=123`` gets ``&t=65`` appended, not a second ``?``.
 
    The bare-URL fallback branch passes ``_url`` through unmodified
@@ -67,6 +85,17 @@
          {url}  (bare fallback)
      - ``item.data_quality``   — used only for the OCR-needed branch.
      - ``item.id``             — needed for the admin queue link.
+     - ``item.external_id``    — optional; the Granicus chapter id the
+                                 video branch links to when it is all
+                                 digits.
+     - ``video``               — optional template variable, a
+                                 ``video_links.MeetingVideo`` for the
+                                 meeting the anchor's video belongs to
+                                 (its player URL and its measured YouTube
+                                 recordings). No page passes it today.
+                                 When given, the link is built from
+                                 ``video.video_url`` and the anchor's URL
+                                 is used only for the safety check.
      - ``session.admin_user``  — truthy iff the requester is logged in
                                  as an admin (codebase convention; spec
                                  references ``g.user.is_admin``, the
@@ -114,11 +143,26 @@
   </a>
 
 {% elif anchor is mapping and anchor.type == 'video' and anchor.timestamp_seconds and _is_safe %}
+  {%- set _vl = video_link(video|default(none), seconds=anchor.timestamp_seconds, chapter_id=item.external_id|default(none), url=_url_clean) -%}
+  {% if _vl and _vl.site == 'youtube' %}
+  <a href="{{ _vl.url }}" class="view-source"
+     data-item-id="{{ item.id }}"
+     target="_blank" rel="noopener noreferrer">
+    View Source: video on YouTube{% if _vl.seconds is not none %} at {{ _vl.seconds | format_timestamp }}{% endif %} →
+  </a>
+  {% elif _vl and _vl.site == 'granicus' %}
+  <a href="{{ _vl.url }}" class="view-source"
+     data-item-id="{{ item.id }}"
+     target="_blank" rel="noopener noreferrer">
+    View Source: {{ _vl.phrase }} →
+  </a>
+  {% else %}
   <a href="{{ _url_clean }}{{ _video_sep }}t={{ anchor.timestamp_seconds | int }}" class="view-source"
      data-item-id="{{ item.id }}"
      target="_blank" rel="noopener noreferrer">
     View Source: video at {{ anchor.timestamp_seconds | format_timestamp }} →
   </a>
+  {% endif %}
 
 {% elif _is_safe %}
   <a href="{{ _url }}" class="view-source"

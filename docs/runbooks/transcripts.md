@@ -16,6 +16,10 @@ Plan 1: `docs/superpowers/plans/2026-10-07-transcripts-foundation.md` (PR #99).
   (or, for a `yt-` meeting recorded only on YouTube, downloads it with yt-dlp first),
   transcribes, diarizes, and uploads raw segments to Railway Postgres through the
   public proxy as the narrow `transcriber` role. It never calls an LLM.
+  An ordinary run first measures, without the GPU, where each YouTube recording
+  attached to a Granicus meeting sits on that clip's clock, one
+  `meeting_video_alignments` row per recording; "Measuring YouTube recordings" in
+  `transcriber/README.md` has the log lines and the `--measure-limit` flag.
   Setup and run commands: `transcriber/README.md`, which also has the desktop
   operating notes, a "What to expect" section from the first runs, and the
   bring-up log.
@@ -293,9 +297,13 @@ Created once per database (done on Railway 2026-10-10):
 
     psql "$URL" -v password="$(openssl rand -hex 32)" -f scripts/sql/create_transcriber_role.sql
 
-It can read `meetings`, `municipalities`, `council_members`, `agenda_items` and
-write only `transcripts`, `transcript_segments`, `transcript_speakers`,
-`producer_heartbeats`. The connection string lives only in `transcriber/.env` on
+It can read `meetings`, `municipalities`, `council_members`, `agenda_items`,
+`meeting_videos` and write only `transcripts`, `transcript_segments`,
+`transcript_speakers`, `producer_heartbeats`, and `meeting_video_alignments`
+(insert and update, no delete: a re-measure overwrites the row). The grants on
+`meeting_videos` and `meeting_video_alignments` came with migration 042; a role
+created before it needs the last two `GRANT` statements of that file run alone
+by the database owner. The connection string lives only in `transcriber/.env` on
 the Legion. Rotate with `ALTER ROLE transcriber PASSWORD '...'` and update that file.
 
 ## Granicus junk clips (Monday test streams)
