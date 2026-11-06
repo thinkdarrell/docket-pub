@@ -158,6 +158,9 @@ def test_the_consent_block_is_computed_from_the_meetings_consent_cue_points(seed
     seed.item(meeting_id, "2", "371102", is_consent=True, cue_s=2000.0)
     seed.item(meeting_id, "1", "371101", is_consent=True, cue_s=1990.0)
     seed.item(meeting_id, "3", "371103", is_consent=True, cue_s=2010.0)
+    # Shares the run's first second with item 1 and was inserted after it:
+    # cue points that tie are taken in row order, so 371101 stays first.
+    seed.item(meeting_id, "1a", "371100", is_consent=True, cue_s=1990.0)
     seed.item(meeting_id, "4", "event-2715-4", is_consent=True)               # never cued
     seed.item(meeting_id, "5", "371105", is_consent=True, cue_s=3000.0)       # pulled, discussed later
     seed.item(meeting_id, "64", "371164", is_consent=False, cue_s=2100.0)     # 90 s after the run, not consent

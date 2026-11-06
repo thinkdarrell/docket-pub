@@ -1,4 +1,4 @@
-from docket.web.video_urls import chapter_url
+from docket.services.video_links import chapter_url
 
 
 GRANICUS_URL = "https://bhamal.granicus.com/MediaPlayer.php?view_id=2&clip_id=1986"
@@ -140,6 +140,10 @@ def test_item_moment_follows_the_consent_rule():
     assert vl.item_moment(video, is_consent=True, cue_s=1990.0, external_id="371100") == (1990.0, "371100")
     assert vl.item_moment(video, is_consent=True, cue_s=2085.0, external_id="371158") == (1990.0, "371100")
     assert vl.item_moment(video, is_consent=True, cue_s=None, external_id="event-2715-7") == (1990.0, "371100")
+    # The block's first cue point is inside it too, which shows when that item's
+    # own id is not the block's chapter.
+    pdf_first = vl.MeetingVideo(video_url=PLAYER, consent=vl.ConsentBlock(1990.0, 2085.0, "371101"))
+    assert vl.item_moment(pdf_first, is_consent=True, cue_s=1990.0, external_id="event-2715-1") == (1990.0, "371101")
     # A consent item outside the block (pulled and discussed later): its own moment.
     assert vl.item_moment(video, is_consent=True, cue_s=3000.0, external_id="371199") == (3000.0, "371199")
     assert vl.item_moment(video, is_consent=True, cue_s=1989.0, external_id="371099") == (1989.0, "371099")
@@ -251,6 +255,8 @@ def test_a_youtube_meeting_links_to_its_own_video_with_no_conversion():
     assert plain.phrase == "video on YouTube"
     # A second that cannot be read as a number is treated as absent.
     assert vl.link_for(video, seconds="soon").url == "https://www.youtube.com/watch?v=FR84h22hQvA"
+    # So is a second before the video starts.
+    assert vl.link_for(video, seconds=-5).url == "https://www.youtube.com/watch?v=FR84h22hQvA"
 
 
 def test_an_unknown_host_is_returned_unchanged_and_no_url_gives_no_link():
