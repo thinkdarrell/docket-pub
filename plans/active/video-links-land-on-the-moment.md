@@ -147,6 +147,12 @@ The entries below were added on 2026-11-05, before any milestone ran, after the 
   Rationale: none of the 359 attached recordings is shorter than 300 seconds (3 are under 600), and a second window size would be arithmetic the pass mark was not chosen on. None of the nine matched pairs has a conflict window; a rejected recording falls back to Granicus, the 2-second tolerance already absorbs a small step, and `ALIGN_METHOD_VERSION` lets a later method re-measure, so the operator counts `rejected` rows with reason `conflict` after the first full run (Validation and Acceptance) and coverage in pieces is built only if they appear. Pull request #140 does not touch `tests/integration/test_038_migration.py` or `test_040_migration.py`, and both already name migration numbers the way M2 adds one. The item page would run six small indexed queries where three would do, on a site with little traffic. The fall-through of `worstaudio/bestaudio/worst` to a small video file is deliberate: ffmpeg keeps only the audio.
   Date/Author: 2026-11-05, the operator, from the external review; checked and drafted by Claude.
 
+The entries below were made by the M1 session on 2026-11-06.
+
+- Decision: `transcriber/tests/test_align.py` imports `transcriber.align` inside each test function, not at the top of the file, and states the 8 kHz sample rate as its own constant.
+  Rationale: `skills/plan-execute/SKILL.md` asks that a test of a symbol that does not exist yet import it inside the test, so the file collects and the before state reads as each test failing on its own. M1's acceptance names the error (`ModuleNotFoundError: No module named 'transcriber.align'`), not its shape; with the import at the top the same error would have been one collection error, and with it inside the functions it is `10 failed`. The alternative of one module-scoped fixture that imports the module was not taken because a fixture error reads as `10 errors` at setup, which is the collection-error shape again.
+  Date/Author: 2026-11-06, M1 session (Claude).
+
 ## Outcomes & Retrospective
 
 Nothing has been executed yet; this section is filled in as milestones complete. The closing retrospective is written by the retro stage after the last milestone, not by a milestone session.
@@ -664,6 +670,20 @@ Fifth, added at the revision of 2026-11-05: votes read off the video on consent 
            count(*) FILTER (WHERE vote_s > end_s + 120
                               AND (cue_s IS NULL OR cue_s BETWEEN start_s AND end_s)) AS pulled_without_own_cue
       FROM x;
+
+### M1 as executed, 2026-11-06
+
+Everything in this subsection was observed in the M1 session, in this worktree, on 2026-11-06 (UTC).
+
+The starting state, before any edit. `.env` exists in the worktree (its contents were not read: the session's permission system refused `cat .env`, so the session checked only that the file is there, and the database the baseline built confirms the role). `./tools/verify`, started at 04:51Z and run a second time to keep its output, printed `2228 passed, 5 skipped, 4 xfailed, 2 warnings` for the unit, web, and services tier, `690 passed, 2 warnings` for integration, `judge fixtures: 12 of 12 passed`, `95 passed, 1 warning` for the transcriber suite, and `verify: all 6 checks passed in 109s.` (the first run: `in 112s.`); the throwaway database was `postgresql://thinkdarrell@/docket_test_7c0790d1`. These are the authoring baseline's totals.
+
+The before state of the new tests, with `transcriber/tests/test_align.py` written and `transcriber/transcriber/align.py` not yet existing:
+
+    $ venv/bin/python -m pytest transcriber/tests/test_align.py -q -p no:cacheprovider
+    E       ModuleNotFoundError: No module named 'transcriber.align'      (ten times, once per test)
+    10 failed, 1 warning in 0.10s
+
+The test file is committed in this state, before the module, so the before state is readable from git.
 
 ## Interfaces and Dependencies
 
