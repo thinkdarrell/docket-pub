@@ -18,13 +18,22 @@ match: a window confirms the whole-recording offset when its best match within
 when its best match anywhere is strong and lies elsewhere (the mark of a
 recording that was cut or edited). ``verdict`` is the pass mark.
 
-The constants below ARE the method. The pass mark was chosen on this exact
+A window confirms when most of it matches, so the windows alone cannot say
+where, inside the first and the last of them, the match begins and ends. The
+two ends of the confirmed span are therefore checked again in pieces of
+``EDGE_S`` seconds, each by the test a window gets, and the coverage runs
+from the first piece that confirms to the last (``confirmed_span``). The
+pieces move the coverage only: the offset, the score, and the window counts
+the pass mark reads are the windows'.
+
+The constants below ARE the method. The pass mark was chosen on the windows'
 arithmetic from 72 labelled pairs of real recordings (decision 0078 under
 docs/decisions/ and docs/specs/video-links.md; the table is in
 plans/completed/video-links-land-on-the-moment.md), so a different window size,
-band edge, or normalisation changes the scores the mark was chosen from. Raise
-``ALIGN_METHOD_VERSION`` with any such change: stored measurements below the
-current version are measured again.
+band edge, or normalisation changes the scores the mark was chosen from. The
+pieces were added afterwards and checked on the same recordings (decision
+0081). Raise ``ALIGN_METHOD_VERSION`` with any such change: stored measurements
+below the current version are measured again.
 
 Only the standard library and numpy. Nothing here downloads, converts, or
 keeps audio; the caller hands in files or arrays.
@@ -41,7 +50,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-ALIGN_METHOD_VERSION = 1
+ALIGN_METHOD_VERSION = 2               # 2: the ends of the coverage are checked in pieces
 
 SR, HOP, WIN = 8000, 320, 640          # sample rate; frame hop and frame length in samples
 FPS = SR / HOP                         # 25 frames a second
@@ -56,6 +65,7 @@ PASS_SCORE = 9.0                       # the whole-recording score a passing mea
 PASS_MARGIN = 4.0                      # and exceeds the runner-up by
 PASS_WINDOW_SHARE = 0.6                # the share of counted windows that must confirm
 CONFLICT_SCORE = 8.0                   # a window this strong at another offset rejects the recording
+EDGE_S = 60                            # the ends of the confirmed span are checked in pieces this long
 MIN_AUDIO_S = 10                       # features refuses audio shorter than this
 
 _CHUNK_FRAMES = 20000                  # frames transformed at once, to bound memory
@@ -68,7 +78,7 @@ class Measurement:
     status: str                      # 'passed' or 'rejected'
     reason: str | None               # None when passed
     offset_s: float                  # Granicus seconds minus YouTube seconds
-    granicus_start_s: float | None   # None when no window was confirmed
+    granicus_start_s: float | None   # None when no window, or no piece of the span, was confirmed
     granicus_end_s: float | None
     score: float
     runner_up: float
@@ -141,7 +151,10 @@ def xcorr_z(a: np.ndarray, b: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 
 
 def verdict(score, runner_up, windows, confirmed, conflicts) -> tuple[str, str | None]:
-    """The pass mark: ('passed', None) or ('rejected', <reason>), checked in this order."""
+    """The pass mark: ('passed', None) or ('rejected', <reason>), checked in this order.
+
+    `measure` adds one reason of its own, 'edges', for a recording that meets
+    the mark and has no piece of its confirmed span left to cover."""
     if windows < 1:
         return "rejected", "no_window"
     if score < PASS_SCORE:
@@ -153,6 +166,47 @@ def verdict(score, runner_up, windows, confirmed, conflicts) -> tuple[str, str |
     if conflicts:
         return "rejected", "conflict"
     return "passed", None
+
+
+def _piece_confirms(g: np.ndarray, piece: np.ndarray, ys: float, offset: float) -> bool:
+    """A window's test on a shorter piece of the YouTube recording that starts at
+    YouTube second `ys`: its best match within LOCAL_SEARCH_S of the offset lies
+    within AGREE_S of it. Only the stretch of the clip the search can reach is read."""
+    at = int(round((offset + ys) * FPS))
+    reach = int(LOCAL_SEARCH_S * FPS)
+    lo, hi = max(0, at - reach), min(len(g), at + len(piece) + reach)
+    if hi - lo < len(piece):
+        return False
+    z, lags = xcorr_z(g[lo:hi], piece)
+    lags = lags + lo / FPS - ys
+    near = np.abs(lags - offset) <= LOCAL_SEARCH_S
+    kn = int(np.argmax(np.where(near, z, -np.inf)))
+    return bool(abs(lags[kn] - offset) <= AGREE_S)
+
+
+def confirmed_span(g: np.ndarray, y: np.ndarray, offset: float,
+                   start_s: float, end_s: float) -> tuple[float, float] | None:
+    """The span the windows confirmed, in YouTube seconds, with each end moved
+    inward to the first piece of EDGE_S seconds that confirms the offset.
+
+    Pieces are counted forward from `start_s` until one confirms, then backward
+    from `end_s` until one confirms. None when no piece does. The piece that
+    holds the boundary between other audio and the match can confirm on its
+    matching part, so less than one piece of other audio may stay inside the
+    span, and a piece of other audio confirms by accident about one time in
+    twenty (AGREE_S against LOCAL_SEARCH_S).
+    """
+    n = int(EDGE_S * FPS)
+    a, b = int(round(start_s * FPS)), min(len(y), int(round(end_s * FPS)))
+    s = a
+    while s + n <= b and not _piece_confirms(g, y[s:s + n], s / FPS, offset):
+        s += n
+    if s + n > b:
+        return None
+    e = b
+    while e - n > s and not _piece_confirms(g, y[e - n:e], (e - n) / FPS, offset):
+        e -= n
+    return s / FPS, e / FPS
 
 
 def measure(granicus: np.ndarray, youtube: np.ndarray) -> Measurement:
@@ -193,12 +247,21 @@ def measure(granicus: np.ndarray, youtube: np.ndarray) -> Measurement:
         if wz[kb] >= CONFLICT_SCORE and abs(wlags[kb] - offset) > AGREE_S:
             conflicts += 1
 
-    # Coverage is the span from the first confirmed window to the last, on the
-    # Granicus clock, clipped to the clip. The end window is not always the
-    # last by start, hence min and max.
-    start = max(0.0, offset + min(confirmed)) if confirmed else None
-    end = min(gdur, offset + max(confirmed) + WINDOW_S) if confirmed else None
+    # Coverage is the span from the first confirmed window to the last, with
+    # each end moved inward to the first piece that confirms, on the Granicus
+    # clock, clipped to the clip. The end window is not always the last by
+    # start, hence min and max.
+    span = (
+        confirmed_span(g, y, offset, min(confirmed), max(confirmed) + WINDOW_S)
+        if confirmed else None
+    )
+    start = max(0.0, offset + span[0]) if span else None
+    end = min(gdur, offset + span[1]) if span else None
     status, reason = verdict(score, runner_up, counted, len(confirmed), conflicts)
+    if status == "passed" and span is None:
+        # The windows met the pass mark and no piece of their span confirmed:
+        # there is nothing to cover.
+        status, reason = "rejected", "edges"
     return Measurement(
         status=status,
         reason=reason,
@@ -219,7 +282,7 @@ def measure_files(granicus_wav, youtube_wav) -> Measurement:
 
 def describe(m: Measurement) -> str:
     """One line for the log, e.g.
-    'passed offset=635.48s covers=635.5-4078.7s score=23.6 runner_up=6.0 windows=10/12'."""
+    'passed offset=635.48s covers=635.5-3958.7s score=23.6 runner_up=6.0 windows=10/12'."""
     head = m.status if m.reason is None else f"{m.status} ({m.reason})"
     covers = (
         "none" if m.granicus_start_s is None or m.granicus_end_s is None

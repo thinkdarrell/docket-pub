@@ -160,6 +160,111 @@ def test_offset_step_inside_the_agreement_tolerance_passes_and_a_larger_one_is_r
     assert m.reason in ("windows", "conflict")
 
 
+# ---------------------------------------------------------------------------
+# The two ends of the coverage are checked in pieces
+# ---------------------------------------------------------------------------
+#
+# A five-minute window confirms when most of it matches, so a window at the
+# edge of a recording confirmed although its outer part was other audio, and
+# the coverage ran over that part. The first and last stretches of the
+# confirmed span are checked again in pieces of EDGE_S seconds, and the
+# coverage starts at the first piece that confirms and ends with the last.
+# The piece that holds the boundary can still confirm on its matching part,
+# so less than one piece of other audio may stay covered.
+
+
+def _start_cases(g_samples):
+    """(label, seconds of other audio at the recording's start, the recording)."""
+    for n in (60, 100, 140, 160):
+        # The closing review's signal: the first n seconds sit at another offset.
+        yield f"{n}s at another offset", n, np.concatenate(
+            [_cut(g_samples, 1500, 1500 + n), _cut(g_samples, 400 + n, 1305)])
+    for n in (60, 100, 160, 250):
+        yield f"{n}s of unrelated audio", n, np.concatenate(
+            [_signal(7, n), _cut(g_samples, 400 + n, 1305)])
+    for n in (90, 150):
+        yield f"{n}s of silence", n, np.concatenate(
+            [np.zeros(n * SR, dtype=np.int16), _cut(g_samples, 400 + n, 1305)])
+
+
+def test_other_audio_at_the_start_of_a_recording_is_not_covered():
+    import transcriber.align as align
+
+    assert align.ALIGN_METHOD_VERSION >= 2   # the edge check is a change of method
+    g_samples, g = _granicus(align)
+    for label, n, youtube in _start_cases(g_samples):
+        m = align.measure(g, align.features(youtube))
+
+        # The pass mark's numbers are the windows' and are not touched.
+        assert (m.status, m.reason) == ("passed", None), label
+        assert m.offset_s == pytest.approx(400.0, abs=0.1), label
+        assert (m.windows_confirmed, m.windows) == (4, 4), label
+        # The recording matches from Granicus second 400 + n. Less than one
+        # piece before that is covered, and no more is given up than through
+        # the piece that holds the boundary.
+        pieces_given_up = -(-n // align.EDGE_S)
+        assert 400 + n - align.EDGE_S < m.granicus_start_s, label
+        assert m.granicus_start_s <= 400 + pieces_given_up * align.EDGE_S + 0.1, label
+        assert m.granicus_end_s == pytest.approx(1305.0, abs=0.1), label
+
+
+def test_other_audio_at_the_end_of_a_recording_is_not_covered():
+    import transcriber.align as align
+
+    g_samples, g = _granicus(align)
+    cases = []
+    for n in (60, 100):
+        # A recording cut n seconds before its end: its last stretch sits at
+        # another offset (the 5 extra seconds are the frame count's shortfall).
+        cases.append((f"cut {n}s before the end", 300.0, 1400.0, np.concatenate(
+            [_cut(g_samples, 300, 1400), _cut(g_samples, 1700, 1700 + n + 5)])))
+    for n in (60, 100, 160):
+        cases.append((f"last {n}s unrelated", 400.0, 1305.0 - n, np.concatenate(
+            [_cut(g_samples, 400, 1305 - n), _signal(8, n)])))
+    for label, offset, matches_until, youtube in cases:
+        m = align.measure(g, align.features(youtube))
+
+        assert (m.status, m.reason) == ("passed", None), label
+        assert m.offset_s == pytest.approx(offset, abs=0.1), label
+        assert m.granicus_start_s == pytest.approx(offset, abs=0.1), label
+        # Less than one piece past the last matching second is covered, and
+        # the coverage still reaches into the last matching minute.
+        assert m.granicus_end_s < matches_until + align.EDGE_S, label
+        assert m.granicus_end_s > matches_until - align.EDGE_S, label
+
+
+def test_confirmed_span_is_none_when_no_piece_confirms():
+    import transcriber.align as align
+
+    _, g = _granicus(align)
+    # A recording whose envelopes are flat, as digital silence is: a piece of
+    # it has no best match, so none confirms.
+    silent = np.zeros((int(600 * align.FPS), g.shape[1]), dtype=np.float32)
+    assert align.confirmed_span(g, silent, 400.0, 0.0, 600.0) is None
+
+    # The same span of a recording that does match is kept whole.
+    g_samples, _ = _granicus(align)
+    y = align.features(_cut(g_samples, 400, 1005))
+    assert align.confirmed_span(g, y, 400.0, 0.0, 600.0) == (0.0, 600.0)
+
+
+def test_recording_whose_windows_pass_and_whose_pieces_do_not_is_rejected(monkeypatch):
+    import transcriber.align as align
+
+    g_samples, g = _granicus(align)
+    y = align.features(_cut(g_samples, 400, 1305))
+    assert align.measure(g, y).status == "passed"
+
+    monkeypatch.setattr(align, "confirmed_span", lambda *args: None)
+    m = align.measure(g, y)
+    assert (m.status, m.reason) == ("rejected", "edges")
+    assert (m.granicus_start_s, m.granicus_end_s) == (None, None)
+    assert m.offset_s == pytest.approx(400.0, abs=0.1)
+    assert (m.windows_confirmed, m.windows) == (4, 4)
+    assert align.describe(m).startswith("rejected (edges) offset=400.")
+    assert "covers=none" in align.describe(m)
+
+
 def test_features_refuses_audio_shorter_than_ten_seconds():
     import transcriber.align as align
 

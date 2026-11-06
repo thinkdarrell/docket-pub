@@ -142,13 +142,14 @@ The log has one line per recording, in one of three forms, and one line at the e
     measure done {'passed': <n>, 'rejected': <n>, 'failed': <n>} remaining=<n>
 
 A passing line reads like `measure meeting 3184 clip 2026 video FR84h22hQvA: passed
-offset=635.48s covers=635.5-4078.7s score=23.6 runner_up=6.0 windows=10/12`: the
+offset=635.48s covers=635.5-3958.7s score=23.6 runner_up=6.0 windows=10/12`: the
 YouTube recording starts 635.48 seconds into the Granicus clip and is confirmed
-from second 635.5 to second 4078.7 of it.
+from second 635.5 to second 3958.7 of it.
 
 `passed` means links for that meeting can open YouTube inside the covered
 stretch. `rejected` means the audio was compared and the match was not good
-enough (the reason is `score`, `margin`, `windows`, `conflict`, or `no_window`);
+enough (the reason is `score`, `margin`, `windows`, `conflict`, `no_window`, or
+`edges`);
 that recording's links stay on Granicus, and it is not measured again until the
 method changes. `failed` means the audio could not be fetched or read; it is
 tried again once the row is a week old. `remaining` is how many recordings still
