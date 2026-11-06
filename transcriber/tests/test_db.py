@@ -557,7 +557,8 @@ def test_measured_rejected_hidden_and_yt_row_recordings_are_not_alignment_candid
     shown = align_rows.meeting("999913", 6)
     align_rows.video(shown, "unmeasured", primary=True)
     align_rows.measured(align_rows.video(shown, "passed"), clip="999913")
-    align_rows.measured(align_rows.video(shown, "rejected"), clip="999913", status="rejected")
+    # A rejected row is final however old it is; only a failure is tried again.
+    align_rows.measured(align_rows.video(shown, "rejected"), clip="999913", status="rejected", days_ago=30)
     hidden = align_rows.meeting("999914", 7, hidden=True)
     align_rows.video(hidden, "hidden", primary=True)
     yt_only = align_rows.meeting("yt-tdbALIGNown", 8, video_url="https://www.youtube.com/watch?v=tdbALIGNown")
@@ -579,6 +580,8 @@ def test_lower_version_other_clip_and_old_failure_are_alignment_candidates_again
     align_rows.measured(align_rows.video(middle, "otherClip", primary=True), clip="event-2715")
     oldest = align_rows.meeting("999918", 6)
     align_rows.measured(align_rows.video(oldest, "current", primary=True), clip="999918")
+    # The version is a floor: a row from a later method is not measured again by an older producer.
+    align_rows.measured(align_rows.video(oldest, "laterMethod"), clip="999918", version=METHOD + 1)
 
     # At the stored version: the moved recording and the week-old failure, the failure last
     # although its meeting is the newest (never-measured comes before a failure being retried).

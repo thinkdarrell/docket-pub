@@ -22,10 +22,10 @@ How to see it working once the plan has shipped and the operator has run the ste
 
 ## Progress
 
-M1 was executed on 2026-11-06 and its evidence is in "M1 as executed, 2026-11-06" under Artifacts and Notes; M2 is next, and nothing from M2 on has been executed. A completed entry is written as `- [x] (YYYY-MM-DD HH:MMZ) <text>` with the time the work was observed, never an estimate, and an entry's text is never reworded once written (decision `0037`; the judge in `docs/capabilities/judge-milestone.md` identifies entries by their text).
+M1 and M2 were executed on 2026-11-06 and their evidence is in "M1 as executed, 2026-11-06" and "M2 as executed, 2026-11-06" under Artifacts and Notes; M3 is next, and nothing from M3 on has been executed. A completed entry is written as `- [x] (YYYY-MM-DD HH:MMZ) <text>` with the time the work was observed, never an estimate, and an entry's text is never reworded once written (decision `0037`; the judge in `docs/capabilities/judge-milestone.md` identifies entries by their text).
 
 - [x] (2026-11-06 05:01Z) M1: `transcriber/transcriber/align.py` measures where one recording sits on another's clock from two 8 kHz WAV files with numpy alone, and `transcriber/tests/test_align.py` proves it on synthetic audio: a shifted noisy copy recovers its offset and passes, unrelated audio and a recording with a cut are rejected, and the verdict rule reproduces the labelled table in Artifacts and Notes.
-- [ ] M2: migration 042 creates `meeting_video_alignments`, the `transcriber` role file grants the role SELECT on `meeting_videos` and SELECT, INSERT, UPDATE on the new table, and `transcriber/transcriber/db.py` lists the recordings that need measuring and saves a measurement, proved against the throwaway database.
+- [x] (2026-11-06 05:17Z) M2: migration 042 creates `meeting_video_alignments`, the `transcriber` role file grants the role SELECT on `meeting_videos` and SELECT, INSERT, UPDATE on the new table, and `transcriber/transcriber/db.py` lists the recordings that need measuring and saves a measurement, proved against the throwaway database.
 - [ ] M3: an ordinary transcriber run measures up to `--measure-limit` attached YouTube recordings before the engine loads, with one stored row and one log line per recording, leaves no audio in the work folder, and carries on to transcription whatever the measuring pass meets; `transcriber/tests/test_measure.py` proves it with stubbed fetches.
 - [ ] M4: `src/docket/services/video_links.py` builds a video link from a second on the Granicus clock (YouTube at the converted second when a passing recording covers it, the Granicus chapter otherwise), finds a meeting's consent block, and loads a meeting's passing recordings; `src/docket/web/video_urls.py` is gone and its tests moved.
 - [ ] M5: the item page's vote link and the transcript page's item link come from the link builder, land on the item's moment under the consent rule, and name the site they open.
@@ -55,6 +55,23 @@ From the M1 session, 2026-11-06. Nothing in M1 contradicted the plan; these are 
 
 - Observation: the session's permission system refused `cat .env` (the refusal named credentials), so the Concrete Steps check "`cat .env` prints one line" was replaced by a test that the file exists.
   Evidence: `test -f .env` printed `.env exists`, and the baseline `./tools/verify` built `postgresql://thinkdarrell@/docket_test_7c0790d1` and passed the three role tests that fail under the default role.
+
+From the M2 session, 2026-11-06. One clause of M2's acceptance states a count the repository cannot print; the rest held.
+
+- Observation: M2's first acceptance command prints `19 passed`, not the `13 passed` the plan states. The plan's sum takes "the 3 and 2 that existed" from the functions at the top level of `tests/integration/test_038_migration.py` and `test_040_migration.py`; each file also holds tests in a class (two in `TestCalendarEventForeignKey`, four in `TestMeetingVideos`), so they held 5 and 6 before this milestone, and with the role file's 3 the three files printed `14 passed` before any edit.
+  Evidence: the per-file counts under "M2 as executed, 2026-11-06" in Artifacts and Notes, taken before the first edit; 14 plus the 3 and 2 this milestone adds is 19. The totals `./tools/verify` prints are as the plan states (integration `695 passed`, transcriber `110 passed`), because those were summed from the tier totals and not from these files.
+
+- Observation: the first draft of the five producer tests, the one committed failing, left two of the candidate rules unpinned. The session ran the five tests against copies of the two SQL strings altered in memory, one rule removed at a time (the committed file was not edited): with the version compared by equality instead of as a floor, and with a `rejected` row retried like a `failed` one, all five still passed.
+  Evidence: `version compared by equality: 0 failed` and `rejected rows retried like failures: 0 failed` on the first run. After a row at a later method version was added to the third test and the second test's rejected row was made 30 days old, the same run printed one failing test for each of eight removals: the never-measured-first ordering, the primary-first ordering, the hidden filter, the all-digit filter, the clip-id comparison, the version floor, the retry of failures (two tests), and the finality of a rejected row. Both additions sit inside functions the plan names, so the count stays at five.
+
+- Observation: the role file's grants are enough for the three functions as written; nothing else (a sequence, another table) is needed. Checked once on the throwaway database from a scratch script, not a committed test: the role was created from the file, a session did `SET ROLE transcriber`, and the functions were called as the producer will call them.
+  Evidence: the script printed `current_user: transcriber`, one candidate, `backlog: 1`, two saves of the same recording, `backlog now: 0`, and then `InsufficientPrivilege: permission denied for table meeting_video_alignments` for a DELETE and `InsufficientPrivilege: permission denied for table meeting_videos` for an UPDATE. The committed role tests read `has_table_privilege` only, as the three that existed do.
+
+- Observation: `git grep -n "rollback_migration" -- tests` confirms the plan's three places: `test_040_migration.py` twice and `test_038_migration.py` once roll 040 back. `tests/integration/test_migration_013.py` also rolls migrations back, a fixed list from 28 down to 21 and then 13, none of which drops `meeting_videos`, so it needed no change.
+  Evidence: the full `./tools/verify` run with migration 042 applied printed `695 passed` for integration.
+
+- Observation: one command of this session was mistyped and ran no test. A redirect to a path under an unset `$TMPDIR` failed inside `export DATABASE_URL=$(tools/test-db 2>...)`, so the variable was exported empty for the two pytest commands that followed in that shell. Neither printed a `passed` or `failed` line. Read from the code afterwards, not observed as output: `tests/conftest.py` refuses a database not named `docket_test_*` before collection, and `transcriber/tests/test_db.py` skips when its URL is empty. The command was run again correctly and that run is the evidence recorded.
+  Evidence: the correct run printed `Applying migration 42: docket.migrations.042_meeting_video_alignments`, `19 passed`, and `26 passed`.
 
 ## Decision Log
 
@@ -182,11 +199,35 @@ The entries below were made by the M1 session on 2026-11-06.
   Rationale: the workflow that started the session confines it to this worktree; the plan makes the rerun evidence and not acceptance, so the two instructions do not conflict over whether M1 is complete, and the narrower one was followed. What is lost is a direct check that the committed module prints the revised table's nine lines on real audio; what stands in for it is that the module follows the reference line for line, reproduces the plan's synthetic figures, and that operator step 5 under Validation and Acceptance compares the first real measurements with the same table (clip 2017's coverage, clip 1831's offset). To make the rerun, from the worktree root, for each row of the revised table: `cd transcriber && ../venv/bin/python -m transcriber.align <spike>/data/g_<clip>/audio.wav <spike>/data/y_<video>/audio.wav`, where `<spike>` is the folder named in "Observed at authoring"; each printed line should agree with its row to 0.1 second and in its verdict.
   Date/Author: 2026-11-06, M1 session (Claude).
 
+The entries below were made by the M2 session on 2026-11-06.
+
+- Decision: M2's acceptance clause `13 passed` is read as the plan's miscount and is met as `19 passed`; no test was removed or added to reach either number, and the acceptance paragraph carries a dated note rather than a rewritten figure.
+  Rationale: the clause gives its own sum ("the 3 and 2 that existed, the new file's 3, and the role file's 5"), and the first two terms are wrong against the files as they stood before any edit (5 and 6, counted in this session). The other terms, and every total the later milestones build on (integration 695, transcriber 110), are as stated and were observed. Stopping to have the plan re-authored for an addition error would have cost a session and changed no code; passing over it silently would have left a completion claim that does not match what the command prints.
+  Date/Author: 2026-11-06, M2 session (Claude).
+
+- Decision: in the candidate order, "never-measured before stale failures" puts a row below the method version asked for, and a row measured against another clip id, with the recordings that have no row; only a `failed` row at the current version and clip, old enough to retry, sorts after them.
+  Rationale: the plan names two classes and four ways to be a candidate. The Decision Log already says a row against another clip id is treated "as no measurement", and a row below the version floor is one the site ignores too, so both are recordings without a usable measurement and belong with the first class whatever their stored status. A failure being retried is the only candidate that has already cost a download and may fail again, which is why it goes last.
+  Date/Author: 2026-11-06, M2 session (Claude).
+
+- Decision: `save_alignment` takes the measurement by attribute and does not import `transcriber.align`; it writes all twelve columns and `measured_at` on every call, so a call with no measurement sets the offset, span, score, runner-up, and window counts to NULL; it keeps at most 4,000 characters of `reason`.
+  Rationale: `db.py` is imported by every producer command and `align` imports numpy, which the claim and upload paths do not need. "Setting every column" is the plan's wording, and the alternative of keeping old figures under a new `failed` status would leave a row whose offset no measurement stands behind. The length bound is what `mark_status` in the same file does to `last_error`, for the same reason: a yt-dlp error can carry a page of text.
+  Date/Author: 2026-11-06, M2 session (Claude).
+
+- Decision: the two new GRANT statements are the last two statements of `scripts/sql/create_transcriber_role.sql`, and the file's comment and the runbook paragraph both say that a role created before migration 042 needs those two run alone by the owner.
+  Rationale: the plan asks for them "after the existing grants" and has the operator run exactly those two on production, where the role has existed since 2026-10-10 and `CREATE ROLE` at the top of the file would fail. Listing the new tables in the runbook without that sentence would have read as a statement that production already has the grants, which is false until the operator's step 2.
+  Date/Author: 2026-11-06, M2 session (Claude).
+
+- Decision: the new tests assert a little more than the plan lists, inside the functions it names and without changing any count: the migration test also refuses a `passed` row with half a span or an empty one and accepts a `failed` row with neither; the role test also checks that `meeting_videos` cannot be deleted from; the producer tests also exclude an `event-` placeholder row, hold a 30-day-old `rejected` row and a row at a later method version out of the candidates, and save a third, `rejected`, measurement.
+  Rationale: each is one line beside the case the plan names and pins a clause of the table's CHECK or of the candidate rule that the named cases alone left free (two of them found by the removal check in Surprises & Discoveries). The alternative of new test functions would have moved every total the later milestones state.
+  Date/Author: 2026-11-06, M2 session (Claude).
+
 ## Outcomes & Retrospective
 
 This section is filled in as milestones complete. The closing retrospective is written by the retro stage after the last milestone, not by a milestone session.
 
 M1, 2026-11-06. The matcher exists: `transcriber/transcriber/align.py`, the standard library and numpy only, written from the revised reference arithmetic, with the interface under Interfaces and Dependencies and nothing calling it yet. Its acceptance was met as stated: the ten tests of `transcriber/tests/test_align.py` failed with `ModuleNotFoundError: No module named 'transcriber.align'` before the module existed (committed in that state) and print `10 passed` after, in under 3 seconds; `./tools/verify` printed `verify: all 6 checks passed` with the transcriber suite at `105 passed` and the other tiers at their baseline. `transcriber/requirements.txt` declares numpy. One thing M1 asked for beyond its acceptance was not done: the rerun on the spike's real audio (Surprises & Discoveries, Decision Log). So the claim that the committed module reproduces the revised table on real recordings rests on its following the reference line for line and reproducing the plan's synthetic figures, not on an observation of this session. Lesson for the sessions after this one: because the plan states, case by case, what the revised rule and the authored rule each return, the session could take each revised rule out of a copy of the module and watch the test named for it fail, which is the check that stood in for the audio. M2 is next.
+
+M2, 2026-11-06. The database has a place for measurements and the producer can reach it: migration `042_meeting_video_alignments` (one row per attached recording, two CHECK constraints, cascade from the recording), the role file's two grants (SELECT on `meeting_videos`; SELECT, INSERT, UPDATE and no DELETE on the new table), and `AlignmentCandidate`, `alignment_candidates`, `alignment_backlog`, and `save_alignment` in `transcriber/transcriber/db.py`. Nothing calls the three functions yet; M3's measuring pass will. Acceptance, clause by clause: the ten new tests failed before the code existed (committed in that state, `a5f4ab3`) and pass after; the build of the throwaway database prints `Applying migration 42: docket.migrations.042_meeting_video_alignments`; `transcriber/tests/test_db.py` prints `26 passed`; `./tools/verify` prints `verify: all 6 checks passed` with integration at `695 passed` and the transcriber suite at `110 passed`. One clause is met in a different number than written: the four-file command prints `19 passed` where the plan says `13 passed`, because the plan undercounted the tests the two older migration files already held (Surprises & Discoveries, Decision Log); the tests added are the 3, 2, and 5 the plan names. `ARCHITECTURE.md` and `docs/runbooks/transcripts.md` list the role's wider reach, and both the role file and the runbook say that the production role, created before this migration, has neither grant until the operator runs the two statements (step 2 under Validation and Acceptance). Lesson for the sessions after this one: count a file's tests by running it before the first edit, not by reading its top-level functions, and when a plan lists rules a query must keep, take each rule out of a copy in memory and watch for the test that fails; two of eight had none on the first try. M3 is next.
 
 ## Context and Orientation
 
@@ -322,7 +363,7 @@ In `transcriber/transcriber/db.py` add `AlignmentCandidate`, `alignment_candidat
 
 Tests. `tests/integration/test_042_migration.py`, on the pattern of `test_040_migration.py`, with three functions: the up creates the table and its CHECK constraints refuse a status outside the three and a `passed` row with no offset; a second row for one recording raises a unique violation and deleting the meeting removes the measurement; the down drops the table and the up restores it. `tests/integration/test_transcriber_role.py` gains two functions: the role can SELECT `meeting_videos` and cannot INSERT or UPDATE it; the role can SELECT, INSERT, and UPDATE `meeting_video_alignments` and cannot DELETE from it. `transcriber/tests/test_db.py` gains five functions on rows it inserts and removes itself (a Birmingham meeting with a numeric `external_id` and a `MediaPlayer.php` `video_url`, with `meeting_videos` rows): candidates come newest meeting first, the primary recording first within a meeting, and respect the limit; a measured recording, a `rejected` one, a hidden meeting's, and a `yt-` row's own recording are not candidates; a row at a lower method version, a row whose `granicus_clip_id` differs from the meeting's `external_id`, and a `failed` row older than 7 days are candidates again while a fresh `failed` row is not; `save_alignment` called twice for one recording leaves one row holding the second call's values; `alignment_backlog` returns the count of candidates without a limit.
 
-Acceptance. `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/integration/test_038_migration.py tests/integration/test_040_migration.py tests/integration/test_042_migration.py tests/integration/test_transcriber_role.py -q -p no:cacheprovider` prints `13 passed` (the 3 and 2 that existed, the new file's 3, and the role file's 5), and `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest transcriber/tests/test_db.py -q -p no:cacheprovider` prints `26 passed`; then `tools/test-db --drop`. The build output of `tools/test-db` (on stderr) includes `Applying migration 42: docket.migrations.042_meeting_video_alignments`. `./tools/verify` prints `verify: all 6 checks passed` with integration at `695 passed` (690 plus 5) and the transcriber suite at `110 passed` (105 plus 5; as authored, 107, before M1 gained three functions).
+Acceptance. `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/integration/test_038_migration.py tests/integration/test_040_migration.py tests/integration/test_042_migration.py tests/integration/test_transcriber_role.py -q -p no:cacheprovider` prints `13 passed` (the 3 and 2 that existed, the new file's 3, and the role file's 5), and `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest transcriber/tests/test_db.py -q -p no:cacheprovider` prints `26 passed`; then `tools/test-db --drop`. The build output of `tools/test-db` (on stderr) includes `Applying migration 42: docket.migrations.042_meeting_video_alignments`. `./tools/verify` prints `verify: all 6 checks passed` with integration at `695 passed` (690 plus 5) and the transcriber suite at `110 passed` (105 plus 5; as authored, 107, before M1 gained three functions). (Noted by the M2 session, 2026-11-06: the first command prints `19 passed`, not 13. The two older migration files held 5 and 6 tests, not 3 and 2, before M2 touched them; the sum is 5, 6, the new file's 3, and the role file's 5. Every other figure in this paragraph was observed as written.)
 
 ### M3: the measuring pass
 
@@ -790,7 +831,43 @@ The three migration tests fail on `assert _table_exists()` after the up and on `
     FAILED transcriber/tests/test_db.py::test_alignment_backlog_counts_the_candidates_without_a_limit
     5 failed, 21 passed, 1 warning in 0.46s
 
-Those five fail on `AttributeError: module 'transcriber.db' has no attribute 'alignment_candidates'` (or `'alignment_backlog'`) and, where a test first stores a measurement, on the missing relation. The tests are committed in this state, before the migration, the grants, and the functions, so the before state is readable from git.
+Those five fail on `AttributeError: module 'transcriber.db' has no attribute 'alignment_candidates'` (or `'alignment_backlog'`) and, where a test first stores a measurement, on the missing relation. The tests are committed in this state, before the migration, the grants, and the functions, so the before state is readable from git (commit `a5f4ab3`).
+
+The after state, with `src/docket/migrations/042_meeting_video_alignments.py` written and listed in `runner.py`, the two grants added to `scripts/sql/create_transcriber_role.sql`, and the dataclass and three functions added to `transcriber/transcriber/db.py`. The acceptance commands, started at 05:15Z, with the build output of `tools/test-db` kept from stderr:
+
+    $ DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/integration/test_038_migration.py tests/integration/test_040_migration.py tests/integration/test_042_migration.py tests/integration/test_transcriber_role.py -q -p no:cacheprovider
+    Applying migration 42: docket.migrations.042_meeting_video_alignments          (from the build, on stderr)
+      Applied migration 42
+    19 passed, 1 warning in 0.63s
+    $ DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest transcriber/tests/test_db.py -q -p no:cacheprovider
+    26 passed, 1 warning in 0.38s
+    $ tools/test-db --drop                                                          (printed nothing, exit 0)
+
+`./tools/verify`, started at 05:15Z after those, with every change of the milestone in the working tree and before the plan's tick was written, printed `2228 passed, 5 skipped, 4 xfailed, 2 warnings` for the unit, web, and services tier, `695 passed, 2 warnings` for integration (690 plus 5), `judge fixtures: 12 of 12 passed`, `110 passed, 1 warning in 4.09s` for the transcriber suite (105 plus 5), and `verify: all 6 checks passed in 110s.`
+
+The removal check on the candidate query (Surprises & Discoveries), as it printed after the two additions to the tests (the failing tests' names are shortened here and set in parentheses); each line is the five alignment tests run against the two SQL strings of `transcriber.db` with one rule taken out in memory:
+
+    as committed: 0 failed
+    no never-measured-first ordering: 1 failed    (test_lower_version_other_clip_and_old_failure_are_alignment_candidates_again)
+    no primary-first ordering: 1 failed           (test_alignment_candidates_newest_meeting_first_primary_first_within_the_limit)
+    hidden meetings admitted: 1 failed            (test_measured_rejected_hidden_and_yt_row_recordings_are_not_alignment_candidates)
+    yt- and event- rows admitted: 1 failed        (the same)
+    clip id not compared: 1 failed                (test_lower_version_...)
+    version compared by equality: 1 failed        (test_lower_version_...)
+    failures never retried: 2 failed              (test_lower_version_... and test_alignment_backlog_counts_the_candidates_without_a_limit)
+    rejected rows retried like failures: 1 failed (test_measured_rejected_...)
+
+The functions under the role's grants, on the throwaway database, from a scratch script that created the role from the file, did `SET ROLE transcriber`, and removed the role and its rows afterwards:
+
+    current_user: transcriber
+    candidates: [('roleProbe01', '999930')]
+    backlog: 1
+    saved twice; backlog now: 0
+    InsufficientPrivilege: permission denied for table meeting_video_alignments      (DELETE FROM meeting_video_alignments)
+    InsufficientPrivilege: permission denied for table meeting_videos                (UPDATE meeting_videos SET is_primary = FALSE)
+    rows left: 0
+
+Not observed in this session, because no factory session can reach them: the migration on production, the two GRANT statements on the production role, and any real measurement. They are the operator's steps 1, 2, and 4 under Validation and Acceptance.
 
 ## Interfaces and Dependencies
 
@@ -839,6 +916,8 @@ In `transcriber/transcriber/db.py` (M2):
                        reason: str | None = None, measurement=None) -> None
 
 A candidate is a `meeting_videos` row with `provider = 'youtube'` on a Birmingham meeting that is not hidden, whose `external_id` matches `^[0-9]+$` and whose `video_url` contains `MediaPlayer.php`, and that has no `meeting_video_alignments` row, or a row with `method_version` below the one asked for (a floor, as `ARCHITECTURE.md` requires of version comparisons), or a row whose `granicus_clip_id` differs from the meeting's `external_id`, or a `failed` row measured more than `retry_failed_days` ago. Order: never-measured before stale failures, then `meeting_date DESC`, `meetings.id DESC`, `is_primary DESC`, `meeting_videos.id`. `save_alignment` is `INSERT ... ON CONFLICT (meeting_video_id) DO UPDATE` setting every column and `measured_at = now()`; it does not commit.
+
+As built in M2, for the session that calls them. `alignment_candidates` and `alignment_backlog` only read; like every function in `db.py` they leave the transaction open, so the caller ends it (M3: "read the candidates and end the transaction"). The MediaPlayer test is `strpos(m.video_url, 'MediaPlayer.php') > 0`, which is false for a NULL `video_url`. In the order, a row below the method version asked for and a row against another clip id sort with the recordings that have no row; only a retried failure sorts after them (Decision Log, 2026-11-06). `save_alignment` writes `granicus_clip_id` from `cand.external_id`, takes `status` and `reason` from its arguments and never from the measurement, reads `offset_s`, `granicus_start_s`, `granicus_end_s`, `score`, `runner_up`, `windows`, and `windows_confirmed` from `measurement` by attribute (so M3 passes an `align.Measurement` as it is, with `status=m.status, reason=m.reason`), writes NULL for all seven when `measurement` is None (a `failed` row), and keeps at most 4,000 characters of `reason`. A `passed` status with no measurement, or with a measurement that has no span, is refused by the table's CHECK as `psycopg2.errors.CheckViolation`, which is a `psycopg2.Error` and so falls under M3's database-error handling; `align.verdict` cannot return `passed` with no confirmed window, since zero confirmed windows fail the window share. The role may not DELETE from `meeting_video_alignments`, so nothing in the producer may rely on removing a row.
 
 In `transcriber/transcriber/measure.py` (M3):
 

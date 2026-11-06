@@ -293,9 +293,13 @@ Created once per database (done on Railway 2026-10-10):
 
     psql "$URL" -v password="$(openssl rand -hex 32)" -f scripts/sql/create_transcriber_role.sql
 
-It can read `meetings`, `municipalities`, `council_members`, `agenda_items` and
-write only `transcripts`, `transcript_segments`, `transcript_speakers`,
-`producer_heartbeats`. The connection string lives only in `transcriber/.env` on
+It can read `meetings`, `municipalities`, `council_members`, `agenda_items`,
+`meeting_videos` and write only `transcripts`, `transcript_segments`,
+`transcript_speakers`, `producer_heartbeats`, and `meeting_video_alignments`
+(insert and update, no delete: a re-measure overwrites the row). The grants on
+`meeting_videos` and `meeting_video_alignments` came with migration 042; a role
+created before it needs the last two `GRANT` statements of that file run alone
+by the database owner. The connection string lives only in `transcriber/.env` on
 the Legion. Rotate with `ALTER ROLE transcriber PASSWORD '...'` and update that file.
 
 ## Granicus junk clips (Monday test streams)
