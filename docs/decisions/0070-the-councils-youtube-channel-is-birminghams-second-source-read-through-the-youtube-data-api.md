@@ -16,4 +16,4 @@ A second source makes "the host of the newest row" wrong: it would flip the foot
 
 ## Status
 
-accepted
+accepted; `0077` widens the transcriber's YouTube audio downloads from `yt-` rows to recordings attached to a Granicus meeting, for measuring only; the rest stands

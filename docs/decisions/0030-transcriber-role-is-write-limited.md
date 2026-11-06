@@ -14,4 +14,4 @@ The transcriber runs on a machine outside Railway and holds database credentials
 
 ## Status
 
-accepted
+accepted; `0076` adds a fifth table the role may write, `meeting_video_alignments` (insert and update, no delete), and a read of `meeting_videos`; the rest stands
