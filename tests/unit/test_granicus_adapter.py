@@ -6,6 +6,7 @@ dual-table read in list_meetings (via _parse_publisher_page so HTTP
 stays out of the unit suite).
 """
 
+from dataclasses import replace
 from datetime import date
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -423,6 +424,49 @@ class TestPlayerPageRequestIsFollowedByThePause:
             with pytest.raises(requests.ConnectionError):
                 adapter.fetch_agenda_items(_archive_meeting())
         assert [c.args for c in sleep.call_args_list] == [(adapter.delay,)]
+
+
+class TestAgendaPdfRequestIsFollowedByThePause:
+    """Every agenda-PDF request is followed by the adapter's delay, whatever
+    came back; a meeting with no agenda link makes no request and waits for
+    nothing."""
+
+    def _fetch(self, meeting=None, **get):
+        adapter = _adapter()
+        with patch("docket.adapters.granicus.requests.get", **get) as mock_get, \
+                patch("docket.adapters.granicus.time.sleep") as sleep:
+            items = adapter.fetch_agenda_items(meeting or _upcoming_meeting())
+        return items, mock_get.call_count, [c.args for c in sleep.call_args_list], adapter.delay
+
+    def test_pdf_that_is_read_is_followed_by_one_pause(self):
+        items, requested, sleeps, delay = self._fetch(
+            return_value=_mock_pdf_response(FIXTURE_PDF.read_bytes()))
+        assert len(items) > 0
+        assert (requested, sleeps) == (1, [(delay,)])
+
+    def test_error_status_is_followed_by_one_pause(self):
+        resp = MagicMock()
+        resp.raise_for_status.side_effect = requests.HTTPError("503 Server Error")
+        items, requested, sleeps, delay = self._fetch(return_value=resp)
+        assert items == []          # this path logs the failure and returns nothing
+        assert (requested, sleeps) == (1, [(delay,)])
+
+    def test_request_that_gets_no_answer_is_followed_by_one_pause(self):
+        items, requested, sleeps, delay = self._fetch(
+            side_effect=requests.ConnectionError("connection refused"))
+        assert items == []
+        assert (requested, sleeps) == (1, [(delay,)])
+
+    def test_answer_that_is_not_a_pdf_is_followed_by_one_pause(self):
+        items, requested, sleeps, delay = self._fetch(
+            return_value=_mock_pdf_response(b"<html>No agenda has been posted</html>"))
+        assert items == []
+        assert (requested, sleeps) == (1, [(delay,)])
+
+    def test_meeting_with_no_agenda_link_makes_no_request_and_no_pause(self):
+        meeting = replace(_upcoming_meeting(), agenda_url=None)
+        items, requested, sleeps, _ = self._fetch(meeting, return_value=MagicMock())
+        assert (items, requested, sleeps) == ([], 0, [])
 
 
 # --- start_time extraction tests -------------------------------------------

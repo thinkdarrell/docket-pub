@@ -188,6 +188,10 @@ class GranicusAdapter:
         those backfill later via `_backfill_video_timestamps` after the
         meeting is recorded and reconciliation upgrades the row to a
         clip_id.
+
+        The request is followed by the adapter's delay whatever came back
+        (a PDF, another body, an error status, no answer); a meeting with no
+        agenda link makes no request and no pause.
         """
         if not meeting.agenda_url:
             return []
@@ -199,6 +203,8 @@ class GranicusAdapter:
         except requests.RequestException as e:
             logger.error("Failed to fetch agenda PDF from %s: %s", meeting.agenda_url, e)
             return []
+        finally:
+            time.sleep(self.delay)
 
         if resp.content[:5] != b"%PDF-":
             logger.warning(
@@ -246,7 +252,6 @@ class GranicusAdapter:
                 )
             )
 
-        time.sleep(self.delay)
         return items
 
     def fetch_minutes_text(self, meeting: RawMeeting) -> str | None:
