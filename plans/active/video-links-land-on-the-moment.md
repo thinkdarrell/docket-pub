@@ -22,9 +22,9 @@ How to see it working once the plan has shipped and the operator has run the ste
 
 ## Progress
 
-Nothing below has been executed. A completed entry is written as `- [x] (YYYY-MM-DD HH:MMZ) <text>` with the time the work was observed, never an estimate, and an entry's text is never reworded once written (decision `0037`; the judge in `docs/capabilities/judge-milestone.md` identifies entries by their text).
+M1 was executed on 2026-11-06 and its evidence is in "M1 as executed, 2026-11-06" under Artifacts and Notes; M2 is next, and nothing from M2 on has been executed. A completed entry is written as `- [x] (YYYY-MM-DD HH:MMZ) <text>` with the time the work was observed, never an estimate, and an entry's text is never reworded once written (decision `0037`; the judge in `docs/capabilities/judge-milestone.md` identifies entries by their text).
 
-- [ ] M1: `transcriber/transcriber/align.py` measures where one recording sits on another's clock from two 8 kHz WAV files with numpy alone, and `transcriber/tests/test_align.py` proves it on synthetic audio: a shifted noisy copy recovers its offset and passes, unrelated audio and a recording with a cut are rejected, and the verdict rule reproduces the labelled table in Artifacts and Notes.
+- [x] (2026-11-06 05:01Z) M1: `transcriber/transcriber/align.py` measures where one recording sits on another's clock from two 8 kHz WAV files with numpy alone, and `transcriber/tests/test_align.py` proves it on synthetic audio: a shifted noisy copy recovers its offset and passes, unrelated audio and a recording with a cut are rejected, and the verdict rule reproduces the labelled table in Artifacts and Notes.
 - [ ] M2: migration 042 creates `meeting_video_alignments`, the `transcriber` role file grants the role SELECT on `meeting_videos` and SELECT, INSERT, UPDATE on the new table, and `transcriber/transcriber/db.py` lists the recordings that need measuring and saves a measurement, proved against the throwaway database.
 - [ ] M3: an ordinary transcriber run measures up to `--measure-limit` attached YouTube recordings before the engine loads, with one stored row and one log line per recording, leaves no audio in the work folder, and carries on to transcription whatever the measuring pass meets; `transcriber/tests/test_measure.py` proves it with stubbed fetches.
 - [ ] M4: `src/docket/services/video_links.py` builds a video link from a second on the Granicus clock (YouTube at the converted second when a passing recording covers it, the Granicus chapter otherwise), finds a meeting's consent block, and loads a meeting's passing recordings; `src/docket/web/video_urls.py` is gone and its tests moved.
@@ -35,9 +35,26 @@ Nothing below has been executed. A completed entry is written as `- [x] (YYYY-MM
 
 ## Surprises & Discoveries
 
-Nothing has been executed yet, so no session has a surprise to record. What the author observed while writing the plan (the baseline test totals, the three role tests that fail under the default database role, the 72-pair measurement the pass mark was chosen from) is in Context and Orientation and in Artifacts and Notes, each marked as observed on 2026-11-05.
+At authoring no session had run, so there was no surprise to record. What the author observed while writing the plan (the baseline test totals, the three role tests that fail under the default database role, the 72-pair measurement the pass mark was chosen from) is in Context and Orientation and in Artifacts and Notes, each marked as observed on 2026-11-05.
 
 As revised on 2026-11-05, still before any milestone ran: an external review of the plan was checked against the spike's audio and against production, read-only, in the operator's session. What that found (clock drift of up to 113 parts per million between the two recordings of one meeting, a cut near the end of a recording that neither the authored nor the revised matcher detects, nine attached recordings longer than four hours, and eight OCR votes on consent items that fall after the consent block) is recorded in "Observed at the review, 2026-11-05" under Context and Orientation and in Artifacts and Notes, and the changes it led to are in the Decision Log and the revision note at the bottom.
+
+From the M1 session, 2026-11-06. Nothing in M1 contradicted the plan; these are the observations a later session can use.
+
+- Observation: the module written from the reference arithmetic reproduces every synthetic figure the plan states, to within 0.1 of a score, on a signal this session drew itself (the plan gives the seeds but not the order of the draws, so the samples are not the author's).
+  Evidence: the seven lines under "M1 as executed, 2026-11-06" in Artifacts and Notes, beside the plan's own: 40.9 for the plan's 40.8, 5.4 for 5.5, 44.8 for 44.7, 49.5 and 13.3 for 49.5 and 13.4, 39.4 for 39.4, 27.0 for 26.9, and the same window counts, coverage, and reasons in every case.
+
+- Observation: each test that the plan calls "the test of" a revised rule does fail when that rule is taken out, checked by running the ten tests against altered copies of the module built in memory (the committed file was not edited).
+  Evidence: with `AGREE_S` at 1.0 only the offset-step test fails; with the end window anchored to the end of the recording only the runs-past-the-clip test fails; with no end window five fail (shifted copy, starts before the clip, cut, runs past the clip, offset step); under the whole authored rule the same five fail. The cut test fails without the end window because it asserts 4 of 6 windows; the verdict there is `conflict` either way.
+
+- Observation: in the 1.5-second step case the whole-recording offset is not a coin flip between the two true offsets, although the second piece is the longer by 3.5 seconds. A session that redraws the signal can expect 400.0 again.
+  Evidence: the best score within half a second of 400.0 was 27.03 and within half a second of 401.5 was 24.87.
+
+- Observation: the spike's folder still exists, and this session did not read its audio. Before weighing its own instructions the session listed the folder once (`ls`, which printed `data`, `fetch.log`, and several `.sql` files) and then stopped: the workflow that started the session confines it to this worktree and says nothing outside the repository is available to it. The rerun of the nine matched pairs that M1 asks for "if the spike's audio is still readable" was therefore not made. M1 calls it evidence, not acceptance.
+  Evidence: no line of the form `passed offset=635.48s ...` from real audio exists from this session; the Decision Log entry of 2026-11-06 says who can produce them and how.
+
+- Observation: the session's permission system refused `cat .env` (the refusal named credentials), so the Concrete Steps check "`cat .env` prints one line" was replaced by a test that the file exists.
+  Evidence: `test -f .env` printed `.env exists`, and the baseline `./tools/verify` built `postgresql://thinkdarrell@/docket_test_7c0790d1` and passed the three role tests that fail under the default role.
 
 ## Decision Log
 
@@ -153,9 +170,23 @@ The entries below were made by the M1 session on 2026-11-06.
   Rationale: `skills/plan-execute/SKILL.md` asks that a test of a symbol that does not exist yet import it inside the test, so the file collects and the before state reads as each test failing on its own. M1's acceptance names the error (`ModuleNotFoundError: No module named 'transcriber.align'`), not its shape; with the import at the top the same error would have been one collection error, and with it inside the functions it is `10 failed`. The alternative of one module-scoped fixture that imports the module was not taken because a fixture error reads as `10 errors` at setup, which is the collection-error shape again.
   Date/Author: 2026-11-06, M1 session (Claude).
 
+- Decision: `describe()` prints `covers=none` when no window was confirmed, and `rejected (<reason>)` in place of `passed` for a rejected measurement; run as a module with anything but two arguments, `align` prints a usage line on stderr and exits 2.
+  Rationale: the plan gives `describe()`'s text for a passing measurement only, and M3's log line reuses it with `rejected (<reason>)`, so the module produces that form itself and M3 logs `describe()`'s text unchanged. A rejected measurement can have no confirmed window, and then `granicus_start_s` and `granicus_end_s` are None; printing `covers=none` keeps the line's fields in one order, where leaving the field out would make the line harder to read by eye and by `grep`.
+  Date/Author: 2026-11-06, M1 session (Claude).
+
+- Decision: the synthetic signal is drawn as one `default_rng(seed)` giving first the envelope levels (five a second, squared uniforms, linearly interpolated) and then float32 white noise, multiplied, scaled by 6,000, clipped, and stored as 16-bit; `test_read_wav_refuses_anything_but_8khz_mono_16_bit` also checks a stereo file, an 8-bit file, and that a good file reads back sample for sample; `test_measure_files_matches_measure` also checks `describe()`'s opening. The count stays at ten functions.
+  Rationale: the plan fixes the seeds and the shape of the signal but not the scale or the order of the draws, and says the scores need only land on the same side of the pass mark; 6,000 keeps the loudest samples inside 16 bits. The plan names the 16 kHz case for `read_wav`; the function's name promises mono and 16-bit as well, and each is one line in the same test. No test was added beyond the ten named, so the totals in every milestone's acceptance stand.
+  Date/Author: 2026-11-06, M1 session (Claude).
+
+- Decision: the rerun of the nine matched pairs on the spike's audio was not made in the M1 session and is left to the operator, or to a later session whose instructions allow reading that folder.
+  Rationale: the workflow that started the session confines it to this worktree; the plan makes the rerun evidence and not acceptance, so the two instructions do not conflict over whether M1 is complete, and the narrower one was followed. What is lost is a direct check that the committed module prints the revised table's nine lines on real audio; what stands in for it is that the module follows the reference line for line, reproduces the plan's synthetic figures, and that operator step 5 under Validation and Acceptance compares the first real measurements with the same table (clip 2017's coverage, clip 1831's offset). To make the rerun, from the worktree root, for each row of the revised table: `cd transcriber && ../venv/bin/python -m transcriber.align <spike>/data/g_<clip>/audio.wav <spike>/data/y_<video>/audio.wav`, where `<spike>` is the folder named in "Observed at authoring"; each printed line should agree with its row to 0.1 second and in its verdict.
+  Date/Author: 2026-11-06, M1 session (Claude).
+
 ## Outcomes & Retrospective
 
-Nothing has been executed yet; this section is filled in as milestones complete. The closing retrospective is written by the retro stage after the last milestone, not by a milestone session.
+This section is filled in as milestones complete. The closing retrospective is written by the retro stage after the last milestone, not by a milestone session.
+
+M1, 2026-11-06. The matcher exists: `transcriber/transcriber/align.py`, the standard library and numpy only, written from the revised reference arithmetic, with the interface under Interfaces and Dependencies and nothing calling it yet. Its acceptance was met as stated: the ten tests of `transcriber/tests/test_align.py` failed with `ModuleNotFoundError: No module named 'transcriber.align'` before the module existed (committed in that state) and print `10 passed` after, in under 3 seconds; `./tools/verify` printed `verify: all 6 checks passed` with the transcriber suite at `105 passed` and the other tiers at their baseline. `transcriber/requirements.txt` declares numpy. One thing M1 asked for beyond its acceptance was not done: the rerun on the spike's real audio (Surprises & Discoveries, Decision Log). So the claim that the committed module reproduces the revised table on real recordings rests on its following the reference line for line and reproducing the plan's synthetic figures, not on an observation of this session. Lesson for the sessions after this one: because the plan states, case by case, what the revised rule and the authored rule each return, the session could take each revised rule out of a copy of the module and watch the test named for it fail, which is the check that stood in for the audio. M2 is next.
 
 ## Context and Orientation
 
@@ -683,7 +714,46 @@ The before state of the new tests, with `transcriber/tests/test_align.py` writte
     E       ModuleNotFoundError: No module named 'transcriber.align'      (ten times, once per test)
     10 failed, 1 warning in 0.10s
 
-The test file is committed in this state, before the module, so the before state is readable from git.
+The test file is committed in this state, before the module, so the before state is readable from git (commit `78b19e8`).
+
+The after state, with `transcriber/transcriber/align.py` written and the numpy line added to `transcriber/requirements.txt`:
+
+    $ venv/bin/python -m pytest transcriber/tests/test_align.py -q -p no:cacheprovider
+    10 passed, 1 warning in 2.75s
+
+The file's wall time is under 3 seconds against the plan's bound of 20 (a run with `--durations` printed 2.71s in all and 0.90s for the slowest test, the shifted noisy copy). The warning is the `anyio` plugin's deprecation notice that every tier prints.
+
+`./tools/verify`, started at 04:59Z with those two changes in the working tree and before the plan's tick was written, printed `2228 passed, 5 skipped, 4 xfailed, 2 warnings` for the unit, web, and services tier, `690 passed, 2 warnings` for integration, `judge fixtures: 12 of 12 passed`, `105 passed, 1 warning in 3.93s` for the transcriber suite (95 plus the 10 added), and `verify: all 6 checks passed in 110s.` After the tick was written into Progress, `tools/check-plans` (the sixth check, and the only one that reads this file) was run alone and printed `plans: 2 of 2 ok`; the full command was not run a third time.
+
+What `describe()` printed for each synthetic case, on the signal the tests draw (Granicus from seed 1, the added noise from seed 2, the unrelated signals from seeds 3, 99, and 4), first from the module as committed and then from a copy altered in memory to the authored rule (`AGREE_S` 1.0, no end window):
+
+    shifted noisy copy    passed offset=400.00s covers=400.0-1305.0s score=40.9 runner_up=3.7 windows=4/4
+    unrelated             rejected (score) offset=-84.04s covers=216.0-516.0s score=5.4 runner_up=4.3 windows=1/3
+    starts before clip    passed offset=-200.00s covers=100.0-905.0s score=44.8 runner_up=3.7 windows=3/3
+    cut                   rejected (conflict) offset=300.00s covers=300.0-1500.0s score=49.5 runner_up=13.3 windows=4/6
+    runs past clip        passed offset=1250.00s covers=1250.0-2000.0s score=39.4 runner_up=3.8 windows=3/3
+    step of 1.5 s         passed offset=400.00s covers=400.0-1603.4s score=27.0 runner_up=4.1 windows=5/5
+    step of 3 s           rejected (windows) offset=400.00s covers=400.0-1000.0s score=26.0 runner_up=4.2 windows=2/5
+
+    under the authored rule:
+    shifted noisy copy    passed offset=400.00s covers=400.0-1300.0s score=40.9 runner_up=3.7 windows=3/3
+    unrelated             rejected (score) offset=-84.04s covers=216.0-516.0s score=5.4 runner_up=4.3 windows=1/2
+    starts before clip    passed offset=-200.00s covers=100.0-700.0s score=44.8 runner_up=3.7 windows=2/2
+    cut                   rejected (conflict) offset=300.00s covers=300.0-1500.0s score=49.5 runner_up=13.3 windows=4/5
+    runs past clip        passed offset=1250.00s covers=1250.0-1850.0s score=39.4 runner_up=3.8 windows=2/2
+    step of 1.5 s         rejected (windows) offset=400.00s covers=400.0-1000.0s score=27.0 runner_up=4.1 windows=2/4
+    step of 3 s           rejected (windows) offset=400.00s covers=400.0-1000.0s score=26.0 runner_up=4.2 windows=2/4
+
+The module run as a module, on WAV files of the first two cases written to the session's scratch folder and deleted afterwards:
+
+    $ cd transcriber && ../venv/bin/python -m transcriber.align <scratch>/g.wav <scratch>/y.wav
+    passed offset=400.00s covers=400.0-1305.0s score=40.9 runner_up=3.7 windows=4/4
+    $ cd transcriber && ../venv/bin/python -m transcriber.align <scratch>/g.wav <scratch>/u.wav
+    rejected (score) offset=-84.04s covers=216.0-516.0s score=5.4 runner_up=4.3 windows=1/3
+    $ cd transcriber && ../venv/bin/python -m transcriber.align <scratch>/g.wav
+    usage: python -m transcriber.align <granicus.wav> <youtube.wav>          (exit 2)
+
+No line from real audio is recorded here: the spike's nine pairs were not rerun (Surprises & Discoveries and the Decision Log say why).
 
 ## Interfaces and Dependencies
 
@@ -713,6 +783,8 @@ In `transcriber/transcriber/align.py` (M1):
     def describe(m: Measurement) -> str                   # 'passed offset=635.48s covers=635.5-4078.7s score=23.6 runner_up=6.0 windows=10/12'
 
 (The example line is clip 2026's row of the revised table; as authored it read `covers=635.5-3935.5s` and `windows=9/11`.)
+
+As built in M1, for the sessions that call it. The method's constants are module-level names of `align` (`SR`, `HOP`, `WIN`, `FPS`, `BANDS`, `SMOOTH_S`, `HIGHPASS_S`, `WINDOW_S`, `LOCAL_SEARCH_S`, `AGREE_S`, `RUNNER_EXCLUDE_S`, `PASS_SCORE`, `PASS_MARGIN`, `PASS_WINDOW_SHARE`, `CONFLICT_SCORE`, `MIN_AUDIO_S`, and `ALIGN_METHOD_VERSION`), and `xcorr_z(a, b)` is public beside the functions above. `describe()` prints `rejected (<reason>) offset=...` for a rejected measurement and `covers=none` when no window was confirmed, so M3's log line is `measure meeting <id> clip <clip> video <video id>: ` followed by `describe()`'s text unchanged. `Measurement.offset_s`, `score`, and `runner_up` are always numbers, on a rejected measurement too; `granicus_start_s` and `granicus_end_s` are None exactly when `windows_confirmed` is 0. `Measurement` has no field for the number of conflict windows; a conflict shows only as the reason `conflict`. `read_wav` returns a read-only array of 16-bit samples, which `features` accepts as it is.
 
 In `transcriber/transcriber/db.py` (M2):
 
