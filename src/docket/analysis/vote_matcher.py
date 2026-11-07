@@ -2,8 +2,14 @@
 
 Timestamp matching (video OCR votes):
     Ported from al-municipal-meetings vote_matcher.py (by Brennan Holzer).
-    Uses bisect_right to find the nearest preceding agenda item by video
-    timestamp, with gap-based confidence scoring.
+    A video vote belongs to the item whose cue point (agenda_items
+    .video_timestamp_seconds) is the latest at or before the vote's second,
+    except that a vote within NEAR_CUE_S seconds of that cue is the close
+    of the previous item's roll call, read as the clerk advanced the player,
+    and goes to the latest item with a strictly earlier cue second (one
+    step; items sharing a cue second are skipped together; ties at a second
+    are ordered by item id). A vote before the first cue is skipped.
+    Confidence is scored from the gap to the item the vote is attached to.
 
 Text matching (minutes text votes):
     Three-tier heuristic matching using resolution numbers, item number
@@ -16,7 +22,8 @@ import logging
 import math
 import re
 import time
-from bisect import bisect_right
+from bisect import bisect_left, bisect_right
+from collections.abc import Sequence
 
 import psycopg2.extras
 
@@ -71,8 +78,35 @@ def _classify_vote(vote_row) -> str:
     return "substantive"
 
 
+NEAR_CUE_S: float = 15.0
+"""A video vote at most this many seconds after the latest cue point at or
+before it is treated as the close of the previous item's roll call, not
+the first act of the cued one; the value is the operator's, from the
+transcript sample recorded in plans/.../video-votes-land-on-the-item-voted.md."""
+
+
+def item_index_for_vote(item_timestamps: Sequence[float], vote_timestamp: float) -> int | None:
+    """Index into item_timestamps (sorted ascending, ties by item id) of the
+    item a video vote at vote_timestamp belongs to, or None.
+
+    The latest cue at or before the vote; when the vote is within NEAR_CUE_S
+    of it and an item with a strictly earlier cue second exists, the latest
+    such item instead. None when no cue is at or before the vote."""
+    idx = bisect_right(item_timestamps, vote_timestamp) - 1
+    if idx < 0:
+        return None
+    if vote_timestamp - item_timestamps[idx] <= NEAR_CUE_S:
+        earlier = bisect_left(item_timestamps, item_timestamps[idx]) - 1
+        if earlier >= 0:
+            return earlier
+    return idx
+
+
 def compute_confidence(gap_seconds: float, *, needs_review: bool = False) -> float:
-    """Confidence score based on time gap between vote and preceding agenda item.
+    """Confidence score from the gap between a vote's second and the cue point
+    of the item it is attached to (the item item_index_for_vote picks):
+    1.0 under 120 seconds, 0.8 under 600, 0.5 under 1800, 0.3 beyond,
+    halved when the vote needs review.
 
     Ported from al-municipal-meetings/src/muni/analysis/vote_matcher.py.
     """
@@ -133,7 +167,14 @@ def _upsert_link(
 
 
 def match_votes_by_timestamp(meeting_id: int) -> int:
-    """Match video OCR votes to agenda items by timestamp proximity.
+    """Attach each video OCR vote of the meeting that has no active link to
+    the item item_index_for_vote picks: the item whose cue point is the
+    latest at or before the vote's second, or, when the vote is within
+    NEAR_CUE_S seconds of that cue and an item with a strictly earlier cue
+    second exists, the latest such item (one step back; items sharing a cue
+    second are skipped together; items at one second are ordered by id). A
+    vote before the first cue is skipped. Confidence comes from the gap to
+    the attached item.
 
     Inserts to vote_agenda_items via _upsert_link.
     Returns number of votes matched.
@@ -144,7 +185,7 @@ def match_votes_by_timestamp(meeting_id: int) -> int:
             cur.execute(
                 """SELECT id, video_timestamp_seconds FROM agenda_items
                    WHERE meeting_id = %s AND video_timestamp_seconds IS NOT NULL
-                   ORDER BY video_timestamp_seconds""",
+                   ORDER BY video_timestamp_seconds, id""",
                 (meeting_id,),
             )
             items = cur.fetchall()
@@ -165,8 +206,8 @@ def match_votes_by_timestamp(meeting_id: int) -> int:
             votes = cur.fetchall()
             for vote in votes:
                 vt = vote["video_timestamp"]
-                idx = bisect_right(item_timestamps, vt) - 1
-                if idx < 0:
+                idx = item_index_for_vote(item_timestamps, vt)
+                if idx is None:
                     continue
                 gap = vt - item_timestamps[idx]
                 conf = compute_confidence(gap, needs_review=vote["needs_review"])

@@ -115,6 +115,23 @@ Granicus chapter ids on agenda items that were given their video timestamps befo
        AND a.item_number IS NOT NULL AND a.video_timestamp_seconds IS NOT NULL
        AND a.external_id !~ '^[0-9]+$';
 
+Video votes attached to the agenda item cued at their own second rather than the item whose roll call they close (GitHub issue #142; the rule is in `docs/specs/votes.md`, "How a video vote is attached to an agenda item") are moved with `scripts/rematch_near_cue_votes.py --city birmingham`, from a laptop with `DATABASE_URL` set to `DATABASE_PUBLIC_URL`. The matcher applies the rule to new meetings on its own once deployed and never changes a stored attachment, so the order is: the deploy first; then the count below, kept (it buckets the city's active video-vote attachments by the gap from the vote to its item's cue point; on 2026-11-07 it printed `0-10 s | 78 | 28`, `11-30 s | 2 | 2`, `31 s or more | 157 | 41`); then a `--dry-run`, every line of which is read and whose `cue_changed` count is noted (a link whose stored item is no longer the latest cue at or before its vote is listed as `left alone (cue changed)` and never moved by this script; the count is expected to be 0); then the same command without the flag, which prints the same lines and `<n> moves on <m> meetings written; 0 left alone (cue changed)`; then the count again, whose three bands sum to what they summed to before the write and whose near bands now hold only votes on a meeting's first cued item, any link pinned manual by hand, and votes whose earlier item is itself within 30 seconds of them (the sample marks such a block ` (earlier also near)`; the one step back leaves each near its new item, and its dry-run line gives the new gap); then a second `--dry-run`, which prints `0 moves on 0 meetings would be written; 0 left alone (cue changed)`. Each move's line prints the vote id, the old item with its cue and gap, and the new item with its cue, gap, and confidence; the write deactivates the old row and inserts or revives the new one in one transaction and deletes nothing, so the dry run's lines are what an undo is written from (one UPDATE reactivating the old pairs, one deactivating the new, under the rule below). A manual attachment (`is_manual`) is left alone on either side.
+
+    SELECT CASE WHEN v.video_timestamp - a.video_timestamp_seconds <= 10 THEN '0-10 s'
+                WHEN v.video_timestamp - a.video_timestamp_seconds <= 30 THEN '11-30 s'
+                ELSE '31 s or more' END AS gap,
+           count(*) AS votes, count(DISTINCT v.meeting_id) AS meetings
+      FROM vote_agenda_items vai
+      JOIN votes v ON v.id = vai.vote_id
+      JOIN agenda_items a ON a.id = vai.agenda_item_id
+      JOIN meetings m ON m.id = v.meeting_id
+      JOIN municipalities mu ON mu.id = m.municipality_id
+     WHERE mu.slug = 'birmingham'
+       AND vai.is_active AND vai.match_method = 'timestamp'
+       AND v.source = 'video_ocr' AND v.video_timestamp IS NOT NULL
+       AND a.video_timestamp_seconds IS NOT NULL
+     GROUP BY 1 ORDER BY 1;
+
 Bulk changes on production are one targeted SQL statement. The volume size is a constraint in `GOALS.md`; the incident behind the rule is decision `0026`.
 
 The Railway project also holds a second Postgres service, `Postgres-pKpA`; `D32` in `docs/DEBT.md` is the open question of what it is for.

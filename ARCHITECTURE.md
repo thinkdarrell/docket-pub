@@ -103,3 +103,4 @@ From outermost to innermost: entry points (`web/`, `worker/`, `ai/cli.py`, `enri
 - `src/docket/rosters/` is an empty leftover from an early layout; council rosters are stored by migration and resolved in `src/docket/analysis/ocr/rosters.py`. Deleting it is `D33` in `docs/DEBT.md`.
 - A few modules read `os.environ` for settings that belong in `src/docket/config.py`, contrary to the configuration invariant above. `D34` in `docs/DEBT.md` lists them.
 - `src/docket/worker/tasks.py` opens its own transactions in some task bodies, contrary to the services invariant above and the Worker rule. `D65` in `docs/DEBT.md` lists them and counts them.
+- `src/docket/analysis/vote_matcher.py` opens its own transactions in seven functions, contrary to the services invariant above. `D111` in `docs/DEBT.md` names them and their callers.
