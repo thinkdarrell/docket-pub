@@ -13,15 +13,25 @@ marked the item as beginning in the player. A timestamp link is a
 reports, for each active non-manual timestamp link of a city's video votes,
 the gap from the vote to its item's cue point and the latest item of the
 meeting with a strictly earlier cue second, which is the other item the
-vote could belong to (GitHub issue #142).
+vote could belong to (GitHub issue #142). The re-match computes, for each
+listed link, the item ``match_votes_by_timestamp`` would attach the vote to
+today (``item_index_for_vote``: the latest cue at or before the vote, or,
+within ``NEAR_CUE_S`` seconds of it, the latest item with a strictly
+earlier cue second) and moves only the links whose stored item differs:
+the old row is deactivated, never deleted, and the new one is upserted on
+the table's unique key ``(vote_id, agenda_item_id)``.
 """
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import date
 
-from docket.db import db_cursor
+from docket.analysis.vote_matcher import compute_confidence, item_index_for_vote
+from docket.db import db, db_cursor
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -155,3 +165,113 @@ def transcript_window(meeting_id: int, start_s: float, end_s: float) -> list[tup
         )
         rows = cur.fetchall()
     return [(row["start_s"], row["text"]) for row in rows]
+
+
+@dataclass(frozen=True)
+class Move:
+    link: TimestampLink
+    reason: str                    # 'near_cue' or 'cue_changed'
+    new_item_id: int | None        # None for cue_changed
+    new_item_number: str | None
+    new_cue: float | None
+    new_gap: float | None
+    new_confidence: float | None
+
+
+_DEACTIVATE_SQL = """
+    UPDATE vote_agenda_items
+       SET is_active = FALSE, updated_at = NOW()
+     WHERE id = ANY(%s) AND is_active AND is_manual = FALSE AND match_method = 'timestamp'
+"""
+
+_UPSERT_SQL = """
+    INSERT INTO vote_agenda_items
+        (vote_id, agenda_item_id, association_type, match_method, match_confidence, provisional)
+    SELECT * FROM unnest(%s::int[], %s::int[], %s::text[], %s::text[], %s::real[], %s::boolean[])
+    ON CONFLICT (vote_id, agenda_item_id) DO UPDATE
+      SET is_active = TRUE,
+          association_type = EXCLUDED.association_type,
+          match_method = EXCLUDED.match_method,
+          match_confidence = EXCLUDED.match_confidence,
+          provisional = EXCLUDED.provisional,
+          updated_at = NOW()
+    WHERE vote_agenda_items.is_manual = FALSE
+"""
+
+
+def rematch_near_cue_links(slug: str, *, dry_run: bool = False) -> list[Move]:
+    """Move the city's stored timestamp attachments to where the matcher's
+    rule now puts them, and return what was (or would be) done.
+
+    For every link ``list_timestamp_links`` returns, the meeting's cued
+    items (ordered by cue second, then id) are read once and
+    ``item_index_for_vote`` names the item the rule picks today. A link
+    whose stored item is that item, or shares its cue second with it (the
+    clerk clicked them as one; the gap and the confidence are the same),
+    is unchanged and not returned. A link whose stored item is no longer
+    the latest cue at or before the vote (``is_latest_cue`` False: cue
+    points changed after the vote was matched) is returned with reason
+    ``cue_changed`` and never written. Every other differing link is
+    returned with reason ``near_cue``, its new item, gap, and confidence.
+
+    Unless ``dry_run``, the ``near_cue`` moves are written in one
+    transaction with two statements: an UPDATE that deactivates the old
+    rows (only while still active, non-manual, and ``timestamp``) and an
+    INSERT ... ON CONFLICT that writes the new rows as ``explicit``,
+    ``timestamp``, ``provisional`` FALSE, reviving an inactive row for the
+    same vote and target when one exists and leaving a manual one alone.
+    Nothing is deleted. Returns the ``near_cue`` moves in listing order,
+    then the ``cue_changed`` ones. Raises ValueError for an unknown slug.
+    """
+    links = list_timestamp_links(slug)
+    by_meeting: dict[int, list[TimestampLink]] = {}
+    for link in links:
+        by_meeting.setdefault(link.meeting_id, []).append(link)
+
+    near_cue: list[Move] = []
+    cue_changed: list[Move] = []
+    with db_cursor() as cur:
+        for meeting_id, meeting_links in by_meeting.items():
+            cur.execute(
+                """SELECT id, item_number, video_timestamp_seconds AS cue
+                     FROM agenda_items
+                    WHERE meeting_id = %s AND video_timestamp_seconds IS NOT NULL
+                    ORDER BY video_timestamp_seconds, id""",
+                (meeting_id,),
+            )
+            items = cur.fetchall()
+            cues = [row["cue"] for row in items]
+            for link in meeting_links:
+                idx = item_index_for_vote(cues, link.vote_timestamp)
+                if idx is not None and cues[idx] == link.item_cue:
+                    continue
+                if not link.is_latest_cue or idx is None:
+                    cue_changed.append(Move(link, "cue_changed", None, None, None, None, None))
+                    continue
+                target = items[idx]
+                new_gap = link.vote_timestamp - target["cue"]
+                near_cue.append(Move(
+                    link, "near_cue", target["id"], target["item_number"], target["cue"],
+                    new_gap, compute_confidence(new_gap, needs_review=link.needs_review),
+                ))
+
+    if near_cue and not dry_run:
+        n = len(near_cue)
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute(_DEACTIVATE_SQL, ([m.link.link_id for m in near_cue],))
+                cur.execute(_UPSERT_SQL, (
+                    [m.link.vote_id for m in near_cue],
+                    [m.new_item_id for m in near_cue],
+                    ["explicit"] * n,
+                    ["timestamp"] * n,
+                    [m.new_confidence for m in near_cue],
+                    [False] * n,
+                ))
+
+    logger.info(
+        "vote_rematch: %d moves on %d meetings, %d left alone (cue changed)%s",
+        len(near_cue), len({m.link.meeting_id for m in near_cue}), len(cue_changed),
+        ", dry run" if dry_run else "",
+    )
+    return near_cue + cue_changed
