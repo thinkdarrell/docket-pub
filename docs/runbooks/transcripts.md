@@ -264,6 +264,27 @@ a hidden or otherwise ineligible meeting is `ineligible`. Replay is for checking
 GPU pass, so its inputs can in principle differ slightly from the ones behind the uploaded
 transcript (on 2543 they did not: the replay matched the upload row for row).
 
+## Measuring YouTube recordings (the backlog)
+
+An ordinary run measures up to 20 attached YouTube recordings against their
+Granicus clips before it transcribes (`transcriber/README.md`, "Measuring YouTube
+recordings"). To measure without transcribing, after any transcribing run has
+exited so two runs never download from YouTube at once:
+
+    docker compose run --rm transcriber --limit 0 --measure-limit 400 --max-hours 8
+
+Repeat until the `measure done` line says `remaining=0`; each run picks up where
+the last stopped. The cost is the downloads: about 30 MiB of YouTube audio per
+recording, and for a meeting whose audio is not in the archive the whole Granicus
+MP4 (`D110`). The run of 2026-11-06 measured 20 in under an hour.
+
+After a run, query 4 under "The operator's read-only queries" in
+`plans/completed/video-links-land-on-the-moment.md` lists what was stored. Read
+every `rejected` row and the lowest-scoring `passed` rows. On the 18 that passed
+first, the runner-up score was 3.3 to 6.0; a `rejected` row whose runner-up is
+near its score is a recording that matches at two offsets (`D98`), not a wrong
+match. The count of `rejected` rows by reason is the trigger of `D97` and `D98`.
+
 ## Checking progress from the laptop
 
 All read-only. The URL is the app's public proxy URL from Railway.
@@ -355,3 +376,30 @@ throwaway database it builds (`docs/specs/operations.md`).
   Deploy: migrations run at container start; 036 applies.
 - 2026-10: a `--meeting-id` re-run keeps the old transcript public until the new upload lands, a re-run that ends `failed` or `low_speech` restores the row, and the busy guard reads the worker's stamp alone (plan `rerun-keeps-transcript-public`).
 - 2026-10: a `--meeting-id` re-run of a row resting at `low_speech` keeps it hidden until the new upload lands (`claim_meeting()` clears `uploaded_at` for the run; plan `low-speech-rerun-stays-hidden`, decision `0050`).
+- 2026-11-06: timed video links went to production (pull request #141, merge
+  `9438243`; the row was `D94`). Deployed `docket-web` then `worker` from the WSL
+  checkout on the Legion; both reported `COMMIT_SHA` `94382431d0cb…`; migration
+  042 applied on start. The two `GRANT` statements for `meeting_videos` and
+  `meeting_video_alignments` run by the owner; `has_table_privilege(...,
+  'INSERT')` printed `t`. Query 6 printed `0 | 0 | 0`;
+  `scripts/correct_agenda_chapter_ids.py --city birmingham` dry run and write
+  both listed 24 meetings and 1,434 rows (8 WARNING lines naming 12 items with
+  no cue point, meetings 3186, 3184, 2536, 2387, 2364, 2351, 2249, 2237); the
+  count after the write printed `0 | 0`. The first transcriber run after the
+  deploy measured nothing: its heartbeat read `producer_version 0.4.0`, the
+  image from before the merge (the build had not taken); `docker compose build`
+  again (490 s), `python -c "import transcriber; print(transcriber.__version__)"`
+  in the image printed `0.5.0`, and `--limit 0 --measure-limit 20 --max-hours 3`
+  measured 20 recordings (2026-10-27 back to 2026-06-16) in under an hour:
+  18 `passed` (scores 12.3 to 152.5), 2 `rejected` (meeting 2387 `conflict`,
+  meeting 2373 `windows`; both with a runner-up near the score, `D98`), 0
+  `failed`, all at method version 2. Meeting 3184, clip 2026, `FR84h22hQvA`:
+  offset 635.48 s, covers 635.5 to 3,958.7 s, score 23.6, the README's example
+  line exactly. Clip 2017 (meeting 2609): offset 3,232.20 s, covers 3,472.2 to
+  5,033.2 s, as the row expected; clip 1831 was not among the 20 and waits for
+  the backlog, 339 remaining. In a browser, item 64 of meeting 3184 opened
+  `FR84h22hQvA` at `t=1620s` (27:00) on both of its "Watch this vote" links,
+  where the transcript has item 64 beginning; the vote shown there as prevailing
+  is item 3's, filed under item 64 by the vote matcher (issue #142, not a
+  video-links fault). The yt-dlp warning about a missing JavaScript runtime
+  printed once per download and stopped none (`D85`).
