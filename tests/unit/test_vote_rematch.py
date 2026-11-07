@@ -1,5 +1,6 @@
 """Tests for docket.services.vote_rematch: the listing of timestamp links
-with their gaps and candidate items, and the transcript window.
+with their gaps and candidate items, the transcript window, and the
+re-match that moves stored attachments to where the near-cue rule puts them.
 
 The fixture is meeting 3184 of issue #142 in miniature: items cued at 2085
 (number 63, the last consent item), 2145 (item 3), 2256 (items 64 and 65,
@@ -275,3 +276,157 @@ def test_unknown_city_raises():
     from docket.services.vote_rematch import list_timestamp_links
     with pytest.raises(ValueError, match="no-such-city"):
         list_timestamp_links("no-such-city")
+
+
+def _link(vote_id, item_id, *, method="timestamp", confidence=1.0, provisional=False,
+          is_manual=False, is_active=True):
+    """Insert one more link for an existing vote. Returns the link id."""
+    with db() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """INSERT INTO vote_agenda_items
+                       (vote_id, agenda_item_id, association_type, match_method,
+                        match_confidence, provisional, is_manual, is_active)
+                   VALUES (%s, %s, 'explicit', %s, %s, %s, %s, %s) RETURNING id""",
+                (vote_id, item_id, method, confidence, provisional, is_manual, is_active),
+            )
+            link_id = cur.fetchone()["id"]
+        conn.commit()
+    return link_id
+
+
+def _rows(vote_id):
+    """Every vote_agenda_items row of the vote, oldest id first."""
+    with db() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """SELECT id, agenda_item_id, association_type, match_method, match_confidence,
+                          provisional, is_manual, is_active, updated_at
+                     FROM vote_agenda_items WHERE vote_id = %s ORDER BY id""",
+                (vote_id,),
+            )
+            return cur.fetchall()
+
+
+def _moves(slug, meeting_id, **kwargs):
+    from docket.services.vote_rematch import rematch_near_cue_links
+    return [m for m in rematch_near_cue_links(slug, **kwargs) if m.link.meeting_id == meeting_id]
+
+
+def test_rematch_dry_run_lists_the_near_cue_move_and_writes_nothing(near_cue_meeting):
+    mid = near_cue_meeting["meeting_id"]
+    items = near_cue_meeting["items"]
+    vid = _vote(mid, 2256.0, link_to=items["64"])
+
+    moves = _moves("birmingham", mid, dry_run=True)
+
+    assert len(moves) == 1
+    move = moves[0]
+    assert move.reason == "near_cue"
+    assert move.link.vote_id == vid and move.link.item_id == items["64"]
+    assert move.new_item_id == items["3"]
+    assert move.new_item_number == "3"
+    assert move.new_cue == pytest.approx(2145.0)
+    assert move.new_gap == pytest.approx(111.0)
+    assert move.new_confidence == pytest.approx(1.0)
+    rows = _rows(vid)
+    assert len(rows) == 1
+    assert rows[0]["agenda_item_id"] == items["64"] and rows[0]["is_active"] is True
+
+
+def test_rematch_moves_the_near_cue_link_and_leaves_the_far_one(near_cue_meeting):
+    mid = near_cue_meeting["meeting_id"]
+    items = near_cue_meeting["items"]
+    near = _vote(mid, 2256.0, link_to=items["64"])
+    far = _vote(mid, 2300.0, link_to=items["64"])
+    (far_before,) = _rows(far)
+
+    moves = _moves("birmingham", mid)
+
+    assert [(m.reason, m.link.vote_id) for m in moves] == [("near_cue", near)]
+    old, new = _rows(near)
+    assert old["agenda_item_id"] == items["64"] and old["is_active"] is False
+    assert new["agenda_item_id"] == items["3"] and new["is_active"] is True
+    assert new["association_type"] == "explicit"
+    assert new["match_method"] == "timestamp"
+    assert new["match_confidence"] == pytest.approx(1.0)
+    assert new["provisional"] is False and new["is_manual"] is False
+    (far_after,) = _rows(far)
+    assert far_after == far_before
+
+
+def test_rematch_leaves_a_manual_link_alone(near_cue_meeting):
+    mid = near_cue_meeting["meeting_id"]
+    items = near_cue_meeting["items"]
+    vid = _vote(mid, 2256.0, link_to=items["64"], is_manual=True)
+
+    moves = _moves("birmingham", mid)
+
+    assert moves == []
+    (row,) = _rows(vid)
+    assert row["agenda_item_id"] == items["64"]
+    assert row["is_active"] is True and row["is_manual"] is True
+
+
+def test_rematch_second_run_moves_nothing(near_cue_meeting):
+    mid = near_cue_meeting["meeting_id"]
+    items = near_cue_meeting["items"]
+    vid = _vote(mid, 2256.0, link_to=items["64"])
+
+    first = _moves("birmingham", mid)
+    rows_after_first = _rows(vid)
+    second = _moves("birmingham", mid)
+
+    assert [m.reason for m in first] == ["near_cue"]
+    assert second == []
+    assert _rows(vid) == rows_after_first
+
+
+def test_rematch_reactivates_an_existing_tombstone_for_the_target(near_cue_meeting):
+    mid = near_cue_meeting["meeting_id"]
+    items = near_cue_meeting["items"]
+    vid = _vote(mid, 2256.0, link_to=items["64"])
+    ghost = _link(vid, items["3"], confidence=0.5, provisional=True, is_active=False)
+
+    moves = _moves("birmingham", mid)
+
+    assert [m.reason for m in moves] == ["near_cue"]
+    rows = _rows(vid)
+    assert len(rows) == 2
+    by_item = {r["agenda_item_id"]: r for r in rows}
+    assert by_item[items["64"]]["is_active"] is False
+    revived = by_item[items["3"]]
+    assert revived["id"] == ghost
+    assert revived["is_active"] is True
+    assert revived["match_confidence"] == pytest.approx(1.0)
+    assert revived["provisional"] is False
+    assert revived["match_method"] == "timestamp" and revived["association_type"] == "explicit"
+
+
+def test_rematch_lists_a_cue_changed_link_and_does_not_move_it(near_cue_meeting):
+    mid = near_cue_meeting["meeting_id"]
+    items = near_cue_meeting["items"]
+    vid = _vote(mid, 2300.0, link_to=items["3"])
+
+    moves = _moves("birmingham", mid)
+
+    assert len(moves) == 1
+    move = moves[0]
+    assert move.reason == "cue_changed"
+    assert move.link.vote_id == vid and move.link.is_latest_cue is False
+    assert (move.new_item_id, move.new_item_number, move.new_cue, move.new_gap,
+            move.new_confidence) == (None, None, None, None, None)
+    (row,) = _rows(vid)
+    assert row["agenda_item_id"] == items["3"] and row["is_active"] is True
+
+
+def test_rematch_leaves_a_near_cue_vote_on_the_first_cued_item(near_cue_meeting):
+    mid = near_cue_meeting["meeting_id"]
+    items = near_cue_meeting["items"]
+    vid = _vote(mid, 2086.0, link_to=items["63"])
+
+    moves = _moves("birmingham", mid)
+
+    assert moves == []
+    (row,) = _rows(vid)
+    assert row["agenda_item_id"] == items["63"] and row["is_active"] is True
