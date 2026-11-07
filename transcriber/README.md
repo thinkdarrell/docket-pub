@@ -156,8 +156,10 @@ tried again once the row is a week old. `remaining` is how many recordings still
 wait.
 
 `--measure-limit N` (env `TRANSCRIBER_MEASURE_LIMIT`, default 20) is the most
-recordings one run measures (roughly a minute each is the estimate; no real run
-had been timed when this was written); `0` turns the measuring off.
+recordings one run measures (the first production run, 2026-11-06, measured
+20 in under an hour, the first three in about a minute each; one whose Granicus
+audio is not in the archive takes as long as that download); `0` turns the
+measuring off.
 `--max-hours` and Ctrl-C cover the measuring and the transcribing as one run:
 Ctrl-C finishes the recording in hand, and the run then loads the model, claims
 nothing, and exits. Three failed fetches in a row end the measuring for that run
