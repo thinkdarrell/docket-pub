@@ -316,22 +316,42 @@ def _moves(slug, meeting_id, **kwargs):
 def test_rematch_dry_run_lists_the_near_cue_move_and_writes_nothing(near_cue_meeting):
     mid = near_cue_meeting["meeting_id"]
     items = near_cue_meeting["items"]
+    # An item cued between 63 and 3 but inserted last, so the meeting's items
+    # are not in cue order on the heap and the rule depends on its ORDER BY.
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO agenda_items (meeting_id, title, item_number, is_consent,
+                                             video_timestamp_seconds)
+                   VALUES (%s, 'A Resolution read between the two', '2', FALSE, 2100.0)""",
+                (mid,),
+            )
+        conn.commit()
+    # Listed first by time, returned last: its stored item 63 is no longer the
+    # latest cue at or before it (item 3 at 2145 is), so it is left alone.
+    stale = _vote(mid, 2146.0, link_to=items["63"])
     vid = _vote(mid, 2256.0, link_to=items["64"])
+    flagged = _vote(mid, 2257.0, link_to=items["64"], needs_review=True)
 
     moves = _moves("birmingham", mid, dry_run=True)
 
-    assert len(moves) == 1
+    assert [(m.reason, m.link.vote_id) for m in moves] == [
+        ("near_cue", vid), ("near_cue", flagged), ("cue_changed", stale),
+    ]
     move = moves[0]
-    assert move.reason == "near_cue"
-    assert move.link.vote_id == vid and move.link.item_id == items["64"]
-    assert move.new_item_id == items["3"]
+    assert move.link.item_id == items["64"]
+    assert move.new_item_id == items["3"] == move.link.earlier_item_id
     assert move.new_item_number == "3"
     assert move.new_cue == pytest.approx(2145.0)
     assert move.new_gap == pytest.approx(111.0)
     assert move.new_confidence == pytest.approx(1.0)
-    rows = _rows(vid)
-    assert len(rows) == 1
-    assert rows[0]["agenda_item_id"] == items["64"] and rows[0]["is_active"] is True
+    # A flagged vote's confidence is halved, as the matcher halves it.
+    assert moves[1].new_item_id == items["3"]
+    assert moves[1].new_gap == pytest.approx(112.0)
+    assert moves[1].new_confidence == pytest.approx(0.5)
+    for v, item in ((vid, items["64"]), (flagged, items["64"]), (stale, items["63"])):
+        (row,) = _rows(v)
+        assert row["agenda_item_id"] == item and row["is_active"] is True
 
 
 def test_rematch_moves_the_near_cue_link_and_leaves_the_far_one(near_cue_meeting):
@@ -339,6 +359,7 @@ def test_rematch_moves_the_near_cue_link_and_leaves_the_far_one(near_cue_meeting
     items = near_cue_meeting["items"]
     near = _vote(mid, 2256.0, link_to=items["64"])
     far = _vote(mid, 2300.0, link_to=items["64"])
+    (near_before,) = _rows(near)
     (far_before,) = _rows(far)
 
     moves = _moves("birmingham", mid)
@@ -346,6 +367,7 @@ def test_rematch_moves_the_near_cue_link_and_leaves_the_far_one(near_cue_meeting
     assert [(m.reason, m.link.vote_id) for m in moves] == [("near_cue", near)]
     old, new = _rows(near)
     assert old["agenda_item_id"] == items["64"] and old["is_active"] is False
+    assert old["updated_at"] > near_before["updated_at"]
     assert new["agenda_item_id"] == items["3"] and new["is_active"] is True
     assert new["association_type"] == "explicit"
     assert new["match_method"] == "timestamp"
@@ -359,13 +381,22 @@ def test_rematch_leaves_a_manual_link_alone(near_cue_meeting):
     mid = near_cue_meeting["meeting_id"]
     items = near_cue_meeting["items"]
     vid = _vote(mid, 2256.0, link_to=items["64"], is_manual=True)
+    # A second near-cue vote whose target already holds a manual tombstone: a
+    # human said "not item 3", so the upsert leaves that row as it is and the
+    # vote ends with no active link rather than one a human ruled out.
+    other = _vote(mid, 2257.0, link_to=items["64"])
+    _link(other, items["3"], confidence=0.5, is_manual=True, is_active=False)
+    (_, tombstone_before) = _rows(other)
 
     moves = _moves("birmingham", mid)
 
-    assert moves == []
+    assert [(m.reason, m.link.vote_id) for m in moves] == [("near_cue", other)]
     (row,) = _rows(vid)
     assert row["agenda_item_id"] == items["64"]
     assert row["is_active"] is True and row["is_manual"] is True
+    old, tombstone = _rows(other)
+    assert old["agenda_item_id"] == items["64"] and old["is_active"] is False
+    assert tombstone == tombstone_before
 
 
 def test_rematch_second_run_moves_nothing(near_cue_meeting):
