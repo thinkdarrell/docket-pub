@@ -895,12 +895,21 @@ def test_video_vote_at_the_next_items_cue_second_attaches_to_the_earlier_item(cu
 
 
 def test_video_vote_a_few_seconds_after_a_cue_attaches_to_the_earlier_item(cued_meeting):
-    from docket.analysis.vote_matcher import NEAR_CUE_S
+    from docket.analysis.vote_matcher import NEAR_CUE_S, compute_confidence
     items = cued_meeting["items"]
     _vid, _result, link = _match_video_vote(cued_meeting["meeting_id"], 2256.0 + NEAR_CUE_S / 2)
 
     assert link is not None
     assert link["agenda_item_id"] == items["3"]
+
+    # The confidence is scored from the gap to item 3 (cue 2145), the item
+    # the vote is attached to, not from the few seconds to the cue stepped
+    # past; at NEAR_CUE_S of 15 this vote's gap to item 3 is 123 s, so 0.8.
+    at = 2256.0 + NEAR_CUE_S * 0.8
+    _vid2, _result2, link2 = _match_video_vote(cued_meeting["meeting_id"], at)
+    assert link2 is not None
+    assert link2["agenda_item_id"] == items["3"]
+    assert link2["match_confidence"] == pytest.approx(compute_confidence(at - 2145.0))
 
 
 def test_video_vote_well_after_a_cue_stays_with_that_cues_item(cued_meeting):
@@ -922,10 +931,14 @@ def test_video_vote_just_past_the_threshold_stays_with_that_cues_item(cued_meeti
 
 def test_first_cued_item_keeps_a_vote_at_its_own_cue(cued_meeting):
     items = cued_meeting["items"]
-    _vid, _result, link = _match_video_vote(cued_meeting["meeting_id"], 2085.0)
+    before_first_cue = _insert_video_vote(cued_meeting["meeting_id"], 2084.0)
+    _vid, result, link = _match_video_vote(cued_meeting["meeting_id"], 2085.0)
 
     assert link is not None
     assert link["agenda_item_id"] == items["63"]
+    # The vote one second before the first cue is skipped, not counted.
+    assert result["timestamp_matched"] == 1
+    assert _active_links(before_first_cue) == []
 
 
 def test_items_sharing_a_cue_second_are_skipped_together(cued_meeting):
@@ -979,6 +992,7 @@ def test_item_index_for_vote_table():
     assert item_index_for_vote(ts, 2085.0) == 0
     assert item_index_for_vote(ts, 2256.0) == 1
     assert item_index_for_vote(ts, 2257.0) == 1
+    assert item_index_for_vote(ts, 2256.0 + NEAR_CUE_S) == 1  # at the threshold, still near
     assert item_index_for_vote(ts, 2256.0 + NEAR_CUE_S + 0.5) == 3
     assert item_index_for_vote(ts, 2300.0) == 3
     assert item_index_for_vote(ts, 2085.0 + NEAR_CUE_S / 2) == 0
