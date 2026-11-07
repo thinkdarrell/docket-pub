@@ -16,7 +16,7 @@ The timed video links (the "Watch this vote on YouTube" link itself, `src/docket
 
 Four milestones, each one session, with one operator step between the first and the second that no factory session can take. The plan is run as `/cycle-run plans/active/video-votes-land-on-the-item-voted.md 1` first, which executes M1 and returns `advanced`; then the operator takes the step named "The operator's sample" under Validation and Acceptance, commits the Decision Log entry it produces, and runs `/cycle-run plans/active/video-votes-land-on-the-item-voted.md` for the rest. A completed entry is written as `- [x] (YYYY-MM-DD HH:MMZ) <text>` with the time the work was observed, never an estimate, and an entry's text is never reworded once written (decision `0037`; the judge in `docs/capabilities/judge-milestone.md` identifies entries by their text).
 
-- [ ] M1: `src/docket/services/vote_rematch.py` lists every active timestamp attachment of a video vote with its gap to its item's cue point and the latest earlier-cued item of the meeting, reads the transcript words around a second, and `scripts/sample_near_cue_votes.py` prints the near-cue votes with their words for the operator's reading; `tests/unit/test_vote_rematch.py` proves the listing and the window on seeded rows and fails before the module exists.
+- [x] (2026-11-07 04:46Z) M1: `src/docket/services/vote_rematch.py` lists every active timestamp attachment of a video vote with its gap to its item's cue point and the latest earlier-cued item of the meeting, reads the transcript words around a second, and `scripts/sample_near_cue_votes.py` prints the near-cue votes with their words for the operator's reading; `tests/unit/test_vote_rematch.py` proves the listing and the window on seeded rows and fails before the module exists.
 - [ ] M2: `match_votes_by_timestamp` attaches a video vote that lands within `NEAR_CUE_S` of an item's cue point to the latest item with an earlier cue second, or leaves it unattached when the operator's Decision Log entry chose that variant, and scores the gap from the item it attaches to; the new tests in `tests/unit/test_vote_matcher.py` fail before the change and pass after, and the pins on the rest of the rule pass before and after.
 - [ ] M3: `vote_rematch.rematch_near_cue_links` moves the stored attachments the new rule would place elsewhere, one UPDATE and one INSERT in one transaction, never deleting a row or touching a manual one, and `scripts/rematch_near_cue_votes.py` prints one line per move and the totals, writes nothing under `--dry-run`, and prints zero moves when run again; proved on seeded rows.
 - [ ] M4: the close: `docs/specs/votes.md` states how a video vote is attached to an item, `docs/specs/operations.md` the order the re-match is run in with its count, `docs/specs/index.md` lists both, the rule's decision is in `docs/decisions/`, and `docs/DEBT.md` carries the operator's after-merge steps, the re-deferred `D26`, the narrowed `D9`, and the matcher's own-transaction row.
@@ -33,6 +33,15 @@ Nothing has been executed yet. The observations made while authoring are under "
 
 - Observation: with `src/docket/services/vote_rematch.py` and `scripts/sample_near_cue_votes.py` in place, the nine tests printed `9 passed, 1 warning in 0.28s`; `venv/bin/python scripts/sample_near_cue_votes.py --help` printed `usage: sample_near_cue_votes.py [-h] --city CITY [--within WITHIN] [--before BEFORE] [--after AFTER]`; against the throwaway database `--city birmingham` printed `0 votes within 30.0s of their item's cue point on 0 meetings; 0 with a transcript` and exited 0, and `--city nowhere` printed `Municipality 'nowhere' not found` to stderr and exited 1 (2026-11-07 04:40Z).
   Evidence: the three commands of M1's acceptance, run in this worktree with `DATABASE_URL=$(tools/test-db)` and dropped after.
+
+- Observation: the removal check the execution procedure asks for (each rule of `list_timestamp_links` and `transcript_window` taken out of an in-memory copy of the module, one at a time, the nine tests run against each copy through a scratch pytest plugin; the committed file untouched) tried 24 removals. Against the tests as first committed, 14 failed a test and 10 survived: the `match_method = 'timestamp'`, `source = 'video_ocr'`, `video_timestamp IS NOT NULL`, and item-cue `IS NOT NULL` filters (the one minutes vote of `test_manual_inactive_and_non_timestamp_links_are_not_listed` was excluded by two filters at once, so neither alone was pinned); the earlier item's tie by highest id (the fixture has no item after the shared second); the `COALESCE(..., FALSE)` on `is_latest_cue` (no vote before every cue); `is_active` in the attached item's count and `source` in the earlier item's count (the inactive link sat on the earlier item and the minutes vote on the attached one); the municipality filter (every test filtered by meeting id); and the window's `end_s > start` clause (no segment ended before the window). The listing's `ORDER BY` was caught in the first run and survived the second: heap order had matched by chance. Assertions were added inside the plan-named tests after the failing-first commit `9723ad1` (in `test_lists_...`, `test_counts_...`, `test_earlier_item_...`, `test_within_filters_by_gap`, `test_manual_inactive_...`, `test_is_latest_cue_...`, and `test_transcript_window_...`), and the third run printed `24 of 24 removals failed a test`.
+  Evidence: the scratch runner at the session scratchpad `mut/run.py`; runs at 2026-11-07 04:41Z (`14 of 24`), 04:42Z (`23 of 24`, `SURVIVED drop listing ORDER BY`), and 04:43Z (`24 of 24`), each with `9 passed` on the unmutated module first.
+
+- Observation: on the fixture's rows seeded by hand into the throwaway database (votes at 2138.5 on item 63, 2256 and 2325.5 on item 64, 2257 flagged on item 65, and four transcript segments), `scripts/sample_near_cue_votes.py --city birmingham --within 30` printed two blocks and `2 votes within 30.0s of their item's cue point on 1 meetings; 2 with a transcript`; the first block is in Artifacts and Notes. With `--before 60` the window began at 2196 and the segment that names item 3 (at 2145) fell outside it, which is the case the Decision Log's 120-second default was chosen for.
+  Evidence: 2026-11-07 04:44Z, the two commands above with `DATABASE_URL=$(tools/test-db)`, dropped after.
+
+- Observation: M1's end-of-milestone `./tools/verify` (2026-11-07 04:46Z, on the tree as committed) printed `verify: all 6 checks passed in 129s.` with `2276 passed, 5 skipped, 4 xfailed, 2 warnings in 62.17s` (2267 plus the 9 new tests, as the acceptance states), `715 passed, 2 warnings in 55.39s`, `judge fixtures: 12 of 12 passed`, `workflows: 2 of 2 ok`, `127 passed, 1 warning in 8.25s`, and `plans: 2 of 2 ok`. Every acceptance clause of M1 was run and met, with one difference in the before state (recorded above and in the Decision Log): `9 failed` with `ModuleNotFoundError` rather than `1 error at collection`. The branch's code diff against `origin/main` is `3 files changed, 537 insertions(+)` under `src`, `tests`, and `scripts`.
+  Evidence: the log at the session's scratchpad `verify-end.log`; `git diff --stat origin/main -- src tests scripts | tail -1`.
 
 ## Decision Log
 
@@ -70,6 +79,10 @@ Nothing has been executed yet. The observations made while authoring are under "
 
 - Decision: M1's nine tests import `docket.services.vote_rematch` inside each test function, so the committed before state is `9 failed` with `ModuleNotFoundError` rather than the one collection error the acceptance names; the acceptance's `9 passed` after the change is unchanged.
   Rationale: `skills/plan-execute/SKILL.md` asks that a test of a symbol that does not exist yet import it inside the test function so the file still collects; the plan's own M2 tests follow the same rule. The before state is a stronger reading of the same fact (nine named tests, each failing for the module's absence) and is committed on its own before the module, as the procedure asks.
+  Date/Author: 2026-11-07, M1 session (Claude).
+
+- Decision: three details of the sample's output that M1's text left open were resolved in the script as follows: the ` (cue changed since matching)` marker goes at the end of the attached line, after the title, rather than inside the parenthesis after the gap; the totals line's `<t> with a transcript` counts votes (blocks that printed words), not meetings; and the `--within` filter is applied in SQL as `gap <= within_s`, so a vote on the first cued item is listed with `earlier:  none` rather than dropped.
+  Rationale: the marker inside the parenthesis would nest parentheses and break the `gap <g>s, <n> video votes)` shape the operator scans; the plan's own reading threshold ("fewer than, say, five blocks with words") is counted in blocks, so the count that helps is of votes; and a first-item vote is one the after-merge step 4 subtracts from the move count, so the operator needs to see how many there are.
   Date/Author: 2026-11-07, M1 session (Claude).
 
 ## Outcomes & Retrospective
@@ -222,6 +235,16 @@ Nothing in M1 writes. The matcher change in M2 affects only votes with no active
      GROUP BY 1 ORDER BY 1;
 
 Expected before the re-match (from the issue's comment, 2026-11-07 00:35 UTC, which bucketed the same way): `0-10 s` 78 votes, `11-30 s` 2, `31 s or more` 157; the issue's finer table gave 26 votes at 0 to 2 seconds, 32 at 3 to 5, and 20 at 6 to 10. The seconds are REAL on both sides (the votes of meeting 3184 are at 2138.5, 2256, and 2325.5), so a gap of 10.5 falls in the second band; if the operator's run prints 77 and 3, that is the reason and not a surprise.
+
+### One block of the sample script, on the fixture's rows (M1, throwaway database)
+
+    vote 2  meeting 1 2099-01-03  at 2256.0s  passed 9-0
+      attached: item 64 (id 3, cue 2256.0s, gap 0.0s, 2 video votes)  A Resolution setting a public hearing November 24, 2026
+      earlier:  item 3 (id 2, cue 2145.0s, gap 111.0s, 0 video votes)  An Ordinance approving an interlocal agreement with Adamsville
+      words 2136.0-2271.0s:
+        [2145.0] Item three. An ordinance approving an interlocal agreement with Adamsville.
+        [2191.0] Roll call. That vote is unanimous. Item three passes. Next item.
+        [2260.0] Should be at 64. A resolution setting a public hearing.
 
 ### Meeting 3184 as the worked example
 
