@@ -788,3 +788,197 @@ def test_strict_reparse_inserts_missing_enumerated_link(consent_block_meeting):
     assert row["match_confidence"] == pytest.approx(1.0)
     assert row["provisional"] is False
     assert row["is_active"] is True
+
+
+# --- Near-cue rule (plan video-votes-land-on-the-item-voted, M2) ---------------
+
+
+@pytest.fixture
+def cued_meeting():
+    """Insert a meeting with four cued items (63 at 2085, 3 at 2145, 64 and 65
+    both at 2256) under the municipality with slug 'birmingham'; yield the
+    ids; delete the meeting on teardown (the cascade removes items, votes,
+    and links). Sweeps any earlier TEST_CUED meeting on entry."""
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM meetings WHERE title = 'TEST_CUED' AND meeting_date = '2099-01-04'"
+            )
+        conn.commit()
+
+    items: dict[str, int] = {}
+    with db() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """INSERT INTO meetings (municipality_id, title, meeting_date, meeting_type)
+                   SELECT id, 'TEST_CUED', '2099-01-04', 'council'
+                   FROM municipalities WHERE slug = 'birmingham'
+                   RETURNING id""",
+            )
+            mid = cur.fetchone()["id"]
+            for number, cue, title in (
+                ("63", 2085.0, "A Resolution authorizing the Mayor to execute a consent item"),
+                ("3", 2145.0, "An Ordinance approving an interlocal agreement with Adamsville"),
+                ("64", 2256.0, "A Resolution setting a public hearing November 24, 2026"),
+                ("65", 2256.0, "A Resolution setting a public hearing December 1, 2026"),
+            ):
+                cur.execute(
+                    """INSERT INTO agenda_items (meeting_id, title, item_number, is_consent,
+                                                 video_timestamp_seconds)
+                       VALUES (%s, %s, %s, FALSE, %s) RETURNING id""",
+                    (mid, title, number, cue),
+                )
+                items[number] = cur.fetchone()["id"]
+        conn.commit()
+
+    yield {"meeting_id": mid, "items": items, "cue_of": {v: k for k, v in items.items()}}
+
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM meetings WHERE id = %s", (mid,))
+        conn.commit()
+
+
+def _insert_video_vote(meeting_id: int, at: float) -> int:
+    """Insert a 9-0 passed video_ocr vote at second `at`; return its id."""
+    with db() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """INSERT INTO votes (meeting_id, source, result, yeas, nays, abstentions,
+                                      confidence, needs_review, video_timestamp)
+                   VALUES (%s, 'video_ocr', 'passed', 9, 0, 0, 'high', FALSE, %s)
+                   RETURNING id""",
+                (meeting_id, at),
+            )
+            vid = cur.fetchone()["id"]
+        conn.commit()
+    return vid
+
+
+def _active_links(vote_id: int) -> list[dict]:
+    from docket.db import db_cursor
+    with db_cursor() as cur:
+        cur.execute(
+            """SELECT vai.agenda_item_id, vai.match_method, vai.match_confidence,
+                      vai.is_manual, a.video_timestamp_seconds AS cue
+                 FROM vote_agenda_items vai
+                 JOIN agenda_items a ON a.id = vai.agenda_item_id
+                WHERE vai.vote_id = %s AND vai.is_active
+                ORDER BY vai.id""",
+            (vote_id,),
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+
+def _match_video_vote(meeting_id: int, at: float) -> tuple[int, dict, dict | None]:
+    """Insert a video_ocr vote at `at`, run match_votes_for_meeting, and return
+    (vote id, the matcher's result, the vote's one active link or None)."""
+    from docket.analysis.vote_matcher import match_votes_for_meeting
+    vid = _insert_video_vote(meeting_id, at)
+    result = match_votes_for_meeting(meeting_id)
+    links = _active_links(vid)
+    assert len(links) <= 1
+    return vid, result, (links[0] if links else None)
+
+
+def test_video_vote_at_the_next_items_cue_second_attaches_to_the_earlier_item(cued_meeting):
+    """Vote 12396 of meeting 3184: the display read at item 64's cue second
+    closes item 3's roll call (issue #142)."""
+    items = cued_meeting["items"]
+    _vid, result, link = _match_video_vote(cued_meeting["meeting_id"], 2256.0)
+
+    assert result["timestamp_matched"] == 1
+    assert link is not None
+    assert link["agenda_item_id"] == items["3"]
+    assert link["match_method"] == "timestamp"
+    assert link["match_confidence"] == pytest.approx(1.0)
+
+
+def test_video_vote_a_few_seconds_after_a_cue_attaches_to_the_earlier_item(cued_meeting):
+    from docket.analysis.vote_matcher import NEAR_CUE_S
+    items = cued_meeting["items"]
+    _vid, _result, link = _match_video_vote(cued_meeting["meeting_id"], 2256.0 + NEAR_CUE_S / 2)
+
+    assert link is not None
+    assert link["agenda_item_id"] == items["3"]
+
+
+def test_video_vote_well_after_a_cue_stays_with_that_cues_item(cued_meeting):
+    _vid, _result, link = _match_video_vote(cued_meeting["meeting_id"], 2300.0)
+
+    assert link is not None
+    assert link["cue"] == pytest.approx(2256.0)
+    assert link["agenda_item_id"] in (cued_meeting["items"]["64"], cued_meeting["items"]["65"])
+    assert link["match_confidence"] == pytest.approx(1.0)
+
+
+def test_video_vote_just_past_the_threshold_stays_with_that_cues_item(cued_meeting):
+    from docket.analysis.vote_matcher import NEAR_CUE_S
+    _vid, _result, link = _match_video_vote(cued_meeting["meeting_id"], 2256.0 + NEAR_CUE_S + 0.5)
+
+    assert link is not None
+    assert link["cue"] == pytest.approx(2256.0)
+
+
+def test_first_cued_item_keeps_a_vote_at_its_own_cue(cued_meeting):
+    items = cued_meeting["items"]
+    _vid, _result, link = _match_video_vote(cued_meeting["meeting_id"], 2085.0)
+
+    assert link is not None
+    assert link["agenda_item_id"] == items["63"]
+
+
+def test_items_sharing_a_cue_second_are_skipped_together(cued_meeting):
+    """Items 64 and 65 share the second 2256 (one click); the step back from a
+    vote at 2257 goes past both to item 3."""
+    items = cued_meeting["items"]
+    _vid, _result, link = _match_video_vote(cued_meeting["meeting_id"], 2257.0)
+
+    assert link is not None
+    assert link["agenda_item_id"] == items["3"]
+
+
+def test_near_cue_rule_leaves_a_manual_link_alone(cued_meeting):
+    from docket.analysis.vote_matcher import match_votes_for_meeting
+    items = cued_meeting["items"]
+    vid = _insert_video_vote(cued_meeting["meeting_id"], 2256.0)
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO vote_agenda_items
+                       (vote_id, agenda_item_id, association_type, match_method,
+                        match_confidence, provisional, is_manual, is_active)
+                   VALUES (%s, %s, 'explicit', 'timestamp', 1.0, FALSE, TRUE, TRUE)""",
+                (vid, items["64"]),
+            )
+        conn.commit()
+
+    result = match_votes_for_meeting(cued_meeting["meeting_id"])
+
+    assert result["timestamp_matched"] == 0
+    from docket.db import db_cursor
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT agenda_item_id, is_manual, is_active FROM vote_agenda_items WHERE vote_id = %s",
+            (vid,),
+        )
+        rows = cur.fetchall()
+    assert len(rows) == 1
+    assert rows[0]["agenda_item_id"] == items["64"]
+    assert rows[0]["is_manual"] is True
+    assert rows[0]["is_active"] is True
+
+
+def test_item_index_for_vote_table():
+    """Pure: the index the rule picks over [2085, 2145, 2256, 2256]; every
+    case holds at NEAR_CUE_S of 10 and of 30."""
+    from docket.analysis.vote_matcher import NEAR_CUE_S, item_index_for_vote
+    ts = [2085.0, 2145.0, 2256.0, 2256.0]
+
+    assert item_index_for_vote(ts, 2084.0) is None
+    assert item_index_for_vote(ts, 2085.0) == 0
+    assert item_index_for_vote(ts, 2256.0) == 1
+    assert item_index_for_vote(ts, 2257.0) == 1
+    assert item_index_for_vote(ts, 2256.0 + NEAR_CUE_S + 0.5) == 3
+    assert item_index_for_vote(ts, 2300.0) == 3
+    assert item_index_for_vote(ts, 2085.0 + NEAR_CUE_S / 2) == 0
