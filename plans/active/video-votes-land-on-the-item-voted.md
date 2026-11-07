@@ -31,6 +31,9 @@ Nothing has been executed yet. The observations made while authoring are under "
 - Observation: the before state of `tests/unit/test_vote_rematch.py` reads `9 failed, 1 warning in 0.20s`, every failure `E       ModuleNotFoundError: No module named 'docket.services.vote_rematch'`, not the `1 error at collection` M1's acceptance predicted, because each test imports the module inside its own body (the procedure in `skills/plan-execute/SKILL.md` asks for that so a missing symbol fails tests one by one instead of hiding the file).
   Evidence: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_vote_rematch.py -q -p no:cacheprovider; tools/test-db --drop` at 2026-11-07 04:39Z, with `grep -E "^E  " | sort | uniq -c` printing `9 E       ModuleNotFoundError: No module named 'docket.services.vote_rematch'`.
 
+- Observation: with `src/docket/services/vote_rematch.py` and `scripts/sample_near_cue_votes.py` in place, the nine tests printed `9 passed, 1 warning in 0.28s`; `venv/bin/python scripts/sample_near_cue_votes.py --help` printed `usage: sample_near_cue_votes.py [-h] --city CITY [--within WITHIN] [--before BEFORE] [--after AFTER]`; against the throwaway database `--city birmingham` printed `0 votes within 30.0s of their item's cue point on 0 meetings; 0 with a transcript` and exited 0, and `--city nowhere` printed `Municipality 'nowhere' not found` to stderr and exited 1 (2026-11-07 04:40Z).
+  Evidence: the three commands of M1's acceptance, run in this worktree with `DATABASE_URL=$(tools/test-db)` and dropped after.
+
 ## Decision Log
 
 - Decision: the rule is settled by an operator's reading of transcripts before the code milestone, and the plan is cut so that M1 equips that reading (a read-only listing with the transcript words), the operator's verdicts and threshold go in this log, and M2 reads them from here.
