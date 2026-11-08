@@ -162,6 +162,15 @@ constrains:
    layouts to be created, formats to conform to, identifiers already spent,
    and the reasoning behind each one. A fresh session re-derives none of this
    and will invent a second convention beside yours.
+   A decision number or a debt id is not an identifier a plan spends: the
+   plan states the rule the graduating session applies (the lowest number
+   above every one spent on `origin/main` and on any open pull request at
+   that moment, `D70`), never the figure. `meeting-types-name-the-body`
+   named `0067` to `0069` for its closing milestone and `0067` and `D76` as
+   the next free numbers in Context, then sat open while four other plans
+   merged; the figure went stale three times, each a Decision Log correction
+   by a doc-garden pass, and the closing session graduated under `0084` to
+   `0086`.
 7. Initialize the living sections to the true current state. Nothing has been
    executed, so nothing is checked off and no evidence exists; the authoring
    decisions themselves, however, are decisions, and they belong in the log
