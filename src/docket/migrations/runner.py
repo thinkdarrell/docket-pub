@@ -51,6 +51,7 @@ MIGRATIONS = [
     "docket.migrations.038_meeting_types",
     "docket.migrations.040_youtube_recordings",
     "docket.migrations.041_search_cards",
+    "docket.migrations.042_meeting_video_alignments",
 ]
 
 

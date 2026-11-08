@@ -144,3 +144,27 @@ def test_source_for_without_yt_dlp_is_an_audio_fetch_error(monkeypatch, tmp_path
     monkeypatch.setitem(sys.modules, "yt_dlp", None)     # import yt_dlp now raises ImportError
     with pytest.raises(AudioFetchError, match="rebuild"):
         source_for("yt-abc", tmp_path)
+
+
+# --- the measuring pass's fetches (plan video-links-land-on-the-moment M3) ---
+
+def test_fetch_audio_rate_is_ffmpegs_ar(tmp_path):
+    run = _FakeRun([(0, "")])
+    fetch_audio("/work/yt-abc.webm", tmp_path / "align-yt-abc.wav", rate=8000, runner=run)
+    cmd = run.calls[0]
+    assert cmd[cmd.index("-ar") + 1] == "8000"
+    assert cmd.count("-ar") == 1 and "16000" not in cmd
+    assert cmd[cmd.index("-ac") + 1] == "1" and cmd[cmd.index("-c:a") + 1] == "pcm_s16le"
+
+
+def test_ytdlp_options_takes_the_audio_format_and_sets_a_socket_timeout(monkeypatch, tmp_path):
+    from transcriber import audio
+    monkeypatch.delenv("TRANSCRIBER_YTDLP_COOKIES", raising=False)
+    opts = audio.ytdlp_options("yt-abc", tmp_path, audio_format="worstaudio/bestaudio/worst")
+    assert opts["format"] == "worstaudio/bestaudio/worst"
+    assert opts["socket_timeout"] == 30 == audio.YTDLP_SOCKET_TIMEOUT_S
+    default = audio.ytdlp_options("yt-abc", tmp_path)          # the transcription download
+    assert default["format"] == "bestaudio/best" and default["socket_timeout"] == 30
+    seen = _fake_yt_dlp(monkeypatch)                           # and source_for hands the format on
+    audio.source_for("yt-abc", tmp_path, audio_format="worstaudio/bestaudio/worst")
+    assert seen["opts"]["format"] == "worstaudio/bestaudio/worst" and seen["opts"]["socket_timeout"] == 30

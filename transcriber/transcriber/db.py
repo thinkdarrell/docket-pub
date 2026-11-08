@@ -33,6 +33,16 @@ class Claim:
                                    # status: that is a crashed re-run); restore_row() writes it back
 
 
+@dataclass(frozen=True)
+class AlignmentCandidate:
+    """One attached YouTube recording that needs measuring against its meeting's Granicus clip."""
+    meeting_video_id: int
+    video_id: str
+    meeting_id: int
+    external_id: str          # the Granicus clip id
+    meeting_date: date
+
+
 def connect(url: str):
     return psycopg2.connect(url)
 
@@ -326,3 +336,107 @@ def upload(conn, out: TranscriptOutput) -> int:
              transcript_id],
         )
     return len(out.segments)
+
+
+# --- measuring attached YouTube recordings (meeting_video_alignments, migration 042) ---
+
+# A measurement counts only at or above the method version asked for (a floor, never equality)
+# and against the clip the meeting row names today; anything else is as good as no measurement.
+_ALIGNMENT_UNMEASURED = """(a.meeting_video_id IS NULL
+            OR a.method_version < %(method_version)s
+            OR a.granicus_clip_id <> m.external_id)"""
+
+_ALIGNMENT_FROM_WHERE = f"""
+      FROM meeting_videos v
+      JOIN meetings m ON m.id = v.meeting_id
+      JOIN municipalities mu ON mu.id = m.municipality_id
+      LEFT JOIN meeting_video_alignments a ON a.meeting_video_id = v.id
+     WHERE v.provider = 'youtube'
+       AND mu.slug = 'birmingham'
+       AND m.is_hidden = FALSE
+       AND m.external_id ~ '^[0-9]+$'
+       AND strpos(m.video_url, 'MediaPlayer.php') > 0
+       AND ({_ALIGNMENT_UNMEASURED}
+            OR (a.status = 'failed'
+                AND a.measured_at < now() - make_interval(days => %(retry_failed_days)s)))
+"""
+
+_ALIGNMENT_CANDIDATES_SQL = f"""
+    SELECT v.id AS meeting_video_id, v.video_id, m.id AS meeting_id, m.external_id, m.meeting_date
+    {_ALIGNMENT_FROM_WHERE}
+     ORDER BY CASE WHEN {_ALIGNMENT_UNMEASURED} THEN 0 ELSE 1 END,
+              m.meeting_date DESC, m.id DESC, v.is_primary DESC, v.id
+     LIMIT %(limit)s
+"""
+
+_ALIGNMENT_REASON_MAX = 4000    # an error text is kept to this length, as mark_status keeps last_error
+
+
+def alignment_candidates(conn, *, method_version: int, limit: int,
+                         retry_failed_days: int = 7) -> list[AlignmentCandidate]:
+    """The attached YouTube recordings to measure next, at most `limit`.
+
+    A candidate is a `youtube` recording on a Birmingham meeting that is not hidden and is a
+    Granicus clip (an all-digit `external_id` and a `MediaPlayer.php` `video_url`), with no
+    measurement, or one below `method_version`, or one made against another clip id, or a
+    `failed` one older than `retry_failed_days`. A `passed` or `rejected` row at the current
+    version and clip is final. Recordings never measured (the first three cases) come before
+    failures being retried; within each, newest meeting first, the primary recording first.
+    Read-only; the caller ends the transaction.
+    """
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(_ALIGNMENT_CANDIDATES_SQL, {"method_version": method_version, "limit": limit,
+                                                "retry_failed_days": retry_failed_days})
+        return [AlignmentCandidate(r["meeting_video_id"], r["video_id"], r["meeting_id"],
+                                   r["external_id"], r["meeting_date"]) for r in cur.fetchall()]
+
+
+def alignment_backlog(conn, *, method_version: int, retry_failed_days: int = 7) -> int:
+    """How many recordings `alignment_candidates` would return with no limit."""
+    with conn.cursor() as cur:
+        cur.execute(f"SELECT count(*) {_ALIGNMENT_FROM_WHERE}",
+                    {"method_version": method_version, "retry_failed_days": retry_failed_days})
+        return cur.fetchone()[0]
+
+
+def save_alignment(conn, cand: AlignmentCandidate, *, method_version: int, status: str,
+                   reason: str | None = None, measurement=None) -> None:
+    """Store one recording's measurement, replacing any row it already has. Does not commit.
+
+    `status` is `passed`, `rejected`, or `failed`; `reason` is the verdict's reason for a
+    rejected row and the error text for a failed one. `measurement` is a
+    `transcriber.align.Measurement` (read by attribute, so this module does not import numpy)
+    or None when nothing was measured. Every column is written on a re-measure, so a row that
+    once held an offset does not keep it under a later `failed`; `granicus_clip_id` is the
+    candidate's `external_id` and `measured_at` is the time of this call.
+    """
+    def _num(name: str, kind):
+        value = getattr(measurement, name, None)
+        return None if value is None else kind(value)
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """INSERT INTO meeting_video_alignments
+                   (meeting_video_id, granicus_clip_id, method_version, status, reason,
+                    offset_s, granicus_start_s, granicus_end_s, score, runner_up,
+                    windows, windows_confirmed, measured_at)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now())
+               ON CONFLICT (meeting_video_id) DO UPDATE
+                 SET granicus_clip_id = EXCLUDED.granicus_clip_id,
+                     method_version = EXCLUDED.method_version,
+                     status = EXCLUDED.status,
+                     reason = EXCLUDED.reason,
+                     offset_s = EXCLUDED.offset_s,
+                     granicus_start_s = EXCLUDED.granicus_start_s,
+                     granicus_end_s = EXCLUDED.granicus_end_s,
+                     score = EXCLUDED.score,
+                     runner_up = EXCLUDED.runner_up,
+                     windows = EXCLUDED.windows,
+                     windows_confirmed = EXCLUDED.windows_confirmed,
+                     measured_at = EXCLUDED.measured_at""",
+            [cand.meeting_video_id, cand.external_id, method_version, status,
+             reason[:_ALIGNMENT_REASON_MAX] if reason is not None else None,
+             _num("offset_s", float), _num("granicus_start_s", float), _num("granicus_end_s", float),
+             _num("score", float), _num("runner_up", float),
+             _num("windows", int), _num("windows_confirmed", int)],
+        )

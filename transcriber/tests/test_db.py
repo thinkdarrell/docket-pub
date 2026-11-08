@@ -456,3 +456,213 @@ def test_meeting_source_and_claim_meeting_admit_yt_ids_only(conn, yt_meeting, ev
     c = tdb.claim_meeting(conn, meeting_id=yt_meeting, host="legion")
     conn.commit()
     assert c is not None and c.external_id == "yt-tdbTEST0001"
+
+
+# --- measuring attached YouTube recordings (plan video-links-land-on-the-moment M2) ---
+
+ALIGN_PREFIX = "tdbALIGN"      # every video id these tests insert begins with it
+METHOD = 1                     # the method version the tests ask for unless they say otherwise
+
+
+class _AlignRows:
+    """Inserts Birmingham meetings with attached YouTube recordings and remembers the meetings,
+    so the fixture can delete them (their recordings and measurements go by cascade)."""
+
+    def __init__(self, conn):
+        self.conn = conn
+        self.meeting_ids: list[int] = []
+
+    def meeting(self, external_id: str, day: int, *, hidden: bool = False, video_url: str | None = None) -> int:
+        if video_url is None:
+            video_url = f"https://bhamal.granicus.com/MediaPlayer.php?view_id=2&clip_id={external_id}"
+        with self.conn.cursor() as cur:
+            cur.execute("SELECT id FROM municipalities WHERE slug='birmingham'")
+            muni = cur.fetchone()[0]
+            cur.execute(
+                """INSERT INTO meetings (municipality_id, title, meeting_date, external_id, video_url, is_hidden)
+                   VALUES (%s, 'TDB align test', %s, %s, %s, %s) RETURNING id""",
+                [muni, date(2031, 5, day), external_id, video_url, hidden],
+            )
+            mid = cur.fetchone()[0]
+        self.conn.commit()
+        self.meeting_ids.append(mid)
+        return mid
+
+    def video(self, meeting_id: int, tag: str, *, primary: bool = False) -> int:
+        video_id = ALIGN_PREFIX + tag
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO meeting_videos (meeting_id, provider, video_id, url, title, clean_title,
+                                               duration_s, is_primary)
+                   VALUES (%s, 'youtube', %s, %s, 'Regular City Council Meeting 5.6.31',
+                           'Regular City Council Meeting', 3443, %s) RETURNING id""",
+                [meeting_id, video_id, f"https://www.youtube.com/watch?v={video_id}", primary],
+            )
+            vid = cur.fetchone()[0]
+        self.conn.commit()
+        return vid
+
+    def measured(self, meeting_video_id: int, *, clip: str, status: str = "passed", version: int = METHOD,
+                 days_ago: int = 0) -> None:
+        """A stored measurement, written as the migration's owner would (not through save_alignment)."""
+        span = (635.48, 635.5, 4078.7) if status == "passed" else (None, None, None)
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO meeting_video_alignments
+                       (meeting_video_id, granicus_clip_id, method_version, status, reason,
+                        offset_s, granicus_start_s, granicus_end_s, measured_at)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, now() - make_interval(days => %s))""",
+                [meeting_video_id, clip, version, status,
+                 {"passed": None, "rejected": "score", "failed": "AudioFetchError: no audio"}[status],
+                 *span, days_ago],
+            )
+        self.conn.commit()
+
+
+@pytest.fixture
+def align_rows(conn):
+    rows = _AlignRows(conn)
+    yield rows
+    conn.rollback()
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM meetings WHERE id = ANY(%s)", [rows.meeting_ids])
+    conn.commit()
+
+
+def _mine(candidates) -> list[str]:
+    """The tags of the candidates these tests inserted, in the order returned."""
+    return [c.video_id[len(ALIGN_PREFIX):] for c in candidates if c.video_id.startswith(ALIGN_PREFIX)]
+
+
+def test_alignment_candidates_newest_meeting_first_primary_first_within_the_limit(conn, align_rows):
+    older = align_rows.meeting("999911", 6)
+    align_rows.video(older, "olderPart2")                       # inserted first, not primary
+    older_primary = align_rows.video(older, "olderPart1", primary=True)
+    newer = align_rows.meeting("999912", 13)
+    align_rows.video(newer, "newer", primary=True)
+
+    got = tdb.alignment_candidates(conn, method_version=METHOD, limit=1000)
+    assert _mine(got) == ["newer", "olderPart1", "olderPart2"]
+    cand = next(c for c in got if c.video_id == ALIGN_PREFIX + "olderPart1")
+    assert cand == tdb.AlignmentCandidate(
+        meeting_video_id=older_primary, video_id=ALIGN_PREFIX + "olderPart1", meeting_id=older,
+        external_id="999911", meeting_date=date(2031, 5, 6))
+
+    # These meetings are dated 2031, later than anything else in the database, so the limit cuts here.
+    first_two = tdb.alignment_candidates(conn, method_version=METHOD, limit=2)
+    assert [c.video_id[len(ALIGN_PREFIX):] for c in first_two] == ["newer", "olderPart1"]
+
+
+def test_measured_rejected_hidden_and_yt_row_recordings_are_not_alignment_candidates(conn, align_rows):
+    shown = align_rows.meeting("999913", 6)
+    align_rows.video(shown, "unmeasured", primary=True)
+    align_rows.measured(align_rows.video(shown, "passed"), clip="999913")
+    # A rejected row is final however old it is; only a failure is tried again.
+    align_rows.measured(align_rows.video(shown, "rejected"), clip="999913", status="rejected", days_ago=30)
+    hidden = align_rows.meeting("999914", 7, hidden=True)
+    align_rows.video(hidden, "hidden", primary=True)
+    yt_only = align_rows.meeting("yt-tdbALIGNown", 8, video_url="https://www.youtube.com/watch?v=tdbALIGNown")
+    align_rows.video(yt_only, "ytRow", primary=True)
+    event = align_rows.meeting("event-999915", 9,
+                               video_url="https://bhamal.granicus.com/MediaPlayer.php?view_id=2&event_id=999915")
+    align_rows.video(event, "event", primary=True)
+
+    got = tdb.alignment_candidates(conn, method_version=METHOD, limit=1000)
+    assert _mine(got) == ["unmeasured"]
+
+
+def test_lower_version_other_clip_and_old_failure_are_alignment_candidates_again(conn, align_rows):
+    newest = align_rows.meeting("999916", 20)
+    align_rows.measured(align_rows.video(newest, "oldFailure", primary=True),
+                        clip="999916", status="failed", days_ago=8)
+    align_rows.measured(align_rows.video(newest, "freshFailure"), clip="999916", status="failed", days_ago=6)
+    middle = align_rows.meeting("999917", 13)
+    align_rows.measured(align_rows.video(middle, "otherClip", primary=True), clip="event-2715")
+    oldest = align_rows.meeting("999918", 6)
+    align_rows.measured(align_rows.video(oldest, "current", primary=True), clip="999918")
+    # The version is a floor: a row from a later method is not measured again by an older producer.
+    align_rows.measured(align_rows.video(oldest, "laterMethod"), clip="999918", version=METHOD + 1)
+
+    # At the stored version: the moved recording and the week-old failure, the failure last
+    # although its meeting is the newest (never-measured comes before a failure being retried).
+    got = tdb.alignment_candidates(conn, method_version=METHOD, limit=1000)
+    assert _mine(got) == ["otherClip", "oldFailure"]
+    # The retry age is the caller's to set.
+    got = tdb.alignment_candidates(conn, method_version=METHOD, limit=1000, retry_failed_days=5)
+    assert _mine(got) == ["otherClip", "oldFailure", "freshFailure"]
+    # One version up, every stored row is below the floor and all four are measured again.
+    got = tdb.alignment_candidates(conn, method_version=METHOD + 1, limit=1000)
+    assert _mine(got) == ["oldFailure", "freshFailure", "otherClip", "current"]
+
+
+def _alignment_row(conn, meeting_video_id: int) -> list[dict]:
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            """SELECT granicus_clip_id, method_version, status, reason, offset_s, granicus_start_s,
+                      granicus_end_s, score, runner_up, windows, windows_confirmed,
+                      measured_at > now() - interval '1 minute' AS fresh
+                 FROM meeting_video_alignments WHERE meeting_video_id = %s""", [meeting_video_id])
+        return [dict(r) for r in cur.fetchall()]
+
+
+def test_save_alignment_twice_leaves_one_row_holding_the_second_calls_values(conn, align_rows):
+    from transcriber.align import Measurement
+
+    meeting = align_rows.meeting("999919", 6)
+    vid = align_rows.video(meeting, "saved", primary=True)
+    cand = next(c for c in tdb.alignment_candidates(conn, method_version=METHOD, limit=1000)
+                if c.meeting_video_id == vid)
+    passed = Measurement(status="passed", reason=None, offset_s=635.48, granicus_start_s=635.5,
+                         granicus_end_s=4078.7, score=23.6, runner_up=6.0, windows=12, windows_confirmed=10)
+
+    tdb.save_alignment(conn, cand, method_version=METHOD, status="passed", measurement=passed)
+    conn.commit()
+    assert _alignment_row(conn, vid) == [dict(
+        granicus_clip_id="999919", method_version=METHOD, status="passed", reason=None, offset_s=635.48,
+        granicus_start_s=635.5, granicus_end_s=4078.7, score=23.6, runner_up=6.0, windows=12,
+        windows_confirmed=10, fresh=True)]
+    assert _mine(tdb.alignment_candidates(conn, method_version=METHOD, limit=1000)) == []
+
+    with conn.cursor() as cur:
+        cur.execute("UPDATE meeting_video_alignments SET measured_at = now() - interval '30 days' "
+                    "WHERE meeting_video_id = %s", [vid])
+    conn.commit()
+    assert _alignment_row(conn, vid)[0]["fresh"] is False
+
+    # The second call carries no measurement: every column takes its value, the empty ones too.
+    tdb.save_alignment(conn, cand, method_version=METHOD + 1, status="failed",
+                       reason="AudioFetchError: yt-dlp could not download tdbALIGNsaved")
+    conn.commit()
+    assert _alignment_row(conn, vid) == [dict(
+        granicus_clip_id="999919", method_version=METHOD + 1, status="failed",
+        reason="AudioFetchError: yt-dlp could not download tdbALIGNsaved", offset_s=None,
+        granicus_start_s=None, granicus_end_s=None, score=None, runner_up=None, windows=None,
+        windows_confirmed=None, fresh=True)]
+
+    # A rejected measurement keeps its numbers beside its reason.
+    rejected = Measurement(status="rejected", reason="score", offset_s=-84.04, granicus_start_s=None,
+                           granicus_end_s=None, score=5.4, runner_up=4.3, windows=3, windows_confirmed=0)
+    tdb.save_alignment(conn, cand, method_version=METHOD, status="rejected", reason="score",
+                       measurement=rejected)
+    conn.commit()
+    row = _alignment_row(conn, vid)
+    assert len(row) == 1 and (row[0]["status"], row[0]["reason"], row[0]["offset_s"], row[0]["score"],
+                              row[0]["windows"], row[0]["windows_confirmed"]) == ("rejected", "score", -84.04, 5.4, 3, 0)
+
+
+def test_alignment_backlog_counts_the_candidates_without_a_limit(conn, align_rows):
+    before = tdb.alignment_backlog(conn, method_version=METHOD)
+    before_any_failure = tdb.alignment_backlog(conn, method_version=METHOD, retry_failed_days=0)
+    before_next_version = tdb.alignment_backlog(conn, method_version=METHOD + 1)
+    meeting = align_rows.meeting("999920", 6)
+    for tag in ("one", "two", "three"):
+        align_rows.video(meeting, tag, primary=(tag == "one"))
+    align_rows.measured(align_rows.video(meeting, "done"), clip="999920")
+    align_rows.measured(align_rows.video(meeting, "freshFailure"), clip="999920", status="failed", days_ago=1)
+
+    assert tdb.alignment_backlog(conn, method_version=METHOD) == before + 3
+    assert tdb.alignment_backlog(conn, method_version=METHOD) == len(
+        tdb.alignment_candidates(conn, method_version=METHOD, limit=100000))
+    assert len(tdb.alignment_candidates(conn, method_version=METHOD, limit=1)) == 1
+    assert tdb.alignment_backlog(conn, method_version=METHOD, retry_failed_days=0) == before_any_failure + 4
+    assert tdb.alignment_backlog(conn, method_version=METHOD + 1) == before_next_version + 5

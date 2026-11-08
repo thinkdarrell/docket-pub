@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from docket.db import db_cursor
+from docket.services import video_links
 
 QUEUE_STATES = ("proposed", "approved", "rejected", "dismissed_by_model", "stale")
 SHIP_GATE_MEETINGS = 10
@@ -21,6 +22,7 @@ class CitationNotFound(Exception):
 _SELECT = """
     SELECT d.*, m.title AS meeting_title, m.meeting_date, m.video_url, m.minutes_url, mu.slug AS municipality_slug,
            ai.item_number, ai.external_id AS item_external_id, ai.title AS item_title,
+           ai.is_consent AS item_is_consent, ai.video_timestamp_seconds AS item_cue_s,
            COALESCE(d.admin_title, d.title) AS display_title,
            COALESCE(d.admin_description, d.description) AS display_description
       FROM minutes_discrepancies d
@@ -28,6 +30,29 @@ _SELECT = """
       JOIN municipalities mu ON mu.id = m.municipality_id
       LEFT JOIN agenda_items ai ON ai.id = d.agenda_item_id
 """
+
+
+def _attach_video_links(rows: list[dict]) -> list[dict]:
+    """Set ``row["video_link"]`` on each row: the link into the meeting's video for the row's own moment.
+
+    A row with no ``transcript_start_s`` gets None. Every other row gets what
+    ``video_links.link_for`` builds from its own second: YouTube at the converted second when a passing
+    recording of its meeting covers it, and otherwise the Granicus player at the item's chapter under the
+    consent rule (``video_links.item_moment``), or with no chapter when the row has no item. None again
+    when the meeting has no video. The recordings are loaded once for the distinct meetings of the page,
+    so each row is built from its own meeting's. The templates print the link and build no URL."""
+    timed = [row for row in rows if row["transcript_start_s"] is not None]
+    videos = video_links.for_meetings({row["meeting_id"] for row in timed})
+    for row in rows:
+        row["video_link"] = None
+    for row in timed:
+        video = videos.get(row["meeting_id"])
+        chapter_id = None
+        if row["agenda_item_id"] is not None:
+            _, chapter_id = video_links.item_moment(
+                video, is_consent=row["item_is_consent"], cue_s=row["item_cue_s"], external_id=row["item_external_id"])
+        row["video_link"] = video_links.link_for(video, seconds=row["transcript_start_s"], chapter_id=chapter_id)
+    return rows
 
 
 def list_queue(*, state: str = "proposed", category: str | None = None, meeting_id: int | None = None,
@@ -41,7 +66,8 @@ def list_queue(*, state: str = "proposed", category: str | None = None, meeting_
         cur.execute(f"""{_SELECT} WHERE {' AND '.join(where)}
                         ORDER BY (d.severity = 'material') DESC, m.meeting_date DESC, d.confidence DESC NULLS LAST, d.id
                         LIMIT %s OFFSET %s""", [*params, limit, offset])
-        return [dict(r) for r in cur.fetchall()]
+        rows = [dict(r) for r in cur.fetchall()]
+    return _attach_video_links(rows)
 
 
 def get(discrepancy_id: int) -> dict | None:
@@ -171,20 +197,23 @@ _PUBLIC_ORDER = "ORDER BY (d.severity = 'material') DESC, d.reviewed_at DESC, d.
 def list_public_for_meeting(meeting_id: int) -> list[dict]:
     with db_cursor() as cur:
         cur.execute(f"{_SELECT} WHERE d.meeting_id = %s AND d.review_state = 'approved' AND m.is_hidden = FALSE {_PUBLIC_ORDER}", [meeting_id])
-        return [dict(r) for r in cur.fetchall()]
+        rows = [dict(r) for r in cur.fetchall()]
+    return _attach_video_links(rows)
 
 
 def list_public_for_item(item_id: int) -> list[dict]:
     with db_cursor() as cur:
         cur.execute(f"{_SELECT} WHERE d.agenda_item_id = %s AND d.review_state = 'approved' AND m.is_hidden = FALSE {_PUBLIC_ORDER}", [item_id])
-        return [dict(r) for r in cur.fetchall()]
+        rows = [dict(r) for r in cur.fetchall()]
+    return _attach_video_links(rows)
 
 
 def list_public_recent(limit: int = 50, offset: int = 0) -> list[dict]:
     with db_cursor() as cur:
         cur.execute(f"""{_SELECT} WHERE d.review_state = 'approved' AND m.is_hidden = FALSE
                         ORDER BY m.meeting_date DESC, (d.severity = 'material') DESC, d.id LIMIT %s OFFSET %s""", [limit, offset])
-        return [dict(r) for r in cur.fetchall()]
+        rows = [dict(r) for r in cur.fetchall()]
+    return _attach_video_links(rows)
 
 
 # --- ship gate -----------------------------------------------------------------

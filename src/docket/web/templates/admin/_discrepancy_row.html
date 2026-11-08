@@ -16,7 +16,8 @@
     {% if row.transcript_start_s is not none %}
       <span class="t-mono t-meta">{{ row.transcript_start_s | format_timestamp }}</span>
       · <a href="/al/{{ row.municipality_slug }}/meetings/{{ row.meeting_id }}/transcript/">transcript</a>
-      {% set ch = chapter_url(row.video_url, row.item_external_id) %}{% if ch %} · <a href="{{ ch }}" target="_blank" rel="noreferrer">video chapter ↗</a>{% endif %}
+      {# row.video_link is a finished link from docket.services.video_links (services.discrepancies attaches it). #}
+      {% if row.video_link %} · <a href="{{ row.video_link.url }}" target="_blank" rel="noreferrer">{{ row.video_link.phrase }} ↗</a>{% endif %}
     {% endif %}
   </td>
   <td style="max-width: 300px;">

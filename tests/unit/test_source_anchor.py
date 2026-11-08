@@ -38,12 +38,15 @@ from flask import Blueprint, Flask, render_template
 # `granicus.example.com` so the static-domain integration test has a path.
 # The ``test_partial_rejects_unallowlisted_domain`` test rebuilds a tighter
 # allowlist on a per-test app to assert the rejection path.
+# ``youtube.com`` is here for the video branch's YouTube tests, as it is in
+# production's ``source_security.STATIC_ALLOWED_DOMAINS``.
 _TEST_ALLOWLIST = frozenset({
     "example.com",
     "city.gov",
     "video.example.com",
     "granicus.example.com",
     "granicus.com",
+    "youtube.com",
 })
 
 
@@ -58,6 +61,9 @@ def app():
       - The ``is_source_url_safe`` Jinja global wired against a fixed
         test allowlist (no DB hit). Production wires this against a
         DB-derived allowlist in ``docket.web.create_app``.
+      - The ``video_link`` Jinja global, ``docket.services.video_links.link_for``
+        itself, as ``docket.web.create_app`` registers it. The video branch
+        calls it; it is a pure function and reads no database.
       - A stub ``admin`` blueprint exposing ``admin.data_debt`` so
         ``url_for(...)`` in the OCR-needed branch resolves without
         standing up the real admin blueprint (which requires a session
@@ -71,10 +77,12 @@ def app():
     )
     flask_app.config["SECRET_KEY"] = "test-only-not-a-real-secret"
 
+    from docket.services import video_links
     from docket.web.filters import register as register_filters
     from docket.web import source_security
 
     register_filters(flask_app)
+    flask_app.jinja_env.globals["video_link"] = video_links.link_for
 
     # Wire the security helper against a fixed test allowlist so we don't
     # need a DB. Production (`create_app`) wires the same global against
@@ -93,15 +101,23 @@ def app():
     return flask_app
 
 
-def _render(app, item, *, admin: bool = False):
-    """Render the partial with ``item`` in scope, optionally admin-logged-in."""
+def _render(app, item, *, admin: bool = False, video=None):
+    """Render the partial with ``item`` in scope, optionally admin-logged-in.
+
+    ``video`` (a ``video_links.MeetingVideo``) is handed to the template only
+    when given, so every other test renders the partial as pages do today:
+    with no ``video`` variable at all.
+    """
+    context = {"item": item}
+    if video is not None:
+        context["video"] = video
     with app.test_request_context():
         if admin:
             from flask import session
 
             session["admin_user"] = "tester"
         return render_template(
-            "partials/source_anchor_button.html", item=item
+            "partials/source_anchor_button.html", **context
         )
 
 
@@ -361,6 +377,125 @@ class TestVideoBranches:
         assert (
             'href="https://granicus.example.com/player?t=65"' in html
         )
+
+    # The three below: the video branch builds its link through
+    # ``docket.services.video_links.link_for`` and names the site it opens.
+    # A host that is neither YouTube nor a Granicus player page keeps the
+    # markup the tests above pin.
+
+    def test_youtube_anchor_opens_at_its_second_and_names_youtube(self, app):
+        item = {
+            "id": 1,
+            "source_anchor": {
+                "type": "video",
+                "url": "https://www.youtube.com/watch?v=abc",
+                "timestamp_seconds": 65,
+            },
+        }
+        html = _render(app, item)
+        assert 'href="https://www.youtube.com/watch?v=abc&amp;t=65s"' in html
+        assert "View Source: video on YouTube at 1:05 →" in html
+        assert html.count("<a ") == 1
+        assert 'class="view-source"' in html and 'data-item-id="1"' in html
+        assert 'target="_blank"' in html
+        assert 'rel="noopener noreferrer"' in html
+
+        # Built from the video id, never by appending to the stored URL:
+        # a fragment and a ``t=`` the anchor already carries are dropped.
+        item["source_anchor"]["url"] = "https://www.youtube.com/watch?v=abc&t=10#chapter"
+        html = _render(app, item)
+        assert 'href="https://www.youtube.com/watch?v=abc&amp;t=65s"' in html
+        assert "t=10" not in html and "chapter" not in html
+
+        # A second the builder cannot use (negative) opens the plain video,
+        # and then no time is printed.
+        item["source_anchor"] = {
+            "type": "video",
+            "url": "https://www.youtube.com/watch?v=abc",
+            "timestamp_seconds": -5,
+        }
+        html = _render(app, item)
+        assert 'href="https://www.youtube.com/watch?v=abc"' in html
+        assert "View Source: video on YouTube →" in html
+        assert " at " not in html
+
+    def test_granicus_player_anchor_opens_the_items_chapter_and_prints_no_time(self, app):
+        player = "https://bhamal.granicus.com/MediaPlayer.php?view_id=2&clip_id=2026"
+        escaped = "https://bhamal.granicus.com/MediaPlayer.php?view_id=2&amp;clip_id=2026"
+        item = {
+            "id": 1,
+            "external_id": "371120",
+            "source_anchor": {
+                "type": "video",
+                "url": player,
+                "timestamp_seconds": 65,
+            },
+        }
+        html = _render(app, item)
+        assert f'href="{escaped}&amp;meta_id=371120"' in html
+        # The Granicus player ignores every ``t=``; none is written.
+        assert "?t=" not in html and ";t=" not in html
+        assert "View Source: video chapter on Granicus →" in html
+        # The link opens the chapter's start, not 1:05, so no time is printed.
+        assert "1:05" not in html and " at " not in html
+        assert html.count("<a ") == 1
+        assert 'class="view-source"' in html and 'data-item-id="1"' in html
+        assert 'target="_blank"' in html
+        assert 'rel="noopener noreferrer"' in html
+
+        # An item id that is not a chapter id, or no id at all: the plain
+        # player, and the text does not say "chapter". A fragment on the
+        # anchor's URL is dropped, as every branch that builds on it does.
+        for external_id in ("event-2715-1", None):
+            item = {
+                "id": 1,
+                "source_anchor": {
+                    "type": "video",
+                    "url": player + "#t=65",
+                    "timestamp_seconds": 65,
+                },
+            }
+            if external_id is not None:
+                item["external_id"] = external_id
+            html = _render(app, item)
+            assert f'href="{escaped}"' in html
+            assert "View Source: video on Granicus →" in html
+            assert "meta_id" not in html and "chapter" not in html
+            assert "t=65" not in html and "1:05" not in html
+
+    def test_granicus_player_anchor_with_a_measured_recording_opens_youtube(self, app):
+        from docket.services.video_links import MeetingVideo, Recording
+
+        player = "https://bhamal.granicus.com/MediaPlayer.php?view_id=2&clip_id=2026"
+        video = MeetingVideo(
+            video_url=player,
+            recordings=(Recording("FR84h22hQvA", 635.48, 635.5, 3935.5),),
+        )
+        item = {
+            "id": 1,
+            "external_id": "371164",
+            "source_anchor": {
+                "type": "video",
+                "url": player,
+                "timestamp_seconds": 2256,  # 37:36 on the Granicus clock
+            },
+        }
+        html = _render(app, item, video=video)
+        assert 'href="https://www.youtube.com/watch?v=FR84h22hQvA&amp;t=1620s"' in html
+        # YouTube's own time for the converted second, not the anchor's.
+        assert "View Source: video on YouTube at 27:00 →" in html
+        assert "37:36" not in html and "meta_id" not in html and "Granicus" not in html
+        assert html.count("<a ") == 1
+
+        # A second the recording does not cover falls back to the chapter.
+        item["source_anchor"]["timestamp_seconds"] = 65
+        html = _render(app, item, video=video)
+        assert (
+            'href="https://bhamal.granicus.com/MediaPlayer.php?view_id=2'
+            '&amp;clip_id=2026&amp;meta_id=371164"' in html
+        )
+        assert "View Source: video chapter on Granicus →" in html
+        assert "YouTube" not in html and "1:05" not in html
 
 
 # ---------------------------------------------------------------------------

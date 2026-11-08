@@ -26,7 +26,7 @@ from flask import (
 
 from docket.enrichment.topics import all_topics, get_topic_display_name
 from docket.models.data_quality import friendly_label
-from docket.services import briefing, query
+from docket.services import briefing, query, video_links
 
 bp = Blueprint("public", __name__)
 
@@ -328,6 +328,7 @@ def meeting_transcript(slug, meeting_id):
     items_by_id = {it.id: it for it in agenda_items}
     ctx = dict(municipality=municipality, meeting=meeting, transcript=transcript,
                turns=turns, item_anchors=anchors, items_by_id=items_by_id,
+               item_video_links=video_links.item_links(meeting_id),
                speakers=tsvc.speaker_index(transcript.id))
     # htmx history restore re-fetches with HX-Request too but needs the full page.
     is_partial = bool(request.headers.get("HX-Request")) and not request.headers.get(
