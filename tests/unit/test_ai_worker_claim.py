@@ -54,7 +54,7 @@ def _seed_meeting(conn, *, slug="test_city", minutes_adopted_at=None, ai_prompt_
         cur.execute("""
             INSERT INTO meetings (municipality_id, title, meeting_type, meeting_date, source_url,
                                    minutes_adopted_at, ai_prompt_version, ai_metadata)
-            VALUES (%s, 'Test Meeting', 'Council Meeting', CURRENT_DATE, 'https://x', %s, %s, %s)
+            VALUES (%s, 'Test Meeting', 'council', CURRENT_DATE, 'https://x', %s, %s, %s)
             RETURNING id
         """, (muni_id, minutes_adopted_at, ai_prompt_version, ai_metadata))
         return cur.fetchone()[0]
