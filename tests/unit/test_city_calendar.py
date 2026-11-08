@@ -145,9 +145,9 @@ class TestParseDegradesToEmpty:
         assert parse_birminghamal_page("", BASE_URL) == []
 
     def test_html_entities_in_a_title_are_unescaped(self):
-        """Production held "ARTS &amp; PARKS COMMITTEE MEETING, November 16, 2026" (event
-        27, read 2026-11-07): the listing serves some titles HTML-escaped, and a stored
-        ``&amp;`` defeats the canonical committee-name match in meeting_types."""
+        """A guard: the page's JSON has carried a plain ``&`` on every read so far, but a
+        stored ``&amp;`` would defeat the canonical committee-name match in meeting_types
+        (``committee_name_for`` compares letters, and "AMP" breaks "Arts and Parks")."""
         import json
 
         from docket.adapters.city_calendar import parse_birminghamal_page

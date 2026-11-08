@@ -82,10 +82,12 @@ def parse_birminghamal_page(html: str, base_url: str) -> list[CalendarEvent]:
 
     ``base_url`` is the scheme and host the result paths are relative to
     (``https://www.birminghamal.gov``). Titles have their HTML entities
-    unescaped (the listing served "ARTS &amp; PARKS" on 2026-11-07, and a
-    stored ``&amp;`` defeats the committee-name match in
-    ``docket.services.meeting_types``) and their whitespace collapsed (the
-    source has a double space in one). A result missing its
+    unescaped, a guard, not a repair: the page's JSON has carried a plain
+    ``&`` on every read so far (a 2026-11-07 reading of ``&amp;`` in
+    production was an artifact of the terminal relay, not of the data),
+    but a stored ``&amp;`` would defeat the committee-name match in
+    ``docket.services.meeting_types``. Whitespace is collapsed (the source
+    has a double space in one). A result missing its
     id, title, or start instant is skipped with a warning; a page missing
     the block, or a block that is not the expected shape, yields ``[]``.
     """
