@@ -4,18 +4,22 @@
 `board`, or `other`. Migration 038 added `session_kind` for the sitting and
 moved the old values `special` and `work_session` out of this column, but
 left its CHECK for this migration, because a CHECK added then would have
-failed on the rows still holding the old vocabulary. The operator
-reclassified every city's rows on production through the evidence ladder
-first (Birmingham 2026-10-22, Vestavia Hills and Homewood 2026-11-08), and
-the acceptance query `SELECT meeting_type, count(*) FROM meetings WHERE
+failed on the rows still holding the old vocabulary. The operator ran the
+reclassification on production through the evidence ladder first, for
+Birmingham (2026-10-22) and for Vestavia Hills and Homewood (2026-11-08),
+the two cities whose rows still held old values that day, and the
+acceptance query `SELECT meeting_type, count(*) FROM meetings WHERE
 meeting_type NOT IN (...) GROUP BY 1` printed no rows before this landed.
 
 The UPDATE at the top is a guard, not a reclassification: on production it
 writes nothing, and on a copy that still carries a stray test value (the
-developer copy held `C`) it folds that value into `other` so the ALTER
-cannot fail. It restates no rule of the classifier, since `other` is the
-vocabulary's own "no body named" value; a row it touches is re-resolved by
-the next ingest from its title.
+developer copy held `C`) or old-vocabulary rows never reclassified (the
+same copy held 182 `special` and `work_session` rows) it folds those values
+into `other`, `type_source` untouched, so the ALTER cannot fail. It
+restates no rule of the classifier, since `other` is the vocabulary's own
+"no body named" value; a row it touches is re-resolved from its title by
+the next ingest that lists it, or by `scripts/reclassify_meetings.py` for
+its city.
 
 The vocabulary's one owner is `MEETING_TYPES` in
 src/docket/adapters/_helpers.py; the literals here are frozen text, and
