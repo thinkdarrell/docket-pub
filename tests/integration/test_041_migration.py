@@ -143,9 +143,10 @@ def _terms(sql: str) -> list[str]:
     return [re.sub(r"\s+", " ", t).strip() for t in assignment.split("||")]
 
 
-def test_041_is_registered_last():
-    assert runner.MIGRATIONS[-1] == "docket.migrations.041_search_cards"
-    assert runner.MIGRATIONS[-2] == "docket.migrations.040_youtube_recordings"
+def test_041_is_registered_directly_after_040():
+    # Registered in number order; later migrations (042 onward) may follow it.
+    i = runner.MIGRATIONS.index("docket.migrations.041_search_cards")
+    assert runner.MIGRATIONS[i - 1] == "docket.migrations.040_youtube_recordings"
 
 
 def test_041_function_keeps_every_015_term_and_adds_two():
