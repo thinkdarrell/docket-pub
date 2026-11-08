@@ -144,6 +144,27 @@ class TestParseDegradesToEmpty:
 
         assert parse_birminghamal_page("", BASE_URL) == []
 
+    def test_html_entities_in_a_title_are_unescaped(self):
+        """Production held "ARTS &amp; PARKS COMMITTEE MEETING, November 16, 2026" (event
+        27, read 2026-11-07): the listing serves some titles HTML-escaped, and a stored
+        ``&amp;`` defeats the canonical committee-name match in meeting_types."""
+        import json
+
+        from docket.adapters.city_calendar import parse_birminghamal_page
+
+        payload = {"props": {"pageProps": {"nodeResource": {"events": {"results": [
+            {"id": "27", "title": "ARTS &amp; PARKS COMMITTEE MEETING, November 16, 2026", "path": "/events/a",
+             "startDate": {"time": "2026-11-06T21:30:00+00:00"}},
+            {"id": "28", "title": "ARTS & PARKS COMMITTEE MEETING, November 23, 2026", "path": "/events/b",
+             "startDate": {"time": "2026-11-23T21:30:00+00:00"}},
+        ]}}}}}
+        html = f'<html><body><script id="__NEXT_DATA__" type="application/json">{json.dumps(payload)}</script></body></html>'
+        events = parse_birminghamal_page(html, BASE_URL)
+        assert [e.title for e in events] == [
+            "ARTS & PARKS COMMITTEE MEETING, November 16, 2026",
+            "ARTS & PARKS COMMITTEE MEETING, November 23, 2026",
+        ]
+
     def test_result_without_a_start_is_skipped_and_the_rest_kept(self, caplog):
         import json
 
