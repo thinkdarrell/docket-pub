@@ -1015,12 +1015,23 @@ def search():
     page = max(1, request.args.get("page", 1, type=int))
     per_page = 20
     offset = (page - 1) * per_page
+    # The lower list of transcript lines has pages of its own (`tpage`), ten
+    # lines each, so that every line is reachable however few results the
+    # query has and the list's pages do not move with the results' pages.
+    tpage = max(1, request.args.get("tpage", 1, type=int))
+    lines_per_page = 10
+
+    # The `speaker:name` token is the transcript search's filter, so it is
+    # taken out before the item search sees the text: `speaker:oquinn budget`
+    # searches items for "budget", and a `speaker:`-only query has no items.
+    from docket.services import transcripts as tsvc
+    clean_q, speaker = tsvc.parse_speaker_token(q) if q else ("", None)
 
     results = []
     has_next = False
     if q:
         results = query.search_agenda_items(
-            q,
+            clean_q,
             municipality_slug=city,
             limit=per_page,
             offset=offset,
@@ -1046,19 +1057,40 @@ def search():
     else:
         order = None
 
-    from docket.services import transcripts as tsvc
+    result_ids = [it['id'] if isinstance(it, dict) else it.id for it in results]
+
+    # The spoken moments nested under each result: the transcript's own lines
+    # inside the item's range that match the query. Computed for this page's
+    # items only, and only for a typed query (the amount list has none).
+    moments_by_item: dict[int, list[dict]] = {}
+    if q and result_ids:
+        from docket.services.search_query import parse_query
+        sq = parse_query(clean_q)
+        if sq.units:
+            moments_by_item = tsvc.moments_for_items(result_ids, sq, speaker=speaker)
+
+    # The transcript lines left over, listed below the results. Only the
+    # lines nested above are left out, in SQL and so ahead of the limit: a
+    # line that holds every typed word is nested under its result or is
+    # eligible for this list, never neither. The nested lines are those of
+    # the results page being shown, which does not change while the list is
+    # paged, so the list's pages are cut from one list. One line more than a
+    # page is read to learn whether another page follows.
     transcript_hits: list[dict] = []
-    if q:
-        clean_q, speaker = tsvc.parse_speaker_token(q)
-        if clean_q or speaker:
-            transcript_hits = tsvc.search_transcripts(
-                clean_q, municipality_slug=city, speaker=speaker, limit=10, offset=offset // 2,
-            )
+    lines_has_next = False
+    if clean_q or speaker:
+        nested = sorted({(m["meeting_id"], m["seq"]) for ms in moments_by_item.values() for m in ms})
+        transcript_hits = tsvc.search_transcripts(
+            clean_q, municipality_slug=city, speaker=speaker,
+            limit=lines_per_page + 1, offset=(tpage - 1) * lines_per_page,
+            exclude_segments=nested or None,
+        )
+        lines_has_next = len(transcript_hits) > lines_per_page
+        transcript_hits = transcript_hits[:lines_per_page]
 
     municipalities = query.list_municipalities()
 
     from docket.services.query import coverage_counts_for_items
-    result_ids = [it['id'] if isinstance(it, dict) else it.id for it in results]
     coverage_counts = coverage_counts_for_items(result_ids)
 
     municipality = query.get_municipality(city) if city else None
@@ -1072,7 +1104,10 @@ def search():
         "search.html",
         query=q,
         results=results,
+        moments_by_item=moments_by_item,
         transcript_hits=transcript_hits,
+        tpage=tpage,
+        lines_has_next=lines_has_next,
         city=city,
         municipalities=municipalities,
         page=page,

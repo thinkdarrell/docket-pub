@@ -1,10 +1,14 @@
-"""One cron task drives three stages: uploaded -> speakers_resolved -> events_extracted -> compared.
+"""One cron task drives three stages, uploaded -> speakers_resolved -> events_extracted -> compared, then builds search cards.
 
 Claim pattern is the OCR one (CTE, FOR UPDATE SKIP LOCKED, newest meeting
 first, attempts bumped at claim time, 24-hour backoff in the WHERE clause).
 Every processed claim opens and closes an ``ai_runs`` row through the v2
 worker helpers so ``AI_DAILY_BUDGET_USD`` sees the spend. Stage modules are
 imported lazily so this module has no import-time dependency on them.
+
+After the stage loop the tick hands up to ``TRANSCRIPT_CARDS_PER_TICK``
+meetings to the search-card stage (``cards.run_cards``), which keeps its own
+claim and its own table and changes no transcript's status.
 """
 from __future__ import annotations
 
@@ -16,7 +20,8 @@ from docket.ai.exceptions import (AIFatalError, AIPermanentRowError, AIRateLimit
                                   TranscriptHeld)
 from docket.ai.pricing import PRICING, Usage, calculate_cost_usd, usage_add, usage_capture
 from docket.config import (AI_DAILY_BUDGET_USD, AI_TRANSCRIPT_COMPARE_MODEL, AI_TRANSCRIPT_EVENTS_MODEL,
-                           AI_TRANSCRIPT_SPEAKER_MODEL, TRANSCRIPT_MIN_WORDS, TRANSCRIPT_PER_TICK)
+                           AI_TRANSCRIPT_SPEAKER_MODEL, TRANSCRIPT_CARDS_PER_TICK, TRANSCRIPT_MIN_WORDS,
+                           TRANSCRIPT_PER_TICK)
 from docket.db import db, db_cursor
 
 log = logging.getLogger(__name__)
@@ -72,6 +77,8 @@ class PipelineSummary:
     failed: int = 0
     transient: int = 0
     stopped_reason: str | None = None
+    cards_built: int = 0    # meetings whose search cards the tick built (cards.run_cards)
+    cards_failed: int = 0   # card builds that failed or were held, or 1 when the card stage itself crashed
 
 
 def fitness_reason(word_count: int | None, floor: int = TRANSCRIPT_MIN_WORDS) -> str | None:
@@ -260,6 +267,23 @@ def _validate_models() -> None:
             raise AIFatalError(f"{stage} model {model!r} has no PRICING entry; add it before running")
 
 
+def _build_cards(s: PipelineSummary, *, notes: str, force_budget: bool, client) -> None:
+    """The tick's share of the search-card stage: up to TRANSCRIPT_CARDS_PER_TICK meetings, newest first.
+
+    A card bug must not take the tick down, so anything but a fatal
+    configuration error is logged and counted in ``cards_failed``.
+    """
+    try:
+        from docket.ai.transcripts import cards
+        built = cards.run_cards(limit=TRANSCRIPT_CARDS_PER_TICK, notes=notes, force_budget=force_budget, client=client)
+        s.cards_built, s.cards_failed = built.built, built.failed + built.held
+    except AIFatalError:
+        raise
+    except Exception:
+        log.exception("transcript_pipeline: the card stage crashed")
+        s.cards_failed += 1
+
+
 def run_transcript_pipeline(*, limit: int = TRANSCRIPT_PER_TICK, notes: str = "cron_transcripts",
                             force_budget: bool = False, client=None) -> PipelineSummary:
     from docket.ai.transcripts.alerts import alert_if_producer_stalled
@@ -293,6 +317,8 @@ def run_transcript_pipeline(*, limit: int = TRANSCRIPT_PER_TICK, notes: str = "c
             if outcome == "rate_limited":
                 s.stopped_reason = "rate_limited"
                 break
+        if s.stopped_reason is None and TRANSCRIPT_CARDS_PER_TICK > 0:
+            _build_cards(s, notes=notes, force_budget=force_budget, client=client)
         loop_ok = True
     finally:
         # Every tick, budget or not: the sweep spends no LLM money and the stall alert must not go quiet.

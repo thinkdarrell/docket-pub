@@ -11,7 +11,7 @@
 <section class="hero hero--detail">
     <div class="hero-top">
         <div>
-            <div class="t-eyebrow">Full-text search · agenda items</div>
+            <div class="t-eyebrow">Search · agenda items and what was said</div>
             <h1 class="hero-title t-display">Search</h1>
             <p class="hero-sub">
                 {% if query %}
@@ -22,7 +22,7 @@
                 Items with a dollar amount in <strong>{{ municipality.name if municipality else city }}</strong> from the last 90 days, largest first;
                 an item is listed only when its own text backs the amount.
                 {% else %}
-                Type a query to search across agenda items, dollar amounts, and topic tags.
+                Type a query to search agenda items, dollar amounts, topic tags, and what was said at meetings that have a transcript.
                 {% endif %}
             </p>
         </div>
@@ -41,7 +41,7 @@
     <form method="get" action="{{ url_for('public.search') }}" class="search-form">
         <div class="topsearch" style="width: 100%;">
             <span class="topsearch-icon t-mono">⌕</span>
-            <input type="text" name="q" value="{{ query or '' }}" placeholder="Search agenda items, votes, dollars…">
+            <input type="text" name="q" value="{{ query or '' }}" placeholder="Search agenda items and what was said…">
         </div>
         <div class="search-form-row">
             <select name="city" class="search-select">
@@ -57,18 +57,6 @@
 
 {# ── Results ─────────────────────────────────────── #}
 {% if query %}
-    {% if transcript_hits %}
-    <section class="feed">
-        <div class="feed-head"><div>
-            <div class="t-eyebrow">From transcripts</div>
-            <h2 class="feed-title t-display" style="font-size: 24px;">What was said</h2>
-            <div class="t-meta">Tip: add <code>speaker:name</code> to filter by who said it.</div>
-        </div></div>
-        <ul class="search-transcript-hits" style="list-style:none; padding:0;">
-        {% for hit in transcript_hits %}{% include 'partials/search_transcript_hit.html' %}{% endfor %}
-        </ul>
-    </section>
-    {% endif %}
     {% if results %}
     <section class="feed">
         <header class="feed-head">
@@ -83,12 +71,29 @@
         <div class="notable-list smart-brevity-list smart-brevity-list--regular">
             {% for item in results %}
                 {% include 'partials/card_smart_brevity.html' %}
+                {# The spoken moments of this result: the transcript's own lines inside the
+                   item's range that match the query. The class names and data-item-id are
+                   the contract scripts/golden_search.py parses. #}
+                {% if moments_by_item and item.id in moments_by_item %}
+                <ul class="search-moments" aria-label="What was said">
+                  {% for m in moments_by_item[item.id] %}
+                  <li class="search-moment" data-item-id="{{ item.id }}">
+                    <a class="link" href="{{ m.anchor_url }}">
+                      <span class="t-mono t-meta">{{ m.start_s | format_timestamp }}</span>
+                      {% if m.speaker_label %}<strong>{{ m.speaker_label }}:</strong>{% endif %}
+                      {{ m.headline }}
+                    </a>
+                  </li>
+                  {% endfor %}
+                  <li class="t-meta search-moments-label">What was said at the meeting · machine transcript</li>
+                </ul>
+                {% endif %}
             {% endfor %}
         </div>
         {% endwith %}
     </section>
-    {% include 'partials/pagination_controls.html' %}
-    {% elif not transcript_hits %}
+    {% with drop_params=['tpage'] %}{% include 'partials/pagination_controls.html' %}{% endwith %}
+    {% elif not transcript_hits and tpage == 1 %}
     <section class="feed">
         <div class="feed-head">
             <div>
@@ -112,7 +117,37 @@
     </section>
     {# Pagination still renders here so users on page 2+ with an empty
        page (off-by-one beyond the last) can click Previous. #}
-    {% include 'partials/pagination_controls.html' %}
+    {% with drop_params=['tpage'] %}{% include 'partials/pagination_controls.html' %}{% endwith %}
+    {% endif %}
+    {# The transcript lines not nested under a result above: each says which
+       agenda item it was said during, or that it was outside any. The list
+       has pages of its own (`tpage`), ten lines each; its links keep the
+       results page and every other parameter, and return to the list. #}
+    {% if transcript_hits or tpage > 1 %}
+    <section class="feed" id="also-said">
+        <div class="feed-head"><div>
+            <div class="t-eyebrow">From transcripts</div>
+            <h2 class="feed-title t-display" style="font-size: 24px;">Also said at meetings</h2>
+            <div class="t-meta">Tip: add <code>speaker:name</code> to filter by who said it.</div>
+        </div></div>
+        {% if transcript_hits %}
+        <ul class="search-transcript-hits" style="list-style:none; padding:0;">
+        {% for hit in transcript_hits %}{% include 'partials/search_transcript_hit.html' %}{% endfor %}
+        </ul>
+        {% else %}
+        <p class="t-meta">No more transcript lines for this search.</p>
+        {% endif %}
+        {% if tpage > 1 or lines_has_next %}
+        <div class="pagination-controls t-mono">
+            {% if tpage > 1 %}
+            <a class="link" href="{{ url_for('public.search', q=query, city=city or none, page=page if page > 1 else none, tpage=(tpage - 1) if tpage > 2 else none) }}#also-said">← Earlier lines</a>
+            {% endif %}
+            {% if lines_has_next %}
+            <a class="link" href="{{ url_for('public.search', q=query, city=city or none, page=page if page > 1 else none, tpage=tpage + 1) }}#also-said">More lines →</a>
+            {% endif %}
+        </div>
+        {% endif %}
+    </section>
     {% endif %}
 {% elif order == 'amount' and city %}
 {# ── Where the money went (the city page's money door opens here; plan birmingham-city-briefing, M3) ── #}
@@ -146,18 +181,19 @@
             <div class="t-eyebrow">Get started</div>
             <h2 class="feed-title t-display">Type a query above to search</h2>
             <p class="t-meta" style="max-width: 560px; margin-top: 8px;">
-                Search agenda item titles and descriptions across every indexed meeting.
+                Search agenda items and, where a meeting has a machine transcript, what was said about them.
+                Everyday words work: results that match all of your words come first, then results that match most of them.
                 Use the city dropdown to scope your search.
             </p>
         </div>
     </div>
 </section>
 {% endif %}
-{% if query and page == 1 %}
+{% if query and page == 1 and tpage == 1 %}
 <script>
-  // Fires ONLY on the initial search results page (page == 1). search.html paginates
-  // in PR #64 — without the page-1 gate, every paginated next-page view would re-fire
-  // the same search_submit and inflate the count.
+  // Fires ONLY on the initial search results page (page == 1, and the first page of the
+  // lower list, tpage == 1). search.html paginates in PR #64 — without the gate, every
+  // paginated next-page view would re-fire the same search_submit and inflate the count.
   //
   // sanitizeProps in track.js drops `query` if it exceeds 40 chars (PII guardrail);
   // result_count is always recorded so zero-result-rate stats survive that drop.

@@ -26,10 +26,10 @@ from docket.ai.transcripts.guard import normalize as _norm
 from docket.ai.transcripts.minutes import MinutesCapture, load_minutes, page_for_offset
 from docket.ai.transcripts.prompts import COMPARE_PROMPT_VERSION, HUNTER_SYSTEM, JUDGE_SYSTEM
 from docket.ai.transcripts.schemas import HUNTER_SCHEMA, JUDGE_SCHEMA, HunterResult, JudgeResult
+from docket.ai.transcripts.shared import SPEAKER_CONFIDENCE_FLOOR, speaker_ordinals
 from docket.ai.transcripts.speakers import hms
 from docket.config import AI_TRANSCRIPT_COMPARE_MODEL, TRANSCRIPT_CANDIDATE_CAP, TRANSCRIPT_TOKEN_CEILING
 from docket.db import db_cursor
-from docket.services.transcripts import SPEAKER_CONFIDENCE_FLOOR, speaker_ordinals
 
 log = logging.getLogger(__name__)
 

@@ -123,8 +123,12 @@ constrains:
    and agree on: a command together with the output it prints, or a named
    artifact with a property that is true or false on inspection. A check that
    counts says what it counts: `grep -c` counts lines, not occurrences; a
-   pytest total is the baseline plus the test functions added, not the tests
-   touched; no check greps the plan file itself, since the plan's own
+   pytest total is the baseline plus the tests the added functions collect,
+   not the tests touched, and a parametrized function collects one test per
+   case (one plan's three clauses said a tier would rise "by its test
+   functions" and it rose by 58, 59, and 49 from files of 51, 47, and 34
+   functions, so each session recorded a reading where the clause should
+   have been a count); no check greps the plan file itself, since the plan's own
    later sections quote the phrase the check looks for; a check that greps
    a directory the plan's own prescribed texts will land in is run against
    those texts, not only against the tree as it stood at authoring (one
@@ -162,6 +166,14 @@ constrains:
    executed, so nothing is checked off and no evidence exists; the authoring
    decisions themselves, however, are decisions, and they belong in the log
    now while their alternatives are still in mind.
+   A sentence in a living section that says nothing has run is dated and
+   attributed to the authoring ("As authored on 2026-11-04, nothing has been
+   executed"): later sessions write beneath it and may not tidy it, so an
+   undated one stands above every milestone's entries when the plan closes,
+   and `cycle-run` copies the Outcomes section, that sentence first, into
+   the pull request's description. Four plans carried an undated one above
+   their milestones' entries, and each one's closing review spent a finding
+   on it.
 8. Reread the file in the position of the agent who will execute it, holding
    only this file and a checkout: every path repository-relative and real,
    every term of art defined where it is first used, every choice already
@@ -230,6 +242,15 @@ against the new rule. One plan left four test clauses that no session could
 satisfy as written, two because a review changed the rule after the test was
 specified and two because the stated geometry did not add up; each cost the
 executing session a divergence it had to log instead of a check it could run.
+A case a plan gives to tell one rule from another is worked under both before
+it is written: the plan states what the other rule returns for it, and the
+test asserts that half as well. Two consecutive plans gave a case that did
+not test what it named, `youtube-council-channel`'s two-part recording (300 s
+and 1,800 s against 2,100 s) and `search-finds-what-was-said` M5's line
+holding two of the query's words against a line repeating one of them three
+times, which `ts_rank` alone already orders the way the new term was meant
+to; each was caught by the executing session, the second only because that
+session wrote a precondition the plan had not asked for.
 
 When a plan is audited against a convention that changed under it, record the
 audit's outcome in the plan even if nothing needed to change — an audit that

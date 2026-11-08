@@ -91,6 +91,13 @@ fallback the same value, and four clauses of a correction pass that the
 test committed as failing left free, none of which the failing-first
 commit could show.
 
+A comment or docstring that cites the plan names it by its slug (plan
+`search-finds-what-was-said`, M3), never by its `plans/active/` path: the
+file moves when the plan closes, and every such path is then a reference
+the closing passes must find and rewrite. Two consecutive plans left 21 and
+11 of them in code and test docstrings, and the second plan's handoff to its
+closing session named none of the 11.
+
 Prove acceptance by running it. Every acceptance check the milestone states
 gets executed, and what it printed is what you record. An acceptance check you
 could not run is an unmet acceptance, and the milestone is complete only with

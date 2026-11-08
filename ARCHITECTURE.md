@@ -39,7 +39,7 @@ docket.pub is a Python application with three runtime processes sharing one Post
 ### AI pipeline
 
 - Lives in: `src/docket/ai/`
-- Owns: the Anthropic client with its tool-use pattern and retries, prompt versions, Wave 0 non-LLM classification, Stage 1 extraction, Stage 2 Smart Brevity rewrite, Stage 2.5 reconcile, badge policy, batch submission and ingest, cost telemetry, the operator CLI, the daily budget gate, and the two 0 to 10 scores on every item (significance and consent placement), which stay NULL until the pipeline has processed the item. Its `transcripts/` subpackage holds the transcript stages the worker advances one at a time (speaker resolution, event extraction on both the transcript and the minutes side, the citation guard, the deterministic aligner, the comparison judge, alerts) and the Haiku-versus-Sonnet A/B harness; `docs/runbooks/transcripts.md` is its runbook.
+- Owns: the Anthropic client with its tool-use pattern and retries, prompt versions, Wave 0 non-LLM classification, Stage 1 extraction, Stage 2 Smart Brevity rewrite, Stage 2.5 reconcile, badge policy, batch submission and ingest, cost telemetry, the operator CLI, the daily budget gate, and the two 0 to 10 scores on every item (significance and consent placement), which stay NULL until the pipeline has processed the item. Its `transcripts/` subpackage holds the transcript stages the worker advances one at a time (speaker resolution, event extraction on both the transcript and the minutes side, the citation guard, the deterministic aligner, the comparison judge, alerts), the search-card stage that runs after them in the same tick and keeps its own bookkeeping table (`cards.py`; `docs/specs/search.md`), and the Haiku-versus-Sonnet A/B harness; `docs/runbooks/transcripts.md` is its runbook.
 - Does not: serve pages or own the cron schedule.
 
 ### Worker
@@ -99,8 +99,9 @@ From outermost to innermost: entry points (`web/`, `worker/`, `ai/cli.py`, `enri
 ## Known rough edges
 
 - Some web modules still execute SQL directly, contrary to the web rule above. `D7` in `docs/DEBT.md` lists them.
-- `src/docket/ai/` imports from `src/docket/services/`, an inward layer reaching outward: the badge-slug lookup (`D8` in `docs/DEBT.md`), the transcript speaker helpers (`D42`), and the cancelled-title check (`D83`); those rows list the sites.
+- `src/docket/ai/` imports from `src/docket/services/`, an inward layer reaching outward: the badge-slug lookup (`D8` in `docs/DEBT.md`) and the cancelled-title check (`D83`); those rows list the sites.
 - `src/docket/rosters/` is an empty leftover from an early layout; council rosters are stored by migration and resolved in `src/docket/analysis/ocr/rosters.py`. Deleting it is `D33` in `docs/DEBT.md`.
 - A few modules read `os.environ` for settings that belong in `src/docket/config.py`, contrary to the configuration invariant above. `D34` in `docs/DEBT.md` lists them.
 - `src/docket/worker/tasks.py` opens its own transactions in some task bodies, contrary to the services invariant above and the Worker rule. `D65` in `docs/DEBT.md` lists them and counts them.
+- `src/docket/ai/`, `src/docket/analysis/`, `src/docket/blog/`, and the entry point `src/docket/enrichment/cli.py` open their own transactions, contrary to the services invariant above. `D92` in `docs/DEBT.md` counts them by layer.
 - `src/docket/analysis/vote_matcher.py` opens its own transactions in seven functions, contrary to the services invariant above. `D111` in `docs/DEBT.md` names them and their callers.

@@ -19,6 +19,7 @@ TABLES = {
 @pytest.fixture
 def fresh_035():
     with db() as conn:
+        runner.rollback_migration(conn, 41)   # 041's two tables reference transcripts(id); 035's down cannot drop it under them
         runner.rollback_migration(conn, 36)   # 036 alters 035's tables; roll it back first so re-apply restores both
         runner.rollback_migration(conn, 35)
     yield
@@ -87,6 +88,7 @@ def test_discrepancy_requires_one_event(fresh_035):
 def test_rollback_removes_tables(fresh_035):
     with db() as conn:
         runner.apply_migrations(conn)
+        runner.rollback_migration(conn, 41)
         runner.rollback_migration(conn, 36)
         runner.rollback_migration(conn, 35)
     assert _existing_tables() == set()
