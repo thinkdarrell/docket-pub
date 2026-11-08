@@ -23,7 +23,7 @@ def seeded_minor():
             state["muni"] = cur.fetchone()[0]
             cur.execute("""
                 INSERT INTO meetings (municipality_id, meeting_type, meeting_date, source_url, title)
-                VALUES (%s, 'C', CURRENT_DATE, 'x', 'test_bump meeting') RETURNING id
+                VALUES (%s, 'council', CURRENT_DATE, 'x', 'test_bump meeting') RETURNING id
             """, (state["muni"],))
             state["meeting"] = cur.fetchone()[0]
             cur.execute("""

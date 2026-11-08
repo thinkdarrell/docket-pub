@@ -128,6 +128,16 @@ def test_039_guard_folds_a_stray_value_into_other_then_the_check_holds(fresh_039
     assert _meeting_type(kept) == "committee"
 
 
+def test_039_sql_up_can_be_executed_again_and_keeps_rows(applied_039):
+    """The DROP CONSTRAINT IF EXISTS before the ADD makes a second run of SQL_UP safe (Idempotence and Recovery)."""
+    mod = importlib.import_module(MODULE)
+    kept = _insert("again", "board")
+    with db_cursor() as cur:
+        cur.execute(mod.SQL_UP)
+    assert _constraint_exists()
+    assert _meeting_type(kept) == "board"
+
+
 def test_039_down_drops_the_constraint_and_the_insert_succeeds(fresh_039):
     with db() as conn:
         runner.apply_migrations(conn)

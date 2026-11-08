@@ -25,7 +25,7 @@ def seeded_meeting():
             state["muni"] = cur.fetchone()[0]
             cur.execute("""
                 INSERT INTO meetings (municipality_id, meeting_type, meeting_date, source_url, title)
-                VALUES (%s, 'Council', CURRENT_DATE, 'x', 'test_phase meeting') RETURNING id
+                VALUES (%s, 'council', CURRENT_DATE, 'x', 'test_phase meeting') RETURNING id
             """, (state["muni"],))
             state["meeting"] = cur.fetchone()[0]
             cur.execute("""

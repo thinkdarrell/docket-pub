@@ -33,7 +33,7 @@ def seeded_repair():
             cur.execute("""
                 INSERT INTO meetings (municipality_id, meeting_type, meeting_date,
                                        source_url, title, agenda_url)
-                VALUES (%s, 'Council', %s, 'x', %s, %s) RETURNING id
+                VALUES (%s, 'council', %s, 'x', %s, %s) RETURNING id
             """, (muni_id, date.today() - timedelta(days=days_ago),
                    title, "http://x" if has_agenda_url else None))
             m_id = cur.fetchone()[0]
