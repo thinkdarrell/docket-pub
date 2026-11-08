@@ -27,8 +27,8 @@ on, kept so an operator can read why.
 The `transcriber` role's grants on this table and on `meeting_videos` are
 in `scripts/sql/create_transcriber_role.sql`, not here.
 
-Number 039 is left to plans/active/meeting-types-name-the-body.md (M6) and
-041 to pull request #140 (plan/search-finds-what-was-said).
+Number 039 is `039_meeting_type_checks.py` (plan `meeting-types-name-the-body`,
+M6) and 041 is `041_search_cards.py` (plan `search-finds-what-was-said`, M2).
 Plan: plans/completed/video-links-land-on-the-moment.md (M2).
 """
 

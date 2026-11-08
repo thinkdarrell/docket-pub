@@ -36,7 +36,7 @@ The down restores migration 015's function, by executing that migration's
 own `SQL_UP`, and drops both tables. Item vectors keep any card text they
 hold until each row is next written.
 
-Number 039 is left to plans/active/meeting-types-name-the-body.md (M6).
+Number 039 is `039_meeting_type_checks.py` (plan `meeting-types-name-the-body`, M6).
 Plan: plans/completed/search-finds-what-was-said.md (M2).
 """
 
