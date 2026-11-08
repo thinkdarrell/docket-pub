@@ -368,41 +368,52 @@ streams since 2025-10-28 plus the one-minute 2019-12-30 clip).
 
 What the card stage and ranked search measured on real rows. The factory sessions of plan
 `search-finds-what-was-said` (2026-11) had no API key and no production database, so they
-filled in only what they could observe; every heading below marked "not yet run" is the
-operator's, in the order of the operator-steps row in `docs/DEBT.md` (`D86`). Record each
-result under its heading with the date, and delete that row in the same commit as the last one.
+filled in only what they could observe; the operator ran the rest on 2026-11-08, in the order
+the plan's operator-steps row gave (`D86`, deleted in the commit that recorded them), and each
+heading below carries that run with its date. Later backfill runs and golden checks go under
+their headings the same way.
 
 ### Live smoke report and cost (step 1, before the merge)
 
-Not yet run. The command, in the worktree with a real key:
+Run 2026-11-08 at about 03:40Z by the operator in the plan's worktree at its merged head `f2dde8b`, with the worker's `ANTHROPIC_API_KEY`, the command above. `1 passed in 16.16s` (the one warning is `anyio`'s pytest-plugin deprecation, present on every run). The report line, whole:
 
-    DATABASE_URL=$(tools/test-db) ANTHROPIC_API_KEY=<key> venv/bin/python -m pytest -m live tests/live/test_transcript_cards_live.py -v -s -p no:cacheprovider; tools/test-db --drop
+    cards: meeting 1 transcript 1: 9 placed, 9 cards (5 discussed, 0 missing, 0 extra), details 12 kept 0 re-pointed 0 dropped, bounds 5 kept 0 dropped, 3 starts moved 20 s or more, 29058 in 2583 out, $0.0852
+    9 cards, 12 spoken details, every quote found at its segment or beside it
 
-Record the printed `cards: meeting ...` report line whole: placed items and cards, details
-kept, re-pointed, and dropped by the citation guard, bounds kept and dropped, starts moved
-20 seconds or more, tokens in and out, and the dollars. A 400 from the API naming the schema
-is a defect to fix before merging. The only figures so far are from a fake client on meeting
-2543's real rows (nine placed items, a 74,651-character message), which say nothing about
-what a model replies or costs.
+No 400 from the API. One meeting of nine placed items cost $0.0852.
 
 ### Production counts (step 2, before the merge)
 
-Not yet run. The four read-only queries are in `plans/completed/search-finds-what-was-said.md`,
-Context and Orientation, through
-`DATABASE_PUBLIC_URL`. Record each result beside its assumption:
+Run 2026-11-08 at about 03:55Z by the operator through `DATABASE_PUBLIC_URL`; the four queries are in `plans/completed/search-finds-what-was-said.md`, Context and Orientation. Each result beside its assumption:
 
-- Birmingham meetings with a public transcript, by status. Assumed: 50 to 150 in all, nearly all at `compared` or `events_extracted`.
-- Placed items in those meetings. Assumed: about one item in five.
-- `SELECT count(*) FROM agenda_items`. Assumed: about 60,000.
-- Median and 95th-percentile `pg_column_size(search_vector)`. Assumed: a median no more than twice the scale check's. The scale check at 60,000 synthetic rows printed, on 2026-11-05 on the development machine, `scale: 60000 rows; vector median 3.2 kB, p95 5.2 kB; rare-word 2 ms; three-word 339 ms; common-words 435 ms`. If production's median is larger, re-run `scripts/search_scale_check.py --rows 60000 --desc-words LOW-HIGH` wider until the medians agree and record both lines; a timing at or over 2,000 ms is a design question, not a tuning one.
+- Birmingham meetings with a public transcript, by status: `compared 21`, `events_extracted 12`, `uploaded 9`, `speakers_resolved 7`, `needs_review 1` (50 in all; 33 past the events stage). Assumed: 50 to 150 in all, nearly all at `compared` or `events_extracted`; two in three are.
+- Placed items in those meetings: `placed_items 589`, `meetings 41`. Assumed: about one item in five.
+- `SELECT count(*) FROM agenda_items`: `61952`. Assumed: about 60,000.
+- `pg_column_size(search_vector)`: `median_bytes 488`, `p95_bytes 666`. Assumed: a median no more than twice the scale check's 3.2 kB; production's is a seventh of it, so the scale check's timings (`rare-word 2 ms; three-word 339 ms; common-words 435 ms` at 60,000 synthetic rows, 2026-11-05) are an upper bound and no re-run was needed.
 
 ### Backfill log (steps 4 and 5, after the deploy)
 
-Not yet run. Record the `--count` line before the first build, the two report lines of
-`scripts/build_search_cards.py --meeting-id 2224 --meeting-id 2231 --dry-run`, then for each
-`--limit N` run its date, its last line (`cards: built N, held N, failed N, stopped: ...`),
-and the day's cost from `/admin/ai` (stage `transcript_cards`), until `--count` shows none
-waiting. Note any run `held` or `failed` with its `last_error`.
+Deploy: pull request #140 merged as `f54e986` on 2026-11-08 at about 04:05Z; `docket-web` then `worker` deployed from clean `main` by the operator (the web start applied migration 041; the live search page carried the new template at 04:20Z). Step 4, from the main checkout against `DATABASE_PUBLIC_URL` with the worker's key, 04:23Z:
+
+    cards: 50 Birmingham meetings with a public transcript; 33 past the events stage; 0 with current cards; 33 waiting; 0 held; 0 failed
+    cards: meeting 2224 transcript 29: 26 placed, 26 cards (26 discussed, 0 missing, 0 extra), details 33 kept 0 re-pointed 0 dropped, bounds 25 kept 1 dropped, 9 starts moved 20 s or more, 47698 in 6895 out, $0.1656
+    cards: meeting 2231 transcript 28: 21 placed, 21 cards (21 discussed, 0 missing, 0 extra), details 33 kept 0 re-pointed 0 dropped, bounds 21 kept 0 dropped, 2 starts moved 20 s or more, 26788 in 5501 out, $0.1041
+    cards: built 2, held 0, failed 0, stopped: none
+
+(the dry run wrote no card and no run row). Step 5, each `--limit N` run with its date, last line, and the day's `transcript_cards` dollars from `/admin/ai`:
+
+Run 1, 2026-11-08, after step 4 and before the worker's tick: `--limit 10` built meetings 2543, 2536, 2493, 2487, 2440, 2391, 2387, 2380, 2376, and 2373 (6 to 18 placed items each, every placed item a card, 0 missing, 0 extra, 0 details re-pointed or dropped, bounds dropped on three meetings: 2 on 2536, 1 on 2380, 1 on 2376), last line
+
+    cards: built 10, held 0, failed 0, stopped: none
+
+and the count straight after read `33 past the events stage; 10 with current cards; 23 waiting; 0 held; 0 failed`. The ten report lines' dollars sum to $0.94 (the largest meeting 2387 at $0.1668 for 15 items, 65,388 tokens in). The count on 2026-11-08 at 17:49Z, after the worker's daily tick, read `37 past the events stage; 12 with current cards; 25 waiting; 0 held; 0 failed`: the tick built two and four more transcripts had passed the events stage since the morning.
+
+Run 2, 2026-11-08 at 18:04Z: `--limit 25` built the remaining 25 (meetings 2624, 2367, 2364, 2356, 2351, 2337, 2334, 2249, 2245, 2243, 2238, 2232, 2231, 2224, 1, 2, 4, 6, 8, 10, 12, 13, 15, 17, and 18; 2 to 28 placed items each, every placed item a card, 0 missing, 0 extra, 2 details re-pointed in all (one each on 2224 and meeting 1), 0 dropped, bounds dropped on three meetings: 1 each on 2367, 2238, and 2224), last line and the count straight after
+
+    cards: built 25, held 0, failed 0, stopped: none
+    cards: 50 Birmingham meetings with a public transcript; 37 past the events stage; 37 with current cards; 0 waiting; 0 held; 0 failed
+
+The 25 report lines' dollars sum to $2.73 (927,252 tokens in; the largest meeting 2245 at $0.2083 for 14 items, 86,422 tokens in). The whole backfill of 37 meetings cost about $3.60 by the report lines, under one day's `AI_DAILY_BUDGET_USD` of $10. The 13 transcripts not yet past the events stage (`uploaded`, `speakers_resolved`, `needs_review`) get their cards from the worker's tick, two a day, as each passes it. Meeting 10 built 27 cards for 14 discussed items, the widest gap between placed and discussed in either run; `D87` (f) is read against rows like it.
 
 ### Golden check, before and after (step 6)
 
@@ -411,7 +422,19 @@ matching, no cards, no nested moments), run by the plan's first session:
 
     golden: 3 of 45 targets on the first page (top 3: 3, top 10: 3, top 20: 3); 0 with spoken moments; 42 queries
 
-After: not yet run. Record the summary line of
+After the deploy, before any card was built (ranked matching and placement-based moments alone), 2026-11-08 04:27Z, from a development checkout at `398a6a4`:
+
+    golden: 15 of 45 targets on the first page (top 3: 8, top 10: 14, top 20: 15); 15 with spoken moments; 42 queries
+
+Items 58824 and 58874 were not on the first page of `new late night ordinance` (both `place -`); the common-word search `curl -s -o /dev/null -w '%{time_total}\n' 'https://docket.pub/search?q=city+ordinance+resolution+contract&city=birmingham'` took 0.88, 0.68, and 0.69 seconds over three tries.
+
+After the backfill, 2026-11-08 at 18:08Z, with 37 meetings carrying cards, from the main checkout at `398a6a4`:
+
+    golden: 34 of 45 targets on the first page (top 3: 28, top 10: 33, top 20: 34); 34 with spoken moments; 42 queries
+
+Item 58824 is first for `new late night ordinance` with three spoken moments, and the live page carries its nested lines linking into meeting 2224's transcript (`/al/birmingham/meetings/2224/transcript/#t-309`, `#t-310`, `#t-313`, read with `curl` at 18:12Z); item 58874 is not on that page (`place -`), as the spike predicted, since neither its discussion nor its agenda text holds "late" or "night" (`D87` (a)). The eleven targets still off the first page are all paraphrase or spoken queries whose words name neither the card nor a segment (`help for families of disabled kids`, `kids crawling under trains west side`, `never knew birmingham had a port`, `downtown park place eatery serving alcohol`, `ski jump exit highland avenue`, `house illegally split into two apartments`, `land use overhaul west side neighborhoods`, `owner says city stealing his property`, `outside help fixing city software system`, `911 agency gives city used suv`, and `new late night ordinance` for 58874). The common-word search `city ordinance resolution contract` took 0.66, 0.68, and 0.66 seconds (three `curl` runs at 18:12Z; 0.61 for the late-night query), against 0.88 and 0.6 before the cards. Whole-plan acceptance, read as `D86` asked: more targets on the first page than 3 of 45 (34), a nonzero count with spoken moments (34), item 58824 on the first page with a nested transcript line (yes, first), and 58874 recorded either way (not on the page).
+
+What to record on each later run: the summary line of
 `venv/bin/python scripts/golden_search.py --base-url https://docket.pub` once after the
 deploy with no cards built (ranked matching and placement-based moments alone) if convenient,
 and once after the backfill; whether items 58824 and 58874 are on the first page of
