@@ -12,7 +12,7 @@ The symbols under test are imported inside each test, so the file collects
 and reads as failing before the module exists.
 
 Dates: 2026-10-19 is a Monday, 2026-10-20 a Tuesday, 2026-10-21 a Wednesday.
-Plan: plans/active/meeting-types-name-the-body.md (M4).
+Plan: plans/completed/meeting-types-name-the-body.md (M4).
 """
 
 from datetime import date, datetime, time, timezone

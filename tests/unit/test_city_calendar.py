@@ -9,7 +9,7 @@ them verbatim.
 The symbols under test are imported inside each test, so the file collects
 and reads as failing, not as a collection error, before the module exists.
 
-Plan: plans/active/meeting-types-name-the-body.md (M3).
+Plan: plans/completed/meeting-types-name-the-body.md (M3).
 """
 
 from datetime import datetime, timezone

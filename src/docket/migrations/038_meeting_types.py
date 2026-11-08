@@ -20,7 +20,7 @@ Tuesday is 1) and `calendar_url`; the down removes both keys.
 
 The two vocabularies' one owner is `MEETING_TYPES` / `SESSION_KINDS` in
 src/docket/adapters/_helpers.py; the literals here are frozen text.
-Plan: plans/active/meeting-types-name-the-body.md (M2).
+Plan: plans/completed/meeting-types-name-the-body.md (M2).
 """
 
 from __future__ import annotations

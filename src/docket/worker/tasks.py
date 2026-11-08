@@ -450,7 +450,7 @@ def _do_city_calendar() -> None:
     One GET per city per day (Birmingham only at first), a handful of upserts;
     runs at 05:30 so the rows exist before ingest_all (06:00) resolves meeting
     types against them. A city's failure is logged and does not block the
-    others. Plan: plans/active/meeting-types-name-the-body.md (M3).
+    others. Plan: plans/completed/meeting-types-name-the-body.md (M3).
     """
     n = city_calendar.refresh_all()
     log.info("city_calendar: refreshed %d cities", n)

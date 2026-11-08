@@ -157,7 +157,7 @@ def create_app() -> Flask:
 
     # ``meeting_label(meeting)`` — the display label a reader sees in place of
     # the clip name: the four classification columns and the title go through
-    # ``adapters._helpers.label_for`` (plans/active/meeting-types-name-the-body.md, M5).
+    # ``adapters._helpers.label_for`` (plans/completed/meeting-types-name-the-body.md, M5).
     # Accepts a Meeting or a row dict. A value outside MEETING_TYPES (a row
     # without the columns, an older fixture) falls back to the title itself:
     # source or silence, never a label the row does not support.

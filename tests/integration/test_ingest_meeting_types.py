@@ -14,7 +14,7 @@ the module exists) move rows between rungs from the calendar table and the
 schedule rule, recomputing the whole ladder each run.
 
 Pattern: tests/integration/test_ingest_reconciliation.py.
-Plan: plans/active/meeting-types-name-the-body.md (M2, M4).
+Plan: plans/completed/meeting-types-name-the-body.md (M2, M4).
 """
 
 from datetime import date, datetime, timezone

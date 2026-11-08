@@ -1565,7 +1565,7 @@ def profile_update_display_name():
     return redirect(url_for("admin.profile"))
 
 
-# --- Meeting type override (plans/active/meeting-types-name-the-body.md, M5) ---
+# --- Meeting type override (plans/completed/meeting-types-name-the-body.md, M5) ---
 
 
 def _meeting_page(meeting_id: int) -> str | None:

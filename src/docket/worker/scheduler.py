@@ -43,7 +43,7 @@ def build_scheduler(timezone: str = "America/Chicago") -> BlockingScheduler:
     # Read each city's own calendar page (Birmingham's council page) into
     # the calendar events table before ingest_all (06:00) resolves meeting
     # types against it. One request per city per day.
-    # Plan: plans/active/meeting-types-name-the-body.md (M3).
+    # Plan: plans/completed/meeting-types-name-the-body.md (M3).
     sched.add_job(
         TASKS["city_calendar"],
         CronTrigger(hour=5, minute=30, timezone=timezone),

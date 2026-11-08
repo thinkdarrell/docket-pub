@@ -46,7 +46,7 @@ The evidence ladder, top rung first:
 the ones that changed in one statement; :func:`reclassify_city` is the
 operator's one-time pass over a whole city (``scripts/reclassify_meetings.py``).
 
-Plan: plans/active/meeting-types-name-the-body.md (M4); the video rung,
+Plan: plans/completed/meeting-types-name-the-body.md (M4); the video rung,
 plans/completed/youtube-council-channel.md (M3).
 """
 
