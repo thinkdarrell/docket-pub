@@ -251,6 +251,20 @@ against the new rule. One plan left four test clauses that no session could
 satisfy as written, two because a review changed the rule after the test was
 specified and two because the stated geometry did not add up; each cost the
 executing session a divergence it had to log instead of a check it could run.
+An expected output the plan gives for a rule it states in prose (a
+classifier's triple for a title, a name matcher's verdict for a pair of
+spellings, a resolver's answer for a seeded day) is obtained by applying the
+stated rule to the example, step by step, before it is written; where the two
+disagree the rule is mended in the plan, because the executing session treats
+both as fixed text and can only log a decision choosing between them.
+`meeting-types-name-the-body` stated its classifier's rules and its table of
+expected triples separately, and four of the table's titles came out `other`
+under the rules as written; the same plan's letters-only committee match,
+applied to the eight names it listed, fails two of them (`and` against `&`),
+and its calendar rung's single-event rule returned the committee where the
+acceptance's minutes-arrive step expected the council. Each cost the
+executing session a Decision Log entry in place of a check, after
+`youtube-council-channel` M4 had made four such readings the month before.
 A case a plan gives to tell one rule from another is worked under both before
 it is written: the plan states what the other rule returns for it, and the
 test asserts that half as well. Two consecutive plans gave a case that did
