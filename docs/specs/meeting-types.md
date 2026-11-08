@@ -45,7 +45,7 @@ On a meeting page, an admin sees a form with a `meeting_type` select, a `session
 
 ## The city calendar
 
-The worker task `city_calendar` runs daily at 05:30 America/Chicago (`src/docket/worker/scheduler.py`) and, for every active city whose metadata carries `calendar_url`, fetches the page and upserts its upcoming events into `city_calendar_events` (`municipality_id`, `source_event_id`, `title`, `starts_at`, `ends_at`, `source_url`, `categories`, `fetched_at`; unique on city and source event). Birmingham's URL is the council page at `https://www.birminghamal.gov/government/city-council`, whose embedded Next.js JSON lists the upcoming events; `parse_birminghamal_page` reads it. The calendar lists upcoming events only, so past rows are named by the schedule rule unless the event was fetched before the meeting.
+The worker task `city_calendar` runs daily at 05:30 America/Chicago (`src/docket/worker/scheduler.py`) and, for every active city whose metadata carries `calendar_url`, fetches the page and upserts its upcoming events into `city_calendar_events` (`municipality_id`, `source_event_id`, `title`, `starts_at`, `ends_at`, `source_url`, `categories`, `fetched_at`; unique on city and source event). Birmingham's URL is the council page at `https://www.birminghamal.gov/government/city-council`, whose embedded Next.js JSON lists the upcoming events; `parse_birminghamal_page` reads it, with each title's HTML entities unescaped (the listing served `ARTS &amp; PARKS` on 2026-11-07) and its whitespace collapsed, so the committee-name match reads the city's `&` as the menu spells it. The calendar lists upcoming events only, so past rows are named by the schedule rule unless the event was fetched before the meeting.
 
 ## The council's YouTube channel
 
