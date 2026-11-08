@@ -137,14 +137,22 @@ class GranicusAdapter:
         MediaPlayer page yet — fetch the agenda PDF and parse it instead.
         For archived meetings, fetch the MediaPlayer index points (the
         existing path, gives items with video timestamps).
+
+        A player-page request is followed by the adapter's delay whether it
+        was answered, answered with an error status, or not answered; the
+        error is raised after the pause, so a caller that goes on to the
+        next meeting never sends its requests back to back.
         """
         if meeting.external_id.startswith("event-"):
             return self._fetch_agenda_items_from_pdf(meeting)
         clip_id = int(meeting.external_id)
         url = self._player_url(clip_id)
 
-        resp = requests.get(url, timeout=30)
-        resp.raise_for_status()
+        try:
+            resp = requests.get(url, timeout=30)
+            resp.raise_for_status()
+        finally:
+            time.sleep(self.delay)
 
         soup = BeautifulSoup(resp.text, "html.parser")
         index_points = soup.find_all("div", class_="index-point")
@@ -170,7 +178,6 @@ class GranicusAdapter:
                     )
                 )
 
-        time.sleep(self.delay)
         return items
 
     def _fetch_agenda_items_from_pdf(self, meeting: RawMeeting) -> list[RawAgendaItem]:
@@ -181,6 +188,10 @@ class GranicusAdapter:
         those backfill later via `_backfill_video_timestamps` after the
         meeting is recorded and reconciliation upgrades the row to a
         clip_id.
+
+        The request is followed by the adapter's delay whatever came back
+        (a PDF, another body, an error status, no answer); a meeting with no
+        agenda link makes no request and no pause.
         """
         if not meeting.agenda_url:
             return []
@@ -192,6 +203,8 @@ class GranicusAdapter:
         except requests.RequestException as e:
             logger.error("Failed to fetch agenda PDF from %s: %s", meeting.agenda_url, e)
             return []
+        finally:
+            time.sleep(self.delay)
 
         if resp.content[:5] != b"%PDF-":
             logger.warning(
@@ -239,20 +252,31 @@ class GranicusAdapter:
                 )
             )
 
-        time.sleep(self.delay)
         return items
+
+    def _download_minutes_pdf(self, url: str) -> bytes | None:
+        """Download a minutes PDF, then sleep the adapter's delay.
+
+        The pause follows the request whatever came back (a PDF, another
+        body, an error status, no answer; `download_minutes_pdf` returns
+        None for all but the first), so a caller that goes on to the next
+        meeting never sends its requests back to back.
+        """
+        try:
+            return download_minutes_pdf(url)
+        finally:
+            time.sleep(self.delay)
 
     def fetch_minutes_text(self, meeting: RawMeeting) -> str | None:
         """Download minutes PDF and extract text."""
         if meeting.minutes_url is None:
             return None
 
-        pdf_bytes = download_minutes_pdf(meeting.minutes_url)
+        pdf_bytes = self._download_minutes_pdf(meeting.minutes_url)
         if pdf_bytes is None:
             return None
 
         text = extract_text_from_pdf(pdf_bytes)
-        time.sleep(self.delay)
         return text or None
 
     def fetch_votes(self, meeting: RawMeeting) -> list[RawVote]:
@@ -264,7 +288,7 @@ class GranicusAdapter:
         if meeting.minutes_url is None:
             return []
 
-        pdf_bytes = download_minutes_pdf(meeting.minutes_url)
+        pdf_bytes = self._download_minutes_pdf(meeting.minutes_url)
         if pdf_bytes is None:
             return []
 
@@ -273,7 +297,6 @@ class GranicusAdapter:
             return []
 
         result = parse_minutes(text)
-        time.sleep(self.delay)
 
         raw_votes = []
         for i, vote in enumerate(result.votes):

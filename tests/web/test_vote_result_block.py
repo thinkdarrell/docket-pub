@@ -31,6 +31,9 @@ class _FakeVote:
     video_timestamp: float | None = None
     video_url: str | None = None
     minutes_url: str | None = None
+    # A docket.services.video_links.VideoLink, set by query.get_vote_for_item
+    # on a vote that has both a video_timestamp and a video_url.
+    video_link: object | None = None
 
     @property
     def is_consent_block(self) -> bool:
@@ -137,9 +140,79 @@ def test_manual_shield_shows_manually_linked_chip(render_partial):
 
 
 def test_source_link_prefers_video_timestamp(render_partial):
-    # Granicus chapter-jump: meta_id (from item.external_id) appended as
-    # query param. The HTML5 #t= fragment is ignored by Granicus's
-    # player wrapper and intentionally not emitted anymore.
+    # The link is the one the service built (docket.services.video_links),
+    # not one the template derives from the page's item: the fake item's
+    # external_id is 371120 and the link carries another chapter, so a
+    # template that still built its own URL would print 371120.
+    from docket.services.video_links import VideoLink
+
+    player = "https://bhamal.granicus.com/MediaPlayer.php?view_id=2&clip_id=1986"
+    html = _render(
+        render_partial,
+        vote_data=_FakeData(
+            prevailing=_FakeVote(
+                video_timestamp=123.4,
+                video_url=player,
+                minutes_url="https://example.test/minutes.pdf",
+                video_link=VideoLink(url=player + "&meta_id=371164", site="granicus",
+                                     label="Granicus", seconds=None, timed=True),
+            )
+        ),
+    )
+    assert "Watch this vote on Granicus ↗" in html
+    assert "meta_id=371164" in html
+    assert "meta_id=371120" not in html
+    assert "#t=" not in html
+    # Minutes link must NOT be the primary action when video is present.
+    assert "Read minutes" not in html
+
+    # A link to a host the builder does not know has no label, and the text
+    # then names no site.
+    html = _render(
+        render_partial,
+        vote_data=_FakeData(
+            prevailing=_FakeVote(
+                video_timestamp=123.4,
+                video_url="https://example.test/video.mp4",
+                video_link=VideoLink(url="https://example.test/video.mp4", site="other",
+                                     label=None, seconds=None, timed=False),
+            )
+        ),
+    )
+    assert "Watch this vote ↗" in html
+    assert "Watch this vote on" not in html
+    assert 'href="https://example.test/video.mp4"' in html
+
+
+def test_source_link_names_youtube_when_the_link_opens_youtube(render_partial):
+    from docket.services.video_links import VideoLink
+
+    player = "https://bhamal.granicus.com/MediaPlayer.php?view_id=2&clip_id=2026"
+    youtube = VideoLink(url="https://www.youtube.com/watch?v=FR84h22hQvA&t=1620s", site="youtube",
+                        label="YouTube", seconds=1620, timed=True)
+    granicus = VideoLink(url=player + "&meta_id=371164", site="granicus",
+                         label="Granicus", seconds=None, timed=True)
+    html = _render(
+        render_partial,
+        vote_data=_FakeData(
+            prevailing=_FakeVote(video_timestamp=2256.0, video_url=player, video_link=youtube,
+                                 minutes_url="https://example.test/minutes.pdf"),
+            # Each row of the history carries its own link and names its own site.
+            history=[_FakeVote(vote_id=2, video_timestamp=2256.0, video_url=player,
+                               video_link=granicus)],
+        ),
+    )
+    assert "Watch this vote on YouTube ↗" in html
+    assert 'href="https://www.youtube.com/watch?v=FR84h22hQvA&amp;t=1620s"' in html
+    assert html.count("Watch this vote on YouTube") == 1
+    assert html.count("Watch this vote on Granicus ↗") == 1
+    assert "meta_id=371164" in html
+    assert "Read minutes" not in html
+
+
+def test_source_link_without_a_video_link_falls_through_to_minutes(render_partial):
+    # A timestamp and a video_url are no longer enough: the template prints
+    # the video link only when the service built one.
     html = _render(
         render_partial,
         vote_data=_FakeData(
@@ -147,14 +220,14 @@ def test_source_link_prefers_video_timestamp(render_partial):
                 video_timestamp=123.4,
                 video_url="https://bhamal.granicus.com/MediaPlayer.php?view_id=2&clip_id=1986",
                 minutes_url="https://example.test/minutes.pdf",
+                video_link=None,
             )
         ),
     )
-    assert "Watch this vote" in html
-    assert "meta_id=371120" in html
-    assert "#t=" not in html
-    # Minutes link must NOT be the primary action when video is present.
-    assert "Read minutes" not in html
+    assert "Watch this vote" not in html
+    assert "MediaPlayer.php" not in html
+    assert "Read minutes" in html
+    assert "https://example.test/minutes.pdf" in html
 
 
 def test_source_link_falls_back_to_minutes_when_no_timestamp(render_partial):

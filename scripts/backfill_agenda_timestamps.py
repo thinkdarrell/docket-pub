@@ -2,6 +2,8 @@
 
 For each Birmingham meeting, fetches the Granicus player page and extracts
 index-point timestamps, then updates existing agenda_items rows.
+
+This script fills timestamps only and never writes a Granicus chapter id; after running it, run scripts/correct_agenda_chapter_ids.py, which fills both.
 """
 
 import time

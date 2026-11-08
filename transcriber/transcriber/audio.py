@@ -1,4 +1,5 @@
-"""Pull 16 kHz mono audio from a Granicus clip, a YouTube recording, or a local file with ffmpeg.
+"""Pull mono audio (16 kHz unless asked otherwise) from a Granicus clip, a YouTube recording,
+or a local file with ffmpeg.
 
 Granicus serves archive video through CloudFront, which answers 403 to
 non-browser user agents. Same constant and same download endpoint as the
@@ -10,6 +11,10 @@ external id ``yt-<video id>``. ffmpeg cannot read a YouTube page, so
 ``source_for`` first downloads that video's best audio track with yt-dlp into the
 work directory and hands ffmpeg the file. The caller removes ``<work_dir>/<id>.*``
 afterwards, since yt-dlp chooses the extension.
+
+The measuring pass (measure.py) uses the same two functions for a recording attached to a
+Granicus meeting, asking for 8 kHz (``rate``) and for the smallest audio track
+(``audio_format``), since the matcher uses nothing above 3.6 kHz.
 """
 from __future__ import annotations
 
@@ -38,24 +43,28 @@ YOUTUBE_WATCH_URL = "https://www.youtube.com/watch?v="
 YOUTUBE_PREFIX = "yt-"
 # yt-dlp's own scratch files, never the finished download
 _PARTIAL_SUFFIXES = (".part", ".ytdl", ".temp")
+# seconds a yt-dlp connection may stay silent before the download gives up; the download runs
+# in this process, so no subprocess timeout bounds a stalled one
+YTDLP_SOCKET_TIMEOUT_S = 30
 
 
-def ytdlp_options(external_id: str, work_dir: Path) -> dict:
+def ytdlp_options(external_id: str, work_dir: Path, *, audio_format: str = "bestaudio/best") -> dict:
     """yt-dlp options for one download. TRANSCRIBER_YTDLP_COOKIES names a Netscape-format
     cookie file exported from a signed-in browser, for when YouTube asks this address to
-    sign in; unset, no cookies are sent."""
-    opts = {"format": "bestaudio/best", "outtmpl": str(Path(work_dir) / f"{external_id}.%(ext)s"),
-            "quiet": True, "noplaylist": True}
+    sign in; unset, no cookies are sent. ``audio_format`` is yt-dlp's format selector."""
+    opts = {"format": audio_format, "outtmpl": str(Path(work_dir) / f"{external_id}.%(ext)s"),
+            "quiet": True, "noplaylist": True, "socket_timeout": YTDLP_SOCKET_TIMEOUT_S}
     cookies = os.environ.get("TRANSCRIBER_YTDLP_COOKIES")
     if cookies:
         opts["cookiefile"] = cookies
     return opts
 
 
-def source_for(external_id: str, work_dir: Path) -> str:
+def source_for(external_id: str, work_dir: Path, *, audio_format: str = "bestaudio/best") -> str:
     """What ffmpeg reads for a meeting: the Granicus download URL for a clip id, or, for a
-    ``yt-`` id, the path of the recording's audio downloaded into ``work_dir`` by yt-dlp.
-    Raises AudioFetchError when yt-dlp cannot download it."""
+    ``yt-`` id, the path of the recording's audio downloaded into ``work_dir`` by yt-dlp
+    (``audio_format`` chooses which track). Raises AudioFetchError when yt-dlp cannot
+    download it."""
     if not external_id.startswith(YOUTUBE_PREFIX):
         return download_url_for(external_id)
     try:
@@ -67,7 +76,7 @@ def source_for(external_id: str, work_dir: Path) -> str:
     work_dir.mkdir(parents=True, exist_ok=True)
     url = YOUTUBE_WATCH_URL + external_id[len(YOUTUBE_PREFIX):]
     try:
-        with yt_dlp.YoutubeDL(ytdlp_options(external_id, work_dir)) as ydl:
+        with yt_dlp.YoutubeDL(ytdlp_options(external_id, work_dir, audio_format=audio_format)) as ydl:
             ydl.download([url])
     except yt_dlp.utils.DownloadError as e:
         raise AudioFetchError(f"yt-dlp could not download {url}: {e}") from None
@@ -112,12 +121,14 @@ def fetch_audio(
     attempts: int = 3,
     delay_s: float = 5.0,
     timeout_s: int = 3600,
+    rate: int = 16000,
     runner=subprocess.run,
 ) -> Path:
+    """Write ``source`` as mono 16-bit PCM WAV at ``rate`` Hz (16 kHz for transcription)."""
     out_wav = Path(out_wav)
     out_wav.parent.mkdir(parents=True, exist_ok=True)
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", *_ua_args(source),
-           "-i", source, "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le",
+           "-i", source, "-vn", "-ac", "1", "-ar", str(rate), "-c:a", "pcm_s16le",
            str(out_wav)]
     last_err = ""
     for i in range(attempts):

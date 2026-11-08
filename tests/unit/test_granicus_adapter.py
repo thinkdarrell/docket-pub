@@ -6,10 +6,13 @@ dual-table read in list_meetings (via _parse_publisher_page so HTTP
 stays out of the unit suite).
 """
 
+from dataclasses import replace
 from datetime import date
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+import requests
 from bs4 import BeautifulSoup
 
 from docket.adapters.granicus import GranicusAdapter
@@ -385,6 +388,142 @@ class TestFetchAgendaItemsClipPathUntouched:
         # Item came through with its video timestamp
         assert len(items) == 1
         assert items[0].video_timestamp_seconds == 123.5
+
+
+class TestPlayerPageRequestIsFollowedByThePause:
+    """Every player-page request is followed by the adapter's delay, the
+    ones that fail too: a caller that goes on to the next meeting after an
+    error must not send its requests back to back (`GOALS.md`, polite
+    scraping)."""
+
+    def test_page_that_is_read_is_followed_by_one_pause(self):
+        adapter = _adapter()
+        resp = MagicMock()
+        resp.text = '<div class="index-point" time="5" data-id="371101">ITEM 1</div>'
+        resp.raise_for_status = MagicMock(return_value=None)
+        with patch("docket.adapters.granicus.requests.get", return_value=resp), \
+                patch("docket.adapters.granicus.time.sleep") as sleep:
+            assert len(adapter.fetch_agenda_items(_archive_meeting())) == 1
+        assert [c.args for c in sleep.call_args_list] == [(adapter.delay,)]
+
+    def test_error_status_is_raised_after_one_pause(self):
+        adapter = _adapter()
+        resp = MagicMock()
+        resp.raise_for_status.side_effect = requests.HTTPError("503 Server Error")
+        with patch("docket.adapters.granicus.requests.get", return_value=resp), \
+                patch("docket.adapters.granicus.time.sleep") as sleep:
+            with pytest.raises(requests.HTTPError, match="503"):
+                adapter.fetch_agenda_items(_archive_meeting())
+        assert [c.args for c in sleep.call_args_list] == [(adapter.delay,)]
+
+    def test_request_that_gets_no_answer_is_raised_after_one_pause(self):
+        adapter = _adapter()
+        with patch("docket.adapters.granicus.requests.get",
+                   side_effect=requests.ConnectionError("connection refused")), \
+                patch("docket.adapters.granicus.time.sleep") as sleep:
+            with pytest.raises(requests.ConnectionError):
+                adapter.fetch_agenda_items(_archive_meeting())
+        assert [c.args for c in sleep.call_args_list] == [(adapter.delay,)]
+
+
+class TestAgendaPdfRequestIsFollowedByThePause:
+    """Every agenda-PDF request is followed by the adapter's delay, whatever
+    came back; a meeting with no agenda link makes no request and waits for
+    nothing."""
+
+    def _fetch(self, meeting=None, **get):
+        adapter = _adapter()
+        with patch("docket.adapters.granicus.requests.get", **get) as mock_get, \
+                patch("docket.adapters.granicus.time.sleep") as sleep:
+            items = adapter.fetch_agenda_items(meeting or _upcoming_meeting())
+        return items, mock_get.call_count, [c.args for c in sleep.call_args_list], adapter.delay
+
+    def test_pdf_that_is_read_is_followed_by_one_pause(self):
+        items, requested, sleeps, delay = self._fetch(
+            return_value=_mock_pdf_response(FIXTURE_PDF.read_bytes()))
+        assert len(items) > 0
+        assert (requested, sleeps) == (1, [(delay,)])
+
+    def test_error_status_is_followed_by_one_pause(self):
+        resp = MagicMock()
+        resp.raise_for_status.side_effect = requests.HTTPError("503 Server Error")
+        items, requested, sleeps, delay = self._fetch(return_value=resp)
+        assert items == []          # this path logs the failure and returns nothing
+        assert (requested, sleeps) == (1, [(delay,)])
+
+    def test_request_that_gets_no_answer_is_followed_by_one_pause(self):
+        items, requested, sleeps, delay = self._fetch(
+            side_effect=requests.ConnectionError("connection refused"))
+        assert items == []
+        assert (requested, sleeps) == (1, [(delay,)])
+
+    def test_answer_that_is_not_a_pdf_is_followed_by_one_pause(self):
+        items, requested, sleeps, delay = self._fetch(
+            return_value=_mock_pdf_response(b"<html>No agenda has been posted</html>"))
+        assert items == []
+        assert (requested, sleeps) == (1, [(delay,)])
+
+    def test_meeting_with_no_agenda_link_makes_no_request_and_no_pause(self):
+        meeting = replace(_upcoming_meeting(), agenda_url=None)
+        items, requested, sleeps, _ = self._fetch(meeting, return_value=MagicMock())
+        assert (items, requested, sleeps) == ([], 0, [])
+
+
+MINUTES_URL = "https://bhamal.granicus.com/MinutesViewer.php?view_id=2&clip_id=1980"
+
+
+class TestMinutesPdfDownloadIsFollowedByThePause:
+    """Every minutes-PDF download the adapter makes is followed by its delay,
+    whatever came back; a meeting with no minutes link makes no request and
+    waits for nothing. `download_minutes_pdf` returns None for an error
+    status, no answer, or a body that is not a PDF."""
+
+    def _call(self, method: str, *, pdf, text="", minutes_url=MINUTES_URL):
+        adapter = _adapter()
+        meeting = replace(_archive_meeting(), minutes_url=minutes_url)
+        with patch("docket.adapters.granicus.download_minutes_pdf", return_value=pdf) as download, \
+                patch("docket.adapters.granicus.extract_text_from_pdf", return_value=text), \
+                patch("docket.adapters.granicus.time.sleep") as sleep:
+            result = getattr(adapter, method)(meeting)
+        return (result, [c.args for c in download.call_args_list],
+                [c.args for c in sleep.call_args_list], adapter.delay)
+
+    def test_minutes_text_download_that_fails_is_followed_by_one_pause(self):
+        result, downloads, sleeps, delay = self._call("fetch_minutes_text", pdf=None)
+        assert result is None
+        assert (downloads, sleeps) == ([(MINUTES_URL,)], [(delay,)])
+
+    def test_minutes_text_that_is_read_is_followed_by_one_pause(self):
+        result, downloads, sleeps, delay = self._call(
+            "fetch_minutes_text", pdf=b"%PDF-1.7", text="Present on Roll Call")
+        assert result == "Present on Roll Call"
+        assert (downloads, sleeps) == ([(MINUTES_URL,)], [(delay,)])
+
+    def test_minutes_text_with_no_minutes_link_makes_no_request_and_no_pause(self):
+        result, downloads, sleeps, _ = self._call("fetch_minutes_text", pdf=b"%PDF-1.7",
+                                                  minutes_url=None)
+        assert (result, downloads, sleeps) == (None, [], [])
+
+    def test_votes_download_that_fails_is_followed_by_one_pause(self):
+        result, downloads, sleeps, delay = self._call("fetch_votes", pdf=None)
+        assert result == []
+        assert (downloads, sleeps) == ([(MINUTES_URL,)], [(delay,)])
+
+    def test_votes_pdf_with_no_text_is_followed_by_one_pause(self):
+        result, downloads, sleeps, delay = self._call("fetch_votes", pdf=b"%PDF-1.7", text="")
+        assert result == []
+        assert (downloads, sleeps) == ([(MINUTES_URL,)], [(delay,)])
+
+    def test_votes_pdf_that_is_read_is_followed_by_one_pause(self):
+        result, downloads, sleeps, delay = self._call(
+            "fetch_votes", pdf=b"%PDF-1.7", text="Minutes with no recorded vote")
+        assert result == []
+        assert (downloads, sleeps) == ([(MINUTES_URL,)], [(delay,)])
+
+    def test_votes_with_no_minutes_link_makes_no_request_and_no_pause(self):
+        result, downloads, sleeps, _ = self._call("fetch_votes", pdf=b"%PDF-1.7",
+                                                  minutes_url=None)
+        assert (result, downloads, sleeps) == ([], [], [])
 
 
 # --- start_time extraction tests -------------------------------------------

@@ -1,7 +1,10 @@
 {# Transcript body — shared by the full page and the HTMX tab load.
    Each turn has a stable anchor (t-<seq of first segment>) and the first
    turn of each agenda item also carries id="item-N" so agenda links and
-   transcript links cross-reference. #}
+   transcript links cross-reference. That first turn also carries the item's
+   link into the video, a finished VideoLink from item_video_links
+   (docket.services.video_links.item_links, by agenda item id); its phrase
+   names the site it opens. #}
 <div class="transcript" id="transcript-body">
   <div class="callout callout-info is-tight transcript-label">
     <div class="callout-title t-mono">Machine-generated transcript</div>
@@ -37,8 +40,9 @@
         <span class="transcript-speaker{% if turn.speaker_member_id %} is-resolved{% endif %}">
           {% if turn.speaker_member_id %}<a class="link" href="/al/{{ municipality.slug }}/council/{{ turn.speaker_member_id }}/">{{ turn.speaker_label }}</a>{% else %}{{ turn.speaker_label }}{% endif %}
         </span>
-        {% if item_id and items_by_id.get(item_id) and items_by_id[item_id].external_id %}
-        <a class="t-meta link" href="{{ chapter_url(meeting.video_url, items_by_id[item_id].external_id) }}" target="_blank" rel="noreferrer">video chapter ↗</a>
+        {% set link = item_video_links.get(item_id) if item_id else none %}
+        {% if link %}
+        <a class="t-meta link" href="{{ link.url }}" target="_blank" rel="noreferrer">{{ link.phrase }} ↗</a>
         {% endif %}
       </div>
       <p class="transcript-text">{% for text in turn.texts %}{% set seq = turn.seqs[loop.index0] %}<span{% if not loop.first %} id="t-{{ seq }}"{% endif %}>{{ text }}</span>{% if not loop.last %} {% endif %}{% endfor %}</p>

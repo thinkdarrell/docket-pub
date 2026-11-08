@@ -22,6 +22,7 @@ Plan: plans/active/meeting-types-name-the-body.md (M3).
 
 from __future__ import annotations
 
+import html as html_entities
 import json
 import logging
 from dataclasses import dataclass
@@ -80,8 +81,13 @@ def parse_birminghamal_page(html: str, base_url: str) -> list[CalendarEvent]:
     """Every event in the page's ``__NEXT_DATA__`` block, in the page's order.
 
     ``base_url`` is the scheme and host the result paths are relative to
-    (``https://www.birminghamal.gov``). Titles have their whitespace
-    collapsed (the source has a double space in one). A result missing its
+    (``https://www.birminghamal.gov``). Titles have their HTML entities
+    unescaped, a guard, not a repair: the page's JSON has carried a plain
+    ``&`` on every read so far (a 2026-11-07 reading of ``&amp;`` in
+    production was an artifact of the terminal relay, not of the data),
+    but a stored ``&amp;`` would defeat the committee-name match in
+    ``docket.services.meeting_types``. Whitespace is collapsed (the source
+    has a double space in one). A result missing its
     id, title, or start instant is skipped with a warning; a page missing
     the block, or a block that is not the expected shape, yields ``[]``.
     """
@@ -121,7 +127,7 @@ def parse_birminghamal_page(html: str, base_url: str) -> list[CalendarEvent]:
         events.append(
             CalendarEvent(
                 source_event_id=source_event_id,
-                title=" ".join(title.split()),
+                title=" ".join(html_entities.unescape(title).split()),
                 starts_at=starts_at,
                 ends_at=_instant(result.get("endDate")),
                 source_url=base + path if isinstance(path, str) and path else base,

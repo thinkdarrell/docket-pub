@@ -14,6 +14,7 @@ from docket.db import db_cursor
 from docket.models.agenda import AgendaItem
 from docket.models.meeting import Meeting
 from docket.models.vote import AgendaItemLink, MemberVote, Vote
+from docket.services import video_links
 from docket.services.meeting_time import UPCOMING_PREDICATE_SQL as _RAW_UPCOMING_PREDICATE
 
 # Prefixed for use inside queries that alias the meetings table as `mt`.
@@ -3982,10 +3983,15 @@ class VoteEntry:
     template. Multiple entries form a history when an item was voted on more
     than once (consent + later substantive, reconsideration, etc.).
 
-    Source-link fields (meeting_id, video_timestamp, video_url, minutes_url)
-    are surfaced so the template can build the right deep link per vote.
-    Priority lives in the template: video timestamp > minutes PDF >
-    meeting_detail#vote-N fallback (constructed with url_for).
+    Source-link fields (meeting_id, video_link, minutes_url) are surfaced so
+    the template can print the right deep link per vote. Priority lives in
+    the template: video link > minutes PDF > meeting_detail#vote-N fallback
+    (constructed with url_for).
+
+    ``video_link`` is a finished :class:`docket.services.video_links.VideoLink`
+    on a vote that has both a ``video_timestamp`` and a ``video_url``, and
+    None on every other; :func:`get_vote_for_item` sets it. The template
+    prints its ``url`` and ``label`` and builds no video URL of its own.
     """
     vote_id: int
     meeting_id: int
@@ -4001,6 +4007,7 @@ class VoteEntry:
     video_timestamp: float | None
     video_url: str | None
     minutes_url: str | None
+    video_link: object | None = None  # video_links.VideoLink | None
 
     @property
     def is_consent_block(self) -> bool:
@@ -4030,6 +4037,9 @@ def get_vote_for_item(item_id: int) -> ItemVoteData | None:
     are excluded.
 
     Returns None when no active links exist for the item.
+
+    Each returned vote that has both a ``video_timestamp`` and a
+    ``video_url`` carries a ``video_link`` (see :func:`_attach_video_links`).
 
     Hidden-meeting note: the item_detail route gates by
     :func:`get_agenda_item`, which returns None for items whose parent
@@ -4093,5 +4103,44 @@ def get_vote_for_item(item_id: int) -> ItemVoteData | None:
         )
         for r in rows
     ]
+    _attach_video_links(item_id, entries)
 
     return ItemVoteData(prevailing=entries[0], history=entries[1:])
+
+
+def _attach_video_links(item_id: int, entries: list[VoteEntry]) -> None:
+    """Set ``video_link`` on each entry that has a video timestamp and a video URL.
+
+    The link stands for the agenda item, so a vote on the item's own meeting
+    gets :func:`docket.services.video_links.vote_link`, which owns the rule:
+    the item's moment under the consent rule, the vote's own
+    ``video_timestamp`` when the item has no second of its own, and on
+    YouTube the vote's own second for a consent vote read long after the
+    reading of the consent agenda. A vote on another meeting
+    (the item reconsidered) opens that meeting's video at the vote's own
+    second with no chapter: the item's chapter id names a chapter of the
+    item's own clip. Which site a link opens is
+    :func:`docket.services.video_links.link_for`'s decision.
+
+    Entries without both fields keep ``video_link`` None, and nothing is read
+    when no entry has both.
+    """
+    timed = [e for e in entries if e.video_timestamp is not None and e.video_url]
+    if not timed:
+        return
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT meeting_id, is_consent, video_timestamp_seconds, external_id "
+            "FROM agenda_items WHERE id = %s",
+            (item_id,),
+        )
+        item = cur.fetchone()
+    videos = video_links.for_meetings({e.meeting_id for e in timed})
+    for entry in timed:
+        video = videos.get(entry.meeting_id)
+        if item is not None and entry.meeting_id == item["meeting_id"]:
+            entry.video_link = video_links.vote_link(
+                video, vote_s=entry.video_timestamp, is_consent=item["is_consent"],
+                cue_s=item["video_timestamp_seconds"], external_id=item["external_id"])
+        else:
+            entry.video_link = video_links.link_for(video, seconds=entry.video_timestamp)

@@ -30,7 +30,10 @@ The evidence ladder, top rung first:
    row without documents takes the day's committee event when exactly one
    exists, and otherwise the rung yields nothing. A row with a minutes link
    never takes a committee event, since committees have no minutes and a
-   council meeting moved to a committee's day is told apart by them.
+   council meeting moved to a committee's day is told apart by them; nor
+   does a row with documents on the council's regular weekday, since the
+   page lists only its next few events and the council's own can go
+   unseen while a committee's on the same day is stored (2026-11-03).
 5. **schedule_rule** — the city's metadata names the council's regular
    weekday (``council_schedule.weekday``, Monday 0), the row falls on
    another weekday, has no minutes link, and is not cancelled: it is a
@@ -194,8 +197,18 @@ def _event_date(ev: dict) -> date:
     return starts_at.astimezone(_CHICAGO).date()
 
 
-def _choose_event(events: list[tuple[dict, Classification]], *, has_documents: bool, has_minutes: bool):
-    """Pick the day's event for a row, by documents alone (never by start_time)."""
+def _choose_event(
+    events: list[tuple[dict, Classification]], *, has_documents: bool, has_minutes: bool, on_council_day: bool
+):
+    """Pick the day's event for a row, by documents and the weekday alone (never by start_time).
+
+    A committee event is refused for a row with minutes (committees keep
+    none), and for a row with documents on the council's regular weekday:
+    the calendar page lists only its next few events and is read once a
+    day, so the council's own event can go unseen while a committee's on
+    the same day is stored, and the council clip, with its agenda, must
+    not be named after that committee (2026-11-03).
+    """
     if not events:
         return None
     if len(events) == 1:
@@ -206,7 +219,7 @@ def _choose_event(events: list[tuple[dict, Classification]], *, has_documents: b
         if len(of_kind) != 1:
             return None
         chosen = of_kind[0]
-    if has_minutes and chosen[1].meeting_type == "committee":
+    if chosen[1].meeting_type == "committee" and (has_minutes or (has_documents and on_council_day)):
         return None
     return chosen
 
@@ -249,6 +262,9 @@ def resolve(
     meeting_date = _as_date(meeting["meeting_date"])
     has_minutes = bool(meeting.get("minutes_url"))
     has_documents = has_minutes or item_count > 0
+    schedule = meta.get("council_schedule")
+    weekday = schedule.get("weekday") if isinstance(schedule, dict) else None
+    on_council_day = weekday is not None and meeting_date.weekday() == int(weekday)
 
     if meta.get("calendar_url"):
         todays: list[tuple[dict, Classification]] = []
@@ -258,15 +274,15 @@ def resolve(
             cls = classify_event(ev.get("title") or "")
             if cls is not None:
                 todays.append((ev, cls))
-        chosen = _choose_event(todays, has_documents=has_documents, has_minutes=has_minutes)
+        chosen = _choose_event(
+            todays, has_documents=has_documents, has_minutes=has_minutes, on_council_day=on_council_day
+        )
         if chosen is not None:
             return Resolution(chosen[1], "calendar", chosen[0]["id"])
 
-    schedule = meta.get("council_schedule")
-    weekday = schedule.get("weekday") if isinstance(schedule, dict) else None
     if (
         weekday is not None
-        and meeting_date.weekday() != int(weekday)
+        and not on_council_day
         and not has_minutes
         and not is_cancelled_title(title)
     ):

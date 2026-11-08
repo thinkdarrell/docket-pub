@@ -113,6 +113,79 @@ signed-in browser (a "cookies.txt" export extension), save the file as
 folder is already mounted at `/archive`). The file is a sign-in; keep it out of
 the repository.
 
+## Measuring YouTube recordings
+
+Most council meetings are on Granicus and on YouTube, and the worker attaches the
+YouTube recording to the Granicus meeting. The two recordings of one meeting do
+not start at the same moment, so the site can open YouTube at the right second
+only once it knows how far apart they are. An ordinary run (the command under
+"Running") finds that out before it transcribes anything: the measuring pass.
+It runs before the speech model is loaded and does not use the graphics card.
+
+For each attached recording that has no measurement yet, newest meeting first,
+the pass puts the meeting's Granicus audio in `C:\docket-archive\work\` at 8 kHz
+(decoded from the archive's `audio.flac` when the meeting has one, downloaded
+from Granicus otherwise, with a 3-second pause after each Granicus request),
+downloads the YouTube recording's smallest audio track with yt-dlp, compares the
+sound of the two, and stores one row in `meeting_video_alignments`: the offset in
+seconds, the stretch of the Granicus clock the recording covers, the score, and
+whether the match passed. It keeps none of the audio: the `align-*.wav` files and
+the `yt-*` download are deleted as soon as a recording is measured, and the
+archive is only read. A meeting with two recordings has its Granicus audio
+fetched once.
+
+The log has one line per recording, in one of three forms, and one line at the end:
+
+    measure meeting <id> clip <clip id> video <video id>: passed offset=<s>s covers=<from>-<to>s score=<s> runner_up=<s> windows=<confirmed>/<counted>
+    measure meeting <id> clip <clip id> video <video id>: rejected (<reason>) offset=... (the same fields)
+    measure meeting <id> clip <clip id> video <video id>: failed (<error>)
+    measure done {'passed': <n>, 'rejected': <n>, 'failed': <n>} remaining=<n>
+
+A passing line reads like `measure meeting 3184 clip 2026 video FR84h22hQvA: passed
+offset=635.48s covers=635.5-3958.7s score=23.6 runner_up=6.0 windows=10/12`: the
+YouTube recording starts 635.48 seconds into the Granicus clip and is confirmed
+from second 635.5 to second 3958.7 of it.
+
+`passed` means links for that meeting can open YouTube inside the covered
+stretch. `rejected` means the audio was compared and the match was not good
+enough (the reason is `score`, `margin`, `windows`, `conflict`, `no_window`, or
+`edges`);
+that recording's links stay on Granicus, and it is not measured again until the
+method changes. `failed` means the audio could not be fetched or read; it is
+tried again once the row is a week old. `remaining` is how many recordings still
+wait.
+
+`--measure-limit N` (env `TRANSCRIBER_MEASURE_LIMIT`, default 20) is the most
+recordings one run measures (the first production run, 2026-11-06, measured
+20 in under an hour, the first three in about a minute each; one whose Granicus
+audio is not in the archive takes as long as that download); `0` turns the
+measuring off.
+`--max-hours` and Ctrl-C cover the measuring and the transcribing as one run:
+Ctrl-C finishes the recording in hand, and the run then loads the model, claims
+nothing, and exits. Three failed fetches in a row end the measuring for that run
+(a blocked day should not spend the run on downloads that cannot succeed), and
+transcription goes on. Nothing is measured under `--meeting-id`, `--dry-run`,
+`--cache-audio`, `--capture-inputs`, or `--replay`.
+
+To work through the backlog on purpose, without transcribing:
+
+    docker compose run --rm transcriber --limit 0 --measure-limit 400 --max-hours 8
+
+The speech model still loads once the measuring is done, and the run then exits
+with nothing claimed.
+
+**Rebuild the image** (`docker compose build`) after pulling this change, since
+the Dockerfile copies the package; an image built before it runs as before and
+measures nothing.
+
+A line `measure: skipped (permission denied for table meeting_video_alignments)`
+(or `... for table meeting_videos`) means the production GRANT has not been run:
+the two statements at the end of `scripts/sql/create_transcriber_role.sql`, run
+by the database owner. `measure: skipped (relation "meeting_video_alignments"
+does not exist ...)` means migration 042 has not been deployed. Either way the
+run transcribes as usual. A run of `failed` lines that name yt-dlp is the same
+trouble a `yt-` meeting would have (see "YouTube recordings" above).
+
 ## Where things land
 
 - `C:\docket-archive\transcripts\<meeting_id>\transcript.json` — the upload contract (kept)
@@ -123,6 +196,7 @@ the repository.
 - `C:\docket-archive\transcripts\<meeting_id>\replay.json` — written by `--replay`, never over `transcript.json`
 - `C:\docket-archive\work\*.wav` — the decoded work copy, deleted after each meeting
 - `C:\docket-archive\work\yt-*.*` — a YouTube recording's downloaded audio, deleted once decoded
+- `C:\docket-archive\work\align-*.wav` — the measuring pass's 8 kHz copies of a Granicus clip and a YouTube recording, deleted once the recording is measured
 
 `raw.json` and `diarization.json` are everything `build_output()` takes, so a change to the
 post-processing in `engine.py` can be checked on every archived meeting in seconds, on the CPU:
