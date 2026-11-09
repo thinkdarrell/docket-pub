@@ -12,18 +12,36 @@ pytestmark = pytest.mark.skipif(
 ROLE_SQL = open("scripts/sql/create_transcriber_role.sql").read()
 
 
+def _drop_role(cur) -> None:
+    """Remove the transcriber role and every privilege it holds in this database.
+
+    Since PostgreSQL 16, REASSIGN OWNED and DROP OWNED require the privileges
+    of the role being cleaned up, not just CREATEROLE; a superuser (CI's
+    ``postgres:16`` container) has them implicitly, a plain CREATEROLE user
+    (a local database) does not. Granting ourselves the role with INHERIT
+    makes the sequence work in both. Running the same sequence before setup
+    also recovers from a role an interrupted run left behind, which would
+    otherwise make DROP ROLE fail on its dependent privileges (issue #156).
+    """
+    cur.execute("SELECT 1 FROM pg_roles WHERE rolname = 'transcriber'")
+    if cur.fetchone() is None:
+        return
+    cur.execute("GRANT transcriber TO CURRENT_USER WITH INHERIT TRUE")
+    cur.execute("REASSIGN OWNED BY transcriber TO CURRENT_USER")
+    cur.execute("DROP OWNED BY transcriber")
+    cur.execute("DROP ROLE transcriber")
+
+
 @pytest.fixture
 def transcriber_role():
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute("DROP ROLE IF EXISTS transcriber")
+            _drop_role(cur)
             cur.execute(ROLE_SQL.replace(":'password'", "'test-pass'"))
     yield
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute("REASSIGN OWNED BY transcriber TO CURRENT_USER")
-            cur.execute("DROP OWNED BY transcriber")
-            cur.execute("DROP ROLE IF EXISTS transcriber")
+            _drop_role(cur)
 
 
 def _priv(table: str, priv: str) -> bool:

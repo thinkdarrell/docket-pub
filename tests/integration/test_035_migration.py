@@ -67,15 +67,17 @@ def test_segments_search_vector_is_generated(fresh_035):
         assert cur.fetchone()["is_generated"] == "ALWAYS"
 
 
-def test_discrepancy_requires_one_event(fresh_035):
+def test_discrepancy_requires_one_event(fresh_035, seeded_birmingham):
     # 035 alone enforces the CHECK; migration 036 drops it (re-runs NULL one side's FK).
+    # The row is this test's own: on a database the migrations alone built there
+    # is no meeting to borrow, and an earlier tier's leftovers are not a contract.
     import psycopg2
+    from tests.integration.conftest import _insert_meeting
     with db() as conn:
         runner.apply_migrations(conn)
         runner.rollback_migration(conn, 36)
-    with db_cursor() as cur:
-        cur.execute("SELECT id FROM meetings ORDER BY id LIMIT 1")
-        meeting_id = cur.fetchone()["id"]
+    meeting_id = _insert_meeting(seeded_birmingham, meeting_date="2026-01-06",
+                                 external_id="test-035-check")
     with pytest.raises(psycopg2.errors.CheckViolation):
         with db_cursor() as cur:
             cur.execute("""
