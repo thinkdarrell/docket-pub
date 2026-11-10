@@ -27,7 +27,7 @@ def seeded_e2e():
             for n in range(5):
                 cur.execute("""
                     INSERT INTO meetings (municipality_id, meeting_type, meeting_date, source_url, title)
-                    VALUES (%s, 'Council', CURRENT_DATE - %s, 'x', %s) RETURNING id
+                    VALUES (%s, 'council', CURRENT_DATE - %s, 'x', %s) RETURNING id
                 """, (state["muni"], n, f"test_e2e meeting {n}"))
                 m_id = cur.fetchone()[0]
                 state["meetings"].append(m_id)

@@ -16,7 +16,7 @@ Dry run first, one city at a time:
     python scripts/reclassify_meetings.py --city birmingham
 
 Against production the operator sets DATABASE_URL to DATABASE_PUBLIC_URL
-(plans/active/meeting-types-name-the-body.md, M4).
+(plans/completed/meeting-types-name-the-body.md, M4).
 """
 
 import argparse

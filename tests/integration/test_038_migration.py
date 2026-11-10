@@ -1,6 +1,6 @@
 """Verify migration 038: the classification columns, the lock, city_calendar_events, and Birmingham's schedule metadata; down removes all of them.
 
-Pattern: tests/integration/test_037_migration.py. Plan: plans/active/meeting-types-name-the-body.md (M2).
+Pattern: tests/integration/test_037_migration.py. Plan: plans/completed/meeting-types-name-the-body.md (M2).
 """
 from datetime import date, datetime, timezone
 

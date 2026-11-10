@@ -17,7 +17,7 @@ this module parses. A missing or malformed block is an empty list and a
 warning, never an exception: the city changing its page must not fail the
 morning's worker run.
 
-Plan: plans/active/meeting-types-name-the-body.md (M3).
+Plan: plans/completed/meeting-types-name-the-body.md (M3).
 """
 
 from __future__ import annotations

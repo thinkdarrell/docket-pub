@@ -628,7 +628,7 @@ a.link:hover { border-bottom-color: var(--accent); }
 .coverage-chip__cites { color: var(--ink); }
 
 /* ── meeting type filter, provenance line, admin override (M5 of
-      plans/active/meeting-types-name-the-body.md) ───────────────────── */
+      plans/completed/meeting-types-name-the-body.md) ───────────────────── */
 .type-filter { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; font-family: var(--font-mono); font-size: 12px; }
 .type-filter__item {
   display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px;

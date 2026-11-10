@@ -24,7 +24,7 @@ def seed_item():
             muni = cur.fetchone()[0]
             cur.execute("""
                 INSERT INTO meetings (municipality_id, meeting_type, meeting_date, source_url, title)
-                VALUES (%s, 'C', CURRENT_DATE, 'x', 'test wb meeting')
+                VALUES (%s, 'council', CURRENT_DATE, 'x', 'test wb meeting')
                 RETURNING id
             """, (muni,))
             m_id = cur.fetchone()[0]
@@ -129,7 +129,7 @@ def seed_meeting():
             muni = cur.fetchone()[0]
             cur.execute("""
                 INSERT INTO meetings (municipality_id, meeting_type, meeting_date, source_url, title)
-                VALUES (%s, 'Council', CURRENT_DATE, 'x', 'test mwb meeting') RETURNING id
+                VALUES (%s, 'council', CURRENT_DATE, 'x', 'test mwb meeting') RETURNING id
             """, (muni,))
             mid = cur.fetchone()[0]
         conn.commit()

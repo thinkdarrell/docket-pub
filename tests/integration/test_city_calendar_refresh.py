@@ -8,7 +8,7 @@ metadata carries `calendar_url` and isolates a failure per city.
 
 Pattern: tests/integration/test_ingest_meeting_types.py (the seeded test
 municipality and prefix cleanup).
-Plan: plans/active/meeting-types-name-the-body.md (M3).
+Plan: plans/completed/meeting-types-name-the-body.md (M3).
 """
 
 from pathlib import Path

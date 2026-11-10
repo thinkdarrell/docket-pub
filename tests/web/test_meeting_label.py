@@ -12,7 +12,7 @@ rows seeded directly with an ``external_id`` prefix and deleted after, since
 the provenance sentence quotes the exact title and so the title cannot carry
 a prefix. Runs in the web tier against the throwaway database.
 
-Plan: plans/active/meeting-types-name-the-body.md (M5).
+Plan: plans/completed/meeting-types-name-the-body.md (M5).
 """
 
 from __future__ import annotations

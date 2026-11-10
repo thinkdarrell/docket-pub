@@ -76,7 +76,7 @@ def _insert_meeting_and_item(cur, title: str = "Test Batch Item") -> tuple[int, 
 
     cur.execute("""
         INSERT INTO meetings (municipality_id, meeting_type, meeting_date, source_url, title)
-        VALUES (%s, 'Council', CURRENT_DATE, 'http://test.example', 'Test Meeting')
+        VALUES (%s, 'council', CURRENT_DATE, 'http://test.example', 'Test Meeting')
         RETURNING id
     """, [muni_id])
     meeting_id = cur.fetchone()[0]

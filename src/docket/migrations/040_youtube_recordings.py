@@ -21,7 +21,7 @@ ingest's resolver recomputes it.
 Birmingham's metadata gains `youtube_channel` and `youtube_channel_id`;
 the down removes both keys.
 
-Number 039 is left to plans/active/meeting-types-name-the-body.md (M6).
+Number 039 is `039_meeting_type_checks.py` (plan `meeting-types-name-the-body`, M6).
 Plan: plans/completed/youtube-council-channel.md (M2).
 """
 

@@ -44,7 +44,7 @@ def _insert_muni_and_meeting(cur, meeting_date: date = date(2026, 3, 1)) -> tupl
 
     cur.execute("""
         INSERT INTO meetings (municipality_id, meeting_type, meeting_date, source_url, title)
-        VALUES (%s, 'Council', %s, 'http://test.backfill.example', 'Test Backfill Meeting')
+        VALUES (%s, 'council', %s, 'http://test.backfill.example', 'Test Backfill Meeting')
         RETURNING id
     """, [muni_id, meeting_date])
     meeting_id = cur.fetchone()[0]

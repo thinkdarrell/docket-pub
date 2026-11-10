@@ -11,7 +11,7 @@ value outside the two vocabularies is a 400; an anonymous POST is redirected
 to the login page as the other admin POSTs are.
 
 Pattern: tests/integration/test_admin_hide_meeting.py (``_Bag``, ``admin_client``).
-Plan: plans/active/meeting-types-name-the-body.md (M5).
+Plan: plans/completed/meeting-types-name-the-body.md (M5).
 """
 
 from __future__ import annotations

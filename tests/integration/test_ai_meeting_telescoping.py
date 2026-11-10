@@ -25,7 +25,7 @@ def seeded():
             state["muni"] = cur.fetchone()[0]
             cur.execute("""
                 INSERT INTO meetings (municipality_id, meeting_type, meeting_date, source_url, title)
-                VALUES (%s, 'C', CURRENT_DATE, 'x', 'test_tel meeting') RETURNING id
+                VALUES (%s, 'council', CURRENT_DATE, 'x', 'test_tel meeting') RETURNING id
             """, (state["muni"],))
             state["meeting"] = cur.fetchone()[0]
             for t in ["Authorize $4.2M road contract", "Approve 3-year IT support agreement"]:

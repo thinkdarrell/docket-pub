@@ -45,7 +45,7 @@ def city_with_meeting_and_items():
                 """INSERT INTO meetings
                    (municipality_id, external_id, title, meeting_date, meeting_type)
                    VALUES (%s, 'p41test_mtg1', 'P41_TEST_Council Regular Meeting',
-                           %s, 'regular')
+                           %s, 'council')
                    RETURNING id""",
                 (muni_id, datetime(2026, 5, 1)),
             )
@@ -75,7 +75,7 @@ def city_with_meeting_and_items():
                 """INSERT INTO meetings
                    (municipality_id, external_id, title, meeting_date, meeting_type)
                    VALUES (%s, 'p41test_mtg2', 'P41_TEST_Earlier Meeting',
-                           %s, 'regular')
+                           %s, 'council')
                    RETURNING id""",
                 (muni_id, datetime(2026, 4, 1)),
             )

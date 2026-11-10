@@ -13,7 +13,7 @@ transaction. The resolver (``docket.services.meeting_types``, M4) reads the
 rows to name the body of a Granicus clip the clerk titled
 "Regular City Council Meeting".
 
-Plan: plans/active/meeting-types-name-the-body.md (M3).
+Plan: plans/completed/meeting-types-name-the-body.md (M3).
 """
 
 from __future__ import annotations
