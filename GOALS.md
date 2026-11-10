@@ -48,7 +48,7 @@ Related repositories: `thinkdarrell/al-municipal-meetings` is the original Birmi
 - Daily AI spend is capped by `AI_DAILY_BUDGET_USD` and every batch respects it.
 - Scraping city sites uses polite delays of at least one second between requests.
 - `railway up` deploys whatever is in the local working tree, so deploys happen only from a clean `main` after merge, through `scripts/deploy.sh`.
-- Local Postgres is version 16; Railway runs 18.3. Dumps and restores against Railway use the postgresql@18 binaries.
+- Local Postgres is version 18 (CI runs the postgres:16 container); Railway runs 18.3. Dumps and restores against Railway use the postgresql@18 binaries.
 - Commits in this repository use the `hello@docket.pub` identity and the `thinkdarrell` GitHub account.
 
 ## Known unknowns
