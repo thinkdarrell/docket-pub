@@ -59,3 +59,34 @@ def test_every_registered_task_has_a_uuid_env_entry():
 
     missing = set(TASKS) - set(health.TASK_UUID_ENV)
     assert not missing, f"tasks missing from TASK_UUID_ENV: {sorted(missing)}"
+
+
+def test_unmonitored_tasks_lists_tasks_whose_variable_is_unset(monkeypatch):
+    """A task with no UUID variable is unmonitored; one with it set is not."""
+    for env_var in health.TASK_UUID_ENV.values():
+        monkeypatch.delenv(env_var, raising=False)
+    monkeypatch.setenv("HEALTHCHECK_INGEST_UUID", "abc-123")
+
+    unmonitored = health.unmonitored_tasks()
+
+    assert "video_ocr" in unmonitored
+    assert "ingest_all" not in unmonitored
+    assert unmonitored == sorted(unmonitored)
+
+
+def test_unmonitored_tasks_leaves_out_silent_by_design(monkeypatch):
+    """Tasks the runbook leaves without a check on purpose are not reported."""
+    for env_var in health.TASK_UUID_ENV.values():
+        monkeypatch.delenv(env_var, raising=False)
+
+    unmonitored = health.unmonitored_tasks()
+
+    assert health.SILENT_BY_DESIGN
+    assert health.SILENT_BY_DESIGN <= set(health.TASK_UUID_ENV)
+    assert not health.SILENT_BY_DESIGN & set(unmonitored)
+
+
+def test_unmonitored_tasks_is_empty_when_every_variable_is_set(monkeypatch):
+    for env_var in health.TASK_UUID_ENV.values():
+        monkeypatch.setenv(env_var, "abc-123")
+    assert health.unmonitored_tasks() == []

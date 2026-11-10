@@ -24,6 +24,7 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from docket import config
+from docket.worker import health
 from docket.worker.tasks import TASKS
 
 log = logging.getLogger(__name__)
@@ -221,6 +222,14 @@ def main() -> None:
     for job in sched.get_jobs():
         next_run = getattr(job, "next_run_time", None)
         log.info("  job=%s next_run=%s", job.id, next_run)
+    unmonitored = health.unmonitored_tasks()
+    if unmonitored:
+        log.warning(
+            "%d tasks have no HEALTHCHECK_*_UUID variable set, so a failure "
+            "of one alerts no one: %s (docs/runbooks/cron-worker.md)",
+            len(unmonitored),
+            ", ".join(f"{t} ({health.TASK_UUID_ENV[t]})" for t in unmonitored),
+        )
     sched.start()  # blocks
 
 
