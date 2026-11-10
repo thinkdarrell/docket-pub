@@ -138,3 +138,26 @@ def test_main_with_run_once_dispatches_and_exits(monkeypatch):
                         lambda name: called.__setitem__("v", name))
     scheduler.main()
     assert called["v"] == "ingest_all"
+
+
+def test_main_warns_which_tasks_have_no_heartbeat(monkeypatch, caplog):
+    """Startup names the tasks whose failure would page no one (issue #89)."""
+    import logging
+    from unittest.mock import MagicMock
+
+    from docket.worker import health, scheduler
+
+    for env_var in health.TASK_UUID_ENV.values():
+        monkeypatch.delenv(env_var, raising=False)
+    fake_sched = MagicMock()
+    fake_sched.get_jobs.return_value = []
+    monkeypatch.setattr(scheduler, "build_scheduler", lambda timezone: fake_sched)
+    monkeypatch.setattr("sys.argv", ["scheduler"])
+    monkeypatch.setattr(logging, "basicConfig", lambda **kw: None)
+
+    with caplog.at_level(logging.WARNING, logger=scheduler.log.name):
+        scheduler.main()
+
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("video_ocr" in m and "HEALTHCHECK" in m for m in warnings)
+    fake_sched.start.assert_called_once()

@@ -60,7 +60,26 @@ TASK_UUID_ENV: dict[str, str] = {
     "youtube_ingest": "HEALTHCHECK_YOUTUBE_INGEST_UUID",
 }
 
+# Tasks the runbook leaves without a check on purpose
+# (docs/runbooks/cron-worker.md, "Silent-by-design"). unmonitored_tasks()
+# does not report them.
+SILENT_BY_DESIGN: frozenset[str] = frozenset({"calibration_report", "prune_analytics"})
+
 PingStatus = Literal["start", "success", "fail"]
+
+
+def unmonitored_tasks() -> list[str]:
+    """Names of the tasks whose UUID variable is unset, sorted.
+
+    ping() is a silent no-op for these, so a task that fails every run is
+    seen by no one (issue #89; process_badges failed nightly for six months
+    this way). The worker logs the list at startup.
+    """
+    return sorted(
+        task
+        for task, env_var in TASK_UUID_ENV.items()
+        if task not in SILENT_BY_DESIGN and not os.environ.get(env_var)
+    )
 
 
 def ping(task: str, status: PingStatus, body: str | None = None) -> None:

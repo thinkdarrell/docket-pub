@@ -31,6 +31,8 @@ is `src/docket/worker/scheduler.py`).
 
 **Silent-by-design** = the task is in `health.py`'s `TASK_UUID_ENV` map (so `ping()` doesn't `KeyError`), but no UUID env var is set on the `worker` service. The ping call short-circuits at the env lookup. Used for tasks whose failure mode is local and self-recovering (`prune_analytics` — slightly longer data retention; `calibration_report` — daily diagnostic with no citizen impact). Adding a UUID later is a no-code change: create the check at healthchecks.io, set the env var, redeploy.
 
+**Which tasks are unmonitored:** at startup the worker logs one WARNING naming every task whose variable is unset, apart from the silent-by-design ones (`unmonitored_tasks` and `SILENT_BY_DESIGN` in `src/docket/worker/health.py`). After adding a task or deploying the worker, read that line: `railway logs --service worker | grep HEALTHCHECK`. No line means every task that should have a check has one.
+
 ## Healthchecks.io setup
 
 Each check should be created at https://healthchecks.io. Copy the UUID from the ping URL (`https://hc-ping.com/<UUID>`) and set it on the `worker` service:
