@@ -177,9 +177,11 @@ def _do_repair_empty_agendas() -> None:
 
 
 def _do_process_badges() -> None:
-    """Recompute deterministic process badges for items modified in last 36h.
+    """Recompute deterministic process badges for items generated in last 36h.
 
-    Runs after the AI pipeline (which sets processing_status='completed').
+    Runs after the AI pipeline (which sets processing_status='completed' and
+    ai_generated_at together). The window is on ai_generated_at because
+    agenda_items has no updated_at; calibration.py windows the same way.
     Uses pg_try_advisory_lock so a manual --run-once can't collide with the
     nightly schedule. Manual badges (source='manual') are preserved
     (decision #57). Spec §4.5.
@@ -188,8 +190,8 @@ def _do_process_badges() -> None:
 
     LOCK_KEY = "docket.process_badges"
     with db_cursor() as cur:
-        cur.execute("SELECT pg_try_advisory_lock(hashtext(%s))", [LOCK_KEY])
-        got_lock = cur.fetchone()[0]
+        cur.execute("SELECT pg_try_advisory_lock(hashtext(%s)) AS got_lock", [LOCK_KEY])
+        got_lock = cur.fetchone()["got_lock"]
         if not got_lock:
             log.warning("process_badges already running, skipping")
             return
@@ -198,7 +200,7 @@ def _do_process_badges() -> None:
             cur.execute("""
                 CREATE TEMP TABLE recent_items ON COMMIT DROP AS
                 SELECT id FROM agenda_items
-                 WHERE updated_at > NOW() - INTERVAL '36 hours'
+                 WHERE ai_generated_at > NOW() - INTERVAL '36 hours'
                    AND processing_status = 'completed';
             """)
 
