@@ -14,9 +14,69 @@ def _make_cursor(advisory_lock_result=True):
     cur.__enter__ = MagicMock(return_value=cur)
     cur.__exit__ = MagicMock(return_value=False)
 
-    # fetchone() is called once to get the advisory lock result
-    cur.fetchone.return_value = [advisory_lock_result]
+    # fetchone() is called once to get the advisory lock result. db_cursor
+    # yields a RealDictCursor, so the row is keyed by column name, not index.
+    cur.fetchone.return_value = {"got_lock": advisory_lock_result}
     return cur
+
+
+# ---------------------------------------------------------------------------
+# _do_process_badges — against the real database (issue #154)
+# ---------------------------------------------------------------------------
+
+def test_do_process_badges_runs_against_the_real_schema():
+    """The task runs end to end on the migrated schema: it recomputes the
+    deterministic badges of a recently generated item, keeps a manual one,
+    and writes the vote-derived badge. The mocked tests below cannot see a
+    wrong column or a wrong row type; this one can.
+    """
+    from docket.db import db
+    from tests.unit.test_badges_process import (
+        _badge_exists, _cleanup, _setup_agenda_item, _setup_city, _setup_meeting,
+    )
+
+    with db() as conn:
+        with conn.cursor() as cur:
+            city_id = _setup_city(cur)
+            mtg_id = _setup_meeting(cur, city_id, external_id='test-task-badges-mtg')
+            item_id = _setup_agenda_item(cur, mtg_id, title='Task-level 8-1 item')
+            cur.execute("UPDATE agenda_items SET ai_generated_at = NOW() WHERE id = %s", (item_id,))
+            cur.execute(
+                "INSERT INTO votes (meeting_id, result, source, confidence) "
+                "VALUES (%s, 'passed', 'minutes_text', 'high') RETURNING id",
+                (mtg_id,),
+            )
+            vote_id = cur.fetchone()[0]
+            cur.execute(
+                "INSERT INTO member_votes (vote_id, member_name, position) "
+                "VALUES (%s, 'Member A', 'yea'), (%s, 'Member B', 'nay')",
+                (vote_id, vote_id),
+            )
+            cur.execute(
+                "INSERT INTO vote_agenda_items (vote_id, agenda_item_id, association_type, "
+                "match_confidence, is_active) VALUES (%s, %s, 'explicit', 1.0, TRUE)",
+                (vote_id, item_id),
+            )
+            # A stale deterministic badge the recompute must clear, and a
+            # manual one it must keep (decision #57).
+            cur.execute(
+                "INSERT INTO agenda_item_badges (agenda_item_id, city_id, badge_slug, kind, "
+                "confidence, source, status) VALUES "
+                "(%s, %s, 'sole_source', 'process', 1.0, 'deterministic', 'applied'), "
+                "(%s, %s, 'legal_settlement', 'process', 1.0, 'manual', 'applied')",
+                (item_id, city_id, item_id, city_id),
+            )
+    try:
+        _do_process_badges()
+        with db() as conn:
+            with conn.cursor() as cur:
+                assert _badge_exists(cur, item_id, 'split_vote')
+                assert not _badge_exists(cur, item_id, 'sole_source')
+                assert _badge_exists(cur, item_id, 'legal_settlement')
+    finally:
+        with db() as conn:
+            with conn.cursor() as cur:
+                _cleanup(cur, city_id)
 
 
 # ---------------------------------------------------------------------------

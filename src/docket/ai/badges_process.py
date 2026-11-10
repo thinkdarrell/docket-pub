@@ -18,9 +18,10 @@ process badges are deterministic with no LLM-only path, so they always
 land citizen-visible. The decision lane for the policy-badge path lives
 in ``docket.ai.badges_policy.decide_status_and_confidence``.
 
-Note on member_votes.position: the DB schema uses column `position` with values
-'yea' | 'nay' | 'abstain' | 'absent'. The spec pseudocode used 'yes'/'no' names;
-these queries use the real DB values.
+Note on member_votes.position: the column holds two vocabularies by source.
+The minutes parser writes 'yea' | 'nay' | 'abstain' | 'absent' and video OCR
+writes 'yes' | 'no' | 'abstain' | 'absent' (docs/specs/votes.md). These queries
+accept both, as services/query.py and services/briefing.py do.
 """
 from __future__ import annotations
 import re
@@ -85,8 +86,9 @@ ON CONFLICT (agenda_item_id, badge_slug) DO NOTHING;
 # The CTE is redeclared for each INSERT because PostgreSQL scopes CTEs
 # per-statement. Both INSERTs are executed together in one cur.execute() call.
 #
-# Note: member_votes.position uses 'yea'/'nay'/'abstain'/'absent'.
-# Dissent = 'nay' or 'abstain'. Voting (counted) = 'yea', 'nay', 'abstain'.
+# Note: member_votes.position is 'yea'/'nay' from the minutes and 'yes'/'no'
+# from video OCR; 'abstain'/'absent' are shared.
+# Dissent = 'nay', 'no' or 'abstain'. Voting (counted) = those plus 'yea', 'yes'.
 # 'absent' is excluded — attendance issue, not contention.
 # ---------------------------------------------------------------------------
 
@@ -96,8 +98,8 @@ WITH dissent_counts AS (
     vai.agenda_item_id,
     ai.meeting_id,
     m.municipality_id AS city_id,
-    COUNT(*) FILTER (WHERE mv.position IN ('nay', 'abstain')) AS n_dissent,
-    COUNT(*) FILTER (WHERE mv.position IN ('yea', 'nay', 'abstain')) AS n_voting
+    COUNT(*) FILTER (WHERE mv.position IN ('nay', 'no', 'abstain')) AS n_dissent,
+    COUNT(*) FILTER (WHERE mv.position IN ('yea', 'yes', 'nay', 'no', 'abstain')) AS n_voting
   FROM vote_agenda_items vai
   JOIN votes v ON v.id = vai.vote_id
   JOIN member_votes mv ON mv.vote_id = v.id
@@ -117,8 +119,8 @@ WITH dissent_counts AS (
   SELECT
     vai.agenda_item_id,
     m.municipality_id AS city_id,
-    COUNT(*) FILTER (WHERE mv.position IN ('nay', 'abstain')) AS n_dissent,
-    COUNT(*) FILTER (WHERE mv.position IN ('yea', 'nay', 'abstain')) AS n_voting
+    COUNT(*) FILTER (WHERE mv.position IN ('nay', 'no', 'abstain')) AS n_dissent,
+    COUNT(*) FILTER (WHERE mv.position IN ('yea', 'yes', 'nay', 'no', 'abstain')) AS n_voting
   FROM vote_agenda_items vai
   JOIN votes v ON v.id = vai.vote_id
   JOIN member_votes mv ON mv.vote_id = v.id

@@ -833,6 +833,65 @@ class TestSplitVoteAndContestedSQL:
                 finally:
                     _cleanup(cur, city_id)
 
+    def _setup_ocr_vote(self, cur, meeting_id, agenda_item_id, yes, no):
+        """Insert a video_ocr vote, whose positions are 'yes'/'no' (docs/specs/votes.md)."""
+        cur.execute(
+            """
+            INSERT INTO votes (meeting_id, result, source, confidence)
+            VALUES (%s, 'passed', 'video_ocr', 'high')
+            RETURNING id
+            """,
+            (meeting_id,),
+        )
+        vote_id = cur.fetchone()[0]
+        for position, n in (('yes', yes), ('no', no)):
+            for i in range(n):
+                cur.execute(
+                    "INSERT INTO member_votes (vote_id, member_name, position) VALUES (%s, %s, %s)",
+                    (vote_id, f'Member {position} {i}', position),
+                )
+        cur.execute(
+            """
+            INSERT INTO vote_agenda_items
+                (vote_id, agenda_item_id, association_type, match_confidence, is_active)
+            VALUES (%s, %s, 'explicit', 1.0, TRUE)
+            """,
+            (vote_id, agenda_item_id),
+        )
+        return vote_id
+
+    def test_ocr_no_counts_as_dissent(self):
+        """Issue #155: video OCR writes 'no', not 'nay'. 7 yes, 2 no → both badges."""
+        from docket.db import db
+        with db() as conn:
+            with conn.cursor() as cur:
+                city_id = _setup_city(cur)
+                try:
+                    mtg_id = _setup_meeting(cur, city_id, external_id='test-sv-mtg-ocr-1')
+                    item_id = _setup_agenda_item(cur, mtg_id, title='7-2 OCR vote')
+                    self._setup_ocr_vote(cur, mtg_id, item_id, yes=7, no=2)
+                    cur.execute(SPLIT_VOTE_AND_CONTESTED_SQL)
+                    assert _badge_exists(cur, item_id, 'split_vote')
+                    assert _badge_exists(cur, item_id, 'contested')
+                finally:
+                    _cleanup(cur, city_id)
+
+    def test_ocr_yes_counts_as_voting(self):
+        """Issue #155: OCR 'yes' is in the denominator. 9 yes, 2 no = 18% → split only."""
+        from docket.db import db
+        with db() as conn:
+            with conn.cursor() as cur:
+                city_id = _setup_city(cur)
+                try:
+                    mtg_id = _setup_meeting(cur, city_id, external_id='test-sv-mtg-ocr-2')
+                    item_id = _setup_agenda_item(cur, mtg_id, title='9-2 OCR vote')
+                    self._setup_ocr_vote(cur, mtg_id, item_id, yes=9, no=2)
+                    cur.execute(SPLIT_VOTE_AND_CONTESTED_SQL)
+                    assert _badge_exists(cur, item_id, 'split_vote')
+                    assert not _badge_exists(cur, item_id, 'contested')
+                finally:
+                    _cleanup(cur, city_id)
+
     def test_only_active_links_counted(self):
         """Inactive vote_agenda_items rows should not trigger badges."""
         from docket.db import db
