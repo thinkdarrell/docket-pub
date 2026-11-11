@@ -69,7 +69,10 @@ def city():
     yield mid
     with db() as conn, conn.cursor() as cur:
         _cleanup(cur, mid)
-        cur.execute("UPDATE municipalities SET active = FALSE WHERE id = %s", (mid,))
+        # The city is deleted, not left inactive: the migration tests of the
+        # integration tier, which runs after this one on the same database,
+        # assert that only Birmingham's metadata carries the calendar keys.
+        cur.execute("DELETE FROM municipalities WHERE id = %s", (mid,))
 
 
 @pytest.fixture

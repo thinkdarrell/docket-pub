@@ -72,7 +72,7 @@ def city():
     with db() as conn, conn.cursor() as cur:
         _cleanup(cur, mid)
         _cleanup(cur, other)
-        cur.execute("UPDATE municipalities SET active = FALSE WHERE slug IN (%s, %s)", (TEST_SLUG, OTHER_SLUG))
+        cur.execute("DELETE FROM municipalities WHERE slug IN (%s, %s)", (TEST_SLUG, OTHER_SLUG))
 
 
 def _event(mid: int, tag: str, title: str, starts_at: datetime, *, status: str | None = None) -> None:
@@ -174,6 +174,7 @@ def test_find_returns_the_facts_the_script_prints(city):
         (clip, DAY, GENERIC, 240, None)
     ]
     assert [(r["id"], r["transcript_status"], r["city_slug"]) for r in held_back] == [(held, "compared", TEST_SLUG)]
+    assert [r["city_name"] for r in to_hide + held_back] == ["Test", "Test"], "asserted after the failing-first commit `39ee32e`"
 
 
 # --- what keeps a clip visible: the calendar ---------------------------------
@@ -235,6 +236,18 @@ def test_another_citys_event_keeps_nothing(city):
     assert _run() == ([clip], [])
 
 
+def test_another_citys_clip_is_not_this_citys_to_hide(city):
+    """Added after the failing-first commit `39ee32e`: the rows read are this city's."""
+    clip = _clip(city, "short")
+    with db_cursor() as cur:
+        cur.execute("SELECT id FROM municipalities WHERE slug = %s", (OTHER_SLUG,))
+        other = cur.fetchone()["id"]
+    others_clip = _clip(other, "others")
+
+    assert _run() == ([clip], [])
+    assert not _hidden(others_clip)
+
+
 # --- the brakes on the calendar itself ---------------------------------------
 
 
@@ -278,6 +291,21 @@ def test_nothing_is_hidden_when_the_calendar_holds_no_event_at_all(city):
     clip = _clip(city, "short")
     with db() as conn, conn.cursor() as cur:
         cur.execute("DELETE FROM city_calendar_events WHERE municipality_id = %s", (city,))
+
+    assert _run() == ([], [])
+    assert not _hidden(clip)
+
+
+def test_another_citys_fresh_calendar_does_not_stand_for_this_one(city):
+    """Added after the failing-first commit `39ee32e`: the freshness read is this city's."""
+    clip = _clip(city, "short")
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            "UPDATE city_calendar_events SET fetched_at = now() - interval '2 days' WHERE municipality_id = %s", (city,)
+        )
+        cur.execute("SELECT id FROM municipalities WHERE slug = %s", (OTHER_SLUG,))
+        other = cur.fetchone()[0]
+    _event(other, "ev", "PUBLIC SAFETY COMMITTEE MEETING, November 30, 2026", datetime(2026, 11, 30, 19, tzinfo=timezone.utc))
 
     assert _run() == ([], [])
     assert not _hidden(clip)
@@ -334,6 +362,7 @@ def test_a_clip_three_days_old_is_left_and_one_four_days_old_is_hidden(city):
 def test_a_clip_with_this_column_set_is_left(city, column, value):
     clip = _clip(city, "kept", **{column: value})
 
+    assert _run(dry_run=True) == ([], []), "the read itself leaves the row out; the write's own conditions are a second guard"
     assert _run() == ([], [])
     assert not _hidden(clip)
 
@@ -350,19 +379,18 @@ def test_a_clip_with_an_agenda_item_is_left(city):
     assert not _hidden(clip)
 
 
-def test_a_clip_with_a_youtube_recording_is_left_and_another_providers_video_changes_nothing(city):
-    with_youtube = _clip(city, "yt")
-    with_other = _clip(city, "other", day=DAY + timedelta(days=1))
+def test_a_clip_with_a_youtube_recording_is_left(city):
+    """`meeting_videos.provider` admits only `youtube` (migration 040's CHECK), so no other provider's row can be seeded beside it."""
+    clip = _clip(city, "yt")
     with db() as conn, conn.cursor() as cur:
-        for meeting_id, provider in ((with_youtube, "youtube"), (with_other, "granicus")):
-            cur.execute(
-                """INSERT INTO meeting_videos (meeting_id, provider, video_id, url, title, clean_title, duration_s, is_primary)
-                   VALUES (%s, %s, %s, 'https://example.test/v', 'x', 'x', 240, TRUE)""",
-                (meeting_id, provider, f"NONM{meeting_id}"),
-            )
+        cur.execute(
+            """INSERT INTO meeting_videos (meeting_id, provider, video_id, url, title, clean_title, duration_s, is_primary)
+               VALUES (%s, 'youtube', %s, 'https://example.test/v', 'x', 'x', 240, TRUE)""",
+            (clip, f"NONM{clip}"),
+        )
 
-    assert _run() == ([with_other], [])
-    assert not _hidden(with_youtube)
+    assert _run() == ([], [])
+    assert not _hidden(clip)
 
 
 def test_a_yt_row_is_left(city):
@@ -389,8 +417,37 @@ def test_a_clip_whose_title_says_cancelled_is_left(city):
 def test_a_row_an_admin_already_hid_keeps_its_reason(city):
     clip = _clip(city, "admin", is_hidden=True, hidden_reason="admin")
 
+    assert _run(dry_run=True) == ([], [])
     assert _run() == ([], [])
     assert _state(clip)["hidden_reason"] == "admin"
+
+
+@pytest.mark.parametrize("change,expected_reason", [
+    ("keep_visible_at = now()", None),
+    ("is_hidden = TRUE, hidden_reason = 'admin'", "admin"),
+])
+def test_a_row_an_admin_changed_between_the_read_and_the_write_is_left_as_the_admin_put_it(
+    city, monkeypatch, change, expected_reason
+):
+    """Added after the failing-first commit `39ee32e`: the UPDATE repeats the rule's two conditions on the row's own state."""
+    from docket.services import non_meetings
+
+    changed = _clip(city, "changed")
+    untouched = _clip(city, "untouched", day=DAY + timedelta(days=1))
+    real_find = non_meetings.find
+
+    def find(municipality, today):
+        found = real_find(municipality, today)
+        if municipality["slug"] == TEST_SLUG:
+            with db() as conn, conn.cursor() as cur:
+                cur.execute(f"UPDATE meetings SET {change} WHERE id = %s", (changed,))
+        return found
+
+    monkeypatch.setattr(non_meetings, "find", find)
+
+    assert _run() == ([untouched], []), "the ids returned are the rows written, not the rows read"
+    assert _state(changed)["hidden_reason"] == expected_reason
+    assert _state(changed)["hidden_at"] is None
 
 
 # --- short, or without speech ------------------------------------------------

@@ -119,6 +119,33 @@ As authored on 2026-11-11, no milestone has run. The authoring research found th
 - Observation (M4 session): the tests were committed failing before the code, and for the rule itself the before state says only that the module is absent.
   Evidence: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/integration/test_non_meetings.py tests/integration/test_044_migration.py tests/web/test_hidden_meetings_admin.py tests/integration/test_youtube_sync.py tests/unit/test_worker_tasks.py tests/unit/test_worker_scheduler.py tests/unit/test_worker_health.py tests/integration/test_admin_hide_meeting.py -q -p no:cacheprovider` printed `54 failed, 106 passed`. The 54: all 36 of `tests/integration/test_non_meetings.py` (each imports `docket.services.non_meetings` inside the test and fails with `ModuleNotFoundError`, so no test fails for a rule's own reason; the removal check after the code is what shows each rule is held), the 5 of `tests/integration/test_044_migration.py`, the 5 of `tests/web/test_hidden_meetings_admin.py`, `test_an_absorbed_yt_row_that_is_hidden_carries_the_reason`, 4 in `tests/unit/test_worker_tasks.py`, and 3 in `tests/unit/test_worker_scheduler.py`. The 106 that pass are the tests those files already held.
 
+- Observation (M4 session): the new tests passed on the first run of the code but for one that could not be seeded, so each rule was removed from a copy and the tests run against it: 59 removals, 57 failed a test, and the other two are rules nothing can tell from their absence.
+  Evidence: a pytest plugin in the session scratchpad compiled the altered source into the imported module (the committed files were not edited) and ran `tests/integration/test_non_meetings.py`, `tests/web/test_hidden_meetings_admin.py`, `tests/integration/test_youtube_sync.py`, `tests/unit/test_worker_tasks.py`, `tests/unit/test_worker_scheduler.py`, `tests/unit/test_worker_health.py`, and `tests/integration/test_admin_hide_meeting.py` once per removal, stopping at the first failure. The removals: 49 in `src/docket/services/non_meetings.py` (the two metadata keys; the freshness test, its 36 hours moved to 72 and to 30, its city, and its warning; the events' city, the `classify_event` filter, the Chicago date, and the day test; each of the nine conditions of the row query, the provider inside the YouTube one, and the query's city; the lower date bound and the four days moved to three and to five; the generic title and the cancelled title; the strict 600, the floor moved to 200, a NULL length read as short, each of short and low-speech alone, and the pair together; the three parts of the held-back test and the list it fills; the slug and the name put on a row; the active cities, the cities' metadata prefilter, and the per-city `try`; the three columns the `UPDATE` sets, its two conditions, the dry run, and the ids read back; and `held_back` returning the other list), 5 in `src/docket/web/admin.py` (the reason on hide, the reason cleared and the exemption set on unhide, the reason selected, the held-back rows passed), 1 in `src/docket/services/youtube_meetings.py` (`absorbed`), 2 in `src/docket/worker/tasks.py`, and 1 each in `scheduler.py` and `health.py`. The first round printed `59 removals, 55 failed a test`; two of the four that failed nothing then got an assertion (`test_another_citys_clip_is_not_this_citys_to_hide`, and `city_name` in `test_find_returns_the_facts_the_script_prints`) and failed on a second run of those two. The round was run once, on the tests as they stood after the additions below, not on the failing-first commit's tests alone; the removals whose first failing test is one added after that commit are the freshness read's city, the query's city, the name on a row, the `UPDATE`'s two conditions, and the ids read back, and the query's `is_hidden` and `keep_visible_at` conditions are held only by the dry-run assertions added to two tests of that commit (without them the `UPDATE`'s own conditions stop the write and the test cannot see the read). The template's three reason sentences and its second table are not Python and were not in the check; `tests/web/test_hidden_meetings_admin.py` asserts each sentence in the row it belongs to.
+
+- Observation (M4 session): two clauses cannot be told from their absence.
+  Evidence: `AND v.provider = 'youtube'` in the row query, because migration 040's CHECK on `meeting_videos.provider` admits only `youtube` (the first form of the test tried to seed a `granicus` row and got `psycopg2.errors.CheckViolation ... "meeting_videos_provider_check"`); the plan states the clause and it is kept for the day a second provider is admitted. And `metadata ? 'calendar_complete_from'` in the query that lists the cities, because `find` refuses a city without the key anyway; it is kept so the task reads one city and not every active one.
+
+- Observation (M4 session): tests changed after the failing-first commit `39ee32e`.
+  Evidence: `git diff --stat 39ee32e -- tests` prints `tests/integration/test_non_meetings.py | 81` and `tests/web/test_hidden_meetings_admin.py | 5`. Added, each saying so in its docstring or message: `test_another_citys_fresh_calendar_does_not_stand_for_this_one`, `test_another_citys_clip_is_not_this_citys_to_hide`, `test_a_row_an_admin_changed_between_the_read_and_the_write_is_left_as_the_admin_put_it` (two cases), the `city_name` assertion, and a dry-run assertion in `test_a_clip_with_this_column_set_is_left` and in `test_a_row_an_admin_already_hid_keeps_its_reason`. Rewritten: the YouTube-recording test lost its second half (a clip with another provider's video is still hidden), which could not be seeded. Changed without touching an assertion: both files' fixtures now delete their test cities on teardown (next entry).
+
+- Observation (M4 session): the first `./tools/verify` after the code failed, and the cause was a test city this milestone's web test left behind.
+  Evidence: `verify: integration ... FAILED (101s)`, `verify: 1 of 6 checks failed in 194s.`; a second run kept whole in the scratchpad named `tests/integration/test_038_migration.py::test_038_up_adds_columns_table_and_metadata` (`AssertionError: only Birmingham carries a calendar`) and `tests/integration/test_043_migration.py::test_043_up_adds_the_column_and_the_metadata` (`AssertionError: only Birmingham gains the keys`). The web tier runs first on the same database, and `tests/web/test_hidden_meetings_admin.py` left its city inactive with `calendar_url` and `calendar_complete_from` in its metadata; the integration tier alone, on a database the web tier had not touched, printed `1009 passed`. Both new test files now delete their cities on teardown. A later test that seeds a city with a calendar key in the web or unit tier must do the same.
+
+- Observation (M4 session): `./tools/verify` after the change.
+  Evidence: `verify: unit+web+services ... ok (81s)`, `verify: integration ... ok (100s)`, `verify: judge-fixtures ... ok (1s)`, `verify: workflows ... ok (0s)`, `verify: transcriber ... ok (7s)`, `verify: plans ... ok (0s)`, `verify: all 6 checks passed in 189s.` It ran on the working tree that became the code commit, before that commit's edits to this file; `tools/check-plans` ran again in the pre-commit hook. The eight touched test files alone: `164 passed`; `tests/integration/test_non_meetings.py` alone: `40 passed`.
+
+- Observation (M4 session): `scripts/hide_non_meetings.py` run against the throwaway database with one seeded city (a 240-second clip, a 300-second clip with an uploaded `compared` transcript, a 3,600-second clip, a calendar read a moment before).
+  Evidence: the dry run printed `test_script_run: 1 to hide, 1 held back`, `1  2026-11-01  Regular City Council Meeting  duration_s=240  transcript=None  hide`, `2  2026-11-02  Regular City Council Meeting  duration_s=300  transcript=compared  held: has speech`, `dry run: 0 rows written`; the write printed the same lines and `test_script_run: hidden 1 rows in one statement: [1]`; a second dry run printed `0 to hide, 1 held back`; the rows then read `('sr-a', True, 'not_a_meeting'), ('sr-b', False, None), ('sr-c', False, None)`. Birmingham, whose calendar table is empty in that database, printed `non_meetings birmingham: the calendar has no event read in the last 36 hours; nothing is hidden` and `birmingham: 0 to hide, 0 held back`. The script has no test of its own; this run is its evidence. The seeded city was deleted afterwards.
+
+- Observation (M4 session): the city's giveaways and other non-meeting events do not keep a clip visible.
+  Evidence: M1 found four of the search's five City Council events were giveaways and left what they mean for hiding to this milestone. `classify_event` reads a title with neither "CITY COUNCIL MEETING" nor "COMMITTEE" as nothing, and the rule counts only events it reads as something; `test_an_event_that_is_neither_council_nor_committee_keeps_nothing` seeds "District 4 Holiday Hams Giveaway" on the clip's day and the clip is hidden. The other side: a work session or a hearing whose calendar title holds neither phrase does not keep its day's clip either. No such title has been observed; it is a case M5's debt row for what the plan left out can name.
+
+- Observation (M4 session): the rule's read runs on every load of `/admin/meetings/hidden`, and a stale city warns each time.
+  Evidence: `list_hidden_meetings` calls `non_meetings.held_back()`, which is `find` for each city with the key: three queries for Birmingham, and the 36-hour warning in the web service's log whenever the calendar is stale. The script's write run printed the warning twice, since it reads once to print and `hide_non_meetings` reads again.
+
+- Observation (M4 session): an unhide exempts any row, whatever hid it.
+  Evidence: `unhide_meeting` sets `keep_visible_at = NOW()` for a row an admin hid by hand or the YouTube pass absorbed, as the plan words it ("`unhide_meeting` clears `hidden_reason` with the other two columns and sets `keep_visible_at = now()`"). An admin's later hide of the same row still works and does not clear the column; only the automatic rule reads it. Nothing in the admin clears `keep_visible_at`; the undo is one `UPDATE`.
+
 ## Decision Log
 
 - Decision: the past calendar comes from the city's sitemap, the upcoming calendar from the events search, and the council page stays as a third reader.
@@ -244,6 +271,42 @@ As authored on 2026-11-11, no milestone has run. The authoring research found th
 - Decision (M3): the comment above `ACTIONS` in `src/docket/services/youtube_meetings.py` was brought up to date in this milestone; `docs/specs/meeting-types.md` was not touched.
   Rationale: the comment is the module's own statement of the matching order, in the file this milestone changed, as M1 and M2 treated theirs. The spec's section "The council's YouTube channel" (the paragraphs beginning "For each date" and "After the groups") states the rule as it was before this milestone until M5 edits it.
   Date/Author: 2026-11-11, M3 session.
+
+- Decision (M4): the hidden-reason migration is `044_hidden_reason.py`, and its CHECK is the named constraint `meetings_hidden_reason_check`, dropped and added again so the up can run twice.
+  Rationale: after a `git fetch` on 2026-11-11 `origin/main` still ends at 042, this branch holds 043, and `gh pr list --state open` printed `[]`. The fetch and the listing reach outside the worktree for the plan's own numbering rule, as M1's did; nothing else outside it was read. The pattern is migration 039's.
+  Date/Author: 2026-11-11, M4 session.
+
+- Decision (M4): `hide_non_meetings` takes an optional keyword `today`, and the module has two more public functions, `find_all(today=None)` and `held_back(today=None)`.
+  Rationale: the authored signature has no date, so a test could seed only relative to the day it runs; `today` defaults to the date in `config.WORKER_TIMEZONE`, as `_do_youtube_ingest` computes its own. `find_all` is the one loop over the cities that the task, the script (which prints rows, not ids), and the admin page (which needs every city's held-back rows) all need; without it the script and the route would each have selected the cities themselves, and the route would have owned a query the service should (`D7`). The signatures in Interfaces are extended, not changed.
+  Date/Author: 2026-11-11, M4 session.
+
+- Decision (M4): the calendar's freshness is measured in the database against `now()`, not against the `today` the caller passes.
+  Rationale: `fetched_at` is a timestamp the database wrote, and the brake is about the real age of the last read; `today` only bounds the clips' dates. A test moves `fetched_at` back, never the clock.
+  Date/Author: 2026-11-11, M4 session.
+
+- Decision (M4): a city whose read raises is logged and left out of the result, and each city's rows are hidden by their own statement.
+  Rationale: the plan says to follow `task_city_calendar`, whose `refresh_all` isolates a city. One statement per city is "the first list in one statement" for that city's list. The statement returns the ids it wrote, and those are what `hide_non_meetings` reports, so a row an admin hid or exempted between the read and the write is neither written nor counted.
+  Date/Author: 2026-11-11, M4 session.
+
+- Decision (M4): a row with no `external_id` is never hidden by the rule.
+  Rationale: the plan says "an `external_id` not beginning `yt-`", and the column is nullable. `external_id NOT LIKE 'yt-%'` is not true of a NULL, so such a row is left; every Granicus clip has a numeric id, and the plan's rule is that a doubt makes the rule do less.
+  Date/Author: 2026-11-11, M4 session.
+
+- Decision (M4): on the admin page the reason is a column of the existing table, blank for a row with none; the second table is always headed, prints "None." when empty, and shows each clip's city, date, title linked to its meeting page, length in seconds, and transcript status.
+  Rationale: the plan gives the three sentences and the heading and leaves the layout. A blank is the page saying the source has no reason (`docs/PRINCIPLES.md`, "Source or silence"); "None." tells the operator the rule ran and held nothing back, where a missing heading would not. The rows have no button, since they are visible and the hide button is on the meeting page.
+  Date/Author: 2026-11-11, M4 session.
+
+- Decision (M4): the task's Healthchecks variable is `HEALTHCHECK_NON_MEETINGS_UUID`, an entry in `TASK_UUID_ENV` like `city_calendar`'s; the scheduler's docstring now says eighteen jobs; `docs/runbooks/cron-worker.md` (which says seventeen and has the task table) and `docs/specs/operations.md` were not touched.
+  Rationale: `_safe_run` pings before its `try`, so a task without an entry would crash (`tests/unit/test_worker_health.py` holds that). The check itself and the variable on Railway are the operator's step, as the plan says. The runbook and the spec are M5's by this plan ("`docs/specs/operations.md` and `docs/runbooks/cron-worker.md` gain the new task"); until then the runbook's count and table are one task short.
+  Date/Author: 2026-11-11, M4 session.
+
+- Decision (M4): the web test is `tests/web/test_hidden_meetings_admin.py`, in the web tier, with its own city and an admin session set as `tests/integration/test_admin_hide_meeting.py` sets one; the existing hide tests were not edited.
+  Rationale: the acceptance says "a web test". The page lists every city's rows, so the tests look only at rows that link their own city's meetings.
+  Date/Author: 2026-11-11, M4 session.
+
+- Decision (M4): `non_meetings` imports `_GENERIC`, `_as_date`, `_event_date`, and `_metadata` from `meeting_types` beside `classify_event`.
+  Rationale: the plan already tells M4 to import the event-date helper. The generic classification, the metadata reader, and the date reader each have one definition there; a second copy in the new module would be a second owner. `_is_live` is deliberately not imported, since here a cancelled event still counts.
+  Date/Author: 2026-11-11, M4 session.
 
 ## Outcomes & Retrospective
 
@@ -395,6 +458,17 @@ M3's tests alone, against a kept throwaway database:
 
 Observed after M3's code: `32 passed`.
 
+M4's tests alone, against a kept throwaway database (the migration test first, since it rolls 044 back and re-applies it):
+
+    DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/integration/test_044_migration.py tests/integration/test_non_meetings.py tests/web/test_hidden_meetings_admin.py tests/integration/test_youtube_sync.py tests/unit/test_worker_tasks.py tests/unit/test_worker_scheduler.py tests/unit/test_worker_health.py tests/integration/test_admin_hide_meeting.py -q -p no:cacheprovider
+
+Observed after M4's code: `164 passed`. The script, dry run first:
+
+    venv/bin/python scripts/hide_non_meetings.py --dry-run
+    venv/bin/python scripts/hide_non_meetings.py
+
+It takes no `--city`; it reads every active city whose metadata carries `calendar_complete_from`, which is Birmingham alone.
+
 ## Validation and Acceptance
 
 Each milestone's acceptance is stated with it above and is observable in the worktree with `./tools/verify` alone.
@@ -480,6 +554,8 @@ In `src/docket/services/non_meetings.py`, at the end of M4:
     CALENDAR_FRESH_HOURS = 36
     def find(municipality: dict, today: date) -> tuple[list[dict], list[dict]]
     def hide_non_meetings(*, dry_run: bool = False) -> dict[str, tuple[list[int], list[int]]]
+
+As M4 built it: `hide_non_meetings(*, dry_run=False, today=None)`, whose lists are ids (hidden, or with `dry_run` to be hidden; then held back) keyed by city slug; `find_all(today=None) -> dict[str, tuple[list[dict], list[dict]]]`, `find` for every active city with the key; `held_back(today=None) -> list[dict]`, every city's held-back rows. A row from `find` has `id`, `title`, `meeting_date`, `duration_s`, `transcript_status`, `transcript_uploaded_at`, `city_slug`, `city_name`. The hidden-reason migration is `src/docket/migrations/044_hidden_reason.py` (constraint `meetings_hidden_reason_check`). The worker task is `non_meetings` (`_do_non_meetings`, `task_non_meetings`), scheduled at 06:55, with `HEALTHCHECK_NON_MEETINGS_UUID` in `src/docket/worker/health.py`. The admin template reads `held_back` beside `rows`. What M5 must write that M4 left: the task's row and the count of tasks in `docs/runbooks/cron-worker.md` (it says seventeen; there are eighteen), the task in `docs/specs/operations.md`, and the Healthchecks check among the operator's steps.
 
 `non_meetings` imports `classify_event` and the event-date helper from `meeting_types` and the vocabulary from `docket.adapters._helpers`; `youtube_meetings` imports `same_committee` from `meeting_types`. Both directions are service to service or service to adapter, which `ARCHITECTURE.md` allows; read its layer map before adding any other import.
 

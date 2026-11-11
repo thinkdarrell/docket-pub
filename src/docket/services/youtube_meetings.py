@@ -638,7 +638,10 @@ class _Run:
             )
             self.cur.execute("SELECT 1 FROM transcripts WHERE meeting_id = %s", (yt["id"],))
             if self.cur.fetchone():
-                self.cur.execute("UPDATE meetings SET is_hidden = TRUE, hidden_at = now() WHERE id = %s", (yt["id"],))
+                self.cur.execute(
+                    "UPDATE meetings SET is_hidden = TRUE, hidden_at = now(), hidden_reason = 'absorbed' WHERE id = %s",
+                    (yt["id"],),
+                )
                 outcome = "hidden (it has a transcript)"
             else:
                 self.cur.execute("DELETE FROM meetings WHERE id = %s", (yt["id"],))

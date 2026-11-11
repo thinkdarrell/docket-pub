@@ -58,6 +58,11 @@ TASK_UUID_ENV: dict[str, str] = {
     # first deploy of the task. ping() short-circuits until then.
     # Plan: plans/completed/youtube-council-channel.md (M4).
     "youtube_ingest": "HEALTHCHECK_YOUTUBE_INGEST_UUID",
+    # Check docket-non-meetings; the operator creates it and sets the
+    # variable on the worker service after the first deploy of the task.
+    # ping() short-circuits until then.
+    # Plan `committee-clips-named-or-hidden`, M4.
+    "non_meetings": "HEALTHCHECK_NON_MEETINGS_UUID",
 }
 
 # Tasks the runbook leaves without a check on purpose
