@@ -190,6 +190,73 @@ def test_meeting_page_says_nothing_when_the_label_is_the_title(client, rows):
     assert "<title>Finance Committee — Homewood" in html
 
 
+# --- named by elimination (plan `committee-clips-named-or-hidden`, M2) -----------
+
+ELIMINATION = ("The city's calendar lists more than one committee meeting that day; "
+               "this is the recording the others do not account for.")
+
+
+@pytest.fixture
+def elimination_rows():
+    """Two Birmingham days in 2019, far from any other fixture's events: one
+    with two committee events and a committee row matched to one of them,
+    one with a council event and two committee events and a council row."""
+    with db() as conn, conn.cursor() as cur:
+        _cleanup(cur)
+        bhm = _city_id(cur, "birmingham")
+
+        def event(ext: str, title: str, starts_at: str) -> int:
+            cur.execute(
+                """INSERT INTO city_calendar_events
+                       (municipality_id, source_event_id, title, starts_at, source_url, event_status)
+                   VALUES (%s, %s, %s, %s, %s, 'active') RETURNING id""",
+                (bhm, PREFIX + ext, title, starts_at, f"https://www.birminghamal.gov/events/{ext}"),
+            )
+            return cur.fetchone()[0]
+
+        event("bf", "BUDGET AND FINANCE COMMITTEE MEETING, March 11, 2019", "2019-03-11 15:30-05")
+        ti = event("ti", "TRANSPORTATION AND INFRASTRUCTURE COMMITTEE  MEETING, March 11, 2019", "2019-03-11 14:00-05")
+        council = event("cc", "BIRMINGHAM CITY COUNCIL MEETING, March 12, 2019", "2019-03-12 09:30-05")
+        event("ps", "PUBLIC SAFETY COMMITTEE MEETING, March 12, 2019", "2019-03-12 13:00-05")
+        event("ap", "ARTS AND PARKS COMMITTEE MEETING, March 12, 2019", "2019-03-12 15:00-05")
+        ids = {
+            "eliminated": _insert(cur, bhm, "elim", CLIP, date(2019, 3, 11), meeting_type="committee",
+                                  body_name="Transportation & Infrastructure", type_source="calendar",
+                                  calendar_event_id=ti),
+            "council": _insert(cur, bhm, "elim-council", CLIP, date(2019, 3, 12), meeting_type="council",
+                               session_kind="special", type_source="calendar", calendar_event_id=council),
+        }
+        conn.commit()
+    try:
+        yield ids
+    finally:
+        with db() as conn, conn.cursor() as cur:
+            _cleanup(cur)
+            conn.commit()
+
+
+def test_meeting_page_says_when_the_name_was_reached_by_elimination(client, elimination_rows):
+    html = _get(client, f"/al/birmingham/meetings/{elimination_rows['eliminated']}/")
+    assert PROVENANCE in html
+    assert ELIMINATION in html
+    assert "The city's calendar names it." not in html
+    assert 'href="https://www.birminghamal.gov/events/ti"' in html
+    assert "<title>Transportation &amp; Infrastructure — Birmingham" in html
+
+
+def test_single_event_day_keeps_the_plain_calendar_sentence(client, rows):
+    html = _get(client, f"/al/birmingham/meetings/{rows['calendar']}/")
+    assert "The city's calendar names it." in html
+    assert "more than one committee meeting" not in html
+
+
+def test_council_row_on_a_two_committee_day_keeps_the_plain_calendar_sentence(client, elimination_rows):
+    html = _get(client, f"/al/birmingham/meetings/{elimination_rows['council']}/")
+    assert "The city's calendar names it." in html
+    assert "more than one committee meeting" not in html
+    assert 'href="https://www.birminghamal.gov/events/cc"' in html
+
+
 # --- the filter row ---------------------------------------------------------
 
 

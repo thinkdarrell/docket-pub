@@ -370,3 +370,151 @@ class TestReclassifyCity:
         assert again.written == 0
         assert all(old_t == new_t and old_k == new_k for (old_t, old_k, new_t, new_k, _s) in again.transitions)
         assert sum(again.transitions.values()) == 5
+
+
+# --- the whole day (plan `committee-clips-named-or-hidden`, M2) -------------------
+
+NOV9 = date(2026, 11, 9)   # a Monday
+X_TITLE = "BUDGET AND FINANCE COMMITTEE MEETING, November 9, 2026"
+Y_TITLE = "TRANSPORTATION AND INFRASTRUCTURE COMMITTEE  MEETING, November 9, 2026"
+
+
+def _clip(muni_id: int, external_id: str, meeting_date: date, duration_s: int | None) -> int:
+    from dataclasses import replace
+
+    _upsert_meetings(muni_id, [replace(_meeting(external_id, GENERIC, meeting_date), duration_s=duration_s)])
+    return _row(muni_id, external_id)["id"]
+
+
+def _attach_recording(meeting_id: int, video_id: str, clean_title: str) -> None:
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO meeting_videos (meeting_id, provider, video_id, url, title, clean_title, is_primary) "
+            "VALUES (%s, 'youtube', %s, %s, %s, %s, TRUE)",
+            (meeting_id, video_id, f"https://www.youtube.com/watch?v={video_id}", clean_title + " 11.9.26", clean_title),
+        )
+
+
+class TestWholeDayResolution:
+    """`resolve_and_store` resolves every non-hidden row of each day it was
+    given a row of, once, so a recording that names one row can name the
+    row beside it."""
+
+    def _seed(self, muni_id: int) -> tuple[int, int, int]:
+        _calendar_event(muni_id, "4942", X_TITLE, datetime(2026, 11, 9, 21, 30, tzinfo=timezone.utc))
+        y = _calendar_event(muni_id, "4941", Y_TITLE, datetime(2026, 11, 9, 20, 0, tzinfo=timezone.utc))
+        named = _clip(muni_id, "mtype-day-a", NOV9, 5760)
+        generic = _clip(muni_id, "mtype-day-b", NOV9, 2220)
+        _attach_recording(named, "mtypeDayA", "Budget and Finance Committee Meeting")
+        return named, generic, y
+
+    def _stored(self, muni_id: int) -> dict:
+        return {e: _five(_row(muni_id, e)) for e in ("mtype-day-a", "mtype-day-b")}
+
+    def test_one_rows_id_resolves_the_whole_day(self, muni_id):
+        from docket.services.meeting_types import resolve_and_store
+
+        named, generic, y = self._seed(muni_id)
+        assert resolve_and_store(muni_id, [named]) == 2
+        first = self._stored(muni_id)
+        assert first == {
+            "mtype-day-a": ("committee", "regular", "Budget and Finance Committee", "video", None),
+            "mtype-day-b": ("committee", "regular", "Transportation & Infrastructure", "calendar", y),
+        }
+        assert resolve_and_store(muni_id, [generic, named]) == 0
+        assert self._stored(muni_id) == first
+
+    def test_the_other_rows_id_alone_gives_the_same_rows(self, muni_id):
+        from docket.services.meeting_types import resolve_and_store
+
+        named, generic, y = self._seed(muni_id)
+        assert resolve_and_store(muni_id, [generic]) == 2
+        assert self._stored(muni_id) == {
+            "mtype-day-a": ("committee", "regular", "Budget and Finance Committee", "video", None),
+            "mtype-day-b": ("committee", "regular", "Transportation & Infrastructure", "calendar", y),
+        }
+        assert resolve_and_store(muni_id, [named, generic]) == 0
+
+    def test_a_hidden_row_of_the_day_is_neither_resolved_nor_a_competitor(self, muni_id):
+        from docket.services.meeting_types import resolve_and_store
+
+        named, generic, y = self._seed(muni_id)
+        hidden = _clip(muni_id, "mtype-day-c", NOV9, 3000)
+        _set(muni_id, "mtype-day-c", "is_hidden = TRUE")
+        assert resolve_and_store(muni_id, [named]) == 2
+        assert _five(_row(muni_id, "mtype-day-b"))[2] == "Transportation & Infrastructure"
+        assert _five(_row(muni_id, "mtype-day-c")) == ("council", "regular", None, "title", None)
+        # Given by id, a hidden row is still resolved, as before.
+        assert resolve_and_store(muni_id, [hidden]) == 1
+        assert _five(_row(muni_id, "mtype-day-c")) == ("committee", "regular", None, "schedule_rule", None)
+
+    def test_a_cancelled_event_is_read_from_the_stored_status(self, muni_id):
+        from docket.services.meeting_types import resolve_and_store
+
+        _named, generic, y = self._seed(muni_id)
+        with db() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM meeting_videos WHERE video_id = 'mtypeDayA'")
+            cur.execute("DELETE FROM meetings WHERE municipality_id = %s AND external_id = 'mtype-day-a'", (muni_id,))
+            cur.execute(
+                "UPDATE city_calendar_events SET event_status = 'cancelled' "
+                "WHERE municipality_id = %s AND source_event_id = '4942'", (muni_id,))
+        assert resolve_and_store(muni_id, [generic]) == 1
+        assert _five(_row(muni_id, "mtype-day-b")) == (
+            "committee", "regular", "Transportation & Infrastructure", "calendar", y,
+        )
+
+    def test_unlocking_a_row_resolves_it_with_its_day(self, muni_id):
+        from docket.services.meeting_types import clear_override, resolve_and_store
+
+        named, generic, y = self._seed(muni_id)
+        _set(muni_id, "mtype-day-a",
+             "meeting_type = 'council', session_kind = 'regular', type_source = 'admin', type_locked_at = now()")
+        assert resolve_and_store(muni_id, [generic]) == 1
+        assert _five(_row(muni_id, "mtype-day-b")) == ("committee", "regular", None, "schedule_rule", None)
+        clear_override(named)
+        assert _five(_row(muni_id, "mtype-day-a")) == ("committee", "regular", "Budget and Finance Committee", "video", None)
+        assert _five(_row(muni_id, "mtype-day-b")) == (
+            "committee", "regular", "Transportation & Infrastructure", "calendar", y,
+        )
+
+
+class TestNamedByElimination:
+    def test_true_only_for_a_committee_row_on_a_day_with_several_committee_events(self, muni_id):
+        from docket.services.meeting_types import named_by_elimination, resolve_and_store
+
+        _calendar_event(muni_id, "4942", X_TITLE, datetime(2026, 11, 9, 21, 30, tzinfo=timezone.utc))
+        _calendar_event(muni_id, "4941", Y_TITLE, datetime(2026, 11, 9, 20, 0, tzinfo=timezone.utc))
+        named = _clip(muni_id, "mtype-day-a", NOV9, 5760)
+        generic = _clip(muni_id, "mtype-day-b", NOV9, 2220)
+        _attach_recording(named, "mtypeDayA", "Budget and Finance Committee Meeting")
+        _calendar_event(muni_id, "4854", COW_TITLE, datetime(2026, 10, 21, 20, 30, tzinfo=timezone.utc))
+        single = _clip(muni_id, "mtype-day-w", WEDNESDAY, 2220)
+        resolve_and_store(muni_id, [named, single])
+
+        assert named_by_elimination(generic) is True
+        assert named_by_elimination(single) is False, "one committee event that day"
+        assert named_by_elimination(named) is False, "named by its recording, no calendar event"
+        assert named_by_elimination(-1) is False
+
+        # A cancelled second event is not counted.
+        with db() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE city_calendar_events SET event_status = 'cancelled' "
+                "WHERE municipality_id = %s AND source_event_id = '4942'", (muni_id,))
+        assert named_by_elimination(generic) is False
+
+    def test_a_council_row_on_a_two_committee_day_is_not_by_elimination(self, muni_id):
+        from docket.services.meeting_types import named_by_elimination
+
+        council = _calendar_event(muni_id, "5100", "BIRMINGHAM CITY COUNCIL MEETING, November 10, 2026",
+                                  datetime(2026, 11, 10, 15, 30, tzinfo=timezone.utc))
+        _calendar_event(muni_id, "5101", "PUBLIC SAFETY COMMITTEE MEETING, November 10, 2026",
+                        datetime(2026, 11, 10, 18, 0, tzinfo=timezone.utc))
+        _calendar_event(muni_id, "5102", "ARTS AND PARKS COMMITTEE MEETING, November 10, 2026",
+                        datetime(2026, 11, 10, 20, 0, tzinfo=timezone.utc))
+        row = _clip(muni_id, "mtype-day-t", date(2026, 11, 10), 9000)
+        _set(muni_id, "mtype-day-t", f"type_source = 'calendar', calendar_event_id = {council}")
+        assert named_by_elimination(row) is False
+        # The same row typed a committee but pointing at the council event: the event is not a committee's.
+        _set(muni_id, "mtype-day-t", "meeting_type = 'committee'")
+        assert named_by_elimination(row) is False

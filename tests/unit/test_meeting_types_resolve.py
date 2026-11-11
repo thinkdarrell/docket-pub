@@ -372,3 +372,216 @@ class TestSummaryClearing:
             {"id": 6, "meeting_type": "committee", "new_meeting_type": "board"},
         ]
         assert summary_clear_ids(rows) == [1, 4]
+
+
+# --- the whole day (plan `committee-clips-named-or-hidden`, M2) -------------------
+#
+# 2026-11-09 is a Monday with two committee events, X and Y. R is the row
+# under test: the clerk's generic title, no minutes, no items. A sibling is
+# another non-hidden row of the same day, given to `resolve` as the facts it
+# reads of the row itself.
+
+NOV9 = date(2026, 11, 9)
+X = {"id": 4942, "title": "BUDGET AND FINANCE COMMITTEE MEETING, November 9, 2026",
+     "starts_at": _utc(2026, 11, 9, 21, 30), "event_status": "active"}
+Y = {"id": 4941, "title": "TRANSPORTATION AND INFRASTRUCTURE COMMITTEE  MEETING, November 9, 2026",
+     "starts_at": _utc(2026, 11, 9, 20, 0), "event_status": "active"}
+RULE = ("committee", "regular", None, "schedule_rule", None)
+NAMED_Y = ("committee", "regular", "Transportation & Infrastructure", "calendar", 4941)
+NAMED_X = ("committee", "regular", "Budget and Finance", "calendar", 4942)
+
+
+def _sibling(title=GENERIC, *, duration_s=None, item_count=0, minutes_url=None, video_titles=None,
+             type_locked_at=None, meeting_type="council", body_name=None) -> dict:
+    return {
+        "title": title, "minutes_url": minutes_url, "type_locked_at": type_locked_at,
+        "meeting_type": meeting_type, "body_name": body_name, "item_count": item_count,
+        "video_titles": video_titles, "duration_s": duration_s,
+    }
+
+
+S = _sibling("Budget and Finance Committee Meeting", duration_s=5760)
+
+
+def _day(events, *, duration_s=None, siblings=(), item_count=0, meeting_date=NOV9, minutes_url=None) -> tuple:
+    from docket.services.meeting_types import resolve
+
+    res = resolve(BIRMINGHAM, _meeting(GENERIC, meeting_date, minutes_url=minutes_url), calendar_events=list(events),
+                  item_count=item_count, duration_s=duration_s, siblings=list(siblings))
+    return _triple(res)
+
+
+class TestSameCommittee:
+    def test_a_raw_event_title_against_a_recordings_name(self):
+        from docket.services.meeting_types import same_committee
+
+        assert same_committee(X["title"], "Budget and Finance Committee") is True
+        assert same_committee("Budget and Finance Committee", X["title"]) is True
+
+    def test_a_short_name_that_opens_the_long_one(self):
+        from docket.services.meeting_types import same_committee
+
+        event = "COMMITTEE OF THE WHOLE/ADMINISTRATION AND GOVERNMENTAL AFFAIRS COMMITTEE MEETING, October 21, 2026"
+        assert same_committee("Committee of the Whole", event) is True
+
+    def test_two_committees_are_not_one(self):
+        from docket.services.meeting_types import same_committee
+
+        assert same_committee("Public Safety Committee", "Planning & Zoning") is False
+
+    def test_a_prefix_under_eight_letters_is_not_enough(self):
+        from docket.services.meeting_types import same_committee
+
+        assert same_committee("Public Committee", "Public Works Committee") is False
+        assert same_committee("Planning Committee", "Planning & Zoning") is True, "PLANNING is eight letters"
+
+    def test_trailing_words_are_dropped_and_a_name_of_nothing_else_matches_nothing(self):
+        from docket.services.meeting_types import same_committee
+
+        assert same_committee("Public Works Committee Work Session", "Public Works Committee Meeting") is True
+        assert same_committee("Committee Meeting", "Committee") is False
+        assert same_committee("", "") is False
+
+
+class TestWholeDay:
+    def test_case_1_the_committee_the_named_recording_leaves_over(self):
+        assert _day([X, Y], duration_s=2220, siblings=[S]) == NAMED_Y
+
+    def test_case_2_a_short_recording_is_not_named_by_elimination(self):
+        assert _day([X, Y], duration_s=240, siblings=[S]) == RULE
+
+    def test_a_recording_of_unknown_length_is_not_named_by_elimination(self):
+        assert _day([X, Y], duration_s=None, siblings=[S]) == RULE
+
+    def test_six_hundred_seconds_is_long(self):
+        assert _day([X, Y], duration_s=600, siblings=[S]) == NAMED_Y
+        assert _day([X, Y], duration_s=599, siblings=[S]) == RULE
+
+    def test_case_3_a_long_competitor_stops_elimination_and_a_short_one_does_not(self):
+        assert _day([X, Y], duration_s=2220, siblings=[S, _sibling(duration_s=3000)]) == RULE
+        assert _day([X, Y], duration_s=2220, siblings=[S, _sibling(duration_s=180)]) == NAMED_Y
+
+    def test_a_competitor_of_unknown_length_stops_elimination(self):
+        assert _day([X, Y], duration_s=2220, siblings=[S, _sibling(duration_s=None)]) == RULE
+
+    def test_case_4_two_events_and_no_namer(self):
+        assert _day([X, Y], duration_s=2220) == RULE
+
+    def test_two_namers_leave_nothing_over(self):
+        t = _sibling("Transportation and Infrastructure Committee Meeting", duration_s=3000)
+        assert _day([X, Y], duration_s=2220, siblings=[S, t]) == RULE
+
+    def test_case_5_a_namer_whose_name_opens_the_events(self):
+        cow = {"id": 4854, "title": "COMMITTEE OF THE WHOLE/ADMINISTRATION AND GOVERNMENTAL AFFAIRS COMMITTEE MEETING, October 21, 2026",
+               "starts_at": _utc(2026, 10, 21, 20, 30)}
+        ps = {"id": 4860, "title": "PUBLIC SAFETY COMMITTEE MEETING, October 21, 2026", "starts_at": _utc(2026, 10, 21, 18, 0)}
+        namer = _sibling("Committee of the Whole Meeting", duration_s=4000)
+        assert _day([cow, ps], duration_s=2220, siblings=[namer], meeting_date=WEDNESDAY) == (
+            "committee", "regular", "Public Safety", "calendar", 4860,
+        )
+
+    def test_case_6_a_row_with_agenda_items_and_no_council_event_is_eligible(self):
+        assert _day([X, Y], duration_s=2220, siblings=[S], item_count=3) == NAMED_Y
+
+    def test_case_7_a_short_clip_does_not_share_the_name_with_a_full_length_recording(self):
+        long_sibling = _sibling(duration_s=2700)
+        assert _day([X], duration_s=120, siblings=[long_sibling]) == RULE
+        # The sibling, resolved in its own call with R as its sibling, takes the name.
+        assert _day([X], duration_s=2700, siblings=[_sibling(duration_s=120)]) == NAMED_X
+        # Alone, the short clip is named, as before.
+        assert _day([X], duration_s=120) == NAMED_X
+
+    def test_a_short_clip_beside_a_short_or_unmeasured_one_is_still_named(self):
+        assert _day([X], duration_s=120, siblings=[_sibling(duration_s=300)]) == NAMED_X
+        assert _day([X], duration_s=120, siblings=[_sibling(duration_s=None)]) == NAMED_X
+
+    def test_an_unmeasured_clip_beside_a_full_length_one_is_still_named(self):
+        assert _day([X], duration_s=None, siblings=[_sibling(duration_s=2700)]) == NAMED_X
+
+    def test_case_8_a_cancelled_event_names_nothing_and_claims_nothing(self):
+        assert _day([X | {"event_status": "cancelled"}, Y], duration_s=2220) == NAMED_Y
+        assert _day([X | {"event_status": "cancelled"}], duration_s=2220) == RULE
+
+    def test_an_event_whose_title_says_cancelled_is_dropped(self):
+        gone = X | {"title": "BUDGET AND FINANCE COMMITTEE MEETING, November 9, 2026 - CANCELLED"}
+        assert _day([gone, Y], duration_s=2220) == NAMED_Y
+
+    def test_an_event_with_no_status_is_a_held_event(self):
+        assert _day([X | {"event_status": None}, Y], duration_s=2220) == RULE
+        no_key = {k: v for k, v in X.items() if k != "event_status"}
+        assert _day([no_key, Y], duration_s=2220) == RULE
+
+    def test_case_9_the_council_row_of_a_tuesday_is_not_a_competitor(self):
+        ps = {"id": 4859, "title": "PUBLIC SAFETY COMMITTEE MEETING, October 20, 2026", "starts_at": _utc(2026, 10, 20, 18, 0)}
+        council_row = _sibling(duration_s=9000, item_count=87)
+        namer = _sibling("Public Safety Committee Meeting", duration_s=3000)
+        assert _day([COUNCIL_TUE, ECON_TUE, ps], duration_s=2220, siblings=[council_row, namer],
+                    meeting_date=TUESDAY) == (
+            "committee", "regular", "Economic and Workforce Development / Tourism", "calendar", 4858,
+        )
+        # The council row itself, resolved with the other two as siblings, takes the council event.
+        assert _day([COUNCIL_TUE, ECON_TUE, ps], duration_s=9000, item_count=87,
+                    siblings=[_sibling(duration_s=2220), namer], meeting_date=TUESDAY) == (
+            "council", "regular", None, "calendar", 4848,
+        )
+
+    def test_a_sibling_with_minutes_is_not_a_competitor(self):
+        with_minutes = _sibling(duration_s=9000, minutes_url="https://example.com/minutes.pdf")
+        assert _day([X, Y], duration_s=2220, siblings=[S, with_minutes]) == NAMED_Y
+
+    def test_a_sibling_with_items_on_a_day_without_a_council_event_is_a_competitor(self):
+        assert _day([X, Y], duration_s=2220, siblings=[S, _sibling(duration_s=3000, item_count=4)]) == RULE
+
+    def test_a_named_or_locked_sibling_is_not_a_competitor(self):
+        locked_council = _sibling(duration_s=3000, type_locked_at=datetime(2026, 11, 1, tzinfo=timezone.utc))
+        special = _sibling("Special Called Council Meeting", duration_s=3000)
+        assert _day([X, Y], duration_s=2220, siblings=[S, locked_council, special]) == NAMED_Y
+
+    def test_a_recording_names_a_sibling(self):
+        by_video = _sibling(duration_s=5760, video_titles=["Birmingham City Council Meeting",
+                                                           "Budget and Finance Committee Meeting"])
+        assert _day([X, Y], duration_s=2220, siblings=[by_video]) == NAMED_Y
+
+    def test_a_locked_committee_row_is_a_namer_by_its_stored_name(self):
+        locked = _sibling(duration_s=5760, type_locked_at=datetime(2026, 11, 1, tzinfo=timezone.utc),
+                          meeting_type="committee", body_name="Budget and Finance")
+        assert _day([X, Y], duration_s=2220, siblings=[locked]) == NAMED_Y
+        unnamed = locked | {"body_name": None}
+        assert _day([X, Y], duration_s=2220, siblings=[unnamed]) == RULE
+
+    def test_a_row_with_minutes_takes_the_one_council_event_whatever_the_committees(self):
+        council = {"id": 5100, "title": "BIRMINGHAM CITY COUNCIL MEETING, November 9, 2026", "starts_at": _utc(2026, 11, 9, 15, 30)}
+        assert _day([council, X, Y], duration_s=9000, minutes_url="x") == ("council", "regular", None, "calendar", 5100)
+        assert _day([X], duration_s=9000, minutes_url="x") == ("council", "regular", None, "title", None)
+
+    def test_a_row_with_items_and_two_council_events_gets_nothing(self):
+        twin = {"id": 4849, "title": "BIRMINGHAM CITY COUNCIL MEETING, October 20, 2026 (Part II)", "starts_at": _utc(2026, 10, 20, 18, 0)}
+        assert _day([COUNCIL_TUE, twin, ECON_TUE], item_count=5, meeting_date=TUESDAY) == (
+            "council", "regular", None, "title", None,
+        )
+
+    def test_a_row_without_documents_takes_the_council_event_only_when_it_is_the_days_only_event(self):
+        council = {"id": 5100, "title": "BIRMINGHAM CITY COUNCIL MEETING, November 9, 2026", "starts_at": _utc(2026, 11, 9, 15, 30)}
+        twin = council | {"id": 5101}
+        assert _day([council]) == ("council", "regular", None, "calendar", 5100)
+        assert _day([council, twin]) == RULE
+
+    def test_changes_gives_each_row_its_length_and_the_days_other_rows(self):
+        from docket.services.meeting_types import _changes
+
+        def row(id, title, duration_s, **extra):
+            r = _meeting(title, NOV9, id=id)
+            r.update(item_count=0, meeting_type="council", session_kind="regular", body_name=None,
+                     type_source="title", calendar_event_id=None, video_titles=None,
+                     duration_s=duration_s, is_hidden=False)
+            r.update(extra)
+            return r
+
+        named = row(1, GENERIC, 5760, video_titles=["Budget and Finance Committee Meeting"])
+        generic = row(2, GENERIC, 2220)
+        other_day = row(3, GENERIC, 3000, meeting_date=date(2026, 11, 16))
+        hidden = row(4, GENERIC, 3000, is_hidden=True)
+        changed = _changes(BIRMINGHAM, [named, generic, other_day, hidden], [X, Y])
+        got = {m["id"]: _triple(m["resolution"]) for m in changed}
+        assert got[2] == NAMED_Y, "the hidden row and the other day's row are not its competitors"
+        assert got[1] == ("committee", "regular", "Budget and Finance Committee", "video", None)

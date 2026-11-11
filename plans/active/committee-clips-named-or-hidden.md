@@ -74,6 +74,12 @@ As authored on 2026-11-11, no milestone has run. The authoring research found th
 - Observation (M1 session): `./tools/verify` after the change.
   Evidence: `verify: unit+web+services ... ok (81s)`, `verify: integration ... ok (97s)`, `verify: judge-fixtures ... ok (1s)`, `verify: workflows ... ok (0s)`, `verify: transcriber ... ok (8s)`, `verify: plans ... ok (0s)`, `verify: all 6 checks passed in 187s.` The four touched test files alone: `74 passed`.
 
+- Observation (M2 session, 2026-11-11): the starting state is green, and `./tools/verify` took 191 seconds.
+  Evidence: run before any edit, at commit `f74cf9d`: `verify: unit+web+services ... ok (82s)`, `verify: integration ... ok (102s)`, `verify: judge-fixtures ... ok (0s)`, `verify: workflows ... ok (0s)`, `verify: transcriber ... ok (7s)`, `verify: plans ... ok (0s)`, `verify: all 6 checks passed in 191s.`
+
+- Observation (M2 session): the tests were committed failing before the code, and the four cases the acceptance names fail under the old rule itself, not only for want of the new keywords.
+  Evidence: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_meeting_types_resolve.py tests/integration/test_ingest_meeting_types.py tests/web/test_meeting_label.py -q -p no:cacheprovider` printed `39 failed, 75 passed`: the 31 new unit tests (every one, because the old `resolve` refuses the keywords `duration_s` and `siblings` and `same_committee` does not exist), the 7 new integration tests, and the elimination sentence's web test. The two web tests of the plain sentence pass before and after, as they should. To see which unit cases the old rule gets wrong, a plugin in the session scratchpad wrapped the old `resolve` so that it dropped the two keywords, and the 25 `TestWholeDay` tests that call `resolve` were run against it: `13 failed, 12 passed`. The 13 include cases 1, 6, 7, and 8 (and 3, 5, and 9, which build on case 1); the 12 that pass are the cases where the old rule and the new agree (2, 4, and the refusals).
+
 ## Decision Log
 
 - Decision: the past calendar comes from the city's sitemap, the upcoming calendar from the events search, and the council page stays as a third reader.
