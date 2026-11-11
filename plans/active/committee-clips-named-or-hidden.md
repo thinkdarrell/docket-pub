@@ -47,6 +47,24 @@ As authored on 2026-11-11, no milestone has run. The authoring research found th
 - Observation: the low-speech measurement exists and hides a transcript, never a meeting.
   Evidence: `transcripts.status = 'low_speech'` is written by the producer (`transcriber/transcriber/engine.py`, `is_low_speech`, floor 180 seconds of speech) and by the worker (`mark_low_speech` in `src/docket/ai/transcripts/pipeline.py`); `public_predicate` in `src/docket/services/transcripts.py` is `uploaded_at IS NOT NULL AND status <> 'low_speech'`. The only writers of `meetings.is_hidden = TRUE` are the admin route `hide_meeting` in `src/docket/web/admin.py` and `_Run.absorb` in `src/docket/services/youtube_meetings.py`.
 
+- Observation (M1 session, 2026-11-11): the starting state is green, and `./tools/verify` took 190 seconds against a budget of 180.
+  Evidence: run before any edit, at commit `db9fb1a`: `verify: unit+web+services ... ok (83s)`, `verify: integration ... ok (98s)`, `verify: judge-fixtures ... ok (0s)`, `verify: workflows ... ok (0s)`, `verify: transcriber ... ok (8s)`, `verify: plans ... ok (0s)`, `verify: all 6 checks passed in 190s.` After the summary the database drop printed `ERROR:  permission denied to terminate process` (the local role is not a superuser); the exit line had already been printed and the next `tools/test-db` build succeeded.
+
+- Observation (M1 session): the four fixtures were fetched on 2026-11-11 at about 21:35Z with the commands in Concrete Steps, each HTTP 200, and no substitution was needed.
+  Evidence: sizes 5,667 bytes (search), 700,196 (sitemap), 29,069 (council event page), 31,137 (Planning event page). The sitemap held 1,839 `<loc>` entries, 119 under `/events/`, 33 of those matching the path filter, exactly the authoring counts. The committed `tests/fixtures/city_calendar/birmingham_sitemap.xml` is those 119 entries plus the home page and one news page, 121 in all, with whitespace collapsed to one `<url>` per line; the two event pages are committed as fetched. The sitemap was downloaded to the session scratchpad, not `/tmp`.
+
+- Observation (M1 session): the search's five City Council results are four giveaways and one committee meeting, and none carries a status.
+  Evidence: `pageInfo` was `{"offset": 0, "page": 0, "pageSize": 10, "total": 5}`; the ids in order are 4967 (a District 4 hams giveaway), 4969, 4965, 4943 (`BUDGET AND FINANCE COMMITTEE MEETING, November 23, 2026`), 4964. Every result has `department: {"name": "City Council"}` and no `eventStatus` key, where the council page's results and the event pages have `eventStatus: "active"`. So the department's events are not all meetings (the giveaways are stored like any other event, and what `classify_event` makes of their titles is M2's and M4's concern, since M4 counts any event `classify_event` reads as anything), and a row the search stores has a NULL `event_status`.
+
+- Observation (M1 session): the news page kept in the sitemap fixture has `committee` in its path.
+  Evidence: `https://www.birminghamal.gov/news/district-9-councilor-latonya-tate-appointed-pscp-federal-advocacy-committee`. It is the fixture's proof that the `/events/` prefix is tested and not only the three words.
+
+- Observation (M1 session): two of the 33 filtered sitemap pages are the Planning department's, not one.
+  Evidence: `/events/2026-10-08framework-plan-implementation-committee-public-information-meeting` and the `2026-10-14` page of the same name. Both are fetched on every run and stored on none.
+
+- Observation (M1 session): the tests were committed failing before the code.
+  Evidence: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_city_calendar.py tests/integration/test_city_calendar_refresh.py tests/integration/test_043_migration.py tests/integration/test_038_migration.py -q -p no:cacheprovider` printed `52 failed, 22 passed`. The 22 are the council-page tests that existed, three of the 038 tests, and `test_043_down_removes_the_column_and_the_keys`, which passes when the migration does not exist because nothing is there to remove. One of the 52, `test_038_up_adds_columns_table_and_metadata`, failed only because this command ran the calendar tests first and they leave an active test city with a `calendar_url` in the database; `./tools/verify` runs `test_038` before them.
+
 ## Decision Log
 
 - Decision: the past calendar comes from the city's sitemap, the upcoming calendar from the events search, and the council page stays as a third reader.
