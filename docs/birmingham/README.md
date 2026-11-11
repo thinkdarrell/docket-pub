@@ -24,7 +24,7 @@ It is a **map, not an owner**. By the project's rule that every fact lives in ex
   Granicus archive ──────────────────▶  ingest_all ─▶ meetings, agenda_items (+cue points),
     agendas, minutes PDF, video clip,                   votes + member_votes from the minutes,
     index points                                        minutes_adopted_at from the adoption sweep
-  Council page (calendar) ───────────▶  city_calendar ─▶ city_calendar_events ─┐
+  City website (calendar) ───────────▶  city_calendar ─▶ city_calendar_events ─┐
   YouTube channel ───────────────────▶  youtube_ingest ─▶ meeting_videos ──────┼─▶ meeting-type ladder
   2023 manifest (operator, once) ────▶  backfill script ─▶ meetings, agenda_items ┘   (type, sitting, body)
 

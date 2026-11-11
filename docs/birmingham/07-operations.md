@@ -20,7 +20,7 @@ One operator runs docket.pub from one machine, the Legion, with the production p
 `src/docket/worker/scheduler.py` is the single owner of the schedule; `docs/runbooks/cron-worker.md` lists every task with its Healthchecks variable. The times live there and are not repeated here. What matters for the content flow is the **order**, because each task eats what the one before it produced. Every morning, Chicago time:
 
 1. **Housekeeping** before dawn: refresh the backfill-ratio view; re-queue items on meetings that have now happened so their summaries are rewritten in the past tense (`recast_post_meeting_ai`, chapter 4); once a week, clear the scraped flag on recent meetings with an agenda but no items.
-2. **Sources** (chapters 1 and 2): `city_calendar`, then `ingest_all` (Granicus), then `video_ocr` (reads the day's votes off up to five clips' frames, chapter 3), then `youtube_ingest`.
+2. **Sources** (chapters 1 and 2): `city_calendar`, then `ingest_all` (Granicus), then `video_ocr` (reads the day's votes off up to five clips' frames, chapter 3), then `youtube_ingest`, then `non_meetings` (hides the stream tests the calendar and the channel leave unexplained, chapter 2).
 3. **AI** (chapter 4): `ai_items` on the queue of new or re-queued items, then `ai_meetings` for meeting summaries, each under the daily budget.
 4. **Facts** (chapter 3): `resolve_member_votes` names the members behind stored member votes, then `vote_matching` links unmatched votes to items, then `process_badges` recomputes process badges on recently completed items.
 5. **The front page** (chapter 6): `briefing_facts` rebuilds `city_briefing_facts` for every `briefing` city, which is what "Where they disagreed" and the council cards read.

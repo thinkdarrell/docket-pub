@@ -5,11 +5,11 @@ Everything on `/al/birmingham/` traces back to four places the city itself publi
 | Source | What it supplies | Read by | Decision |
 | --- | --- | --- | --- |
 | Granicus archive (`bhamal.granicus.com`, view 2) | Meetings, agenda index points, agenda and minutes PDFs, the video clip | `src/docket/adapters/granicus.py` | `0002` |
-| City council page on birminghamal.gov | Upcoming calendar events, used only to name the body of a generic-titled clip | `src/docket/adapters/city_calendar.py` | — |
+| The city's website, birminghamal.gov (the council page, the events search, and the event pages its sitemap lists) | The council's calendar events, upcoming and past, used to name the body of a generic-titled clip and to tell a stream test from a meeting | `src/docket/adapters/city_calendar.py` | `0087` |
 | The council's YouTube channel (`citycouncilbham`) | Recordings of council and committee meetings, most of which Granicus never carries | `src/docket/adapters/youtube.py` | `0067`–`0070` |
 | The 2023 archive manifest | 24 Boutwell-era meetings Granicus did not record, from the Wayback Machine and YouTube | `src/docket/services/archived_meetings.py` | `0033` |
 
-The Birmingham row in `municipalities` (seeded by migration `001`, slug `birmingham`, adapter `GranicusAdapter`, `adapter_config` with the Granicus `base_url` and `view_id`) carries the flags that turn each source on in its `metadata` JSONB: `calendar_url` (migration `038`), `youtube_channel` and `youtube_channel_id` (migration `040`), `briefing: true` (migration `037`, which turns on the city-page opener), and `council_schedule.weekday` (Tuesday). Each worker task picks the cities it serves by one of those keys, so Birmingham is the only city every stage runs for.
+The Birmingham row in `municipalities` (seeded by migration `001`, slug `birmingham`, adapter `GranicusAdapter`, `adapter_config` with the Granicus `base_url` and `view_id`) carries the flags that turn each source on in its `metadata` JSONB: `calendar_url` (migration `038`) and the other calendar keys (migration `043`: the search and sitemap addresses, the department, and `calendar_complete_from`), `youtube_channel` and `youtube_channel_id` (migration `040`), `briefing: true` (migration `037`, which turns on the city-page opener), and `council_schedule.weekday` (Tuesday). Each worker task picks the cities it serves by one of those keys, so Birmingham is the only city every stage runs for.
 
 ## 1. Granicus: the primary source
 
@@ -24,13 +24,16 @@ What Granicus does **not** give us: consent-item body text (the agenda lists con
 
 ## 2. The city calendar: naming the body
 
-Birmingham's council page embeds its next few events as JSON. Once a day the worker reads that page into `city_calendar_events`. The events are used for exactly one thing: when a Granicus clip's title is generic ("Regular City Council Meeting") but the day's calendar shows a committee, the meeting-type ladder (chapter 2) can name the committee. The calendar does not supply cancellations, times, or a meeting list, and because the page lists only upcoming events, there is no backfill into the past. `D116` in `docs/DEBT.md` records the known gap: an event can enter and leave the page's short window between two daily reads.
+Once a day the worker reads the council's events from the city's website into `city_calendar_events`, from three places that each fail alone (`0087`): the council page, which embeds its next four events as JSON; the site's events search, which lists every upcoming event of the City Council department; and the event pages the site's sitemap lists, which are the only place past events can still be read. When the sitemap was first read, on 2026-11-11, it held the council's events back to 2026-10-05 (`calendar_complete_from` in the city's metadata); events the city had already removed from its site are not recovered. Only an event whose department is "City Council" is stored, since other departments have committees too.
+
+The events are used for two things. When a Granicus clip's title is generic ("Regular City Council Meeting") but the day's calendar shows a committee, the meeting-type ladder (chapter 2) can name the committee. And a short or speechless clip on a day the calendar shows no council or committee event is not a meeting but a test of the stream, and is hidden (chapter 2). The calendar does not supply times or a meeting list; a cancelled event (by its stored status or its title) names nothing. `docs/specs/meeting-types.md`, "The city calendar", owns the readers' rules.
 
 ## 3. YouTube: the second source
 
 The council streams every meeting, council and committee alike, to its YouTube channel. The worker reads the channel through the YouTube Data API (the uploads playlist, then each video's duration and live-stream start) and decides, for each recording whose title carries a date and a meeting word, whether it belongs to a Granicus meeting already in the database or is a meeting of its own:
 
 - A recording that pairs with a Granicus clip on the same day (by body, and by duration when the day has several) is **attached** to that meeting as a row in `meeting_videos`. A meeting page then shows "Watch on YouTube" beside the Granicus video, and the transcriber can measure where the recording sits on the Granicus clip's clock (chapter 5).
+- A committee recording whose Granicus clip the calendar has already named for the same committee is attached to that clip **by name**, so one meeting is not listed twice.
 - A recording with nothing to attach to **creates** a meeting of its own, external id `yt-<video id>`, but only once it has been public for three days, so the Granicus clip has a chance to appear first (`0069`). If a Granicus clip for the same day arrives later, it **absorbs** the `yt-` row (`0068`).
 - The YouTube pass never writes a meeting's classification itself; it hands the touched rows to the meeting-type ladder, where the recording's cleaned title is one rung (`0067`).
 

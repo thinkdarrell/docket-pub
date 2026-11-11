@@ -4,7 +4,7 @@ The daily ingest turns what chapter 1's sources publish into rows in `meetings`,
 
 ## The order of the morning
 
-The worker (`src/docket/worker/scheduler.py` owns the times; this page does not repeat them) runs the ingest-side tasks each morning, Chicago time, in this order: `city_calendar` (refresh the council page's events), then `ingest_all` (Granicus), then `youtube_ingest` (the channel). Once a week, before them, `repair_empty_agendas` clears the "scraped" flag on recent meetings that have an agenda link but zero items, so they are tried again. Every task pings its Healthchecks.io check at start, success, and failure (`src/docket/worker/health.py`; `docs/runbooks/cron-worker.md` lists the checks).
+The worker (`src/docket/worker/scheduler.py` owns the times; this page does not repeat them) runs the ingest-side tasks each morning, Chicago time, in this order: `city_calendar` (refresh the council's calendar events), then `ingest_all` (Granicus), then `youtube_ingest` (the channel), then `non_meetings` (hide the clips that are not meetings). Once a week, before them, `repair_empty_agendas` clears the "scraped" flag on recent meetings that have an agenda link but zero items, so they are tried again. Every task pings its Healthchecks.io check at start, success, and failure (`src/docket/worker/health.py`; `docs/runbooks/cron-worker.md` lists the checks).
 
 ## Step 1: the meeting row
 
@@ -31,7 +31,9 @@ For a clip meeting that was already scraped (because it began life as an `event-
 
 ## Step 3: what kind of meeting this is
 
-After the rows are written, `meeting_types.resolve_and_store` runs over every meeting the feed listed and climbs the **evidence ladder** for each one that an admin has not locked: a specific title wins outright ("Special Called Finance Committee"); for a generic title, an attached YouTube recording's cleaned title wins; then the day's calendar events; then the schedule rule (a generic clip on a day other than the council's Tuesday, with no minutes and not cancelled, is a committee recording); and otherwise the generic council reading stands. The winning rung is recorded in `type_source`, and the five columns are written in one statement. `docs/specs/meeting-types.md` owns every rule and the reader-facing label; the key point for the content flow is that **a reader never sees the clip's raw name as the meeting's name**, and a row moves back down the ladder on its own when it gains minutes or a cancelled title.
+After the rows are written, `meeting_types.resolve_and_store` runs over every meeting the feed listed, and every other visible meeting of those dates, and climbs the **evidence ladder** for each one that an admin has not locked: a specific title wins outright ("Special Called Finance Committee"); for a generic title, an attached YouTube recording's cleaned title wins; then the day's calendar events (read with the day's other recordings: on a day with several committee events a recording of ten minutes or more takes the one committee the already-named recordings leave over, when exactly one is left and nothing else competes for it, and a stream test of a few minutes does not take a name from the full recording beside it; `0088`); then the schedule rule (a generic clip on a day other than the council's Tuesday, with no minutes and not cancelled, is a committee recording); and otherwise the generic council reading stands. The winning rung is recorded in `type_source`, and the five columns are written in one statement. `docs/specs/meeting-types.md` owns every rule and the reader-facing label; the key point for the content flow is that **a reader never sees the clip's raw name as the meeting's name**, and a row moves back down the ladder on its own when it gains minutes or a cancelled title.
+
+A clip that is not a meeting leaves the site. The clerk's streaming equipment leaves recordings of a few minutes in the archive on days when nothing was scheduled, under the same generic title as a real clip. The daily task `non_meetings` hides a generic-titled clip with no agenda, minutes, items, or YouTube recording, on a day the stored calendar shows no council or committee event, when it runs under ten minutes or its transcript is `low_speech`, once it is four days old (`0089`). It hides nothing while the calendar has not been read for 36 hours, holds back a clip whose transcript has speech, and never again hides a row an admin has unhidden; `/admin/meetings/hidden` shows each hidden row with its reason and the clips held back. `docs/specs/meeting-types.md`, "Clips that are not meetings", owns the rule.
 
 A cancelled meeting is detected from its title alone (`query.is_cancelled_title`); there is no flag column. It stays an ordinary row, labelled "(cancelled)", and the city-page prose about actions skips it (`0058`).
 
@@ -53,7 +55,7 @@ Then the **minutes adoption sweep** (`src/docket/services/minutes_adoption.py`):
 | --- | --- |
 | Exactly which URLs the adapter fetches and what each returns | `src/docket/adapters/granicus.py` |
 | The upsert, the gates, the upgrade-in-place, the timestamp backfill | `src/docket/services/ingest.py` |
-| The ladder, the label, the calendar, the YouTube pass | `docs/specs/meeting-types.md` |
+| The ladder, the label, the calendar, the YouTube pass, the hiding of clips that are not meetings | `docs/specs/meeting-types.md` |
 | The adoption sweep | `src/docket/services/minutes_adoption.py`, decisions `0007`, `0010` |
 | Task order and times | `src/docket/worker/scheduler.py`; `docs/runbooks/cron-worker.md` for operating it |
 

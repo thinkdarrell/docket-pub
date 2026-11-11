@@ -1,7 +1,7 @@
 # Cron Worker Runbook
 
 The Railway `worker` service runs `python -m docket.worker.scheduler` and fires
-**seventeen scheduled tasks** (see the design spec at
+**eighteen scheduled tasks** (see the design spec at
 `docs/superpowers/specs/2026-05-04-cron-worker-design.md`; the schedule itself
 is `src/docket/worker/scheduler.py`).
 
@@ -15,10 +15,11 @@ is `src/docket/worker/scheduler.py`).
 | `refresh_backfill_ratio_mv` | Daily 04:30 | `HEALTHCHECK_REFRESH_BACKFILL_RATIO_UUID` | Refreshes `mv_city_backfill_ratio` (concurrent) |
 | `recast_post_meeting_ai` | Daily 04:45 | `HEALTHCHECK_RECAST_POST_MEETING_UUID` (optional) | Re-queues forward-voice items + summary once a meeting is past and has video/minutes |
 | `prune_analytics` | Day 1, 04:00 (monthly) | `HEALTHCHECK_PRUNE_ANALYTICS_UUID` *(silent-by-design)* | Drops Umami events older than 24 months |
-| `city_calendar` | Daily 05:30 | `HEALTHCHECK_CITY_CALENDAR_UUID` (optional) | Reads each city's own calendar page (`metadata.calendar_url`; Birmingham only at first) into `city_calendar_events`, one request per city; per-city failure isolation; before `ingest_all` so the resolver sees the day's events |
+| `city_calendar` | Daily 05:30 | `HEALTHCHECK_CITY_CALENDAR_UUID` (optional) | Reads each city's own calendar (`metadata.calendar_url`; Birmingham only at first) into `city_calendar_events` from three readers that fail alone: the council page, the events search, and the event pages the sitemap lists that are not yet stored (at most 60 in a run, one second apart); per-city failure isolation; before `ingest_all` so the resolver sees the day's events. The log line names the count per reader (`docs/specs/meeting-types.md`, "The city calendar") |
 | `ingest_all` | Daily 06:00 | `HEALTHCHECK_INGEST_UUID` | Loops all municipalities; per-city failure isolation |
 | `video_ocr` | Daily 06:30 | `HEALTHCHECK_VIDEO_OCR_UUID` | Claim pattern; 3-attempt cap; 60-day window |
 | `youtube_ingest` | Daily 06:45 | `HEALTHCHECK_YOUTUBE_INGEST_UUID` (optional) | Reads the council's YouTube uploads of the last 30 days; attaches recordings to Granicus rows or creates yt- rows after 3 days; Birmingham only at first |
+| `non_meetings` | Daily 06:55 | `HEALTHCHECK_NON_MEETINGS_UUID` | Hides a short or speechless generic-titled clip on a day with no stored calendar event (`hidden_reason = 'not_a_meeting'`); hides nothing while a city's calendar has not been read for 36 hours; logs the ids hidden and held back per city; after `youtube_ingest` so a recording that names a clip is attached first; Birmingham only (`docs/specs/meeting-types.md`, "Clips that are not meetings") |
 | `ai_items` | Daily 07:00 | `HEALTHCHECK_AI_ITEMS_UUID` | v3 pipeline; gated by `AI_DAILY_BUDGET_USD` |
 | `ai_meetings` | Daily 08:00 | `HEALTHCHECK_AI_MEETINGS_UUID` | Sonnet 4.6; two-phase (provisional → adopted) |
 | `resolve_member_votes` | Daily 08:45 | `HEALTHCHECK_RESOLVE_MEMBER_VOTES_UUID` | Gives every `member_votes` row with no `council_member_id` its member from the roster; the rule is `docs/specs/votes.md` |
@@ -50,6 +51,7 @@ railway variables --service worker --set HEALTHCHECK_VIDEO_OCR_UUID=<uuid>
 railway variables --service worker --set HEALTHCHECK_BRIEFING_FACTS_UUID=<uuid>
 railway variables --service worker --set HEALTHCHECK_RESOLVE_MEMBER_VOTES_UUID=<uuid>
 railway variables --service worker --set HEALTHCHECK_CITY_CALENDAR_UUID=<uuid>
+railway variables --service worker --set HEALTHCHECK_NON_MEETINGS_UUID=<uuid>
 # silent-by-design (do not set unless you want active alerting):
 # railway variables --service worker --set HEALTHCHECK_CALIBRATION_UUID=<uuid>
 # railway variables --service worker --set HEALTHCHECK_PRUNE_ANALYTICS_UUID=<uuid>
@@ -63,6 +65,7 @@ Suggested schedule + grace per check:
 | docket-ingest                    | Daily 06:00        | 2h    |
 | docket-video-ocr                 | Daily 06:30        | 2h    |
 | docket-youtube-ingest            | Daily 06:45        | 2h    |
+| docket-non-meetings              | Daily 06:55        | 2h    |
 | docket-ai-items                  | Daily 07:00        | 2h    |
 | docket-ai-meetings               | Daily 08:00        | 2h    |
 | docket-resolve-member-votes      | Daily 08:45        | 2h    |
@@ -106,6 +109,7 @@ python -m docket.worker.scheduler --run-once city_calendar
 python -m docket.worker.scheduler --run-once ingest_all
 python -m docket.worker.scheduler --run-once video_ocr
 python -m docket.worker.scheduler --run-once youtube_ingest
+python -m docket.worker.scheduler --run-once non_meetings
 python -m docket.worker.scheduler --run-once ai_items
 python -m docket.worker.scheduler --run-once ai_meetings
 python -m docket.worker.scheduler --run-once resolve_member_votes
