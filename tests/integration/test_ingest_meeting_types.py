@@ -518,3 +518,53 @@ class TestNamedByElimination:
         # The same row typed a committee but pointing at the council event: the event is not a committee's.
         _set(muni_id, "mtype-day-t", "meeting_type = 'committee'")
         assert named_by_elimination(row) is False
+
+    def test_each_condition_alone(self, muni_id):
+        """Added after the failing-first commit: the row's own type, its
+        `type_source`, and the count being of committee events only were each
+        removable without failing a test."""
+        from docket.services.meeting_types import named_by_elimination
+
+        _calendar_event(muni_id, "5100", "BIRMINGHAM CITY COUNCIL MEETING, November 10, 2026",
+                        datetime(2026, 11, 10, 15, 30, tzinfo=timezone.utc))
+        ps = _calendar_event(muni_id, "5101", "PUBLIC SAFETY COMMITTEE MEETING, November 10, 2026",
+                             datetime(2026, 11, 10, 18, 0, tzinfo=timezone.utc))
+        row = _clip(muni_id, "mtype-day-t", date(2026, 11, 10), 3000)
+
+        # One committee event beside a council event: the count is of committee events.
+        _set(muni_id, "mtype-day-t",
+             f"meeting_type = 'committee', type_source = 'calendar', calendar_event_id = {ps}")
+        assert named_by_elimination(row) is False
+
+        _calendar_event(muni_id, "5102", "ARTS AND PARKS COMMITTEE MEETING, November 10, 2026",
+                        datetime(2026, 11, 10, 20, 0, tzinfo=timezone.utc))
+        assert named_by_elimination(row) is True
+        _set(muni_id, "mtype-day-t", "meeting_type = 'council'")
+        assert named_by_elimination(row) is False, "the row's own type"
+        _set(muni_id, "mtype-day-t", "meeting_type = 'committee', type_source = 'schedule_rule'")
+        assert named_by_elimination(row) is False, "a stale event id on a row another rung named"
+
+
+class TestWholeDaysAreThisCitys:
+    def test_another_citys_row_widens_nothing(self, muni_id):
+        """Added after the failing-first commit: the dates that widen the set
+        are the dates of this city's rows among the ids."""
+        from docket.services.meeting_types import resolve_and_store
+
+        mine = _clip(muni_id, "mtype-day-m", MONDAY, 3000)
+        with db() as conn, conn.cursor() as cur:
+            cur.execute("SELECT id FROM municipalities WHERE slug = 'homewood'")
+            other_city = cur.fetchone()[0]
+            cur.execute(
+                "INSERT INTO meetings (municipality_id, external_id, title, meeting_date, meeting_type) "
+                "VALUES (%s, 'mtype-day-other', 'Regular City Council Meeting', %s, 'council') RETURNING id",
+                (other_city, MONDAY),
+            )
+            theirs = cur.fetchone()[0]
+        try:
+            assert resolve_and_store(muni_id, [theirs]) == 0
+            assert _five(_row(muni_id, "mtype-day-m")) == ("council", "regular", None, "title", None)
+            assert resolve_and_store(muni_id, [mine]) == 1
+        finally:
+            with db() as conn, conn.cursor() as cur:
+                cur.execute("DELETE FROM meetings WHERE id = %s", (theirs,))

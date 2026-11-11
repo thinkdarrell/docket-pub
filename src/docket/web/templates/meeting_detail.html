@@ -76,7 +76,8 @@
 
 {# ── Provenance: the clip name the city's archive carries, and which rung
       named the body (plans/completed/meeting-types-name-the-body.md, M5; the
-      YouTube rung, plans/completed/youtube-council-channel.md, M5).
+      YouTube rung, plans/completed/youtube-council-channel.md, M5; the
+      elimination sentence, plan committee-clips-named-or-hidden, M2).
       Printed only when the label differs from the title. The title's source
       is named only when it is known: the council's YouTube channel when a
       stored recording carries the title (a yt- row the YouTube pass created),
@@ -89,7 +90,9 @@
   {%- if _titled_by_youtube %}The council's YouTube channel titles this recording “{{ meeting.title }}”.
   {%- elif _titled_by_archive %}The city's archive lists this recording as “{{ meeting.title }}”.{% endif %}
   {%- if meeting.type_source == 'schedule_rule' %} It is not on the council's regular meeting day and the city calendar did not name the body.
-  {%- elif meeting.type_source == 'calendar' %} The city's calendar names it.
+  {%- elif meeting.type_source == 'calendar' %}
+    {%- if named_by_elimination %} The city's calendar lists more than one committee meeting that day; this is the recording the others do not account for.
+    {%- else %} The city's calendar names it.{% endif %}
     {%- if calendar_event and calendar_event.source_url %} <a class="link" href="{{ calendar_event.source_url }}" target="_blank" rel="noreferrer">See the event ↗</a>{% endif %}
   {%- elif meeting.type_source == 'video' %} The council's YouTube recording names it.
     {%- set _named_by = (recordings or []) | selectattr('provider', 'equalto', 'youtube') | first %}

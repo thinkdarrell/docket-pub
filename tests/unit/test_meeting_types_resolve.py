@@ -435,6 +435,22 @@ class TestSameCommittee:
         assert same_committee("Public Committee", "Public Works Committee") is False
         assert same_committee("Planning Committee", "Planning & Zoning") is True, "PLANNING is eight letters"
 
+    def test_the_date_and_the_canonical_name_are_read_before_the_trailing_words(self):
+        """Added after the failing-first commit: removing `committee_name_for`
+        from either side, the trailing-word strip from the second, or "work
+        session" from the words failed no test, because the prefix rule
+        answered for every name of eight letters or more."""
+        from docket.services.meeting_types import same_committee
+
+        special = "SPECIAL CALLED ARTS AND PARKS COMMITTEE MEETING, November 2, 2026"
+        assert same_committee(special, "Arts and Parks Committee") is True
+        assert same_committee("Arts and Parks Committee", special) is True
+        dated = "ARTS COMMITTEE MEETING, November 2, 2026"
+        assert same_committee(dated, "Arts Committee") is True
+        assert same_committee("Arts Committee", dated) is True
+        assert same_committee("Arts Committee Work Session", "Arts Committee") is True
+        assert same_committee("Arts Committee", "Arts Committee Work Session") is True
+
     def test_trailing_words_are_dropped_and_a_name_of_nothing_else_matches_nothing(self):
         from docket.services.meeting_types import same_committee
 
@@ -553,6 +569,25 @@ class TestWholeDay:
         council = {"id": 5100, "title": "BIRMINGHAM CITY COUNCIL MEETING, November 9, 2026", "starts_at": _utc(2026, 11, 9, 15, 30)}
         assert _day([council, X, Y], duration_s=9000, minutes_url="x") == ("council", "regular", None, "calendar", 5100)
         assert _day([X], duration_s=9000, minutes_url="x") == ("council", "regular", None, "title", None)
+
+    def test_a_row_with_items_takes_the_council_event_on_any_weekday(self):
+        """Added after the failing-first commit: nothing told a row with items
+        beside a council event on a day that is not the council's from a row
+        without documents."""
+        council = {"id": 5100, "title": "BIRMINGHAM CITY COUNCIL MEETING, November 9, 2026", "starts_at": _utc(2026, 11, 9, 15, 30)}
+        assert _day([council, X], duration_s=9000, item_count=5) == ("council", "regular", None, "calendar", 5100)
+        # As a sibling, such a row is not a competitor either.
+        assert _day([council, X, Y], duration_s=2220,
+                    siblings=[S, _sibling(duration_s=9000, item_count=5)]) == NAMED_Y
+
+    def test_only_a_committee_row_is_a_namer(self):
+        """Added after the failing-first commit: a locked planning row whose
+        stored name reads like a committee's set the event aside."""
+        pz = {"id": 4950, "title": "PLANNING AND ZONING COMMITTEE MEETING, November 9, 2026", "starts_at": _utc(2026, 11, 9, 22, 0)}
+        locked = _sibling(duration_s=5000, type_locked_at=datetime(2026, 11, 1, tzinfo=timezone.utc),
+                          meeting_type="planning", body_name="Planning & Zoning")
+        assert _day([pz, Y], duration_s=2220, siblings=[locked]) == RULE
+        assert _day([pz, Y], duration_s=2220, siblings=[locked | {"meeting_type": "committee"}]) == NAMED_Y
 
     def test_a_row_with_items_and_two_council_events_gets_nothing(self):
         twin = {"id": 4849, "title": "BIRMINGHAM CITY COUNCIL MEETING, October 20, 2026 (Part II)", "starts_at": _utc(2026, 10, 20, 18, 0)}

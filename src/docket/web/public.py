@@ -281,12 +281,14 @@ def meeting_detail(slug, meeting_id):
 
     from docket.services import meeting_types as mtsvc
     calendar_event = mtsvc.calendar_event_for(meeting_id) if meeting.calendar_event_id else None
+    named_by_elimination = bool(calendar_event) and mtsvc.named_by_elimination(meeting_id)
 
     recordings = query.videos_for_meeting(meeting_id)
 
     return render_template(
         "meeting_detail.html",
         calendar_event=calendar_event,
+        named_by_elimination=named_by_elimination,
         recordings=recordings,
         discrepancies=discrepancies,
         has_transcript=has_transcript,
