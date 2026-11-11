@@ -211,6 +211,22 @@ As authored on 2026-11-11, no milestone has run. The authoring research found th
   Rationale: a row with no `calendar_event_id` cannot have been named by elimination, so every other page is spared the query. The docstring stated the rule this milestone replaced, in the module that holds it, as M1 treated its own; the spec, the guide, and the remaining old-rule sentences are M5's, which greps for them. Until M5 the spec's "The ladder" and "Provenance" describe the rule as it was before this milestone.
   Date/Author: 2026-11-11, M2 session.
 
+- Decision (M3): the by-name step runs once per fresh committee group, in the listing's order, before every candidate rule, the day blocked by a clip of unknown length among them; one row of the name takes the recording whatever either's length.
+  Rationale: the plan puts the step "before the existing candidate logic" and states no length test for the single row. The blocked rule protects a choice among unnamed clips, and a row the calendar named for the recording's own committee is not that choice. A row taken in the run is passed over for the next group by the run's `claimed` set, as the candidate rules already do. `tests/integration/test_youtube_sync.py` holds the blocked case (`test_a_named_row_takes_its_recording_although_a_bodyless_clip_has_no_duration`).
+  Date/Author: 2026-11-11, M3 session.
+
+- Decision (M3): in `absorb_all` the widening is the same step ahead of the candidate rules: a young committee `yt-` row is absorbed by the one visible Granicus clip the calendar named for its committee, or among several by the one whose length pairs, and only by a clip created after the `yt-` row.
+  Rationale: the plan says only that `absorb_all` "gets the same widening for its committee candidates". Adding named rows to the candidate list itself would have let a clip named "Public Safety" absorb an "Arts and Parks" row by the one-and-one rule, so the name is tested per `yt-` row. The arrived-later test is kept because it is what `absorb_all` already requires of every clip, and because without it the first run after the deploy would merge meetings 3196 and 3188 the wrong way round for the transcript, which the Decision Log's entry on that pair gives to the operator instead. The wait for a candidate without a stored length is not applied to the single named clip, for the reason in the entry above. `_YOUNG_YT_ROWS_SQL` selects `body_name` for it, and `_Run.absorb` takes an optional note, printed at the end of the report line.
+  Date/Author: 2026-11-11, M3 session.
+
+- Decision (M3): the new tests are dated June 2019 and their recordings are titled "Arts and Parks Committee Meeting 6.5.19" and the like, not "11.2.26" as the acceptance words it.
+  Rationale: `tests/integration/test_youtube_sync.py` fixes its today at 2019-06-30, `parse_title` refuses a date after tomorrow, and the file keeps every row in June 2019 so no other test's rows share a day. The committee, the row's stored name, the source, and the lengths are the acceptance's.
+  Date/Author: 2026-11-11, M3 session.
+
+- Decision (M3): the comment above `ACTIONS` in `src/docket/services/youtube_meetings.py` was brought up to date in this milestone; `docs/specs/meeting-types.md` was not touched.
+  Rationale: the comment is the module's own statement of the matching order, in the file this milestone changed, as M1 and M2 treated theirs. The spec's section "The council's YouTube channel" (the paragraphs beginning "For each date" and "After the groups") states the rule as it was before this milestone until M5 edits it.
+  Date/Author: 2026-11-11, M3 session.
+
 ## Outcomes & Retrospective
 
 As authored on 2026-11-11, nothing has been executed and there is no outcome to report.
@@ -353,6 +369,12 @@ M2's tests alone, against a kept throwaway database:
 
 Observed after M2's code: `127 passed`.
 
+M3's tests alone, against a kept throwaway database:
+
+    DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/integration/test_youtube_sync.py -q -p no:cacheprovider
+
+Observed after M3's code: `32 passed`.
+
 ## Validation and Acceptance
 
 Each milestone's acceptance is stated with it above and is observable in the worktree with `./tools/verify` alone.
@@ -429,6 +451,8 @@ In `src/docket/services/meeting_types.py`, at the end of M2:
 
 As M2 built them: `same_committee` and `ELIMINATION_MIN_S` are public and M3 imports the first; `named_by_elimination(meeting_id)` opens its own connection, as `calendar_event_for` does. Private helpers a later milestone may reuse from inside the module, or import as M4 is already told to import `_event_date`: `_is_live(ev)` (a stored event whose `event_status` is NULL or `active` and whose title does not say cancelled; M4's hiding rule must not use it, since there a cancelled event still counts), `_before_calendar(row)` (the classification and rung above the calendar, or `None`), `_is_long(row)` and `_is_short(row)` (both false for a NULL `duration_s`). `_MEETING_ROWS_SQL` now selects `m.duration_s` and `m.is_hidden`, `_CALENDAR_SQL` selects `event_status`, and `_WHOLE_DAYS_WHERE` (two `%s`, each the id list) is the loader's clause for some ids and the visible rows of their dates. `_changes(municipality, meetings, events)` must be given every non-hidden row of each date it is given a row of. The meeting page's template reads a new variable, `named_by_elimination`, passed by `meeting_detail` in `src/docket/web/public.py`.
 
+In `src/docket/services/youtube_meetings.py`, as M3 built it (the plan authored no signature): `_named_rows(rows, body_name) -> list[dict]`, the day's visible Granicus rows with no YouTube recording, `meeting_type = 'committee'`, `type_source = 'calendar'`, and a `body_name` that `meeting_types.same_committee` matches; `_choose_by_name(named, item, duration) -> tuple[dict, str] | None`, the row and its note (" by name", or " by name and duration" from `_pair_by_duration` among several). `_Run.day` and `_Run.absorb_all` both call them before their candidate rules. `_DAY_ROWS_SQL` selects `m.type_source`, `_YOUNG_YT_ROWS_SQL` selects `m.body_name`, and `_Run.absorb(meeting_date, yt, row, note="")` ends its report line with the note. M4 changes `_Run.absorb`'s `UPDATE` (it writes `hidden_reason = 'absorbed'`) and must keep the note.
+
 In `src/docket/services/non_meetings.py`, at the end of M4:
 
     SHORT_CLIP_S = 600
@@ -446,3 +470,5 @@ Revision of 2026-11-11, before any milestone ran and before the plan was committ
 M1 session, 2026-11-11. No rule of the plan changed. Interfaces and Dependencies gained what M1 added to the authored signatures (an optional `department` keyword on the search parser and fetcher, `normalise_event_url`, three constants, the migration's number) so that M2 to M5 read the names that exist; Concrete Steps gained the command M1 used for the calendar tests alone; the reasons are in the Decision Log entries marked M1.
 
 M2 session, 2026-11-11. No rule of the plan changed. Interfaces and Dependencies gained the names M2 built that M3 and M4 will read, Concrete Steps gained the command for M2's tests alone, and the Decision Log entries marked M2 record where the session chose inside the milestone: the loader's union of given ids and whole days, `clear_override` resolving the day, and what a namer sets aside.
+
+M3 session, 2026-11-11. No rule of the plan changed. Interfaces and Dependencies gained the two helpers M3 built and the two queries it widened, Concrete Steps gained the command for M3's tests alone, and the Decision Log entries marked M3 record where the session chose inside the milestone: the by-name step ahead of the blocked rule, what "the same widening" means in `absorb_all`, and the tests' dates.

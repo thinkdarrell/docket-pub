@@ -5,7 +5,10 @@ exercise the matching ladder against a real database: attach to the day's
 council row, attach to the day's one committee candidate, pair by duration on
 a busy day, create a ``yt-`` row after three days, refuse to create while a
 candidate clip has no stored duration, absorb a young ``yt-`` row into a
-Granicus clip that arrived later, and write nothing on a dry run.
+Granicus clip that arrived later, and write nothing on a dry run. The last
+section before the dry run is the by-name attach of plan
+``committee-clips-named-or-hidden`` (M3): a recording joins, and a young
+``yt-`` row is absorbed by, the clip the city's calendar named for its committee.
 
 Every row here is Birmingham's (migration 040 gives it ``youtube_channel_id``),
 dated June 2019 so no other test's rows share a day; Granicus-shaped rows carry
@@ -621,6 +624,57 @@ def test_among_several_later_clips_of_that_name_the_yt_row_goes_to_the_one_of_it
     assert _meeting(yt) is None
     assert _videos_of(long_) == [("M4Tab4", True)]
     assert _videos_of(short) == []
+
+
+# The three below were added after the commit that holds the by-name tests
+# failing (ef5702a), each for a clause the removal check found no test held.
+
+
+def test_a_named_row_takes_its_recording_although_a_bodyless_clip_has_no_duration(bhm):
+    """Added after the failing-first commit: by name comes before the candidate rules, the blocked day among them."""
+    d = date(2019, 6, 5)
+    clip = _named(bhm, "m4t-46", d, 660)
+    unknown = _row(bhm, "m4t-47", d, meeting_type="committee", type_source="schedule_rule", duration_s=None)
+
+    report = _sync([_video("an12", "Arts and Parks Committee Meeting 6.5.19", 2640)])
+
+    assert _actions(report) == ["attach"]
+    assert _videos_of(clip) == [("M4Tan12", True)]
+    assert _videos_of(unknown) == []
+
+
+def test_a_clip_taken_by_name_in_this_run_absorbs_nothing_by_name(bhm):
+    """Added after the failing-first commit: absorption by name passes over a row this run attached to.
+
+    The dry run is the half that needs the run's own record of what it
+    claimed: nothing was written, so the row still reads as holding no recording.
+    """
+    d = TODAY - timedelta(days=5)
+    yt = _yt_row(bhm, "ab5", d, 2640, "Arts and Parks Committee Meeting")
+    clip = _named(bhm, "m4t-48", d, 660)
+    listing = [_video("ab6", f"Special Called Arts and Parks Committee Meeting {d.month}.{d.day}.19", 900, days_ago=4)]
+
+    assert _actions(_sync(listing, dry_run=True)) == ["attach"]
+    report = _sync(listing)
+
+    assert _actions(report) == ["attach"]
+    assert _videos_of(clip) == [("M4Tab6", True)]
+    assert _meeting(yt) is not None and _videos_of(yt) == [("M4Tab5", True)]
+
+
+def test_a_yt_row_absorbed_by_name_is_not_offered_to_the_candidates_too(bhm):
+    """Added after the failing-first commit: one absorption, into the named clip, with a bodyless clip beside it."""
+    d = TODAY - timedelta(days=5)
+    yt = _yt_row(bhm, "ab7", d, 2640, "Arts and Parks Committee Meeting")
+    clip = _named(bhm, "m4t-49", d, 660)
+    bodyless = _row(bhm, "m4t-50", d, meeting_type="committee", type_source="schedule_rule", duration_s=2600)
+
+    report = _sync([])
+
+    assert _actions(report) == ["absorb"]
+    assert _meeting(yt) is None
+    assert _videos_of(clip) == [("M4Tab7", True)]
+    assert _videos_of(bodyless) == []
 
 
 # --- dry run ---------------------------------------------------------------------

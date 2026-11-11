@@ -224,13 +224,17 @@ def group_videos(
 # ``sync_city`` matches each group to the city's meeting rows of its date:
 #
 #   council group     -> the day's council row (duration pair, else most items)
-#   committee group   -> the day's one Granicus candidate row when there is one
-#                        of each; otherwise pairs by duration, nearest first
+#   committee group   -> the Granicus row the calendar already named for the
+#                        same committee (among several, the one whose duration
+#                        pairs); else the day's one Granicus candidate row when
+#                        there is one of each; otherwise pairs by duration,
+#                        nearest first
 #   no match          -> a ``yt-<video id>`` row, once the primary is
 #                        CREATE_AFTER_DAYS old; until then ``defer``
 #   any candidate row of the day without a stored duration -> ``no_duration``
 #
-# and then absorbs young ``yt-`` rows into Granicus clips that arrived later.
+# and then absorbs young ``yt-`` rows into Granicus clips that arrived later
+# (a clip the calendar named for the row's committee first, then the candidates).
 # Nothing here writes a classification: ``meeting_types.resolve_and_store``
 # runs over every touched row and its ``video`` rung names them.
 
@@ -292,7 +296,7 @@ def _pair_by_duration(groups: list, rows: list[dict], duration) -> tuple[list[tu
 _MUNICIPALITY_SQL = "SELECT id, metadata FROM municipalities WHERE slug = %s"
 
 _DAY_ROWS_SQL = """
-    SELECT m.id, m.external_id, m.title, m.meeting_type, m.body_name, m.minutes_url,
+    SELECT m.id, m.external_id, m.title, m.meeting_type, m.body_name, m.type_source, m.minutes_url,
            m.duration_s, m.is_hidden, m.created_at,
            (SELECT count(*) FROM agenda_items a WHERE a.meeting_id = m.id) AS item_count,
            EXISTS (SELECT 1 FROM meeting_videos v
@@ -323,7 +327,7 @@ _INSERT_MEETING_SQL = """
 """
 
 _YOUNG_YT_ROWS_SQL = """
-    SELECT m.id, m.external_id, m.meeting_date, m.meeting_type, m.duration_s, m.created_at
+    SELECT m.id, m.external_id, m.meeting_date, m.meeting_type, m.body_name, m.duration_s, m.created_at
       FROM meetings m
      WHERE m.municipality_id = %s
        AND m.external_id LIKE 'yt-%%'
@@ -360,6 +364,33 @@ def _committee_candidates(rows: list[dict]) -> list[dict]:
         ):
             out.append(r)
     return out
+
+
+def _named_rows(rows: list[dict], body_name: str | None) -> list[dict]:
+    """The day's Granicus rows the city's calendar named for this committee, among those holding no YouTube video yet.
+
+    ``_committee_candidates`` never admits them (they have a body name), so
+    without this a recording of a meeting the calendar named first gets a
+    ``yt-`` row of its own and the meeting is listed twice (plan
+    ``committee-clips-named-or-hidden``, M3).
+    """
+    return [
+        r for r in rows
+        if _is_granicus(r) and not r["has_youtube"]
+        and r["meeting_type"] == "committee" and r["type_source"] == "calendar"
+        and meeting_types.same_committee(r["body_name"] or "", body_name or "")
+    ]
+
+
+def _choose_by_name(named: list[dict], item, duration) -> tuple[dict, str] | None:
+    """The one row of that name, or among several the one whose duration pairs; with the note for the report."""
+    if len(named) == 1:
+        return named[0], " by name"
+    if len(named) > 1:
+        paired, _, _ = _pair_by_duration([item], named, duration)
+        if paired:
+            return paired[0][1], " by name and duration"
+    return None
 
 
 def _videos_of(group: Candidate) -> list[YouTubeVideo]:
@@ -509,6 +540,15 @@ class _Run:
                      meeting_date, g.primary.video_id, row["id"], how, len(council_rows))
             self.attach(g, row, f" by {how}")
 
+        # A row the calendar already named for the recording's committee takes
+        # it before the candidate rules, which never see a named row.
+        for g in list(committee_groups):
+            named = [r for r in _named_rows(rows, g.classification.body_name) if r["id"] not in self.claimed]
+            chosen = _choose_by_name(named, g, lambda g: g.total_duration_s)
+            if chosen is not None:
+                self.attach(g, chosen[0], chosen[1])
+                committee_groups.remove(g)
+
         if not committee_groups:
             return
         if blocked:
@@ -555,8 +595,20 @@ class _Run:
                 if _is_granicus(r) and r["meeting_type"] == "council" and not r["has_youtube"]
                 and r["id"] not in self.claimed and r not in committee
             ]
+            committee_yts = [y for y in yts if y["meeting_type"] != "council"]
+            # As in ``day``: a later clip the calendar named for the row's
+            # committee absorbs it first, by name, then by length among several.
+            for y in list(committee_yts):
+                named = [
+                    r for r in _named_rows(rows, y["body_name"])
+                    if r["id"] not in self.claimed and r["created_at"] > y["created_at"]
+                ]
+                chosen = _choose_by_name(named, y, lambda y: y["duration_s"])
+                if chosen is not None:
+                    self.absorb(meeting_date, y, chosen[0], chosen[1])
+                    committee_yts.remove(y)
             for kind_yts, cands in (
-                ([y for y in yts if y["meeting_type"] != "council"], committee),
+                (committee_yts, committee),
                 ([y for y in yts if y["meeting_type"] == "council"], council),
             ):
                 # Only a clip that arrived after a yt- row may absorb it: a clip
@@ -576,7 +628,7 @@ class _Run:
                     if row["created_at"] > yt["created_at"]:
                         self.absorb(meeting_date, yt, row)
 
-    def absorb(self, meeting_date: date, yt: dict, row: dict) -> None:
+    def absorb(self, meeting_date: date, yt: dict, row: dict, note: str = "") -> None:
         self.claimed.add(row["id"])
         outcome = "deleted"
         if not self.dry_run:
@@ -594,7 +646,7 @@ class _Run:
                     meeting_date, yt["id"], yt["external_id"], row["id"], row["external_id"], outcome)
         self.report.touch(row["id"])
         self.report.add(meeting_date, "absorb",
-                        f"meeting {yt['id']} ({yt['external_id']}) -> {_row_label(row)}; yt- row {outcome}")
+                        f"meeting {yt['id']} ({yt['external_id']}) -> {_row_label(row)}; yt- row {outcome}{note}")
 
 
 def sync_city(
