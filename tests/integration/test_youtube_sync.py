@@ -441,6 +441,24 @@ def test_a_yt_row_with_a_transcript_is_hidden_instead_of_deleted(bhm):
     assert _videos_of(clip) == [("M4Ttr2", True)]
 
 
+def test_an_absorbed_yt_row_that_is_hidden_carries_the_reason(bhm):
+    """Plan committee-clips-named-or-hidden, M4: the admin's hidden page says the row was merged."""
+    d = TODAY - timedelta(days=5)
+    yt = _yt_row(bhm, "tr3", d, 1400, "Transportation Committee Meeting")
+    _row(bhm, "m4t-41", d, meeting_type="committee", type_source="schedule_rule", duration_s=1500)
+    with db_cursor() as cur:
+        cur.execute("INSERT INTO transcripts (meeting_id, status) VALUES (%s, 'uploaded')", (yt,))
+
+    report = _sync([])
+
+    assert _actions(report) == ["absorb"]
+    with db_cursor() as cur:
+        cur.execute("SELECT is_hidden, hidden_at, hidden_reason FROM meetings WHERE id = %s", (yt,))
+        row = cur.fetchone()
+    assert row["is_hidden"] is True and row["hidden_at"] is not None
+    assert row["hidden_reason"] == "absorbed"
+
+
 # --- by name (plan committee-clips-named-or-hidden, M3) ---------------------------
 #
 # A Granicus clip the city's calendar already named is not a candidate of the

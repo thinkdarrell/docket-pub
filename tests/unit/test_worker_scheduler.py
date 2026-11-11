@@ -16,7 +16,7 @@ def test_build_scheduler_registers_all_jobs():
         "repair_empty_agendas", "process_badges", "calibration_report",
         "process_batches", "refresh_backfill_ratio_mv", "prune_analytics",
         "recast_post_meeting_ai", "transcript_pipeline", "resolve_member_votes",
-        "briefing_facts", "city_calendar", "youtube_ingest",
+        "briefing_facts", "city_calendar", "youtube_ingest", "non_meetings",
     }
 
 
@@ -47,6 +47,7 @@ def test_build_scheduler_uses_supplied_timezone():
     ("briefing_facts",       9),
     ("city_calendar",        5),
     ("youtube_ingest",       6),
+    ("non_meetings",         6),
 ])
 def test_build_scheduler_job_hours(job_id, expected_hour):
     sched = scheduler.build_scheduler(timezone="America/Chicago")
@@ -106,6 +107,15 @@ def test_build_scheduler_youtube_ingest_at_06_45():
     job = sched.get_job("youtube_ingest")
     fields = {f.name: str(f) for f in job.trigger.fields}
     assert (fields["hour"], fields["minute"]) == ("6", "45")
+    assert job.coalesce is True and job.max_instances == 1
+
+
+def test_build_scheduler_non_meetings_at_06_55_after_youtube_ingest():
+    """06:55, after youtube_ingest (06:45) has attached any recording that names a clip."""
+    sched = scheduler.build_scheduler(timezone="America/Chicago")
+    job = sched.get_job("non_meetings")
+    fields = {f.name: str(f) for f in job.trigger.fields}
+    assert (fields["hour"], fields["minute"], fields["day_of_week"]) == ("6", "55", "*")
     assert job.coalesce is True and job.max_instances == 1
 
 

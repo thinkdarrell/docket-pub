@@ -113,6 +113,12 @@ As authored on 2026-11-11, no milestone has run. The authoring research found th
 - Observation (M3 session): `./tools/verify` after the change.
   Evidence: `verify: unit+web+services ... ok (83s)`, `verify: integration ... ok (99s)`, `verify: judge-fixtures ... ok (1s)`, `verify: workflows ... ok (0s)`, `verify: transcriber ... ok (7s)`, `verify: plans ... ok (0s)`, `verify: all 6 checks passed in 191s.` It ran on the working tree that became commit `9c72212`, before that commit's edits to this file; `tools/check-plans` ran again in the pre-commit hook and printed `1 of 1 ok`. `tests/integration/test_youtube_sync.py` alone: `32 passed`.
 
+- Observation (M4 session, 2026-11-11): the starting state is green, and `./tools/verify` took 196 seconds.
+  Evidence: run before any edit, at commit `14bd0db`: `verify: unit+web+services ... ok (83s)`, `verify: integration ... ok (105s)`, `verify: judge-fixtures ... ok (0s)`, `verify: workflows ... ok (1s)`, `verify: transcriber ... ok (7s)`, `verify: plans ... ok (0s)`, `verify: all 6 checks passed in 196s.`
+
+- Observation (M4 session): the tests were committed failing before the code, and for the rule itself the before state says only that the module is absent.
+  Evidence: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/integration/test_non_meetings.py tests/integration/test_044_migration.py tests/web/test_hidden_meetings_admin.py tests/integration/test_youtube_sync.py tests/unit/test_worker_tasks.py tests/unit/test_worker_scheduler.py tests/unit/test_worker_health.py tests/integration/test_admin_hide_meeting.py -q -p no:cacheprovider` printed `54 failed, 106 passed`. The 54: all 36 of `tests/integration/test_non_meetings.py` (each imports `docket.services.non_meetings` inside the test and fails with `ModuleNotFoundError`, so no test fails for a rule's own reason; the removal check after the code is what shows each rule is held), the 5 of `tests/integration/test_044_migration.py`, the 5 of `tests/web/test_hidden_meetings_admin.py`, `test_an_absorbed_yt_row_that_is_hidden_carries_the_reason`, 4 in `tests/unit/test_worker_tasks.py`, and 3 in `tests/unit/test_worker_scheduler.py`. The 106 that pass are the tests those files already held.
+
 ## Decision Log
 
 - Decision: the past calendar comes from the city's sitemap, the upcoming calendar from the events search, and the council page stays as a third reader.

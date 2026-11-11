@@ -61,6 +61,34 @@ def test_city_calendar_is_registered_and_safe_run_wrapped():
     assert [c.args for c in mock_ping.call_args_list] == [("city_calendar", "start"), ("city_calendar", "success")]
 
 
+# --- task_non_meetings --------------------------------------------------------
+# Plan committee-clips-named-or-hidden, M4. The service is patched by name on
+# the tasks module, so these fail before the task exists.
+
+def test_non_meetings_logs_the_ids_hidden_and_held_back_per_city(caplog):
+    result = {"birmingham": ([3192, 3193], [2618]), "elsewhere": ([], [])}
+    with patch("docket.worker.tasks.non_meetings.hide_non_meetings", return_value=result) as mock_hide, \
+         caplog.at_level("INFO", logger="docket.worker.tasks"):
+        tasks._do_non_meetings()
+    mock_hide.assert_called_once_with()
+    lines = [r.getMessage() for r in caplog.records]
+    assert any("birmingham" in m and "[3192, 3193]" in m and "[2618]" in m for m in lines)
+    assert any("elsewhere" in m and "[]" in m for m in lines)
+
+
+def test_non_meetings_is_registered_and_safe_run_wrapped():
+    with patch("docket.worker.tasks.health.ping") as mock_ping, \
+         patch("docket.worker.tasks.non_meetings.hide_non_meetings", return_value={}):
+        tasks.TASKS["non_meetings"]()
+    assert [c.args for c in mock_ping.call_args_list] == [("non_meetings", "start"), ("non_meetings", "success")]
+
+
+def test_non_meetings_has_its_healthcheck_variable():
+    from docket.worker import health
+
+    assert health.TASK_UUID_ENV["non_meetings"] == "HEALTHCHECK_NON_MEETINGS_UUID"
+
+
 # --- task_youtube_ingest -----------------------------------------------------
 
 def test_youtube_ingest_logs_and_returns_when_the_key_is_unset(caplog):
@@ -206,6 +234,6 @@ def test_tasks_registry_has_all_jobs():
         "repair_empty_agendas", "process_badges", "calibration_report",
         "process_batches", "refresh_backfill_ratio_mv", "prune_analytics",
         "recast_post_meeting_ai", "transcript_pipeline", "resolve_member_votes",
-        "briefing_facts", "city_calendar", "youtube_ingest",
+        "briefing_facts", "city_calendar", "youtube_ingest", "non_meetings",
     }
     assert set(tasks.TASKS.keys()) == expected
