@@ -449,10 +449,13 @@ def task_briefing_facts() -> None:
 def _do_city_calendar() -> None:
     """Fill city_calendar_events from each city whose metadata names a ``calendar_url``.
 
-    One GET per city per day (Birmingham only at first), a handful of upserts;
-    runs at 05:30 so the rows exist before ingest_all (06:00) resolves meeting
-    types against them. A city's failure is logged and does not block the
-    others. Plan: plans/completed/meeting-types-name-the-body.md (M3).
+    Birmingham only at first: the council page, the events search, and the
+    sitemap's unstored event pages (33 on the first run, a handful after),
+    one second apart; runs at 05:30 so the rows exist before ingest_all
+    (06:00) resolves meeting types against them. A city's failure is logged
+    and does not block the others.
+    Plan: plans/completed/meeting-types-name-the-body.md (M3); the search and
+    sitemap readers are plan `committee-clips-named-or-hidden`, M1.
     """
     n = city_calendar.refresh_all()
     log.info("city_calendar: refreshed %d cities", n)

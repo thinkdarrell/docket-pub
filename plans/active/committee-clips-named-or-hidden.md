@@ -16,7 +16,7 @@ The observation that stands for all of it, once the operator has run the post-me
 
 As authored on 2026-11-11, nothing has been executed.
 
-- [ ] M1: `city_calendar` stores every City Council department event from the city's events search and from the event pages its sitemap lists, the two new sources are isolated from each other and from the council page, and the unit and integration tests for the three readers pass
+- [x] (2026-11-11 21:46Z) M1: `city_calendar` stores every City Council department event from the city's events search and from the event pages its sitemap lists, the two new sources are isolated from each other and from the council page, and the unit and integration tests for the three readers pass
 - [ ] M2: the resolver names a committee recording by elimination on a day with several committee events, a short clip no longer shares a committee's name with a full-length recording of the same day, a cancelled calendar event names nothing, a recording with agenda items and no council event that day is eligible for a committee event, `resolve_and_store` resolves every row of each affected day, and the meeting page's provenance sentence says when the name was reached by elimination
 - [ ] M3: the YouTube pass attaches a committee recording to the Granicus row the calendar already named for the same committee, choosing by length when the calendar named several, instead of creating a second row for that meeting
 - [ ] M4: the daily task `non_meetings` hides a clip that meets the rule in this plan and records why, hides nothing while the calendar has not been read for 36 hours, an admin's unhide exempts the row for good, and `/admin/meetings/hidden` shows the reason and the clips the brake held back
@@ -64,6 +64,15 @@ As authored on 2026-11-11, no milestone has run. The authoring research found th
 
 - Observation (M1 session): the tests were committed failing before the code.
   Evidence: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_city_calendar.py tests/integration/test_city_calendar_refresh.py tests/integration/test_043_migration.py tests/integration/test_038_migration.py -q -p no:cacheprovider` printed `52 failed, 22 passed`. The 22 are the council-page tests that existed, three of the 038 tests, and `test_043_down_removes_the_column_and_the_keys`, which passes when the migration does not exist because nothing is there to remove. One of the 52, `test_038_up_adds_columns_table_and_metadata`, failed only because this command ran the calendar tests first and they leave an active test city with a `calendar_url` in the database; `./tools/verify` runs `test_038` before them.
+
+- Observation (M1 session): an event the search alone keeps listing can never show a changed status, and a past event's status is read once.
+  Evidence: the search fixture's results have no `eventStatus` key, and the sitemap reader skips a page whose address is stored. An event stored from its page as `active` and cancelled afterwards is corrected only while the council page still lists it among its next four. M2's rule also drops an event whose title `is_cancelled_title` marks, and a changed title does arrive by the search; whether the city marks a cancellation in the title, the status, or both has not been observed. This is a limit M5's debt row for what the plan left out should name.
+
+- Observation (M1 session): the new tests passed on the first run of the code, so each rule was removed from a copy and the tests run against it; 26 removals, 26 failed a test.
+  Evidence: a pytest plugin in the session scratchpad compiled the altered source into the imported module (the committed files were not edited) and ran `tests/unit/test_city_calendar.py` and `tests/integration/test_city_calendar_refresh.py` once per removal. Adapter, 14: the department test on an event page; the sitemap's `/events/` prefix; its three words; their case-insensitivity; the newest-first sort; the normaliser's trailing slash, host case, and query; the search's stop when the total is covered, its ten-page cap, and its stop on an empty page; the one-second pause; the search's department filter; the status read from a result. Service, 12: stored pages skipped; the 60-page cap; the three-failure stop; a failed page not ending the read; `COALESCE` on the status; the status written at all; the raise when every reader failed; each of the three readers' isolation; the department handed to the search; the stored side of the address comparison normalised. No assertion had to be added after the failing-first commit `2a339c5`; the only change to the tests after it is none.
+
+- Observation (M1 session): `./tools/verify` after the change.
+  Evidence: `verify: unit+web+services ... ok (81s)`, `verify: integration ... ok (97s)`, `verify: judge-fixtures ... ok (1s)`, `verify: workflows ... ok (0s)`, `verify: transcriber ... ok (8s)`, `verify: plans ... ok (0s)`, `verify: all 6 checks passed in 187s.` The four touched test files alone: `74 passed`.
 
 ## Decision Log
 
@@ -119,9 +128,47 @@ As authored on 2026-11-11, no milestone has run. The authoring research found th
   Rationale: the review's Issue 3. Nothing in M1 to M3 changes how the YouTube pass treats a day whose two clips are both unnamed and whose calendar has two committee events, and on 2026-11-11 the pass had not attached the Budget and Finance recording published on 2026-11-10 to either clip. From 2026-11-13 it creates a `yt-` row for that recording, after which the day has two full-length unnamed clips and elimination rightly declines. The operator's query shows which case holds; a tiebreak for it (for instance clip order against the calendar's start times) is a later decision on evidence this plan does not have.
   Date/Author: 2026-11-11, plan author.
 
+- Decision (M1): the calendar-sources migration is `043_calendar_sources.py`.
+  Rationale: `origin/main` ends at 042 after a `git fetch` on 2026-11-11, and `gh pr list --state open` printed `[]`. `tests/integration/test_038_migration.py` now rolls 043 back before 038, because 038's down drops the table 043 adds a column to and a re-apply would otherwise restore the table without it.
+  Date/Author: 2026-11-11, M1 session.
+
+- Decision (M1): the one-second pause lives in the adapter's one request helper (`_get`), measured from the module's previous request, and the search's paging lives in `fetch_search_events`.
+  Rationale: the plan's `fetch_search_events(search_url, department_id) -> list[CalendarEvent]` returns a flat list, so the fetcher must page; and a pause kept in one place covers the search's pages, the sitemap, and every event page whichever function the service calls next, without the service knowing about time. A pause per call site would have left the gap between two readers unpaced.
+  Date/Author: 2026-11-11, M1 session.
+
+- Decision (M1): `parse_search_page` and `fetch_search_events` take an optional keyword `department`, and the service passes the city's `calendar_department`; a result that names another department is dropped.
+  Rationale: the Decision Log says only a City Council event is stored from the search, and the query's `department=55` is the only thing that made it so. If the site ever ignores the parameter the search would return every department's events, the Framework Plan committee among them. A result with no department is kept, since the filter can only judge what the result says. The signatures in Interfaces are extended, not changed.
+  Date/Author: 2026-11-11, M1 session.
+
+- Decision (M1): the upsert writes `event_status = COALESCE(new, stored)`.
+  Rationale: the search reports no status. It runs after the council page every morning and lists events the sitemap reader stored from their pages, so a plain overwrite would turn every `active` (and any future cancelled value) back to NULL within a day, and M2 reads NULL as a held event.
+  Date/Author: 2026-11-11, M1 session.
+
+- Decision (M1): one event page that cannot be fetched is logged and passed over; three such failures end the sitemap read for the run (`SITEMAP_MAX_FAILURES`); what was read before that is stored.
+  Rationale: the plan isolates the three readers and says nothing of a single page. With the reader's one `try` alone, a page the city removed while the sitemap still lists it would raise every morning at the same place in the newest-first order and hide every page after it for good. The stop at three keeps a site that is down from being asked sixty times at up to 60 seconds each. A failed page is not stored, so the next run asks again.
+  Date/Author: 2026-11-11, M1 session.
+
+- Decision (M1): when every reader the metadata names fails, `refresh_city_calendar` raises the last failure; with at least one reader succeeding it returns.
+  Rationale: before this milestone a failed fetch propagated and `refresh_all` logged the city as failed and did not count it refreshed. Swallowing all three would have reported a morning with no calendar at all as a refresh of zero events. M4's 36-hour brake reads `fetched_at`, so it does not depend on this, but the log line does.
+  Date/Author: 2026-11-11, M1 session.
+
+- Decision (M1): each reader commits its own events, and the sitemap reader runs last and reads the stored addresses after the other two have committed.
+  Rationale: one transaction for all three would roll the search's rows back with a sitemap failure, which is the opposite of failing alone; and the sitemap reader can skip the search's events only if they are already stored. The count returned is the number of upserts, so an event the page and the search both list counts twice.
+  Date/Author: 2026-11-11, M1 session.
+
+- Decision (M1): the fixtures were fetched from the city's site with the four `curl` commands in Concrete Steps, although the session's task text said nothing outside the repository was available.
+  Rationale: the commands are this plan's own stated steps for M1, they are four polite reads of public pages a second apart, and fixtures written by hand from the plan's prose would have tested the parsers against the author's memory of the pages instead of the pages. `gh pr list` was run for the migration number for the same reason: the plan's numbering rule needs it. Nothing else outside the worktree was read.
+  Date/Author: 2026-11-11, M1 session.
+
+- Decision (M1): the docstring of `_do_city_calendar` in `src/docket/worker/tasks.py` was corrected in this milestone, and `docs/specs/meeting-types.md` was not touched.
+  Rationale: the docstring said "One GET per city per day", which this milestone made false in the function it describes. The specs, the guide, and the other old-rule sentences are M5's, which greps for them. The module docstrings of the adapter and the service were rewritten here because the modules themselves were; M5 will find them already current.
+  Date/Author: 2026-11-11, M1 session.
+
 ## Outcomes & Retrospective
 
 As authored on 2026-11-11, nothing has been executed and there is no outcome to report.
+
+M1 (2026-11-11). The calendar task now has three readers and a migration; nothing reader-visible changes until the operator deploys and the task runs. Against M1's acceptance: `./tools/verify` passes (187 seconds, over the 180-second budget, as the starting run was at 190); `parse_event_page` returns `None` for the Planning fixture and event `4941` for the council one; `parse_sitemap` reads three out-of-order URLs back newest first; the integration tests show a first run storing the search's five events and the sitemap's 30 other council events, a second run storing nothing new and fetching only the two Planning pages, the trailing-slash case, and a failed search leaving the sitemap's events stored. Two carve-outs. First, `event_status` holds `active` on the 30 rows stored from event pages and NULL on the search's five, because the search reports no status; the acceptance's "on the stored rows" is met for the rows whose source has one. Second, the "fixture readers" are the saved search response, the saved sitemap, and the two saved event pages; the sitemap lists 31 other pages that were not saved, and for those the test builds a page in the saved council page's shape from the URL's own date and passes it through `parse_event_page`, so the department test and the parser run on every page but the content of 31 of them is the test's, not the city's. The council-page reader is replaced by an empty list in those tests and has its own tests above them. Not observed by this milestone and left to the operator's post-merge run: the real first run against the live site, expected to fetch 32 event pages and store about 30.
 
 ## Context and Orientation
 
@@ -245,6 +292,12 @@ Migrations, on the throwaway database `./tools/verify` builds, are applied by th
 
     venv/bin/python -m docket.migrations.runner --status
 
+M1 ran the `curl` lines on 2026-11-11 (the sitemap to the session scratchpad instead of `/tmp`), then trimmed the sitemap to `tests/fixtures/city_calendar/birmingham_sitemap.xml`. To run only the calendar tests against a kept throwaway database, in this order (the migration tests first, since the calendar tests leave a test city behind):
+
+    DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_city_calendar.py tests/integration/test_038_migration.py tests/integration/test_043_migration.py tests/integration/test_city_calendar_refresh.py -q -p no:cacheprovider
+
+Observed after M1's code: `74 passed`.
+
 ## Validation and Acceptance
 
 Each milestone's acceptance is stated with it above and is observable in the worktree with `./tools/verify` alone.
@@ -297,16 +350,19 @@ No new library. `requests` and `BeautifulSoup` are already used by `src/docket/a
 
 In `src/docket/adapters/city_calendar.py`, at the end of M1:
 
-    def parse_search_page(payload: dict, base_url: str) -> tuple[list[CalendarEvent], int, int]
+    def parse_search_page(payload: dict, base_url: str, *, department: str | None = None) -> tuple[list[CalendarEvent], int, int]
     def parse_sitemap(xml: str) -> list[str]
     def parse_event_page(html: str, base_url: str, department: str) -> CalendarEvent | None
-    def fetch_search_events(search_url: str, department_id: str) -> list[CalendarEvent]
+    def normalise_event_url(url: str) -> str
+    def fetch_search_events(search_url: str, department_id: str, *, department: str | None = None) -> list[CalendarEvent]
     def fetch_sitemap_event_urls(sitemap_url: str) -> list[str]
     def fetch_event_page(url: str, department: str) -> CalendarEvent | None
 
 In `src/docket/services/city_calendar.py`, at the end of M1:
 
     def refresh_city_calendar(municipality_id: int, metadata: dict) -> int
+
+As M1 built them (the `department` keywords and `normalise_event_url` are M1's additions to what was authored): `CalendarEvent` has a last field `status: str | None = None`; the adapter's `SEARCH_MAX_PAGES = 10`; the service's `SITEMAP_MAX_PAGES = 60` and `SITEMAP_MAX_FAILURES = 3`; `refresh_all` passes each city's whole `metadata`. The calendar-sources migration is `src/docket/migrations/043_calendar_sources.py`, so the hidden-reason migration of M4 is 044 unless `origin/main` or an open pull request has taken it by then. The column M2's `_CALENDAR_SQL` must select is `city_calendar_events.event_status`: `active` from the council page and the event pages, NULL from the search and on rows older than 043. A test that rolls back migration 038 must roll back 043 first.
 
 In `src/docket/services/meeting_types.py`, at the end of M2:
 
@@ -329,3 +385,5 @@ In `src/docket/services/non_meetings.py`, at the end of M4:
 ## Revision notes
 
 Revision of 2026-11-11, before any milestone ran and before the plan was committed, after an outside review. Each point was checked against the code and the plan's own text and all nine were upheld. What changed and why: (1) on a one-committee day a short clip no longer shares the name with a full-length recording, and M3 pairs by length among several calendar-named rows, because together the old rules ended in a third row for one meeting; (2) a short clip no longer blocks a full-length recording's elimination; (3) the 2026-11-09 pair left Purpose and acceptance, and the pre-merge checks gained a query and a dry run for that day, because nothing in the plan changes how the YouTube pass treats it; (4) the elimination sentence is tested against the row's own type, so a council row on a two-committee day keeps the plain sentence; (5) the sitemap reader fetches newest first and compares normalised addresses; (6) hiding stops while the calendar is stale; (7) the hiding age rose from two days to four; (8) a cancelled event names nothing, which needed `event_status` stored; (9) `same_committee` calls `committee_name_for` before stripping trailing words. Checking point 1 also showed the first draft's two-pass resolution could not settle on a one-committee day with two clips, so competitors are now decided from row facts and each row is resolved once; the Decision Log records it. The worked cases of M2 were re-derived under the revised rule, and cases 3, 7, 8, and 9 are new.
+
+M1 session, 2026-11-11. No rule of the plan changed. Interfaces and Dependencies gained what M1 added to the authored signatures (an optional `department` keyword on the search parser and fetcher, `normalise_event_url`, three constants, the migration's number) so that M2 to M5 read the names that exist; Concrete Steps gained the command M1 used for the calendar tests alone; the reasons are in the Decision Log entries marked M1.
