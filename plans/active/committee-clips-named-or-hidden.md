@@ -95,6 +95,12 @@ As authored on 2026-11-11, no milestone has run. The authoring research found th
 - Observation (M2 session): `resolve_and_store` now returns more than the ids it was given can account for.
   Evidence: `TestWholeDayResolution::test_one_rows_id_resolves_the_whole_day` gives one id and reads `2` back. Its two callers (`src/docket/services/ingest.py` line 147, `src/docket/services/youtube_meetings.py` line 664) use the count only in a log line and a report.
 
+- Observation (M3 session, 2026-11-11): the starting state is green, and `./tools/verify` took 185 seconds.
+  Evidence: run before any edit, at commit `228e060`: `verify: unit+web+services ... ok (80s)`, `verify: integration ... ok (97s)`, `verify: judge-fixtures ... ok (1s)`, `verify: workflows ... ok (0s)`, `verify: transcriber ... ok (7s)`, `verify: plans ... ok (0s)`, `verify: all 6 checks passed in 185s.`
+
+- Observation (M3 session): the tests were committed failing before the code, and the two the acceptance names fail with a `create` where the `attach` should be.
+  Evidence: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/integration/test_youtube_sync.py -q -p no:cacheprovider` printed `6 failed, 23 passed`. The six assertion lines: `assert ['create'] == ['attach']` three times (the one named row, the two named rows of 660 and 2,700 seconds, and the dry run), `assert ['defer', 'defer'] == ['attach', 'defer']` (two recordings of one committee and one named row, both published two days before the test's today), and `assert [] == ['absorb']` twice (the two absorption tests). The six new tests that pass before the code are the refusals, which the old rule gets right because it never attaches by name at all; the removal check after the code is what shows they test anything.
+
 ## Decision Log
 
 - Decision: the past calendar comes from the city's sitemap, the upcoming calendar from the events search, and the council page stays as a third reader.
