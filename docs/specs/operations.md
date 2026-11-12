@@ -142,9 +142,11 @@ The Railway project also holds a second Postgres service, `Postgres-pKpA`; `D32`
 
 ## Domain and headers
 
-The apex `docket.pub` is on Railway with a Let's Encrypt certificate it provisions itself. DNS at Namecheap: `CNAME @` to `zu815cqb.up.railway.app` plus a `TXT _railway-verify` record. `www.docket.pub` is a Namecheap URL redirect over HTTP only; moving it to Railway is `D10`.
+DNS is at Cloudflare (zone `docket.pub`, free plan). The apex is a proxied `CNAME` to `zu815cqb.up.railway.app` plus a `TXT _railway-verify` record; Railway holds `docket.pub` as the web service's only custom domain and provisions its origin certificate. Cloudflare terminates TLS for visitors and reaches Railway over HTTPS with SSL/TLS mode `Full` (not `Full (strict)`, which Railway's edge certificate does not satisfy); `ProxyFix` in `create_app` already honours the forwarded scheme and host. `stats.docket.pub` (Umami) is a DNS-only `CNAME` to its own Railway service and is not proxied. The three `MX` records are Cloudflare Email Routing and are unaffected by the proxy.
 
-`src/docket/web/__init__.py` sends `Strict-Transport-Security: max-age=31536000` in an `after_request` hook when `FLASK_ENV` is not `development`, without `includeSubDomains`; decision `0025` says why and `D10` tracks the change.
+`www.docket.pub` is a proxied `CNAME` to `docket.pub` with no Railway domain behind it: a Cloudflare redirect rule answers every `www` request with a 301 to the same path and query on `https://docket.pub` before any origin is contacted, and Cloudflare's Universal SSL covers the name (decision `0091`). One custom WAF rule, "Challenge unverified Tencent and Alibaba Cloud scrapers" (`(ip.src.asnum in {132203 45102}) and not cf.client.bot`, Managed Challenge), was added on 2026-11-11 against an IP-rotating scraper that spoofed a browser user agent; Security events in the Cloudflare dashboard show what it catches. Railway's HTTP logs show Cloudflare's addresses as the client; the visitor's address is in `CF-Connecting-IP`.
+
+`src/docket/web/__init__.py` sends `Strict-Transport-Security: max-age=31536000` in an `after_request` hook when `FLASK_ENV` is not `development`, without `includeSubDomains`; decision `0025` says why and `D10` tracks adding it now that every subdomain answers over HTTPS.
 
 ## Transcriber
 
