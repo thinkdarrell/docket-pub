@@ -458,6 +458,28 @@ Lifecycle. The behavioural outcome is in `docs/specs/meeting-types.md` and `docs
 
 Undecided by this pass, each the operator's. Whether `D120` is paid before the pull request merges or the deploy is taken under the order `D118` step 3 now gives: the retro cannot read production, so it does not know whether any short generic clip without documents sits on a real committee day since 2026-10-05, which is what decides how much the stopgap risks. Whether the six-minute committee meeting of 2026-10-05 the Decision Log names is such a clip (the first query of Artifacts and Notes shows its title, length, and documents). And the two outcomes of 2026-11-09, which the plan never promised and `D118` step 9 only records.
 
+Rollout (2026-11-12, the steps `docs/DEBT.md` row `D118` listed; that row is deleted with this entry, and its steps 1 and 2 are the last entry of Surprises & Discoveries). Pull request #165 merged as `0226d6c` and the operator deployed `docket-web` and `worker` from `main`; `cat /app/COMMIT_SHA` on each printed `0226d6c874fb97625861f2f0673c33a708eca955`, and the migration runner's `--status` showed 043 and 044 applied. The session ran the rest at the operator's request, each write after its dry run and a go-ahead.
+
+Step 4, `python -m docket.worker.scheduler --run-once city_calendar` on the worker, logged `city_calendar: municipality 1: page 4, search 5, sitemap 16 (event pages of another department 3, failed 0; every listed page read)` and `birmingham 25 events upserted`. The sitemap reader stored 16 events, not the 30 this plan expected, because production already held the events from 2026-10-26 on; three pages were another department's where two were expected. The stored calendar then held a council or committee event on every such day back to 2026-10-05, none on 2026-10-15 or 2026-11-05, and `calendar_sitemap_read_at` read `2026-11-12T05:09:22.067156+00:00`. One event titled "ARTS & PARKS COMMITTEE MEETING, November 16, 2026" is stored on 2026-11-06, the city's own start date.
+
+Step 5, `scripts/reclassify_meetings.py --city birmingham`: the dry run read 1,597 rows and showed no change of type or sitting; the write printed `written: 5 rows in one statement` and `summaries cleared: 0`. Afterwards meeting 2620 (2026-10-19) read body "Arts and Parks", source `calendar`, and meetings 2543, 2609, and 2624 read source `calendar`.
+
+Step 6, `scripts/hide_non_meetings.py`, dry run and write alike:
+
+    birmingham: 5 to hide, 0 held back
+      2618  2026-10-15  Regular City Council Meeting  duration_s=240  transcript=None  hide
+      2619  2026-10-15  Regular City Council Meeting  duration_s=300  transcript=None  hide
+      3192  2026-11-05  Regular City Council Meeting  duration_s=60  transcript=low_speech  hide
+      3193  2026-11-05  Regular City Council Meeting  duration_s=480  transcript=low_speech  hide
+      3194  2026-11-05  Regular City Council Meeting  duration_s=240  transcript=low_speech  hide
+    birmingham: hidden 5 rows in one statement: [2618, 2619, 3192, 3193, 3194]
+
+A dry run after the write printed `birmingham: 0 to hide, 0 held back`, and the five rows read `is_hidden` true with `hidden_reason` `not_a_meeting`.
+
+Step 7: the operator hid meeting 3188 from its page; it read `is_hidden` true, `hidden_reason` `admin`, `hidden_at` 2026-11-12 14:15Z. Step 8: the operator created the Healthchecks check `docket-non-meetings` and set `HEALTHCHECK_NON_MEETINGS_UUID` on the worker; the variable is a well-formed UUID, the worker redeployed on `0226d6c`, and the variable is present in the container. The check's first ping is the 06:55 run of 2026-11-13, not observed here.
+
+Step 9, `https://docket.pub/al/birmingham/meetings/?type=committee` fetched after step 6 and before step 7: no link to meetings 2618, 2619, 3192, 3193, or 3194, so no card for 2026-10-15 or 2026-11-05; one card each for 2620, 3188, 3196, 3202, and 3203. 2026-11-09 shows its two clips unnamed: the YouTube dry run marks the day ambiguous (`D119` b). Not observed: the page after 3188 was hidden.
+
 ## Context and Orientation
 
 docket.pub is a Python 3.10, Flask, and PostgreSQL application. Routes, worker tasks, and scripts call functions in `src/docket/services/`, and the service layer owns every database transaction. Modules under `src/docket/adapters/` fetch and parse outside sources and never touch the database. A scheduled worker (`src/docket/worker/scheduler.py`, tasks in `src/docket/worker/tasks.py`) does the daily work. Run every command from the root of the worktree this plan lives in, `.claude/worktrees/committee-clips-named-or-hidden`, with that checkout's own `venv/`. The one check command is `./tools/verify`; never run bare `pytest`, because `tests/conftest.py` refuses any database not named `docket_test_*`.
