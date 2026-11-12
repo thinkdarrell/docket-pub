@@ -106,13 +106,13 @@ ORDER BY 3 DESC
 LIMIT 25;
 ```
 
-Filter to Alabama specifically:
+Filter to Alabama specifically. Umami v3 stores `region` as an ISO 3166-2 code (`US-AL`), not the bare state abbreviation; `region = 'AL'` matches nothing.
 
 ```sql
 SELECT city, SUM(pageviews) AS views, SUM(sessions) AS sessions
 FROM v_geo_daily
 WHERE country = 'US'
-  AND region = 'AL'
+  AND region = 'US-AL'
   AND day >= current_date - 30
 GROUP BY 1
 ORDER BY 2 DESC;
