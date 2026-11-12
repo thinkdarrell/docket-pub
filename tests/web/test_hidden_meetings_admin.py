@@ -66,6 +66,11 @@ def city():
                VALUES (%s, %s, 'PUBLIC SAFETY COMMITTEE MEETING', %s, 'https://example.test/events/fresh')""",
             (mid, PREFIX + "fresh", datetime.now(timezone.utc) + timedelta(days=20)),
         )
+        # the marker the sitemap reader writes after a complete read; without it the rule hides nothing
+        cur.execute(
+            "UPDATE municipalities SET metadata = jsonb_set(metadata, '{calendar_sitemap_read_at}', to_jsonb(now())) WHERE id = %s",
+            (mid,),
+        )
     yield mid
     with db() as conn, conn.cursor() as cur:
         _cleanup(cur, mid)

@@ -21,7 +21,10 @@ than ``calendar_url`` are migration 043's):
   stored when its department is the city's ``calendar_department``. This is
   the backfill: the first run stores the past events, and a later run
   fetches only the pages that are new and the few the department test
-  rejected, which are never stored.
+  rejected, which are never stored. A run that read every unstored page
+  without a failure stamps ``calendar_sitemap_read_at`` in the city's
+  metadata, which is what ``docket.services.non_meetings`` reads before it
+  takes a day with no stored event for a day with nothing scheduled.
 
 The parsers and fetchers are ``docket.adapters.city_calendar``; this module
 owns the transactions. The resolver (``docket.services.meeting_types``)
@@ -73,6 +76,17 @@ _UPSERT_SQL = """
 """
 
 
+# The one fact `docket.services.non_meetings` trusts an empty day on: the
+# sitemap is the only reader of past days, so a day with no stored event
+# means "nothing was scheduled" only while this stamp is recent. Written
+# after a complete read and never by the other two readers.
+_MARK_SITEMAP_READ_SQL = """
+    UPDATE municipalities
+       SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{calendar_sitemap_read_at}', to_jsonb(now()))
+     WHERE id = %s
+"""
+
+
 def _upsert(municipality_id: int, events: list[CalendarEvent]) -> int:
     """Upsert ``events`` for the city in one transaction; returns how many.
 
@@ -105,12 +119,16 @@ def _stored_urls(municipality_id: int) -> set[str]:
         return {normalise_event_url(r["source_url"]) for r in cur.fetchall()}
 
 
-def _read_sitemap(municipality_id: int, sitemap_url: str, department: str) -> tuple[list[CalendarEvent], int, int]:
-    """The department's events from the sitemap's unstored event pages, with how many pages were another department's and how many failed.
+def _read_sitemap(municipality_id: int, sitemap_url: str, department: str) -> tuple[list[CalendarEvent], int, int, bool]:
+    """The department's events from the sitemap's unstored event pages, how many pages were another department's, how many failed, and whether the read was complete.
 
-    A page that cannot be fetched is logged and passed over, so one removed
-    page does not hide the pages after it; it is not stored, so the next
-    run asks again. ``SITEMAP_MAX_FAILURES`` failures end the read.
+    A page that cannot be fetched, or that holds no readable event, is
+    logged and passed over, so one removed page does not hide the pages
+    after it; it is not stored, so the next run asks again.
+    ``SITEMAP_MAX_FAILURES`` failures end the read. The read is complete
+    when no page failed and none was left for a later run by
+    ``SITEMAP_MAX_PAGES``: every event page the sitemap lists is then
+    stored or known to be another department's.
     """
     urls = fetch_sitemap_event_urls(sitemap_url)
     stored = _stored_urls(municipality_id)
@@ -131,7 +149,13 @@ def _read_sitemap(municipality_id: int, sitemap_url: str, department: str) -> tu
             other += 1
         else:
             events.append(ev)
-    return events, other, failed
+    return events, other, failed, failed == 0 and len(todo) <= SITEMAP_MAX_PAGES
+
+
+def _mark_sitemap_read(municipality_id: int) -> None:
+    """Record, in the city's metadata, that the sitemap's event pages were all read just now."""
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(_MARK_SITEMAP_READ_SQL, (municipality_id,))
 
 
 def refresh_city_calendar(municipality_id: int, metadata: dict) -> int:
@@ -175,11 +199,14 @@ def refresh_city_calendar(municipality_id: int, metadata: dict) -> int:
 
     sitemap_url = metadata.get("calendar_sitemap_url")
     other = failed = 0
+    complete = False
     if sitemap_url and department:
         attempted += 1
         try:
-            events, other, failed = _read_sitemap(municipality_id, sitemap_url, department)
+            events, other, failed, complete = _read_sitemap(municipality_id, sitemap_url, department)
             counts["sitemap"] = _upsert(municipality_id, events)
+            if complete:
+                _mark_sitemap_read(municipality_id)
         except Exception as e:
             last_error = e
             log.exception("city_calendar: municipality %s: the sitemap reader failed", municipality_id)
@@ -188,13 +215,15 @@ def refresh_city_calendar(municipality_id: int, metadata: dict) -> int:
         raise last_error
 
     log.info(
-        "city_calendar: municipality %s: page %s, search %s, sitemap %s (event pages of another department %d, failed %d)",
+        "city_calendar: municipality %s: page %s, search %s, sitemap %s"
+        " (event pages of another department %d, failed %d; %s)",
         municipality_id,
         counts.get("page", "not read"),
         counts.get("search", "not read"),
         counts.get("sitemap", "not read"),
         other,
         failed,
+        "every listed page read" if complete else "read incomplete, so non_meetings hides nothing on it",
     )
     return sum(counts.values())
 

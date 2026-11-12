@@ -584,6 +584,22 @@ class TestFetchSitemapAndEventPage:
                    return_value=_response(text=_text("birmingham_event_planning.html"))):
             assert city_calendar.fetch_event_page(PLANNING_EVENT_URL, "City Council") is None
 
+    def test_an_event_page_that_cannot_be_read_as_an_event_raises(self, no_real_pause):
+        """D121 (c): a page the site served malformed is a failed read, not another department's page."""
+        from docket.adapters import city_calendar
+
+        no_start = '<script id="__NEXT_DATA__" type="application/json">%s</script>' % json.dumps(
+            {"props": {"pageProps": {"nodeResource": {
+                "id": "9", "title": "X COMMITTEE MEETING", "path": "/events/x", "department": {"name": "City Council"}}}}}
+        )
+        for text in ("<html><body>error</body></html>",
+                     '<script id="__NEXT_DATA__">{"props": {"pageProps": {}}}</script>',
+                     '<script id="__NEXT_DATA__">{"props": {"pageProps": {"nodeResource": []}}}</script>',
+                     no_start):
+            with patch("docket.adapters.city_calendar.requests.get", return_value=_response(text=text)):
+                with pytest.raises(city_calendar.UnreadableEventPage):
+                    city_calendar.fetch_event_page(COUNCIL_EVENT_URL, "City Council")
+
     def test_a_second_request_waits_out_the_rest_of_one_second(self, no_real_pause):
         from docket.adapters import city_calendar
 

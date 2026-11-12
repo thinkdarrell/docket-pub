@@ -514,8 +514,8 @@ def _do_non_meetings() -> None:
     with speech is held back and listed on ``/admin/meetings/hidden``
     (``non_meetings.hide_non_meetings``). Runs at 06:55, after
     ``youtube_ingest`` (06:45) has attached any recording that names a
-    clip. A city whose calendar was not read in the last 36 hours is passed
-    over; a city's failure is logged and does not block the others.
+    clip. A city whose sitemap reader has not finished a read without a failed
+    page in the last 36 hours is passed over; a city's failure is logged and does not block the others.
     Plan `committee-clips-named-or-hidden`, M4.
     """
     result = non_meetings.hide_non_meetings()

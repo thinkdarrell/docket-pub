@@ -16,6 +16,7 @@ sitemap readers are plan `committee-clips-named-or-hidden`, M1.
 
 import json
 import re
+from datetime import datetime, timezone
 
 from pathlib import Path
 from unittest.mock import patch
@@ -432,6 +433,67 @@ def test_three_event_pages_failing_ends_the_sitemap_read_and_keeps_what_was_read
     assert n == 5 + 2 and len(_rows(muni_id)) == 7
 
 
+def _sitemap_read_at(muni_id: int):
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT (metadata->>'calendar_sitemap_read_at')::timestamptz AS at, metadata FROM municipalities WHERE id = %s",
+            (muni_id,),
+        )
+        row = cur.fetchone()
+    assert row["metadata"]["calendar_url"] == TEST_URL, "the marker is added to the metadata, which keeps its other keys"
+    return row["at"]
+
+
+# --- the marker of a complete sitemap read (D120) ---------------------------
+# `non_meetings` hides a clip on a day with no stored event only while this
+# marker is recent, so it is written only when every unstored page was read.
+
+
+def test_a_complete_sitemap_read_is_marked(muni_id):
+    assert _sitemap_read_at(muni_id) is None
+    _run(muni_id, EventPages())
+    at = _sitemap_read_at(muni_id)
+    assert at is not None and abs((datetime.now(timezone.utc) - at).total_seconds()) < 60
+
+
+def test_one_failed_event_page_leaves_the_read_unmarked(muni_id):
+    todo = [u for u in _sitemap_urls() if u != SHARED_EVENT_URL]
+    _run(muni_id, EventPages(fail={todo[-1]}))
+    assert _sitemap_read_at(muni_id) is None, "the oldest page failed: its day is not known to be empty"
+
+    _run(muni_id, EventPages())
+    assert _sitemap_read_at(muni_id) is not None, "the next morning reads it and the read is complete"
+
+
+def test_a_read_that_stops_at_three_failures_is_unmarked(muni_id):
+    todo = [u for u in _sitemap_urls() if u != SHARED_EVENT_URL]
+    _run(muni_id, EventPages(fail={todo[1], todo[3], todo[4]}))
+    assert _sitemap_read_at(muni_id) is None
+
+
+def test_a_failed_sitemap_leaves_the_read_unmarked_though_the_search_stored_events(muni_id):
+    def down(*args):
+        raise RuntimeError("sitemap down")
+
+    assert _run(muni_id, EventPages(), sitemap=down) == 5
+    assert _sitemap_read_at(muni_id) is None
+
+
+def test_a_later_incomplete_read_does_not_renew_the_marker(muni_id):
+    _run(muni_id, EventPages())
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            """UPDATE municipalities
+                  SET metadata = jsonb_set(metadata, '{calendar_sitemap_read_at}', to_jsonb(now() - interval '1 day'))
+                WHERE id = %s""",
+            (muni_id,),
+        )
+    before = _sitemap_read_at(muni_id)
+
+    _run(muni_id, EventPages(fail=set(PLANNING_EVENT_URLS)))
+    assert _sitemap_read_at(muni_id) == before, "it ages, and the hiding rule stops at 36 hours"
+
+
 def test_no_more_than_sixty_event_pages_in_one_run(muni_id):
     many = [f"{BASE_URL}/events/2026-{1 + i // 28:02d}-{1 + i % 28:02d}x-committee-meeting-{i}" for i in range(70)]
     pages = EventPages()
@@ -441,12 +503,14 @@ def test_no_more_than_sixty_event_pages_in_one_run(muni_id):
     assert len(pages.calls) == 60
     assert pages.calls == many[:60], "in the order the parser gave"
     assert n == 60
+    assert _sitemap_read_at(muni_id) is None, "ten pages are still unread"
 
     # the next run takes up the ten left over
     rest = EventPages()
     _run(muni_id, rest, metadata={k: v for k, v in SEARCH_AND_SITEMAP.items() if "search" not in k},
          sitemap=lambda *a: many)
     assert rest.calls == many[60:]
+    assert _sitemap_read_at(muni_id) is not None
 
 
 def test_a_reader_that_reports_no_status_does_not_erase_a_stored_one(muni_id):

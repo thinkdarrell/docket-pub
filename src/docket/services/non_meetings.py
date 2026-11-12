@@ -10,9 +10,13 @@ Every reader of ``is_hidden`` then treats it exactly as a row an admin hid.
 A clip is hidden when all of this holds:
 
 - the city's metadata carries ``calendar_url`` and ``calendar_complete_from``
-  (Birmingham only), and the city's newest ``city_calendar_events.fetched_at``
-  is within ``CALENDAR_FRESH_HOURS``: while the calendar has not been read,
-  an empty day means the reader failed, not that nothing was scheduled;
+  (Birmingham only), the city has a stored event, and its
+  ``calendar_sitemap_read_at`` is within ``CALENDAR_FRESH_HOURS``. That
+  stamp is written by ``docket.services.city_calendar`` only after the
+  sitemap reader, the one source of past days, read every unstored event
+  page without a failure. Without it an empty day means a page was not
+  read, not that nothing was scheduled, and nothing is hidden: a stream
+  test left on the site costs less than a meeting taken off it;
 - the row is visible, not locked by an admin (``type_locked_at``), not
   exempt (``keep_visible_at``, set for good by an admin's unhide), and not
   a ``yt-`` row;
@@ -60,7 +64,7 @@ log = logging.getLogger(__name__)
 SHORT_CLIP_S = 600
 # A clip is hidden no sooner than this many days after its date.
 HIDE_AFTER_DAYS = 4
-# The city's newest calendar read must be this recent for the rule to run.
+# The sitemap's last complete read must be this recent for the rule to run.
 CALENDAR_FRESH_HOURS = 36
 
 _CITIES_SQL = """
@@ -70,10 +74,13 @@ _CITIES_SQL = """
      ORDER BY slug
 """
 
+# The past days are known only after a complete sitemap read, so neither
+# the council page's nor the search's morning read counts here.
 _FRESH_SQL = """
-    SELECT max(fetched_at) >= now() - make_interval(hours => %s) AS fresh
-      FROM city_calendar_events
-     WHERE municipality_id = %s
+    SELECT COALESCE((m.metadata->>'calendar_sitemap_read_at')::timestamptz >= now() - make_interval(hours => %s), FALSE)
+           AND EXISTS (SELECT 1 FROM city_calendar_events e WHERE e.municipality_id = m.id) AS fresh
+      FROM municipalities m
+     WHERE m.id = %s
 """
 
 _EVENTS_SQL = "SELECT title, starts_at FROM city_calendar_events WHERE municipality_id = %s"
@@ -115,7 +122,7 @@ def find(municipality: dict, today: date) -> tuple[list[dict], list[dict]]:
     ``duration_s``, ``transcript_status``, ``transcript_uploaded_at``,
     ``city_slug``, and ``city_name``. Reads only; two empty lists for a city
     without the two metadata keys, and, with a warning, for one whose
-    calendar is stale or empty.
+    sitemap was not read to the end lately or whose calendar is empty.
     """
     meta = _metadata(municipality)
     complete_from = meta.get("calendar_complete_from")
@@ -125,9 +132,11 @@ def find(municipality: dict, today: date) -> tuple[list[dict], list[dict]]:
 
     with db_cursor() as cur:
         cur.execute(_FRESH_SQL, (CALENDAR_FRESH_HOURS, municipality["id"]))
-        if not cur.fetchone()["fresh"]:
+        fresh = cur.fetchone()
+        if fresh is None or not fresh["fresh"]:
             log.warning(
-                "non_meetings %s: the calendar has no event read in the last %d hours; nothing is hidden",
+                "non_meetings %s: the sitemap's event pages were not all read in the last %d hours,"
+                " or no event is stored; nothing is hidden",
                 slug, CALENDAR_FRESH_HOURS,
             )
             return [], []

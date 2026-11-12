@@ -6,8 +6,9 @@ For every active city whose metadata carries ``calendar_complete_from``
 its stored length in seconds, its transcript's status, and ``hide`` or
 ``held: has speech``. A held clip meets the rule but has a public transcript
 with speech; it is never hidden by this script and is listed on
-``/admin/meetings/hidden`` for the operator to judge. A city whose calendar
-was not read in the last 36 hours prints nothing, with a warning.
+``/admin/meetings/hidden`` for the operator to judge. A city whose sitemap
+reader has not finished a read without a failed page in the last 36 hours
+prints nothing, with a warning.
 
 Then, without ``--dry-run``, the ``hide`` rows of each city are hidden with
 one ``UPDATE`` scoped to rows still visible and not exempt (decision 0026),

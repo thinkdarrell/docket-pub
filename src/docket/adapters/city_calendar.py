@@ -260,15 +260,12 @@ def parse_sitemap(xml: str) -> list[str]:
     return urls
 
 
-def parse_event_page(html: str, base_url: str, department: str) -> CalendarEvent | None:
-    """The event an event page describes, when its department is ``department``; else None.
+class UnreadableEventPage(ValueError):
+    """An event page was served, and no event could be read from it."""
 
-    The event is ``props.pageProps.nodeResource`` in the page's
-    ``__NEXT_DATA__`` block. A page of another department, or one that names
-    no department, is None without a warning (it is the expected answer for
-    the pages the sitemap's path test lets through); a page without the
-    block or the event is None with one.
-    """
+
+def _event_node(html: str) -> dict | None:
+    """``props.pageProps.nodeResource`` of an event page; None, with a warning, when the page has no such object."""
     soup = BeautifulSoup(html, "html.parser")
     script = soup.find("script", id=_NEXT_DATA_ID)
     if script is None:
@@ -277,9 +274,25 @@ def parse_event_page(html: str, base_url: str, department: str) -> CalendarEvent
     try:
         node = json.loads(script.string or "")["props"]["pageProps"]["nodeResource"]
     except (json.JSONDecodeError, KeyError, TypeError):
+        node = None
+    if not isinstance(node, dict):
         log.warning("city_calendar: the event page has no props.pageProps.nodeResource")
         return None
-    if _department_name(node) != department:
+    return node
+
+
+def parse_event_page(html: str, base_url: str, department: str) -> CalendarEvent | None:
+    """The event an event page describes, when its department is ``department``; else None.
+
+    The event is ``props.pageProps.nodeResource`` in the page's
+    ``__NEXT_DATA__`` block. A page of another department, or one that names
+    no department, is None without a warning (it is the expected answer for
+    the pages the sitemap's path test lets through); a page without the
+    block or the event is None with one. ``fetch_event_page`` tells the two
+    apart for its caller.
+    """
+    node = _event_node(html)
+    if node is None or _department_name(node) != department:
         return None
     return _event_from_result(node, base_url.rstrip("/"))
 
@@ -355,5 +368,21 @@ def fetch_sitemap_event_urls(sitemap_url: str) -> list[str]:
 
 
 def fetch_event_page(url: str, department: str) -> CalendarEvent | None:
-    """One GET of an event page, parsed by ``parse_event_page``. Raises on a non-200 or a network failure."""
-    return parse_event_page(_get(url).text, _base_url(url), department)
+    """One GET of an event page: its event, or None when the page is another department's or names none.
+
+    Raises on a non-200 or a network failure, and ``UnreadableEventPage``
+    when the page holds no event object or the department's own event lacks
+    an id, title, or start. The caller counts either as a failed read: a
+    page that was not read says nothing about its day, and
+    ``docket.services.non_meetings`` hides a clip only on a day known to be
+    empty.
+    """
+    node = _event_node(_get(url).text)
+    if node is None:
+        raise UnreadableEventPage(f"no event in the page {url}")
+    if _department_name(node) != department:
+        return None
+    event = _event_from_result(node, _base_url(url))
+    if event is None:
+        raise UnreadableEventPage(f"the event in the page {url} lacks an id, title, or start")
+    return event

@@ -61,18 +61,33 @@ def _cleanup(cur, mid: int) -> None:
 
 @pytest.fixture
 def city():
-    """The test city, its calendar read a moment ago: one event far from every test's day."""
+    """The test city, its sitemap read to the end a moment ago: one event far from every test's day."""
     with db() as conn, conn.cursor() as cur:
         mid = _seed_city(cur, TEST_SLUG, METADATA)
         other = _seed_city(cur, OTHER_SLUG, "{}")
         _cleanup(cur, mid)
         _cleanup(cur, other)
     _event(mid, "fresh", "PUBLIC SAFETY COMMITTEE MEETING, September 1, 2026", datetime(2026, 9, 1, 19, tzinfo=timezone.utc))
+    _sitemap_read(mid, "0 hours")
     yield mid
     with db() as conn, conn.cursor() as cur:
         _cleanup(cur, mid)
         _cleanup(cur, other)
         cur.execute("DELETE FROM municipalities WHERE slug IN (%s, %s)", (TEST_SLUG, OTHER_SLUG))
+
+
+def _sitemap_read(mid: int, ago: str | None) -> None:
+    """Set the marker the sitemap reader writes after a complete read to `ago` before now; None removes it."""
+    with db() as conn, conn.cursor() as cur:
+        if ago is None:
+            cur.execute("UPDATE municipalities SET metadata = metadata - 'calendar_sitemap_read_at' WHERE id = %s", (mid,))
+        else:
+            cur.execute(
+                """UPDATE municipalities
+                      SET metadata = jsonb_set(metadata, '{calendar_sitemap_read_at}', to_jsonb(now() - %s::interval))
+                    WHERE id = %s""",
+                (ago, mid),
+            )
 
 
 def _event(mid: int, tag: str, title: str, starts_at: datetime, *, status: str | None = None) -> None:
@@ -251,12 +266,9 @@ def test_another_citys_clip_is_not_this_citys_to_hide(city):
 # --- the brakes on the calendar itself ---------------------------------------
 
 
-def test_nothing_is_hidden_while_the_calendar_was_last_read_two_days_ago(city, caplog):
+def test_nothing_is_hidden_while_the_sitemap_was_last_read_to_the_end_two_days_ago(city, caplog):
     clip = _clip(city, "short")
-    with db() as conn, conn.cursor() as cur:
-        cur.execute(
-            "UPDATE city_calendar_events SET fetched_at = now() - interval '2 days' WHERE municipality_id = %s", (city,)
-        )
+    _sitemap_read(city, "2 days")
 
     with caplog.at_level("WARNING", logger="docket.services.non_meetings"):
         assert _run() == ([], [])
@@ -265,24 +277,34 @@ def test_nothing_is_hidden_while_the_calendar_was_last_read_two_days_ago(city, c
     assert any(TEST_SLUG in r.getMessage() and "36" in r.getMessage() for r in caplog.records), "the log says why"
 
 
-def test_the_calendar_read_35_hours_ago_is_fresh_enough(city):
+def test_the_sitemap_read_to_the_end_35_hours_ago_is_fresh_enough(city):
     clip = _clip(city, "short")
-    with db() as conn, conn.cursor() as cur:
-        cur.execute(
-            "UPDATE city_calendar_events SET fetched_at = now() - interval '35 hours' WHERE municipality_id = %s", (city,)
-        )
+    _sitemap_read(city, "35 hours")
 
     assert _run() == ([clip], [])
 
 
-def test_one_fresh_event_is_enough_beside_old_ones(city):
-    """The newest read is what is tested: past events the sitemap reader stored once are never fetched again."""
+def test_a_morning_on_which_only_the_page_and_the_search_were_read_hides_nothing(city):
+    """D120: an upcoming event stored a moment ago says nothing about the past days.
+
+    The council page and the search rewrite `fetched_at` every morning; only
+    the sitemap reader fills past days, so only its complete read counts.
+    """
+    clip = _clip(city, "short")
+    _sitemap_read(city, None)
+    _event(city, "new", "PUBLIC SAFETY COMMITTEE MEETING, November 30, 2026", datetime(2026, 11, 30, 19, tzinfo=timezone.utc))
+
+    assert _run() == ([], [])
+    assert not _hidden(clip)
+
+
+def test_events_stored_long_ago_do_not_stop_the_rule_after_a_complete_read(city):
+    """Past events the sitemap reader stored once are never fetched again; the marker is what is tested."""
     clip = _clip(city, "short")
     with db() as conn, conn.cursor() as cur:
         cur.execute(
             "UPDATE city_calendar_events SET fetched_at = now() - interval '30 days' WHERE municipality_id = %s", (city,)
         )
-    _event(city, "new", "PUBLIC SAFETY COMMITTEE MEETING, November 30, 2026", datetime(2026, 11, 30, 19, tzinfo=timezone.utc))
 
     assert _run() == ([clip], [])
 
@@ -296,15 +318,14 @@ def test_nothing_is_hidden_when_the_calendar_holds_no_event_at_all(city):
     assert not _hidden(clip)
 
 
-def test_another_citys_fresh_calendar_does_not_stand_for_this_one(city):
-    """Added after the failing-first commit `39ee32e`: the freshness read is this city's."""
+def test_another_citys_complete_read_does_not_stand_for_this_one(city):
+    """The freshness read is this city's."""
     clip = _clip(city, "short")
+    _sitemap_read(city, "2 days")
     with db() as conn, conn.cursor() as cur:
-        cur.execute(
-            "UPDATE city_calendar_events SET fetched_at = now() - interval '2 days' WHERE municipality_id = %s", (city,)
-        )
-        cur.execute("SELECT id FROM municipalities WHERE slug = %s", (OTHER_SLUG,))
+        cur.execute("UPDATE municipalities SET metadata = '{}'::jsonb WHERE slug = %s RETURNING id", (OTHER_SLUG,))
         other = cur.fetchone()[0]
+    _sitemap_read(other, "0 hours")
     _event(other, "ev", "PUBLIC SAFETY COMMITTEE MEETING, November 30, 2026", datetime(2026, 11, 30, 19, tzinfo=timezone.utc))
 
     assert _run() == ([], [])
