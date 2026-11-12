@@ -167,6 +167,75 @@ As authored on 2026-11-11, no milestone has run. The authoring research found th
 - Observation (M5 session): `./tools/verify` after the edits.
   Evidence: `verify: unit+web+services ... ok (81s)`, `verify: integration ... ok (104s)`, `verify: judge-fixtures ... ok (1s)`, `verify: workflows ... ok (0s)`, `verify: transcriber ... ok (7s)`, `verify: plans ... ok (0s)`, `verify: all 6 checks passed in 193s.` It ran on the working tree that became this milestone's first commit, before that commit's edits to this file; `tools/check-plans` ran again in the pre-commit hook. The acceptance's other checks, run on the same tree: `grep -c "^| D116 " docs/DEBT.md` printed `0`; `grep -n "^## Clips that are not meetings" docs/specs/meeting-types.md` printed line 77; `ls docs/decisions` ends `0087-...`, `0088-...`, `0089-...`, `DECISION_FORMAT.md`.
 
+- Observation (2026-11-12, `D118` steps 1 and 2, run from the worktree at the operator's request with the worker's `DATABASE_PUBLIC_URL` and the session held read-only by `default_transaction_read_only=on`): the three queries of Artifacts and Notes against production, and the YouTube backfill dry run. Every assumption the design made holds. Meetings 3192, 3193, 3194, 2618, and 2619 run 60 to 480 seconds with no agenda, no item, no YouTube recording, and no uploaded transcript (three are `low_speech`, two have none). Meetings 3202 and 3203 run 2,220 and 5,760 seconds. The stored calendar begins 2026-10-26 (the sitemap reader is not deployed) and has no 2026-11-05. The six-minute committee meeting of 2026-10-05 the retro asked about is meeting 2544: it has an agenda link and is already hidden, so the hiding rule never reads it. On 2026-11-09 the Budget and Finance recording (`Ykjs8nM9yd8`, 1,255 seconds) is `defer` and the day is `ambiguous`: its length matches neither clip, so once it is three days old the pass creates a `yt-` row for it and both clips stay generic (`D119` b).
+  Evidence, the queries:
+
+        id  |  external_id   | meeting_date | duration_s | meeting_type |                       body_name                       |  type_source  | has_agenda | has_minutes | items | yt | transcript_status | uploaded | is_hidden | locked
+      ------+----------------+--------------+------------+--------------+-------------------------------------------------------+---------------+------------+-------------+-------+----+-------------------+----------+-----------+--------
+       2544 | 2015           | 2026-10-05   |        360 | committee    |                                                       | schedule_rule | t          | f           |     0 |  0 | uploaded          | t        | t         | f
+       3182 | yt-r_fVFTdoG1g | 2026-10-05   |        794 | committee    | Community Development Committee                       | title         | f          | f           |     0 |  1 |                   | f        | f         | f
+       2543 | 2016           | 2026-10-06   |       6240 | council      |                                                       | title         | t          | f           |    66 |  1 | events_extracted  | t        | f         | f
+       3183 | yt-8k-12tMVeHk | 2026-10-12   |       1088 | committee    | Budget and Finance Committee                          | title         | f          | f           |     0 |  1 |                   | f        | f         | f
+       2609 | 2017           | 2026-10-13   |       5100 | council      |                                                       | title         | t          | f           |    51 |  1 |                   | f        | f         | f
+       2612 | 2018           | 2026-10-13   |            | council      |                                                       | title         | t          | f           |     0 |  0 |                   | f        | f         | f
+       2614 | 2019           | 2026-10-14   |            | committee    |                                                       | schedule_rule | t          | f           |     0 |  0 |                   | f        | f         | f
+       2618 | 2021           | 2026-10-15   |        240 | committee    |                                                       | schedule_rule | f          | f           |     0 |  0 |                   | f        | f         | f
+       2619 | 2022           | 2026-10-15   |        300 | committee    |                                                       | schedule_rule | f          | f           |     0 |  0 |                   | f        | f         | f
+       2620 | 2023           | 2026-10-19   |            | committee    |                                                       | schedule_rule | t          | f           |     0 |  0 |                   | f        | f         | f
+       2624 | 2024           | 2026-10-20   |       7440 | council      |                                                       | title         | t          | f           |    87 |  1 | events_extracted  | t        | f         | f
+       2613 | event-2713     | 2026-10-26   |            | committee    |                                                       | schedule_rule | t          | f           |    51 |  0 |                   | f        | f         | f
+       3184 | 2026           | 2026-10-27   |       4080 | council      |                                                       | calendar      | t          | f           |    64 |  1 | events_extracted  | t        | f         | f
+       3185 | yt-hZF5djDqDxQ | 2026-10-27   |        728 | committee    | Public Safety Committee                               | title         | f          | f           |     0 |  1 | uploaded          | t        | f         | f
+       3188 | 2027           | 2026-11-02   |        660 | committee    | Arts and Parks                                        | calendar      | t          | f           |     0 |  0 | low_speech        | f        | f         | f
+       3191 | yt-HjaZwZq2fFE | 2026-11-02   |        446 | committee    | Community Development Committee                       | title         | f          | f           |     0 |  1 | uploaded          | t        | f         | f
+       3196 | yt-odw-lgzjso0 | 2026-11-02   |       3135 | committee    | Arts and Parks Committee                              | title         | f          | f           |     0 |  1 | uploaded          | t        | f         | f
+       3186 | 2028           | 2026-11-03   |       8160 | council      |                                                       | admin         | t          | f           |    63 |  0 | events_extracted  | t        | f         | t
+       3200 | yt-HvwgXAQ0SsM | 2026-11-03   |       5798 | committee    | Economic Development & Tourism Committee Work Session | calendar      | f          | f           |     0 |  1 |                   | f        | f         | f
+       3201 | yt-ExEsn3Sciwk | 2026-11-04   |       5620 | committee    | Committee of the Whole                                | title         | f          | f           |     0 |  1 |                   | f        | f         | f
+       3192 | 2029           | 2026-11-05   |         60 | committee    |                                                       | schedule_rule | f          | f           |     0 |  0 | low_speech        | f        | f         | f
+       3193 | 2030           | 2026-11-05   |        480 | committee    |                                                       | schedule_rule | f          | f           |     0 |  0 | low_speech        | f        | f         | f
+       3194 | 2031           | 2026-11-05   |        240 | committee    |                                                       | schedule_rule | f          | f           |     0 |  0 | low_speech        | f        | f         | f
+       3202 | 2032           | 2026-11-09   |       2220 | committee    |                                                       | schedule_rule | t          | f           |     0 |  0 |                   | f        | f         | f
+       3203 | 2033           | 2026-11-09   |       5760 | committee    |                                                       | schedule_rule | t          | f           |     0 |  0 |                   | f        | f         | f
+       3197 | 2034           | 2026-11-10   |       6000 | council      |                                                       | calendar      | t          | f           |    58 |  2 |                   | f        | f         | f
+      (26 rows)
+      
+       meeting_id | external_id | meeting_date |          created_at           | video_id | clean_title | video_s | is_primary
+      ------------+-------------+--------------+-------------------------------+----------+-------------+---------+------------
+             3202 | 2032        | 2026-11-09   | 2026-11-10 12:00:04.918051+00 |          |             |         |
+             3203 | 2033        | 2026-11-09   | 2026-11-10 12:00:04.918051+00 |          |             |         |
+      (2 rows)
+      
+          day     | count
+      ------------+-------
+       2026-10-26 |     2
+       2026-10-27 |     3
+       2026-11-02 |     1
+       2026-11-03 |     1
+       2026-11-04 |     1
+       2026-11-06 |     1
+       2026-11-07 |     1
+       2026-11-09 |     2
+       2026-11-10 |     2
+       2026-11-13 |     2
+      (10 rows)
+      
+
+  Evidence, `scripts/backfill_youtube_meetings.py --city birmingham --since 2026-11-01 --dry-run`:
+
+      youtube 2026-11-09: ambiguous committee day; unpaired clips: 2032 (2220s), 2033 (5760s); unpaired recordings: Ykjs8nM9yd8
+      2026-11-02  skip_seen   odw-lgzjso0 'Arts and Parks Committee Meeting' 3135s already held by meeting 3196
+      2026-11-02  skip_seen   HjaZwZq2fFE 'Community Development Committee Meeting' 446s already held by meeting 3191
+      2026-11-03  skip_seen   HvwgXAQ0SsM 'Birmingham City Council Meeting' 5798s already held by meeting 3200
+      2026-11-04  skip_seen   ExEsn3Sciwk 'Committee of the Whole Meeting' 5620s already held by meeting 3201
+      2026-11-09  defer       Ykjs8nM9yd8 'Budget and Finance Committee Meeting' 1255s published 2026-11-10
+      2026-11-09  ambiguous   unpaired clips: 2032 (2220s), 2033 (5760s); unpaired recordings: Ykjs8nM9yd8
+      2026-11-10  skip_seen   P0vkxIkJXb4 (+1 part) 'Birmingham City Council Meeting' 7137s already held by meeting 3197
+      2026-11-10  defer       kYLpoiwW5M4 'Planning and Zoning Committee Meeting' 5288s published 2026-11-11
+      ambiguous days: 2026-11-09
+      counts: attach=0, create=0, defer=2, no_duration=0, skip_seen=5, absorb=0, ambiguous=1, unparsed=0
+      dry run: nothing written
+
 ## Decision Log
 
 - Decision: the past calendar comes from the city's sitemap, the upcoming calendar from the events search, and the council page stays as a third reader.
