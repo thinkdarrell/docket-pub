@@ -106,23 +106,23 @@ def override_blog_state(app_with_db):
     public_module._overview_cache.clear()
 
 
-def test_city_page_shows_blog_rail(app_with_db, override_blog_state, seeded_birmingham):
-    """The Birmingham overview renders the 'From the blog' rail when at
-    least one published post tagged ``birmingham`` exists."""
+def test_city_page_has_no_blog_rail(app_with_db, override_blog_state, seeded_birmingham):
+    """The Birmingham overview does not promote the blog, even when a
+    published post tagged ``birmingham`` exists."""
     override_blog_state(_state_with(_make_post(city="birmingham")))
 
     with app_with_db.test_client() as c:
         r = c.get("/al/birmingham/")
     assert r.status_code == 200
-    assert b"From the blog" in r.data
-    assert b"Birmingham budget take" in r.data
+    assert b"From the blog" not in r.data
+    assert b"Birmingham budget take" not in r.data
 
 
-def test_meeting_detail_shows_coverage(
+def test_meeting_detail_does_not_link_related_post(
     app_with_db, override_blog_state, seeded_bham_meeting_2026
 ):
-    """A post with ``related_meetings=[<id>]`` surfaces in the Editorial
-    coverage rail on that meeting's detail page."""
+    """A post with ``related_meetings=[<id>]`` is not linked from that
+    meeting's detail page: nothing on the site points readers at the blog."""
     meeting_id = seeded_bham_meeting_2026
     post = _make_post(city="birmingham", related_meetings=[meeting_id])
     override_blog_state(_state_with(post))
@@ -130,8 +130,7 @@ def test_meeting_detail_shows_coverage(
     with app_with_db.test_client() as c:
         r = c.get(f"/al/birmingham/meetings/{meeting_id}/")
     assert r.status_code == 200
-    assert b"Editorial coverage" in r.data
-    assert b"Birmingham budget take" in r.data
+    assert b"Birmingham budget take" not in r.data
 
 
 def test_meeting_detail_no_rail_without_posts(

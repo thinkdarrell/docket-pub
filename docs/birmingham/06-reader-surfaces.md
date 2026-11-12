@@ -40,7 +40,7 @@ Two things every page shares. A context processor fixes "today" to America/Chica
 8. **Signals in the last 30 days**: counts of process badges such as passed-on-consent, sole-source, emergency action, and settlements; a zero has no row.
 9. **Said at the meeting**: one quote, up to 60 words, from the newest public transcript, on that meeting's largest checked item, attributed only when the speaker was resolved; "Read the transcript →".
 10. **Recent meetings**: the six newest meetings with an item or a document, each with its label, item count, dollar total, split count, and document links; an upcoming row says "upcoming", a cancelled row says "cancelled" in place of counts.
-11. **From the blog**, and a footer that names the hosts the records came from and how many meetings are indexed.
+11. A footer that names the hosts the records came from and how many meetings are indexed.
 
 Three decisions shape its prose: a tabled motion has no outcome, so "against the outcome" counts only a no on a motion that passed or a yes on one that failed (`0057`); a cancelled meeting is read from its title and is never the last or next meeting or a money line (`0058`); and a dollar amount reaches the prose only when the item's own text backs it (`0060`). One rule governs every count on the page: **one vote source per meeting**, the official minutes when the meeting has them, video OCR otherwise, never both (`0056`).
 
