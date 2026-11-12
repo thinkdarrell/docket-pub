@@ -8,7 +8,7 @@ The general rule (`User-agent: *`) allows every public page and disallows three 
 
 A second group names the crawlers that identify themselves as collecting AI training data or as fetching pages for an AI assistant (GPTBot, ClaudeBot, Google-Extended, Applebot-Extended, Bytespider, CCBot, PerplexityBot, Amazonbot, meta-externalagent, and the rest of the `AI_CRAWLERS` tuple in `crawlers.py`) and disallows them from the whole site. `Google-Extended` and `Applebot-Extended` are the training-only controls of Google and Apple; ordinary Google and Apple search indexing is unaffected. The file opens with a plain-language statement that use of the site's content to train AI models is not permitted, and the about page says the same in its privacy section.
 
-`robots.txt` is advisory. A crawler that ignores it, as headless-browser scrapers usually do, is not stopped by anything in this spec; that would need a rate limit at the application or network layer, which docket.pub does not have today.
+`robots.txt` is advisory. A crawler that ignores it, as headless-browser scrapers usually do, is not stopped by anything in this spec. Since 2026-11-11 the site is behind Cloudflare's proxy, and one WAF rule challenges unverified traffic from two cloud networks; `docs/specs/operations.md` (Domain and headers) describes that layer. There is still no application-level rate limit.
 
 ## The sitemap family
 
