@@ -21,8 +21,9 @@ from docket.services import briefing
 from docket.web import create_app
 from tests.support import briefing_seed
 
-# The eight headings the design names, in page order: the six doors and the
-# meetings list (design sections 3 to 9) and the blog rail (section 10). The
+# The seven headings the page carries, in page order: the six doors and the
+# meetings list (design sections 3 to 9); the blog rail (section 10) was
+# removed when the blog left the site's navigation. The
 # order follows plan city-page-less-narrow-less-dense, which moved the signals
 # beside the topics, above the quote.
 DESIGN_HEADINGS = [
@@ -33,7 +34,6 @@ DESIGN_HEADINGS = [
     "Signals in the last 30 days",
     "Said at the meeting",
     "Recent meetings",
-    "From the blog",
 ]
 
 # Words the design's review found on the old page that a resident would not
@@ -155,7 +155,7 @@ def test_every_h2_text_unique(page):
     assert len(h2s) == len(set(h2s)), f"repeated h2: {h2s}"
 
 
-def test_headings_are_the_eight_the_design_names(page):
+def test_headings_are_the_seven_the_page_carries(page):
     h2s = [t for level, t in _headings(page) if level == 2]
     assert h2s == DESIGN_HEADINGS
 

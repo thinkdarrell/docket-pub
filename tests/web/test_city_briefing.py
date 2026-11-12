@@ -252,7 +252,7 @@ def test_meetings_list_rows_and_ghost_excluded(client, seeded):
     assert "All meetings →" in section
     assert "upcoming hearings (RSS)" in section
     assert "/al/birmingham/upcoming-hearings.rss" in section
-    assert "/al/birmingham/blog/feed.xml" in section
+    assert "/blog" not in section
     assert "/coverage.rss" in section
 
 

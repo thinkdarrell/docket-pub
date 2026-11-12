@@ -90,7 +90,6 @@ SITE_PAGES = (
     "/about/corrections/",
     "/coverage/",
     "/councilors/",
-    "/blog",
 )
 
 _ROBOTS_HEADER = """\
