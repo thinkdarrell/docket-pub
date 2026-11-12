@@ -197,16 +197,28 @@
   //
   // sanitizeProps in track.js drops `query` if it exceeds 40 chars (PII guardrail);
   // result_count is always recorded so zero-result-rate stats survive that drop.
+  //
+  // base.html loads the Umami script and track.js with `defer`, so neither has run
+  // when this inline script executes during parsing. Deferred scripts finish before
+  // DOMContentLoaded, so the emit waits for it; a top-level call found no docketTrack
+  // and the event never fired (zero rows, 2026-05 to 2026-11).
   (function () {
-    if (typeof docketTrack !== 'function') return;
-    var props = {
-      query: {{ query | tojson }},
-      result_count: {{ (results | length) if results is defined else 0 }}
-    };
-    {% if city %}
-    props.city = {{ city | tojson }};
-    {% endif %}
-    docketTrack('search_submit', props);
+    function emit() {
+      if (typeof docketTrack !== 'function') return;
+      var props = {
+        query: {{ query | tojson }},
+        result_count: {{ (results | length) if results is defined else 0 }}
+      };
+      {% if city %}
+      props.city = {{ city | tojson }};
+      {% endif %}
+      docketTrack('search_submit', props);
+    }
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', emit);
+    } else {
+      emit();
+    }
   })();
 </script>
 {% endif %}
