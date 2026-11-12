@@ -5,7 +5,7 @@ Two modes:
   python -m docket.worker.scheduler                   # daemon mode (Railway worker)
   python -m docket.worker.scheduler --run-once <task> # foreground one-shot
 
-The daemon registers all seventeen jobs with the timezone in $WORKER_TIMEZONE
+The daemon registers all eighteen jobs with the timezone in $WORKER_TIMEZONE
 (default America/Chicago, read through docket.config) and calls
 scheduler.start(), which blocks.
 
@@ -31,7 +31,7 @@ log = logging.getLogger(__name__)
 
 
 def build_scheduler(timezone: str = "America/Chicago") -> BlockingScheduler:
-    """Build a scheduler with all seventeen jobs registered. Does not start it."""
+    """Build a scheduler with all eighteen jobs registered. Does not start it."""
     sched = BlockingScheduler(timezone=timezone)
 
     sched.add_job(
@@ -74,6 +74,17 @@ def build_scheduler(timezone: str = "America/Chicago") -> BlockingScheduler:
         TASKS["youtube_ingest"],
         CronTrigger(hour=6, minute=45, timezone=timezone),
         id="youtube_ingest",
+        coalesce=True,
+        max_instances=1,
+    )
+    # Hide the clips that are not meetings (a short or speechless clip on a
+    # day the calendar shows no council or committee event), after
+    # youtube_ingest (06:45) has attached any recording that names a clip.
+    # Plan `committee-clips-named-or-hidden`, M4.
+    sched.add_job(
+        TASKS["non_meetings"],
+        CronTrigger(hour=6, minute=55, timezone=timezone),
+        id="non_meetings",
         coalesce=True,
         max_instances=1,
     )

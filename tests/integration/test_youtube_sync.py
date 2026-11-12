@@ -5,7 +5,10 @@ exercise the matching ladder against a real database: attach to the day's
 council row, attach to the day's one committee candidate, pair by duration on
 a busy day, create a ``yt-`` row after three days, refuse to create while a
 candidate clip has no stored duration, absorb a young ``yt-`` row into a
-Granicus clip that arrived later, and write nothing on a dry run.
+Granicus clip that arrived later, and write nothing on a dry run. The last
+section before the dry run is the by-name attach of plan
+``committee-clips-named-or-hidden`` (M3): a recording joins, and a young
+``yt-`` row is absorbed by, the clip the city's calendar named for its committee.
 
 Every row here is Birmingham's (migration 040 gives it ``youtube_channel_id``),
 dated June 2019 so no other test's rows share a day; Granicus-shaped rows carry
@@ -84,13 +87,15 @@ def bhm(seeded_birmingham):
 
 def _row(bhm: int, ext: str, d: date, *, title: str = "Regular City Council Meeting",
          meeting_type: str = "council", type_source: str = "title", duration_s: int | None = None,
-         items: int = 0, minutes_url: str | None = None, created_days_ago: int | None = None) -> int:
+         items: int = 0, minutes_url: str | None = None, created_days_ago: int | None = None,
+         body_name: str | None = None) -> int:
     with db_cursor() as cur:
         cur.execute(
             """INSERT INTO meetings (municipality_id, external_id, title, meeting_date, meeting_type,
-                                     session_kind, type_source, duration_s, minutes_url, video_url, source_url)
-               VALUES (%s, %s, %s, %s, %s, 'regular', %s, %s, %s, %s, %s) RETURNING id""",
-            (bhm, ext, title, d, meeting_type, type_source, duration_s, minutes_url,
+                                     session_kind, body_name, type_source, duration_s, minutes_url,
+                                     video_url, source_url)
+               VALUES (%s, %s, %s, %s, %s, 'regular', %s, %s, %s, %s, %s, %s) RETURNING id""",
+            (bhm, ext, title, d, meeting_type, body_name, type_source, duration_s, minutes_url,
              f"https://bhamal.granicus.com/MediaPlayer.php?clip_id={ext}",
              "https://bhamal.granicus.com/ViewPublisher.php?view_id=2"),
         )
@@ -434,6 +439,260 @@ def test_a_yt_row_with_a_transcript_is_hidden_instead_of_deleted(bhm):
     assert row is not None and row["is_hidden"] is True
     assert _videos_of(yt) == []
     assert _videos_of(clip) == [("M4Ttr2", True)]
+
+
+def test_an_absorbed_yt_row_that_is_hidden_carries_the_reason(bhm):
+    """Plan committee-clips-named-or-hidden, M4: the admin's hidden page says the row was merged."""
+    d = TODAY - timedelta(days=5)
+    yt = _yt_row(bhm, "tr3", d, 1400, "Transportation Committee Meeting")
+    _row(bhm, "m4t-41", d, meeting_type="committee", type_source="schedule_rule", duration_s=1500)
+    with db_cursor() as cur:
+        cur.execute("INSERT INTO transcripts (meeting_id, status) VALUES (%s, 'uploaded')", (yt,))
+
+    report = _sync([])
+
+    assert _actions(report) == ["absorb"]
+    with db_cursor() as cur:
+        cur.execute("SELECT is_hidden, hidden_at, hidden_reason FROM meetings WHERE id = %s", (yt,))
+        row = cur.fetchone()
+    assert row["is_hidden"] is True and row["hidden_at"] is not None
+    assert row["hidden_reason"] == "absorbed"
+
+
+# --- by name (plan committee-clips-named-or-hidden, M3) ---------------------------
+#
+# A Granicus clip the city's calendar already named is not a candidate of the
+# rules above (it has a body name), so before this milestone its recording got
+# a ``yt-`` row of its own and the meeting was listed twice.
+
+
+def _named(bhm: int, ext: str, d: date, duration_s: int | None, *, body_name: str = "Arts and Parks", **kw) -> int:
+    kw.setdefault("meeting_type", "committee")
+    kw.setdefault("type_source", "calendar")
+    return _row(bhm, ext, d, duration_s=duration_s, body_name=body_name, **kw)
+
+
+def _yt_rows(bhm: int) -> list[str]:
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT external_id FROM meetings WHERE municipality_id = %s AND external_id LIKE 'yt-M4T%%' "
+            "ORDER BY external_id",
+            (bhm,),
+        )
+        return [r["external_id"] for r in cur.fetchall()]
+
+
+def test_a_committee_recording_joins_the_row_the_calendar_named(bhm):
+    d = date(2019, 6, 5)
+    # 660 s against 2,640 s is no duration pair: the name alone decides.
+    clip = _named(bhm, "m4t-30", d, 660)
+
+    report = _sync([_video("an1", "Arts and Parks Committee Meeting 6.5.19", 2640)])
+
+    assert _actions(report) == ["attach"]
+    assert report.decisions[0][2].endswith(" by name")
+    assert _videos_of(clip) == [("M4Tan1", True)]
+    assert _yt_rows(bhm) == []
+    assert clip in report.touched_ids
+    row = _meeting(clip)
+    # The video rung outranks the calendar: the label is now the recording's own name.
+    assert row["type_source"] == "video"
+    assert row["body_name"] == "Arts and Parks Committee"
+
+
+def test_among_several_rows_of_that_name_the_recording_joins_the_one_of_its_length(bhm):
+    d = date(2019, 6, 6)
+    short = _named(bhm, "m4t-31", d, 660)
+    long_ = _named(bhm, "m4t-32", d, 2700)
+
+    report = _sync([_video("an2", "Arts and Parks Committee Meeting 6.6.19", 2640)])
+
+    assert _actions(report) == ["attach"]
+    assert report.decisions[0][2].endswith(" by name and duration")
+    assert _videos_of(long_) == [("M4Tan2", True)]
+    assert _videos_of(short) == []
+    assert _yt_rows(bhm) == []
+
+
+def test_several_rows_of_that_name_and_none_of_its_length_leave_the_recording_to_the_old_rules(bhm):
+    d = date(2019, 6, 7)
+    a = _named(bhm, "m4t-33", d, 660)
+    b = _named(bhm, "m4t-34", d, 700)
+
+    report = _sync([_video("an3", "Arts and Parks Committee Meeting 6.7.19", 2640)])
+
+    assert _actions(report) == ["create"]
+    assert _videos_of(a) == [] and _videos_of(b) == []
+    assert _yt_rows(bhm) == ["yt-M4Tan3"]
+
+
+def test_a_row_named_for_another_committee_is_not_taken(bhm):
+    d = date(2019, 6, 12)
+    clip = _named(bhm, "m4t-35", d, 2700, body_name="Public Safety")
+
+    report = _sync([_video("an4", "Arts and Parks Committee Meeting 6.12.19", 2640)])
+
+    assert _actions(report) == ["create"]
+    assert _videos_of(clip) == []
+
+
+def test_only_a_visible_granicus_committee_row_the_calendar_named_and_no_recording_holds(bhm):
+    # Each row differs from the first test's in one fact, on a day of its own.
+    by_title = _named(bhm, "m4t-36", date(2019, 6, 13), 2700, type_source="title")
+    other_type = _named(bhm, "m4t-37", date(2019, 6, 14), 2700, meeting_type="other")
+    yt_shaped = _named(bhm, "yt-M4Tempty", date(2019, 6, 21), 2700)
+    holding = _named(bhm, "m4t-38", date(2019, 6, 26), 2700)
+    with db_cursor() as cur:
+        cur.execute(
+            """INSERT INTO meeting_videos (meeting_id, provider, video_id, url, title, clean_title, duration_s, is_primary)
+               VALUES (%s, 'youtube', 'M4Theld', 'https://www.youtube.com/watch?v=M4Theld', 'x', 'x', 2700, TRUE)""",
+            (holding,),
+        )
+    hidden = _named(bhm, "m4t-39", date(2019, 6, 27), 2700)
+    _hide(hidden)
+
+    report = _sync([
+        _video("an5", "Arts and Parks Committee Meeting 6.13.19", 2640),
+        _video("an6", "Arts and Parks Committee Meeting 6.14.19", 2640),
+        _video("an7", "Arts and Parks Committee Meeting 6.21.19", 2640, days_ago=5),
+        _video("an8", "Arts and Parks Committee Meeting 6.26.19", 2640, days_ago=4),
+        _video("an9", "Arts and Parks Committee Meeting 6.27.19", 2640, days_ago=3),
+    ])
+
+    assert _actions(report) == ["create"] * 5
+    assert _videos_of(by_title) == [] and _videos_of(other_type) == [] and _videos_of(yt_shaped) == []
+    assert _videos_of(holding) == [("M4Theld", True)]
+    assert _videos_of(hidden) == []
+
+
+def test_a_row_taken_by_name_is_not_taken_twice_in_one_run(bhm):
+    d = date(2019, 6, 28)
+    clip = _named(bhm, "m4t-40", d, 2700)
+
+    report = _sync([
+        _video("an10", "Arts and Parks Committee Meeting 6.28.19", 2640, days_ago=2),
+        _video("an11", "Special Called Arts and Parks Committee Meeting 6.28.19", 900, days_ago=2),
+    ])
+
+    assert sorted(_actions(report)) == ["attach", "defer"]
+    assert len(_videos_of(clip)) == 1
+
+
+def test_a_dry_run_by_name_writes_nothing_and_reports_the_attach(bhm):
+    d = date(2019, 6, 5)
+    clip = _named(bhm, "m4t-30", d, 660)
+
+    report = _sync([_video("an1", "Arts and Parks Committee Meeting 6.5.19", 2640)], dry_run=True)
+
+    assert _actions(report) == ["attach"]
+    assert _videos_of(clip) == []
+    assert _meeting(clip)["type_source"] == "calendar"
+
+
+def test_a_young_yt_row_is_absorbed_by_a_later_clip_the_calendar_named_for_its_committee(bhm):
+    d = TODAY - timedelta(days=5)
+    yt = _yt_row(bhm, "ab1", d, 2640, "Arts and Parks Committee Meeting")
+    # 660 s against 2,640 s is no duration pair, and a named row is no
+    # candidate of the old rule: the name alone decides.
+    clip = _named(bhm, "m4t-41", d, 660)
+
+    report = _sync([])
+
+    assert _actions(report) == ["absorb"]
+    assert report.decisions[0][2].endswith(" by name")
+    assert _meeting(yt) is None
+    assert _videos_of(clip) == [("M4Tab1", True)]
+    assert clip in report.touched_ids
+
+
+def test_a_named_clip_that_was_already_there_never_absorbs_by_name(bhm):
+    d = TODAY - timedelta(days=5)
+    clip = _named(bhm, "m4t-42", d, 660)
+    yt = _yt_row(bhm, "ab2", d, 2640, "Arts and Parks Committee Meeting")
+
+    report = _sync([])
+
+    assert "absorb" not in _actions(report)
+    assert _meeting(yt) is not None
+    assert _videos_of(clip) == []
+
+
+def test_a_later_clip_named_for_another_committee_never_absorbs_by_name(bhm):
+    d = TODAY - timedelta(days=5)
+    yt = _yt_row(bhm, "ab3", d, 2640, "Arts and Parks Committee Meeting")
+    clip = _named(bhm, "m4t-43", d, 2700, body_name="Public Safety")
+
+    report = _sync([])
+
+    assert "absorb" not in _actions(report)
+    assert _meeting(yt) is not None
+    assert _videos_of(clip) == []
+
+
+def test_among_several_later_clips_of_that_name_the_yt_row_goes_to_the_one_of_its_length(bhm):
+    d = TODAY - timedelta(days=5)
+    yt = _yt_row(bhm, "ab4", d, 2640, "Arts and Parks Committee Meeting")
+    short = _named(bhm, "m4t-44", d, 660)
+    long_ = _named(bhm, "m4t-45", d, 2700)
+
+    report = _sync([])
+
+    assert _actions(report) == ["absorb"]
+    assert report.decisions[0][2].endswith(" by name and duration")
+    assert _meeting(yt) is None
+    assert _videos_of(long_) == [("M4Tab4", True)]
+    assert _videos_of(short) == []
+
+
+# The three below were added after the commit that holds the by-name tests
+# failing (ef5702a), each for a clause the removal check found no test held.
+
+
+def test_a_named_row_takes_its_recording_although_a_bodyless_clip_has_no_duration(bhm):
+    """Added after the failing-first commit: by name comes before the candidate rules, the blocked day among them."""
+    d = date(2019, 6, 5)
+    clip = _named(bhm, "m4t-46", d, 660)
+    unknown = _row(bhm, "m4t-47", d, meeting_type="committee", type_source="schedule_rule", duration_s=None)
+
+    report = _sync([_video("an12", "Arts and Parks Committee Meeting 6.5.19", 2640)])
+
+    assert _actions(report) == ["attach"]
+    assert _videos_of(clip) == [("M4Tan12", True)]
+    assert _videos_of(unknown) == []
+
+
+def test_a_clip_taken_by_name_in_this_run_absorbs_nothing_by_name(bhm):
+    """Added after the failing-first commit: absorption by name passes over a row this run attached to.
+
+    The dry run is the half that needs the run's own record of what it
+    claimed: nothing was written, so the row still reads as holding no recording.
+    """
+    d = TODAY - timedelta(days=5)
+    yt = _yt_row(bhm, "ab5", d, 2640, "Arts and Parks Committee Meeting")
+    clip = _named(bhm, "m4t-48", d, 660)
+    listing = [_video("ab6", f"Special Called Arts and Parks Committee Meeting {d.month}.{d.day}.19", 900, days_ago=4)]
+
+    assert _actions(_sync(listing, dry_run=True)) == ["attach"]
+    report = _sync(listing)
+
+    assert _actions(report) == ["attach"]
+    assert _videos_of(clip) == [("M4Tab6", True)]
+    assert _meeting(yt) is not None and _videos_of(yt) == [("M4Tab5", True)]
+
+
+def test_a_yt_row_absorbed_by_name_is_not_offered_to_the_candidates_too(bhm):
+    """Added after the failing-first commit: one absorption, into the named clip, with a bodyless clip beside it."""
+    d = TODAY - timedelta(days=5)
+    yt = _yt_row(bhm, "ab7", d, 2640, "Arts and Parks Committee Meeting")
+    clip = _named(bhm, "m4t-49", d, 660)
+    bodyless = _row(bhm, "m4t-50", d, meeting_type="committee", type_source="schedule_rule", duration_s=2600)
+
+    report = _sync([])
+
+    assert _actions(report) == ["absorb"]
+    assert _meeting(yt) is None
+    assert _videos_of(clip) == [("M4Tab7", True)]
+    assert _videos_of(bodyless) == []
 
 
 # --- dry run ---------------------------------------------------------------------

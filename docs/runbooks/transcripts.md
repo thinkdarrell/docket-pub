@@ -350,15 +350,18 @@ handful of agenda items that duplicate the Tuesday agenda. Real Monday meetings
 exist (2024-12-23 before Christmas Eve, 2019-12-30, 2010-05-10) and are all over
 an hour with full agendas, so **duration is the discriminator, not the weekday**.
 The Granicus listing exposes a `Duration` column per clip, which the adapter
-stores in `meetings.duration_s` (migration 040); an ingest-side auto-hide for
-short clips is the open follow-up.
+stores in `meetings.duration_s` (migration 040). The worker task `non_meetings`
+now hides the ones that fall on a day the city's calendar shows no council or
+committee event (`docs/specs/meeting-types.md`, "Clips that are not meetings");
+a Monday test on a day the calendar does list a committee is not hidden by it
+(`D119`) and is still the operator's to hide by hand, as below.
 
 What the producer does with them: the speech floor catches the silent ones as
 `low_speech`; a mic-check clip with real speech passes and uploads a tiny
 transcript (the plan 2 word-count floor, `TRANSCRIPT_MIN_WORDS`, sends it to `low_speech`).
 
 What to do: hide the meeting from the admin meeting page (`/admin/meetings/<id>/hide`),
-which sets `is_hidden`, `hidden_at`, `hidden_by`. The public page and transcript page
+which sets `is_hidden`, `hidden_at`, `hidden_by`, and `hidden_reason = 'admin'`. The public page and transcript page
 return 404, the producer skips it, and the hidden-meetings admin list keeps it
 reversible. Existing transcript rows stay attached to the hidden meeting.
 On 2026-10-11, 19 such meetings were hidden this way (all 18 unhidden Monday test

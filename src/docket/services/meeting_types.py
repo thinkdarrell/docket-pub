@@ -21,19 +21,30 @@ The evidence ladder, top rung first:
    council's own name for its stream outranks the calendar and the rule.
    The row's YouTube clean titles are read primary first, and the first one
    whose ``classify_title`` is not the generic council reading decides.
-4. **calendar** — the city's own calendar page (``city_calendar_events``,
+4. **calendar** — the city's own calendar (``city_calendar_events``,
    filled daily by the worker task ``city_calendar``) lists an event on the
-   meeting's day. The match reads documents and never ``start_time``, whose
-   stored values are wrong (issue #88): with one event on the day, that
-   one; with several, a row with documents (a minutes link or at least one
-   agenda item) takes the day's council event when exactly one exists, a
-   row without documents takes the day's committee event when exactly one
-   exists, and otherwise the rung yields nothing. A row with a minutes link
-   never takes a committee event, since committees have no minutes and a
-   council meeting moved to a committee's day is told apart by them; nor
-   does a row with documents on the council's regular weekday, since the
-   page lists only its next few events and the council's own can go
-   unseen while a committee's on the same day is stored (2026-11-03).
+   meeting's day. A cancelled event (a stored status other than ``active``,
+   or a title that says cancelled) is dropped first. The match reads
+   documents, lengths, and the day's other rows, and never ``start_time``,
+   whose stored values are wrong (issue #88). A row with a minutes link
+   takes the day's council event when exactly one exists and never a
+   committee's, since committees keep no minutes. A row with agenda items
+   takes the one council event too; with no council event it gets nothing
+   on the council's regular weekday (the council's own event can be
+   missing while a committee's is stored, 2026-11-03) and on any other day
+   is read as a row without documents, since committee clips carry the
+   next council agenda. A row without documents takes the council event
+   when that is the day's only event. With one committee event it takes
+   that, unless it runs under ``ELIMINATION_MIN_S`` and another unnamed
+   recording of the day runs longer: a stream test does not share a name
+   with the meeting. With several committee events it is named by
+   elimination: the events that the day's named rows account for
+   (:func:`same_committee`) are set aside, and the row takes the one left
+   only when exactly one is left, the row is long, and no other unnamed
+   recording of the day is long or of unknown length. Who competes and who
+   names is decided from each row's own facts, never from what this rung
+   stored for a sibling, so one call per row gives the same answer in any
+   order.
 5. **schedule_rule** — the city's metadata names the council's regular
    weekday (``council_schedule.weekday``, Monday 0), the row falls on
    another weekday, has no minutes link, and is not cancelled: it is a
@@ -47,7 +58,8 @@ the ones that changed in one statement; :func:`reclassify_city` is the
 operator's one-time pass over a whole city (``scripts/reclassify_meetings.py``).
 
 Plan: plans/completed/meeting-types-name-the-body.md (M4); the video rung,
-plans/completed/youtube-council-channel.md (M3).
+plans/completed/youtube-council-channel.md (M3); the whole-day calendar rung,
+plan `committee-clips-named-or-hidden` (M2).
 """
 
 from __future__ import annotations
@@ -83,10 +95,22 @@ BIRMINGHAM_COMMITTEES: tuple[str, ...] = (
     "Transportation & Infrastructure",
 )
 
+# A recording of at least this many seconds is long: it can be named by
+# elimination, and beside it a shorter one is not named after the day's one
+# committee event. Real committee meetings of 6 and 11 minutes exist, so the
+# floor decides only between recordings of one day, never whether a row is a
+# meeting.
+ELIMINATION_MIN_S = 600
+# The shorter of two committee names must have this many letters before it
+# matches the longer as a prefix ("Committee of the Whole" against the
+# calendar's "Committee of the Whole / Administration & Governmental Affairs").
+_PREFIX_MIN_LETTERS = 8
+
 _CHICAGO = ZoneInfo("America/Chicago")
 _GENERIC = Classification("council", "regular", None)
 _DATE_SUFFIX = re.compile(r",\s*[A-Za-z]+\s+\d{1,2},?\s+\d{4}\s*$")
 _SMALL_WORDS = {"of", "the", "and"}
+_TRAILING_BODY_WORDS = re.compile(r"(?:\s*\b(?:committee|meeting|work\s+session)\b\s*)+$", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -197,31 +221,121 @@ def _event_date(ev: dict) -> date:
     return starts_at.astimezone(_CHICAGO).date()
 
 
-def _choose_event(
-    events: list[tuple[dict, Classification]], *, has_documents: bool, has_minutes: bool, on_council_day: bool
-):
-    """Pick the day's event for a row, by documents and the weekday alone (never by start_time).
+def same_committee(a: str, b: str) -> bool:
+    """Do two names, a recording's or a calendar event's, name one committee?
 
-    A committee event is refused for a row with minutes (committees keep
-    none), and for a row with documents on the council's regular weekday:
-    the calendar page lists only its next few events and is read once a
-    day, so the council's own event can go unseen while a committee's on
-    the same day is stored, and the council clip, with its agenda, must
-    not be named after that committee (2026-11-03).
+    Each goes through :func:`committee_name_for` first, which removes an
+    event title's trailing date and the word MEETING or returns the
+    canonical name; only then is a trailing run of "committee", "meeting",
+    and "work session" removed (an event title ends with its date, so the
+    other order would remove nothing), and the rest reduced to letters.
+    Equal letters are the same committee, and so is a shorter name of at
+    least eight letters that opens the longer one. A name with nothing
+    left matches nothing.
     """
-    if not events:
-        return None
-    if len(events) == 1:
-        chosen = events[0]
-    else:
-        wanted = "council" if has_documents else "committee"
-        of_kind = [e for e in events if e[1].meeting_type == wanted]
-        if len(of_kind) != 1:
+    ka = _letters(_TRAILING_BODY_WORDS.sub("", committee_name_for(a or "")))
+    kb = _letters(_TRAILING_BODY_WORDS.sub("", committee_name_for(b or "")))
+    if not ka or not kb:
+        return False
+    if ka == kb:
+        return True
+    shorter, longer = sorted((ka, kb), key=len)
+    return len(shorter) >= _PREFIX_MIN_LETTERS and longer.startswith(shorter)
+
+
+def _is_live(ev: dict) -> bool:
+    """A calendar event that was held, as far as the city says: its stored
+    status is NULL (the source reported none) or ``active``, and its title
+    does not say cancelled. Only ``active`` has been observed, so the test is
+    written against what is not ``active``."""
+    status = ev.get("event_status")
+    return (status is None or status == "active") and not is_cancelled_title(ev.get("title"))
+
+
+def _before_calendar(row: dict) -> tuple[Classification, str] | None:
+    """What the rungs above the calendar decide for a row, with the rung, or
+    ``None`` when the row reaches the calendar: the stored classification of
+    a locked row, a specific title's, or the first naming recording's."""
+    if row.get("type_locked_at") is not None:
+        stored = Classification(
+            row.get("meeting_type") or _GENERIC.meeting_type,
+            row.get("session_kind") or _GENERIC.session_kind,
+            row.get("body_name"),
+        )
+        return stored, "admin"
+    base = classify_title(row.get("title") or "")
+    if base != _GENERIC:
+        return base, "title"
+    for video_title in row.get("video_titles") or ():
+        named = classify_title(video_title or "")
+        if named != _GENERIC:
+            return named, "video"
+    return None
+
+
+def _is_long(row: dict) -> bool:
+    return row.get("duration_s") is not None and row["duration_s"] >= ELIMINATION_MIN_S
+
+
+def _is_short(row: dict) -> bool:
+    return row.get("duration_s") is not None and row["duration_s"] < ELIMINATION_MIN_S
+
+
+def _without_documents(row: dict, *, council_events: int, on_council_day: bool) -> bool:
+    """Is this a row the day's committee events are for? One with no
+    minutes link and no agenda items, or one with items and no minutes on a
+    day that has no council event and is not the council's weekday (a
+    committee clip carries the next council agenda)."""
+    if row.get("minutes_url"):
+        return False
+    if int(row.get("item_count") or 0) > 0:
+        return council_events == 0 and not on_council_day
+    return True
+
+
+def _choose_event(
+    events: list[tuple[dict, Classification]], row: dict, siblings: list[dict], *, on_council_day: bool
+):
+    """Pick the day's event for a row that reached the calendar rung, from
+    the row's documents and length and the day's other rows (never from
+    ``start_time``). ``events`` are the day's live, usable events; ``row``
+    and each sibling carry ``title``, ``minutes_url``, ``type_locked_at``,
+    ``meeting_type``, ``body_name``, ``item_count``, ``video_titles``, and
+    ``duration_s``. The module docstring states the rule.
+    """
+    council = [e for e in events if e[1].meeting_type == "council"]
+    committee = [e for e in events if e[1].meeting_type == "committee"]
+    one_council = council[0] if len(council) == 1 else None
+
+    if not _without_documents(row, council_events=len(council), on_council_day=on_council_day):
+        # Minutes, or items beside a council event, or items on the council's
+        # weekday with no council event stored (2026-11-03): the one council
+        # event or nothing, never a committee's.
+        return one_council
+    if not committee:
+        return one_council
+
+    competitors = [
+        s for s in siblings
+        if _before_calendar(s) is None
+        and _without_documents(s, council_events=len(council), on_council_day=on_council_day)
+    ]
+    if len(committee) == 1:
+        if _is_short(row) and any(_is_long(c) for c in competitors):
             return None
-        chosen = of_kind[0]
-    if chosen[1].meeting_type == "committee" and (has_minutes or (has_documents and on_council_day)):
+        return committee[0]
+
+    namers = []
+    for s in siblings:
+        above = _before_calendar(s)
+        if above is not None and above[0].meeting_type == "committee" and above[0].body_name:
+            namers.append(above[0].body_name)
+    left = [e for e in committee if not any(same_committee(n, e[1].body_name) for n in namers)]
+    if len(left) != 1 or not _is_long(row):
         return None
-    return chosen
+    if any(not _is_short(c) for c in competitors):
+        return None
+    return left[0]
 
 
 def resolve(
@@ -231,28 +345,33 @@ def resolve(
     calendar_events: list[dict],
     item_count: int,
     video_titles: list[str] | None = None,
+    duration_s: int | None = None,
+    siblings: list[dict] | None = None,
 ) -> Resolution | None:
     """Run the ladder for one row; ``None`` when the row is locked.
 
     ``municipality`` needs ``metadata``; ``meeting`` needs ``title``,
     ``meeting_date``, ``minutes_url``, and ``type_locked_at``;
     ``calendar_events`` are the city's rows (``id``, ``title``,
-    ``starts_at``), any day; ``item_count`` is the row's agenda items;
-    ``video_titles`` are the clean titles of the row's YouTube recordings,
-    primary first (``None`` or empty when it has none).
-    ``start_time`` is never read.
+    ``starts_at``, and ``event_status`` when stored), any day;
+    ``item_count`` is the row's agenda items; ``video_titles`` are the clean
+    titles of the row's YouTube recordings, primary first (``None`` or empty
+    when it has none); ``duration_s`` is the row's stored length;
+    ``siblings`` are the city's other non-hidden rows of the same
+    ``meeting_date``, each a dict of the facts read of the row itself
+    (``title``, ``minutes_url``, ``type_locked_at``, ``meeting_type``,
+    ``body_name``, ``item_count``, ``video_titles``, ``duration_s``).
+    ``start_time`` is never read, and nothing the calendar rung stored for
+    a sibling (its ``type_source``, its ``calendar_event_id``) is either.
     """
     if meeting.get("type_locked_at") is not None:
         return None
     title = meeting.get("title") or ""
     base = classify_title(title)
-    if base != _GENERIC:
-        return Resolution(base, "title", None)
-
-    for video_title in video_titles or ():
-        named = classify_title(video_title or "")
-        if named != _GENERIC:
-            return Resolution(named, "video", None)
+    row = {**meeting, "item_count": item_count, "video_titles": video_titles, "duration_s": duration_s}
+    above = _before_calendar(row)
+    if above is not None:
+        return Resolution(above[0], above[1], None)
 
     if meeting.get("meeting_date") is None:
         # The calendar and the schedule rule both need a date; a dated-less
@@ -261,7 +380,6 @@ def resolve(
     meta = _metadata(municipality)
     meeting_date = _as_date(meeting["meeting_date"])
     has_minutes = bool(meeting.get("minutes_url"))
-    has_documents = has_minutes or item_count > 0
     schedule = meta.get("council_schedule")
     weekday = schedule.get("weekday") if isinstance(schedule, dict) else None
     on_council_day = weekday is not None and meeting_date.weekday() == int(weekday)
@@ -269,14 +387,12 @@ def resolve(
     if meta.get("calendar_url"):
         todays: list[tuple[dict, Classification]] = []
         for ev in calendar_events:
-            if _event_date(ev) != meeting_date:
+            if _event_date(ev) != meeting_date or not _is_live(ev):
                 continue
             cls = classify_event(ev.get("title") or "")
             if cls is not None:
                 todays.append((ev, cls))
-        chosen = _choose_event(
-            todays, has_documents=has_documents, has_minutes=has_minutes, on_council_day=on_council_day
-        )
+        chosen = _choose_event(todays, row, list(siblings or ()), on_council_day=on_council_day)
         if chosen is not None:
             return Resolution(chosen[1], "calendar", chosen[0]["id"])
 
@@ -307,6 +423,7 @@ _MUNICIPALITY_SQL = "SELECT id, slug, metadata FROM municipalities WHERE {where}
 
 _MEETING_ROWS_SQL = """
     SELECT m.id, m.title, m.meeting_date, m.minutes_url, m.type_locked_at,
+           m.duration_s, m.is_hidden,
            m.meeting_type, m.session_kind, m.body_name, m.type_source, m.calendar_event_id,
            m.executive_summary IS NOT NULL AS has_summary,
            (SELECT count(*) FROM agenda_items a WHERE a.meeting_id = m.id) AS item_count,
@@ -318,7 +435,14 @@ _MEETING_ROWS_SQL = """
      ORDER BY m.meeting_date, m.id
 """
 
-_CALENDAR_SQL = "SELECT id, title, starts_at FROM city_calendar_events WHERE municipality_id = %s"
+_CALENDAR_SQL = "SELECT id, title, starts_at, event_status FROM city_calendar_events WHERE municipality_id = %s"
+
+# The rows one resolution of some ids must load: the ids themselves (hidden
+# or dateless ones too, as before) and every non-hidden row of the city on
+# any of their dates, since a row's answer depends on its day.
+_WHOLE_DAYS_WHERE = """(m.id = ANY(%s) OR (m.is_hidden = FALSE AND m.meeting_date IN (
+        SELECT d.meeting_date FROM meetings d
+         WHERE d.municipality_id = m.municipality_id AND d.id = ANY(%s))))"""
 
 _WRITE_SQL = """
     UPDATE meetings AS m
@@ -345,12 +469,20 @@ def _load(cur, municipality_id: int, where: str, params: tuple) -> tuple[list[di
 
 
 def _changes(municipality: dict, meetings: list[dict], events: list[dict]) -> list[dict]:
-    """Resolve every row; return the rows whose five columns would change, each
-    with ``resolution`` attached."""
+    """Resolve every row once, each with the non-hidden rows of its date as
+    siblings; return the rows whose five columns would change, each with
+    ``resolution`` attached. ``meetings`` must hold every non-hidden row of
+    each date it holds a row of, or a row's competitors go unseen."""
+    by_date: dict[date, list[dict]] = {}
+    for m in meetings:
+        if m.get("meeting_date") is not None and not m.get("is_hidden"):
+            by_date.setdefault(_as_date(m["meeting_date"]), []).append(m)
     changed = []
     for m in meetings:
+        day = by_date.get(_as_date(m["meeting_date"]), []) if m.get("meeting_date") is not None else []
         res = resolve(municipality, m, calendar_events=events, item_count=int(m["item_count"] or 0),
-                      video_titles=m.get("video_titles"))
+                      video_titles=m.get("video_titles"), duration_s=m.get("duration_s"),
+                      siblings=[s for s in day if s is not m])
         m["resolution"] = res
         if res is None:
             continue
@@ -377,12 +509,15 @@ def _write(cur, changed: list[dict]) -> int:
 
 
 def resolve_and_store(municipality_id: int, meeting_ids: list[int]) -> int:
-    """Resolve the given rows of one city and write the ones that changed; returns how many.
+    """Resolve the given rows of one city, and every other non-hidden row of
+    their dates, and write the ones that changed; returns how many.
 
     Runs after every ingest over the rows the feed listed that day, so a
     row that gains minutes, items, or a cancelled title moves back down the
-    ladder on its own. The write is one ``UPDATE ... FROM (VALUES ...)``
-    scoped to unlocked rows (decision 0026).
+    ladder on its own, and after the YouTube pass over the rows it touched.
+    The set is widened to whole days because one row's new recording can
+    name the row beside it; each row is resolved once. The write is one
+    ``UPDATE ... FROM (VALUES ...)`` scoped to unlocked rows (decision 0026).
     """
     if not meeting_ids:
         return 0
@@ -391,7 +526,8 @@ def resolve_and_store(municipality_id: int, meeting_ids: list[int]) -> int:
         municipality = cur.fetchone()
         if municipality is None:
             return 0
-        meetings, events = _load(cur, municipality_id, "m.id = ANY(%s)", (list(meeting_ids),))
+        ids = list(meeting_ids)
+        meetings, events = _load(cur, municipality_id, _WHOLE_DAYS_WHERE, (ids, ids))
         changed = _changes(dict(municipality), meetings, events)
         return _write(cur, changed)
 
@@ -480,6 +616,44 @@ def calendar_event_for(meeting_id: int) -> dict | None:
         return dict(row) if row else None
 
 
+_ELIMINATION_ROW_SQL = """
+    SELECT m.municipality_id, m.meeting_type, m.type_source, e.title, e.starts_at
+      FROM meetings m
+      JOIN city_calendar_events e ON e.id = m.calendar_event_id
+     WHERE m.id = %s
+"""
+
+
+def named_by_elimination(meeting_id: int) -> bool:
+    """Was this row's committee name reached by elimination, not read off a lone event?
+
+    True only when the row is a ``committee`` named by the ``calendar``
+    rung, its matched event is a committee's, and the city's stored,
+    non-cancelled committee events on that event's Chicago date number more
+    than one. A council row on a day with two committee events is not: the
+    test is of the row's own type. The meeting page says so in its
+    provenance sentence (``docs/PRINCIPLES.md``, "Source or silence").
+    """
+    with db() as conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(_ELIMINATION_ROW_SQL, (meeting_id,))
+        row = cur.fetchone()
+        if row is None or row["meeting_type"] != "committee" or row["type_source"] != "calendar":
+            return False
+        matched = classify_event(row["title"] or "")
+        if matched is None or matched.meeting_type != "committee":
+            return False
+        day = _event_date(dict(row))
+        cur.execute(_CALENDAR_SQL, (row["municipality_id"],))
+        committees = 0
+        for ev in cur.fetchall():
+            if _event_date(ev) != day or not _is_live(ev):
+                continue
+            cls = classify_event(ev.get("title") or "")
+            if cls is not None and cls.meeting_type == "committee":
+                committees += 1
+        return committees > 1
+
+
 def set_override(
     meeting_id: int,
     meeting_type: str,
@@ -503,7 +677,8 @@ def set_override(
 
 
 def clear_override(meeting_id: int) -> None:
-    """Lift the admin lock and put the row back on the ladder by resolving it once.
+    """Lift the admin lock and put the row back on the ladder by resolving it, and the
+    other rows of its date (a locked committee row names nothing once unlocked), once.
 
     One transaction: the lock is lifted and the row re-resolved under the same
     cursor, so a failure leaves the lock in place rather than a half-unlocked row.
@@ -517,6 +692,6 @@ def clear_override(meeting_id: int) -> None:
         cur.execute(_MUNICIPALITY_SQL.format(where="id = %s"), (municipality_id,))
         municipality = cur.fetchone()
         if municipality is not None:
-            meetings, events = _load(cur, municipality_id, "m.id = %s", (meeting_id,))
+            meetings, events = _load(cur, municipality_id, _WHOLE_DAYS_WHERE, ([meeting_id], [meeting_id]))
             _write(cur, _changes(dict(municipality), meetings, events))
         conn.commit()

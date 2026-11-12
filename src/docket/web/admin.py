@@ -21,7 +21,7 @@ from werkzeug.routing.exceptions import BuildError
 
 from docket.adapters._helpers import MEETING_TYPES, SESSION_KINDS
 from docket.db import db, db_cursor
-from docket.services import meeting_types, query
+from docket.services import meeting_types, non_meetings, query
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
 
@@ -1620,8 +1620,9 @@ def unlock_meeting_type(meeting_id: int):
 def hide_meeting(meeting_id: int):
     """Mark a meeting as hidden — suppress it from all citizen surfaces.
 
-    Sets is_hidden=TRUE plus the hidden_at/hidden_by audit columns. The
-    blueprint-level before_request handler enforces login.
+    Sets is_hidden=TRUE plus the hidden_at/hidden_by audit columns and the
+    reason ``admin`` (migration 044). The blueprint-level before_request
+    handler enforces login.
     """
     with db() as conn, conn.cursor() as cur:
         cur.execute("SELECT id FROM meetings WHERE id = %s", (meeting_id,))
@@ -1632,7 +1633,8 @@ def hide_meeting(meeting_id: int):
             UPDATE meetings
                SET is_hidden = TRUE,
                    hidden_at = NOW(),
-                   hidden_by = %s
+                   hidden_by = %s,
+                   hidden_reason = 'admin'
              WHERE id = %s
             """,
             (session.get("admin_user_id"), meeting_id),
@@ -1653,7 +1655,12 @@ def hide_meeting(meeting_id: int):
 
 @bp.post("/meetings/<int:meeting_id>/unhide")
 def unhide_meeting(meeting_id: int):
-    """Clear the hidden flag and audit columns."""
+    """Clear the hidden flag, the audit columns, and the reason, and exempt the row.
+
+    ``keep_visible_at`` is set and never cleared: the daily ``non_meetings``
+    rule does not hide a row an admin brought back
+    (``docket.services.non_meetings``).
+    """
     with db() as conn, conn.cursor() as cur:
         cur.execute("SELECT id FROM meetings WHERE id = %s", (meeting_id,))
         if cur.fetchone() is None:
@@ -1663,7 +1670,9 @@ def unhide_meeting(meeting_id: int):
             UPDATE meetings
                SET is_hidden = FALSE,
                    hidden_at = NULL,
-                   hidden_by = NULL
+                   hidden_by = NULL,
+                   hidden_reason = NULL,
+                   keep_visible_at = NOW()
              WHERE id = %s
             """,
             (meeting_id,),
@@ -1749,6 +1758,10 @@ def list_hidden_meetings():
 
     Joins to admin_users for the "hidden by" column (NULL when an older
     backfill hid the row without an actor) and to municipalities for city.
+    ``hidden_reason`` says which writer hid the row (NULL on a row hidden
+    before migration 044). ``held_back`` is the clips of every city the
+    ``non_meetings`` rule would hide but for a transcript with speech; they
+    are visible, and the operator hides one from its meeting page.
     """
     with db_cursor() as cur:
         cur.execute(
@@ -1756,6 +1769,7 @@ def list_hidden_meetings():
             SELECT
                 m.id, m.title, m.meeting_date,
                 m.hidden_at,
+                m.hidden_reason,
                 mu.name AS city_name,
                 mu.slug AS city_slug,
                 au.username AS hidden_by_username
@@ -1767,4 +1781,4 @@ def list_hidden_meetings():
             """
         )
         rows = [dict(r) for r in cur.fetchall()]
-    return render_template("admin/hidden_meetings.html", rows=rows)
+    return render_template("admin/hidden_meetings.html", rows=rows, held_back=non_meetings.held_back())

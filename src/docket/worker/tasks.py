@@ -25,7 +25,7 @@ from docket.adapters.youtube import QuotaExceeded, YouTubeClient
 from docket.ai.worker import BudgetExceededError, run_once
 from docket.analysis.vote_matcher import match_all_unmatched
 from docket.db import db, db_cursor
-from docket.services import briefing, city_calendar, youtube_meetings
+from docket.services import briefing, city_calendar, non_meetings, youtube_meetings
 from docket.services.ingest import ingest_municipality
 from docket.services.maintenance import repair_empty_agendas
 from docket.services.member_votes import resolve_unresolved_member_votes
@@ -449,10 +449,13 @@ def task_briefing_facts() -> None:
 def _do_city_calendar() -> None:
     """Fill city_calendar_events from each city whose metadata names a ``calendar_url``.
 
-    One GET per city per day (Birmingham only at first), a handful of upserts;
-    runs at 05:30 so the rows exist before ingest_all (06:00) resolves meeting
-    types against them. A city's failure is logged and does not block the
-    others. Plan: plans/completed/meeting-types-name-the-body.md (M3).
+    Birmingham only at first: the council page, the events search, and the
+    sitemap's unstored event pages (33 on the first run, a handful after),
+    one second apart; runs at 05:30 so the rows exist before ingest_all
+    (06:00) resolves meeting types against them. A city's failure is logged
+    and does not block the others.
+    Plan: plans/completed/meeting-types-name-the-body.md (M3); the search and
+    sitemap readers are plan `committee-clips-named-or-hidden`, M1.
     """
     n = city_calendar.refresh_all()
     log.info("city_calendar: refreshed %d cities", n)
@@ -501,6 +504,30 @@ def task_youtube_ingest() -> None:
     _safe_run("youtube_ingest", _do_youtube_ingest)
 
 
+def _do_non_meetings() -> None:
+    """Hide the clips that are not meetings, and log each city's ids hidden and held back.
+
+    For every active city whose metadata carries ``calendar_complete_from``
+    (Birmingham only at first): a short or speechless generic-titled clip
+    on a day the stored calendar shows no council or committee event is
+    hidden with the reason ``not_a_meeting``; one that has a transcript
+    with speech is held back and listed on ``/admin/meetings/hidden``
+    (``non_meetings.hide_non_meetings``). Runs at 06:55, after
+    ``youtube_ingest`` (06:45) has attached any recording that names a
+    clip. A city whose sitemap reader has not finished a read without a failed
+    page in the last 36 hours is passed over; a city's failure is logged and does not block the others.
+    Plan `committee-clips-named-or-hidden`, M4.
+    """
+    result = non_meetings.hide_non_meetings()
+    for slug, (hidden, held) in result.items():
+        log.info("non_meetings %s: hidden %s; held back (has a transcript with speech) %s", slug, hidden, held)
+    log.info("non_meetings: %d cities read", len(result))
+
+
+def task_non_meetings() -> None:
+    _safe_run("non_meetings", _do_non_meetings)
+
+
 # --- registry — used by scheduler.py and the --run-once flag -----------------
 
 TASKS: dict[str, Callable[[], None]] = {
@@ -521,4 +548,5 @@ TASKS: dict[str, Callable[[], None]] = {
     "briefing_facts": task_briefing_facts,
     "city_calendar": task_city_calendar,
     "youtube_ingest": task_youtube_ingest,
+    "non_meetings": task_non_meetings,
 }
