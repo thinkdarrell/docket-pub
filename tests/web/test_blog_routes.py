@@ -472,3 +472,20 @@ def test_city_feed(app):
     assert r.status_code == 200
     assert b"<feed" in r.data
     assert b"Budget" in r.data
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["/blog", "/al/birmingham/blog", "/blog/feed.xml", "/al/birmingham/blog/feed.xml"],
+)
+def test_every_blog_response_is_noindex(app, path):
+    """The site does not link to the blog, and no blog URL may be indexed."""
+    r = app.test_client().get(path)
+    assert r.status_code == 200
+    assert r.headers.get("X-Robots-Tag") == "noindex"
+
+
+def test_non_blog_pages_are_not_noindex(app):
+    r = app.test_client().get("/")
+    assert r.status_code == 200
+    assert "X-Robots-Tag" not in r.headers
