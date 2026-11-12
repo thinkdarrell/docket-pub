@@ -12,6 +12,18 @@ from docket.services import query as _query
 bp = Blueprint("blog", __name__)
 
 
+@bp.after_request
+def _noindex(resp: Response) -> Response:
+    """Keep every blog response out of search indexes.
+
+    The site no longer links to the blog; this asks search engines that
+    already know its URLs to drop them. A header rather than a ``<meta>``
+    tag so the feeds and assets are covered as well as the pages.
+    """
+    resp.headers["X-Robots-Tag"] = "noindex"
+    return resp
+
+
 @bp.route("/blog/assets/<city>/<slug>/<path:filename>")
 def asset(city: str, slug: str, filename: str):
     """Serve post assets from `content/blog/<city>/<slug>/`.
