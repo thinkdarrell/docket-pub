@@ -226,6 +226,8 @@ def create_app() -> Flask:
     app.register_blueprint(blog_bp)
 
     app.register_blueprint(public_bp)
+    from docket.web.crawlers import bp as crawlers_bp
+    app.register_blueprint(crawlers_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(admin_badge_review_bp)
