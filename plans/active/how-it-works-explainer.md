@@ -30,6 +30,9 @@ As authored on 2026-11-12, nothing has been executed and there are no discoverie
 - Observation (M1, 2026-11-13): the design document names the old sources directory three times, not twice. Besides the full path in its section 3, the committee row of the parking-fines table in section 6 and the first sentence about minutes in section 8 each name a file as `2026-11-12-how-it-works-sources/committee-…`. All three now read `content/how-it-works/birmingham/sources/…`.
   Evidence: after the move, `grep -n how-it-works-sources docs/superpowers/specs/2026-11-12-how-it-works-design.md` prints nothing.
 
+- Observation (M1, 2026-11-13): before the loader exists, every new test fails and the file still collects. The tests import `docket.services.how_it_works` inside each test function, so the before state is 28 failures in one file and not one collection error. The content file and the tests are committed in this state, ahead of the loader.
+  Evidence: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_how_it_works_content.py -q -p no:cacheprovider; tools/test-db --drop` printed `28 failed, 1 warning in 0.13s`.
+
 ## Decision Log
 
 - Decision: The page lives at `/al/<slug>/how-it-works/` and returns 404 for any city that has no content directory.
