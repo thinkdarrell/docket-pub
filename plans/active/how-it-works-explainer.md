@@ -54,6 +54,14 @@ As authored on 2026-11-12, nothing has been executed and there are no discoverie
 - Observation (M1, 2026-11-13): every verify run in this session took 195 to 197 seconds, over the 180-second budget in `AGENTS.md`; the integration tier alone is 103 to 105 seconds. This milestone added about a third of a second. Not acted on here.
   Evidence: the three final lines `verify: all 6 checks passed in 195s.`, `verify: 1 of 6 checks failed in 197s.`, `verify: all 6 checks passed in 196s.`
 
+- Observation (M2, 2026-11-13): the starting state was green. `./tools/verify`, run before any edit at commit `5de28e2`, exited 0 in 196 seconds.
+  Evidence: `verify: unit+web+services ... ok (81s)`, `verify: integration ... ok (106s)`, `verify: judge-fixtures ... ok (0s)`, `verify: workflows ... ok (0s)`, `verify: transcriber ... ok (8s)`, `verify: plans ... ok (0s)`, `verify: all 6 checks passed in 196s.`
+
+- Observation (M2, 2026-11-13): the footer partial is included from one place, so the new link reaches every page that hands a municipality to its template. `grep -rn page_sources.html src/docket/web/templates` printed two lines: the partial's own header comment and `src/docket/web/templates/base.html:55:        {% include "partials/page_sources.html" %}`. No page includes it directly; the partial draws nothing when the context has no `municipality`. The pages that get the link are therefore every page that extends `base.html` and is rendered with a municipality that has an explainer: the city page, the meeting page, the item page, the transcript page, source health and the rest of the `/al/birmingham/` pages, and the new page itself.
+
+- Observation (M2, 2026-11-13): before the page exists, the new web tests are committed failing. `tests/web/test_how_it_works_page.py` holds 21 tests; 7 fail, 11 error in the shared fixture that asks for the page and gets 404, and 3 pass. The three that pass assert an absence that is already true: `/al/mobile/how-it-works/` is 404, a slug that is no city is 404, and Mobile's city page has no link. They are pinned by the removals recorded below, not by this before state.
+  Evidence: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/web/test_how_it_works_page.py -q -p no:cacheprovider; tools/test-db --drop` printed `7 failed, 3 passed, 1 warning, 11 errors in 1.30s`.
+
 ## Decision Log
 
 - Decision: The page lives at `/al/<slug>/how-it-works/` and returns 404 for any city that has no content directory.
