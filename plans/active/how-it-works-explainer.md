@@ -124,6 +124,12 @@ As authored on 2026-11-12, nothing has been executed and there are no discoverie
 - Observation (M5, 2026-11-13): the spec was written from the code and templates as they stand at `548cb61`, not from the plan's prose, and two things the plan's "As built" paragraphs do not say went into it after being read in the source: the "Recording" pill's words are "Recording on YouTube" or "Recording on Granicus" (the template writes " on " before the label `link_for` returns, and nothing when it returns none), and a hidden or missing meeting costs a stop the city's minutes and agenda pills as well as the site's (`_stop_links` returns six `None`s). `AGENTS.md` was 49 lines before its new Map line and is 50 after, under the 100 it sets for itself.
   Evidence: `wc -l AGENTS.md` printed `49` before the edit; `src/docket/web/templates/partials/how_it_works_journey.html` and `src/docket/services/how_it_works.py` as read in this session.
 
+- Observation (M5, 2026-11-13): the eleven journey quotations and four titles were counted in the files before the debt row about them was written. Eight quotations name no `source_file` (two in the parking-fines journey, four in the rezoning, two in the liquor licence) and three do (one in the parking-fines journey, one in the consent contract; the count of three in the files is two, see the correction that follows). M3's entry speaks of "three other quotations" in the parking-fines journey; the third, the amended title's added words, is inside the final vote's `text` and is not a `quote`.
+  Evidence: `grep -n 'quote:\|source_file\|^title' content/how-it-works/birmingham/journeys/*.yaml` printed ten `quote:` lines, two `source_file:` lines and four `title:` lines.
+  Correction (M5, 2026-11-13) to the entry above, written before its own evidence was recounted: the files hold ten quotations, not eleven. Two name a `source_file` (the Transportation minutes in the parking-fines journey, the Budget and Finance minutes in the consent contract) and eight do not; `D126` says eight, which is what the files hold.
+
+- Observation (M5, 2026-11-13): M5 names no edit to `ARCHITECTURE.md`, and none was made. Whether its component list should name `docket.services.how_it_works` and the `content/how-it-works/` tree beside the blog's loader is for the closing passes (doc-garden) to decide; it is not in this milestone's scope or acceptance.
+
 ## Decision Log
 
 - Decision: The page lives at `/al/<slug>/how-it-works/` and returns 404 for any city that has no content directory.
