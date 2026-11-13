@@ -21,6 +21,11 @@ shows the journey with no links but the file's own document. One test seeds
 the meeting and item a journey cites, under the ids the file gives, to run
 the link markup; two swap a journey built in the test into the application's
 explainer to draw the states the parking-fines journey does not have.
+
+M4 adds the three further journeys and the picker that switches between them:
+one link per journey above the journey's title, each an ordinary address and
+also an htmx request that swaps the journey's container, for which the route
+answers with the partial alone.
 """
 
 from __future__ import annotations
@@ -475,10 +480,13 @@ def test_every_stop_section_links_back_to_the_journey(page):
 
 
 def test_no_stop_is_drawn_as_the_current_one(page):
+    # M4: the picker marks the journey shown with aria-current; the path and
+    # the timeline, which are what this test is about, still mark no stop.
     journey = page.select_one(JOURNEY)
-    assert journey.find(attrs={"aria-current": True}) is None
-    words = _text(journey).lower()
-    assert "current" not in words and " now " not in f" {words} "
+    for part in (journey.select_one("nav.hiw-path"), journey.select_one("ol.hiw-timeline")):
+        assert part.find(attrs={"aria-current": True}) is None
+        words = _text(part).lower()
+        assert "current" not in words and " now " not in f" {words} "
 
 
 # --- the link markup, on the rows a journey cites ---------------------------
@@ -690,3 +698,264 @@ def test_a_city_with_no_journeys_still_shows_the_path_and_the_rules(client):
     assert bare.select_one("blockquote.hiw-journey-title") is None
     assert not [a for a in bare.find_all("a") if _text(a) == "Back to the journey"]
     assert len(bare.select("section.hiw-stop")) == 10
+
+
+# --- four journeys and the picker (plan how-it-works-explainer, M4) ---------
+
+JOURNEYS = [
+    ("parking-fines", "Parking fines ordinance"),
+    ("rezoning-huffman-road", "A rezoning with a split recommendation"),
+    ("liquor-licence-legion-field", "A liquor licence with a hearing"),
+    ("consent-avondale-park", "A routine contract on consent"),
+]
+HTMX = {"HX-Request": "true"}
+
+
+def _address(key: str) -> str:
+    return f"{PAGE}?journey={key}"
+
+
+def _picker(page):
+    picker = page.select_one(f"{JOURNEY} nav.hiw-picker")
+    assert picker is not None, "the journey has no nav.hiw-picker"
+    return picker.find_all("a")
+
+
+def test_the_picker_lists_the_four_journeys_in_order(page):
+    links = _picker(page)
+
+    assert [_text(a) for a in links] == [label for _, label in JOURNEYS]
+    assert [a["href"] for a in links] == [_address(key) for key, _ in JOURNEYS]
+
+
+@pytest.mark.parametrize("key,label", JOURNEYS)
+def test_each_journey_is_served_at_its_own_address_with_its_label_as_the_heading(client, key, label):
+    drawn = _soup(client, _address(key))
+
+    assert _text(drawn.select_one(f"{JOURNEY} h2.hiw-journey-label")) == label
+    assert len(_picker(drawn)) == 4
+
+
+@pytest.mark.parametrize("key,label", JOURNEYS)
+def test_the_picker_marks_only_the_journey_shown(client, key, label):
+    drawn = _soup(client, _address(key))
+
+    assert [_text(a) for a in _picker(drawn) if a.get("aria-current")] == [label]
+    assert [a["aria-current"] for a in _picker(drawn) if a.get("aria-current")] == ["true"]
+
+
+def test_the_picker_marks_the_first_journey_when_none_is_named(page):
+    assert [_text(a) for a in _picker(page) if a.get("aria-current")] == ["Parking fines ordinance"]
+
+
+def test_each_picker_link_swaps_the_journey_in_place_and_pushes_its_address(page):
+    for link in _picker(page):
+        assert link["hx-get"] == link["href"]
+        assert link["hx-target"] == JOURNEY
+        assert link["hx-swap"] == "outerHTML"
+        assert link["hx-push-url"] == "true"
+
+
+def test_each_picker_link_has_an_id_so_focus_survives_the_swap(page):
+    ids = [a.get("id") for a in _picker(page)]
+
+    assert ids == [f"hiw-pick-{key}" for key, _ in JOURNEYS]
+
+
+@pytest.mark.parametrize("key,label", JOURNEYS)
+def test_the_picker_comes_first_then_the_title_the_path_and_the_timeline(client, key, label):
+    journey = _soup(client, _address(key)).select_one(JOURNEY)
+    wanted = {"hiw-picker", "hiw-journey-head", "hiw-path-list", "hiw-event"}
+    order = []
+    for node in journey.find_all(True):
+        for name in wanted.intersection(node.get("class", [])):
+            if name not in order:
+                order.append(name)
+
+    assert order == ["hiw-picker", "hiw-journey-head", "hiw-path-list", "hiw-event"]
+    assert journey.find_all(True, recursive=False)[0].name == "nav"
+    assert "hiw-picker" in journey.find_all(True, recursive=False)[0]["class"]
+
+
+def test_the_rezoning_journey_shows_the_split_recommendation_and_a_tally_from_the_video(client):
+    drawn = _soup(client, _address("rezoning-huffman-road"))
+    cards = _cards(drawn)
+
+    assert len(cards) == 6
+    assert "NOT Recommended by the ZAC" in _text(drawn.select_one(JOURNEY))
+    assert _text(drawn.select_one("blockquote.hiw-journey-title")) == (
+        "(Recommended by the Planning and Zoning Committee) (NOT Recommended by the ZAC)")
+    labels = {i: _text(label) for i, card in enumerate(cards) for label in card.select(".hiw-event-provenance")}
+    assert labels == {4: "from the video"}
+    assert "Passed 8 to 0, read from the video" in _text(cards[4])
+    zac = cards[1]
+    assert "hiw-event--gap" in zac["class"]
+    assert _text(zac.find("blockquote")) == "(NOT Recommended by the ZAC)"
+    assert _text(zac.select_one(".hiw-event-gap")) == (
+        "The site holds no record of the Zoning Advisory Committee's meeting.")
+    assert list(_pills(cards[2])) == ["Committee minutes"]
+    assert _marks(drawn) == {
+        "Submitted": MISSING,
+        "Committee": REACHED,
+        "On the agenda": REACHED,
+        "Consent": "",
+        "Public hearing": REACHED,
+        "First reading": REACHED,
+        "Held over": "",
+        "Final vote": REACHED,
+        "Mayor": MISSING,
+        "In effect": MISSING,
+    }
+
+
+def test_the_liquor_licence_journey_shows_the_lack_of_quorum_and_no_first_reading(client):
+    drawn = _soup(client, _address("liquor-licence-legion-field"))
+    cards = _cards(drawn)
+
+    assert len(cards) == 5
+    assert "Lack of Quorum" in _text(cards[1].find("blockquote"))
+    assert "hiw-event--off-route" in cards[2]["class"]
+    assert _text(cards[2].select_one(".hiw-event-gap")) == (
+        "The agenda does not mark this resolution as a first reading.")
+    labels = {i: _text(label) for i, card in enumerate(cards) for label in card.select(".hiw-event-provenance")}
+    assert labels == {3: "from the video"}
+    assert "No Recommendation by the Public Safety Committee" in _text(cards[3].find("blockquote"))
+    assert _marks(drawn) == {
+        "Submitted": MISSING,
+        "Committee": REACHED,
+        "On the agenda": REACHED,
+        "Consent": "",
+        "Public hearing": REACHED,
+        "First reading": OFF_ROUTE,
+        "Held over": "",
+        "Final vote": REACHED,
+        "Mayor": MISSING,
+        "In effect": MISSING,
+    }
+
+
+def test_the_consent_journey_shows_the_consent_agenda_and_no_vote(client):
+    drawn = _soup(client, _address("consent-avondale-park"))
+    cards = _cards(drawn)
+
+    assert len(cards) == 6
+    assert "Consent Agenda" in _text(cards[1].find("blockquote"))
+    assert "Consent items pass on one motion for the group." in _text(cards[3])
+    assert [_text(a) for a in cards[3].select(".hiw-event-stops a")] == ["On the agenda", "Consent"]
+    assert "hiw-event--gap" in cards[4]["class"]
+    assert "No vote is linked to this item" in _text(cards[4])
+    assert "from the video" not in _text(drawn.select_one(JOURNEY))
+    assert _marks(drawn) == {
+        "Submitted": MISSING,
+        "Committee": REACHED,
+        "On the agenda": REACHED,
+        "Consent": REACHED,
+        "Public hearing": "",
+        "First reading": OFF_ROUTE,
+        "Held over": "",
+        "Final vote": MISSING,
+        "Mayor": MISSING,
+        "In effect": MISSING,
+    }
+
+
+def test_not_on_this_items_route_is_said_for_the_two_resolutions_and_not_for_the_ordinances(client):
+    said = {key: OFF_ROUTE in _text(_soup(client, _address(key)).select_one(JOURNEY)) for key, _ in JOURNEYS}
+    raw = {key: "not on this item" in client.get(_address(key)).get_data(as_text=True) for key, _ in JOURNEYS}
+
+    assert said == raw == {
+        "parking-fines": False,
+        "rezoning-huffman-road": False,
+        "liquor-licence-legion-field": True,
+        "consent-avondale-park": True,
+    }
+
+
+@pytest.mark.parametrize("key,label", JOURNEYS)
+def test_every_main_stop_carries_one_of_the_three_marks_in_every_journey(client, key, label):
+    marks = _marks(_soup(client, _address(key)))
+
+    assert [name for name in MAIN_STOPS if marks[name] not in (REACHED, MISSING, OFF_ROUTE)] == []
+
+
+@pytest.mark.parametrize("key,label", JOURNEYS)
+def test_an_htmx_request_gets_the_journey_alone(client, key, label):
+    response = client.get(_address(key), headers=HTMX)
+    body = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "<html" not in body and "<head" not in body and "<body" not in body
+    assert label in body
+    partial = BeautifulSoup(body, "html.parser")
+    roots = partial.find_all(True, recursive=False)
+    assert [(root.name, root.get("id")) for root in roots] == [("div", "how-it-works-journey")]
+    assert len(_picker(partial)) == 4
+    assert [_text(a) for a in _picker(partial) if a.get("aria-current")] == [label]
+    assert len(_path(partial).find_all("li", recursive=False)) == 7
+    assert _text(partial.select_one("h2.hiw-journey-label")) == label
+    assert not partial.select("section.hiw-stop")
+    assert "What we could not establish" not in body
+
+
+@pytest.mark.parametrize("key,label", JOURNEYS)
+def test_the_swapped_journey_is_the_one_the_full_page_holds(client, key, label):
+    full = _soup(client, _address(key)).select_one(JOURNEY)
+    partial = BeautifulSoup(client.get(_address(key), headers=HTMX).get_data(as_text=True), "html.parser")
+
+    assert _text(partial.select_one(JOURNEY)) == _text(full)
+    assert _marks(partial) == _marks(full.find_parent())
+
+
+def test_an_htmx_history_restore_gets_the_whole_page(client):
+    response = client.get(
+        _address("consent-avondale-park"), headers={**HTMX, "HX-History-Restore-Request": "true"})
+    body = response.get_data(as_text=True)
+
+    assert "<html" in body
+    assert "What we could not establish" in body
+    assert "A routine contract on consent" in body
+
+
+def test_the_answer_varies_on_the_htmx_header_whichever_was_sent(client):
+    assert client.get(PAGE).headers["Vary"] == "HX-Request"
+    assert client.get(PAGE, headers=HTMX).headers["Vary"] == "HX-Request"
+    assert "<html" in client.get(PAGE).get_data(as_text=True)
+
+
+def test_an_htmx_request_for_a_journey_that_does_not_exist_is_404(client):
+    assert client.get(_address("nope"), headers=HTMX).status_code == 404
+
+
+def test_an_htmx_request_with_no_journey_named_gets_the_first(client):
+    partial = BeautifulSoup(client.get(PAGE, headers=HTMX).get_data(as_text=True), "html.parser")
+
+    assert _text(partial.select_one("h2.hiw-journey-label")) == "Parking fines ordinance"
+
+
+def test_no_response_names_the_second_copy_of_the_rezoning_item(client):
+    for key, _ in JOURNEYS:
+        assert "62832" not in client.get(_address(key)).get_data(as_text=True), key
+        assert "62832" not in client.get(_address(key), headers=HTMX).get_data(as_text=True), key
+    assert "62832" not in client.get(PAGE).get_data(as_text=True)
+
+
+def test_a_city_with_no_journeys_has_no_picker(client):
+    with _journeys(client):
+        bare = _soup(client, PAGE)
+        partial = client.get(PAGE, headers=HTMX)
+
+    assert bare.select_one("nav.hiw-picker") is None
+    assert bare.select_one(JOURNEY) is not None
+    assert partial.status_code == 200
+    assert "<html" not in partial.get_data(as_text=True)
+    assert 'id="how-it-works-journey"' in partial.get_data(as_text=True)
+
+
+def test_the_picker_lists_whatever_journeys_the_city_has(client):
+    with _journeys(client, _licence(), _journey("other", _journey_stop(
+            "submitted", "committee", "agenda", "first_reading", "final_vote", "mayor", "in_effect",
+            record="none", text="Nothing at all.", gap="No record."))):
+        other = _soup(client, _address("other"))
+
+    assert [_text(a) for a in _picker(other)] == ["Journey licence", "Journey other"]
+    assert [_text(a) for a in _picker(other) if a.get("aria-current")] == ["Journey other"]

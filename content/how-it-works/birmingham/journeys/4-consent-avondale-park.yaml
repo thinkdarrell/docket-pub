@@ -1,0 +1,74 @@
+# One real item followed across the path: the Friends of Avondale Park
+# agreement, a resolution on the consent agenda, 2026.
+#
+# Every date and quotation on the page for this journey is written here; the
+# page reads nothing but links from the database
+# (`docket.services.how_it_works.resolve_journey`). The ids are production's
+# `meetings.id` and `agenda_items.id`, read on 2026-11-12. The committee's
+# action is checked by the loader against the saved minutes (`source_file`);
+# the title is the resolution as those same minutes print it, and a test
+# checks it against the same file. No vote is given: none is linked to the
+# item and the minutes of 2026-10-20 are not published. When they are, re-read
+# them, give the final vote its date, meeting and tally, and run
+# `./tools/verify`.
+
+key: consent-avondale-park
+label: A routine contract on consent
+note: >-
+  An agreement of up to $4,000 for free events in Avondale Park, recommended to
+  the consent agenda by the committee and listed there by the council. The
+  resolution, as the committee's minutes print it:
+title: >-
+  A Resolution authorizing the Mayor to execute and deliver an agreement with
+  Friends of Avondale Park, Inc. under which Friends of Avondale Park, Inc.
+  shall provide free, family-friendly entertainment in a safe and welcoming
+  setting for residents of all ages and backgrounds … the City shall pay
+  Friends of Avondale Park, Inc. an amount not to exceed $4,000.
+
+stops:
+  - stops: [submitted]
+    record: none
+    text: >-
+      The committee's minutes give the submitter as Jeff McDaniels, of the
+      City Council's own department.
+    gap: The submission date is not published.
+
+  - stops: [committee]
+    date: 2026-10-12
+    record: committee_minutes
+    meeting_id: 3183
+    text: >-
+      Budget and Finance Committee, item 6, inside the committee's own consent
+      block ("Items #4,6,7,8,9,10,11,12"). The action the minutes record for
+      the block:
+    quote: >-
+      Councilor Alexander Motioned to Approve. Councilor Woods Seconded the
+      Motion. Items Recommended to the City Council Consent Agenda.
+    source_file: committee-bf_min.txt
+    document:
+      label: Committee minutes
+      url: https://s3.us-east-2.amazonaws.com/assets.birminghamal.gov/s3fs-public/2026-11/BUDGET%20AND%20FINANCE%20COMMITTEE%20MEETING%20MINUTES%2C%20October%2012%2C%202026.pdf
+
+  - stops: [first_reading]
+    record: not_on_route
+    text: This item is a resolution, and its text carries no reading marker.
+    gap: The agenda does not mark this resolution as a first reading.
+
+  - stops: [agenda, consent]
+    date: 2026-10-20
+    record: agenda
+    meeting_id: 2624
+    item_id: 62911
+    seconds: 1714
+    text: >-
+      Consent item 18. Consent items pass on one motion for the group.
+
+  - stops: [final_vote]
+    record: none
+    text: No vote is linked to this item.
+    gap: The minutes of the meeting of October 20, 2026 are not published.
+
+  - stops: [mayor, in_effect]
+    record: none
+    text: The consent agenda is the last event the site holds for this resolution.
+    gap: The site holds no record of a signature, a veto or publication.

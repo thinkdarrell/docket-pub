@@ -806,3 +806,135 @@ def test_a_journey_file_that_is_not_valid_yaml_raises_naming_it(tmp_path):
 
     with pytest.raises(ExplainerError, match=r"broken\.yaml"):
         load_explainer(city_dir)
+
+
+# --- journeys: the three further ones (plan how-it-works-explainer, M4) -----
+
+NO_FIRST_READING = "The agenda does not mark this resolution as a first reading."
+
+
+def _journeys_by_key():
+    from docket.services.how_it_works import load_explainer
+
+    return {j.key: j for j in load_explainer(BIRMINGHAM).journeys}
+
+
+def _shape(journey):
+    return [(s.stops, s.record) for s in journey.stops]
+
+
+def _recorded_rows(journey):
+    return [(s.date.isoformat(), s.meeting_id, s.item_id, s.seconds) for s in journey.stops if s.date]
+
+
+def test_birmingham_has_four_journeys_in_the_pickers_order():
+    from docket.services.how_it_works import load_explainer
+
+    journeys = load_explainer(BIRMINGHAM).journeys
+
+    assert [(j.key, j.label) for j in journeys] == [
+        ("parking-fines", "Parking fines ordinance"),
+        ("rezoning-huffman-road", "A rezoning with a split recommendation"),
+        ("liquor-licence-legion-field", "A liquor licence with a hearing"),
+        ("consent-avondale-park", "A routine contract on consent"),
+    ]
+
+
+def test_the_journey_files_are_numbered_one_to_four_and_their_keys_are_not():
+    names = sorted(p.name for p in (BIRMINGHAM / "journeys").glob("*.yaml"))
+
+    assert names == [
+        "1-parking-fines.yaml",
+        "2-rezoning-huffman-road.yaml",
+        "3-liquor-licence-legion-field.yaml",
+        "4-consent-avondale-park.yaml",
+    ]
+
+
+def test_the_rezoning_journey_has_six_stops_on_the_records_it_rests_on():
+    journey = _journeys_by_key()["rezoning-huffman-road"]
+
+    assert _shape(journey) == [
+        (("submitted",), "none"),
+        (("committee",), "none"),
+        (("committee",), "committee_minutes"),
+        (("agenda", "first_reading"), "agenda"),
+        (("hearing", "final_vote"), "video"),
+        (("mayor", "in_effect"), "none"),
+    ]
+    assert _recorded_rows(journey) == [
+        ("2026-09-08", 3172, None, None),
+        ("2026-09-15", 2487, 61883, 3320),
+        ("2026-10-13", 2609, 62781, 2662),
+    ]
+    assert journey.stops[1].quote == "(NOT Recommended by the ZAC)"
+    assert "Zoning Advisory Committee" in journey.stops[1].gap
+    assert journey.stops[2].document_url.endswith("September%208%2C%202026.pdf")
+    assert "8 to 0" in journey.stops[4].text and "read from the video" in journey.stops[4].text
+    assert "ZAC2026-08007" in journey.note and "1259 Huffman Road" in journey.note
+
+
+def test_the_liquor_licence_journey_has_five_stops_and_no_first_reading():
+    journey = _journeys_by_key()["liquor-licence-legion-field"]
+
+    assert _shape(journey) == [
+        (("submitted",), "none"),
+        (("committee",), "committee_minutes"),
+        (("first_reading",), "not_on_route"),
+        (("agenda", "hearing", "final_vote"), "video"),
+        (("mayor", "in_effect"), "none"),
+    ]
+    assert _recorded_rows(journey) == [
+        ("2026-09-22", 3179, None, None),
+        ("2026-09-29", 2536, 62035, 872),
+    ]
+    assert "Councilor Tate, Chairman of the Public Safety Committee" in journey.stops[0].text
+    assert "no submission date" in journey.stops[0].gap
+    assert journey.stops[1].quote.endswith("By The Committee Chair – Lack of Quorum.")
+    assert journey.stops[2].gap == NO_FIRST_READING
+    assert "8 to 0" in journey.stops[3].text and "read from the video" in journey.stops[3].text
+    assert journey.title.startswith("A Resolution relative to the application of Greenawalt Hospitality, LLC")
+
+
+def test_the_consent_journey_has_six_stops_and_no_vote():
+    journey = _journeys_by_key()["consent-avondale-park"]
+
+    assert _shape(journey) == [
+        (("submitted",), "none"),
+        (("committee",), "committee_minutes"),
+        (("first_reading",), "not_on_route"),
+        (("agenda", "consent"), "agenda"),
+        (("final_vote",), "none"),
+        (("mayor", "in_effect"), "none"),
+    ]
+    assert _recorded_rows(journey) == [
+        ("2026-10-12", 3183, None, None),
+        ("2026-10-20", 2624, 62911, 1714),
+    ]
+    assert journey.stops[1].source_file == "committee-bf_min.txt"
+    assert journey.stops[1].quote.endswith("Items Recommended to the City Council Consent Agenda.")
+    assert journey.stops[2].gap == NO_FIRST_READING
+    assert "Consent items pass on one motion for the group." in journey.stops[3].text
+    assert "No vote is linked to this item" in journey.stops[4].text
+    assert "not published" in journey.stops[4].gap
+
+
+def test_the_consent_journeys_title_is_the_resolution_as_the_saved_committee_minutes_print_it():
+    from docket.services.how_it_works import _missing_quote_piece, normalise_for_quote_check
+
+    journey = _journeys_by_key()["consent-avondale-park"]
+    source = normalise_for_quote_check((BIRMINGHAM / "sources" / "committee-bf_min.txt").read_text(encoding="utf-8"))
+
+    assert "…" in journey.title
+    assert _missing_quote_piece(journey.title, source) is None
+    assert _missing_quote_piece(journey.title.replace("$4,000", "$5,000"), source) is not None
+
+
+def test_no_journey_cites_the_second_copy_of_the_rezoning_item():
+    for path in (BIRMINGHAM / "journeys").glob("*.yaml"):
+        text = path.read_text(encoding="utf-8")
+        assert "62832" not in text, path.name
+        assert "2613" not in text, path.name
+    for journey in _journeys_by_key().values():
+        for stop in journey.stops:
+            assert stop.item_id != 62832 and stop.meeting_id != 2613, journey.key
