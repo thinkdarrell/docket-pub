@@ -297,6 +297,24 @@ first, the runner-up score was 3.3 to 6.0; a `rejected` row whose runner-up is
 near its score is a recording that matches at two offsets (`D98`), not a wrong
 match. The count of `rejected` rows by reason is the trigger of `D97` and `D98`.
 
+A rejected row can be passed by hand when its confirmed span is exactly its
+confirmed windows: `granicus_end_s - granicus_start_s = windows_confirmed * 300`.
+Then every window inside the span agreed on the offset and the windows that
+disagreed all lie outside it, so links inside the span land where they should
+and links outside it stay on Granicus. The statement is the reverse of the
+operator's off switch in the plan's "Idempotence and Recovery":
+
+    UPDATE meeting_video_alignments
+       SET status = 'passed', reason = 'operator'
+     WHERE meeting_video_id = <id> AND status = 'rejected'
+       AND granicus_end_s - granicus_start_s = windows_confirmed * 300
+    RETURNING meeting_video_id, status, granicus_start_s, granicus_end_s;
+
+The row is then current and is not measured again until `ALIGN_METHOD_VERSION`
+rises. Record each override under History with the figures that justified it.
+A rejected row whose span is longer than its confirmed windows is not a
+candidate: the span holds windows that did not confirm.
+
 ## Checking progress from the laptop
 
 All read-only. The URL is the app's public proxy URL from Railway.
@@ -496,3 +514,24 @@ throwaway database it builds (`docs/specs/operations.md`).
   is item 3's, filed under item 64 by the vote matcher (issue #142, not a
   video-links fault). The yt-dlp warning about a missing JavaScript runtime
   printed once per download and stopped none (`D85`).
+- 2026-11-12: the backlog's state read from the laptop (query 4), after the
+  backlog runs of 2026-11-07: 171 of the 359 recordings measured, newest first,
+  back to 2023-01-31; 108 `passed` (scores 12.3 to 188.5), 60 `rejected`, 3
+  `failed`. The rejections by reason: `conflict` 24, `windows` 23, `margin` 5,
+  `score` 5, `no_window` 3. Read against the runner-up: about 33 are recordings
+  that match at two offsets (runner-up 35 percent or more of the score, the
+  `D98` shape; meetings 157 to 168 of early 2023 all have it, with offsets near
+  2,000 s and confirmation starting half an hour or more into the stream), about
+  12 are strong single matches lost to one conflict window or the 60 percent
+  share (meeting 2238: 34 of 40 windows, score 158.9, runner-up 4.7), 8 score 4
+  to 7 against an offset of hours and are probably the wrong video attached
+  (meeting 14, 2026-02-24, `rPj70c-TJlY`, score 5.1, offset -6,417.8 s; the
+  three `no_window` rows and four `score` rows look the same), and the 3
+  `failed` are Granicus clips 1662, 1666, and 1667 (2023), which return 404 or
+  403 and are retried every run. Meetings 71 and 78 each have two uploads with
+  identical measurements. `D98`'s trigger has fired. One override by the
+  statement above: meeting 15 (2026-02-17, clip 1950, `N_-LpyP62Lo`, row 832),
+  rejected `windows` with 9 of 16, offset 948.84 s, span 948.84 to 3,648.84 s,
+  which is exactly 9 windows, set to `passed` with reason `operator`. Checked in
+  a browser: item 687's "Watch this vote" opens YouTube at `t=2360s`, and the
+  transcript page's item links read 13 on YouTube and 7 on Granicus.
