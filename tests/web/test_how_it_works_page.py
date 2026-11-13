@@ -13,10 +13,21 @@ BeautifulSoup so an assertion is about structure, not about how Jinja escaped
 an apostrophe.
 
 Plan ``how-it-works-explainer``, M2.
+
+M3 adds the journey: one real item laid onto the path, above the explanation.
+Its facts are the journey file's; only its links come from the database, and
+the throwaway database holds no Birmingham meetings, so the default page
+shows the journey with no links but the file's own document. One test seeds
+the meeting and item a journey cites, under the ids the file gives, to run
+the link markup; two swap a journey built in the test into the application's
+explainer to draw the states the parking-fines journey does not have.
 """
 
 from __future__ import annotations
 
+import dataclasses
+from contextlib import contextmanager
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -89,7 +100,10 @@ def test_the_side_routes_hang_in_nested_lists_under_the_stop_they_branch_from(pa
         nested = li.find("ul", recursive=False)
         if nested is not None:
             name = li.find("a", recursive=False).get_text(" ", strip=True)
-            found[name] = [side.get_text(" ", strip=True) for side in nested.find_all("li", recursive=False)]
+            found[name] = [
+                side.find("a", recursive=False).get_text(" ", strip=True)
+                for side in nested.find_all("li", recursive=False)
+            ]
     assert found == SIDE_ROUTES
 
 
@@ -252,3 +266,402 @@ def test_a_broken_explainer_stops_the_application_from_starting(tmp_path, monkey
     monkeypatch.setattr(docket.web, "HOW_IT_WORKS_ROOT", str(tmp_path), raising=False)
     with pytest.raises(ExplainerError, match=r"stops\[0\]\.rules\[0\]\.quote"):
         docket.web.create_app()
+
+
+# --- the journey (plan how-it-works-explainer, M3) --------------------------
+
+JOURNEY = "#how-it-works-journey"
+REACHED = "in the record"
+MISSING = "not in the record"
+OFF_ROUTE = "not on this item's route"
+
+
+def _text(node) -> str:
+    return " ".join(node.get_text(" ", strip=True).split())
+
+
+def _soup(client, address):
+    response = client.get(address)
+    assert response.status_code == 200, (address, response.status_code)
+    return BeautifulSoup(response.get_data(as_text=True), "html.parser")
+
+
+def _cards(page):
+    return page.select(f"{JOURNEY} ol.hiw-timeline > li")
+
+
+def _card(page, date_text: str, stop_name: str):
+    for card in _cards(page):
+        names = [a.get_text(" ", strip=True) for a in card.select(".hiw-event-stops a")]
+        if stop_name in names and date_text in _text(card.select_one(".hiw-event-date")):
+            return card
+    raise AssertionError(f"no card for {stop_name} on {date_text}")
+
+
+def _pills(card) -> dict[str, str]:
+    return {_text(a): a["href"] for a in card.select(".hiw-links a")}
+
+
+def _marks(page) -> dict[str, str]:
+    """Each stop and side route on the path, by name, with the words of its mark."""
+    marks = {}
+    for li in _path(page).find_all("li"):
+        mark = li.find("span", class_="hiw-path-mark", recursive=False)
+        marks[li.find("a", recursive=False).get_text(" ", strip=True)] = _text(mark) if mark else ""
+    return marks
+
+
+def test_the_page_shows_the_parking_fines_journey_by_default(page):
+    journey = page.select_one(JOURNEY)
+    assert journey is not None
+    text = _text(journey)
+    assert "Parking fines ordinance" in text
+    assert "Held over a week for lack of unanimous consent." in text
+    assert "Section 8" in text
+    assert "An Ordinance to amend Title 8, Chapter 3, Section 10" in text
+    assert "Did Not Receive Unanimous Consent" in text
+
+
+def test_the_journeys_title_is_drawn_as_a_quotation(page):
+    quoted = page.select_one(f"{JOURNEY} blockquote.hiw-journey-title")
+    assert quoted is not None
+    assert _text(quoted).startswith("An Ordinance to amend Title 8, Chapter 3, Section 10")
+
+
+def test_not_in_the_record_is_said_at_least_three_times(client):
+    body = client.get(PAGE).get_data(as_text=True)
+    assert body.count("not in the record") >= 3
+
+
+def test_a_journey_named_in_the_address_is_shown(client):
+    named = _soup(client, PAGE + "?journey=parking-fines")
+    assert "Parking fines ordinance" in _text(named.select_one(JOURNEY))
+
+
+def test_a_journey_that_does_not_exist_is_404(client):
+    assert client.get(PAGE + "?journey=nope").status_code == 404
+    assert client.get(PAGE + "?journey=").status_code == 404
+
+
+def test_the_journey_comes_before_the_path_and_the_path_before_the_timeline(page):
+    journey = page.select_one(JOURNEY)
+    order = [
+        node.name
+        for node in journey.find_all(["header", "nav", "ol"])
+        if node.name == "header" or "hiw-path" in node.get("class", []) or "hiw-timeline" in node.get("class", [])
+    ]
+    assert order == ["header", "nav", "ol"]
+    assert _path(page).find_parent(id="how-it-works-journey") is not None
+    hero = page.select_one("section.hero")
+    assert hero.find_parent(id="how-it-works-journey") is None
+    assert hero.find_next(id="how-it-works-journey") is journey
+    assert journey.find_next("section", class_="hiw-stop") is not None
+    assert page.find(id="stop-submitted").find_parent(id="how-it-works-journey") is None
+
+
+def test_the_timeline_has_one_card_for_each_stop_of_the_journey_in_file_order(page):
+    journey = _explainer().journeys[0]
+    names = {stop.key: stop.name for stop in _explainer().stops}
+    cards = _cards(page)
+    assert len(cards) == len(journey.stops) == 8
+    for card, stop in zip(cards, journey.stops):
+        links = card.select(".hiw-event-stops a")
+        assert [a["href"] for a in links] == [f"#stop-{key}" for key in stop.stops]
+        assert [a.get_text(" ", strip=True) for a in links] == [names[key] for key in stop.stops]
+        assert " ".join(stop.text.split()) in _text(card)
+        quote = card.find("blockquote")
+        if stop.quote:
+            assert _text(quote) == " ".join(stop.quote.split())
+        else:
+            assert quote is None
+
+
+def test_a_recorded_card_shows_its_date_and_a_gap_shows_not_in_the_record(page):
+    cards = _cards(page)
+    dates = [_text(card.select_one(".hiw-event-date")) for card in cards]
+    assert dates == [
+        MISSING,
+        "May 11, 2026",
+        "May 19, 2026",
+        "May 26, 2026",
+        "June 2, 2026",
+        "June 2, 2026",
+        MISSING,
+        MISSING,
+    ]
+    assert cards[1].select_one("time")["datetime"] == "2026-05-11"
+    assert cards[0].find("time") is None
+
+
+def test_a_gap_is_drawn_as_a_gap_with_its_reason(page):
+    cards = _cards(page)
+    gaps = [card for card in cards if "hiw-event--gap" in card["class"]]
+    assert [cards.index(card) for card in gaps] == [0, 6, 7]
+    assert _text(gaps[0].select_one(".hiw-event-gap")) == "The submission date is not published."
+    assert _text(gaps[1].select_one(".hiw-event-gap")) == "The site holds no record of a signature or a veto."
+    assert _text(gaps[2].select_one(".hiw-event-gap")) == "The site holds no publication record."
+    for card in cards:
+        if card not in gaps:
+            assert "hiw-event--recorded" in card["class"]
+            assert card.select_one(".hiw-event-gap") is None
+
+
+def test_only_the_stop_read_from_the_machine_transcript_carries_a_provenance_label(page):
+    labels = {i: _text(label) for i, card in enumerate(_cards(page))
+              for label in card.select(".hiw-event-provenance")}
+    assert labels == {2: "from the machine transcript"}
+    assert "from the video" not in _text(page.select_one(JOURNEY))
+
+
+def test_the_first_reading_card_gives_both_tallies_and_the_declaration(page):
+    card = _card(page, "May 26, 2026", "First reading")
+    text = _text(card)
+    assert "Three ayes: Gunn, Vasa, Woods." in text
+    assert "Six nays: O'Quinn, Smith, Smitherman, Williams, Tate, Alexander." in text
+    assert "declared the ordinance not adopted" in _text(card.find("blockquote"))
+
+
+def test_without_the_citys_rows_a_stop_keeps_its_text_and_only_the_files_own_document(page):
+    pills = [_pills(card) for card in _cards(page)]
+    committee = pills[1]
+    assert list(committee) == ["Committee minutes"]
+    assert committee["Committee minutes"].startswith("https://s3.us-east-2.amazonaws.com/")
+    assert all(not found for i, found in enumerate(pills) if i != 1)
+    assert "Ordinance No. 26-61" in _text(_cards(page)[5])
+
+
+def test_the_path_marks_each_stop_from_the_journey(page):
+    assert _marks(page) == {
+        "Submitted": MISSING,
+        "Committee": REACHED,
+        "On the agenda": REACHED,
+        "Consent": "",
+        "Public hearing": "",
+        "First reading": REACHED,
+        "Held over": REACHED,
+        "Final vote": REACHED,
+        "Mayor": MISSING,
+        "In effect": MISSING,
+    }
+
+
+def test_each_mark_has_its_own_class_on_the_stop(page):
+    state = {}
+    for li in _path(page).find_all("li"):
+        name = li.find("a", recursive=False).get_text(" ", strip=True)
+        state[name] = sorted(c.rsplit("--", 1)[1] for c in li["class"] if "--" in c)
+    assert state == {
+        "Submitted": ["missing"],
+        "Committee": ["reached"],
+        "On the agenda": ["reached"],
+        "Consent": ["untouched"],
+        "Public hearing": ["untouched"],
+        "First reading": ["reached"],
+        "Held over": ["reached"],
+        "Final vote": ["reached"],
+        "Mayor": ["missing"],
+        "In effect": ["missing"],
+    }
+
+
+def test_every_stop_section_links_back_to_the_journey(page):
+    sections = page.select("section.hiw-stop")
+    assert len(sections) == 10
+    for section in sections:
+        back = [a for a in section.find_all("a") if _text(a) == "Back to the journey"]
+        assert len(back) == 1
+        assert back[0]["href"] == JOURNEY
+    assert page.select_one(JOURNEY).name == "div"
+
+
+def test_no_stop_is_drawn_as_the_current_one(page):
+    journey = page.select_one(JOURNEY)
+    assert journey.find(attrs={"aria-current": True}) is None
+    words = _text(journey).lower()
+    assert "current" not in words and " now " not in f" {words} "
+
+
+# --- the link markup, on the rows a journey cites ---------------------------
+
+MEETING_ID = 2238
+ITEM_ID = 59026
+SEED_PREFIX = "hiwpage-"
+SEED_PLAYER = "https://bhamal.granicus.com/MediaPlayer.php?view_id=2&clip_id=2238"
+SEED_AGENDA = "https://example.org/hiwpage/agenda-2026-06-02.pdf"
+SEED_MINUTES = "https://example.org/hiwpage/minutes-2026-06-02.pdf"
+
+
+@pytest.fixture
+def cited_rows():
+    """Meeting 2238 and item 59026 under Birmingham, as the parking-fines file cites them.
+
+    The ids are explicit because the page reads them from the journey file; if
+    the throwaway database already holds either, the insert fails loudly.
+    """
+    from docket.db import db
+    from tests.support import briefing_seed
+
+    def cleanup(cur):
+        cur.execute("DELETE FROM meetings WHERE external_id LIKE %s", (SEED_PREFIX + "%",))
+
+    with db() as conn, conn.cursor() as cur:
+        cleanup(cur)
+        cur.execute("SELECT id FROM municipalities WHERE slug = 'birmingham'")
+        city_id = cur.fetchone()[0]
+        cur.execute(
+            """INSERT INTO meetings (id, municipality_id, external_id, title, meeting_date, meeting_type,
+                                     video_url, agenda_url, minutes_url)
+               VALUES (%s, %s, %s, 'Regular City Council Meeting', %s, 'council', %s, %s, %s)""",
+            (MEETING_ID, city_id, SEED_PREFIX + "2238", date(2026, 6, 2), SEED_PLAYER, SEED_AGENDA, SEED_MINUTES),
+        )
+        cur.execute(
+            """INSERT INTO agenda_items (id, meeting_id, external_id, item_number, title, processing_status)
+               VALUES (%s, %s, '371088', '11', 'An Ordinance to amend Title 8, Chapter 3, Section 10', 'completed')""",
+            (ITEM_ID, MEETING_ID),
+        )
+        conn.commit()
+    briefing_seed.clear_caches()
+    try:
+        yield
+    finally:
+        with db() as conn, conn.cursor() as cur:
+            cleanup(cur)
+            conn.commit()
+        briefing_seed.clear_caches()
+
+
+def test_a_stop_whose_rows_exist_links_them_in_a_fixed_order(client, cited_rows):
+    seeded = _soup(client, PAGE + "?journey=parking-fines")
+    card = _card(seeded, "June 2, 2026", "Final vote")
+    pills = _pills(card)
+
+    assert list(pills) == ["Meeting", "Item", "Recording on Granicus, at this moment", "Minutes", "Agenda"]
+    assert pills["Meeting"] == f"/al/birmingham/meetings/{MEETING_ID}/"
+    assert pills["Item"] == f"/al/birmingham/items/{ITEM_ID}/"
+    assert "meta_id=371088" in pills["Recording on Granicus, at this moment"]
+    assert pills["Minutes"] == SEED_MINUTES
+    assert pills["Agenda"] == SEED_AGENDA
+    assert client.get(pills["Meeting"]).status_code == 200
+    assert client.get(pills["Item"]).status_code == 200
+
+    # The stops on other meetings, which the database does not hold, are unchanged.
+    assert not _pills(_card(seeded, "May 26, 2026", "First reading"))
+    assert list(_pills(_card(seeded, "May 11, 2026", "Committee"))) == ["Committee minutes"]
+
+
+# --- states the parking-fines journey does not have -------------------------
+
+
+@contextmanager
+def _journeys(client, *journeys):
+    """Swap the journeys of Birmingham's explainer for the length of one test."""
+    explainers = client.application.config["HOW_IT_WORKS"]
+    real = explainers["birmingham"]
+    explainers["birmingham"] = dataclasses.replace(real, journeys=tuple(journeys))
+    try:
+        yield
+    finally:
+        explainers["birmingham"] = real
+
+
+def _journey(key: str, *stops):
+    from docket.services.how_it_works import Journey
+
+    return Journey(key=key, label=f"Journey {key}", note="A note.", title="A title.", stops=tuple(stops))
+
+
+def _journey_stop(*keys: str, record: str, text: str, **fields):
+    from docket.services.how_it_works import JourneyStop
+
+    values = dict(
+        stops=keys, date=None, record=record, text=text, quote=None, source_file=None, meeting_id=None,
+        item_id=None, seconds=None, document_label=None, document_url=None, gap=None,
+    )
+    values.update(fields)
+    return JourneyStop(**values)
+
+
+def _licence():
+    return _journey(
+        "licence",
+        _journey_stop("submitted", record="none", text="The agenda names a submitter.", gap="No date is given."),
+        _journey_stop("committee", record="committee_minutes", text="Forwarded by the chair.",
+                      date=date(2026, 9, 22), meeting_id=2_000_000_001),
+        _journey_stop("first_reading", record="not_on_route", text="This resolution had no first reading.",
+                      gap="The agenda does not mark this resolution as a first reading."),
+        _journey_stop("agenda", "hearing", "final_vote", record="video", text="Passed 8 to 0.",
+                      date=date(2026, 9, 29), meeting_id=2_000_000_002),
+        _journey_stop("mayor", "in_effect", record="none", text="Nothing further.", gap="The site holds no record."),
+    )
+
+
+def test_a_stop_not_on_the_items_route_is_a_slim_line_with_its_reason(client):
+    with _journeys(client, _licence()):
+        drawn = _soup(client, PAGE)
+    card = _cards(drawn)[2]
+
+    assert "hiw-event--off-route" in card["class"]
+    assert _text(card.select_one(".hiw-event-date")) == OFF_ROUTE
+    assert _text(card.select_one(".hiw-event-gap")) == "The agenda does not mark this resolution as a first reading."
+    assert "This resolution had no first reading." in _text(card)
+    assert [a["href"] for a in card.select(".hiw-event-stops a")] == ["#stop-first_reading"]
+    assert card.select_one(".hiw-event-provenance") is None
+
+
+def test_a_stop_read_from_the_video_says_so(client):
+    with _journeys(client, _licence()):
+        drawn = _soup(client, PAGE)
+    labels = {i: _text(label) for i, card in enumerate(_cards(drawn))
+              for label in card.select(".hiw-event-provenance")}
+
+    assert labels == {3: "from the video"}
+    assert [a.get_text(" ", strip=True) for a in _cards(drawn)[3].select(".hiw-event-stops a")] == [
+        "On the agenda", "Public hearing", "Final vote"]
+
+
+def test_the_path_marks_all_three_states_and_a_side_route_the_journey_took(client):
+    with _journeys(client, _licence()):
+        drawn = _soup(client, PAGE)
+
+    assert _marks(drawn) == {
+        "Submitted": MISSING,
+        "Committee": REACHED,
+        "On the agenda": REACHED,
+        "Consent": "",
+        "Public hearing": REACHED,
+        "First reading": OFF_ROUTE,
+        "Held over": "",
+        "Final vote": REACHED,
+        "Mayor": MISSING,
+        "In effect": MISSING,
+    }
+    off_route = [li for li in _path(drawn).find_all("li", recursive=False) if "hiw-path-stop--off-route" in li["class"]]
+    assert [li.find("a", recursive=False).get_text(" ", strip=True) for li in off_route] == ["First reading"]
+
+
+def test_the_first_journey_is_the_default_and_each_is_reached_by_its_key(client):
+    with _journeys(client, _licence(), _journey("other", _journey_stop(
+            "submitted", "committee", "agenda", "first_reading", "final_vote", "mayor", "in_effect",
+            record="none", text="Nothing at all.", gap="No record."))):
+        default = _soup(client, PAGE)
+        other = _soup(client, PAGE + "?journey=other")
+        assert client.get(PAGE + "?journey=parking-fines").status_code == 404
+
+    assert "Journey licence" in _text(default.select_one(JOURNEY))
+    assert "Journey other" in _text(other.select_one(JOURNEY))
+    assert "Journey licence" not in _text(other.select_one(JOURNEY))
+    assert len(_cards(other)) == 1
+    assert set(_marks(other).values()) == {MISSING, ""}
+
+
+def test_a_city_with_no_journeys_still_shows_the_path_and_the_rules(client):
+    with _journeys(client):
+        bare = _soup(client, PAGE)
+        assert client.get(PAGE + "?journey=parking-fines").status_code == 404
+
+    assert len(_path(bare).find_all("li", recursive=False)) == 7
+    assert not _cards(bare)
+    assert set(_marks(bare).values()) == {""}
+    assert bare.select_one("blockquote.hiw-journey-title") is None
+    assert not [a for a in bare.find_all("a") if _text(a) == "Back to the journey"]
+    assert len(bare.select("section.hiw-stop")) == 10

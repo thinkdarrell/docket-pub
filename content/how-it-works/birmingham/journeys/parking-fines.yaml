@@ -1,0 +1,118 @@
+# One real item followed across the path: the parking-fines ordinance of 2026.
+#
+# Every date, tally, name and quotation on the page for this journey is
+# written here; the page reads nothing but links from the database
+# (`docket.services.how_it_works.resolve_journey`). The ids are production's
+# `meetings.id` and `agenda_items.id`, read on 2026-11-12. A `quote` with a
+# `source_file` is checked by the loader against that file under `sources/`;
+# a `quote` without one was copied from the city's record by hand and is not
+# machine-checked. To correct a stop: re-read the record it names, edit the
+# stop, and run `./tools/verify`.
+
+key: parking-fines
+label: Parking fines ordinance
+note: >-
+  Held over a week for lack of unanimous consent. A sibling ordinance amending
+  Title 8, Chapter 3, Section 8 travelled with it and followed the same route.
+title: >-
+  An Ordinance to amend Title 8, Chapter 3, Section 10, "Summary Disposition
+  of Minor Traffic and Other Minor Offenses by Fine Schedule" to revise the
+  fines for the summary disposition of municipal parking offenses, to add
+  certain offenses previously omitted from the summary disposition schedule,
+  and to provide for an administrative fee to cover certain expenses for
+  tickets referred for collection.
+
+stops:
+  - stops: [submitted]
+    record: none
+    text: The agenda names the City Attorney as the submitter.
+    gap: The submission date is not published.
+
+  - stops: [committee]
+    date: 2026-05-11
+    record: committee_minutes
+    meeting_id: 3142
+    text: >-
+      Transportation and Infrastructure Committee, item VI, "Parking Reform
+      Update", presented by Christine Argo, Deputy Director of the Department
+      of Transportation: raise parking fines by $10 across the board
+      (unchanged since 2009) and add a $3 administrative fee for citations
+      unpaid after 30 days. Councilors present: O'Quinn, Smith. The moment in
+      the recording has not been located.
+    quote: >-
+      Councilor O'Quinn Motioned to Approve, including the amendment
+      increasing the fine under Section 10-9-16(A) to $60 for commercial
+      vehicles. Councilor Smith Seconded the Motion. Item Recommended to the
+      City Council Agenda.
+    source_file: committee-transportation-minutes-2026-05-11.txt
+    document:
+      label: Committee minutes
+      url: https://s3.us-east-2.amazonaws.com/assets.birminghamal.gov/s3fs-public/2026-09/TRANSPORTATION%20%26%20INFRASTRUCTURE%20COMMITTEE%20MEETING%2C%20May%2011%2C%202026.pdf
+
+  # The words of the machine transcript at 2,486 to 2,507 seconds are given in
+  # plain words, not as a quotation: they have not been checked against the
+  # recording or the adopted minutes.
+  - stops: [agenda, first_reading]
+    date: 2026-05-19
+    record: transcript
+    meeting_id: 2232
+    item_id: 58893
+    seconds: 2506
+    text: >-
+      Item 16 under "Introduction and First Reading", marked as a first
+      reading. When it was called, the Clerk said the Mayor's office had asked
+      for the item to be withdrawn, and the President announced items 16 and
+      17 withdrawn. No roll was called.
+
+  - stops: [first_reading]
+    date: 2026-05-26
+    record: minutes
+    meeting_id: 2237
+    item_id: 58990
+    text: >-
+      Item 11, again marked as a first reading. Councilmember Williams moved
+      adoption, seconded by Councilmember Smith. Three ayes: Gunn, Vasa,
+      Woods. Six nays: O'Quinn, Smith, Smitherman, Williams, Tate, Alexander.
+      Later in the same meeting Councilmember Woods moved, seconded by
+      Councilmember Smith, that the ordinance be adopted on its first
+      reading; the minutes record that roll "for unanimous consent" with the
+      same three ayes and six nays, and the ordinance was again declared not
+      adopted and held over. The Presiding Officer's declaration after the
+      first roll call:
+    quote: >-
+      declared the ordinance not adopted due to the item being an item of
+      permanent operation and therefore needing unanimous consent to be
+      adopted at it's first reading. The item was held over to the meeting of
+      June 2, 2026 for a second reading.
+
+  - stops: [held_over]
+    date: 2026-06-02
+    record: agenda
+    meeting_id: 2238
+    item_id: 59026
+    text: >-
+      Held over from the meeting of May 26, 2026 to the meeting of June 2,
+      2026. The June 2 agenda carries the note:
+    quote: (Did Not Receive Unanimous Consent, Held Over from 5/26/2026 to 6/2/2026)
+
+  - stops: [final_vote]
+    date: 2026-06-02
+    record: minutes
+    meeting_id: 2238
+    item_id: 59026
+    seconds: 5313
+    text: >-
+      Item 11, marked as a second reading. Adopted as amended as Ordinance
+      No. 26-61; the amended title adds "to increase fines for certain
+      on-street parking offenses". Eight ayes: Gunn, O'Quinn, Smitherman,
+      Vasa, Williams, Woods, Tate, Alexander. Nays: none.
+
+  - stops: [mayor]
+    record: none
+    text: The ten-day window for the Mayor to sign or veto ran to June 12, 2026.
+    gap: The site holds no record of a signature or a veto.
+
+  - stops: [in_effect]
+    record: none
+    text: The ordinance takes effect on publication.
+    gap: The site holds no publication record.
