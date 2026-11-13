@@ -1123,6 +1123,27 @@ def topics_index():
     )
 
 
+@bp.route("/al/<slug>/how-it-works/")
+def how_it_works(slug):
+    """How an item moves through this city's council, each rule cited to its source.
+
+    The explainer is checked-in content loaded once by ``create_app`` into
+    ``app.config["HOW_IT_WORKS"]`` (``docket.services.how_it_works``). A city
+    that does not exist, or has no explainer, is 404.
+    """
+    municipality = query.get_municipality(slug)
+    if not municipality:
+        abort(404)
+    explainer = current_app.config["HOW_IT_WORKS"].get(slug)
+    if explainer is None:
+        abort(404)
+    return render_template(
+        "how_it_works.html",
+        municipality=municipality,
+        explainer=explainer,
+    )
+
+
 @bp.route("/about/")
 def about():
     """About docket.pub — project overview."""

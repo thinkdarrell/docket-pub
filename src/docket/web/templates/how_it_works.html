@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{# how_it_works.html — how an item moves through a city's council.
+
+   Every sentence on this page is checked-in content from
+   content/how-it-works/<slug>/explainer.yaml, validated at application start
+   by docket.services.how_it_works (each quotation is proved against a saved
+   copy of its source). Nothing here is read from a database row and no
+   language model writes any of it (docs/PRINCIPLES.md, source or silence).
+
+   The path is an <ol> of the main stops only, so it numbers one to seven
+   with or without styles; ``explainer.stops`` is flat (main stops and side
+   routes together, in path order), so the side routes are hung in a nested
+   <ul> under the stop named by their ``side_route_of``.
+
+   Args:
+     municipality (dict)   — the city
+     explainer (Explainer) — docket.services.how_it_works.Explainer
+
+   Plan how-it-works-explainer, M2.
+#}
+{% block title %}How an item becomes a decision in {{ municipality.name }} — docket.pub{% endblock %}
+
+{% block head %}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/how_it_works.css') }}">
+{% endblock %}
+
+{% block content %}
+{%- set main_stops = explainer.stops | selectattr('side_route_of', 'none') | list -%}
+<section class="hero hero--detail">
+    <div class="hero-top">
+        <div>
+            <div class="t-eyebrow">How it works</div>
+            <h1 class="hero-title t-display">How an item becomes a decision in {{ municipality.name }}</h1>
+            <p class="hero-sub">
+                Every rule below is cited to the city's code or zoning ordinance, state law,
+                the council's own agenda or committee minutes, or the city's handbook for
+                residents, and links to it; the quoted words are the source's own. The
+                sources were read on {{ explainer.sources_read.strftime('%B %-d, %Y') }}.
+            </p>
+        </div>
+    </div>
+</section>
+
+<nav class="hiw-path" aria-label="The path an item travels">
+    <ol class="hiw-path-list" role="list">
+        {%- for stop in main_stops %}
+        <li class="hiw-path-stop">
+            <a class="hiw-path-link" href="#stop-{{ stop.key }}"><span class="hiw-path-name">{{ stop.name }}</span></a>
+            {%- set side_routes = explainer.stops | selectattr('side_route_of', 'equalto', stop.key) | list %}
+            {%- if side_routes %}
+            <ul class="hiw-path-sides" role="list" aria-label="Side routes from {{ stop.name }}">
+                {%- for side in side_routes %}
+                <li class="hiw-path-side"><a class="hiw-path-side-link" href="#stop-{{ side.key }}">{{ side.name }}</a></li>
+                {%- endfor %}
+            </ul>
+            {%- endif %}
+        </li>
+        {%- endfor %}
+    </ol>
+</nav>
+
+{% set step = namespace(n=0) %}
+{% for stop in explainer.stops %}
+<section class="feed hiw-stop{% if stop.side_route_of %} hiw-stop--side{% endif %}" id="stop-{{ stop.key }}">
+    <header class="feed-head">
+        <div>
+            {%- if stop.side_route_of %}
+            {%- set parent = main_stops | selectattr('key', 'equalto', stop.side_route_of) | first %}
+            <div class="t-eyebrow">Side route from {{ parent.name }}</div>
+            {%- else %}
+            {%- set step.n = step.n + 1 %}
+            <div class="t-eyebrow">Step {{ step.n }} of {{ main_stops | length }}</div>
+            {%- endif %}
+            <h2 class="feed-title t-display">{{ stop.name }}</h2>
+        </div>
+    </header>
+    <p class="hero-sub">{{ stop.description }}</p>
+    <ul class="hiw-rules" role="list">
+        {%- for rule in stop.rules %}
+        <li class="hiw-rule">
+            <p class="hiw-rule-statement">{{ rule.statement }}</p>
+            {%- if rule.quote %}
+            <blockquote class="hiw-rule-quote" cite="{{ rule.url }}"><p>{{ rule.quote }}</p></blockquote>
+            {%- endif %}
+            <p class="hiw-rule-cite t-mono"><a href="{{ rule.url }}" rel="external noopener">{{ rule.citation }}</a></p>
+        </li>
+        {%- endfor %}
+    </ul>
+</section>
+{% endfor %}
+
+<section class="feed hiw-open" id="open-questions">
+    <header class="feed-head">
+        <div>
+            <div class="t-eyebrow">Open questions</div>
+            <h2 class="feed-title t-display">What we could not establish</h2>
+        </div>
+    </header>
+    {%- for heading, body in explainer.open_questions %}
+    <div class="hiw-question">
+        <h3 class="hiw-question-heading">{{ heading }}</h3>
+        <p class="hero-sub">{{ body }}</p>
+    </div>
+    {%- endfor %}
+</section>
+{% endblock %}

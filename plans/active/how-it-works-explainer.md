@@ -62,6 +62,14 @@ As authored on 2026-11-12, nothing has been executed and there are no discoverie
 - Observation (M2, 2026-11-13): before the page exists, the new web tests are committed failing. `tests/web/test_how_it_works_page.py` holds 21 tests; 7 fail, 11 error in the shared fixture that asks for the page and gets 404, and 3 pass. The three that pass assert an absence that is already true: `/al/mobile/how-it-works/` is 404, a slug that is no city is 404, and Mobile's city page has no link. They are pinned by the removals recorded below, not by this before state.
   Evidence: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/web/test_how_it_works_page.py -q -p no:cacheprovider; tools/test-db --drop` printed `7 failed, 3 passed, 1 warning, 11 errors in 1.30s`.
 
+- Correction (M2, 2026-11-13) to the observation above about which pages get the footer link: the list there was written from the include alone and named the transcript page without checking it. A text scan of `src/docket/web/public.py` for `render_template` calls whose arguments name `municipality` printed these full-page templates: `city.html`, `meetings.html`, `meeting_detail.html`, `minutes_vs_video.html`, `item_detail.html`, `data_debt.html`, `council.html`, `member_detail.html`, `source_health.html`, `search.html`, `how_it_works.html`, `topic_detail.html`; and `src/docket/web/blog.py` hands `municipality` to `blog/post.html`. The scan is a regular expression over the source and was not confirmed page by page; the transcript page did not appear in it. What was observed by request is the city page only: Birmingham's carries the link and Mobile's does not (the two tests, and the `curl` counts under M2's acceptance below).
+
+- Observation (M2, 2026-11-13): with the page written, the 21 tests passed on their first run, so each rule was taken out of an in-memory copy of its file, one at a time, and the 21 tests run against each copy (a pytest plugin in the session scratchpad that re-executes altered Python source into its module and hands altered template source to the Jinja loader; no committed file was edited). 29 removals were tried: 2 in the route (no 404 for a slug that is no city; no 404 for a city without an explainer), 3 in `create_app` (a load failure caught into an empty dict; `has_how_it_works` always true; always false), 3 in `load_explainers` (no guard for a missing root; any directory counted as a city; keyed by path, not directory name), 2 in the footer partial (the link drawn unconditionally; the link removed), and 19 in the page template (the path looping all ten stops; no side routes; every side route under every stop; a `<ul>` for the path; path and side links not pointing at a section; sections without ids; sections for main stops only; no description, statement, quotation; the citation as text, or linked to another address; the open questions' heading, headings and bodies; the date the sources were read; the stylesheet link; the city's name in the title). All 29 failed at least one test, and no assertion was added after the commit that holds the tests failing (`a752404`).
+  The first pass reported two removals failing nothing (`has_how_it_works` always true, always false). That was the plugin, not the tests: it rebound `docket.web.create_app` after `tests/web/conftest.py` had already imported the old function, so the altered factory never built the test client. With the plugin changed to swap the function's code in place, both fail two tests.
+  Evidence: `21 passed, 1 warning in 1.48s` before the removals; first pass `global-always-true: 21 passed`, `global-always-false: 21 passed`, and 27 lines each with at least `1 failed`; after the plugin fix `global-always-true: 2 failed, 19 passed`, `global-always-false: 2 failed, 19 passed`, `app-load-failure-swallowed: 1 failed, 20 passed`.
+
+- Observation (M2, 2026-11-13): this session had no browser, so the page's layout was never seen. `which chromium chromium-browser google-chrome` found none and `import playwright` raised `ModuleNotFoundError`. What was observed is the markup (the tests, and the path's HTML read from `curl`) and that `/static/css/how_it_works.css` is served with 200. That the path draws as one horizontal line at desktop width, and stacks with a spine down the left under 720 pixels without scrolling sideways, is what the stylesheet is written to do and is not an observation. No acceptance clause of M2 asks for it; the Plan of Work does, so it is named in Outcomes & Retrospective as unobserved.
+
 ## Decision Log
 
 - Decision: The page lives at `/al/<slug>/how-it-works/` and returns 404 for any city that has no content directory.
@@ -124,6 +132,26 @@ As authored on 2026-11-12, nothing has been executed and there are no discoverie
 - Decision: Committee-minutes rules link the city's committee index page, and are cited by the committee and date printed at the top of the saved file.
   Rationale: `sources/README.md` records a public address for each PDF only for the Transportation minutes; for the other committee files it records the index page they were linked from. A guessed PDF address would be a link nobody read. The design says "Committee minutes Sept–Oct 2026"; the saved files are dated 2026-10-12, 2026-10-13 and 2026-05-20, and the citation gives the date the file carries.
   Date/Author: 2026-11-13, M1 session.
+
+- Decision: The loop over city directories is a service function, `how_it_works.load_explainers(root) -> dict[str, Explainer]`, which `create_app` calls once; it keys each explainer by its directory's name, and a root that does not exist yields an empty dict.
+  Rationale: The Plan of Work puts the loop in `create_app`; as a function of a path it can be tested on a temporary directory without building an application. The directory name is the key because the plan defines the content path as `content/how-it-works/<slug>/` and the route looks the slug up; the `city:` value inside the file is not compared with it (a check that belongs to the loader's validation, which M1 owns and this milestone does not widen). A missing root is not a broken explainer: `docket.blog.loader` treats its own missing content root the same way, and tooling that builds an application from another working directory keeps working. A root that exists and holds a broken explainer still stops the application.
+  Date/Author: 2026-11-13, M2 session.
+
+- Decision: The route looks the city up before the explainer, so a content directory whose name is no city's slug serves nothing.
+  Rationale: The plan's two 404 conditions are independent. The template needs the municipality row for the city's name and for the shared footer, so a page without one could not be drawn honestly.
+  Date/Author: 2026-11-13, M2 session.
+
+- Decision: The hero's sentence names more kinds of source than the Plan of Work's wording ("the city's code, state law, or the council's own agenda"). It reads: "Every rule below is cited to the city's code or zoning ordinance, state law, the council's own agenda or committee minutes, or the city's handbook for residents, and links to it; the quoted words are the source's own."
+  Rationale: The 54 citations in the content are General Code 23, Ala. Code 16, Statement of Conduct of Business (the agenda) 6, Zoning Ordinance 4, committee minutes 4, Citizen's Handbook 1 (counted with `grep citation:`). The plan's sentence would be false for nine rules. "Is cited to", not "is quoted from", because the file format allows a rule with no quotation, and the sentence must stay true if one is added.
+  Date/Author: 2026-11-13, M2 session.
+
+- Decision: The stop's number on the path is drawn by a CSS counter, not written in the markup, and both lists carry `role="list"`.
+  Rationale: The plan asks that the path "reads and numbers one to seven without styles", which the `<ol>` does by itself; a number also written in the markup would print twice without styles. `list-style: none` makes one browser's screen reader stop announcing a list, and `role="list"` restores it.
+  Date/Author: 2026-11-13, M2 session.
+
+- Decision: The stop sections follow the flat order of `Explainer.stops` (each side route directly after the stop it branches from); a main stop's eyebrow is "Step N of 7" and a side route's is "Side route from <the stop's name>". Each section's id is `stop-<key>`.
+  Rationale: The file's order is already the reading order, and the eyebrow says in words what the path shows by position. The id is the one M3's Plan of Work already names (`#stop-<key>`).
+  Date/Author: 2026-11-13, M2 session.
 
 ## Outcomes & Retrospective
 
@@ -232,7 +260,13 @@ To look at the page while building (M2 onward), with a local database that has t
 
     venv/bin/flask --app docket.web:create_app run
 
-and open `http://127.0.0.1:5000/al/birmingham/how-it-works/`. The local database has no Birmingham meetings, so journey stops render their text with no links; that is the degraded state working, not a failure. Links are proved by the service test in M3.
+and open `http://127.0.0.1:5000/al/birmingham/how-it-works/`. M2 ran the server against a throwaway database instead of the development one, which the page needs only for the city's row and the footer's counts:
+
+    export DATABASE_URL=$(tools/test-db | tail -1)
+    venv/bin/flask --app docket.web:create_app run
+    tools/test-db --drop        (after stopping the server)
+
+The local database has no Birmingham meetings, so journey stops render their text with no links; that is the degraded state working, not a failure. Links are proved by the service test in M3.
 
 To run one test file while working (observed in M1), in the form `./tools/verify` itself prints for a re-run:
 
@@ -398,6 +432,8 @@ In `src/docket/web/public.py`:
     def how_it_works(slug): ...
 
 Templates: `src/docket/web/templates/how_it_works.html`, and from M4 `src/docket/web/templates/partials/how_it_works_journey.html`. Styles: `src/docket/web/static/css/how_it_works.css`. Jinja global: `has_how_it_works(slug) -> bool`.
+
+As built in M2, for the sessions that extend it. `how_it_works.load_explainers(root)` returns `{<directory name>: Explainer}` and `create_app` stores it in `app.config["HOW_IT_WORKS"]`, with no try/except round it. The route passes the template two names, `municipality` and `explainer`. In `how_it_works.html` the order is the hero, then `nav.hiw-path` holding `ol.hiw-path-list`, then one `section.feed.hiw-stop#stop-<key>` per stop, then `section#open-questions`. A path stop is `li.hiw-path-stop > a.hiw-path-link > span.hiw-path-name`; its side routes are `ul.hiw-path-sides > li.hiw-path-side > a.hiw-path-side-link`. The tests read a main stop's name as the text of the `<li>`'s direct `<a>` child, so M3's mark ("in the record" and the others) goes beside that link, not inside it, or `test_the_path_names_the_seven_stops_in_order` must change with it. A rule is `li.hiw-rule` holding `p.hiw-rule-statement`, an optional `blockquote.hiw-rule-quote`, and `p.hiw-rule-cite > a`. The stylesheet's breakpoint is `max-width: 719px`. `tests/web/test_how_it_works_page.py` has a module-scoped fixture `page` (the Birmingham page parsed with BeautifulSoup) and `_write_city(root, slug, quote)`, which writes a one-rule city into a temporary root.
 
 Revision note, 2026-11-13 (M1 session): the sentence in Context and Orientation that locates the saved source texts now gives their new directory, because M1 moved them and a later session reading the old path would find nothing there.
 

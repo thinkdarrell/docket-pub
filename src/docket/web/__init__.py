@@ -17,8 +17,10 @@ from docket.config import (
     BLOG_CONTENT_ROOT,
     BLOG_PREVIEW_TOKEN,
     FLASK_ENV,
+    HOW_IT_WORKS_ROOT,
     SECRET_KEY,
 )
+from docket.services import how_it_works as _how_it_works
 from docket.services import query as _query
 
 
@@ -186,6 +188,22 @@ def create_app() -> Flask:
     app.jinja_env.globals["meeting_label"] = _meeting_label_template
     app.jinja_env.globals["MEETING_TYPES"] = MEETING_TYPES
     app.jinja_env.globals["SESSION_KINDS"] = SESSION_KINDS
+
+    # The "How it works" explainers (plan ``how-it-works-explainer``, M2):
+    # every city directory under HOW_IT_WORKS_ROOT that holds an
+    # ``explainer.yaml`` is read and validated once, here, and kept by slug.
+    # Deliberately not wrapped in try/except: an explainer that quotes words
+    # its source does not hold must stop the application from starting, with
+    # the ``ExplainerError`` naming the file and the key, and must never
+    # become an empty page.
+    app.config["HOW_IT_WORKS"] = _how_it_works.load_explainers(Path(HOW_IT_WORKS_ROOT))
+
+    # ``has_how_it_works(slug)``: whether that city has an explainer, so the
+    # shared footer partial links the page only where it exists.
+    def _has_how_it_works(slug) -> bool:
+        return slug in app.config["HOW_IT_WORKS"]
+
+    app.jinja_env.globals["has_how_it_works"] = _has_how_it_works
 
     # Register blueprints
     from docket.web.admin import bp as admin_bp

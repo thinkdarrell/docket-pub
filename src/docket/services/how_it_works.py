@@ -280,3 +280,22 @@ def load_explainer(city_dir: Path) -> Explainer:
         open_questions=tuple(open_questions),
         journeys=(),
     )
+
+
+def load_explainers(root: Path) -> dict[str, Explainer]:
+    """Every city's explainer under ``root``, keyed by the directory's name.
+
+    A directory is a city when it holds an ``explainer.yaml``; the directory's
+    name is the city's slug. A root that does not exist holds no cities. An
+    explainer that fails validation raises ``ExplainerError``: the caller is
+    the application factory, and a broken explainer stops the application
+    from starting, as a broken template would.
+    """
+    root = Path(root)
+    if not root.is_dir():
+        return {}
+    return {
+        city_dir.name: load_explainer(city_dir)
+        for city_dir in sorted(root.iterdir())
+        if (city_dir / EXPLAINER_FILE).is_file()
+    }

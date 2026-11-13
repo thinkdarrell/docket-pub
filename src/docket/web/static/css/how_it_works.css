@@ -1,0 +1,210 @@
+/* how_it_works.css — the "How it works" page (templates/how_it_works.html).
+   Loaded from that template's {% block head %}, after mobile.css.
+   Uses only the custom properties styles.css defines; no new colours.
+   Plan how-it-works-explainer, M2. */
+
+/* ── the path ─────────────────────────────────────────
+   An <ol> of the seven main stops. Wide: one horizontal line of numbered
+   stops, side routes hung beneath the stop they branch from. Under 720px:
+   stacked, the line becoming a spine down the left. It never scrolls
+   sideways. The number is a CSS counter, so without styles the <ol>'s own
+   numbering is the only one. */
+.hiw-path {
+  padding: var(--space-8) 0;
+  border-bottom: 1px solid var(--rule);
+}
+.hiw-path-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  counter-reset: hiw-stop;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+.hiw-path-stop {
+  counter-increment: hiw-stop;
+  position: relative;
+  min-width: 0;
+  padding: 0 var(--space-1);
+  text-align: center;
+}
+/* the line, drawn from the stop before to this one, behind the numbers */
+.hiw-path-stop::before {
+  content: "";
+  position: absolute;
+  top: 15px;
+  left: -50%;
+  width: 100%;
+  border-top: 2px solid var(--rule-strong);
+}
+.hiw-path-stop:first-child::before { display: none; }
+
+.hiw-path-link {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--ink);
+  text-decoration: none;
+}
+.hiw-path-link::before {
+  content: counter(hiw-stop);
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-feature-settings: "tnum" 1;
+}
+.hiw-path-name {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.hiw-path-link:hover .hiw-path-name,
+.hiw-path-side-link:hover { text-decoration: underline; }
+.hiw-path-link:focus-visible,
+.hiw-path-side-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: var(--radius);
+}
+
+.hiw-path-sides {
+  list-style: none;
+  position: relative;
+  margin: var(--space-4) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+}
+/* the branch: a short dashed drop from the stop to its side routes */
+.hiw-path-sides::before {
+  content: "";
+  position: absolute;
+  top: calc(-1 * var(--space-3));
+  left: 50%;
+  height: var(--space-2);
+  border-left: 1px dashed var(--ink-3);
+}
+.hiw-path-side-link {
+  display: inline-block;
+  padding: var(--space-1) var(--space-2);
+  border: 1px dashed var(--ink-3);
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--ink-2);
+  font-size: 12px;
+  line-height: 1.3;
+  text-decoration: none;
+}
+
+@media (max-width: 719px) {
+  .hiw-path { padding: var(--space-6) 0; }
+  .hiw-path-list { display: block; }
+  .hiw-path-stop {
+    padding: 0 0 var(--space-5);
+    text-align: left;
+  }
+  .hiw-path-stop:last-child { padding-bottom: 0; }
+  /* the spine: from this stop's number down to the next one's */
+  .hiw-path-stop::before,
+  .hiw-path-stop:first-child::before {
+    display: block;
+    top: 0;
+    left: 15px;
+    width: 0;
+    height: 100%;
+    border-top: 0;
+    border-left: 2px solid var(--rule-strong);
+  }
+  .hiw-path-stop:last-child::before { display: none; }
+  .hiw-path-link {
+    flex-direction: row;
+    gap: var(--space-3);
+    min-height: 44px;
+  }
+  .hiw-path-name { font-size: 16px; }
+  .hiw-path-sides {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    margin: var(--space-1) 0 0 calc(32px + var(--space-3));
+  }
+  .hiw-path-sides::before { display: none; }
+  .hiw-path-side-link {
+    padding: var(--space-2) var(--space-3);
+    font-size: 13px;
+  }
+}
+
+/* ── a stop's section ─────────────────────────────────── */
+.hiw-stop,
+.hiw-open { scroll-margin-top: 80px; }
+
+.hiw-rules {
+  list-style: none;
+  margin: var(--space-6) 0 0;
+  padding: 0;
+  max-width: 700px;
+}
+.hiw-rule {
+  padding: var(--space-5) 0;
+  border-top: 1px solid var(--rule);
+}
+.hiw-rule:last-child { padding-bottom: 0; }
+.hiw-rule-statement {
+  margin: 0 0 var(--space-3);
+  font-size: 17px;
+  line-height: 1.5;
+  color: var(--ink);
+}
+.hiw-rule-quote {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-1) 0 var(--space-1) var(--space-4);
+  border-left: 3px solid var(--accent);
+  font-family: var(--font-display);
+  font-size: 16px;
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+.hiw-rule-quote p { margin: 0; }
+.hiw-rule-cite {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.hiw-rule-cite a {
+  color: var(--accent-ink);
+  overflow-wrap: anywhere;
+}
+
+/* ── open questions ───────────────────────────────────── */
+.hiw-question {
+  max-width: 700px;
+  padding: var(--space-5) 0;
+  border-top: 1px solid var(--rule);
+}
+.hiw-question:last-child { padding-bottom: 0; }
+.hiw-question-heading {
+  margin: 0 0 var(--space-2);
+  font-family: var(--font-ui);
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--ink);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html:has(.hiw-path) { scroll-behavior: smooth; }
+}
