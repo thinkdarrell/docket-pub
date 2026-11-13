@@ -19,6 +19,7 @@ docket.pub ingests, parses, and indexes Alabama municipal meeting records and pu
 - `docs/superpowers/`: design specs, plans, and reviews written before this harness. History, not current behaviour.
 - `docs/runbooks/`: operator procedures, indexed from `docs/specs/operations.md`.
 - `docs/birmingham/`: the guided tour of the Birmingham content flow, sources to reader, in seven chapters that link to the owners above rather than restating them. Read when you need the whole picture.
+- `content/how-it-works/`: the checked-in rules, saved sources, and journeys behind `/al/<slug>/how-it-works/`; `docs/specs/how-it-works.md` owns the formats and how to edit them.
 - GitHub issues on `thinkdarrell/docket-pub`: bugs nobody chose. Deliberate deferrals go in `docs/DEBT.md`.
 
 ## Commands

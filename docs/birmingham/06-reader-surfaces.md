@@ -18,6 +18,7 @@ Every page below is served by the Flask app in `src/docket/web/` (routes in `pub
 | Minutes vs. video | `/al/birmingham/minutes-vs-video/` (behind a flag) | chapter 5 |
 | Data debt | `/al/birmingham/data-debt`, `.rss` | chapter 4 |
 | Source health | `/al/birmingham/source-health/` | chapter 7 |
+| How the council works | `/al/birmingham/how-it-works/` (`?journey=` picks the real item followed) | checked-in rules and journeys under `content/how-it-works/birmingham/`, not meeting data; only a journey's links are read from chapters 2 and 5 (`docs/specs/how-it-works.md`) |
 | Upcoming hearings feed | `/al/birmingham/upcoming-hearings.rss` | chapter 2 |
 | Editorial coverage, blog | `/coverage/`, `/al/birmingham/blog` | markdown in `content/`, not meeting data |
 | About, methodology, corrections | `/about/`, `/about/how-we-read-minutes/`, `/about/corrections/` | static |
