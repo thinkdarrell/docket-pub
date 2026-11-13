@@ -164,6 +164,38 @@ As authored on 2026-11-12, nothing has been executed and there are no discoverie
   Rationale: The file's order is already the reading order, and the eyebrow says in words what the path shows by position. The id is the one M3's Plan of Work already names (`#stop-<key>`).
   Date/Author: 2026-11-13, M2 session.
 
+- Decision: The withdrawal of 2026-05-19 is told in plain words with the label "from the machine transcript", and carries no quotation.
+  Rationale: The design gives the Clerk's and the President's words from the machine transcript and says "the builder checks it against the recording and the adopted minutes before quoting it". A milestone session has no production connection and no recording, so the check could not be made, and words inside a `blockquote` on this page are read as the record's own. The stop states what the transcript shows (the Mayor's office asked for the withdrawal; items 16 and 17 were announced withdrawn; no roll was called) and says where that was read. Whoever makes the check can add the two quotations to the file; M5 can record that as debt.
+  Date/Author: 2026-11-13, M3 session.
+
+- Decision: The "Held over" card carries the date 2026-06-02 and meeting 2238, the agenda that prints the note, and its text gives both dates of the span.
+  Rationale: A journey stop has one `date`, and the fact this stop rests on is the note printed on the June 2 agenda (item 59026), which is what its "Agenda" pill opens. The design's table gives the span "2026-05-26 to 2026-06-02"; the text says "Held over from the meeting of May 26, 2026 to the meeting of June 2, 2026". The May 26 declaration itself is on the card before it, quoted from that day's minutes.
+  Date/Author: 2026-11-13, M3 session.
+
+- Decision: The final vote's `record` is `minutes`, and the amended title's added words are given inside the stop's text, not as its `quote`.
+  Rationale: The design's row for 2026-06-02 names vote 12271 and gives no source for it; Artifacts and Notes records that meeting 2238 has a minutes address, and the design says of this journey that it is "all from the city's own minutes". The cue of 5,313 seconds places the item in the recording and does not make the tally a video reading. The eight words the amendment adds are a fragment of a title, and a `blockquote` of a fragment under a tally would read as the motion.
+  Date/Author: 2026-11-13, M3 session.
+
+- Decision: The journey file is `journeys/parking-fines.yaml`, without a number prefix.
+  Rationale: M3's Plan of Work names that path; Interfaces and Dependencies gives the shape `<n>-<key>.yaml`, and M4 says to "prefix the four files `1-` to `4-`". With one file there is no order to fix, and M4 owns the renaming. The journey's key is in the file, not its name, so the rename changes no address.
+  Date/Author: 2026-11-13, M3 session.
+
+- Decision: The loader refuses more in a journey file than M3 lists: a `record` that is not one of the seven kinds; a recorded stop with no `date` or no `meeting_id`; a stop with `record: none` or `not_on_route` that carries a `date`; a `source_file` with no `quote`; a `document` without both a `label` and an `https://` address; a `meeting_id`, `item_id` or `seconds` that is not a whole number; a stop with no `text`; and a journey with no `key`, `label`, `note` or `title`.
+  Rationale: Each is a state the file shape in Interfaces and Dependencies already rules out in a comment ("omitted when record is none or not_on_route", "required when") and that the template would otherwise draw wrongly or silently drop: a recorded card with no date, a date nobody sees, a pill with no address. A recorded stop with no meeting would be a fact on the page with no record a reader can open, which is what "Source or silence" forbids. `text` is required on every stop, a `not_on_route` one included, because the dataclass gives it as `str`; the slim line draws it before the reason.
+  Date/Author: 2026-11-13, M3 session.
+
+- Decision: The three sets on `ResolvedJourney` come from the journey file alone, and a stop's own `document` pill is drawn whatever the database holds.
+  Rationale: A fact is in the file and its link is in the database (the Decision Log entry of 2026-11-12). A stop whose meeting row has gone is still "in the record" on the path, with no pills; marking it "not in the record" would turn a missing row into a statement about the city's records. The `document` address is the file's, a city document the site holds no link to, so no row can make it wrong.
+  Date/Author: 2026-11-13, M3 session.
+
+- Decision: `?journey=` with an empty value is 404, and a city whose explainer has no journeys still serves the page, with the path unmarked and no timeline, title or "Back to the journey" links.
+  Rationale: The plan gives three cases: absent (the first journey), naming a journey, naming nothing (404). An empty value is present and names nothing. A city with no `journeys/` directory is a state the loader allows (every temporary city in the tests is one), and M2's page is the honest drawing of it; a "Back to the journey" link there would point at a journey that is not on the page.
+  Date/Author: 2026-11-13, M3 session.
+
+- Decision: A side route in none of the three sets gets the class `hiw-path-side--untouched` and no words; the modifier classes are `--reached`, `--missing`, `--off-route` on `li.hiw-path-stop` and `li.hiw-path-side`, and the words are a `span.hiw-path-mark` that is a direct child of the `<li>`, after its link.
+  Rationale: The plan asks that such a side route be "muted with no words", and that every mark carry its words as text. Beside the link, not inside it, is what M2 left as the contract so that the tests that read a stop's name from its link keep reading the name alone.
+  Date/Author: 2026-11-13, M3 session.
+
 ## Outcomes & Retrospective
 
 As authored on 2026-11-12, nothing has been executed and there are no outcomes.

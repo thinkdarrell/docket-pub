@@ -12,11 +12,24 @@
    routes together, in path order), so the side routes are hung in a nested
    <ul> under the stop named by their ``side_route_of``.
 
+   Above the explanation, one real item is laid onto the path: its label,
+   note and quoted title, then the path with each stop marked from the
+   journey, then a timeline of what the record shows, one card per journey
+   stop. Every date, tally, name and quotation there is written in the
+   journey's own file; the database supplies links only, and a stop whose
+   rows are missing or hidden keeps its text and loses its links. A mark on
+   the path always carries its words ("in the record", "not in the record",
+   "not on this item's route"), never colour alone, and it sits beside the
+   stop's link, not inside it. No stop is drawn as the current one: every
+   journey is a finished item.
+
    Args:
      municipality (dict)   — the city
      explainer (Explainer) — docket.services.how_it_works.Explainer
+     journey (ResolvedJourney | None) — the journey shown, or None for a city
+       that has none
 
-   Plan how-it-works-explainer, M2.
+   Plan how-it-works-explainer, M2 (the page) and M3 (the journey).
 #}
 {% block title %}How an item becomes a decision in {{ municipality.name }} — docket.pub{% endblock %}
 
@@ -26,6 +39,24 @@
 
 {% block content %}
 {%- set main_stops = explainer.stops | selectattr('side_route_of', 'none') | list -%}
+{%- set stop_names = {} -%}
+{%- for stop in explainer.stops %}{% set _ = stop_names.update({stop.key: stop.name}) %}{% endfor -%}
+{#- The words of a stop's mark on the path, and the class that draws it. A
+    side route the journey does not touch is muted and says nothing. -#}
+{%- macro path_state(key, side) -%}
+    {%- if not journey -%}
+    {%- elif key in journey.reached -%}reached
+    {%- elif key in journey.not_in_record -%}missing
+    {%- elif key in journey.not_on_route -%}off-route
+    {%- elif side -%}untouched
+    {%- endif -%}
+{%- endmacro -%}
+{%- macro path_mark(state) -%}
+    {%- if state == 'reached' %}<span class="hiw-path-mark">in the record</span>
+    {%- elif state == 'missing' %}<span class="hiw-path-mark">not in the record</span>
+    {%- elif state == 'off-route' %}<span class="hiw-path-mark">not on this item's route</span>
+    {%- endif -%}
+{%- endmacro -%}
 <section class="hero hero--detail">
     <div class="hero-top">
         <div>
@@ -41,23 +72,105 @@
     </div>
 </section>
 
-<nav class="hiw-path" aria-label="The path an item travels">
-    <ol class="hiw-path-list" role="list">
-        {%- for stop in main_stops %}
-        <li class="hiw-path-stop">
-            <a class="hiw-path-link" href="#stop-{{ stop.key }}"><span class="hiw-path-name">{{ stop.name }}</span></a>
-            {%- set side_routes = explainer.stops | selectattr('side_route_of', 'equalto', stop.key) | list %}
-            {%- if side_routes %}
-            <ul class="hiw-path-sides" role="list" aria-label="Side routes from {{ stop.name }}">
-                {%- for side in side_routes %}
-                <li class="hiw-path-side"><a class="hiw-path-side-link" href="#stop-{{ side.key }}">{{ side.name }}</a></li>
-                {%- endfor %}
+<div class="hiw-journey" id="how-it-works-journey">
+    {%- if journey %}
+    <header class="hiw-journey-head">
+        <div class="t-eyebrow">One real item, followed</div>
+        <h2 class="hiw-journey-label t-display">{{ journey.journey.label }}</h2>
+        <p class="hiw-journey-note">{{ journey.journey.note }}</p>
+        <blockquote class="hiw-journey-title"><p>{{ journey.journey.title }}</p></blockquote>
+    </header>
+    {%- endif %}
+
+    <nav class="hiw-path" aria-label="The path an item travels">
+        <ol class="hiw-path-list" role="list">
+            {%- for stop in main_stops %}
+            {%- set state = path_state(stop.key, false) %}
+            <li class="hiw-path-stop{% if state %} hiw-path-stop--{{ state }}{% endif %}">
+                <a class="hiw-path-link" href="#stop-{{ stop.key }}"><span class="hiw-path-name">{{ stop.name }}</span></a>
+                {{- path_mark(state) }}
+                {%- set side_routes = explainer.stops | selectattr('side_route_of', 'equalto', stop.key) | list %}
+                {%- if side_routes %}
+                <ul class="hiw-path-sides" role="list" aria-label="Side routes from {{ stop.name }}">
+                    {%- for side in side_routes %}
+                    {%- set side_state = path_state(side.key, true) %}
+                    <li class="hiw-path-side{% if side_state %} hiw-path-side--{{ side_state }}{% endif %}">
+                        <a class="hiw-path-side-link" href="#stop-{{ side.key }}">{{ side.name }}</a>
+                        {{- path_mark(side_state) }}
+                    </li>
+                    {%- endfor %}
+                </ul>
+                {%- endif %}
+            </li>
+            {%- endfor %}
+        </ol>
+    </nav>
+
+    {%- if journey %}
+    <ol class="hiw-timeline" role="list" aria-label="What the record shows for this item, stop by stop">
+        {%- for resolved in journey.stops %}
+        {%- set stop = resolved.stop %}
+        {%- set links = resolved.links %}
+        {%- if stop.record == 'none' %}{% set kind = 'gap' %}
+        {%- elif stop.record == 'not_on_route' %}{% set kind = 'off-route' %}
+        {%- else %}{% set kind = 'recorded' %}{% endif %}
+        <li class="hiw-event hiw-event--{{ kind }}">
+            <div class="hiw-event-head">
+                <span class="hiw-event-stops">
+                    {%- for key in stop.stops %}
+                    <a href="#stop-{{ key }}">{{ stop_names[key] }}</a>{% if not loop.last %}<span aria-hidden="true"> · </span>{% endif %}
+                    {%- endfor %}
+                </span>
+                {%- if kind == 'gap' %}
+                <span class="hiw-event-date t-mono">not in the record</span>
+                {%- elif kind == 'off-route' %}
+                <span class="hiw-event-date t-mono">not on this item's route</span>
+                {%- else %}
+                <time class="hiw-event-date t-mono" datetime="{{ stop.date.isoformat() }}">{{ stop.date.strftime('%B %-d, %Y') }}</time>
+                {%- endif %}
+            </div>
+            <p class="hiw-event-text">{{ stop.text }}</p>
+            {%- if stop.quote %}
+            <blockquote class="hiw-event-quote"><p>{{ stop.quote }}</p></blockquote>
+            {%- endif %}
+            {%- if stop.gap %}
+            <p class="hiw-event-gap">{{ stop.gap }}</p>
+            {%- endif %}
+            {%- if stop.record == 'video' %}
+            <p class="hiw-event-provenance t-mono">from the video</p>
+            {%- elif stop.record == 'transcript' %}
+            <p class="hiw-event-provenance t-mono">from the machine transcript</p>
+            {%- endif %}
+            {%- if links.meeting_url or links.item_url or links.recording or links.transcript_url or links.minutes_url or links.agenda_url or stop.document_url %}
+            <ul class="hiw-links" role="list">
+                {%- if links.meeting_url %}
+                <li><a class="hiw-pill" href="{{ links.meeting_url }}">Meeting</a></li>
+                {%- endif %}
+                {%- if links.item_url %}
+                <li><a class="hiw-pill" href="{{ links.item_url }}">Item</a></li>
+                {%- endif %}
+                {%- if links.recording %}
+                <li><a class="hiw-pill" href="{{ links.recording.url }}" rel="external noopener">Recording{% if links.recording.label %} on {{ links.recording.label }}{% endif %}{% if links.recording.timed %}, at this moment{% endif %}</a></li>
+                {%- endif %}
+                {%- if links.transcript_url %}
+                <li><a class="hiw-pill" href="{{ links.transcript_url }}">Transcript</a></li>
+                {%- endif %}
+                {%- if links.minutes_url %}
+                <li><a class="hiw-pill" href="{{ links.minutes_url }}" rel="external noopener">Minutes</a></li>
+                {%- endif %}
+                {%- if links.agenda_url %}
+                <li><a class="hiw-pill" href="{{ links.agenda_url }}" rel="external noopener">Agenda</a></li>
+                {%- endif %}
+                {%- if stop.document_url %}
+                <li><a class="hiw-pill" href="{{ stop.document_url }}" rel="external noopener">{{ stop.document_label }}</a></li>
+                {%- endif %}
             </ul>
             {%- endif %}
         </li>
         {%- endfor %}
     </ol>
-</nav>
+    {%- endif %}
+</div>
 
 {% set step = namespace(n=0) %}
 {% for stop in explainer.stops %}
@@ -75,6 +188,9 @@
         </div>
     </header>
     <p class="hero-sub">{{ stop.description }}</p>
+    {%- if journey %}
+    <p class="hiw-back t-mono"><a href="#how-it-works-journey">Back to the journey</a></p>
+    {%- endif %}
     <ul class="hiw-rules" role="list">
         {%- for rule in stop.rules %}
         <li class="hiw-rule">

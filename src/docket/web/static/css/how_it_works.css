@@ -1,7 +1,37 @@
 /* how_it_works.css — the "How it works" page (templates/how_it_works.html).
    Loaded from that template's {% block head %}, after mobile.css.
    Uses only the custom properties styles.css defines; no new colours.
-   Plan how-it-works-explainer, M2. */
+   Plan how-it-works-explainer, M2 (the path, the stops) and M3 (the journey). */
+
+/* ── the journey's heading ────────────────────────────
+   One real item: its label, a one-line note, and its title as the agenda
+   printed it. The path and the timeline follow inside the same container. */
+.hiw-journey { scroll-margin-top: 80px; }
+.hiw-journey-head {
+  max-width: 700px;
+  padding: var(--space-8) 0 0;
+}
+.hiw-journey-label {
+  margin: var(--space-2) 0;
+  font-size: var(--type-section);
+  line-height: 1.2;
+}
+.hiw-journey-note {
+  margin: 0 0 var(--space-3);
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+.hiw-journey-title {
+  margin: 0;
+  padding: var(--space-1) 0 var(--space-1) var(--space-4);
+  border-left: 3px solid var(--rule-strong);
+  font-family: var(--font-display);
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+.hiw-journey-title p { margin: 0; }
 
 /* ── the path ─────────────────────────────────────────
    An <ol> of the seven main stops. Wide: one horizontal line of numbered
@@ -54,8 +84,10 @@
   flex: none;
   display: grid;
   place-items: center;
+  box-sizing: border-box;
   width: 32px;
   height: 32px;
+  border: 2px solid var(--ink);
   border-radius: 50%;
   background: var(--ink);
   color: var(--paper);
@@ -109,8 +141,54 @@
   text-decoration: none;
 }
 
+/* ── a journey's marks on the path ────────────────────
+   Each mark is words beside the stop's link; the shapes below repeat what
+   the words say and never stand in for them. Reached: filled. Not in the
+   record: dashed. Not on this item's route, and a side route the journey
+   does not touch: muted. */
+.hiw-path-mark {
+  display: block;
+  margin-top: var(--space-1);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--ink-3);
+  overflow-wrap: anywhere;
+}
+.hiw-path-stop--reached > .hiw-path-mark,
+.hiw-path-side--reached > .hiw-path-mark { color: var(--accent-ink); }
+
+.hiw-path-stop--missing > .hiw-path-link::before {
+  border: 2px dashed var(--ink-3);
+  background: var(--paper);
+  color: var(--ink);
+}
+.hiw-path-stop--off-route > .hiw-path-link::before {
+  border-color: var(--rule-strong);
+  background: var(--paper-2);
+  color: var(--ink-3);
+}
+.hiw-path-stop--off-route > .hiw-path-link .hiw-path-name { color: var(--ink-3); }
+
+.hiw-path-side--reached > .hiw-path-side-link {
+  border: 1px solid var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+}
+.hiw-path-side--off-route > .hiw-path-side-link,
+.hiw-path-side--untouched > .hiw-path-side-link {
+  border: 1px solid var(--rule);
+  color: var(--ink-3);
+}
+
 @media (max-width: 719px) {
   .hiw-path { padding: var(--space-6) 0; }
+  .hiw-path-stop > .hiw-path-mark {
+    margin: 0 0 0 calc(32px + var(--space-3));
+    font-size: 12px;
+  }
+  .hiw-path-side { display: flex; align-items: center; gap: var(--space-2); }
+  .hiw-path-side > .hiw-path-mark { margin: 0; font-size: 12px; }
   .hiw-path-list { display: block; }
   .hiw-path-stop {
     padding: 0 0 var(--space-5);
@@ -148,7 +226,133 @@
   }
 }
 
+/* ── the journey's timeline ───────────────────────────
+   One card per event, in the order of the journey file. A gap (the rules say
+   the stop happens and no record shows it) has a dashed outline; a stop that
+   is not on this item's route is a slim, muted line. */
+.hiw-timeline {
+  list-style: none;
+  margin: 0;
+  padding: var(--space-8) 0;
+  max-width: 760px;
+}
+.hiw-event {
+  margin: 0 0 var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius);
+  background: var(--paper);
+}
+.hiw-event:last-child { margin-bottom: 0; }
+.hiw-event--gap {
+  border: 1px dashed var(--ink-3);
+  background: transparent;
+}
+.hiw-event--off-route {
+  padding: var(--space-2) var(--space-5);
+  border: 0;
+  border-left: 2px solid var(--rule);
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink-3);
+}
+.hiw-event-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-4);
+  margin-bottom: var(--space-3);
+}
+.hiw-event--off-route .hiw-event-head { margin-bottom: var(--space-1); }
+.hiw-event-stops {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.hiw-event-stops a { color: var(--ink); }
+.hiw-event--off-route .hiw-event-stops,
+.hiw-event--off-route .hiw-event-stops a { color: var(--ink-3); font-weight: 500; }
+.hiw-event-date {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--ink-2);
+}
+.hiw-event-text {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.55;
+  color: var(--ink);
+}
+.hiw-event--off-route .hiw-event-text,
+.hiw-event--off-route .hiw-event-gap {
+  font-size: 14px;
+  color: var(--ink-3);
+}
+.hiw-event-quote {
+  margin: var(--space-3) 0 0;
+  padding: var(--space-1) 0 var(--space-1) var(--space-4);
+  border-left: 3px solid var(--accent);
+  font-family: var(--font-display);
+  font-size: 16px;
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+.hiw-event-quote p { margin: 0; }
+.hiw-event-gap {
+  margin: var(--space-2) 0 0;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+.hiw-event-provenance {
+  margin: var(--space-3) 0 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--ink-3);
+}
+.hiw-links {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: var(--space-4) 0 0;
+  padding: 0;
+}
+.hiw-pill {
+  display: inline-block;
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--rule-strong);
+  border-radius: 999px;
+  background: var(--paper-2);
+  color: var(--accent-ink);
+  font-size: 13px;
+  line-height: 1.4;
+  text-decoration: none;
+}
+.hiw-pill:hover { text-decoration: underline; }
+.hiw-pill:focus-visible,
+.hiw-event-stops a:focus-visible,
+.hiw-back a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: var(--radius);
+}
+
+@media (max-width: 719px) {
+  .hiw-journey-head { padding-top: var(--space-6); }
+  .hiw-timeline { padding: var(--space-6) 0; }
+  .hiw-event { padding: var(--space-4); }
+  .hiw-event--off-route { padding: var(--space-2) var(--space-4); }
+  .hiw-pill { padding: var(--space-2) var(--space-3); }
+}
+
 /* ── a stop's section ─────────────────────────────────── */
+.hiw-back {
+  margin: var(--space-3) 0 0;
+  font-size: 12px;
+}
+.hiw-back a { color: var(--accent-ink); }
 .hiw-stop,
 .hiw-open { scroll-margin-top: 80px; }
 

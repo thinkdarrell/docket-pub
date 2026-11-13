@@ -685,6 +685,21 @@ def test_a_stop_with_no_record_may_not_name_a_meeting(tmp_path, record):
         load_explainer(_write_journeys(tmp_path, [_recorded(), _gap(record=record, meeting_id=7)]))
 
 
+@pytest.mark.parametrize("record", ["none", "not_on_route"])
+def test_a_stop_with_no_record_may_not_carry_a_date(tmp_path, record):
+    from docket.services.how_it_works import ExplainerError, load_explainer
+
+    with pytest.raises(ExplainerError, match=r"stops\[1\]\.date"):
+        load_explainer(_write_journeys(tmp_path, [_recorded(), _gap(record=record, date=date(2026, 6, 12))]))
+
+
+def test_a_journey_stop_key_that_is_not_text_raises(tmp_path):
+    from docket.services.how_it_works import ExplainerError, load_explainer
+
+    with pytest.raises(ExplainerError, match=r"stops\[0\]\.stops"):
+        load_explainer(_write_journeys(tmp_path, [_recorded(stops=[["committee"]]), _gap()]))
+
+
 def test_a_stop_not_on_the_route_loads(tmp_path):
     from docket.services.how_it_works import load_explainer
 
