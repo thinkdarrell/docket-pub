@@ -76,6 +76,7 @@ def rows():
         ids["hidden_item"] = _item(cur, ids["hidden"], "371099")
         ids["youtube"] = _meeting(cur, bhm, "youtube", video_url=WATCH)
         ids["bare"] = _meeting(cur, bhm, "bare")
+        ids["bare_item"] = _item(cur, ids["bare"], "371077")
         ids["elsewhere"] = _meeting(cur, mobile, "elsewhere", video_url=PLAYER, agenda_url=AGENDA,
                                     minutes_url=MINUTES)
         conn.commit()
@@ -147,7 +148,7 @@ def test_an_item_that_does_not_exist_costs_the_item_link_and_the_chapter(rows):
 
 
 def test_an_item_of_another_meeting_costs_the_item_link_and_the_chapter(rows):
-    links = _links(rows, meeting_id=rows["visible"], item_id=rows["hidden_item"], seconds=5313)
+    links = _links(rows, meeting_id=rows["visible"], item_id=rows["bare_item"], seconds=5313)
 
     assert links.item_url is None
     assert links.recording.timed is False

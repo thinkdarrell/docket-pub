@@ -493,7 +493,8 @@ SEED_MINUTES = "https://example.org/hiwpage/minutes-2026-06-02.pdf"
 
 @pytest.fixture
 def cited_rows():
-    """Meeting 2238 and item 59026 under Birmingham, as the parking-fines file cites them.
+    """Meeting 2238 and item 59026 under Birmingham, as the parking-fines file cites them,
+    and a public transcript of the meeting.
 
     The ids are explicit because the page reads them from the journey file; if
     the throwaway database already holds either, the insert fails loudly.
@@ -519,6 +520,10 @@ def cited_rows():
                VALUES (%s, %s, '371088', '11', 'An Ordinance to amend Title 8, Chapter 3, Section 10', 'completed')""",
             (ITEM_ID, MEETING_ID),
         )
+        cur.execute(
+            "INSERT INTO transcripts (meeting_id, status, uploaded_at) VALUES (%s, 'events_extracted', now())",
+            (MEETING_ID,),
+        )
         conn.commit()
     briefing_seed.clear_caches()
     try:
@@ -535,18 +540,38 @@ def test_a_stop_whose_rows_exist_links_them_in_a_fixed_order(client, cited_rows)
     card = _card(seeded, "June 2, 2026", "Final vote")
     pills = _pills(card)
 
-    assert list(pills) == ["Meeting", "Item", "Recording on Granicus, at this moment", "Minutes", "Agenda"]
+    assert list(pills) == [
+        "Meeting", "Item", "Recording on Granicus, at this moment", "Transcript", "Minutes", "Agenda"]
     assert pills["Meeting"] == f"/al/birmingham/meetings/{MEETING_ID}/"
     assert pills["Item"] == f"/al/birmingham/items/{ITEM_ID}/"
     assert "meta_id=371088" in pills["Recording on Granicus, at this moment"]
+    assert pills["Transcript"] == f"/al/birmingham/meetings/{MEETING_ID}/transcript/"
     assert pills["Minutes"] == SEED_MINUTES
     assert pills["Agenda"] == SEED_AGENDA
-    assert client.get(pills["Meeting"]).status_code == 200
-    assert client.get(pills["Item"]).status_code == 200
+    for name in ("Meeting", "Item", "Transcript"):
+        assert client.get(pills[name]).status_code == 200, name
+    external = {_text(a) for a in card.select(".hiw-links a[rel~=external]")}
+    assert external == {"Recording on Granicus, at this moment", "Minutes", "Agenda"}
 
     # The stops on other meetings, which the database does not hold, are unchanged.
     assert not _pills(_card(seeded, "May 26, 2026", "First reading"))
     assert list(_pills(_card(seeded, "May 11, 2026", "Committee"))) == ["Committee minutes"]
+
+
+def test_a_recording_link_says_at_this_moment_only_when_it_lands_on_one(client, cited_rows):
+    whole_meeting = _journey(
+        "whole",
+        _journey_stop("submitted", "committee", "agenda", "first_reading", "final_vote", "mayor", "in_effect",
+                      record="minutes", text="The meeting as a whole.", date=date(2026, 6, 2),
+                      meeting_id=MEETING_ID, document_label="The ordinance",
+                      document_url="https://example.org/hiwpage/ordinance.pdf"),
+    )
+    with _journeys(client, whole_meeting):
+        pills = _pills(_cards(_soup(client, PAGE))[0])
+
+    assert list(pills) == ["Meeting", "Recording on Granicus", "Transcript", "Minutes", "Agenda", "The ordinance"]
+    assert pills["Recording on Granicus"] == SEED_PLAYER
+    assert pills["The ordinance"] == "https://example.org/hiwpage/ordinance.pdf"
 
 
 # --- states the parking-fines journey does not have -------------------------

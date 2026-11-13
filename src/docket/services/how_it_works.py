@@ -377,10 +377,11 @@ def _load_journey(
 def _load_journeys(
     city_dir: Path, stops: list[Stop], sources_dir: Path, source_cache: dict[str, str]
 ) -> tuple[Journey, ...]:
-    """Every ``journeys/*.yaml`` beside the explainer, in file-name order."""
+    """Every ``journeys/*.yaml`` beside the explainer, in file-name order.
+
+    A city with no ``journeys/`` directory has no journeys.
+    """
     journeys_dir = city_dir / JOURNEYS_DIR
-    if not journeys_dir.is_dir():
-        return ()
     path_keys = {stop.key for stop in stops}
     main_keys = [stop.key for stop in stops if stop.side_route_of is None]
     journeys: list[Journey] = []
