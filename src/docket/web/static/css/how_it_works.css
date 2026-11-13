@@ -1,7 +1,51 @@
-/* how_it_works.css — the "How it works" page (templates/how_it_works.html).
-   Loaded from that template's {% block head %}, after mobile.css.
+/* how_it_works.css — the "How it works" page (templates/how_it_works.html
+   and partials/how_it_works_journey.html).
+   Loaded from the page's {% block head %}, after mobile.css.
    Uses only the custom properties styles.css defines; no new colours.
-   Plan how-it-works-explainer, M2 (the path, the stops) and M3 (the journey). */
+   Plan how-it-works-explainer, M2 (the path, the stops), M3 (the journey)
+   and M4 (the picker). */
+
+/* ── the picker ───────────────────────────────────────
+   One link per journey, first inside the journey's container so that what a
+   click changes is below it. The journey shown is filled and carries
+   aria-current; the fill is not the only sign, its label is also the
+   heading directly beneath. While htmx fetches the journey the link that
+   was clicked dims. */
+.hiw-picker { padding: var(--space-8) 0 0; }
+.hiw-picker-label { margin: 0 0 var(--space-3); }
+.hiw-picker-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.hiw-picker-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius);
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.3;
+  text-decoration: none;
+}
+.hiw-picker-link:hover { border-color: var(--ink); }
+.hiw-picker-link[aria-current="true"] {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+}
+.hiw-picker-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.hiw-picker-link.htmx-request { opacity: 0.6; }
 
 /* ── the journey's heading ────────────────────────────
    One real item: its label, a one-line note, and its title as the agenda
@@ -9,7 +53,7 @@
 .hiw-journey { scroll-margin-top: 80px; }
 .hiw-journey-head {
   max-width: 700px;
-  padding: var(--space-8) 0 0;
+  padding: var(--space-6) 0 0;
 }
 .hiw-journey-label {
   margin: var(--space-2) 0;
@@ -340,7 +384,10 @@
 }
 
 @media (max-width: 719px) {
-  .hiw-journey-head { padding-top: var(--space-6); }
+  .hiw-picker { padding-top: var(--space-6); }
+  .hiw-picker-list { flex-direction: column; }
+  .hiw-picker-link { display: flex; }
+  .hiw-journey-head { padding-top: var(--space-5); }
   .hiw-timeline { padding: var(--space-6) 0; }
   .hiw-event { padding: var(--space-4); }
   .hiw-event--off-route { padding: var(--space-2) var(--space-4); }

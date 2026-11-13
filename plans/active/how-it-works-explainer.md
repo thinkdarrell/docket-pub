@@ -220,6 +220,34 @@ As authored on 2026-11-12, nothing has been executed and there are no discoverie
   Rationale: The plan asks that such a side route be "muted with no words", and that every mark carry its words as text. Beside the link, not inside it, is what M2 left as the contract so that the tests that read a stop's name from its link keep reading the name alone.
   Date/Author: 2026-11-13, M3 session.
 
+- Decision: A journey's `title` holds only words a record prints, and what the design says about the item in its own words goes in the `note`. The rezoning's title is the agenda's parenthetical, "(Recommended by the Planning and Zoning Committee) (NOT Recommended by the ZAC)"; the contract's is the resolution as the Budget and Finance Committee's saved minutes print it, elided with "…"; the liquor licence's is the design's quotation of the agenda, which already elides.
+  Rationale: The page draws the title in a `blockquote`, and words inside one are read as the record's own. The design's "An ordinance to rezone 1259 Huffman Road from D-3 Single-Family Residential to C-1 Neighborhood Commercial, for a new Boys & Girls Club of Central Alabama" and "A resolution for an agreement of up to $4,000 for free events in Avondale Park" are the design author's summaries, with no quotation marks, and no saved source holds either item's agenda text. For the rezoning, the one contiguous run of the agenda's words the design quotes for the ordinance's own item (62781) is the parenthetical, which is also what the journey's label is about; joining it to the other quoted fragment ("and the hearing of all interested parties") would assert an order in the agenda that this session did not see. Each of the two notes ends by saying whose words follow. Making `title` optional was the alternative; it would change the file format and a refusal M3 tests, for two files.
+  Date/Author: 2026-11-13, M4 session.
+
+- Decision: Where the design gives no words for a stop, the stop's `text` is the least that a record read for this plan supports, and nothing is said about why. The rezoning's `submitted`: "This is zoning case ZAC2026-08007." The contract's `submitted`: the submitter as the saved committee minutes print it ("Submitted by: Jeff McDaniels", "Department: City Council"). Both `first_reading` stops: "This item is a resolution, and its text carries no reading marker", which is the fact Context and Orientation records from production on 2026-11-13. The closing stops of the liquor licence and the contract: that the council's vote, or the consent agenda, is the last event the site holds for the resolution. The rezoning's closing stop repeats the statement of the explainer's own rule for Zoning Ordinance Article II §6, "A rezoning takes effect on the date of its newspaper announcement."
+  Rationale: `text` is required on every stop (M3), and the design's Mayor rows for two journeys are empty. A sentence about the ten-day window, as the parking-fines journey has, would need a date computed from a vote whose minutes are not published.
+  Date/Author: 2026-11-13, M4 session.
+
+- Decision: The rezoning's stop of 2026-09-15 is `record: agenda`, quotes the opening words of the hearing-setting resolution, and gives no tally, saying why in its text. The liquor licence's and the contract's council stops quote the agenda's own parenthetical or state the design's sentence, and the two 8 to 0 tallies are in `text` on stops whose `record` is `video`.
+  Rationale: The design says of 2026-09-15 that two video-read roll calls are linked to the item and "the journey quotes no tally here until the minutes settle which roll call is its own". What the stop rests on is the agenda's text and its `[First Reading]` mark. The two tallies are the facts Context and Orientation says come from a video reading; `record: video` is what makes the page label them "from the video".
+  Date/Author: 2026-11-13, M4 session.
+
+- Decision: The contract's title is checked against `committee-bf_min.txt` by a unit test, not by the loader.
+  Rationale: The file format gives a `source_file` to a stop's quotation, not to a journey's title, and a new key would widen the format for one file. The test (`test_the_consent_journeys_title_is_the_resolution_as_the_saved_committee_minutes_print_it`) runs the loader's own `_missing_quote_piece` on the title and on the title with one figure changed.
+  Date/Author: 2026-11-13, M4 session.
+
+- Decision: The picker is `nav.hiw-picker`, the first child of the journey's container, with a visible label "Follow a real item" and one link per journey whose words are the journey's `label` alone; it is drawn whenever the city has at least one journey. Each link carries `id="hiw-pick-<key>"`. The journey heading's eyebrow, "One real item, followed" in M3, now reads "This item".
+  Rationale: The plan fixes the order and the four htmx attributes and leaves the rest. A row of links with no words above it does not say what choosing one does. With `hx-swap="outerHTML"` on the container, the link that was clicked is itself replaced, and keyboard focus would fall back to the top of the document; htmx puts focus back on the element with the same id after a swap, so each link has one. The old eyebrow said the same thing as the picker's label directly above it.
+  Date/Author: 2026-11-13, M4 session.
+
+- Decision: To an htmx request the route answers with the partial for every outcome that is 200, including a city with no journeys and a request that names no journey; a journey that does not exist is 404 with or without the header; every 200 carries `Vary: HX-Request`.
+  Rationale: This is `meeting_transcript`'s behaviour, which the plan names as the model. The partial's root is always the one `div#how-it-works-journey`, so whatever is swapped in can be swapped again.
+  Date/Author: 2026-11-13, M4 session.
+
+- Decision: Two tests M3 wrote were edited, because the picker changes what they read and not what they are about. `test_no_stop_is_drawn_as_the_current_one` looked for `aria-current` and the word "current" anywhere in the journey's container; it now looks in the path and in the timeline, since the picker marks the journey shown with `aria-current`. `test_the_first_journey_is_the_default_and_each_is_reached_by_its_key` read which journey is shown from the container's whole text; the picker names every journey there, so it now reads the heading, and checks that the other journey's card text is absent.
+  Rationale: Left as written, the first would forbid the attribute the plan requires and the second would fail on a page that is right.
+  Date/Author: 2026-11-13, M4 session.
+
 ## Outcomes & Retrospective
 
 As authored on 2026-11-12, nothing has been executed and there are no outcomes.

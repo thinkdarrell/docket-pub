@@ -1136,6 +1136,10 @@ def how_it_works(slug):
     first journey in file-name order is shown, and a key that names no journey
     of this city is 404. The journey's facts are the file's; only its links
     are resolved from the database, here, on each request.
+
+    The picker's links are htmx requests for the same address: to one of those
+    the answer is the journey's partial alone (the picker, the title, the path
+    and the timeline), which replaces the one on the page.
     """
     municipality = query.get_municipality(slug)
     if not municipality:
@@ -1154,12 +1158,19 @@ def how_it_works(slug):
     journey = (
         how_it_works_service.resolve_journey(chosen, municipality["id"], slug) if chosen is not None else None
     )
-    return render_template(
-        "how_it_works.html",
+    # A picker link asks for the journey alone and swaps it in place; htmx's
+    # history restore sends HX-Request too but needs the whole page.
+    is_partial = bool(request.headers.get("HX-Request")) and not request.headers.get(
+        "HX-History-Restore-Request")
+    template = "partials/how_it_works_journey.html" if is_partial else "how_it_works.html"
+    resp = make_response(render_template(
+        template,
         municipality=municipality,
         explainer=explainer,
         journey=journey,
-    )
+    ))
+    resp.headers["Vary"] = "HX-Request"
+    return resp
 
 
 @bp.route("/about/")

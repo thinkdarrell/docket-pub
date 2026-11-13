@@ -680,9 +680,10 @@ def test_the_first_journey_is_the_default_and_each_is_reached_by_its_key(client)
         other = _soup(client, PAGE + "?journey=other")
         assert client.get(PAGE + "?journey=parking-fines").status_code == 404
 
-    assert "Journey licence" in _text(default.select_one(JOURNEY))
-    assert "Journey other" in _text(other.select_one(JOURNEY))
-    assert "Journey licence" not in _text(other.select_one(JOURNEY))
+    # M4: the picker names every journey, so the one shown is read from the heading.
+    assert _text(default.select_one(f"{JOURNEY} h2.hiw-journey-label")) == "Journey licence"
+    assert _text(other.select_one(f"{JOURNEY} h2.hiw-journey-label")) == "Journey other"
+    assert "Forwarded by the chair." not in _text(other.select_one(JOURNEY))
     assert len(_cards(other)) == 1
     assert set(_marks(other).values()) == {MISSING, ""}
 
@@ -884,7 +885,7 @@ def test_an_htmx_request_gets_the_journey_alone(client, key, label):
     body = response.get_data(as_text=True)
 
     assert response.status_code == 200
-    assert "<html" not in body and "<head" not in body and "<body" not in body
+    assert "<html" not in body and "<head>" not in body and "<body" not in body and "<title" not in body
     assert label in body
     partial = BeautifulSoup(body, "html.parser")
     roots = partial.find_all(True, recursive=False)
