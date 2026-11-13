@@ -28,7 +28,15 @@ SOURCE_TEXT = (
 )
 
 
-def _write_city(tmp_path: Path, *, rules=None, stops=None, source_text: str = SOURCE_TEXT) -> Path:
+def _write_city(
+    tmp_path: Path,
+    *,
+    rules=None,
+    stops=None,
+    open_questions=None,
+    sources_read: str = "2026-11-12",
+    source_text: str = SOURCE_TEXT,
+) -> Path:
     """A minimal, valid explainer in ``tmp_path``; pass ``rules`` or ``stops`` to break it."""
     city_dir = tmp_path / "testville"
     (city_dir / "sources").mkdir(parents=True)
@@ -47,13 +55,15 @@ def _write_city(tmp_path: Path, *, rules=None, stops=None, source_text: str = SO
         ]
     doc = {
         "city": "testville",
-        "sources_read": "2026-11-12",
+        "sources_read": "SOURCES_READ",
         "stops": stops,
-        "open_questions": [{"heading": "One thing", "body": "Nobody knows."}],
+        "open_questions": (
+            [{"heading": "One thing", "body": "Nobody knows."}] if open_questions is None else open_questions
+        ),
     }
     text = yaml.safe_dump(doc, allow_unicode=True, sort_keys=False)
-    # safe_dump quotes the date string; the loader must see a YAML date.
-    text = text.replace("'2026-11-12'", "2026-11-12")
+    # Written unquoted, so a date reaches the loader as a YAML date.
+    text = text.replace("SOURCES_READ", sources_read)
     (city_dir / "explainer.yaml").write_text(text, encoding="utf-8")
     return city_dir
 
@@ -361,3 +371,28 @@ def test_a_missing_explainer_file_raises_naming_it(tmp_path):
 
     with pytest.raises(ExplainerError, match=r"explainer\.yaml"):
         load_explainer(tmp_path / "nowhere")
+
+
+def test_a_stop_with_no_description_raises(tmp_path):
+    from docket.services.how_it_works import ExplainerError, load_explainer
+
+    stops = [{"key": "agenda", "name": "On the agenda", "side_route_of": None, "rules": [_rule()]}]
+
+    with pytest.raises(ExplainerError, match=r"stops\[0\]\.description"):
+        load_explainer(_write_city(tmp_path, stops=stops))
+
+
+def test_an_open_question_needs_a_heading_and_a_body(tmp_path):
+    from docket.services.how_it_works import ExplainerError, load_explainer
+
+    with pytest.raises(ExplainerError, match=r"open_questions\[0\]\.body"):
+        load_explainer(_write_city(tmp_path / "a", open_questions=[{"heading": "One thing"}]))
+    with pytest.raises(ExplainerError, match=r"open_questions\[0\]\.heading"):
+        load_explainer(_write_city(tmp_path / "b", open_questions=[{"body": "Nobody knows."}]))
+
+
+def test_the_date_the_sources_were_read_must_be_a_date(tmp_path):
+    from docket.services.how_it_works import ExplainerError, load_explainer
+
+    with pytest.raises(ExplainerError, match=r"sources_read"):
+        load_explainer(_write_city(tmp_path, sources_read="last Thursday"))

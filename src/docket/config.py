@@ -41,6 +41,10 @@ BLOG_CONTENT_ROOT = os.environ.get("BLOG_CONTENT_ROOT", "content/blog")
 BLOG_AUTHORS_YAML = os.environ.get("BLOG_AUTHORS_YAML", "config/blog_authors.yaml")
 BLOG_PREVIEW_TOKEN = os.environ.get("BLOG_PREVIEW_TOKEN", "")
 
+# "How it works" explainer content, one directory per city slug
+# (see docs/superpowers/specs/2026-11-12-how-it-works-design.md)
+HOW_IT_WORKS_ROOT = os.environ.get("HOW_IT_WORKS_ROOT", "content/how-it-works")
+
 # YouTube Data API v3 key for the youtube_ingest task and
 # scripts/backfill_youtube_meetings.py; unset, both read nothing
 # (plans/completed/youtube-council-channel.md, M4).
