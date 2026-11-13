@@ -14,7 +14,7 @@ This is the first of four phases described in the design document `docs/superpow
 
 ## Progress
 
-- [ ] M1: The explainer's content exists as data with its sources beside it, a loader reads it, and a test proves every quoted rule appears in its source.
+- [x] (2026-11-13 20:40Z) M1: The explainer's content exists as data with its sources beside it, a loader reads it, and a test proves every quoted rule appears in its source.
 - [ ] M2: `/al/birmingham/how-it-works/` renders the path, a section for each stop with its quoted rules and citations, and the open questions; other cities return 404; the city page and the meeting page link to it.
 - [ ] M3: A journey file format and a resolver exist, and the parking-fines journey renders on the page with links that resolve, selectable by `?journey=`.
 - [ ] M4: The three further journeys (the Huffman Road rezoning, the Legion Field liquor licence, the Friends of Avondale Park contract) are selectable, and switching between journeys swaps the journey without reloading the page.
@@ -38,6 +38,21 @@ As authored on 2026-11-12, nothing has been executed and there are no discoverie
 
 - Observation (M1, 2026-11-13): the Birmingham content holds 10 stops (seven on the path, three side routes), 54 rules, and 54 quotations; every rule carries a quotation, so none relies on the exemption for unquoted rules. Rules per stop: submitted 6, committee 14, agenda 3, consent 4, hearing 7, first_reading 3, held_over 3, final_vote 5, mayor 5, in_effect 4. M2's acceptance counts `href="https://` against the number of rules; that number is 54.
   Evidence: `load_explainer(Path("content/how-it-works/birmingham"))` in a one-off script printed `10 54 54`.
+
+- Observation (M1, 2026-11-13): four of the design's rule statements could not be carried over word for word, because the saved source does not hold the words the design gives. Each was resolved toward the saved text.
+  (a) The design quotes §2-2-11(b) as "where required by law, or by unanimous consent". The code's sentence begins with a capital, "Where required by law, or by unanimous consent of the city council", and the check is case-sensitive, so the content quotes it as the code prints it.
+  (b) The design quotes the Citizen's Handbook as saying committees "don't have the power to 'kill a bill.'" The saved copy, `citizens-handbook-2024.txt`, is a damaged text layer: the sentence reads `they uti ~ t•i ;fu ~ Gdon't have Gthe m ~f0 power to u.unilC!'rnllbm "kill a bill."`. Only the three words "kill a bill" are quotable from it, and the rule quotes only those; its statement gives the rest in plain words.
+  (c) The design's row "Hearing notice by type" says of the budget "at least seven days after publication", citing §45-37A-52.128. The saved copy of that section holds no seven-day rule; the only notice period in it is for a hearing on an increase in total expenditures, "not less than three days after notice thereof by publication". No budget-notice rule is in the content (Decision Log).
+  (d) The same row cites weed abatement as §§11-67-61 to -63. All four facts it states (certified mail 21 days ahead, two weeks of newspaper notice, signs, seven days) are in §11-67-62 alone, and the content cites that section.
+  Evidence: a scratch script that normalises each file under `sources/` and searches it printed `MISSING` for "where required by law, or by unanimous consent" and found "kill a bill" once; `grep` of the normalised `ala-code-45-37A-52-birmingham-part2.txt` for "seven" and "7 days" printed nothing.
+
+- Observation (M1, 2026-11-13): the saved committee files are not the meetings their names might suggest, which bears on M4. `committee-ps_min.txt` is the Public Safety Committee's minutes of 2026-10-13 and `committee-pz_min.txt` is headed 2026-09-22 (the Planning and Zoning Committee); `committee-cow_min.txt` is the Committee of the Whole's minutes of 2026-05-20, and `committee-bf_min.txt` is Budget and Finance, 2026-10-12. So the liquor-licence journey's committee quotation (Public Safety, 2026-09-22, "Lack of Quorum") and the rezoning journey's (Planning and Zoning, 2026-09-08) have no saved source and cannot be machine-checked in M4; the consent journey's (Budget and Finance, 2026-10-12) and the parking-fines journey's (Transportation, 2026-05-11) can.
+  Evidence: `grep -c "Huffman\|ZAC2026-08007" committee-pz_min.txt` printed 0; `grep -c "Lack of Quorum\|Legion Field\|Greenawalt" committee-ps_min.txt` printed 0; `grep -c "Friends of Avondale Park" committee-bf_min.txt` printed 4; `grep -n "including the amendment" committee-transportation-minutes-2026-05-11.txt` found line 113.
+
+- Observation (M1, 2026-11-13): M1's acceptance, observed. (1) `./tools/verify` on the finished state exited 0: `verify: unit+web+services ... ok (82s)`, `verify: integration ... ok (105s)`, `verify: judge-fixtures ... ok (0s)`, `verify: workflows ... ok (0s)`, `verify: transcriber ... ok (8s)`, `verify: plans ... ok (0s)`, `verify: all 6 checks passed in 196s.` The first tier reported `2570 passed, 5 skipped, 4 xfailed`, against `2539 passed, 5 skipped, 4 xfailed` at the start: 31 more, the 31 tests in the new file. (2) With "considered final" changed to "considered binding" in the quotation of the rule cited General Code §2-2-14(b), `./tools/verify` exited 1 with `verify: unit+web+services ... FAILED (86s)` and `5 failed, 2565 passed, 5 skipped, 4 xfailed`; all five failures are in `tests/unit/test_how_it_works_content.py` (the five tests that load the real content), and each prints `ExplainerError: …/content/how-it-works/birmingham/explainer.yaml: stops[1].rules[4].quote: the rule cited 'General Code §2-2-14(b)' quotes words that are not in sources/general-code-title-2-chapter-2.txt, in this order: 'No action of any committee including the committee of the city council as a whole shall be considered binding without a formal vote of the full council at a regular council meeting.'` The file was restored with `git checkout --` and `git status --short` then printed nothing. (3) `ls docs/superpowers/specs/2026-11-12-how-it-works-sources` printed `ls: cannot access … No such file or directory`, and `ls content/how-it-works/birmingham/sources/README.md` printed the path.
+
+- Observation (M1, 2026-11-13): every verify run in this session took 195 to 197 seconds, over the 180-second budget in `AGENTS.md`; the integration tier alone is 103 to 105 seconds. This milestone added about a third of a second. Not acted on here.
+  Evidence: the three final lines `verify: all 6 checks passed in 195s.`, `verify: 1 of 6 checks failed in 197s.`, `verify: all 6 checks passed in 196s.`
 
 ## Decision Log
 
@@ -81,9 +96,31 @@ As authored on 2026-11-12, nothing has been executed and there are no discoverie
   Rationale: The external review proposed explaining the 3 to 6 first-reading vote as members deliberately forcing a week's review. The minutes record the motion, the roll and the Presiding Officer's declaration; no record read gives a motive. The page shows the tally, the names, the declaration and the rule beside it, and the 8 to 0 vote a week later, and leaves the inference to the reader.
   Date/Author: 2026-11-13, plan author.
 
+- Decision: One rule holds one quotation, so a row of the design's table that makes several claims becomes several rules, each with the words that support it.
+  Rationale: The file shape gives a rule one `quote` and one `source_file`. The design's row "After the vote" makes five claims (48 hours, 10 days, silence is approval, two-thirds, no veto over appointments) from five separate sentences of §45-37A-52.64; one elided quotation spanning them would be long and its statement could not be checked claim by claim. The 28 rows became 54 rules. Where a row is one claim the statement is the design's wording; where it was split, each statement is the part of the design's sentence that its quotation supports. Five rules state something the design's table does not, each from a saved source and placed where a reader needs it: the agenda's own definitions of the `P` and `(ph)` marks (Statement of Conduct of Business), the Mayor-Council Act's four-vote sentence beside the General Code's, the unanimous-consent clause repeated under "Held over", and the publish-then-effective sentence of §45-37A-52.64 under "In effect".
+  Date/Author: 2026-11-13, M1 session.
+
+- Decision: The content states no notice period for a budget hearing.
+  Rationale: The design gives "at least seven days after publication" and cites §45-37A-52.128; the saved copy of that section does not say it (Surprises & Discoveries). A rule with no source cannot go on the page ("Source or silence"), and substituting the three-day rule the section does hold would state a different rule than the design's author meant. If the seven-day rule is in a section not saved (the budget-hearing section before 52.128), re-reading it and saving a copy is the route to adding it; M5 can list it with the open questions that need a person.
+  Date/Author: 2026-11-13, M1 session.
+
+- Decision: M1's instruction that the loader refuse "a rule whose stop key is not one of the path's" is implemented as two checks on stops: no two stops share a key, and a `side_route_of` must name a main stop (one whose own `side_route_of` is null).
+  Rationale: In the file shape of Interfaces and Dependencies a rule is nested under its stop and carries no stop key of its own, so the sentence as written describes a state the file cannot be in. The only stop keys the file can get wrong are a repeated one and a side route hung under something that is not on the path; M2's template loops main stops and hangs side routes beneath them by that key, so a side route under a side route, or under nothing, would silently not be drawn.
+  Date/Author: 2026-11-13, M1 session.
+
+- Decision: The loader also refuses a rule link that does not begin `https://`, and a `source_file` that is not a bare file name inside the city's `sources/` directory.
+  Rationale: M1's tests require every Birmingham rule to have an `https://` link; refusing it in the loader makes that hold for every city and at application start, not only in one test. A `source_file` of `../explainer.yaml` would let a quotation be "found" in the content file itself.
+  Date/Author: 2026-11-13, M1 session.
+
+- Decision: Committee-minutes rules link the city's committee index page, and are cited by the committee and date printed at the top of the saved file.
+  Rationale: `sources/README.md` records a public address for each PDF only for the Transportation minutes; for the other committee files it records the index page they were linked from. A guessed PDF address would be a link nobody read. The design says "Committee minutes Sept–Oct 2026"; the saved files are dated 2026-10-12, 2026-10-13 and 2026-05-20, and the citation gives the date the file carries.
+  Date/Author: 2026-11-13, M1 session.
+
 ## Outcomes & Retrospective
 
 As authored on 2026-11-12, nothing has been executed and there are no outcomes.
+
+M1, 2026-11-13. Done: `content/how-it-works/birmingham/explainer.yaml` holds the path (seven stops, three side routes), 54 rules each with a quotation, citation, link and source file, and the seven open questions; the saved sources sit beside it under `sources/`; `docket.services.how_it_works.load_explainer` reads and validates it and proves each quotation against its source; `HOW_IT_WORKS_ROOT` is in `src/docket/config.py`; 31 tests in `tests/unit/test_how_it_works_content.py` pass. All three acceptance clauses were met as stated, with no carve-out. Against the Plan of Work there are two divergences, both recorded above: the design's budget-notice clause is not in the content because its source does not hold it, and the handbook rule quotes three words, not the design's sentence. Nothing is rendered and nothing loads the content at application start; that is M2. Lesson for the later milestones: check each of the design's quotations against the saved file before writing it down, because the design's quotation marks were not all copied from the saved text.
 
 ## Context and Orientation
 
@@ -187,6 +224,12 @@ To look at the page while building (M2 onward), with a local database that has t
     venv/bin/flask --app docket.web:create_app run
 
 and open `http://127.0.0.1:5000/al/birmingham/how-it-works/`. The local database has no Birmingham meetings, so journey stops render their text with no links; that is the degraded state working, not a failure. Links are proved by the service test in M3.
+
+To run one test file while working (observed in M1), in the form `./tools/verify` itself prints for a re-run:
+
+    DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_how_it_works_content.py -q -p no:cacheprovider; tools/test-db --drop
+
+which after M1 prints `31 passed, 1 warning`. This is for the loop while editing; the milestone's evidence is still the full `./tools/verify`.
 
 Each milestone ends with `./tools/verify` passing, the plan's living sections updated with what was observed, and a commit.
 
@@ -336,6 +379,8 @@ In `src/docket/services/how_it_works.py`:
 
     def resolve_journey(journey: Journey, municipality_id: int, city_slug: str) -> ResolvedJourney: ...
 
+As built in M1, for the sessions that extend it. `load_explainer(city_dir)` reads `<city_dir>/explainer.yaml` and resolves every `source_file` against `<city_dir>/sources/`; it returns `journeys=()` and does not look at `journeys/`. Every `ExplainerError` message has the form `<path to the file>: <key path>: <problem>`, with key paths such as `stops[1].rules[4].quote`, `stops[2].side_route_of`, `open_questions[0].body`; tests match on the key path. Two private helpers in the module are there for M3 to reuse and not re-invent: `_missing_quote_piece(quote, normalised_source) -> str | None` is the whole quotation check (it splits on "…" or "...", normalises each piece, and returns the first piece not found after the end of the one before, or None), and `_Reader(path)` gives typed reads (`text`, `optional_text`, `day`, `mapping`, `sequence`) that fail with the file and key. `sources_read` must be an unquoted YAML date. The `JourneyStop` and `Journey` dataclasses already exist in the module, exactly as given above, and nothing constructs them yet; the `StopLinks`, `ResolvedStop` and `ResolvedJourney` classes and `resolve_journey` do not exist yet.
+
 `resolve_journey` builds site addresses as plain paths (`/al/<city_slug>/meetings/<id>/`, `/al/<city_slug>/items/<id>/`, `/al/<city_slug>/meetings/<id>/transcript/`) so that the service does not import Flask; a service may not import from `src/docket/web/` (`ARCHITECTURE.md`, layer map). The recording link is `video_links.link_for(video_links.for_meeting(meeting_id), seconds=stop.seconds, chapter_id=item.external_id if the item resolved else None)`. `link_for` itself ignores a chapter id that is not all digits.
 
 In `src/docket/web/public.py`:
@@ -346,3 +391,5 @@ In `src/docket/web/public.py`:
 Templates: `src/docket/web/templates/how_it_works.html`, and from M4 `src/docket/web/templates/partials/how_it_works_journey.html`. Styles: `src/docket/web/static/css/how_it_works.css`. Jinja global: `has_how_it_works(slug) -> bool`.
 
 Revision note, 2026-11-13 (M1 session): the sentence in Context and Orientation that locates the saved source texts now gives their new directory, because M1 moved them and a later session reading the old path would find nothing there.
+
+Revision note, 2026-11-13 (M1 session, at its close): M1 is ticked; Surprises & Discoveries, the Decision Log and Outcomes & Retrospective carry what M1 observed and decided; Concrete Steps gains the one-file test command; Interfaces and Dependencies gains a paragraph describing the loader as built, so that M2 and M3 reuse its error format and helpers. No milestone's scope or acceptance was changed.
