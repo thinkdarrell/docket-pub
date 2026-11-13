@@ -24,6 +24,12 @@ This is the first of four phases described in the design document `docs/superpow
 
 As authored on 2026-11-12, nothing has been executed and there are no discoveries from execution. Discoveries made while researching the plan are in Context and Orientation.
 
+- Observation (M1, 2026-11-13): the starting state was green, and the verify command ran over its stated budget. `./tools/verify`, run before any edit at commit `0c190c4`, exited 0 in 195 seconds against the 180-second budget `AGENTS.md` gives.
+  Evidence: `verify: unit+web+services ... ok (84s)`, `verify: integration ... ok (103s)`, `verify: transcriber ... ok (8s)`, `verify: all 6 checks passed in 195s.`
+
+- Observation (M1, 2026-11-13): the design document names the old sources directory three times, not twice. Besides the full path in its section 3, the committee row of the parking-fines table in section 6 and the first sentence about minutes in section 8 each name a file as `2026-11-12-how-it-works-sources/committee-…`. All three now read `content/how-it-works/birmingham/sources/…`.
+  Evidence: after the move, `grep -n how-it-works-sources docs/superpowers/specs/2026-11-12-how-it-works-design.md` prints nothing.
+
 ## Decision Log
 
 - Decision: The page lives at `/al/<slug>/how-it-works/` and returns 404 for any city that has no content directory.
@@ -74,7 +80,7 @@ As authored on 2026-11-12, nothing has been executed and there are no outcomes.
 
 docket.pub is a Python 3.10 Flask application with HTMX, backed by PostgreSQL. `AGENTS.md` at the repository root is the map. Three rules from it govern this plan. Routes live in `src/docket/web/public.py` and never run SQL; they call functions in `src/docket/services/`. Services own every database read. And nothing shown to a reader may lose its link to the city's source (`docs/PRINCIPLES.md`).
 
-The design this plan implements is `docs/superpowers/specs/2026-11-12-how-it-works-design.md`. Read it in full before M1. Its section 3 is the table of rules with their citations and its list of seven open questions; section 5 is the path; section 6 is the four journeys, stop by stop, with the record each fact rests on. Those three sections are the content this plan turns into data. Beside it, `docs/superpowers/specs/2026-11-12-how-it-works-sources/` holds plain-text copies of every source the rules quote, with a `README.md` giving each one's public address and the date it was read.
+The design this plan implements is `docs/superpowers/specs/2026-11-12-how-it-works-design.md`. Read it in full before M1. Its section 3 is the table of rules with their citations and its list of seven open questions; section 5 is the path; section 6 is the four journeys, stop by stop, with the record each fact rests on. Those three sections are the content this plan turns into data. Beside it, `docs/superpowers/specs/2026-11-12-how-it-works-sources/` held plain-text copies of every source the rules quote, with a `README.md` giving each one's public address and the date it was read; M1 moved that directory to `content/how-it-works/birmingham/sources/` on 2026-11-13, and that is where to read them now.
 
 Terms used below. A **stop** is one step on the path, such as "Committee" or "First reading". A **side route** is a stop that only some items take: the consent agenda, a public hearing, being held over. A **rule** is one statement about a stop, with the words of its source, a citation, and a link. A **journey** is one real item followed across the stops, with what the record shows at each. A **journey stop** is one event in a journey; a journey may have several events at the same path stop (the parking-fines ordinance was at "First reading" twice) and may have none at a path stop.
 
@@ -329,3 +335,5 @@ In `src/docket/web/public.py`:
     def how_it_works(slug): ...
 
 Templates: `src/docket/web/templates/how_it_works.html`, and from M4 `src/docket/web/templates/partials/how_it_works_journey.html`. Styles: `src/docket/web/static/css/how_it_works.css`. Jinja global: `has_how_it_works(slug) -> bool`.
+
+Revision note, 2026-11-13 (M1 session): the sentence in Context and Orientation that locates the saved source texts now gives their new directory, because M1 moved them and a later session reading the old path would find nothing there.
