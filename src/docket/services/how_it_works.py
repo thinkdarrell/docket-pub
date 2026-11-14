@@ -23,6 +23,7 @@ silence").
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -33,6 +34,8 @@ import yaml
 
 from docket.services import query, transcripts, video_links
 from docket.services.video_links import VideoLink
+
+logger = logging.getLogger(__name__)
 
 EXPLAINER_FILE = "explainer.yaml"
 SOURCES_DIR = "sources"
@@ -504,18 +507,36 @@ _NO_LINKS = StopLinks(
 )
 
 
-def _stop_links(stop: JourneyStop, municipality_id: int, city_slug: str) -> StopLinks:
-    """The links one journey stop may carry, from the rows as they are now."""
+def _stop_links(stop: JourneyStop, municipality_id: int, city_slug: str, journey_key: str, number: int) -> StopLinks:
+    """The links one journey stop may carry, from the rows as they are now.
+
+    A recorded stop whose meeting or item no longer resolves keeps its text
+    and loses links (decision ``0093``); each such loss is logged with the
+    journey's key, the stop's place in it, and the id, so it is not silent.
+    """
     if stop.meeting_id is None:
         return _NO_LINKS
+    where = f"journey {journey_key!r} stop {number} ({', '.join(stop.stops)}, {stop.date})"
     meeting = query.get_meeting(stop.meeting_id)
     # Missing, hidden, or another city's: the site serves no page for it, so
     # the stop links nothing of it, the city's documents included.
     if meeting is None or meeting.is_hidden or meeting.municipality_id != municipality_id:
+        reason = (
+            "is missing" if meeting is None else "is hidden" if meeting.is_hidden else "belongs to another city"
+        )
+        logger.warning("how-it-works: %s: meeting %s %s; the stop carries no links", where, stop.meeting_id, reason)
         return _NO_LINKS
 
     item = query.get_agenda_item(stop.item_id) if stop.item_id is not None else None
+    if stop.item_id is not None and item is None:
+        logger.warning(
+            "how-it-works: %s: agenda item %s is missing; the stop carries no item link", where, stop.item_id
+        )
     if item is not None and item.meeting_id != meeting.id:
+        logger.warning(
+            "how-it-works: %s: agenda item %s belongs to another meeting than %s; the stop carries no item link",
+            where, stop.item_id, meeting.id,
+        )
         item = None
 
     meeting_url = f"/al/{city_slug}/meetings/{meeting.id}/"
@@ -557,7 +578,8 @@ def resolve_journey(journey: Journey, municipality_id: int, city_slug: str) -> R
     return ResolvedJourney(
         journey=journey,
         stops=tuple(
-            ResolvedStop(stop=stop, links=_stop_links(stop, municipality_id, city_slug)) for stop in journey.stops
+            ResolvedStop(stop=stop, links=_stop_links(stop, municipality_id, city_slug, journey.key, number))
+            for number, stop in enumerate(journey.stops, start=1)
         ),
         reached=reached,
         not_in_record=not_in_record,

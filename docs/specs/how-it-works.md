@@ -115,6 +115,8 @@ A stop keeps its text whatever the database holds, and loses only links:
 
 The stop's own `document` pill is the file's and is drawn whatever the database holds.
 
+The first two losses are logged each time the journey is resolved, because they mean a row the journey cites has gone: `docket.services.how_it_works` writes one warning per affected stop, `how-it-works: journey '<key>' stop <n> (<stops>, <date>): meeting <id> is missing; the stop carries no links` (or `is hidden`, or `belongs to another city`), and `agenda item <id> is missing; the stop carries no item link` (or `belongs to another meeting than <meeting id>`). The warnings are in the `docket-web` service's log. The other losses are ordinary states of a meeting and are not logged.
+
 ## Links in
 
 The shared footer partial `src/docket/web/templates/partials/page_sources.html` links the page as "How the council works" on every page rendered with a municipality that has an explainer (the Jinja global `has_how_it_works(slug)`); a city without one has no such link. The page is not in the sitemap, and item pages and item cards do not link to it.

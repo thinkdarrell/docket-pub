@@ -290,3 +290,70 @@ def test_a_stop_whose_meeting_has_gone_is_still_reached(rows):
 
     assert resolved.reached == {"final_vote"}
     assert _no_links(resolved.stops[0].links)
+
+
+# A recorded stop whose meeting or item no longer resolves is logged, so
+# the loss of its links is not silent.
+
+LOGGER = "docket.services.how_it_works"
+
+
+def _warnings(caplog) -> list[str]:
+    return [r.getMessage() for r in caplog.records if r.name == LOGGER and r.levelname == "WARNING"]
+
+
+@pytest.mark.parametrize("which, reason", [
+    ("absent", "is missing"),
+    ("hidden", "is hidden"),
+    ("elsewhere", "belongs to another city"),
+])
+def test_a_stop_whose_meeting_cannot_be_linked_is_logged_with_journey_stop_and_id(rows, caplog, which, reason):
+    meeting_id = ABSENT_ID if which == "absent" else rows[which]
+    with caplog.at_level("WARNING", logger=LOGGER):
+        _links(rows, meeting_id=meeting_id, seconds=10)
+
+    assert _warnings(caplog) == [
+        (
+            f"how-it-works: journey 'test' stop 1 (final_vote, 2026-06-02): meeting {meeting_id} {reason}; "
+            "the stop carries no links"
+        )
+    ]
+
+
+def test_a_stop_whose_item_does_not_exist_is_logged(rows, caplog):
+    with caplog.at_level("WARNING", logger=LOGGER):
+        _links(rows, meeting_id=rows["visible"], item_id=ABSENT_ID)
+
+    assert _warnings(caplog) == [
+        (
+            f"how-it-works: journey 'test' stop 1 (final_vote, 2026-06-02): agenda item {ABSENT_ID} is missing; "
+            "the stop carries no item link"
+        )
+    ]
+
+
+def test_a_stop_whose_item_belongs_to_another_meeting_is_logged(rows, caplog):
+    with caplog.at_level("WARNING", logger=LOGGER):
+        _links(rows, meeting_id=rows["visible"], item_id=rows["bare_item"])
+
+    assert _warnings(caplog) == [
+        (
+            f"how-it-works: journey 'test' stop 1 (final_vote, 2026-06-02): agenda item {rows['bare_item']} "
+            f"belongs to another meeting than {rows['visible']}; the stop carries no item link"
+        )
+    ]
+
+
+def test_stops_that_resolve_and_stops_with_no_record_log_nothing(rows, caplog):
+    with caplog.at_level("WARNING", logger=LOGGER):
+        _resolve(rows, _stop(meeting_id=rows["visible"], item_id=rows["item"]), _gap("committee"))
+
+    assert _warnings(caplog) == []
+
+
+def test_the_logged_stop_number_is_its_place_in_the_journey(rows, caplog):
+    with caplog.at_level("WARNING", logger=LOGGER):
+        _resolve(rows, _stop(meeting_id=rows["visible"]), _stop(meeting_id=ABSENT_ID))
+
+    assert len(_warnings(caplog)) == 1
+    assert "stop 2 " in _warnings(caplog)[0]
