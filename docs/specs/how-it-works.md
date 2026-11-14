@@ -4,7 +4,7 @@ The page at `/al/<slug>/how-it-works/` explains how an ordinance or resolution m
 
 ## Where the words come from
 
-Every sentence on the page below the site's own chrome is checked-in content under `content/how-it-works/<slug>/`, written and reviewed by a person. No language model writes or alters any of it, and no sentence, date, tally or name is read from a database row.
+Every sentence on the page below the site's own chrome is checked-in content under `content/how-it-works/<slug>/`, and it changes only by a commit. Nothing writes or alters it at run time: no model is called, and no sentence, date, tally or name is read from a database row. Who wrote Birmingham's sentences, and where decision `0092` says more than this paragraph does, is `D127` in `docs/DEBT.md`.
 
 A city's directory holds three things:
 
