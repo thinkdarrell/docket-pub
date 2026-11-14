@@ -171,6 +171,20 @@ constrains:
    merged; the figure went stale three times, each a Decision Log correction
    by a doc-garden pass, and the closing session graduated under `0084` to
    `0086`.
+   When a milestone copies content out of a design into a file shape the plan
+   defines (required fields, a quotation checked against a saved source), the
+   author tries the design's content against that shape while authoring: each
+   quotation is searched for in the saved copy it will cite, under the
+   comparison the plan states, and each required field is looked for in the
+   design's table for every entry; the plan says where the two disagree and
+   what the milestone writes instead. `how-it-works-explainer` told M1 to use
+   the design's wording and M4 to write three journeys from the design's
+   tables. Four of the design's rule statements were not in the saved sources
+   as quoted (a capital letter, a damaged text layer, a notice period the
+   cited section does not hold, a section that was the wrong one), two of
+   three committee quotations had no saved copy, and the tables held no title
+   for two journeys and no text for seven stops; each session settled in a
+   Decision Log entry what a search at authoring would have.
 7. Initialize the living sections to the true current state. Nothing has been
    executed, so nothing is checked off and no evidence exists; the authoring
    decisions themselves, however, are decisions, and they belong in the log
