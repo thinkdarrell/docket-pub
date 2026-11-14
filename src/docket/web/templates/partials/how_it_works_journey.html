@@ -1,0 +1,169 @@
+{# how_it_works_journey.html — one real item laid onto the path.
+
+   The container the "How it works" page shows above its explanation, and the
+   whole of what the route answers when a picker link asks through htmx
+   (``HX-Request``): the link's ``hx-target`` is this container and its swap
+   is ``outerHTML``, so the root element here must stay the one
+   ``div#how-it-works-journey`` and everything that changes with the journey
+   must be inside it. Without JavaScript each picker link is an ordinary
+   address, ``?journey=<key>``, and loads the page with that journey.
+
+   The order inside is fixed: the picker (one link per journey of the city,
+   the one shown marked ``aria-current``), the item's label, note and quoted
+   title, the path with each stop marked from the journey, then a timeline
+   of what the record shows, one card per journey stop. Picking an item is
+   above the path so the marks change below the reader's click. Each picker
+   link has an id, which is what lets htmx put keyboard focus back on it
+   after the swap replaces it.
+
+   Every date, tally, name and quotation is written in the journey's own
+   file; the database supplies links only, and a stop whose rows are missing
+   or hidden keeps its text and loses its links. A mark on the path always
+   carries its words ("in the record", "not in the record", "not on this
+   item's route"), never colour alone, and it sits beside the stop's link,
+   not inside it. No stop is drawn as the current one: every journey is a
+   finished item, and ``aria-current`` here marks the journey picked, never
+   a stop.
+
+   Args:
+     municipality (dict)   — the city
+     explainer (Explainer) — docket.services.how_it_works.Explainer
+     journey (ResolvedJourney | None) — the journey shown, or None for a city
+       that has none (no picker, no title, no timeline; the path unmarked)
+
+   Plan how-it-works-explainer, M3 (the journey) and M4 (the partial, the
+   picker).
+#}
+{%- set main_stops = explainer.stops | selectattr('side_route_of', 'none') | list -%}
+{%- set stop_names = {} -%}
+{%- for stop in explainer.stops %}{% set _ = stop_names.update({stop.key: stop.name}) %}{% endfor -%}
+{#- The words of a stop's mark on the path, and the class that draws it. A
+    side route the journey does not touch is muted and says nothing. -#}
+{%- macro path_state(key, side) -%}
+    {%- if not journey -%}
+    {%- elif key in journey.reached -%}reached
+    {%- elif key in journey.not_in_record -%}missing
+    {%- elif key in journey.not_on_route -%}off-route
+    {%- elif side -%}untouched
+    {%- endif -%}
+{%- endmacro -%}
+{%- macro path_mark(state) -%}
+    {%- if state == 'reached' %}<span class="hiw-path-mark">in the record</span>
+    {%- elif state == 'missing' %}<span class="hiw-path-mark">not in the record</span>
+    {%- elif state == 'off-route' %}<span class="hiw-path-mark">not on this item's route</span>
+    {%- endif -%}
+{%- endmacro -%}
+<div class="hiw-journey" id="how-it-works-journey">
+    {%- if explainer.journeys %}
+    <nav class="hiw-picker" aria-label="Choose an item to follow">
+        <p class="hiw-picker-label t-eyebrow">Follow a real item</p>
+        <ul class="hiw-picker-list" role="list">
+            {%- for choice in explainer.journeys %}
+            {%- set address = url_for('public.how_it_works', slug=municipality.slug, journey=choice.key) %}
+            <li>
+                <a class="hiw-picker-link" id="hiw-pick-{{ choice.key }}" href="{{ address }}"
+                   hx-get="{{ address }}" hx-target="#how-it-works-journey" hx-swap="outerHTML" hx-push-url="true"
+                   {%- if journey and choice.key == journey.journey.key %} aria-current="true"{% endif %}>{{ choice.label }}</a>
+            </li>
+            {%- endfor %}
+        </ul>
+    </nav>
+    {%- endif %}
+    {%- if journey %}
+    <header class="hiw-journey-head">
+        <div class="t-eyebrow">This item</div>
+        <h2 class="hiw-journey-label t-display">{{ journey.journey.label }}</h2>
+        <p class="hiw-journey-note">{{ journey.journey.note }}</p>
+        <blockquote class="hiw-journey-title"><p>{{ journey.journey.title }}</p></blockquote>
+    </header>
+    {%- endif %}
+
+    <nav class="hiw-path" aria-label="The path an item travels">
+        <ol class="hiw-path-list" role="list">
+            {%- for stop in main_stops %}
+            {%- set state = path_state(stop.key, false) %}
+            <li class="hiw-path-stop{% if state %} hiw-path-stop--{{ state }}{% endif %}">
+                <a class="hiw-path-link" href="#stop-{{ stop.key }}"><span class="hiw-path-name">{{ stop.name }}</span></a>
+                {{- path_mark(state) }}
+                {%- set side_routes = explainer.stops | selectattr('side_route_of', 'equalto', stop.key) | list %}
+                {%- if side_routes %}
+                <ul class="hiw-path-sides" role="list" aria-label="Side routes from {{ stop.name }}">
+                    {%- for side in side_routes %}
+                    {%- set side_state = path_state(side.key, true) %}
+                    <li class="hiw-path-side{% if side_state %} hiw-path-side--{{ side_state }}{% endif %}">
+                        <a class="hiw-path-side-link" href="#stop-{{ side.key }}">{{ side.name }}</a>
+                        {{- path_mark(side_state) }}
+                    </li>
+                    {%- endfor %}
+                </ul>
+                {%- endif %}
+            </li>
+            {%- endfor %}
+        </ol>
+    </nav>
+
+    {%- if journey %}
+    <ol class="hiw-timeline" role="list" aria-label="What the record shows for this item, stop by stop">
+        {%- for resolved in journey.stops %}
+        {%- set stop = resolved.stop %}
+        {%- set links = resolved.links %}
+        {%- if stop.record == 'none' %}{% set kind = 'gap' %}
+        {%- elif stop.record == 'not_on_route' %}{% set kind = 'off-route' %}
+        {%- else %}{% set kind = 'recorded' %}{% endif %}
+        <li class="hiw-event hiw-event--{{ kind }}">
+            <div class="hiw-event-head">
+                <span class="hiw-event-stops">
+                    {%- for key in stop.stops %}
+                    <a href="#stop-{{ key }}">{{ stop_names[key] }}</a>{% if not loop.last %}<span aria-hidden="true"> · </span>{% endif %}
+                    {%- endfor %}
+                </span>
+                {%- if kind == 'gap' %}
+                <span class="hiw-event-date t-mono">not in the record</span>
+                {%- elif kind == 'off-route' %}
+                <span class="hiw-event-date t-mono">not on this item's route</span>
+                {%- else %}
+                <time class="hiw-event-date t-mono" datetime="{{ stop.date.isoformat() }}">{{ stop.date.strftime('%B %-d, %Y') }}</time>
+                {%- endif %}
+            </div>
+            <p class="hiw-event-text">{{ stop.text }}</p>
+            {%- if stop.quote %}
+            <blockquote class="hiw-event-quote"><p>{{ stop.quote }}</p></blockquote>
+            {%- endif %}
+            {%- if stop.gap %}
+            <p class="hiw-event-gap">{{ stop.gap }}</p>
+            {%- endif %}
+            {%- if stop.record == 'video' %}
+            <p class="hiw-event-provenance t-mono">from the video</p>
+            {%- elif stop.record == 'transcript' %}
+            <p class="hiw-event-provenance t-mono">from the machine transcript</p>
+            {%- endif %}
+            {%- if links.meeting_url or links.item_url or links.recording or links.transcript_url or links.minutes_url or links.agenda_url or stop.document_url %}
+            <ul class="hiw-links" role="list">
+                {%- if links.meeting_url %}
+                <li><a class="hiw-pill" href="{{ links.meeting_url }}">Meeting</a></li>
+                {%- endif %}
+                {%- if links.item_url %}
+                <li><a class="hiw-pill" href="{{ links.item_url }}">Item</a></li>
+                {%- endif %}
+                {%- if links.recording %}
+                <li><a class="hiw-pill" href="{{ links.recording.url }}" rel="external noopener">Recording{% if links.recording.label %} on {{ links.recording.label }}{% endif %}{% if links.recording.timed %}, at this moment{% endif %}</a></li>
+                {%- endif %}
+                {%- if links.transcript_url %}
+                <li><a class="hiw-pill" href="{{ links.transcript_url }}">Transcript</a></li>
+                {%- endif %}
+                {%- if links.minutes_url %}
+                <li><a class="hiw-pill" href="{{ links.minutes_url }}" rel="external noopener">Minutes</a></li>
+                {%- endif %}
+                {%- if links.agenda_url %}
+                <li><a class="hiw-pill" href="{{ links.agenda_url }}" rel="external noopener">Agenda</a></li>
+                {%- endif %}
+                {%- if stop.document_url %}
+                <li><a class="hiw-pill" href="{{ stop.document_url }}" rel="external noopener">{{ stop.document_label }}</a></li>
+                {%- endif %}
+            </ul>
+            {%- endif %}
+        </li>
+        {%- endfor %}
+    </ol>
+    {%- endif %}
+</div>

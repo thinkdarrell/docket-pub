@@ -1,0 +1,677 @@
+# How an item moves through the Birmingham City Council.
+#
+# Every `quote` below is checked by the loader
+# (`docket.services.how_it_works.load_explainer`), each time it reads this
+# file, against the saved copy of its source under `sources/` (`source_file`).
+# A quotation may elide words with "…"; each piece between ellipses must then
+# appear in the source, in order. To correct a rule: re-read the public source,
+# update the copy under `sources/` and its read date in `sources/README.md`,
+# edit the rule here, and run `./tools/verify`.
+
+city: birmingham
+sources_read: 2026-11-12
+
+stops:
+  - key: submitted
+    name: Submitted
+    side_route_of: null
+    description: >-
+      A councilmember, the Mayor or the City Attorney submits the item, and it
+      has to reach the City Clerk by 5:00 p.m. on Wednesday.
+    rules:
+      - statement: >-
+          A councilmember, the Mayor or the City Attorney can submit an
+          ordinance or resolution.
+        quote: >-
+          Ordinances, resolutions and other matters or subjects requiring
+          action by the city council may be submitted by a councilmember, the
+          mayor or city attorney.
+        citation: General Code §2-2-15(c)
+        url: https://library.municode.com/al/birmingham/codes/code_of_ordinances
+        source_file: general-code-title-2-chapter-2.txt
+      - statement: >-
+          Nothing is considered unless a councilmember sponsors it by moving
+          its adoption.
+        quote: >-
+          Any councilmember may assume sponsorship thereof by moving that such
+          ordinances, resolutions, matters or subjects to be adopted;
+          otherwise, they shall not be considered.
+        citation: General Code §2-2-15(c)
+        url: https://library.municode.com/al/birmingham/codes/code_of_ordinances
+        source_file: general-code-title-2-chapter-2.txt
+      - statement: >-
+          Ordinances and resolutions are prepared by the City Attorney on the
+          council president's written request, or reviewed by the City
+          Attorney for form and legality.
+        quote: >-
+          Any ordinance or resolution shall be prepared by the city attorney
+          upon the written request of the president of the city council. Any
+          ordinance or resolution not prepared by the city attorney shall be
+          submitted to him or her for review as to form and legality
+        citation: General Code §2-2-15(a)
+        url: https://library.municode.com/al/birmingham/codes/code_of_ordinances
+        source_file: general-code-title-2-chapter-2.txt
+      - statement: >-
+          An item must reach the City Clerk by 5:00 p.m. on Wednesday to be on
+          the agenda.
+        quote: >-
+          All reports, communications, ordinances, resolutions, contract
+          documents or other matters to be submitted to the city council shall
+          be delivered to the city clerk by 5:00 p.m. Wednesday.
+        citation: General Code §2-2-3(a)
+        url: https://library.municode.com/al/birmingham/codes/code_of_ordinances
+        source_file: general-code-title-2-chapter-2.txt
+      - statement: >-
+          A late item needs unanimous consent, or an addendum approved by the
+          council president at least 24 hours before the meeting.
+        quote: >-
+          shall not be voted on by council: (1) Except by unanimous consent of
+          the city council; or (2) Unless approval has been obtained from the
+          city council president for preparation of an addendum containing
+          such matter at least 24 hours prior to the convening of the
+          regularly scheduled council meeting.
+        citation: General Code §2-2-3(a)
+        url: https://library.municode.com/al/birmingham/codes/code_of_ordinances
+        source_file: general-code-title-2-chapter-2.txt
+      - statement: >-
+          Everything is sent to the Mayor for an administrative recommendation
+          when it is introduced.
+        quote: >-
+          All ordinances, resolutions and contract documents shall, upon
+          introduction, be submitted to the mayor for his or her
+          administrative recommendation with reference thereto.
+        citation: General Code §2-2-15(b)
+        url: https://library.municode.com/al/birmingham/codes/code_of_ordinances
+        source_file: general-code-title-2-chapter-2.txt
+
+  - key: committee
+    name: Committee
+    side_route_of: null
+    description: >-
+      A committee of the council reviews the item and recommends it, or
+      forwards it without a recommendation. A committee cannot decide it.
+    rules:
+      - statement: >-
+          Every ordinance or resolution goes to a committee before it goes to
+          the council, unless the council waives that by unanimous consent.
+        quote: >-
+          Unless waived by unanimous consent, every ordinance or resolution
+          requiring council approval shall be submitted to a committee of the
+          council prior to submission of the item to the council.
+        citation: General Code §2-2-15(c)(2)
+        url: https://library.municode.com/al/birmingham/codes/code_of_ordinances
+        source_file: general-code-title-2-chapter-2.txt
+      - statement: >-
+          The committee reports at the next regular council meeting after it
+          meets, unless the council grants more time; the council may take the
+          item as reported, with the committee's amendments or substitutions.
+        quote: >-
+          The committee shall report thereon at the next regular meeting of
+          the council after the committee meets, unless further time is
+          granted by majority vote of the council. … the council may consider
+          the ordinance or resolution as reported by the committee, including
+          any amendments or substitutions proposed by the committee.
+        citation: General Code §2-2-15(c)(2)
+        url: https://library.municode.com/al/birmingham/codes/code_of_ordinances
+        source_file: general-code-title-2-chapter-2.txt
+      - statement: >-
+          When the council votes to refer an item to a committee, the motion
+          must set a time of no more than 21 calendar days, or the next
+          council meeting after the committee meets, whichever is less.
+        quote: >-
+          the motion to refer the matter to committee shall include a
+          reasonable specified time not to exceed 21 calendar days or the next
+          regularly scheduled council meeting following that committee
+          meeting, whichever is less
+        citation: General Code §2-2-15(c)(5)
+        url: https://library.municode.com/al/birmingham/codes/code_of_ordinances
+        source_file: general-code-title-2-chapter-2.txt
+      - statement: >-
+          A majority of the members voting, never fewer than four, can
+          discharge a committee; the item then returns to the council for
+          final action at the next regular meeting.
+        quote: >-
+          council, by the affirmative vote of a majority of the council
+          members voting, but in no event less than four affirmative votes,
+          may discharge the committee from further consideration of the matter
+          referred, in which event the matter shall return to the council for
+          final action at the next regularly scheduled meeting.
+        citation: General Code §2-2-15(c)(5)
+        url: https://library.municode.com/al/birmingham/codes/code_of_ordinances
+        source_file: general-code-title-2-chapter-2.txt
+      - statement: >-
+          A committee decides nothing. Only a vote of the full council at a
+          regular meeting is final.
+        quote: >-
+          No action of any committee including the committee of the city
+          council as a whole shall be considered final without a formal vote
+          of the full council at a regular council meeting.
+        citation: General Code §2-2-14(b)
+        url: https://library.municode.com/al/birmingham/codes/code_of_ordinances
+        source_file: general-code-title-2-chapter-2.txt
+      - statement: >-
+          Committees are appointed by the council president, subject to the
+          council's approval. Two members make a quorum. Whether the public
+          may take part is at the chair's complete discretion.
+        quote: >-
+          All standing and special committees shall be appointed by the
+          president of the city council, subject to approval by the city
+          council. A quorum of two members of any committee except for the
+          committee of the city council as a whole shall be required in order
+          to conduct business. The chairperson of each committee shall
+          exercise complete discretion in allowing public participation in
+          committee meetings.
+        citation: General Code §2-2-14(a)
+        url: https://library.municode.com/al/birmingham/codes/code_of_ordinances
+        source_file: general-code-title-2-chapter-2.txt
+      - statement: >-
+          In practice a committee's minutes record one of a small set of
+          outcomes. One is a recommendation to the council's agenda.
+        quote: Item Recommended to the City Council Agenda.
+        citation: Budget and Finance Committee minutes, 2026-10-12
+        url: https://www.birminghamal.gov/government/city-council/council/council-committees-2025-2027
+        source_file: committee-bf_min.txt
+      - statement: >-
+          A committee can recommend items to the council's consent agenda.
+        quote: Items Recommended to the City Council Consent Agenda.
+        citation: Budget and Finance Committee minutes, 2026-10-12
+        url: https://www.birminghamal.gov/government/city-council/council/council-committees-2025-2027
+        source_file: committee-bf_min.txt
+      - statement: >-
+          A committee can forward an item to the council without recommending
+          it.
+        quote: Item Recommended to the City Council Agenda with NO Recommendation.
+        citation: Public Safety Committee minutes, 2026-10-13
+        url: https://www.birminghamal.gov/government/city-council/council/council-committees-2025-2027
+        source_file: committee-ps_min.txt
+      - statement: >-
+          A committee can hear an item and take no action on it.
+        quote: No Action – Information Only
+        citation: Committee of the Whole minutes, 2026-05-20
+        url: https://www.birminghamal.gov/government/city-council/council/council-committees-2025-2027
+        source_file: committee-cow_min.txt
+      - statement: >-
+          The council's own handbook says committee members vote to recommend
+          or not recommend an item, and that committees do not have the power
+          to kill a bill.
+        quote: kill a bill
+        citation: Citizen's Handbook 2024, p. 9
+        url: https://s3.us-east-2.amazonaws.com/assets.birminghamal.gov/s3fs-public/2026-06/CITIZENS-HANDBOOK-2024.pdf
+        source_file: citizens-handbook-2024.txt
+      - statement: >-
+          A resident may ask to address a committee on a matter referred to
+          it; the request goes through the City Clerk to the committee's
+          chair.
+        quote: >-
+          Taxpayers or residents of the city or their authorized legal
+          representatives shall be permitted to orally address any committee
+          of the city council on any matter referred to that committee.
+          Requests to appear before a committee of the city council shall be
+          filed with the city clerk, who shall refer the same to the
+          chairperson of the committee.
+        citation: General Code §2-2-11(c)
+        url: https://library.municode.com/al/birmingham/codes/code_of_ordinances
+        source_file: general-code-title-2-chapter-2.txt
+      - statement: >-
+          A rezoning has its own route. The Zoning Advisory Committee (the
+          ZAC) of the Planning Commission, or the Commission itself, makes a
+          recommendation; the council's Planning and Zoning Committee receives
+          it; then the council holds a hearing.
+        quote: >-
+          The ZAC of the Commission or the Commission shall review and make
+          recommendations to the Council on proposed amendments to this
+          Ordinance and the official zoning map
+        citation: Zoning Ordinance, Title 1, Chapter 9, Article II, §4
+        url: https://s3.us-east-2.amazonaws.com/assets.birminghamal.gov/s3fs-public/2026-07/City%20of%20Birmingham%20Zoning%20Ordinance%20July%202026.pdf
+        source_file: zoning-ordinance-2026-07-title1-ch9-art2.txt
+      - statement: >-
+          An applicant may treat a rezoning as denied if the council takes no
+          final action within 180 days of filing, or within 90 days after the
+          Planning and Zoning Committee receives the recommendation.
+        quote: >-
+          The proposed change may be deemed by the applicant to have been
+          denied, if the Council takes no final action upon the same within
+          180 days after the filing of the application, or within 90 days
+          after receipt by the Planning and Zoning Committee of the Council of
+          the recommendation by the ZAC of the Commission or the Commission
+        citation: Zoning Ordinance, Title 1, Chapter 9, Article II, §4
+        url: https://s3.us-east-2.amazonaws.com/assets.birminghamal.gov/s3fs-public/2026-07/City%20of%20Birmingham%20Zoning%20Ordinance%20July%202026.pdf
+        source_file: zoning-ordinance-2026-07-title1-ch9-art2.txt
+
+  - key: agenda
+    name: On the agenda
+    side_route_of: null
+    description: >-
+      The item is printed on a council meeting's agenda, under the consent
+      agenda, final passage, or introduction and first reading.
+    rules:
+      - statement: >-
+          The council takes its business in a fixed order: roll call; minutes;
+          communications from the Mayor; boards and agencies; the consent
+          agenda; final passage; introduction and first reading; old and new
+          business; requests from the public; presentations; adjournment.
+        quote: >-
+          (5) Consideration of the consent agenda. (6) Consideration of
+          ordinances and resolutions for final passage. (7) Introduction and
+          first reading of ordinances and resolutions.
+        citation: General Code §2-2-7
+        url: https://library.municode.com/al/birmingham/codes/code_of_ordinances
+        source_file: general-code-title-2-chapter-2.txt
+      - statement: >-
+          A person speaking on an agenda item that is not a public hearing has
+          three minutes, following the council's presentations.
+        quote: >-
+          All persons addressing specific agenda items that are not designated
+          public hearings shall be granted three minutes to speak following
+          city council presentations
+        citation: General Code §2-2-7(9)a
+        url: https://library.municode.com/al/birmingham/codes/code_of_ordinances
+        source_file: general-code-title-2-chapter-2.txt
+      - statement: >-
+          For general public comment, a speaker signs the list before the
+          meeting and has three minutes; all such comment is limited to thirty
+          minutes in total, and nobody may speak at two consecutive meetings.
+        quote: >-
+          Such person shall be allowed to speak for three minutes provided
+          that the total time for all such oral presentations shall not exceed
+          30 minutes unless further time is granted by the city council. No
+          person shall be allowed to address the city council at two
+          consecutive meetings unless granted by the city council.
+        citation: General Code §2-2-11(a)
+        url: https://library.municode.com/al/birmingham/codes/code_of_ordinances
+        source_file: general-code-title-2-chapter-2.txt
+
+  - key: consent
+    name: Consent
+    side_route_of: agenda
+    description: >-
+      Routine items are approved together by one motion; a councilmember or
+      the Mayor can have any item taken out of the group.
+    rules:
+      - statement: >-
+          Items marked as consent are routine and are approved by one motion.
+        quote: >-
+          All items designated as “Consent” are routine and non-controversial
+          and will be approved by one motion.
+        citation: Statement of Conduct of Business, council agenda of 2026-11-10
+        url: https://s3.us-east-2.amazonaws.com/assets.birminghamal.gov/s3fs-public/2026-11/BIRMINGHAM%20CITY%20COUNCIL%20MEETING%20AGENDA,%20November%2010,%202026.pdf
+        source_file: council-agenda-2026-11-10.txt
+      - statement: >-
+          A councilmember or the Mayor can have any item removed from the
+          consent agenda; otherwise the items are not discussed separately.
+        quote: >-
+          No separate discussion of these items will be permitted unless a
+          Councilmember or the Mayor requests the item be removed from the
+          “Consent Agenda”.
+        citation: Statement of Conduct of Business, council agenda of 2026-11-10
+        url: https://s3.us-east-2.amazonaws.com/assets.birminghamal.gov/s3fs-public/2026-11/BIRMINGHAM%20CITY%20COUNCIL%20MEETING%20AGENDA,%20November%2010,%202026.pdf
+        source_file: council-agenda-2026-11-10.txt
+      - statement: >-
+          A citizen can ask that a consent item marked for a public hearing be
+          removed, so that its hearing is held.
+        quote: >-
+          a Citizen interested in addressing the Council with respect to an
+          item on the “Consent Agenda” designated for “Public Hearing” (“ph”)
+          may request the item be removed from the “Consent Agenda” to hold
+          the hearing on the item.
+        citation: Statement of Conduct of Business, council agenda of 2026-11-10
+        url: https://s3.us-east-2.amazonaws.com/assets.birminghamal.gov/s3fs-public/2026-11/BIRMINGHAM%20CITY%20COUNCIL%20MEETING%20AGENDA,%20November%2010,%202026.pdf
+        source_file: council-agenda-2026-11-10.txt
+      - statement: >-
+          An item removed from the consent agenda returns to its normal place
+          in the order of business.
+        quote: >-
+          Any item(s) removed from the “Consent Agenda” will revert to its
+          normal place on the Agenda Order of Business.
+        citation: Statement of Conduct of Business, council agenda of 2026-11-10
+        url: https://s3.us-east-2.amazonaws.com/assets.birminghamal.gov/s3fs-public/2026-11/BIRMINGHAM%20CITY%20COUNCIL%20MEETING%20AGENDA,%20November%2010,%202026.pdf
+        source_file: council-agenda-2026-11-10.txt
+
+  - key: hearing
+    name: Public hearing
+    side_route_of: agenda
+    description: >-
+      For an item the agenda marks (ph), the council hears the public on it.
+    rules:
+      - statement: >-
+          A public hearing is held where the law requires one, or where the
+          council agrees to one by unanimous consent.
+        quote: >-
+          Where required by law, or by unanimous consent of the city council,
+          public hearings on matters before the city council shall be held by
+          the city council
+        citation: General Code §2-2-11(b)
+        url: https://library.municode.com/al/birmingham/codes/code_of_ordinances
+        source_file: general-code-title-2-chapter-2.txt
+      - statement: >-
+          People who asked in writing to speak at a hearing are heard first.
+        quote: >-
+          Persons making these requests in writing shall, together with
+          witnesses requested to appear by the city council, be heard prior to
+          other persons who appear at the hearing.
+        citation: General Code §2-2-11(b)
+        url: https://library.municode.com/al/birmingham/codes/code_of_ordinances
+        source_file: general-code-title-2-chapter-2.txt
+      - statement: >-
+          Each speaker at a hearing has three minutes unless the council
+          grants more.
+        quote: >-
+          unless further time is granted by the city council, limit his or her
+          address to three minutes.
+        citation: General Code §2-2-11(d)
+        url: https://library.municode.com/al/birmingham/codes/code_of_ordinances
+        source_file: general-code-title-2-chapter-2.txt
+      - statement: >-
+          The agenda announces public hearings with the mark (ph).
+        quote: all Public Hearings (“ph”) will be announced.
+        citation: Statement of Conduct of Business, council agenda of 2026-11-10
+        url: https://s3.us-east-2.amazonaws.com/assets.birminghamal.gov/s3fs-public/2026-11/BIRMINGHAM%20CITY%20COUNCIL%20MEETING%20AGENDA,%20November%2010,%202026.pdf
+        source_file: council-agenda-2026-11-10.txt
+      - statement: >-
+          A rezoning hearing needs at least 22 days' notice published in a
+          newspaper.
+        quote: >-
+          giving not less than 22 days’ notice of the time, place and object
+          thereof by publication in a newspaper of general circulation in the
+          City.
+        citation: Zoning Ordinance, Title 1, Chapter 9, Article II, §4
+        url: https://s3.us-east-2.amazonaws.com/assets.birminghamal.gov/s3fs-public/2026-07/City%20of%20Birmingham%20Zoning%20Ordinance%20July%202026.pdf
+        source_file: zoning-ordinance-2026-07-title1-ch9-art2.txt
+      - statement: >-
+          Vacating a street, alley or highway needs a hearing on four weekly
+          newspaper notices, and notice by mail at least 30 days ahead to the
+          owners alongside it.
+        quote: >-
+          once a week for four consecutive weeks in the county prior to
+          deciding the issue at a regularly scheduled meeting of the governing
+          body. … shall also be served by U.S. mail at least 30 days prior to
+          the scheduled meeting on any abutting owner
+        citation: Ala. Code §23-4-2(a)
+        url: https://alison.legislature.state.al.us/code-of-alabama
+        source_file: ala-code-general-law.txt
+      - statement: >-
+          A weed-abatement hearing needs certified mail to the owner 21 days
+          ahead, newspaper notice for two consecutive weeks, and signs on the
+          property at least seven days ahead.
+        quote: >-
+          notice of a public hearing on the matter shall be given by certified
+          mail, return receipt requested, mailed 21 days prior to the date of
+          the hearing … Notice shall also be given by publication in a
+          newspaper of general circulation published in the municipality once
+          a week for two consecutive weeks … two signs shall be conspicuously
+          posted on the property. … The notice shall be posted at least seven
+          days prior to the time for hearing objections
+        citation: Ala. Code §11-67-62
+        url: https://alison.legislature.state.al.us/code-of-alabama
+        source_file: ala-code-nuisance-and-demolition.txt
+
+  - key: first_reading
+    name: First reading
+    side_route_of: null
+    description: >-
+      An ordinance of permanent operation is introduced. It can pass the same
+      day only if every member present consents.
+    rules:
+      - statement: >-
+          An ordinance of permanent operation cannot pass at the meeting where
+          it is introduced, except by the unanimous consent of all the members
+          present.
+        quote: >-
+          No ordinance of permanent operation shall be passed at the meeting
+          at which it was introduced except by unanimous consent of all
+          members of the council present, and such unanimous consent shall be
+          shown by the yea and nay votes entered upon the minutes of the
+          meeting.
+        citation: Ala. Code §45-37A-52.64
+        url: https://alison.legislature.state.al.us/code-of-alabama
+        source_file: ala-code-45-37A-52-birmingham-part1.txt
+      - statement: >-
+          A unanimous vote to pass the ordinance counts as that consent.
+        quote: >-
+          If all members of the council present vote for the passage of the
+          ordinance and their names are so entered of record as voting in
+          favor thereof, it shall be construed as giving unanimous consent to
+          the action upon such ordinance at the meeting at which it is
+          introduced.
+        citation: Ala. Code §45-37A-52.64
+        url: https://alison.legislature.state.al.us/code-of-alabama
+        source_file: ala-code-45-37A-52-birmingham-part1.txt
+      - statement: >-
+          The agenda marks a matter of permanent operation with a P, and it is
+          read.
+        quote: all matters of permanent operation (“P”) will be read
+        citation: Statement of Conduct of Business, council agenda of 2026-11-10
+        url: https://s3.us-east-2.amazonaws.com/assets.birminghamal.gov/s3fs-public/2026-11/BIRMINGHAM%20CITY%20COUNCIL%20MEETING%20AGENDA,%20November%2010,%202026.pdf
+        source_file: council-agenda-2026-11-10.txt
+
+  - key: held_over
+    name: Held over
+    side_route_of: first_reading
+    description: >-
+      Without unanimous consent the ordinance cannot pass that day, and it
+      comes back at a later meeting.
+    rules:
+      - statement: >-
+          Unanimous consent means all members of the council present. One
+          objection is enough to stop an ordinance of permanent operation from
+          passing on the day it is introduced.
+        quote: except by unanimous consent of all members of the council present
+        citation: Ala. Code §45-37A-52.64
+        url: https://alison.legislature.state.al.us/code-of-alabama
+        source_file: ala-code-45-37A-52-birmingham-part1.txt
+      - statement: >-
+          A postponed item returns on the date it was postponed to, without
+          being submitted again.
+        quote: >-
+          such ordinance or resolution will be included on the agenda for the
+          council meeting on the date to which the matter was postponed
+          without having to be re-submitted
+        citation: General Code §2-2-15(c)(6)
+        url: https://library.municode.com/al/birmingham/codes/code_of_ordinances
+        source_file: general-code-title-2-chapter-2.txt
+      - statement: >-
+          An item that fails must start over as a new submission, unless the
+          council reconsiders it.
+        quote: >-
+          Unless brought before the council pursuant to a duly made motion for
+          reconsideration, any ordinance or resolution which fails to receive
+          approval of the council at the meeting in it is voted upon, will be
+          required to comply with the procedure for submission of an original
+          ordinance or resolution set forth in this section.
+        citation: General Code §2-2-15(c)(7)
+        url: https://library.municode.com/al/birmingham/codes/code_of_ordinances
+        source_file: general-code-title-2-chapter-2.txt
+
+  - key: final_vote
+    name: Final vote
+    side_route_of: null
+    description: >-
+      The council votes. Five members make a quorum, and a measure needs at
+      least four votes.
+    rules:
+      - statement: The quorum is five councilmembers.
+        quote: >-
+          The quorum for the transaction of any business by the city council
+          shall be not less than five councilmembers.
+        citation: General Code §2-2-4
+        url: https://library.municode.com/al/birmingham/codes/code_of_ordinances
+        source_file: general-code-title-2-chapter-2.txt
+      - statement: Every measure needs the votes of at least four councilmembers.
+        quote: >-
+          All measures shall be adopted by the vote of at least four
+          councilmembers.
+        citation: General Code §2-2-4
+        url: https://library.municode.com/al/birmingham/codes/code_of_ordinances
+        source_file: general-code-title-2-chapter-2.txt
+      - statement: >-
+          State law for Birmingham says the same: four votes pass a measure,
+          provided the four are a majority of those voting.
+        quote: >-
+          the affirmative vote of at least four members of the council
+          provided such four constitute a majority of those voting shall be
+          sufficient for the passage of any resolution, bylaw, or ordinance
+        citation: Ala. Code §45-37A-52.64
+        url: https://alison.legislature.state.al.us/code-of-alabama
+        source_file: ala-code-45-37A-52-birmingham-part1.txt
+      - statement: >-
+          Changing items in the general fund budget needs five votes and the
+          Mayor's written approval.
+        quote: >-
+          the council, by an affirmative vote of five members and only if
+          approved in writing by the mayor, may insert new items of
+          expenditures or may increase, decrease, or strike out items of
+          expenditure in the general fund budget
+        citation: Ala. Code §45-37A-52.128
+        url: https://alison.legislature.state.al.us/code-of-alabama
+        source_file: ala-code-45-37A-52-birmingham-part2.txt
+      - statement: >-
+          An appropriation beyond the original budget needs five votes and the
+          Mayor's written recommendation.
+        quote: >-
+          may be made by the council by not less than five affirmative votes,
+          but only on the recommendation of the mayor in writing
+        citation: Ala. Code §45-37A-52.134
+        url: https://alison.legislature.state.al.us/code-of-alabama
+        source_file: ala-code-45-37A-52-birmingham-part2.txt
+
+  - key: mayor
+    name: Mayor
+    side_route_of: null
+    description: >-
+      The Mayor has ten days from passage to sign or veto; saying nothing
+      counts as approval.
+    rules:
+      - statement: >-
+          The City Clerk sends each ordinance or resolution to the Mayor
+          within 48 hours of its passage.
+        quote: >-
+          all ordinances or resolutions, after having been passed by the
+          council, shall by the clerk be transmitted within 48 hours after
+          their passage to the mayor for his or her consideration
+        citation: Ala. Code §45-37A-52.64
+        url: https://alison.legislature.state.al.us/code-of-alabama
+        source_file: ala-code-45-37A-52-birmingham-part1.txt
+      - statement: >-
+          The Mayor has 10 days from passage to veto, in writing.
+        quote: >-
+          the mayor, within 10 days of the time of its passage by the council,
+          shall return the same to the clerk with his or her objections in
+          writing
+        citation: Ala. Code §45-37A-52.64
+        url: https://alison.legislature.state.al.us/code-of-alabama
+        source_file: ala-code-45-37A-52-birmingham-part1.txt
+      - statement: If the Mayor takes no action in those 10 days, that counts as approval.
+        quote: >-
+          The failure of the mayor to return to the city clerk an ordinance or
+          resolution with his or her veto within 10 days after its passage by
+          the council shall operate and have the same effect as an approval of
+          the same
+        citation: Ala. Code §45-37A-52.64
+        url: https://alison.legislature.state.al.us/code-of-alabama
+        source_file: ala-code-45-37A-52-birmingham-part1.txt
+      - statement: >-
+          The council overrides a veto with two-thirds of the members elected,
+          which is six of nine.
+        quote: >-
+          If two-thirds of the members elected to the council shall at the
+          meeting adhere to the ordinance or resolution, notwithstanding the
+          objections
+        citation: Ala. Code §45-37A-52.64
+        url: https://alison.legislature.state.al.us/code-of-alabama
+        source_file: ala-code-45-37A-52-birmingham-part1.txt
+      - statement: >-
+          The Mayor has no veto over the council's appointments or its
+          investigations.
+        quote: >-
+          the mayor shall not have the power of veto over appointments of the
+          council, or over any action of the council relating to an
+          investigation
+        citation: Ala. Code §45-37A-52.64
+        url: https://alison.legislature.state.al.us/code-of-alabama
+        source_file: ala-code-45-37A-52-birmingham-part1.txt
+
+  - key: in_effect
+    name: In effect
+    side_route_of: null
+    description: >-
+      The measure takes effect, on publication where publication is required.
+    rules:
+      - statement: >-
+          Once the Mayor approves, the Clerk publishes the measure if
+          publication is required, and it then has the force of law.
+        quote: >-
+          who shall publish them, if publication thereof is required, and such
+          ordinances and resolutions shall thereupon become effective and have
+          the force of law.
+        citation: Ala. Code §45-37A-52.64
+        url: https://alison.legislature.state.al.us/code-of-alabama
+        source_file: ala-code-45-37A-52-birmingham-part1.txt
+      - statement: >-
+          Ordinances of a general or permanent nature are published in a
+          newspaper and take effect when they first appear there.
+        quote: >-
+          All ordinances of a general or permanent nature … shall be published
+          in some newspaper of general circulation published in the
+          municipality … it shall take effect from and after the time it shall
+          first appear therein
+        citation: Ala. Code §11-45-8(b)
+        url: https://alison.legislature.state.al.us/code-of-alabama
+        source_file: ala-code-general-law.txt
+      - statement: A rezoning takes effect on the date of its newspaper announcement.
+        quote: >-
+          The change shall become effective on the date of announcement in the
+          newspaper.
+        citation: Zoning Ordinance, Title 1, Chapter 9, Article II, §6
+        url: https://s3.us-east-2.amazonaws.com/assets.birminghamal.gov/s3fs-public/2026-07/City%20of%20Birmingham%20Zoning%20Ordinance%20July%202026.pdf
+        source_file: zoning-ordinance-2026-07-title1-ch9-art2.txt
+      - statement: >-
+          A franchise, lease or right to use the streets waits 30 days after
+          final enactment and publication.
+        quote: >-
+          shall take effect and be enforced until 30 days after the final
+          enactment of same by the council and publication of the resolution
+          or ordinance in full once a week for three consecutive weeks in some
+          daily newspaper published in the city
+        citation: Ala. Code §45-37A-52.65
+        url: https://alison.legislature.state.al.us/code-of-alabama
+        source_file: ala-code-45-37A-52-birmingham-part1.txt
+
+open_questions:
+  - heading: The committee rule and what the agenda shows
+    body: >-
+      The code says every item goes to a committee unless that is waived by
+      unanimous consent. Many agenda items show only a recommendation by a
+      department director and name no committee. Whether those were waived, or
+      whether the code's reference to the committee of the whole in
+      §2-2-15(c)(4) covers them, is not shown in any record we have read.
+  - heading: Four votes or five for a permanent ordinance
+    body: >-
+      Both Birmingham-specific sources, the General Code and the Mayor-Council
+      Act, say four votes. Alabama's general law, §11-45-2(b), says an
+      ordinance of permanent operation needs a majority of the members
+      elected, which on a council of nine is five. We quote the Birmingham
+      rule and note the general-law wording; we do not rule on the conflict.
+  - heading: The ** marker on agenda items
+    body: >-
+      Some agenda items carry a ** marker. It is not defined in anything we
+      have read, so this page does not explain it.
+  - heading: Who decides which items go on the consent agenda
+    body: >-
+      Budget and Finance Committee minutes show the committee recommending
+      items to the consent agenda. No rule we have read says who makes the
+      choice.
+  - heading: Why liquor-licence and inoperable-vehicle items have hearings
+    body: >-
+      They are marked (ph) on every agenda. The code sections that require
+      those hearings sit in other titles of the General Code, which we have
+      not read.
+  - heading: The current list of committees
+    body: >-
+      Resolution 1958-25, adopted 2025-11-04, names six committees and the
+      Committee of the Whole. The city's website now lists eight. We have not
+      found the date of the change or the instrument that made it.
+  - heading: Electronic attendance and §2-2-19
+    body: >-
+      An ordinance on the 2026-06-16 agenda proposed adding electronic
+      attendance to the code at §2-2-19. The copy of the code we saved shows
+      that section as reserved.

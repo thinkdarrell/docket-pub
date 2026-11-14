@@ -158,4 +158,5 @@ The desktop producer on the Legion is the Transcriber component in `ARCHITECTURE
 - `docs/runbooks/analytics.md` and `docs/analytics-queries.md`: Umami views and common queries. Query only the `v_*` views; see decision `0024`.
 - `docs/runbooks/transcripts.md`: the transcript pipeline end to end, the Legion producer, worker environment, review queue, ship gate, A/B. `docs/runbooks/transcripts-pipeline-map.md`: the stage map for review.
 - `docs/runbooks/v3-cutover.md` and `docs/runbooks/smart-brevity-ui-flip.md`: the Impact-First cutover procedures.
+- `docs/runbooks/how-it-works-reading-birmingham.md`: the reading sheet for the Birmingham "How it works" page, every sentence beside its source with a box to tick and a record to sign (`D127`); regenerated with `scripts/how_it_works_reading_sheet.py birmingham`.
 - `docs/SECURITY_CHECKLIST.md`: pre-launch requirements.

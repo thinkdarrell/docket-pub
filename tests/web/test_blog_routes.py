@@ -112,6 +112,10 @@ def app(tmp_path: Path):
     app.jinja_env.globals["city_provenance"] = lambda municipality: {
         "last_ingest_at": None, "meeting_count": 0, "source_host": None, "source_url": None,
     }
+    # The same panel asks ``has_how_it_works`` (registered by ``create_app``;
+    # plan how-it-works-explainer, M2) whether to link the city's explainer.
+    # The stub has no explainers and no route for one.
+    app.jinja_env.globals["has_how_it_works"] = lambda slug: False
 
     app.register_blueprint(public_stub)
     app.register_blueprint(blog_bp)

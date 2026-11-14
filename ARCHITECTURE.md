@@ -21,7 +21,7 @@ docket.pub is a Python application with three runtime processes sharing one Post
 ### Services
 
 - Lives in: `src/docket/services/`
-- Owns: every transaction. Ingest (scrape, enrich, upsert, then sweep minutes adoptions), query (all reads for the web layer), enrichment, maintenance, minutes adoption, video OCR orchestration, badges, coverage, transcripts, the city briefing (`briefing.py`: the opener and doors of `/al/<slug>/` for a city whose metadata carries `briefing: true`, and the `city_briefing_facts` rebuild the worker's `briefing_facts` task calls; `docs/specs/city-page.md`), and the archived-meeting backfill (`archived_meetings.py`, which creates the 2023 Boutwell-era Birmingham meetings Granicus never recorded; decision `0033`).
+- Owns: every transaction. Ingest (scrape, enrich, upsert, then sweep minutes adoptions), query (all reads for the web layer), enrichment, maintenance, minutes adoption, video OCR orchestration, badges, coverage, transcripts, the city briefing (`briefing.py`: the opener and doors of `/al/<slug>/` for a city whose metadata carries `briefing: true`, and the `city_briefing_facts` rebuild the worker's `briefing_facts` task calls; `docs/specs/city-page.md`), the "How it works" explainer (`how_it_works.py`: reading and validating the checked-in content under `content/how-it-works/` once at application start, and resolving a journey's links through the query, video-link, and transcript services, with no statement of its own; `docs/specs/how-it-works.md`), and the archived-meeting backfill (`archived_meetings.py`, which creates the 2023 Boutwell-era Birmingham meetings Granicus never recorded; decision `0033`).
 - Does not: render HTML, schedule itself, or talk to a vendor site directly.
 
 ### Analysis
@@ -57,7 +57,7 @@ docket.pub is a Python application with three runtime processes sharing one Post
 ### Blog
 
 - Lives in: `src/docket/blog/`
-- Owns: loading markdown posts with frontmatter from `content/` and rendering them under each city.
+- Owns: loading markdown posts with frontmatter from `content/blog/` and rendering them under each city.
 - Does not: touch meeting data.
 
 ### Migrations

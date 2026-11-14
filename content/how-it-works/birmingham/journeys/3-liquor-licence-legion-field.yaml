@@ -1,0 +1,69 @@
+# One real item followed across the path: the Legion Field liquor licence
+# resolution, 2026.
+#
+# Every date, tally and quotation on the page for this journey is written
+# here; the page reads nothing but links from the database
+# (`docket.services.how_it_works.resolve_journey`). The ids are production's
+# `meetings.id` and `agenda_items.id`, read on 2026-11-12. No quotation here
+# has a `source_file`: the Public Safety Committee's minutes of 2026-09-22 and
+# the council agenda of 2026-09-29 are not saved under `sources/`, so each was
+# copied from the city's record by hand and is not machine-checked. The 8 to 0
+# tally was read from the video; when the minutes of 2026-09-29 are published,
+# re-read them, change the stop's `record` to `minutes`, and run
+# `./tools/verify`.
+
+key: liquor-licence-legion-field
+label: A liquor licence with a hearing
+note: >-
+  The committee had no quorum and its chair sent the item on to the council;
+  the council agenda prints that as no recommendation.
+title: >-
+  A Resolution relative to the application of Greenawalt Hospitality, LLC, for
+  a Special Retail Liquor License 160 to be used at Legion Field, 400 Graymont
+  Avenue West … and the hearing of all interested parties.
+
+stops:
+  - stops: [submitted]
+    record: none
+    text: >-
+      The agenda names Councilor Tate, Chairman of the Public Safety
+      Committee, as the submitter.
+    gap: The agenda gives no submission date.
+
+  - stops: [committee]
+    date: 2026-09-22
+    record: committee_minutes
+    meeting_id: 3179
+    text: >-
+      Public Safety Committee: no incidents reported, zoning requirements met,
+      no tax delinquencies. The action the minutes record:
+    quote: >-
+      Item Recommended to the City Council Agenda By The Committee Chair –
+      Lack of Quorum.
+    document:
+      label: Committee minutes
+      url: https://s3.us-east-2.amazonaws.com/assets.birminghamal.gov/s3fs-public/2026-10/PUBLIC%20SAFETY%20COMMITTEE%20MEETING%20MINUTES%2C%20September%2022%2C%202026_0.pdf
+
+  - stops: [first_reading]
+    record: not_on_route
+    text: This item is a resolution, and its text carries no reading marker.
+    gap: The agenda does not mark this resolution as a first reading.
+
+  - stops: [agenda, hearing, final_vote]
+    date: 2026-09-29
+    record: video
+    meeting_id: 2536
+    item_id: 62035
+    seconds: 872
+    text: >-
+      Item 7, with the hearing of all interested parties. Passed 8 to 0, read
+      from the video; the minutes are not yet published. The agenda's own note
+      on the item:
+    quote: >-
+      (Submitted by Councilor Tate, Chairman, Public Safety Committee) (No
+      Recommendation by the Public Safety Committee)
+
+  - stops: [mayor, in_effect]
+    record: none
+    text: The council's vote is the last event the site holds for this resolution.
+    gap: The site holds no record of a signature, a veto or publication.

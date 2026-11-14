@@ -114,6 +114,10 @@ The list has pages of its own, ten lines each, in the parameter `tpage`: under i
 
 The hero eyebrow reads "Search · agenda items and what was said", and the field's placeholder "Search agenda items and what was said…". Under a result the nested list ends with "What was said at the meeting · machine transcript". The states that could make that sentence false are excluded before the page renders: a hidden meeting never reaches the results, a transcript that is not public yields no range, a card that is not current contributes no bounds, and the amount list computes no moments. "No results" is shown only when there are neither item results nor transcript lines.
 
+## The analytics event
+
+The first page of results for a query (`page` and `tpage` both 1) emits one `search_submit` event through `docketTrack` (`src/docket/web/static/js/track.js`), carrying `query`, `result_count` (the item results listed on that page, at most 20, and 0 when there are none) and, when the search is scoped to a city, `city`. The tracker drops any string property longer than 40 characters, so a long query is not sent and its count still is. `base.html` loads the tracker scripts with `defer`, so the page's inline script emits on `DOMContentLoaded`, or at once when the document has already loaded. A later page of either list, and the page with no query, emit nothing. `tests/web/test_search_submit_event.py` pins the three cases, and `docs/analytics-queries.md` holds the queries that read the event.
+
 ## Measuring
 
 The golden check, `scripts/golden_search.py`, asks a deployment of the site 42 loose queries, in 45 query-and-item pairs aimed at 20 known Birmingham items (`tests/fixtures/golden_search/queries.json`; the summary's "targets" are the pairs), and prints one line per pair and a summary:

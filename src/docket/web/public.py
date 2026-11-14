@@ -27,6 +27,7 @@ from flask import (
 from docket.enrichment.topics import all_topics, get_topic_display_name
 from docket.models.data_quality import friendly_label
 from docket.services import briefing, query, video_links
+from docket.services import how_it_works as how_it_works_service
 
 bp = Blueprint("public", __name__)
 
@@ -1121,6 +1122,55 @@ def topics_index():
         municipalities=municipalities,
         topic_row_items=topic_row_items,
     )
+
+
+@bp.route("/al/<slug>/how-it-works/")
+def how_it_works(slug):
+    """How an item moves through this city's council, each rule cited to its source.
+
+    The explainer is checked-in content loaded once by ``create_app`` into
+    ``app.config["HOW_IT_WORKS"]`` (``docket.services.how_it_works``). A city
+    that does not exist, or has no explainer, is 404.
+
+    ``?journey=<key>`` picks the real item laid onto the path; without it the
+    first journey in file-name order is shown, and a key that names no journey
+    of this city is 404. The journey's facts are the file's; only its links
+    are resolved from the database, here, on each request.
+
+    The picker's links are htmx requests for the same address: to one of those
+    the answer is the journey's partial alone (the picker, the title, the path
+    and the timeline), which replaces the one on the page.
+    """
+    municipality = query.get_municipality(slug)
+    if not municipality:
+        abort(404)
+    explainer = current_app.config["HOW_IT_WORKS"].get(slug)
+    if explainer is None:
+        abort(404)
+
+    key = request.args.get("journey")
+    if key is None:
+        chosen = explainer.journeys[0] if explainer.journeys else None
+    else:
+        chosen = next((j for j in explainer.journeys if j.key == key), None)
+        if chosen is None:
+            abort(404)
+    journey = (
+        how_it_works_service.resolve_journey(chosen, municipality["id"], slug) if chosen is not None else None
+    )
+    # A picker link asks for the journey alone and swaps it in place; htmx's
+    # history restore sends HX-Request too but needs the whole page.
+    is_partial = bool(request.headers.get("HX-Request")) and not request.headers.get(
+        "HX-History-Restore-Request")
+    template = "partials/how_it_works_journey.html" if is_partial else "how_it_works.html"
+    resp = make_response(render_template(
+        template,
+        municipality=municipality,
+        explainer=explainer,
+        journey=journey,
+    ))
+    resp.headers["Vary"] = "HX-Request"
+    return resp
 
 
 @bp.route("/about/")

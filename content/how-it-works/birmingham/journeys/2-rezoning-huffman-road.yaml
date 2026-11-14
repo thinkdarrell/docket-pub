@@ -1,0 +1,91 @@
+# One real item followed across the path: zoning case ZAC2026-08007, the
+# rezoning of 1259 Huffman Road, 2026.
+#
+# Every date, tally and quotation on the page for this journey is written
+# here; the page reads nothing but links from the database
+# (`docket.services.how_it_works.resolve_journey`). The ids are production's
+# `meetings.id` and `agenda_items.id`, read on 2026-11-12. No quotation here
+# has a `source_file`: the Planning and Zoning Committee's minutes of
+# 2026-09-08 and the council agendas of 2026-09-15 and 2026-10-13 are not
+# saved under `sources/`, so each was copied from the city's record by hand
+# and is not machine-checked. The 8 to 0 tally of 2026-10-13 was read from the
+# video; when that meeting's minutes are published, re-read them, change the
+# stop's `record` to `minutes`, and run `./tools/verify`.
+#
+# The same agenda item also exists in the database under a second, mislabelled
+# meeting. That row is a copy of a council agenda, not a second appearance of
+# the ordinance, and this file does not cite it.
+
+key: rezoning-huffman-road
+label: A rezoning with a split recommendation
+note: >-
+  Zoning case ZAC2026-08007: an ordinance to rezone 1259 Huffman Road from D-3
+  Single-Family Residential to C-1 Neighborhood Commercial, for a new Boys &
+  Girls Club of Central Alabama. The council's committee recommended it and the
+  Zoning Advisory Committee did not; the council agenda prints both, in these
+  words:
+title: >-
+  (Recommended by the Planning and Zoning Committee) (NOT Recommended by the
+  ZAC)
+
+stops:
+  - stops: [submitted]
+    record: none
+    text: This is zoning case ZAC2026-08007.
+    gap: The submission date is not published.
+
+  - stops: [committee]
+    record: none
+    text: >-
+      The Zoning Advisory Committee (the ZAC) considered the case before the
+      council's own committee did. The council agenda says of it:
+    quote: (NOT Recommended by the ZAC)
+    gap: The site holds no record of the Zoning Advisory Committee's meeting.
+
+  - stops: [committee]
+    date: 2026-09-08
+    record: committee_minutes
+    meeting_id: 3172
+    text: >-
+      Planning and Zoning Committee, under "Zoning Cases". The action the
+      minutes record:
+    quote: >-
+      Councilor O'Quinn Motioned to Approve. Councilor Tate Seconded the
+      Motion. Item Recommended to the City Council Agenda.
+    document:
+      label: Committee minutes
+      url: https://s3.us-east-2.amazonaws.com/assets.birminghamal.gov/s3fs-public/2026-09/PLANNING%20AND%20ZONING%20COMMITTEE%20MEETING%2C%20September%208%2C%202026.pdf
+
+  - stops: [agenda, first_reading]
+    date: 2026-09-15
+    record: agenda
+    meeting_id: 2487
+    item_id: 61883
+    seconds: 3320
+    text: >-
+      Item 98, marked as a first reading: a resolution that sets the public
+      hearing for this case. No tally is given here. The site holds two roll
+      calls read from the video for this item, and the minutes that would
+      settle which is its own are not yet published. The item begins:
+    quote: >-
+      A Resolution setting a public hearing October 13, 2026, to consider the
+      adoption of an Ordinance
+
+  - stops: [hearing, final_vote]
+    date: 2026-10-13
+    record: video
+    meeting_id: 2609
+    item_id: 62781
+    seconds: 2662
+    text: >-
+      Item 1, marked as a second reading, "and the hearing of all interested
+      parties". Passed 8 to 0, read from the video; the official minutes are
+      not yet published. The agenda's own note on the item:
+    quote: >-
+      (Recommended by the Planning and Zoning Committee) (NOT Recommended by
+      the ZAC)
+
+  - stops: [mayor, in_effect]
+    record: none
+    text: A rezoning takes effect on the date of its newspaper announcement.
+    gap: The site holds no record of a signature, a veto or the announcement.

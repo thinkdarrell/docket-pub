@@ -140,7 +140,19 @@ constrains:
    commit, never bare `main`, because a factory worktree is cut from
    `origin/main` and nothing moves the local `main` ref (one plan's
    `git diff --stat main` clause reported nineteen new lines where the base
-   held one changed). Take the acceptance-first order seriously — it is the
+   held one changed).
+   A behaviour only a browser shows (a layout at a width, a swap without a
+   page load, where focus lands, what Back restores) is not written in a
+   Progress line or the Plan of Work as something a session will see. A
+   factory session has no browser, so the plan states what a session can
+   observe in its place (the markup, the answer to the request the browser
+   would make) and names the look itself in Validation as the operator's step,
+   with the widths and the clicks. `how-it-works-explainer` asked for a path
+   that stacks under 720 pixels and ticked a Progress line saying the journey
+   swaps without reloading the page; three sessions each looked for a browser,
+   found none, and recorded the layout and the swap as unobserved, and the
+   operator's look was first written down by the closing milestone (`D125`).
+   Take the acceptance-first order seriously — it is the
    only reliable sizing test, and writing the story first produces
    milestones whose acceptance is invented afterwards to fit.
 4. Size each milestone to one session, counting the whole session: reading the
@@ -171,6 +183,20 @@ constrains:
    merged; the figure went stale three times, each a Decision Log correction
    by a doc-garden pass, and the closing session graduated under `0084` to
    `0086`.
+   When a milestone copies content out of a design into a file shape the plan
+   defines (required fields, a quotation checked against a saved source), the
+   author tries the design's content against that shape while authoring: each
+   quotation is searched for in the saved copy it will cite, under the
+   comparison the plan states, and each required field is looked for in the
+   design's table for every entry; the plan says where the two disagree and
+   what the milestone writes instead. `how-it-works-explainer` told M1 to use
+   the design's wording and M4 to write three journeys from the design's
+   tables. Four of the design's rule statements were not in the saved sources
+   as quoted (a capital letter, a damaged text layer, a notice period the
+   cited section does not hold, a section that was the wrong one), two of
+   three committee quotations had no saved copy, and the tables held no title
+   for two journeys and no text for seven stops; each session settled in a
+   Decision Log entry what a search at authoring would have.
 7. Initialize the living sections to the true current state. Nothing has been
    executed, so nothing is checked off and no evidence exists; the authoring
    decisions themselves, however, are decisions, and they belong in the log
