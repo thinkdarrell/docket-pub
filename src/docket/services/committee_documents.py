@@ -259,7 +259,7 @@ class AttachReport:
 def committee_of(body_name: str | None) -> str | None:
     """The one canonical committee a meeting's ``body_name`` names, or None
     when it names none or several."""
-    named = source.committees_named(body_name or "")
+    named = source.committees_named(body_name)
     return named[0] if len(named) == 1 else None
 
 

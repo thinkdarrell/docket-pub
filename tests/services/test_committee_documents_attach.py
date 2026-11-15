@@ -448,9 +448,11 @@ def test_a_meeting_that_already_has_the_created_address_is_attached_to_and_not_m
     from docket.services.committee_documents import attach
 
     held = _meeting("Budget and Finance Committee", hidden=True, external_id="cdoc-budget-finance-2031-03-10")
+    elsewhere = _meeting("Budget and Finance Committee", external_id="cdoc-budget-finance-2031-03-10",
+                         city=_city("mobile"))
     doc = _doc((BF,))
     report = attach(_city(), TODAY)
-    assert [m["id"] for m in _created()] == [held]
+    assert [m["id"] for m in _created()] == [held, elsewhere]
     assert _attached(doc) == (held, "matched")
     assert _counts(report) == (1, 0, 0, 0, 0)
 
@@ -461,7 +463,9 @@ def test_a_meeting_that_already_has_the_created_address_is_attached_to_and_not_m
 def test_a_created_meetings_day_with_a_second_granicus_council_meeting_is_crowded():
     from docket.services.committee_documents import attach
 
-    crowded, one_council, not_granicus, hidden_second = (date(2031, 6, d) for d in (10, 11, 12, 13))
+    crowded, one_council, not_granicus, hidden_second, other_city, not_council, crowded_too = (
+        date(2031, 6, d) for d in (10, 11, 12, 13, 14, 15, 9)
+    )
     _meeting("Birmingham City Council", crowded, meeting_type="council", external_id="990311")
     _meeting("Birmingham City Council", crowded, meeting_type="council", external_id="990312")
     _meeting("Birmingham City Council", one_council, meeting_type="council", external_id="990313")
@@ -469,11 +473,17 @@ def test_a_created_meetings_day_with_a_second_granicus_council_meeting_is_crowde
     _meeting("Birmingham City Council", not_granicus, meeting_type="council")
     _meeting("Birmingham City Council", hidden_second, meeting_type="council", external_id="990315")
     _meeting("Birmingham City Council", hidden_second, meeting_type="council", external_id="990316", hidden=True)
-    for day in (hidden_second, not_granicus, one_council, crowded):
+    _meeting("Mobile City Council", other_city, meeting_type="council", external_id="990319", city=_city("mobile"))
+    _meeting("Mobile City Council", other_city, meeting_type="council", external_id="9903110", city=_city("mobile"))
+    _meeting("Birmingham Planning Commission", not_council, meeting_type="planning", external_id="9903111")
+    _meeting("Birmingham Planning Commission", not_council, meeting_type="planning", external_id="9903112")
+    _meeting("Birmingham City Council", crowded_too, meeting_type="council", external_id="9903113")
+    _meeting("Birmingham City Council", crowded_too, meeting_type="council", external_id="9903114")
+    for day in (not_council, other_city, hidden_second, not_granicus, one_council, crowded, crowded_too):
         _doc((PS,), day)
     report = attach(_city(), TODAY)
-    assert report.created == 4
-    assert report.crowded_days == [crowded]
+    assert report.created == 7
+    assert report.crowded_days == [crowded_too, crowded]
 
     assert attach(_city(), TODAY).crowded_days == []
 
@@ -534,6 +544,7 @@ def test_the_primary_document_of_each_kind_is_the_lowest_id_and_a_meeting_with_n
     assert {kind: row["id"] for kind, row in primary.items()} == {"agenda": agenda, "minutes": minutes}
     assert primary["minutes"]["kind"] == "minutes"
     assert primary["minutes"]["url"].startswith(BUCKET)
+    assert "text" not in primary["minutes"] and "text" not in primary["agenda"]
     assert primary_documents(empty) == {}
 
 
