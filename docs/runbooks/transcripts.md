@@ -316,6 +316,24 @@ rows and the next run measures it:
 A recording the operator believes right that is rejected again is an issue on
 `thinkdarrell/docket-pub` with its figures, not an override.
 
+Every YouTube link can be sent back to Granicus without a deploy, and brought
+back the same way. The first statement is the switch and the second the
+restore:
+
+    UPDATE meeting_video_alignments SET status = 'rejected', reason = 'operator' WHERE status = 'passed';
+    UPDATE meeting_video_alignments SET status = 'passed', reason = NULL WHERE status = 'rejected' AND reason = 'operator';
+
+Both are run as the database owner, in `psql` against the public URL. The site
+reads `passed` rows alone, so after the first every link opens Granicus; the
+offsets and spans stay in the rows, and the second puts every link back. A
+switched-off row is never measured again, whatever its version or clip id, and
+migration 046 keeps it (decision `0106`). The first statement covers only the
+rows that exist when it runs: a recording measured afterwards gets `passed`
+rows of its own, so while the links are meant to stay off it is run again
+after each transcriber run (`D153`). A round trip also clears the reason of
+row 832, whose passing by hand is then recorded only in History, the entry of
+2026-11-12.
+
 ## Checking progress from the laptop
 
 All read-only. The URL is the app's public proxy URL from Railway.

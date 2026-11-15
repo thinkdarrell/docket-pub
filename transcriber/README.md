@@ -183,10 +183,11 @@ To work through the backlog on purpose, without transcribing:
     docker compose run --rm transcriber --limit 0 --measure-limit 400 --max-hours 8
 
 The speech model still loads once the measuring is done, and the run then exits
-with nothing claimed. The first pass over the backlog measured every attached
-recording. The pass after the stretches (method version 3) is about 60
-recordings, the ones rejected at version 2: a recording that passed at version
-2 is not measured again.
+with nothing claimed. On the read of 2026-11-12, 171 of 359 attached recordings
+had been measured. The pass after the stretches (method version 3) measures the
+188 never measured, the recordings rejected at version 2 (60 on that read), and
+the failed ones due a retry, about 250 in all; a recording that passed at
+version 2 is not measured again.
 
 **Rebuild the image** (`docker compose build`) after pulling this change, since
 the Dockerfile copies the package; an image built before it runs as before and
