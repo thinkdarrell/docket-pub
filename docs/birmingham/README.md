@@ -8,7 +8,7 @@ It is a **map, not an owner**. By the project's rule that every fact lives in ex
 
 | | Chapter | One line |
 | --- | --- | --- |
-| 1 | [Where Birmingham's records come from](01-sources.md) | Granicus, the city calendar, the council's YouTube channel, and the 2023 manifest; what each supplies and what it does not |
+| 1 | [Where Birmingham's records come from](01-sources.md) | Granicus, the city calendar, the council's YouTube channel, the 2023 manifest, and the council committees' pages; what each supplies and what it does not |
 | 2 | [How a meeting enters the database](02-ingest.md) | The daily ingest: the meeting row, agenda items and cue points, the meeting-type ladder, minutes votes, and the adoption sweep |
 | 3 | [Votes, members, and the facts on an item](03-votes-and-facts.md) | Minutes votes and video-OCR votes kept apart, matching votes to items, provisional links and promotion, resolving member names, amounts and topics |
 | 4 | [Summaries, scores, and badges](04-ai-summaries.md) | The one stage a language model touches: Wave 0, extraction, rewrite, reconcile, floors, badges, the meeting summary, the budget, the dollar check |
@@ -27,6 +27,8 @@ It is a **map, not an owner**. By the project's rule that every fact lives in ex
   City website (calendar) ───────────▶  city_calendar ─▶ city_calendar_events ─┐
   YouTube channel ───────────────────▶  youtube_ingest ─▶ meeting_videos ──────┼─▶ meeting-type ladder
   2023 manifest (operator, once) ────▶  backfill script ─▶ meetings, agenda_items ┘   (type, sitting, body)
+  City website (committee pages) ────▶  committee_documents ─▶ committee_documents, committee_items,
+                                                               a cdoc- meeting when minutes have no row
 
   Granicus clip frames ──────────────▶  video_ocr ─▶ votes + member_votes (source video_ocr)
 
@@ -73,7 +75,8 @@ These are `docs/PRINCIPLES.md` as they show up in the Birmingham flow; the chapt
 | Table | Written by | Chapter |
 | --- | --- | --- |
 | `municipalities` | migrations (the Birmingham row and its `metadata` flags) | 1 |
-| `meetings`, `agenda_items`, `processing_status` | `ingest_all`, the YouTube pass, the 2023 backfill | 2 |
+| `meetings`, `agenda_items`, `processing_status` | `ingest_all`, the YouTube pass, the 2023 backfill; `committee_documents` creates a `meetings` row when minutes have none | 2 |
+| `committee_documents`, `committee_items` | `committee_documents` | 1, 2 |
 | `city_calendar_events` | `city_calendar` | 1, 2 |
 | `meeting_videos` | `youtube_ingest` | 1, 5 |
 | `votes`, `member_votes` | ingest (minutes), `video_ocr` (video), `resolve_member_votes` (member ids) | 3 |
