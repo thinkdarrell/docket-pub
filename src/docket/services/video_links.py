@@ -26,6 +26,13 @@ meeting has now, and covers the second. The offset is Granicus seconds
 minus YouTube seconds, so a moment at Granicus second g is at YouTube second
 g minus the offset. Everything else falls back to the Granicus chapter.
 
+A recording is measured in stretches (migration 046): it holds one passed
+row for each run of it that matches the clip at one offset, each with its
+own offset and its own span of the Granicus clock, and it contributes one
+:class:`Recording` per passed stretch. They are tried primary recording
+first, then by recording, then by where the stretch starts; a second that
+falls between two stretches, and inside no other recording's, opens Granicus.
+
 A consent item links to the start of the consent agenda: the clerk reads the
 consent items out in one quick run, so their own cue points land seconds
 apart inside that reading. :func:`consent_block` finds the run and
@@ -51,7 +58,10 @@ from docket.db import db_cursor
 # written from the transcriber's ``ALIGN_METHOD_VERSION``) the site trusts.
 # A floor, not an equality: a later method's measurement is used as it is.
 # 2, because method 1 covered the outer parts of a recording's first and last
-# windows without checking them (decision 0081).
+# windows without checking them (decision 0081). A passed row at version 2
+# stays trusted after the transcriber's version 3 (the stretch rule gives a
+# single-offset recording the same row), and ``ALIGN_TRUSTED_VERSION`` in
+# ``transcriber/transcriber/align.py`` is the same floor on the producer's side.
 MIN_METHOD_VERSION = 2
 
 # The consent block: the largest run of consent cue points whose neighbours
@@ -66,7 +76,9 @@ _YOUTUBE_ID_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVW
 
 @dataclass(frozen=True)
 class Recording:
-    """One YouTube recording of a Granicus meeting whose measurement passed."""
+    """One passed stretch of a YouTube recording of a Granicus meeting: a
+    recording that matches the clip at two offsets is two of these, with one
+    ``video_id``."""
 
     video_id: str
     offset_s: float   # Granicus seconds minus YouTube seconds
@@ -325,9 +337,14 @@ def for_meetings(meeting_ids: Iterable[int]) -> dict[int, MeetingVideo]:
 
     Returns one entry per meeting that exists, also for a meeting with no
     ``video_url`` (:func:`link_for` then builds no link). Three reads: the
-    meetings; their recordings whose measurement passed, at a trusted method
-    version, against the clip the meeting has now, primary first; and their
+    meetings; their recordings' stretches whose measurement passed, at a
+    trusted method version, against the clip the meeting has now; and their
     consent items' cue points. No read replaces a NULL with a default.
+
+    A recording contributes one :class:`Recording` per passed stretch, in the
+    order :func:`link_for` tries them: primary recording first, then by
+    recording (row id), then by where the stretch starts on the Granicus
+    clock, then by stretch number.
     """
     ids = sorted({int(meeting_id) for meeting_id in meeting_ids})
     if not ids:
@@ -347,7 +364,7 @@ def for_meetings(meeting_ids: Iterable[int]) -> dict[int, MeetingVideo]:
                AND a.status = 'passed'
                AND a.method_version >= %s
                AND a.granicus_clip_id = m.external_id
-             ORDER BY mv.is_primary DESC, mv.id
+             ORDER BY mv.is_primary DESC, mv.id, a.granicus_start_s, a.stretch
             """,
             (ids, MIN_METHOD_VERSION),
         )
