@@ -25,11 +25,14 @@ rules and patterns. A committee records a motion and a second, never a roll
 call, so an action is kept as the minutes' own words and one of a closed list
 of categories and is never a vote.
 
-Everything here is a pure function of its arguments. Nothing is fetched and
-nothing is stored.
+The readers are pure functions of their arguments. ``fetch_page`` and
+``fetch_pdf`` are the only two that reach the network; they share one pause,
+so a request to the city's site or to its Amazon bucket is never sooner than
+a second after the last to either. Nothing here is stored:
+``docket.services.committee_documents`` does that.
 
-Plan `committee-documents`, M1 (the listing and the header) and M2 (the
-items of minutes).
+Plan `committee-documents`, M1 (the listing and the header), M2 (the items
+of minutes) and M3 (the two fetches).
 """
 
 from __future__ import annotations
@@ -38,9 +41,11 @@ import html as html_entities
 import json
 import logging
 import re
+import time
 from dataclasses import dataclass
 from datetime import date
 
+import requests
 from bs4 import BeautifulSoup
 
 log = logging.getLogger(__name__)
@@ -81,6 +86,25 @@ _PDF_PREFIXES = (
 )
 
 _DOCUMENT_CLASS = "media--type-document"
+
+# The browser string adapters/city_calendar.py sends as _BROWSER_UA, copied:
+# one adapter does not reach into another's private names.
+_BROWSER_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"
+)
+_TIMEOUT_S = 60
+# GOALS.md: polite delays of at least one second between requests to a city
+# site. The PDFs are on the city's Amazon bucket, another host; one pause for
+# both is the stricter choice.
+_MIN_INTERVAL_S = 1.0
+# A committee PDF is a few hundred kilobytes; anything past this is not one.
+_MAX_PDF_BYTES = 40 * 1024 * 1024
+_PDF_MARK = b"%PDF-"
+_CHUNK_BYTES = 64 * 1024
+
+# monotonic time of this module's last request; None before the first
+_last_request_at: float | None = None
 
 # A heading line inside a document: a number, Roman numeral or letter, then a
 # full stop or closing bracket ("VI.", "4)", "a."). The lower-case l is in
@@ -579,3 +603,57 @@ def parse_minutes_items(text: str) -> MinutesFacts:
         )
 
     return MinutesFacts(present=present, items=tuple(items), trailing_lines=trailing)
+
+
+# --- fetching --------------------------------------------------------------
+
+
+def _get(url: str, **kwargs) -> requests.Response:
+    """One GET with the browser user agent and the timeout, no sooner than a
+    second after this module's last. Raises on an HTTP error."""
+    global _last_request_at
+    if _last_request_at is not None:
+        wait = _MIN_INTERVAL_S - (time.monotonic() - _last_request_at)
+        if wait > 0:
+            time.sleep(wait)
+    try:
+        resp = requests.get(url, timeout=_TIMEOUT_S, headers={"User-Agent": _BROWSER_UA}, **kwargs)
+    finally:
+        _last_request_at = time.monotonic()
+    resp.raise_for_status()
+    return resp
+
+
+def fetch_page(url: str) -> str:
+    """A committee page's HTML. Raises when the request fails."""
+    return _get(url).text
+
+
+def fetch_pdf(url: str) -> bytes | None:
+    """A PDF's bytes, or None when there is no PDF to be had: the request
+    failed, the body is past 40 MB (the read stops there), or the body does
+    not begin with the PDF mark (an error page served with a 200)."""
+    try:
+        resp = _get(url, stream=True)
+    except requests.RequestException as exc:
+        log.warning("committee document %s: fetch failed: %s", url, exc)
+        return None
+    try:
+        chunks: list[bytes] = []
+        size = 0
+        for chunk in resp.iter_content(chunk_size=_CHUNK_BYTES):
+            size += len(chunk)
+            if size > _MAX_PDF_BYTES:
+                log.warning("committee document %s: past %d bytes, not read", url, _MAX_PDF_BYTES)
+                return None
+            chunks.append(chunk)
+    except requests.RequestException as exc:
+        log.warning("committee document %s: fetch failed part-way: %s", url, exc)
+        return None
+    finally:
+        resp.close()
+    body = b"".join(chunks)
+    if not body.startswith(_PDF_MARK):
+        log.warning("committee document %s: the body is not a PDF", url)
+        return None
+    return body

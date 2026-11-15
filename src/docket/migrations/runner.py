@@ -55,6 +55,7 @@ MIGRATIONS = [
     "docket.migrations.042_meeting_video_alignments",
     "docket.migrations.043_calendar_sources",
     "docket.migrations.044_hidden_reason",
+    "docket.migrations.045_committee_documents",
 ]
 
 
