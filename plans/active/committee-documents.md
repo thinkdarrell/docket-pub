@@ -17,7 +17,7 @@ This is the second of four phases of the design in `docs/superpowers/specs/2026-
 ## Progress
 
 - [x] (2026-11-15 01:53Z) M1: A committee page's listing and a document's own header can be read: which committee, which date, agenda or minutes, proved on the saved fixtures.
-- [ ] M2: A minutes document's text is read into items, each with its name, text, action, action category, mover and seconder, proved on the saved fixtures.
+- [x] (2026-11-15 02:15Z) M2: A minutes document's text is read into items, each with its name, text, action, action category, mover and seconder, proved on the saved fixtures.
 - [ ] M3: Two new tables hold documents and their items; a service lists, fetches, reads and stores them, and running it twice changes nothing the second time.
 - [ ] M4: Stored documents are attached to the committee meeting rows that already exist, and minutes for a meeting with no row create one; nothing is attached twice and no meeting is created twice.
 - [ ] M5: A committee meeting's page shows its documents and what the committee took up.
@@ -131,6 +131,8 @@ As authored on 2026-11-13, nothing has been executed and there are no discoverie
 As authored on 2026-11-13, nothing has been executed and there are no outcomes.
 
 M1, 2026-11-15. `src/docket/adapters/committee_documents.py` exists with the committee table, `Listing`, `Header`, `DocumentFacts`, `committees_named`, `parse_committee_page`, `read_date`, `read_header` and `resolve`, as Interfaces and Dependencies names them; `MinutesItem`, `MinutesFacts`, `parse_minutes_items`, `fetch_page` and `fetch_pdf` are M2's and M3's and are not there yet. Every expected value the plan states for M1 was observed as stated; the one rule that could not produce its stated value (the year "2O26") was mended in the plan. Both acceptance checks were run and are recorded in Artifacts and Notes; there is no carve-out against M1's acceptance. Left for later milestones to notice: the bare `ARTS` pattern (Surprises & Discoveries), and `./tools/verify` taking 207 seconds against a 180 second budget before and after this milestone. Next is M2.
+
+M2, 2026-11-15. `parse_minutes_items`, `MinutesItem` and `MinutesFacts` exist in `src/docket/adapters/committee_documents.py` as Interfaces and Dependencies names them; `fetch_page` and `fetch_pdf` are M3's and are not there yet. Every value the plan states for the five minutes fixtures was observed as stated, the eleven Public Safety items and their categories among them, with no expected value changed. One sentence of the rule text was mended (a wrapped ending must be the same ending read further), on a constructed text and not on a fixture. The acceptance check was run and is recorded in Artifacts and Notes; there is no carve-out against M2's acceptance. What M3 inherits: an item's `name` and `action_text` can be the empty string (an item with no heading and no line, an "Action Taken" with no words), which M3's `not null` columns accept; `group` is the string M3 stores as `group_text`. What M5 inherits: the first item's body begins with the call to order, and an item named by its first line repeats that line as the first line of its body (Surprises & Discoveries). Lesson: a test that prints each case in the shape the fallback rule also handles proves nothing about the rule; the removal check found 34 unpinned rules that the fixtures and a plausible-looking table of endings had left free. `./tools/verify` took 207 seconds before and after, against a 180 second budget. Next is M3.
 
 ## Context and Orientation
 
@@ -431,6 +433,19 @@ The month rule changed to require a whole month name, in a copy of the module co
     2 failed, 15 passed, 1 warning in 1.13s
 
 The second failure is the `pz_minutes_2026-09-08.pdf` test: its header's date read None where `(2026, 9, 8)` is expected. With the rule as committed, the 17 pass.
+
+M2 acceptance, observed 2026-11-15. `./tools/verify`, run at commit `178299f` (the function, its tests and the plan's decisions; the only later change is this file's own record of the run), exited zero:
+
+    verify: test-db ... ok (0s) postgresql://docket:docket_dev@localhost:5432/docket_test_61bde166
+    verify: unit+web+services ... ok (92s)
+    verify: integration ... ok (107s)
+    verify: judge-fixtures ... ok (1s)
+    verify: workflows ... ok (0s)
+    verify: transcriber ... ok (7s)
+    verify: plans ... ok (0s)
+    verify: all 6 checks passed in 207s.
+
+The unit, web and services tiers printed `2762 passed, 5 skipped, 4 xfailed, 2 warnings in 91.14s`; the run before any edit printed `2743 passed`, and the difference is the 19 tests of `tests/unit/test_committee_documents_minutes.py`, which run alone print `19 passed, 1 warning in 1.24s`. `test_public_safety_minutes_without_a_quorum`, which asserts the eleven Public Safety items by name and category in order, run alone: `1 passed, 18 deselected`. The rule-removal passes are in Surprises & Discoveries.
 
 ## Interfaces and Dependencies
 
