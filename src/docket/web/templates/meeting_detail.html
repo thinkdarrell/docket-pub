@@ -94,9 +94,14 @@
       is named only when it is known: the council's YouTube channel when a
       stored recording carries the title (a yt- row the YouTube pass created),
       the city's archive when the row's source is not on YouTube; a 2023
-      Boutwell row's title came from the operator's manifest, so neither. #}
+      Boutwell row's title came from the operator's manifest, so neither. A
+      meeting made from a committee's minutes (external id cdoc-…,
+      docket.services.committee_documents._create_meeting) has a title docket
+      composed and no recording, so neither; its documents are in the
+      committee record below. #}
 {%- set _titled_by_youtube = (recordings or []) | selectattr('clean_title', 'equalto', meeting.title) | first %}
-{%- set _titled_by_archive = not _titled_by_youtube and 'youtube.com' not in (meeting.source_url or '') %}
+{%- set _made_from_minutes = (meeting.external_id or '').startswith('cdoc-') %}
+{%- set _titled_by_archive = not _titled_by_youtube and not _made_from_minutes and 'youtube.com' not in (meeting.source_url or '') %}
 {% if _label and _label != meeting.title and (_titled_by_youtube or _titled_by_archive or meeting.type_source in ('schedule_rule', 'calendar', 'video')) %}
 <p class="t-meta meeting-provenance">
   {%- if _titled_by_youtube %}The council's YouTube channel titles this recording “{{ meeting.title }}”.

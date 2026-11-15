@@ -308,6 +308,10 @@ As authored on 2026-11-13, nothing has been executed and there are no discoverie
   Rationale: the design's closing sequence writes the panel's findings into the plan so they are read with it, and halts before the pull request when a finding is severe.
   Date/Author: 2026-11-15, review panel (cycle-run), from the three panel reports.
 
+- Decision: the review's severe finding is fixed before the closing sequence is run again. A meeting made from minutes (external id `cdoc-…`, `_create_meeting` in `src/docket/services/committee_documents.py`) no longer prints "The city's archive lists this recording as “<title>”." on its page: `src/docket/web/templates/meeting_detail.html` treats such a row's title as having no known source, so the page prints no title sentence for it, and `docs/specs/meeting-types.md` (Provenance) says so. Observed: the new test `test_a_meeting_made_from_minutes_is_not_said_to_be_a_recording_the_archive_lists` in `tests/web/test_committee_record_page.py` failed before the template changed (`1 failed, 1 passed, 29 deselected`) and `tests/web/test_committee_record_page.py tests/web/test_meeting_label.py` printed `45 passed` after; a second new test holds that an archive row whose label differs still names the archive. The three important and eight minor findings are not touched here and are left to the retro to route.
+  Rationale: the title is docket's composition and the meeting has no recording, so the sentence attributed docket's words to the city, which Source or silence forbids; silence is the smallest true statement, and the committee record on the same page links the minutes the meeting is known from. A sentence saying where the meeting is known from would be new reader text nobody has chosen.
+  Date/Author: 2026-11-15, Claude, in the operator's session after the cycle-run halt; not a milestone session.
+
 ## Outcomes & Retrospective
 
 As authored on 2026-11-13, nothing has been executed and there are no outcomes.

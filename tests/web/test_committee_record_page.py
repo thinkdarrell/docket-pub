@@ -54,6 +54,7 @@ def _delete_all() -> None:
     with db_cursor() as cur:
         cur.execute("DELETE FROM committee_documents WHERE url LIKE %s", (BUCKET + "%",))
         cur.execute("DELETE FROM meetings WHERE external_id LIKE %s", (PREFIX + "%",))
+        cur.execute("DELETE FROM meetings WHERE external_id LIKE %s", ("cdoc-" + PREFIX + "%",))
     briefing_seed.clear_caches()
 
 
@@ -469,3 +470,49 @@ def test_no_committee_item_is_given_a_vote_or_a_tally(client):
         assert not re.search(r"\b(passed|failed|yeas?|nays?|ayes?)\b", part, flags=re.IGNORECASE), part
         assert not re.search(r"\b\d+\s*[–-]\s*\d+\b", part), part
         assert not re.search(r"\b\d+\s+to\s+\d+\b", part), part
+
+
+# A meeting made from minutes (``attach``'s ``_create_meeting``, external id
+# ``cdoc-…``) carries a title docket composed and has no recording, so the
+# page must not say the city's archive lists a recording under that title
+# (the closing review's severe finding, 2026-11-15).
+
+def _meeting_made_from_minutes() -> int:
+    with db_cursor() as cur:
+        cur.execute(
+            """INSERT INTO meetings (municipality_id, external_id, title, meeting_date, meeting_type,
+                                     session_kind, body_name, type_source, source_url)
+               VALUES (%s, %s, 'Budget and Finance Committee Meeting', %s, 'committee', 'regular',
+                       'Budget and Finance Committee', 'title', %s) RETURNING id""",
+            (_city(), f"cdoc-{PREFIX}{next(_serial)}", DAY, ROOT + "budget-and-finance-committee"),
+        )
+        return cur.fetchone()["id"]
+
+
+def test_a_meeting_made_from_minutes_is_not_said_to_be_a_recording_the_archive_lists(client):
+    meeting_id = _meeting_made_from_minutes()
+    minutes_id, _ = _doc(meeting_id, "minutes")
+    _three_items(minutes_id)
+
+    page = _page(client, meeting_id)
+
+    assert "<h1" in page and "Budget and Finance Committee" in page
+    assert "lists this recording as" not in page
+    assert "titles this recording" not in page
+    assert "meeting-provenance" not in page
+
+
+def test_an_archive_meeting_whose_label_differs_still_names_the_archive(client):
+    with db_cursor() as cur:
+        cur.execute(
+            """INSERT INTO meetings (municipality_id, external_id, title, meeting_date, meeting_type,
+                                     session_kind, body_name, type_source, source_url)
+               VALUES (%s, %s, 'Budget and Finance Committee Meeting', %s, 'committee', 'regular',
+                       'Budget and Finance Committee', 'title',
+                       'https://bhamal.granicus.com/MediaPlayer.php?view_id=2&clip_id=1') RETURNING id""",
+            (_city(), f"{PREFIX}{next(_serial)}", DAY),
+        )
+        meeting_id = cur.fetchone()["id"]
+
+    assert "The city's archive lists this recording as “Budget and Finance Committee Meeting”." in _page(
+        client, meeting_id)
