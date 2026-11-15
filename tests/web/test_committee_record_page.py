@@ -228,7 +228,7 @@ def test_the_page_shows_the_documents_and_what_the_committee_took_up(client):
     assert "Pike Road Market & Meats" in words
     assert "A committee recommends; it does not decide. No committee action is final without a vote of the full " \
            "council." in words
-    assert "not yet posted" not in record
+    assert "has no minutes" not in record
     assert "Items in the minutes" in _strip(page)
 
 
@@ -291,14 +291,17 @@ def test_a_meeting_whose_minutes_are_all_procedural_keeps_its_strip(client):
     assert "<ol" in record and record.count("<ol") == 1
 
 
-def test_a_meeting_with_only_an_agenda_says_the_minutes_are_not_yet_posted(client):
+def test_a_meeting_with_only_an_agenda_says_docket_has_no_minutes_and_nothing_about_the_city(client):
     meeting_id = _meeting()
     _, agenda_url = _doc(meeting_id, "agenda")
     page = _page(client, meeting_id)
     record = _record(page)
     assert f'href="{agenda_url}"' in record
-    assert ("The committee's minutes for this meeting are not yet posted. The agenda shows what was planned; "
+    assert ("docket.pub has no minutes for this meeting. The agenda shows what was planned; "
             "it does not show what the committee did.") in _words(record)
+    # Whether the city has posted minutes is not something an absence in
+    # docket's tables shows (the second closing review, 2026-11-15).
+    assert "not yet posted" not in page
     assert "What the committee took up" not in record
     assert "Councilors present" not in record
     assert "A committee recommends; it does not decide." in record
@@ -363,7 +366,7 @@ def test_a_second_document_of_a_kind_is_another_copy_and_a_scanned_one_is_not_re
     assert [re.search(r'href="([^"]+)"', d).group(1) for d in docs] == [agenda_url, minutes_url, stray_url]
     assert "Councilors present: Tate" in _words(record)
     assert "From the other copy" not in record and "Nobody" not in record
-    assert "not yet posted" not in record
+    assert "has no minutes" not in record
 
 
 def test_minutes_that_were_read_and_hold_no_item_are_still_minutes(client):
@@ -372,7 +375,7 @@ def test_minutes_that_were_read_and_hold_no_item_are_still_minutes(client):
     _doc(meeting_id, "minutes", present="Tate")
     record = _record(_page(client, meeting_id))
     assert "Councilors present: Tate" in _words(record)
-    assert "not yet posted" not in record
+    assert "has no minutes" not in record
     assert "What the committee took up" not in record and "<ol" not in record
 
 
@@ -394,7 +397,7 @@ def test_scanned_minutes_alone_say_only_that_they_were_not_read(client):
     assert "Minutes (PDF) scanned image; not read" in _words(record)
     assert "What the committee took up" not in record
     assert "Councilors present" not in record
-    assert "not yet posted" not in record
+    assert "has no minutes" not in record
     assert "<ol" not in record and "Procedural" not in record
     assert _words(_strip(page)).startswith("Agenda items 0")
 

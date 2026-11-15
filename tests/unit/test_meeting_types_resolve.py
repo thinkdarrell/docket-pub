@@ -392,12 +392,15 @@ NAMED_X = ("committee", "regular", "Budget and Finance", "calendar", 4942)
 
 
 def _sibling(title=GENERIC, *, duration_s=None, item_count=0, minutes_url=None, video_titles=None,
-             type_locked_at=None, meeting_type="council", body_name=None) -> dict:
-    return {
+             type_locked_at=None, meeting_type="council", body_name=None, external_id=None) -> dict:
+    row = {
         "title": title, "minutes_url": minutes_url, "type_locked_at": type_locked_at,
         "meeting_type": meeting_type, "body_name": body_name, "item_count": item_count,
         "video_titles": video_titles, "duration_s": duration_s,
     }
+    if external_id is not None:
+        row["external_id"] = external_id
+    return row
 
 
 S = _sibling("Budget and Finance Committee Meeting", duration_s=5760)
@@ -462,6 +465,16 @@ class TestSameCommittee:
 class TestWholeDay:
     def test_case_1_the_committee_the_named_recording_leaves_over(self):
         assert _day([X, Y], duration_s=2220, siblings=[S]) == NAMED_Y
+
+    def test_a_meeting_made_from_minutes_has_no_recording_and_accounts_for_no_event(self):
+        """A ``cdoc-`` row (``committee_documents._create_meeting``) says its
+        committee met; it is not a recording, so the unnamed recording of the
+        day may be that committee's own and is not named the other one's."""
+        from_minutes = _sibling("Budget and Finance Committee Meeting",
+                                external_id="cdoc-budget-and-finance-2026-11-09")
+
+        assert _day([X, Y], duration_s=2220, siblings=[from_minutes]) == RULE
+        assert _day([X, Y], duration_s=2220, siblings=[from_minutes, S]) == NAMED_Y, "a recording still names"
 
     def test_case_2_a_short_recording_is_not_named_by_elimination(self):
         assert _day([X, Y], duration_s=240, siblings=[S]) == RULE
