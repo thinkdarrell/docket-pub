@@ -22,4 +22,4 @@ One module owns all of this because the layer rule in `ARCHITECTURE.md` keeps SQ
 
 ## Status
 
-accepted
+accepted; `0104` applies the pass mark per stretch, a conflict window ends a stretch instead of rejecting the recording, and coverage is per stretch; the mark's numbers stand

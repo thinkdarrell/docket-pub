@@ -16,4 +16,4 @@ A conditional `GRANT` inside migration 042 was the other way to deliver the gran
 
 ## Status
 
-accepted
+accepted; `0105` grants DELETE on `meeting_video_alignments` and re-keys it on `(meeting_video_id, stretch)`; the rest stands
