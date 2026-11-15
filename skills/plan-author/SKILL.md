@@ -80,6 +80,22 @@ constrains:
    written to exclude, a worker `low_speech` row that a re-claim moved to
    `claimed` and so made public for the run, because the research reasoned
    about that value only as an end state.
+   When the work inserts a new kind of row into a table other code already
+   reads (a meeting with a new `external_id` prefix, a meeting with no
+   recording), the same list is made for the row as a whole: every reader
+   and writer of that table that tells one kind of row from another, above
+   all by what a row lacks (`not external_id.startswith("yt-")`, a
+   `source_url` with no `youtube.com` in it), is opened, and Context says
+   what each does with the new row, from its code and not from what a row
+   of a neighbouring kind does today. One plan weighed every reader of
+   the table it chose not to write to and said of its new `meetings` rows
+   only that they reach each list the way a YouTube-created row does;
+   three readers took a meeting made from minutes for a Granicus
+   recording: the meeting page told the reader the city's archive lists
+   the recording (the closing review halted on it), the YouTube pass (a
+   milestone found it by reading, after a debt row had been worded from
+   the plan's guess), and the type resolver's elimination rule (the second
+   review).
    When the work changes a rule that prose states, the research greps the
    words the old rule is stated with (`stays public`, `is never cleared`)
    across code and documents alike, docstrings and comments included, and

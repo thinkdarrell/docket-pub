@@ -1,0 +1,95 @@
+{# A committee's own agenda and minutes for one meeting, and what its minutes
+   say it took up (plan `committee-documents`, M5).
+   Args:
+     committee_record — docket.services.committee_documents.for_meeting(...):
+       the meeting's documents, primaries first, and from the primary minutes
+       who was present and the items in the minutes' order. Never None here;
+       meeting_detail.html includes this only when the meeting has a document.
+   Every item's words are the minutes' own, and the minutes are linked above
+   the list and cited on each quotation. A committee's action is never shown
+   as a vote: the minutes record a motion and a second, not a roll call. The
+   list reads in order without styles. #}
+{%- set _labels = {
+  'recommended': 'Recommended to the council',
+  'recommended_consent': "Recommended to the council's consent agenda",
+  'recommended_no_quorum': 'Sent to the council by the chair; no quorum',
+  'no_recommendation': 'Sent to the council with no recommendation',
+  'recommended_deny': 'Sent to the council with a recommendation to deny',
+  'information_only': 'Information only; no action',
+  'withdrawn': 'Withdrawn',
+  'tabled': 'Tabled',
+  'delayed': 'Delayed',
+} %}
+{#- The labels are this template's own words, printed as written (| safe):
+    the apostrophe in "council's" is not turned into an entity. #}
+{%- macro _item(item, show_group) %}
+    <li class="committee-item">
+      {%- if show_group %}
+      <p class="t-eyebrow committee-item__group">{{ item.group_text }}</p>
+      {%- endif %}
+      <h4 class="committee-item__name">{{ item.name }}</h4>
+      {%- if item.body and item.body | trim != item.name | trim %}
+      <details>
+        <summary>What the minutes say</summary>
+        <p class="committee-item__body">{{ item.body }}</p>
+      </details>
+      {%- endif %}
+      {%- if item.moved_by and item.seconded_by %}
+      <p class="t-meta committee-item__motion">Moved by {{ item.moved_by }}, seconded by {{ item.seconded_by }}</p>
+      {%- elif item.moved_by %}
+      <p class="t-meta committee-item__motion">Moved by {{ item.moved_by }}</p>
+      {%- elif item.seconded_by %}
+      <p class="t-meta committee-item__motion">Seconded by {{ item.seconded_by }}</p>
+      {%- endif %}
+      {%- if _labels.get(item.action_category) %}
+      <p class="t-mono committee-item__outcome">{{ _labels[item.action_category] | safe }}</p>
+      {%- endif %}
+      {%- if item.action_text %}
+      <p class="t-meta committee-item__record">The minutes record:</p>
+      <blockquote cite="{{ committee_record.minutes_url }}">{{ item.action_text }}</blockquote>
+      {%- endif %}
+    </li>
+{%- endmacro %}
+{#- One list of items; a group is printed once, before the first item of
+    the list that has it. #}
+{%- macro _list(items) %}
+  <ol class="committee-record__items">
+    {%- set _last = namespace(group=none) %}
+    {%- for item in items %}
+    {{- _item(item, item.group_text and item.group_text != _last.group) }}
+    {%- set _last.group = item.group_text %}
+    {%- endfor %}
+  </ol>
+{%- endmacro %}
+<section class="committee-record" aria-labelledby="committee-record-heading">
+  <h2 class="t-display committee-record__heading" id="committee-record-heading">From the committee's own documents</h2>
+  <ul class="committee-record__documents">
+    {%- set _seen = namespace(kinds=[]) %}
+    {%- for document in committee_record.documents %}
+    <li><a class="link" href="{{ document.url }}" target="_blank" rel="noopener">{{ 'Minutes' if document.kind == 'minutes' else 'Agenda' }} (PDF)</a>
+      {%- if document.kind in _seen.kinds %} <span class="t-meta">another copy</span>{% endif %}
+      {%- if not document.has_text %} <span class="t-meta">scanned image; not read</span>{% endif %}</li>
+    {%- set _seen.kinds = _seen.kinds + [document.kind] %}
+    {%- endfor %}
+  </ul>
+  {%- if committee_record.has_minutes %}
+  {%- if committee_record.present %}
+  <p class="committee-record__present">Councilors present: {{ committee_record.present }}</p>
+  {%- endif %}
+  {%- if committee_record.items %}
+  <h3 class="t-display committee-record__subheading">What the committee took up</h3>
+  {%- if committee_record.substantive %}
+  {{- _list(committee_record.substantive) }}
+  {%- endif %}
+  {%- if committee_record.procedural %}
+  <details class="committee-record__procedural">
+    <summary>Procedural</summary>
+    {{- _list(committee_record.procedural) }}
+  </details>
+  {%- endif %}
+  {%- endif %}
+  {%- else %}
+  <p class="committee-record__pending">docket.pub has no minutes for this meeting. The agenda shows what was planned; it does not show what the committee did.</p>
+  {%- endif %}
+  <p class="t-meta committee-record__note">A committee recommends; it does not decide. No committee action is final without a vote of the full council.</p>
+</section>

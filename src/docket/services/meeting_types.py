@@ -39,7 +39,9 @@ The evidence ladder, top rung first:
    recording of the day runs longer: a stream test does not share a name
    with the meeting. With several committee events it is named by
    elimination: the events that the day's named rows account for
-   (:func:`same_committee`) are set aside, and the row takes the one left
+   (:func:`same_committee`) are set aside (a meeting made from minutes,
+   external id ``cdoc-…``, has no recording and accounts for none), and the
+   row takes the one left
    only when exactly one is left, the row is long, and no other unnamed
    recording of the day is long or of unknown length. Who competes and who
    names is decided from each row's own facts, never from what this rung
@@ -293,6 +295,14 @@ def _without_documents(row: dict, *, council_events: int, on_council_day: bool) 
     return True
 
 
+def _made_from_minutes(row: dict) -> bool:
+    """A meeting ``committee_documents`` made from a committee's minutes
+    (external id ``cdoc-…``). It says the committee met and is not a
+    recording, so it accounts for no event when recordings are named by
+    elimination: the day's unnamed recording may be that committee's own."""
+    return (row.get("external_id") or "").startswith("cdoc-")
+
+
 def _choose_event(
     events: list[tuple[dict, Classification]], row: dict, siblings: list[dict], *, on_council_day: bool
 ):
@@ -327,6 +337,8 @@ def _choose_event(
 
     namers = []
     for s in siblings:
+        if _made_from_minutes(s):
+            continue
         above = _before_calendar(s)
         if above is not None and above[0].meeting_type == "committee" and above[0].body_name:
             namers.append(above[0].body_name)
@@ -422,7 +434,7 @@ def summary_clear_ids(rows: list[dict]) -> list[int]:
 _MUNICIPALITY_SQL = "SELECT id, slug, metadata FROM municipalities WHERE {where}"
 
 _MEETING_ROWS_SQL = """
-    SELECT m.id, m.title, m.meeting_date, m.minutes_url, m.type_locked_at,
+    SELECT m.id, m.external_id, m.title, m.meeting_date, m.minutes_url, m.type_locked_at,
            m.duration_s, m.is_hidden,
            m.meeting_type, m.session_kind, m.body_name, m.type_source, m.calendar_event_id,
            m.executive_summary IS NOT NULL AS has_summary,

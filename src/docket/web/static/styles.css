@@ -639,5 +639,27 @@ a.link:hover { border-bottom-color: var(--accent); }
 .type-filter__item.is-empty { color: var(--ink-3); border-style: dashed; }
 .type-filter__count { opacity: .7; }
 .meeting-provenance { margin: 8px 0 16px; max-width: 720px; }
+
+/* ── a committee's own documents on the meeting page (plan
+      `committee-documents`, M5). Existing properties only; the list reads in
+      order without any of this. ─────────────────────────────────────────── */
+.committee-record { margin: 24px 0; padding: 20px 0; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); max-width: 760px; }
+.committee-record__heading { margin: 0; font-size: 28px; }
+.committee-record__subheading { margin: 0; font-size: 20px; }
+.committee-record__documents { list-style: none; display: flex; flex-wrap: wrap; gap: 6px 20px; margin: 8px 0 16px; padding: 0; }
+.committee-record__present { margin: 0 0 16px; color: var(--ink-2); }
+.committee-record__items { margin: 12px 0 16px; padding-left: 28px; }
+.committee-item { padding: 12px 0; border-top: 1px solid var(--rule); }
+.committee-item:first-child { border-top: 0; }
+.committee-item__group { margin: 0 0 6px; color: var(--ink-3); }
+.committee-item__name { margin: 0 0 6px; font-family: var(--font-display); font-size: 18px; font-weight: 500; color: var(--ink); }
+.committee-item details { margin: 0 0 8px; }
+.committee-item summary, .committee-record__procedural > summary { cursor: pointer; font-family: var(--font-mono); font-size: 12px; color: var(--ink-3); }
+.committee-item__body { margin: 8px 0 0; white-space: pre-line; color: var(--ink-2); }
+.committee-item__motion, .committee-item__record { margin: 0 0 4px; }
+.committee-item__outcome { margin: 0 0 6px; font-size: 12px; color: var(--accent-ink); }
+.committee-item blockquote { margin: 0; padding: 2px 0 2px 12px; border-left: 2px solid var(--rule-strong); color: var(--ink-2); }
+.committee-record__pending { margin: 0 0 16px; }
+.committee-record__note { margin: 16px 0 0; }
 .admin-meeting-type { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 1rem; }
 .admin-meeting-type select, .admin-meeting-type input { margin-left: 4px; }

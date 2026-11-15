@@ -1,10 +1,10 @@
 # 2. How a meeting enters the database
 
-The daily ingest turns what chapter 1's sources publish into rows in `meetings`, `agenda_items`, `votes`, and `member_votes`. One service owns the whole transaction: `ingest_municipality("birmingham")` in `src/docket/services/ingest.py`, called by the worker task `ingest_all` (`src/docket/worker/tasks.py`) and runnable by hand. This chapter follows one meeting through it.
+The daily ingest turns what chapter 1's sources publish into rows in `meetings`, `agenda_items`, `votes`, and `member_votes`; the committees' own documents take a separate, smaller path into two tables of their own ("The committee documents path", below). One service owns the whole transaction: `ingest_municipality("birmingham")` in `src/docket/services/ingest.py`, called by the worker task `ingest_all` (`src/docket/worker/tasks.py`) and runnable by hand. This chapter follows one meeting through it.
 
 ## The order of the morning
 
-The worker (`src/docket/worker/scheduler.py` owns the times; this page does not repeat them) runs the ingest-side tasks each morning, Chicago time, in this order: `city_calendar` (refresh the council's calendar events), then `ingest_all` (Granicus), then `youtube_ingest` (the channel), then `non_meetings` (hide the clips that are not meetings). Once a week, before them, `repair_empty_agendas` clears the "scraped" flag on recent meetings that have an agenda link but zero items, so they are tried again. Every task pings its Healthchecks.io check at start, success, and failure (`src/docket/worker/health.py`; `docs/runbooks/cron-worker.md` lists the checks).
+The worker (`src/docket/worker/scheduler.py` owns the times; this page does not repeat them) runs the ingest-side tasks each morning, Chicago time, in this order: `city_calendar` (refresh the council's calendar events), then `ingest_all` (Granicus), then `youtube_ingest` (the channel), then `non_meetings` (hide the clips that are not meetings), then `committee_documents` (the committees' agendas and minutes). Once a week, before them, `repair_empty_agendas` clears the "scraped" flag on recent meetings that have an agenda link but zero items, so they are tried again. Every task pings its Healthchecks.io check at start, success, and failure (`src/docket/worker/health.py`; `docs/runbooks/cron-worker.md` lists the checks).
 
 ## Step 1: the meeting row
 
@@ -43,9 +43,20 @@ For a clip meeting with a minutes link whose `votes_scanned` gate is open, the a
 
 Then the **minutes adoption sweep** (`src/docket/services/minutes_adoption.py`): when a later meeting carries an agenda item whose title approves the minutes of an earlier date or date range, and that item has a passed vote, the earlier meeting's `minutes_adopted_at` is set. Adoption is the moment a meeting's minutes become official, and chapter 3 explains why it matters: a vote-to-item link made from unadopted minutes is provisional, and adoption promotes it. Dates are parsed from the item's title, never guessed (`0010`); when several rows share the adopted date, only those with minutes are flipped, and when none has minutes the sweep warns and skips.
 
+## The committee documents path
+
+The committees' agendas and minutes (chapter 1, section 5) do not pass through `ingest_municipality`. The worker task `committee_documents` calls `refresh_all` in `src/docket/services/committee_documents.py`, which runs four steps for the city, each of which can be run again without harm:
+
+1. **List.** Each of the eight committee pages is fetched and every PDF it links becomes a `committee_documents` row, once per address. A page that fails is skipped; the task fails only when every page did.
+2. **Read.** Up to 25 documents not yet read are fetched. The text is stored, with what the document's own first lines say it is (committee, date, agenda or minutes); minutes are read into `committee_items`, one row per thing the committee took up, with the action's own words, its category, and the mover and seconder when the minutes name them. A scanned image is kept as a link with no text; a document that fails to arrive is tried on three runs and then left.
+3. **Read again.** Stored text is re-read, with no fetch, when a reading rule has changed (`PARSER_VERSION`).
+4. **Attach.** Each document is given the committee meeting it records: the visible committee row of that date whose body is that committee. When minutes have no such row, one is created with external id `cdoc-<committee>-<date>`, classified from its title like any other row, because minutes prove the meeting was held; an agenda with no row waits, since a posted agenda does not prove a meeting. A document once attached is not moved (`0100`).
+
+This path writes no `agenda_items`, `votes`, or `member_votes` row and leaves `meetings.agenda_url` and `meetings.minutes_url` alone (`0095`), so nothing in chapters 3 to 5 sees a committee item: no AI summary, no search result, no dollar total. What a reader sees is on the meeting's page (chapter 6 describes that page; `docs/specs/committee-documents.md`, "What the meeting page shows", owns this part of it). The first fill of production is the operator's script `scripts/backfill_committee_documents.py`.
+
 ## What ingest does not store
 
-- **No PDFs.** Agenda and minutes PDFs are downloaded, parsed in memory, and discarded; the meeting row keeps the URLs. The minutes text is cached later, by the transcript pipeline, in `minutes_texts` (chapter 5).
+- **No PDFs.** Agenda and minutes PDFs are downloaded, parsed in memory, and discarded; the meeting row keeps the URLs. The minutes text is cached later, by the transcript pipeline, in `minutes_texts` (chapter 5). A committee document's extracted text is kept in `committee_documents`, with the PDF's address and hash; the PDF is not.
 - **No cancellations flag, no attendance table** of its own: attendance comes from the minutes parser (chapter 3).
 - **No merges on doubt.** Every place ingest could merge two records (event-to-clip upgrade, YouTube-to-clip pairing) inserts or creates a new row when the match is not certain.
 
@@ -56,6 +67,7 @@ Then the **minutes adoption sweep** (`src/docket/services/minutes_adoption.py`):
 | Exactly which URLs the adapter fetches and what each returns | `src/docket/adapters/granicus.py` |
 | The upsert, the gates, the upgrade-in-place, the timestamp backfill | `src/docket/services/ingest.py` |
 | The ladder, the label, the calendar, the YouTube pass, the hiding of clips that are not meetings | `docs/specs/meeting-types.md` |
+| The committee documents: listing, reading, attaching, creating a `cdoc-` row | `docs/specs/committee-documents.md`; `src/docket/services/committee_documents.py` |
 | The adoption sweep | `src/docket/services/minutes_adoption.py`, decisions `0007`, `0010` |
 | Task order and times | `src/docket/worker/scheduler.py`; `docs/runbooks/cron-worker.md` for operating it |
 

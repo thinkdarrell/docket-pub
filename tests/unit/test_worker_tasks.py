@@ -235,5 +235,6 @@ def test_tasks_registry_has_all_jobs():
         "process_batches", "refresh_backfill_ratio_mv", "prune_analytics",
         "recast_post_meeting_ai", "transcript_pipeline", "resolve_member_votes",
         "briefing_facts", "city_calendar", "youtube_ingest", "non_meetings",
+        "committee_documents",
     }
     assert set(tasks.TASKS.keys()) == expected

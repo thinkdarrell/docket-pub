@@ -63,6 +63,11 @@ TASK_UUID_ENV: dict[str, str] = {
     # ping() short-circuits until then.
     # Plan `committee-clips-named-or-hidden`, M4.
     "non_meetings": "HEALTHCHECK_NON_MEETINGS_UUID",
+    # Check docket-committee-documents; the operator creates it and sets the
+    # variable on the worker service after the first deploy of the task.
+    # ping() short-circuits until then.
+    # Plan `committee-documents`, M6.
+    "committee_documents": "HEALTHCHECK_COMMITTEE_DOCUMENTS_UUID",
 }
 
 # Tasks the runbook leaves without a check on purpose
