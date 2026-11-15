@@ -22,6 +22,11 @@ what either says; this module decides what is stored and owns every write.
   kind is the one to show.
 - ``for_meeting`` is the meeting page's one read: a meeting's documents and
   the items of its primary minutes.
+- ``refresh_city`` runs the four steps in order for one city, and
+  ``refresh_all`` for every city that names its pages: the worker's daily
+  task. ``backfill`` is the same run with a summary of what the tables then
+  hold, for the operator's script; with ``dry_run`` it happens inside one
+  transaction that is rolled back.
 
 Nothing here writes ``agenda_items``, ``votes``, ``meetings.agenda_url`` or
 ``meetings.minutes_url``: every reader of those treats a row as council
@@ -29,22 +34,67 @@ business. A committee's action is its minutes' own words and one of a closed
 list of categories, never a vote.
 
 Plan `committee-documents`, M3 (listing, reading, storing), M4 (attaching) and
-M5 (the meeting page's read).
+M5 (the meeting page's read) and M6 (the daily refresh and the backfill).
 """
 
 from __future__ import annotations
 
 import hashlib
 import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import date
+
+import psycopg2.extras
 
 from docket.adapters import committee_documents as source
 from docket.adapters._helpers import classify_title
 from docket.analysis.minutes_parser import extract_text_from_pdf
-from docket.db import db_cursor
+from docket.db import db
+from docket.db import db_cursor as _committing_cursor
 
 log = logging.getLogger(__name__)
+
+# The connection of a dry run in progress, or None. While it is set, every
+# function of this module works on it and commits nothing (``_rolled_back``).
+_dry_run_conn = None
+
+
+@contextmanager
+def db_cursor() -> Iterator[psycopg2.extras.RealDictCursor]:
+    """This module's cursor. Ordinarily ``docket.db.db_cursor``: its own
+    connection, committed on success and rolled back on an error. During a
+    dry run, a cursor on the dry run's one connection, between a savepoint
+    and its release, so that a block that raises is undone alone, as its own
+    transaction would have been, and what the blocks before it wrote stays
+    visible to the blocks after it."""
+    if _dry_run_conn is None:
+        with _committing_cursor() as cur:
+            yield cur
+        return
+    with _dry_run_conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("SAVEPOINT committee_documents_block")
+        try:
+            yield cur
+        except Exception:
+            cur.execute("ROLLBACK TO SAVEPOINT committee_documents_block")
+            raise
+        cur.execute("RELEASE SAVEPOINT committee_documents_block")
+
+
+@contextmanager
+def _rolled_back() -> Iterator[None]:
+    """Everything this module does inside the block happens in one
+    transaction, which is rolled back when the block ends, however it ends."""
+    global _dry_run_conn
+    with db() as conn:
+        _dry_run_conn = conn
+        try:
+            yield
+        finally:
+            _dry_run_conn = None
+            conn.rollback()
 
 # Raised when a reading rule changes; ``reparse`` then reads every stored
 # text below it again.
@@ -483,3 +533,230 @@ def for_meeting(meeting_id: int) -> MeetingCommitteeRecord | None:
         present=minutes["present"] if minutes else None,
         items=items,
     )
+
+
+# How many documents the daily task tries in one run: with the eight pages,
+# at most 33 requests, one a second.
+DAILY_READ_LIMIT = 25
+# The per-committee table of a backfill counts meetings from this day on.
+SUMMARY_FROM = date(2026, 1, 1)
+
+
+@dataclass
+class RefreshReport:
+    """What one ``refresh_city`` call did: the addresses new to the listing,
+    the documents read, the documents read again from stored text, and what
+    ``attach`` did."""
+
+    new_listings: int = 0
+    read: int = 0
+    reparsed: int = 0
+    attach: AttachReport = field(default_factory=AttachReport)
+
+
+def refresh_city(municipality_id: int, metadata: dict, today: date, read_limit: int | None) -> RefreshReport:
+    """List, read, read again and attach, in that order, for one city.
+
+    ``metadata`` is the city's ``municipalities.metadata``; its
+    ``committee_document_pages`` are the pages listed. The order is what lets
+    one call settle a document: it is listed, then read, then attached. When
+    every page fails, ``sync_listings`` raises and the call ends there: the
+    city's site is down or has changed, and the caller is to hear of it."""
+    report = RefreshReport()
+    report.new_listings = sync_listings(municipality_id, metadata.get("committee_document_pages") or [])
+    report.read = read_pending(municipality_id, limit=read_limit)
+    report.reparsed = reparse(municipality_id)
+    report.attach = attach(municipality_id, today)
+    return report
+
+
+def refresh_all(today: date) -> int:
+    """Refresh every active city whose metadata names its committee pages,
+    reading at most ``DAILY_READ_LIMIT`` documents each; returns how many
+    cities were refreshed.
+
+    A city that fails is logged and the next is still run; when any failed
+    the call raises after the last, so the worker's task reports a failure
+    and does not pass for a morning on which nothing was learned."""
+    with db_cursor() as cur:
+        cur.execute(
+            """SELECT id, slug, metadata
+                 FROM municipalities
+                WHERE active = TRUE AND metadata ? 'committee_document_pages'
+                ORDER BY slug"""
+        )
+        cities = cur.fetchall()
+
+    refreshed = 0
+    failed = []
+    for city in cities:
+        try:
+            report = refresh_city(city["id"], city["metadata"], today, DAILY_READ_LIMIT)
+        except Exception:
+            log.exception("committee documents: %s failed", city["slug"])
+            failed.append(city["slug"])
+            continue
+        log.info(
+            "committee documents: %s new_listings=%d read=%d reparsed=%d",
+            city["slug"], report.new_listings, report.read, report.reparsed,
+        )
+        refreshed += 1
+    if failed:
+        raise RuntimeError(f"committee documents: failed for {', '.join(failed)}")
+    return refreshed
+
+
+@dataclass
+class BackfillReport:
+    """What one ``backfill`` call did and what the city's tables then held
+    (in a dry run, held before the rollback).
+
+    ``created_meetings`` are the ``cdoc-`` meetings that were not there
+    before the call, by date. ``documents`` is ``(status, kind, count)``,
+    ``items_by_category`` ``(category, count)`` with the commonest first.
+    ``committees`` has one dict per canonical committee, counting the city's
+    visible committee meetings dated ``SUMMARY_FROM`` or later whose
+    ``body_name`` names that committee alone."""
+
+    dry_run: bool
+    tables_created: bool
+    refresh: RefreshReport
+    created_meetings: list[dict]
+    documents: list[tuple[str, str | None, int]]
+    date_sources: dict[str, int]
+    listing_disagrees: int
+    items_by_category: list[tuple[str, int]]
+    committees: list[dict]
+
+
+def backfill(
+    slug: str, today: date, *, limit: int | None = None, dry_run: bool = False, schema_sql: str | None = None
+) -> BackfillReport:
+    """Run ``refresh_city`` for one city, reading up to ``limit`` documents
+    (None: every one), and report what the tables then hold.
+
+    With ``dry_run`` the pages and the PDFs are fetched and read as usual,
+    inside one transaction that is rolled back, so the report says what a
+    real run would do and nothing is left. A dry run on a database that has
+    not the tables yet runs ``schema_sql`` (migration 045's ``SQL_UP``, which
+    the script hands in) inside that same transaction; while it lasts, the
+    new tables' references make writes to ``meetings`` and ``municipalities``
+    wait. Raises ``ValueError`` for a city that is unknown or names no pages,
+    and for a real run without the tables."""
+    with _rolled_back() if dry_run else _nothing():
+        tables_created = False
+        with db_cursor() as cur:
+            cur.execute("SELECT to_regclass('committee_documents') IS NULL AS absent")
+            if cur.fetchone()["absent"]:
+                if not (dry_run and schema_sql):
+                    raise ValueError("the committee_documents table does not exist: run the migrations first")
+                cur.execute(schema_sql)
+                tables_created = True
+            cur.execute("SELECT id, metadata FROM municipalities WHERE slug = %s", (slug,))
+            city = cur.fetchone()
+            if city is None:
+                raise ValueError(f"no city with the slug {slug!r}")
+            if not city["metadata"].get("committee_document_pages"):
+                raise ValueError(f"{slug} has no committee_document_pages in its metadata")
+            before = _created_meetings(cur, city["id"])
+        refresh = refresh_city(city["id"], city["metadata"], today, limit)
+        with db_cursor() as cur:
+            held = {m["id"] for m in before}
+            created = [m for m in _created_meetings(cur, city["id"]) if m["id"] not in held]
+            cur.execute(
+                """SELECT status, kind, count(*) AS n
+                     FROM committee_documents
+                    WHERE municipality_id = %s
+                    GROUP BY status, kind
+                    ORDER BY status, kind NULLS LAST""",
+                (city["id"],),
+            )
+            documents = [(r["status"], r["kind"], r["n"]) for r in cur.fetchall()]
+            cur.execute(
+                """SELECT count(*) FILTER (WHERE date_source = 'header') AS header,
+                          count(*) FILTER (WHERE date_source = 'heading') AS heading,
+                          count(*) FILTER (WHERE date_source IS NULL) AS none,
+                          count(*) FILTER (WHERE listing_disagrees) AS disagrees
+                     FROM committee_documents
+                    WHERE municipality_id = %s AND status IN ('read', 'no_text')""",
+                (city["id"],),
+            )
+            row = cur.fetchone()
+            date_sources = {"header": row["header"], "heading": row["heading"], "none": row["none"]}
+            cur.execute(
+                """SELECT i.action_category, count(*) AS n
+                     FROM committee_items i
+                     JOIN committee_documents d ON d.id = i.document_id
+                    WHERE d.municipality_id = %s
+                    GROUP BY i.action_category
+                    ORDER BY n DESC, i.action_category""",
+                (city["id"],),
+            )
+            items_by_category = [(r["action_category"], r["n"]) for r in cur.fetchall()]
+            committees = _committee_counts(cur, city["id"])
+    return BackfillReport(
+        dry_run=dry_run,
+        tables_created=tables_created,
+        refresh=refresh,
+        created_meetings=created,
+        documents=documents,
+        date_sources=date_sources,
+        listing_disagrees=row["disagrees"],
+        items_by_category=items_by_category,
+        committees=committees,
+    )
+
+
+@contextmanager
+def _nothing() -> Iterator[None]:
+    yield
+
+
+def _created_meetings(cur, municipality_id: int) -> list[dict]:
+    """The city's meetings made from minutes, by date."""
+    cur.execute(
+        """SELECT id, external_id, title, meeting_date
+             FROM meetings
+            WHERE municipality_id = %s AND external_id LIKE 'cdoc-%%'
+            ORDER BY meeting_date, external_id""",
+        (municipality_id,),
+    )
+    return [dict(r) for r in cur.fetchall()]
+
+
+def _committee_counts(cur, municipality_id: int) -> list[dict]:
+    """Per canonical committee, of its visible meetings since ``SUMMARY_FROM``:
+    how many there are, how many have an agenda, minutes, and items, how many
+    have a document and no recording, and how many a recording and no
+    document."""
+    cur.execute(
+        """SELECT m.body_name,
+                  m.video_url IS NOT NULL AS has_video,
+                  EXISTS (SELECT 1 FROM committee_documents d
+                           WHERE d.meeting_id = m.id AND d.kind = 'agenda') AS has_agenda,
+                  EXISTS (SELECT 1 FROM committee_documents d
+                           WHERE d.meeting_id = m.id AND d.kind = 'minutes') AS has_minutes,
+                  EXISTS (SELECT 1 FROM committee_items i JOIN committee_documents d ON d.id = i.document_id
+                           WHERE d.meeting_id = m.id) AS has_items,
+                  EXISTS (SELECT 1 FROM committee_documents d WHERE d.meeting_id = m.id) AS has_document
+             FROM meetings m
+            WHERE m.municipality_id = %s AND m.meeting_type = 'committee' AND m.is_hidden = FALSE
+              AND m.meeting_date >= %s""",
+        (municipality_id, SUMMARY_FROM),
+    )
+    counts = {
+        name: {"committee": name, "meetings": 0, "with_agenda": 0, "with_minutes": 0, "with_items": 0,
+               "document_no_video": 0, "video_no_document": 0}
+        for name in source.COMMITTEES
+    }
+    for m in cur.fetchall():
+        row = counts.get(committee_of(m["body_name"]))
+        if row is None:
+            continue
+        row["meetings"] += 1
+        row["with_agenda"] += m["has_agenda"]
+        row["with_minutes"] += m["has_minutes"]
+        row["with_items"] += m["has_items"]
+        row["document_no_video"] += m["has_document"] and not m["has_video"]
+        row["video_no_document"] += m["has_video"] and not m["has_document"]
+    return list(counts.values())

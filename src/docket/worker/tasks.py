@@ -25,7 +25,13 @@ from docket.adapters.youtube import QuotaExceeded, YouTubeClient
 from docket.ai.worker import BudgetExceededError, run_once
 from docket.analysis.vote_matcher import match_all_unmatched
 from docket.db import db, db_cursor
-from docket.services import briefing, city_calendar, non_meetings, youtube_meetings
+from docket.services import (
+    briefing,
+    city_calendar,
+    committee_documents,
+    non_meetings,
+    youtube_meetings,
+)
 from docket.services.ingest import ingest_municipality
 from docket.services.maintenance import repair_empty_agendas
 from docket.services.member_votes import resolve_unresolved_member_votes
@@ -528,6 +534,30 @@ def task_non_meetings() -> None:
     _safe_run("non_meetings", _do_non_meetings)
 
 
+def _do_committee_documents() -> None:
+    """Keep the council committees' agendas and minutes current.
+
+    For every active city whose metadata names ``committee_document_pages``
+    (Birmingham only at first): list what each committee page links, fetch
+    and read up to 25 documents not yet read, read stored text again where a
+    rule has changed, and attach each document to its committee meeting,
+    creating the meeting when minutes prove one that has no row
+    (``committee_documents.refresh_all``). At most 33 requests, one second
+    apart. Runs at 07:15, after ``youtube_ingest`` (06:45) has created or
+    matched the day's recordings, so a new document finds its meeting. A
+    city's failure is logged and does not block the others, and then fails
+    the task.
+    Plan `committee-documents`, M6.
+    """
+    today = datetime.now(ZoneInfo(config.WORKER_TIMEZONE)).date()
+    n = committee_documents.refresh_all(today)
+    log.info("committee_documents: refreshed %d cities", n)
+
+
+def task_committee_documents() -> None:
+    _safe_run("committee_documents", _do_committee_documents)
+
+
 # --- registry — used by scheduler.py and the --run-once flag -----------------
 
 TASKS: dict[str, Callable[[], None]] = {
@@ -549,4 +579,5 @@ TASKS: dict[str, Callable[[], None]] = {
     "city_calendar": task_city_calendar,
     "youtube_ingest": task_youtube_ingest,
     "non_meetings": task_non_meetings,
+    "committee_documents": task_committee_documents,
 }

@@ -5,7 +5,7 @@ Two modes:
   python -m docket.worker.scheduler                   # daemon mode (Railway worker)
   python -m docket.worker.scheduler --run-once <task> # foreground one-shot
 
-The daemon registers all eighteen jobs with the timezone in $WORKER_TIMEZONE
+The daemon registers all nineteen jobs with the timezone in $WORKER_TIMEZONE
 (default America/Chicago, read through docket.config) and calls
 scheduler.start(), which blocks.
 
@@ -31,7 +31,7 @@ log = logging.getLogger(__name__)
 
 
 def build_scheduler(timezone: str = "America/Chicago") -> BlockingScheduler:
-    """Build a scheduler with all eighteen jobs registered. Does not start it."""
+    """Build a scheduler with all nineteen jobs registered. Does not start it."""
     sched = BlockingScheduler(timezone=timezone)
 
     sched.add_job(
@@ -92,6 +92,17 @@ def build_scheduler(timezone: str = "America/Chicago") -> BlockingScheduler:
         TASKS["ai_items"],
         CronTrigger(hour=7, minute=0, timezone=timezone),
         id="ai_items",
+        coalesce=True,
+        max_instances=1,
+    )
+    # Read the council committees' agendas and minutes after youtube_ingest
+    # (06:45) has created or matched the day's recordings, so a new document
+    # finds its meeting. At most 33 requests a day, one second apart.
+    # Plan `committee-documents`, M6.
+    sched.add_job(
+        TASKS["committee_documents"],
+        CronTrigger(hour=7, minute=15, timezone=timezone),
+        id="committee_documents",
         coalesce=True,
         max_instances=1,
     )

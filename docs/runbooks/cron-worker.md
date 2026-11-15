@@ -1,7 +1,7 @@
 # Cron Worker Runbook
 
 The Railway `worker` service runs `python -m docket.worker.scheduler` and fires
-**eighteen scheduled tasks** (see the design spec at
+**nineteen scheduled tasks** (see the design spec at
 `docs/superpowers/specs/2026-05-04-cron-worker-design.md`; the schedule itself
 is `src/docket/worker/scheduler.py`).
 
@@ -21,6 +21,7 @@ is `src/docket/worker/scheduler.py`).
 | `youtube_ingest` | Daily 06:45 | `HEALTHCHECK_YOUTUBE_INGEST_UUID` (optional) | Reads the council's YouTube uploads of the last 30 days; attaches recordings to Granicus rows or creates yt- rows after 3 days; Birmingham only at first |
 | `non_meetings` | Daily 06:55 | `HEALTHCHECK_NON_MEETINGS_UUID` | Hides a short or speechless generic-titled clip on a day with no stored calendar event (`hidden_reason = 'not_a_meeting'`); hides nothing unless the sitemap reader of `city_calendar` finished a read with no failed page in the last 36 hours; logs the ids hidden and held back per city; after `youtube_ingest` so a recording that names a clip is attached first; Birmingham only (`docs/specs/meeting-types.md`, "Clips that are not meetings") |
 | `ai_items` | Daily 07:00 | `HEALTHCHECK_AI_ITEMS_UUID` | v3 pipeline; gated by `AI_DAILY_BUDGET_USD` |
+| `committee_documents` | Daily 07:15 | `HEALTHCHECK_COMMITTEE_DOCUMENTS_UUID` | Lists the PDFs each council committee page links (`metadata.committee_document_pages`; Birmingham only at first), fetches and reads up to 25 not yet read (at most 33 requests, one second apart), reads stored text again where a rule changed, and attaches each document to its committee meeting, creating a `cdoc-` meeting when minutes prove one that has no row; after `youtube_ingest` so a new document finds the day's recording; a page that fails is skipped, and the task fails only when every page of a city did. The one-time fill is `scripts/backfill_committee_documents.py` |
 | `ai_meetings` | Daily 08:00 | `HEALTHCHECK_AI_MEETINGS_UUID` | Sonnet 4.6; two-phase (provisional → adopted) |
 | `resolve_member_votes` | Daily 08:45 | `HEALTHCHECK_RESOLVE_MEMBER_VOTES_UUID` | Gives every `member_votes` row with no `council_member_id` its member from the roster; the rule is `docs/specs/votes.md` |
 | `vote_matching` | Daily 09:00 | `HEALTHCHECK_VOTE_MATCH_UUID` | N:M matcher + strict re-parse |
@@ -52,6 +53,7 @@ railway variables --service worker --set HEALTHCHECK_BRIEFING_FACTS_UUID=<uuid>
 railway variables --service worker --set HEALTHCHECK_RESOLVE_MEMBER_VOTES_UUID=<uuid>
 railway variables --service worker --set HEALTHCHECK_CITY_CALENDAR_UUID=<uuid>
 railway variables --service worker --set HEALTHCHECK_NON_MEETINGS_UUID=<uuid>
+railway variables --service worker --set HEALTHCHECK_COMMITTEE_DOCUMENTS_UUID=<uuid>
 # silent-by-design (do not set unless you want active alerting):
 # railway variables --service worker --set HEALTHCHECK_CALIBRATION_UUID=<uuid>
 # railway variables --service worker --set HEALTHCHECK_PRUNE_ANALYTICS_UUID=<uuid>
@@ -67,6 +69,7 @@ Suggested schedule + grace per check:
 | docket-youtube-ingest            | Daily 06:45        | 2h    |
 | docket-non-meetings              | Daily 06:55        | 2h    |
 | docket-ai-items                  | Daily 07:00        | 2h    |
+| docket-committee-documents       | Daily 07:15        | 2h    |
 | docket-ai-meetings               | Daily 08:00        | 2h    |
 | docket-resolve-member-votes      | Daily 08:45        | 2h    |
 | docket-vote-matching             | Daily 09:00        | 2h    |
@@ -111,6 +114,7 @@ python -m docket.worker.scheduler --run-once video_ocr
 python -m docket.worker.scheduler --run-once youtube_ingest
 python -m docket.worker.scheduler --run-once non_meetings
 python -m docket.worker.scheduler --run-once ai_items
+python -m docket.worker.scheduler --run-once committee_documents
 python -m docket.worker.scheduler --run-once ai_meetings
 python -m docket.worker.scheduler --run-once resolve_member_votes
 python -m docket.worker.scheduler --run-once vote_matching
