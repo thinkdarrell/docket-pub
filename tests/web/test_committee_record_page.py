@@ -76,7 +76,7 @@ def _meeting(*, meeting_type: str = "committee", title: str = "Budget and Financ
         return cur.fetchone()["id"]
 
 
-def _doc(meeting_id: int | None, kind: str = "minutes", *, status: str = "read", disagrees: bool = False,
+def _doc(meeting_id: int | None, kind: str | None = "minutes", *, status: str = "read", disagrees: bool = False,
          present: str | None = None) -> tuple[int, str]:
     """One document as a reading and ``attach`` leave it; its id and address."""
     url = f"{BUCKET}{kind}-{next(_serial)}.pdf"
@@ -164,6 +164,8 @@ def test_for_meeting_gives_the_documents_primaries_first_and_the_primary_minutes
     stray_id, stray_url = _doc(meeting_id, "minutes", disagrees=True, present="Nobody")
     minutes_id, minutes_url = _doc(meeting_id, "minutes", present="Alexander, Tate")
     _, agenda_url = _doc(meeting_id, "agenda", status="no_text")
+    _, third_url = _doc(meeting_id, "minutes")
+    _doc(meeting_id, None, status="not_committee")  # a later reading found no kind: nothing to call it
     _item(stray_id, 1, "From the other copy", "other", "Not shown.")
     _item(minutes_id, 2, "Second", "recommended", "Item Recommended to the City Council Agenda.")
     _item(minutes_id, 1, "First", "minutes_approved", "Minutes were Approved.")
@@ -178,12 +180,13 @@ def test_for_meeting_gives_the_documents_primaries_first_and_the_primary_minutes
         ("agenda", agenda_url, True, False),
         ("minutes", minutes_url, True, True),
         ("minutes", stray_url, False, True),
+        ("minutes", third_url, False, True),
     ]
     assert record.present == "Alexander, Tate"
     assert [i["name"] for i in record.items] == ["First", "Second", "Third"]
     assert [i["name"] for i in record.substantive] == ["Second"]
     assert [i["name"] for i in record.procedural] == ["First", "Third"]
-    assert record.has_minutes and record.has_agenda
+    assert record.has_minutes
     assert record.minutes_url == minutes_url
 
 
@@ -198,7 +201,7 @@ def test_for_meeting_with_an_agenda_alone_has_no_minutes_no_items_and_nobody_pre
     assert [(d.kind, d.url, d.is_primary, d.has_text) for d in record.documents] == [
         ("agenda", agenda_url, True, True)
     ]
-    assert record.has_agenda and not record.has_minutes
+    assert not record.has_minutes
     assert record.present is None and record.items == () and record.minutes_url is None
 
 
@@ -355,6 +358,26 @@ def test_a_second_document_of_a_kind_is_another_copy_and_a_scanned_one_is_not_re
     assert "not yet posted" not in record
 
 
+def test_minutes_that_were_read_and_hold_no_item_are_still_minutes(client):
+    meeting_id = _meeting()
+    _doc(meeting_id, "agenda")
+    _doc(meeting_id, "minutes", present="Tate")
+    record = _record(_page(client, meeting_id))
+    assert "Councilors present: Tate" in _words(record)
+    assert "not yet posted" not in record
+    assert "What the committee took up" not in record and "<ol" not in record
+
+
+def test_procedural_items_show_their_group_once_too(client):
+    meeting_id = _meeting()
+    minutes_id, _ = _doc(meeting_id, "minutes")
+    _item(minutes_id, 1, "Minutes of May", "minutes_approved", "Minutes were Approved.", group="I. OPENING")
+    _item(minutes_id, 2, "Minutes of June", "minutes_approved", "Minutes were Approved.", group="I. OPENING")
+    record = _record(_page(client, meeting_id))
+    assert record.count("I. OPENING") == 1
+    assert record.index("I. OPENING") < record.index("Minutes of May") < record.index("Minutes of June")
+
+
 def test_scanned_minutes_alone_say_only_that_they_were_not_read(client):
     meeting_id = _meeting()
     _doc(meeting_id, "minutes", status="no_text")
@@ -408,6 +431,8 @@ def test_an_item_shows_only_what_the_minutes_gave_it(client):
     assert "The minutes record" not in second and "<blockquote" not in second
     assert "committee-item__outcome" not in second
     assert "Delayed" in third and "Information only; no action" in fourth
+    # No procedural item, no "Procedural".
+    assert "Procedural" not in record and record.count("<ol") == 1
     assert f'<blockquote cite="{minutes_url}">' in fourth
 
 

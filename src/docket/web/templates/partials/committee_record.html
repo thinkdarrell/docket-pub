@@ -48,6 +48,17 @@
       {%- endif %}
     </li>
 {%- endmacro %}
+{#- One list of items; a group is printed once, before the first item of
+    the list that has it. #}
+{%- macro _list(items) %}
+  <ol class="committee-record__items">
+    {%- set _last = namespace(group=none) %}
+    {%- for item in items %}
+    {{- _item(item, item.group_text and item.group_text != _last.group) }}
+    {%- set _last.group = item.group_text %}
+    {%- endfor %}
+  </ol>
+{%- endmacro %}
 <section class="committee-record" aria-labelledby="committee-record-heading">
   <h2 class="t-display committee-record__heading" id="committee-record-heading">From the committee's own documents</h2>
   <ul class="committee-record__documents">
@@ -66,26 +77,16 @@
   {%- if committee_record.items %}
   <h3 class="t-display committee-record__subheading">What the committee took up</h3>
   {%- if committee_record.substantive %}
-  <ol class="committee-record__items">
-    {%- set _last = namespace(group=none) %}
-    {%- for item in committee_record.substantive %}
-    {{- _item(item, item.group_text and item.group_text != _last.group) }}
-    {%- set _last.group = item.group_text %}
-    {%- endfor %}
-  </ol>
+  {{- _list(committee_record.substantive) }}
   {%- endif %}
   {%- if committee_record.procedural %}
   <details class="committee-record__procedural">
     <summary>Procedural</summary>
-    <ol class="committee-record__items">
-      {%- for item in committee_record.procedural %}
-      {{- _item(item, false) }}
-      {%- endfor %}
-    </ol>
+    {{- _list(committee_record.procedural) }}
   </details>
   {%- endif %}
   {%- endif %}
-  {%- elif committee_record.has_agenda %}
+  {%- else %}
   <p class="committee-record__pending">The committee's minutes for this meeting are not yet posted. The agenda shows what was planned; it does not show what the committee did.</p>
   {%- endif %}
   <p class="t-meta committee-record__note">A committee recommends; it does not decide. No committee action is final without a vote of the full council.</p>

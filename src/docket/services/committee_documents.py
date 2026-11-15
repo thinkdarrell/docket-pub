@@ -430,10 +430,6 @@ class MeetingCommitteeRecord:
     items: tuple[dict, ...]
 
     @property
-    def has_agenda(self) -> bool:
-        return any(d.kind == "agenda" for d in self.documents)
-
-    @property
     def has_minutes(self) -> bool:
         return any(d.kind == "minutes" for d in self.documents)
 
