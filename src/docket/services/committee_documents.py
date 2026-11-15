@@ -20,13 +20,16 @@ what either says; this module decides what is stored and owns every write.
   minutes that have none, a new row, because minutes prove a meeting was
   held. ``primary_documents`` says which of a meeting's documents of each
   kind is the one to show.
+- ``for_meeting`` is the meeting page's one read: a meeting's documents and
+  the items of its primary minutes.
 
 Nothing here writes ``agenda_items``, ``votes``, ``meetings.agenda_url`` or
 ``meetings.minutes_url``: every reader of those treats a row as council
 business. A committee's action is its minutes' own words and one of a closed
 list of categories, never a vote.
 
-Plan `committee-documents`, M3 (listing, reading, storing) and M4 (attaching).
+Plan `committee-documents`, M3 (listing, reading, storing), M4 (attaching) and
+M5 (the meeting page's read).
 """
 
 from __future__ import annotations
@@ -397,3 +400,90 @@ def primary_documents(meeting_id: int) -> dict:
             (meeting_id,),
         )
         return {r["kind"]: dict(r) for r in cur.fetchall()}
+
+
+# The categories of an action that is the meeting's own housekeeping and not
+# something the committee took up; the page lists these last.
+PROCEDURAL_CATEGORIES = frozenset({"minutes_approved", "adjourned"})
+
+
+@dataclass(frozen=True)
+class CommitteeDocumentLink:
+    """One of a meeting's documents, as the page links it."""
+
+    kind: str  # 'agenda' | 'minutes'
+    url: str
+    is_primary: bool
+    has_text: bool  # False for a scanned image, which was linked and not read
+
+
+@dataclass(frozen=True)
+class MeetingCommitteeRecord:
+    """What a committee's own documents say of one meeting: the documents,
+    primaries first, and from the primary minutes who was present and the
+    items in the minutes' order. ``minutes_url`` is the primary minutes'
+    address, the source of ``present`` and of every item."""
+
+    documents: tuple[CommitteeDocumentLink, ...]
+    minutes_url: str | None
+    present: str | None
+    items: tuple[dict, ...]
+
+    @property
+    def has_agenda(self) -> bool:
+        return any(d.kind == "agenda" for d in self.documents)
+
+    @property
+    def has_minutes(self) -> bool:
+        return any(d.kind == "minutes" for d in self.documents)
+
+    @property
+    def substantive(self) -> tuple[dict, ...]:
+        return tuple(i for i in self.items if i["action_category"] not in PROCEDURAL_CATEGORIES)
+
+    @property
+    def procedural(self) -> tuple[dict, ...]:
+        return tuple(i for i in self.items if i["action_category"] in PROCEDURAL_CATEGORIES)
+
+
+def for_meeting(meeting_id: int) -> MeetingCommitteeRecord | None:
+    """What the meeting page shows of a meeting's committee documents, or
+    None when the meeting has none attached. Which document of a kind is
+    primary is ``primary_documents``'s to say; the items are the primary
+    minutes' alone, so two copies of the minutes never list an item twice."""
+    primary = primary_documents(meeting_id)
+    if not primary:
+        return None
+    primary_ids = {d["id"] for d in primary.values()}
+    minutes = primary.get("minutes")
+    with db_cursor() as cur:
+        cur.execute(
+            """SELECT id, kind, url, status
+                 FROM committee_documents
+                WHERE meeting_id = %s AND kind IS NOT NULL
+                ORDER BY kind, id""",
+            (meeting_id,),
+        )
+        rows = cur.fetchall()
+        items: tuple[dict, ...] = ()
+        if minutes:
+            cur.execute(
+                """SELECT position, group_text, name, body, action_text, action_category, moved_by, seconded_by
+                     FROM committee_items
+                    WHERE document_id = %s
+                    ORDER BY position""",
+                (minutes["id"],),
+            )
+            items = tuple(dict(r) for r in cur.fetchall())
+    documents = tuple(
+        CommitteeDocumentLink(
+            kind=r["kind"], url=r["url"], is_primary=r["id"] in primary_ids, has_text=r["status"] != "no_text"
+        )
+        for r in sorted(rows, key=lambda r: r["id"] not in primary_ids)
+    )
+    return MeetingCommitteeRecord(
+        documents=documents,
+        minutes_url=minutes["url"] if minutes else None,
+        present=minutes["present"] if minutes else None,
+        items=items,
+    )

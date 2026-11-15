@@ -266,8 +266,12 @@ def meeting_detail(slug, meeting_id):
 
     recordings = query.videos_for_meeting(meeting_id)
 
+    from docket.services import committee_documents as cdsvc
+    committee_record = cdsvc.for_meeting(meeting_id)
+
     return render_template(
         "meeting_detail.html",
+        committee_record=committee_record,
         calendar_event=calendar_event,
         named_by_elimination=named_by_elimination,
         recordings=recordings,

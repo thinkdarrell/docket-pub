@@ -61,11 +61,22 @@
         </div>
     </div>
 
+    {#- A committee meeting whose minutes were read, and that has no agenda
+        items of the council's kind: the first figure counts what its minutes
+        say it took up, and the votes figure says why there are none
+        (plan `committee-documents`, M5). Any other meeting: as before. #}
+    {%- set _minutes_strip = committee_record and committee_record.items and not agenda_items %}
     <div class="kpi-strip">
+        {% if _minutes_strip %}
+        {% with label='Items in the minutes', value='{:,}'.format(committee_record.substantive | length), sub=none %}
+            {% include 'partials/num_stat.html' with context %}
+        {% endwith %}
+        {% else %}
         {% with label='Agenda items', value='{:,}'.format(agenda_items | length), sub=(consent_items | length ~ ' consent · ' ~ regular_items | length ~ ' regular') %}
             {% include 'partials/num_stat.html' with context %}
         {% endwith %}
-        {% with label='Votes', value='{:,}'.format(votes | length), sub=(votes[0].source | replace('_', ' ') if votes else 'none recorded') %}
+        {% endif %}
+        {% with label='Votes', value='{:,}'.format(votes | length), sub=(votes[0].source | replace('_', ' ') if votes else ('committees record motions, not roll calls' if _minutes_strip else 'none recorded')) %}
             {% include 'partials/num_stat.html' with context %}
         {% endwith %}
         {% with label='Total dollars', value=total_dollars_formatted, sub=(dollar_count ~ ' item' ~ ('s' if dollar_count != 1 else '') ~ ' with amounts'), accent=true %}
@@ -73,6 +84,7 @@
         {% endwith %}
     </div>
 </section>
+{% if committee_record is not none %}{% include 'partials/committee_record.html' %}{% endif %}
 
 {# ── Provenance: the clip name the city's archive carries, and which rung
       named the body (plans/completed/meeting-types-name-the-body.md, M5; the
