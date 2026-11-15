@@ -89,6 +89,9 @@ def test_unrelated_audio_is_rejected_on_score():
     assert (m.status, m.reason) == ("rejected", "score")
     assert m.score < align.PASS_SCORE
     assert m.stretches == ()
+    # A rejected measurement counts the whole recording's windows under its
+    # best offset, not the one window that happened to agree.
+    assert (m.windows_confirmed, m.windows) == (1, 3)
 
 
 def test_recording_that_starts_before_the_clip_counts_only_windows_inside_it():
@@ -147,6 +150,43 @@ def test_cut_recording_yields_one_stretch_per_offset():
     assert align.describe(m).count("\n") == 1
     assert align.describe(m) == "\n".join(
         [align.describe_stretch(m, 1), align.describe_stretch(m, 2)])
+    # A stretch's score is the whole-recording correlation at its own offset.
+    assert second.score < first.score
+
+    # The same recording with 200 s of other audio after it: each offset has
+    # its own end window, so the second stretch still reaches the clip's end
+    # (under the first offset's end window it would stop at 1990.0 on one window).
+    longer = np.concatenate([youtube, _signal(4, 200)])
+    m = align.measure(g, align.features(longer))
+    assert len(m.stretches) == 2
+    _assert_stretch(m.stretches[0], offset=300.0, start=300.0, end=1500.0, windows=(4, 4))
+    _assert_stretch(m.stretches[1], offset=490.0, start=1690.0, end=2000.0, windows=(2, 2))
+
+    # A second part of 155 s is found by its one window and fails the pass
+    # mark on its own score: it is left out, and coverage stops at the cut.
+    short = np.concatenate([_cut(g_samples, 300, 1500), _cut(g_samples, 1750, 1905)])
+    m = align.measure(g, align.features(short))
+    assert (m.status, m.reason) == ("passed", None)
+    assert len(m.stretches) == 1
+    _assert_stretch(m.stretches[0], offset=300.0, start=300.0, end=1500.0, windows=(4, 4))
+
+    # A recording that jumps back 300 s: the later part has the smaller
+    # offset, and the stretches are in order of where their coverage starts.
+    back = np.concatenate([_cut(g_samples, 400, 1000), _cut(g_samples, 700, 1305)])
+    m = align.measure(g, align.features(back))
+    assert len(m.stretches) == 2
+    _assert_stretch(m.stretches[0], offset=400.0, start=400.0, end=1000.0, windows=(2, 2))
+    _assert_stretch(m.stretches[1], offset=100.0, start=700.0, end=1305.0, windows=(3, 3))
+
+    # Five windows at five offsets: only MAX_OFFSETS are tried, the fifth is
+    # then the runner-up of the other four, and no stretch has the margin.
+    assert align.MAX_OFFSETS == 4
+    five = np.concatenate([_cut(g_samples, 100, 400), _cut(g_samples, 500, 800),
+                           _cut(g_samples, 900, 1200), _cut(g_samples, 1300, 1600),
+                           _cut(g_samples, 1690, 1995)])
+    m = align.measure(g, align.features(five))
+    assert (m.status, m.reason) == ("rejected", "margin")
+    assert m.stretches == ()
 
 
 def test_recording_that_runs_past_the_clip_is_covered_to_the_clips_end():
@@ -229,6 +269,23 @@ def test_a_quiet_window_inside_a_stretch_stays_inside_it():
     assert len(m.stretches) == 1
     _assert_stretch(m.stretches[0], offset=400.0, start=400.0, end=1905.0, windows=(5, 6))
     assert (m.windows_confirmed, m.windows) == (5, 6)
+
+    # A quiet window at the start of the recording is outside the stretch: a
+    # stretch runs from its first agreeing window to its last.
+    late = np.concatenate([_signal(11, 300), _cut(g_samples, 700, 1905)])
+    m = align.measure(g, align.features(late))
+    assert len(m.stretches) == 1
+    _assert_stretch(m.stretches[0], offset=400.0, start=700.0, end=1905.0, windows=(5, 5))
+
+    # Three quiet windows between three that agree: the stretch's share of
+    # agreeing windows is under PASS_WINDOW_SHARE and nothing is covered.
+    sparse = np.concatenate([_cut(g_samples, 400, 700), _signal(11, 900),
+                             _cut(g_samples, 1600, 1905)])
+    m = align.measure(g, align.features(sparse))
+    assert (m.status, m.reason) == ("rejected", "windows")
+    assert m.stretches == ()
+    assert (m.windows_confirmed, m.windows) == (3, 6)
+    assert (m.granicus_start_s, m.granicus_end_s) == (None, None)
 
 
 # ---------------------------------------------------------------------------
