@@ -128,6 +128,18 @@ def test_read_date_spellings():
     assert read_date("WEDNESDAY, SEPTEBMBER 8, 2026 | 3:00 PM") == (2026, 9, 8)
     assert read_date("MONDAY, OCTOBER 12, 2026 | 3:30 PM") == (2026, 10, 12)
     assert read_date("Tuesday, June 2") == (None, 6, 2)
+    # A word that is not a month is passed over, and the search goes on.
+    assert read_date("ROOM 21, MARCH 3, 2026") == (2026, 3, 3)
+    # An ordinal day does not hide the year.
+    assert read_date("Tuesday, November 18th, 2025") == (2025, 11, 18)
+    # Four digits that are not a year of 19xx or 20xx are not a year.
+    assert read_date("JUNE 2 1130 AM") == (None, 6, 2)
+    # A month and a year are not a month and a day.
+    assert read_date("MAY 2026") is None
+    assert read_date("MAY 45") is None
+    # The month is a word's beginning, not letters inside a longer word (a
+    # word of thirteen letters whose last twelve begin "MAR").
+    assert read_date("XMARCHINGBAND 5, 2026") is None
 
 
 # --- committees ------------------------------------------------------------
@@ -273,6 +285,8 @@ def test_no_text_kind_comes_from_the_listed_name():
     assert minutes.kind == "minutes"
     neither = resolve(_listing("MAY 5, 2026", "PUBLIC SAFETY COMMITTEE MEETING.pdf"), "Public Safety", None)
     assert neither.kind is None
+    lower = resolve(_listing("MAY 5, 2026", "Public Safety Committee Meeting Minutes.pdf"), "Public Safety", None)
+    assert lower.kind == "minutes"
     unnamed = resolve(_listing("MAY 5, 2026", None), "Public Safety", None)
     assert unnamed.kind is None
     # A heading with no year, or none at all, dates nothing.
@@ -325,6 +339,19 @@ def test_header_stops_at_the_first_heading_line_and_at_twenty_lines():
     assert header.is_minutes is False
     assert header.date is None
 
+    # A date is read within one line, never across two.
+    across = read_header("ARTS AND PARKS COMMITTEE MEETING IN MAY\n3 COUNCILORS PRESENT\nJUNE 9, 2026")
+    assert across.date == (2026, 6, 9)
+
+    # MINUTES is a line of its own, in any case; the word inside a line is not.
+    assert read_header("PUBLIC SAFETY COMMITTEE\nAPPROVAL OF MINUTES TO FOLLOW").is_minutes is False
+    assert read_header("PUBLIC SAFETY COMMITTEE\nMinutes").is_minutes is True
+
+    # No line at all, or a heading line first, is no header.
+    assert read_header("") is None
+    assert read_header("\n   \n") is None
+    assert read_header("1) Call to Order\nPUBLIC SAFETY COMMITTEE") is None
+
     # The first line that gives a date is the header's date.
     two = read_header("PUBLIC SAFETY COMMITTEE\nTuesday, June 2\nJUNE 9, 2026\nMinutes of the meeting\nMINUTES")
     assert two.date == (None, 6, 2)
@@ -370,6 +397,21 @@ def test_resolve_falls_back_to_the_listing_fact_by_fact():
     facts = resolve(_listing("SOMETIME"), "Public Safety", header(("Public Safety",), (2026, 5, 5)))
     assert facts.meeting_date == date(2026, 5, 5)
     assert facts.listing_disagrees is False
+
+    # A heading with no year cannot disagree about the date.
+    facts = resolve(_listing("MAY 12"), "Public Safety", header(("Public Safety",), (2026, 5, 5)))
+    assert facts.meeting_date == date(2026, 5, 5)
+    assert facts.listing_disagrees is False
+
+    # The right date on another committee's page is a disagreement.
+    facts = resolve(_listing("MAY 5, 2026"), "Budget and Finance", header(("Public Safety",), (2026, 5, 5)))
+    assert facts.committees == ("Public Safety",)
+    assert facts.listing_disagrees is True
+
+    # A header date with no year under a heading with no year: no date.
+    facts = resolve(_listing("JUNE 2"), "Public Safety", header(("Public Safety",), (None, 6, 2)))
+    assert facts.meeting_date is None
+    assert facts.date_source is None
 
     # A joint meeting listed on one of its committees' pages does not disagree.
     facts = resolve(_listing("MAY 5, 2026"), COW, header(("Public Safety", COW), (2026, 5, 5)))
