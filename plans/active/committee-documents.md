@@ -28,6 +28,12 @@ This is the second of four phases of the design in `docs/superpowers/specs/2026-
 
 As authored on 2026-11-13, nothing has been executed and there are no discoveries from execution. What the authoring research found, which differs from what the design assumed, is in Context and Orientation under "What the documents are really like".
 
+- Observation (M1, 2026-11-15): the starting state is green, and `./tools/verify` runs past its 180 second budget on this machine.
+  Evidence: run before any edit, at commit `348d8aa`: `verify: all 6 checks passed in 207s.` (unit+web+services 91s, integration 108s). The budget in `AGENTS.md` is 180 s; nothing in this milestone touches either tier's running time.
+
+- Observation (M1, 2026-11-15): the tests of M1 fail before the module exists, each on its own import, and the file collects.
+  Evidence: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_committee_documents_read.py -q -p no:cacheprovider` printed `17 failed, 1 warning in 0.49s` with `src/docket/adapters/committee_documents.py` absent. The commit that adds the test file holds this state.
+
 ## Decision Log
 
 - Decision: Committee documents and committee items live in two new tables, `committee_documents` and `committee_items`. Nothing is written to `agenda_items`, `votes`, `meetings.agenda_url` or `meetings.minutes_url`.
