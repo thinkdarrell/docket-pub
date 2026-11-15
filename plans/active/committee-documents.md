@@ -16,7 +16,7 @@ This is the second of four phases of the design in `docs/superpowers/specs/2026-
 
 ## Progress
 
-- [ ] M1: A committee page's listing and a document's own header can be read: which committee, which date, agenda or minutes, proved on the saved fixtures.
+- [x] (2026-11-15 01:53Z) M1: A committee page's listing and a document's own header can be read: which committee, which date, agenda or minutes, proved on the saved fixtures.
 - [ ] M2: A minutes document's text is read into items, each with its name, text, action, action category, mover and seconder, proved on the saved fixtures.
 - [ ] M3: Two new tables hold documents and their items; a service lists, fetches, reads and stores them, and running it twice changes nothing the second time.
 - [ ] M4: Stored documents are attached to the committee meeting rows that already exist, and minutes for a meeting with no row create one; nothing is attached twice and no meeting is created twice.
@@ -95,6 +95,8 @@ As authored on 2026-11-13, nothing has been executed and there are no discoverie
 ## Outcomes & Retrospective
 
 As authored on 2026-11-13, nothing has been executed and there are no outcomes.
+
+M1, 2026-11-15. `src/docket/adapters/committee_documents.py` exists with the committee table, `Listing`, `Header`, `DocumentFacts`, `committees_named`, `parse_committee_page`, `read_date`, `read_header` and `resolve`, as Interfaces and Dependencies names them; `MinutesItem`, `MinutesFacts`, `parse_minutes_items`, `fetch_page` and `fetch_pdf` are M2's and M3's and are not there yet. Every expected value the plan states for M1 was observed as stated; the one rule that could not produce its stated value (the year "2O26") was mended in the plan. Both acceptance checks were run and are recorded in Artifacts and Notes; there is no carve-out against M1's acceptance. Left for later milestones to notice: the bare `ARTS` pattern (Surprises & Discoveries), and `./tools/verify` taking 207 seconds against a 180 second budget before and after this milestone. Next is M2.
 
 ## Context and Orientation
 
@@ -372,6 +374,29 @@ Output of `tools/check-plans plans/active/committee-documents.md` at authoring:
 
     plans: plans/active/committee-documents.md ... ok (Progress, Surprises & Discoveries, Decision Log, Outcomes & Retrospective)
     plans: 1 of 1 ok
+
+M1 acceptance, observed 2026-11-15. `./tools/verify`, run at commit `2d8718e` (the module, its tests and the plan's decisions; the only later change is this file's own record of the run):
+
+    verify: test-db ... ok (0s) postgresql://docket:docket_dev@localhost:5432/docket_test_61bde166
+    verify: unit+web+services ... ok (93s)
+    verify: integration ... ok (106s)
+    verify: judge-fixtures ... ok (0s)
+    verify: workflows ... ok (0s)
+    verify: transcriber ... ok (8s)
+    verify: plans ... ok (0s)
+    verify: all 6 checks passed in 207s.
+
+The unit, web and services tiers printed `2743 passed, 5 skipped, 4 xfailed, 2 warnings in 91.07s`; the run before any edit printed `2726 passed, 5 skipped, 4 xfailed, 2 warnings in 90.17s`, and the difference is the 17 tests of `tests/unit/test_committee_documents_read.py`, which run alone print `17 passed, 1 warning in 1.50s`.
+
+The month rule changed to require a whole month name, in a copy of the module compiled in memory (the committed file was not edited; `diff` of the copy against it showed the one line), with the same 17 tests run against the copy:
+
+    E       AssertionError: assert None == (2026, 9, 8)
+    E        +  where None = <function read_date at 0x77083095e680>('WEDNESDAY, SEPTEBMBER 8, 2026 | 3:00 PM')
+    FAILED tests/unit/test_committee_documents_read.py::test_read_date_spellings
+    FAILED tests/unit/test_committee_documents_read.py::test_planning_minutes_header_reads_a_misspelled_month
+    2 failed, 15 passed, 1 warning in 1.13s
+
+The second failure is the `pz_minutes_2026-09-08.pdf` test: its header's date read None where `(2026, 9, 8)` is expected. With the rule as committed, the 17 pass.
 
 ## Interfaces and Dependencies
 
