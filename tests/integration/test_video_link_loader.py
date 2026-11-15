@@ -259,11 +259,12 @@ def test_a_recording_with_several_stretches_yields_one_recording_per_stretch_in_
     replayed = seed.recording(replay, "vll-replay", is_primary=True)
     seed.measurement(replayed, clip="99042029", method_version=3, offset_s=900.0, start_s=1500.0,
                      end_s=1800.0, stretch=1)
-    seed.measurement(replayed, clip="99042029", method_version=3, offset_s=400.0, start_s=1300.0,
-                     end_s=1905.0, stretch=2)
-    assert [(r.offset_s, r.start_s) for r in vl.for_meeting(replay).recordings] == [
-        (400.0, 1300.0), (900.0, 1500.0)]
-    # And of two that start at the same second, the lower stretch number.
     seed.measurement(replayed, clip="99042029", method_version=3, offset_s=350.0, start_s=1300.0,
                      end_s=1400.0, stretch=3)
+    assert [(r.offset_s, r.start_s) for r in vl.for_meeting(replay).recordings] == [
+        (350.0, 1300.0), (900.0, 1500.0)]
+    # And of two that start at the same second, the lower stretch number,
+    # although its row was inserted last.
+    seed.measurement(replayed, clip="99042029", method_version=3, offset_s=400.0, start_s=1300.0,
+                     end_s=1905.0, stretch=2)
     assert [r.offset_s for r in vl.for_meeting(replay).recordings] == [400.0, 350.0, 900.0]

@@ -231,6 +231,17 @@ def test_a_measurement_with_two_stretches_is_saved_once_and_logged_once_per_stre
     assert all(r.levelno == logging.INFO for r in caplog.records if r.getMessage().startswith(prefix))
     assert caplog.messages[-1] == "measure done {'passed': 1, 'rejected': 0, 'failed': 0} remaining=0"
 
+    # the lines follow the save and its commit: a recording whose save the database refused
+    # has no line saying it passed
+    conn, fdb = FakeConn(), FakeDB([_cand(11, "FR84h22hQvA", 3184, "2026")], save_error_at=0)
+    seen = _wire(monkeypatch, fdb, results={"FR84h22hQvA": _two_stretches()})
+    caplog.clear()
+    with caplog.at_level(logging.INFO):
+        counts = measure.measure_pass(conn, cfg, limit=20, sleep=seen.sleeps.append)
+    assert counts == {"passed": 0, "rejected": 0, "failed": 0} and conn.commits == 0
+    assert [m for m in caplog.messages if m.startswith(prefix)] == []
+    assert any(m.startswith("measure: skipped (") for m in caplog.messages)
+
 
 def test_two_recordings_of_one_meeting_fetch_the_granicus_audio_once_and_get_a_row_each(
         monkeypatch, tmp_path):
