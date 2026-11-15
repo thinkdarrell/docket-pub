@@ -17,7 +17,9 @@ def test_build_scheduler_registers_all_jobs():
         "process_batches", "refresh_backfill_ratio_mv", "prune_analytics",
         "recast_post_meeting_ai", "transcript_pipeline", "resolve_member_votes",
         "briefing_facts", "city_calendar", "youtube_ingest", "non_meetings",
+        "committee_documents",
     }
+    assert len(sched.get_jobs()) == 19
 
 
 def test_build_scheduler_process_batches_every_30_minutes():
@@ -48,6 +50,7 @@ def test_build_scheduler_uses_supplied_timezone():
     ("city_calendar",        5),
     ("youtube_ingest",       6),
     ("non_meetings",         6),
+    ("committee_documents",  7),
 ])
 def test_build_scheduler_job_hours(job_id, expected_hour):
     sched = scheduler.build_scheduler(timezone="America/Chicago")
@@ -116,6 +119,16 @@ def test_build_scheduler_non_meetings_at_06_55_after_youtube_ingest():
     job = sched.get_job("non_meetings")
     fields = {f.name: str(f) for f in job.trigger.fields}
     assert (fields["hour"], fields["minute"], fields["day_of_week"]) == ("6", "55", "*")
+    assert job.coalesce is True and job.max_instances == 1
+
+
+def test_build_scheduler_committee_documents_at_07_15_after_youtube_ingest():
+    """07:15, after youtube_ingest (06:45) has created or matched the day's
+    recordings, so a new document finds its meeting. Plan `committee-documents`, M6."""
+    sched = scheduler.build_scheduler(timezone="America/Chicago")
+    job = sched.get_job("committee_documents")
+    fields = {f.name: str(f) for f in job.trigger.fields}
+    assert (fields["hour"], fields["minute"], fields["day_of_week"]) == ("7", "15", "*")
     assert job.coalesce is True and job.max_instances == 1
 
 
