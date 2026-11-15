@@ -338,19 +338,24 @@ def upload(conn, out: TranscriptOutput) -> int:
     return len(out.segments)
 
 
-# --- measuring attached YouTube recordings (meeting_video_alignments, migration 042) ---
+# --- measuring attached YouTube recordings (meeting_video_alignments, migrations 042 and 046) ---
 
-# A measurement counts only at or above the method version asked for (a floor, never equality)
-# and against the clip the meeting row names today; anything else is as good as no measurement.
+# A measurement counts only at or above a version floor (never equality) and against the clip
+# the meeting row names today; anything else is as good as no measurement. The floor depends on
+# the row: a `passed` row counts from the trusted version up, any other row from the method
+# version asked for, so a method that can only add coverage re-measures the rejections and
+# leaves the passes alone. A recording's rows share one version, status family, and clip, so
+# the join reads its first stretch (`a.stretch = 1`) and a recording is one row here.
 _ALIGNMENT_UNMEASURED = """(a.meeting_video_id IS NULL
-            OR a.method_version < %(method_version)s
+            OR a.method_version < CASE WHEN a.status = 'passed' THEN %(trusted_version)s
+                                       ELSE %(method_version)s END
             OR a.granicus_clip_id <> m.external_id)"""
 
 _ALIGNMENT_FROM_WHERE = f"""
       FROM meeting_videos v
       JOIN meetings m ON m.id = v.meeting_id
       JOIN municipalities mu ON mu.id = m.municipality_id
-      LEFT JOIN meeting_video_alignments a ON a.meeting_video_id = v.id
+      LEFT JOIN meeting_video_alignments a ON a.meeting_video_id = v.id AND a.stretch = 1
      WHERE v.provider = 'youtube'
        AND mu.slug = 'birmingham'
        AND m.is_hidden = FALSE
@@ -372,71 +377,82 @@ _ALIGNMENT_CANDIDATES_SQL = f"""
 _ALIGNMENT_REASON_MAX = 4000    # an error text is kept to this length, as mark_status keeps last_error
 
 
-def alignment_candidates(conn, *, method_version: int, limit: int,
+def alignment_candidates(conn, *, method_version: int, trusted_version: int, limit: int,
                          retry_failed_days: int = 7) -> list[AlignmentCandidate]:
-    """The attached YouTube recordings to measure next, at most `limit`.
+    """The attached YouTube recordings to measure next, at most `limit`, each once.
 
     A candidate is a `youtube` recording on a Birmingham meeting that is not hidden and is a
     Granicus clip (an all-digit `external_id` and a `MediaPlayer.php` `video_url`), with no
-    measurement, or one below `method_version`, or one made against another clip id, or a
-    `failed` one older than `retry_failed_days`. A `passed` or `rejected` row at the current
-    version and clip is final. Recordings never measured (the first three cases) come before
-    failures being retried; within each, newest meeting first, the primary recording first.
-    Read-only; the caller ends the transaction.
+    measurement, or a `passed` one below `trusted_version`, or a `rejected` or `failed` one
+    below `method_version`, or one made against another clip id, or a `failed` one older than
+    `retry_failed_days`. A `passed` row at the trusted floor or later and a `rejected` row at
+    the method version, against the current clip, are final. A recording holds one row per
+    confirmed stretch and is read by its first, so it is returned once however many it has.
+    Recordings never measured (the first four cases) come before failures being retried; within
+    each, newest meeting first, the primary recording first. Read-only; the caller ends the
+    transaction.
     """
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute(_ALIGNMENT_CANDIDATES_SQL, {"method_version": method_version, "limit": limit,
+        cur.execute(_ALIGNMENT_CANDIDATES_SQL, {"method_version": method_version,
+                                                "trusted_version": trusted_version, "limit": limit,
                                                 "retry_failed_days": retry_failed_days})
         return [AlignmentCandidate(r["meeting_video_id"], r["video_id"], r["meeting_id"],
                                    r["external_id"], r["meeting_date"]) for r in cur.fetchall()]
 
 
-def alignment_backlog(conn, *, method_version: int, retry_failed_days: int = 7) -> int:
-    """How many recordings `alignment_candidates` would return with no limit."""
+def alignment_backlog(conn, *, method_version: int, trusted_version: int,
+                      retry_failed_days: int = 7) -> int:
+    """How many recordings (not stretch rows) `alignment_candidates` would return with no limit."""
     with conn.cursor() as cur:
         cur.execute(f"SELECT count(*) {_ALIGNMENT_FROM_WHERE}",
-                    {"method_version": method_version, "retry_failed_days": retry_failed_days})
+                    {"method_version": method_version, "trusted_version": trusted_version,
+                     "retry_failed_days": retry_failed_days})
         return cur.fetchone()[0]
+
+
+_ALIGNMENT_FIGURES = (("offset_s", float), ("granicus_start_s", float), ("granicus_end_s", float),
+                      ("score", float), ("runner_up", float), ("windows", int), ("windows_confirmed", int))
 
 
 def save_alignment(conn, cand: AlignmentCandidate, *, method_version: int, status: str,
                    reason: str | None = None, measurement=None) -> None:
-    """Store one recording's measurement, replacing any row it already has. Does not commit.
+    """Store one recording's measurement, replacing every row it already has. Does not commit.
 
     `status` is `passed`, `rejected`, or `failed`; `reason` is the verdict's reason for a
     rejected row and the error text for a failed one. `measurement` is a
     `transcriber.align.Measurement` (read by attribute, so this module does not import numpy)
-    or None when nothing was measured. Every column is written on a re-measure, so a row that
-    once held an offset does not keep it under a later `failed`; `granicus_clip_id` is the
-    candidate's `external_id` and `measured_at` is the time of this call.
+    or None when nothing was measured. A `passed` measurement is stored as one row per element
+    of its `stretches`, numbered `stretch` 1, 2, 3 in the order given (the order of where each
+    coverage starts), each row holding that stretch's seven figures; a passed measurement with
+    no stretches raises ValueError before anything is written. Any other status is one row with
+    `stretch = 1` holding the measurement's own figures, all NULL when there is no measurement.
+    The recording's rows are deleted and the new ones inserted in the caller's transaction, so
+    a stretch the new measurement no longer has does not outlive it and a row that once held an
+    offset does not keep it under a later `failed`; `granicus_clip_id` is the candidate's
+    `external_id` and `measured_at` is the time of this call.
     """
-    def _num(name: str, kind):
-        value = getattr(measurement, name, None)
-        return None if value is None else kind(value)
+    if status == "passed":
+        sources = tuple(getattr(measurement, "stretches", None) or ())
+        if not sources:
+            raise ValueError("a passed measurement has no stretches")
+    else:
+        sources = (measurement,)
 
+    def _figures(source) -> list:
+        values = (getattr(source, name, None) for name, _ in _ALIGNMENT_FIGURES)
+        return [None if v is None else kind(v) for v, (_, kind) in zip(values, _ALIGNMENT_FIGURES)]
+
+    stored_reason = reason[:_ALIGNMENT_REASON_MAX] if reason is not None else None
     with conn.cursor() as cur:
-        cur.execute(
-            """INSERT INTO meeting_video_alignments
-                   (meeting_video_id, granicus_clip_id, method_version, status, reason,
-                    offset_s, granicus_start_s, granicus_end_s, score, runner_up,
-                    windows, windows_confirmed, measured_at)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now())
-               ON CONFLICT (meeting_video_id) DO UPDATE
-                 SET granicus_clip_id = EXCLUDED.granicus_clip_id,
-                     method_version = EXCLUDED.method_version,
-                     status = EXCLUDED.status,
-                     reason = EXCLUDED.reason,
-                     offset_s = EXCLUDED.offset_s,
-                     granicus_start_s = EXCLUDED.granicus_start_s,
-                     granicus_end_s = EXCLUDED.granicus_end_s,
-                     score = EXCLUDED.score,
-                     runner_up = EXCLUDED.runner_up,
-                     windows = EXCLUDED.windows,
-                     windows_confirmed = EXCLUDED.windows_confirmed,
-                     measured_at = EXCLUDED.measured_at""",
-            [cand.meeting_video_id, cand.external_id, method_version, status,
-             reason[:_ALIGNMENT_REASON_MAX] if reason is not None else None,
-             _num("offset_s", float), _num("granicus_start_s", float), _num("granicus_end_s", float),
-             _num("score", float), _num("runner_up", float),
-             _num("windows", int), _num("windows_confirmed", int)],
-        )
+        cur.execute("DELETE FROM meeting_video_alignments WHERE meeting_video_id = %s",
+                    [cand.meeting_video_id])
+        for number, source in enumerate(sources, start=1):
+            cur.execute(
+                """INSERT INTO meeting_video_alignments
+                       (meeting_video_id, stretch, granicus_clip_id, method_version, status, reason,
+                        offset_s, granicus_start_s, granicus_end_s, score, runner_up,
+                        windows, windows_confirmed, measured_at)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now())""",
+                [cand.meeting_video_id, number, cand.external_id, method_version, status,
+                 stored_reason, *_figures(source)],
+            )

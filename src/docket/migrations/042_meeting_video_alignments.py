@@ -4,7 +4,9 @@ One row per attached recording (`meeting_videos.id` is the primary key, and
 `ON DELETE CASCADE` takes the row with the recording or its meeting). The
 transcriber measures a recording against the meeting's Granicus clip by
 comparing the sound of the two and stores the answer here; it keeps none of
-the audio.
+the audio. Migration 046 (plan `youtube-links-cover-matching-stretches`)
+reshapes this table to one row per confirmed stretch, keyed on
+`(meeting_video_id, stretch)`.
 
 `offset_s` is Granicus seconds minus YouTube seconds for the same instant:
 a moment at Granicus second g is at YouTube second g minus the offset.
