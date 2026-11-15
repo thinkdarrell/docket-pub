@@ -1,6 +1,6 @@
 # 1. Where Birmingham's records come from
 
-Everything on `/al/birmingham/` traces back to four places the city itself publishes. Nothing is typed in by hand except the one manifest in section 4. This chapter names each source, what it supplies, and what it does not.
+Everything on `/al/birmingham/` traces back to five places the city itself publishes. Nothing is typed in by hand except the one manifest in section 4. This chapter names each source, what it supplies, and what it does not.
 
 | Source | What it supplies | Read by | Decision |
 | --- | --- | --- | --- |
@@ -8,8 +8,9 @@ Everything on `/al/birmingham/` traces back to four places the city itself publi
 | The city's website, birminghamal.gov (the council page, the events search, and the event pages its sitemap lists) | The council's calendar events, upcoming and past, used to name the body of a generic-titled clip and to tell a stream test from a meeting | `src/docket/adapters/city_calendar.py` | `0087` |
 | The council's YouTube channel (`citycouncilbham`) | Recordings of council and committee meetings, most of which Granicus never carries | `src/docket/adapters/youtube.py` | `0067`–`0070` |
 | The 2023 archive manifest | 24 Boutwell-era meetings Granicus did not record, from the Wayback Machine and YouTube | `src/docket/services/archived_meetings.py` | `0033` |
+| The council committees' pages on birminghamal.gov (eight, one per standing committee) | Each committee's agenda and minutes PDFs: what the committee took up and what it did, and proof that a committee met when nothing recorded it | `src/docket/adapters/committee_documents.py` | `0095`–`0098` |
 
-The Birmingham row in `municipalities` (seeded by migration `001`, slug `birmingham`, adapter `GranicusAdapter`, `adapter_config` with the Granicus `base_url` and `view_id`) carries the flags that turn each source on in its `metadata` JSONB: `calendar_url` (migration `038`) and the other calendar keys (migration `043`: the search and sitemap addresses, the department, and `calendar_complete_from`), `youtube_channel` and `youtube_channel_id` (migration `040`), `briefing: true` (migration `037`, which turns on the city-page opener), and `council_schedule.weekday` (Tuesday). Each worker task picks the cities it serves by one of those keys, so Birmingham is the only city every stage runs for.
+The Birmingham row in `municipalities` (seeded by migration `001`, slug `birmingham`, adapter `GranicusAdapter`, `adapter_config` with the Granicus `base_url` and `view_id`) carries the flags that turn each source on in its `metadata` JSONB: `calendar_url` (migration `038`) and the other calendar keys (migration `043`: the search and sitemap addresses, the department, and `calendar_complete_from`), `youtube_channel` and `youtube_channel_id` (migration `040`), `briefing: true` (migration `037`, which turns on the city-page opener), `committee_document_pages` (migration `045`, the eight committee pages), and `council_schedule.weekday` (Tuesday). Each worker task picks the cities it serves by one of those keys, so Birmingham is the only city every stage runs for.
 
 ## 1. Granicus: the primary source
 
@@ -20,7 +21,7 @@ Granicus is the city's own meeting archive. The adapter reads two tables on the 
 
 Dates and start times are read from a hidden Unix timestamp on each row and converted to Chicago time. The adapter sleeps at least one second between requests, including failed ones (`GOALS.md` Constraints). The minutes PDF is also fetched here, when present, and parsed into votes (chapter 3).
 
-What Granicus does **not** give us: consent-item body text (the agenda lists consent items as title-only references; the text appears only in the minutes), agenda packets, and any meeting the clerk did not record, which is most committee meetings and all of 2023.
+What Granicus does **not** give us: consent-item body text (the agenda lists consent items as title-only references; the text appears only in the minutes), agenda packets, and any meeting the clerk did not record, which is most committee meetings and all of 2023. Granicus and YouTube between them say that a committee met and show the recording; neither says what the committee took up or what it did. That comes from the committees' own documents (section 5).
 
 ## 2. The city calendar: naming the body
 
@@ -43,6 +44,16 @@ The council streams every meeting, council and committee alike, to its YouTube c
 
 Granicus has no 2023 Birmingham meetings. `scripts/manifests/birmingham_2023_archived.json` lists 24 meetings with their YouTube ids and Wayback Machine agenda URLs; `scripts/backfill_archived_meetings.py` creates them through the same ingest path as everything else, keyed `yt-<id>` or `archive-<date>` when there is no video. They have agenda items but no minutes link, so they have no votes, and the video OCR job never claims them because it claims only numeric clip ids. Decision `0033` records why they are keyed outside Granicus ids.
 
+## 5. The committee pages: what a committee took up
+
+Each of the council's eight standing committees has a page on the city's website listing its agenda and minutes PDFs under date headings. Once a day the worker lists those PDFs, fetches the ones it has not read (one request a second), and reads each by fixed rules; no language model reads a committee document (`0098`). Three things about these documents shape everything downstream:
+
+- **The document says what it is; the page is the fallback.** Which committee, which date, and whether it is an agenda or minutes are read from the document's own first lines, because documents are posted under the wrong heading, under another committee's page, and with the wrong year in their file names (`0096`).
+- **Minutes are read into items; agendas are only linked.** Minutes share one layout across the eight committees: each thing the committee took up ends with "Action Taken:" and the action. Agendas come in eight layouts, some are scanned images, and an agenda does not say what the committee did (`0097`).
+- **A committee's action is not a vote.** Minutes record a motion and a second, not a roll call. The action is kept in the minutes' own words with one of twelve categories ("recommended to the council's consent agenda", "delayed", and so on) and never becomes a row in `votes` or `agenda_items` (`0095`, `0098`).
+
+Minutes can also prove a meeting that no recording shows: when minutes name a committee and date with no meeting row, a row is created (chapter 2). `docs/specs/committee-documents.md` owns every rule.
+
 ## What is never a source
 
 - Nothing is typed in from news coverage or from memory; the editorial feature (blog) cites outside journalism, it does not become data.
@@ -58,5 +69,6 @@ The `external_id` prefix on a `meetings` row says which source created it, and t
 | `event-<n>` | Granicus upcoming event, before its clip exists; upgraded in place to the clip id when the clip appears (chapter 2) |
 | `yt-<video id>` | YouTube recording with no Granicus clip, or a 2023 manifest meeting with video |
 | `archive-<date>` | 2023 manifest meeting with no video |
+| `cdoc-<committee>-<date>` | A committee's minutes for a meeting no other source had a row for (section 5) |
 
 Next: [2. How a meeting enters the database](02-ingest.md).
