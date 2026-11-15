@@ -130,6 +130,7 @@ def test_build_scheduler_committee_documents_at_07_15_after_youtube_ingest():
     fields = {f.name: str(f) for f in job.trigger.fields}
     assert (fields["hour"], fields["minute"], fields["day_of_week"]) == ("7", "15", "*")
     assert job.coalesce is True and job.max_instances == 1
+    assert job.func is scheduler.TASKS["committee_documents"]
 
 
 def test_build_scheduler_repair_runs_only_on_monday():

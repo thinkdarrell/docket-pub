@@ -134,3 +134,37 @@ def test_an_unknown_city_exits_with_an_error_and_writes_nothing(capsys):
         script.main(["--city", "atlantis", "--dry-run"])
     assert exit_info.value.code not in (0, None)
     assert _counts() == before
+
+
+def test_what_is_printed_only_when_there_is_something_to_say(capsys):
+    """A crowded day, the tables made by the dry run, and a document with no
+    kind are each printed when the report holds them, and not otherwise."""
+    from datetime import date
+
+    from docket.services import committee_documents as service
+    from scripts import backfill_committee_documents as script
+
+    AttachReport, RefreshReport = service.AttachReport, service.RefreshReport
+
+    def report(**changes):
+        base = {
+            "dry_run": False, "tables_created": False, "refresh": RefreshReport(), "created_meetings": [],
+            "documents": [], "date_sources": {"header": 0, "heading": 0, "none": 0}, "listing_disagrees": 0,
+            "items_by_category": [], "committees": [],
+        }
+        return service.BackfillReport(**{**base, **changes})
+
+    script.print_report(report())
+    plain = capsys.readouterr().out
+    assert "crowded" not in plain and "migration 045" not in plain and "dry run" not in plain
+    assert "meetings created: 0" in plain
+
+    script.print_report(report(
+        dry_run=True, tables_created=True, documents=[("listed", None, 4)],
+        refresh=RefreshReport(attach=AttachReport(created=2, crowded_days=[date(2026, 10, 13), date(2026, 3, 10)])),
+    ))
+    out = capsys.readouterr().out
+    assert "the tables of migration 045 are absent" in out
+    assert "listed         -          4" in out
+    assert "crowded days" in out and "2026-10-13, 2026-03-10" in out
+    assert "meetings it would create: 0" in out

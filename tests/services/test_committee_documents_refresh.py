@@ -42,6 +42,12 @@ PS_SCANNED = (BUCKET + "ps-agenda.pdf", "PUBLIC SAFETY COMMITTEE MEETING AGENDA,
               "SEPTEMBER 22, 2026")
 TI_MINUTES = (BUCKET + "ti-minutes.pdf", "TRANSPORTATION COMMITTEE MEETING MINUTES, May 11, 2026.pdf",
               "MAY 11, 2026")
+# The Community Development minutes of 2026-05-04, as the city posted them:
+# on the Budget and Finance page, under another meeting's heading.
+# An agenda whose header prints "June 2" with no year, under a heading for another day: it has no date.
+ED_UNDATED = (BUCKET + "ed-agenda.pdf", "ECONOMIC DEVELOPMENT COMMITTEE MEETING AGENDA.pdf", "JUNE 16, 2026")
+CD_MISFILED = (BUCKET + "cd-minutes.pdf", "COMMUNITY DEVELOPMENT COMMITTEE MEETING MINUTES, May 4, 2026.pdf",
+               "JUNE 22, 2026")
 
 TODAY = date(2026, 11, 15)
 TABLES = ("committee_documents", "committee_items", "meetings")
@@ -399,6 +405,16 @@ def test_a_dry_run_reports_the_same_and_leaves_nothing_behind(budget):
     service.backfill("birmingham", TODAY)
     assert _cdoc_meetings() == ["cdoc-budget-finance-2026-10-12"]
 
+    # And a dry run after the real one finds nothing new to read, attach or
+    # create, and reports the same tables: the meeting made before it is not
+    # one it would create.
+    again = service.backfill("birmingham", TODAY, dry_run=True)
+    assert (again.refresh.new_listings, again.refresh.read, again.refresh.reparsed) == (0, 0, 0)
+    assert (again.refresh.attach.matched, again.refresh.attach.created) == (0, 0)
+    assert again.created_meetings == []
+    assert again.documents == [("read", "minutes", 1)]
+    assert sum(n for _, n in again.items_by_category) == 12
+
 
 def test_a_dry_run_rolls_back_when_the_run_fails_too(net):
     from docket.services import committee_documents as service
@@ -449,7 +465,66 @@ def test_backfill_limit_bounds_the_documents_read(net):
     report = service.backfill("birmingham", TODAY, limit=1)
 
     assert (report.refresh.new_listings, report.refresh.read) == (2, 1)
-    assert sorted(report.documents) == [("listed", None, 1), ("read", "minutes", 1)]
+    assert report.documents == [("listed", None, 1), ("read", "minutes", 1)]
+    # A document not yet read has no date to have a source: it is not counted as having none.
+    assert report.date_sources == {"header": 1, "heading": 0, "none": 0}
+
+
+def test_backfill_counts_a_document_that_disagrees_with_its_listing(net):
+    from docket.services import committee_documents as service
+
+    net.pages[BF_PAGE["url"]] = _page(BF_MINUTES, CD_MISFILED)
+    net.pdfs[BF_MINUTES[0]] = _pdf("bf_minutes_2026-10-12.pdf")
+    net.pdfs[CD_MISFILED[0]] = _pdf("cd_minutes_2026-05-04_posted_under_bf.pdf")
+
+    report = service.backfill("birmingham", TODAY, dry_run=True)
+
+    assert report.documents == [("read", "minutes", 2)]
+    assert report.listing_disagrees == 1
+    assert report.date_sources == {"header": 2, "heading": 0, "none": 0}
+    assert [m["external_id"] for m in report.created_meetings] == [
+        "cdoc-community-development-2026-05-04", "cdoc-budget-finance-2026-10-12",
+    ], "by date"
+
+
+def test_backfill_counts_a_read_document_that_has_no_date(net):
+    from docket.services import committee_documents as service
+
+    net.pages[BF_PAGE["url"]] = _page(ED_UNDATED)
+    net.pdfs[ED_UNDATED[0]] = _pdf("ed_agenda_june_2_no_year.pdf")
+
+    report = service.backfill("birmingham", TODAY, dry_run=True)
+
+    assert report.documents == [("read", "agenda", 1)]
+    assert report.date_sources == {"header": 0, "heading": 0, "none": 1}
+    # With no date it is not a document attach considers, so it is in neither unattached count.
+    assert (report.refresh.attach.unattached_agendas, report.refresh.attach.unattached_minutes) == (0, 0)
+
+
+def test_a_backfills_report_counts_its_own_city_only(budget, mobile_pages):
+    """Mobile holds a document, its items, and a meeting made from it for the
+    Transportation committee; none of them is in Birmingham's report."""
+    from docket.services import committee_documents as service
+
+    budget.pages[mobile_pages["url"]] = _page(TI_MINUTES)
+    budget.pdfs[TI_MINUTES[0]] = _pdf("ti_minutes_2026-05-11.pdf")
+    mobile = service.backfill("mobile", TODAY)
+    assert [m["external_id"] for m in mobile.created_meetings] == ["cdoc-transportation-infrastructure-2026-05-11"]
+    assert sum(n for _, n in mobile.items_by_category) == 6
+
+    report = service.backfill("birmingham", TODAY)
+
+    assert [m["external_id"] for m in report.created_meetings] == ["cdoc-budget-finance-2026-10-12"]
+    assert report.documents == [("read", "minutes", 1)]
+    assert report.date_sources == {"header": 1, "heading": 0, "none": 0}
+    assert sum(n for _, n in report.items_by_category) == 12
+    by_name = {row["committee"]: row for row in report.committees}
+    assert by_name["Transportation & Infrastructure"]["meetings"] == 0
+    assert by_name["Budget and Finance"]["meetings"] == 1
+
+    # Nor is a meeting made in Mobile before the call one Birmingham's call created.
+    again = service.backfill("birmingham", TODAY)
+    assert again.created_meetings == []
 
 
 def test_backfill_refuses_a_city_it_does_not_know_or_that_names_no_pages(net):
@@ -485,6 +560,9 @@ def test_the_per_committee_table_counts_meetings_from_2026_on(budget):
     meeting(3, date(2026, 9, 15), "Budget and Finance Committee", video="https://youtu.be/z", hidden=True)
     meeting(4, date(2026, 9, 16), "Budget and Finance Committee", video="https://youtu.be/w", meeting_type="council")
     meeting(5, date(2026, 1, 1), "Public Safety Committee")
+    # A joint meeting names two committees and is in neither's row; one that names none is in no row.
+    meeting(6, date(2026, 9, 17), "Joint Public Safety and Budget and Finance Committee")
+    meeting(7, date(2026, 9, 18), "Committee Meeting")
 
     report = service.backfill("birmingham", TODAY)
 
@@ -524,6 +602,20 @@ def test_the_per_committee_table_counts_an_agenda_and_minutes_that_hold_no_item(
     assert (row["meetings"], row["with_agenda"], row["with_minutes"], row["with_items"]) == (1, 1, 0, 0)
     assert (row["document_no_video"], row["video_no_document"]) == (0, 0)
 
+    # Minutes that were read and hold no item: the meeting has minutes and has no items.
+    with db_cursor() as cur:
+        cur.execute(
+            """INSERT INTO committee_documents (municipality_id, url, page_url, page_committee, status, kind,
+                                                committees, meeting_date, date_source, parser_version, meeting_id,
+                                                attached_by)
+               SELECT municipality_id, %s, %s, 'Public Safety', 'read', 'minutes', '{Public Safety}', meeting_date,
+                      'header', %s, id, 'matched'
+                 FROM meetings WHERE external_id = 'cdrefresh-9'""",
+            (BUCKET + "ps-empty-minutes.pdf", PS_PAGE["url"], service.PARSER_VERSION),
+        )
+    row = {r["committee"]: r for r in service.backfill("birmingham", TODAY).committees}["Public Safety"]
+    assert (row["meetings"], row["with_agenda"], row["with_minutes"], row["with_items"]) == (1, 1, 1, 0)
+
 
 # --- the worker task ---------------------------------------------------------
 
@@ -543,3 +635,16 @@ def test_the_worker_task_refreshes_every_city_as_of_today_in_the_workers_timezon
 
     refresh_all.assert_called_once_with(datetime.now(ZoneInfo(config.WORKER_TIMEZONE)).date())
     assert tasks.TASKS["committee_documents"] is tasks.task_committee_documents
+
+
+def test_the_worker_task_reports_under_its_own_name_and_health_variable(monkeypatch):
+    from docket.worker import health, tasks
+
+    safe_run = MagicMock()
+    monkeypatch.setattr(tasks, "_safe_run", safe_run)
+
+    tasks.task_committee_documents()
+
+    safe_run.assert_called_once_with("committee_documents", tasks._do_committee_documents)
+    assert health.TASK_UUID_ENV["committee_documents"] == "HEALTHCHECK_COMMITTEE_DOCUMENTS_UUID"
+    assert "committee_documents" not in health.SILENT_BY_DESIGN
