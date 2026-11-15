@@ -541,7 +541,7 @@ def test_alignment_candidates_newest_meeting_first_primary_first_within_the_limi
     newer = align_rows.meeting("999912", 13)
     align_rows.video(newer, "newer", primary=True)
 
-    got = tdb.alignment_candidates(conn, method_version=METHOD, limit=1000)
+    got = tdb.alignment_candidates(conn, method_version=METHOD, trusted_version=METHOD, limit=1000)
     assert _mine(got) == ["newer", "olderPart1", "olderPart2"]
     cand = next(c for c in got if c.video_id == ALIGN_PREFIX + "olderPart1")
     assert cand == tdb.AlignmentCandidate(
@@ -549,7 +549,7 @@ def test_alignment_candidates_newest_meeting_first_primary_first_within_the_limi
         external_id="999911", meeting_date=date(2031, 5, 6))
 
     # These meetings are dated 2031, later than anything else in the database, so the limit cuts here.
-    first_two = tdb.alignment_candidates(conn, method_version=METHOD, limit=2)
+    first_two = tdb.alignment_candidates(conn, method_version=METHOD, trusted_version=METHOD, limit=2)
     assert [c.video_id[len(ALIGN_PREFIX):] for c in first_two] == ["newer", "olderPart1"]
 
 
@@ -567,7 +567,7 @@ def test_measured_rejected_hidden_and_yt_row_recordings_are_not_alignment_candid
                                video_url="https://bhamal.granicus.com/MediaPlayer.php?view_id=2&event_id=999915")
     align_rows.video(event, "event", primary=True)
 
-    got = tdb.alignment_candidates(conn, method_version=METHOD, limit=1000)
+    got = tdb.alignment_candidates(conn, method_version=METHOD, trusted_version=METHOD, limit=1000)
     assert _mine(got) == ["unmeasured"]
 
 
@@ -585,13 +585,13 @@ def test_lower_version_other_clip_and_old_failure_are_alignment_candidates_again
 
     # At the stored version: the moved recording and the week-old failure, the failure last
     # although its meeting is the newest (never-measured comes before a failure being retried).
-    got = tdb.alignment_candidates(conn, method_version=METHOD, limit=1000)
+    got = tdb.alignment_candidates(conn, method_version=METHOD, trusted_version=METHOD, limit=1000)
     assert _mine(got) == ["otherClip", "oldFailure"]
     # The retry age is the caller's to set.
-    got = tdb.alignment_candidates(conn, method_version=METHOD, limit=1000, retry_failed_days=5)
+    got = tdb.alignment_candidates(conn, method_version=METHOD, trusted_version=METHOD, limit=1000, retry_failed_days=5)
     assert _mine(got) == ["otherClip", "oldFailure", "freshFailure"]
     # One version up, every stored row is below the floor and all four are measured again.
-    got = tdb.alignment_candidates(conn, method_version=METHOD + 1, limit=1000)
+    got = tdb.alignment_candidates(conn, method_version=METHOD + 1, trusted_version=METHOD + 1, limit=1000)
     assert _mine(got) == ["oldFailure", "freshFailure", "otherClip", "current"]
 
 
@@ -600,28 +600,31 @@ def _alignment_row(conn, meeting_video_id: int) -> list[dict]:
         cur.execute(
             """SELECT granicus_clip_id, method_version, status, reason, offset_s, granicus_start_s,
                       granicus_end_s, score, runner_up, windows, windows_confirmed,
-                      measured_at > now() - interval '1 minute' AS fresh
-                 FROM meeting_video_alignments WHERE meeting_video_id = %s""", [meeting_video_id])
+                      measured_at > now() - interval '1 minute' AS fresh, stretch
+                 FROM meeting_video_alignments WHERE meeting_video_id = %s ORDER BY stretch""",
+            [meeting_video_id])
         return [dict(r) for r in cur.fetchall()]
 
 
 def test_save_alignment_twice_leaves_one_row_holding_the_second_calls_values(conn, align_rows):
-    from transcriber.align import Measurement
+    from transcriber.align import Measurement, Stretch
 
     meeting = align_rows.meeting("999919", 6)
     vid = align_rows.video(meeting, "saved", primary=True)
-    cand = next(c for c in tdb.alignment_candidates(conn, method_version=METHOD, limit=1000)
+    cand = next(c for c in tdb.alignment_candidates(conn, method_version=METHOD, trusted_version=METHOD, limit=1000)
                 if c.meeting_video_id == vid)
     passed = Measurement(status="passed", reason=None, offset_s=635.48, granicus_start_s=635.5,
-                         granicus_end_s=4078.7, score=23.6, runner_up=6.0, windows=12, windows_confirmed=10)
+                         granicus_end_s=4078.7, score=23.6, runner_up=6.0, windows=12, windows_confirmed=10,
+                         stretches=(Stretch(offset_s=635.48, granicus_start_s=635.5, granicus_end_s=4078.7,
+                                            score=23.6, runner_up=6.0, windows=12, windows_confirmed=10),))
 
     tdb.save_alignment(conn, cand, method_version=METHOD, status="passed", measurement=passed)
     conn.commit()
     assert _alignment_row(conn, vid) == [dict(
         granicus_clip_id="999919", method_version=METHOD, status="passed", reason=None, offset_s=635.48,
         granicus_start_s=635.5, granicus_end_s=4078.7, score=23.6, runner_up=6.0, windows=12,
-        windows_confirmed=10, fresh=True)]
-    assert _mine(tdb.alignment_candidates(conn, method_version=METHOD, limit=1000)) == []
+        windows_confirmed=10, fresh=True, stretch=1)]
+    assert _mine(tdb.alignment_candidates(conn, method_version=METHOD, trusted_version=METHOD, limit=1000)) == []
 
     with conn.cursor() as cur:
         cur.execute("UPDATE meeting_video_alignments SET measured_at = now() - interval '30 days' "
@@ -637,7 +640,7 @@ def test_save_alignment_twice_leaves_one_row_holding_the_second_calls_values(con
         granicus_clip_id="999919", method_version=METHOD + 1, status="failed",
         reason="AudioFetchError: yt-dlp could not download tdbALIGNsaved", offset_s=None,
         granicus_start_s=None, granicus_end_s=None, score=None, runner_up=None, windows=None,
-        windows_confirmed=None, fresh=True)]
+        windows_confirmed=None, fresh=True, stretch=1)]
 
     # A rejected measurement keeps its numbers beside its reason.
     rejected = Measurement(status="rejected", reason="score", offset_s=-84.04, granicus_start_s=None,
@@ -651,18 +654,89 @@ def test_save_alignment_twice_leaves_one_row_holding_the_second_calls_values(con
 
 
 def test_alignment_backlog_counts_the_candidates_without_a_limit(conn, align_rows):
-    before = tdb.alignment_backlog(conn, method_version=METHOD)
-    before_any_failure = tdb.alignment_backlog(conn, method_version=METHOD, retry_failed_days=0)
-    before_next_version = tdb.alignment_backlog(conn, method_version=METHOD + 1)
+    before = tdb.alignment_backlog(conn, method_version=METHOD, trusted_version=METHOD)
+    before_any_failure = tdb.alignment_backlog(conn, method_version=METHOD, trusted_version=METHOD, retry_failed_days=0)
+    before_next_version = tdb.alignment_backlog(conn, method_version=METHOD + 1, trusted_version=METHOD + 1)
     meeting = align_rows.meeting("999920", 6)
     for tag in ("one", "two", "three"):
         align_rows.video(meeting, tag, primary=(tag == "one"))
     align_rows.measured(align_rows.video(meeting, "done"), clip="999920")
     align_rows.measured(align_rows.video(meeting, "freshFailure"), clip="999920", status="failed", days_ago=1)
 
-    assert tdb.alignment_backlog(conn, method_version=METHOD) == before + 3
-    assert tdb.alignment_backlog(conn, method_version=METHOD) == len(
-        tdb.alignment_candidates(conn, method_version=METHOD, limit=100000))
-    assert len(tdb.alignment_candidates(conn, method_version=METHOD, limit=1)) == 1
-    assert tdb.alignment_backlog(conn, method_version=METHOD, retry_failed_days=0) == before_any_failure + 4
-    assert tdb.alignment_backlog(conn, method_version=METHOD + 1) == before_next_version + 5
+    assert tdb.alignment_backlog(conn, method_version=METHOD, trusted_version=METHOD) == before + 3
+    assert tdb.alignment_backlog(conn, method_version=METHOD, trusted_version=METHOD) == len(
+        tdb.alignment_candidates(conn, method_version=METHOD, trusted_version=METHOD, limit=100000))
+    assert len(tdb.alignment_candidates(conn, method_version=METHOD, trusted_version=METHOD, limit=1)) == 1
+    assert tdb.alignment_backlog(conn, method_version=METHOD, trusted_version=METHOD, retry_failed_days=0) == before_any_failure + 4
+    assert tdb.alignment_backlog(conn, method_version=METHOD + 1, trusted_version=METHOD + 1) == before_next_version + 5
+
+
+def test_a_passed_row_at_the_trusted_floor_is_not_a_candidate_at_the_next_version_and_a_rejected_one_is(
+        conn, align_rows):
+    """Plan `youtube-links-cover-matching-stretches`, M2: a passed row stays trusted from the floor up."""
+    backlog_floor = tdb.alignment_backlog(conn, method_version=METHOD + 1, trusted_version=METHOD)
+    backlog_no_floor = tdb.alignment_backlog(conn, method_version=METHOD + 1, trusted_version=METHOD + 1)
+    meeting = align_rows.meeting("999921", 6)
+    align_rows.measured(align_rows.video(meeting, "passed", primary=True), clip="999921")
+    align_rows.measured(align_rows.video(meeting, "rejected"), clip="999921", status="rejected")
+
+    got = tdb.alignment_candidates(conn, method_version=METHOD + 1, trusted_version=METHOD, limit=1000)
+    assert _mine(got) == ["rejected"]
+    assert tdb.alignment_backlog(conn, method_version=METHOD + 1, trusted_version=METHOD) == backlog_floor + 1
+
+    got = tdb.alignment_candidates(conn, method_version=METHOD + 1, trusted_version=METHOD + 1, limit=1000)
+    assert _mine(got) == ["passed", "rejected"]
+    assert tdb.alignment_backlog(
+        conn, method_version=METHOD + 1, trusted_version=METHOD + 1) == backlog_no_floor + 2
+
+
+def test_save_alignment_replaces_a_recordings_stretch_rows(conn, align_rows):
+    """Plan `youtube-links-cover-matching-stretches`, M2: one row per stretch, replaced whole on a re-measure."""
+    from transcriber.align import Measurement, Stretch
+
+    backlog_before = tdb.alignment_backlog(conn, method_version=METHOD + 1, trusted_version=METHOD + 1)
+    meeting = align_rows.meeting("999922", 6)
+    vid = align_rows.video(meeting, "stretches", primary=True)
+    cand = next(c for c in tdb.alignment_candidates(conn, method_version=METHOD, trusted_version=METHOD, limit=1000)
+                if c.meeting_video_id == vid)
+    first = Stretch(offset_s=300.0, granicus_start_s=300.0, granicus_end_s=1500.0, score=49.5,
+                    runner_up=3.7, windows=4, windows_confirmed=4)
+    second = Stretch(offset_s=490.0, granicus_start_s=1690.0, granicus_end_s=2000.0, score=13.3,
+                     runner_up=3.7, windows=2, windows_confirmed=2)
+    passed = Measurement(status="passed", reason=None, offset_s=300.0, granicus_start_s=300.0,
+                         granicus_end_s=1500.0, score=49.5, runner_up=3.7, windows=4, windows_confirmed=4,
+                         stretches=(first, second))
+
+    tdb.save_alignment(conn, cand, method_version=METHOD, status="passed", measurement=passed)
+    conn.commit()
+    assert _alignment_row(conn, vid) == [
+        dict(granicus_clip_id="999922", method_version=METHOD, status="passed", reason=None, offset_s=300.0,
+             granicus_start_s=300.0, granicus_end_s=1500.0, score=49.5, runner_up=3.7, windows=4,
+             windows_confirmed=4, fresh=True, stretch=1),
+        dict(granicus_clip_id="999922", method_version=METHOD, status="passed", reason=None, offset_s=490.0,
+             granicus_start_s=1690.0, granicus_end_s=2000.0, score=13.3, runner_up=3.7, windows=2,
+             windows_confirmed=2, fresh=True, stretch=2),
+    ]
+    # Two rows are one recording: it is returned once and counted once.
+    got = tdb.alignment_candidates(conn, method_version=METHOD + 1, trusted_version=METHOD + 1, limit=1000)
+    assert _mine(got) == ["stretches"]
+    assert tdb.alignment_backlog(
+        conn, method_version=METHOD + 1, trusted_version=METHOD + 1) == backlog_before + 1
+
+    # A rejected re-measure leaves one row: the second stretch goes, the scalars stay.
+    rejected = Measurement(status="rejected", reason="score", offset_s=-84.04, granicus_start_s=None,
+                           granicus_end_s=None, score=5.4, runner_up=4.3, windows=3, windows_confirmed=1)
+    tdb.save_alignment(conn, cand, method_version=METHOD, status="rejected", reason="score",
+                       measurement=rejected)
+    conn.commit()
+    assert _alignment_row(conn, vid) == [dict(
+        granicus_clip_id="999922", method_version=METHOD, status="rejected", reason="score", offset_s=-84.04,
+        granicus_start_s=None, granicus_end_s=None, score=5.4, runner_up=4.3, windows=3,
+        windows_confirmed=1, fresh=True, stretch=1)]
+
+    no_stretches = Measurement(status="passed", reason=None, offset_s=300.0, granicus_start_s=300.0,
+                               granicus_end_s=1500.0, score=49.5, runner_up=3.7, windows=4, windows_confirmed=4)
+    with pytest.raises(ValueError, match="a passed measurement has no stretches"):
+        tdb.save_alignment(conn, cand, method_version=METHOD, status="passed", measurement=no_stretches)
+    conn.rollback()
+    assert len(_alignment_row(conn, vid)) == 1, "the refused save left the stored row alone"

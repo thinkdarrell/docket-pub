@@ -76,7 +76,7 @@ def test_can_read_meeting_videos_and_not_write_them(transcriber_role):
         assert not _priv("meeting_videos", p), p
 
 
-def test_can_save_measurements_and_not_delete_them(transcriber_role):
-    for p in ("SELECT", "INSERT", "UPDATE"):
+def test_can_save_and_replace_measurements(transcriber_role):
+    # DELETE since migration 046: a re-measure replaces a recording's stretch rows.
+    for p in ("SELECT", "INSERT", "UPDATE", "DELETE"):
         assert _priv("meeting_video_alignments", p), p
-    assert not _priv("meeting_video_alignments", "DELETE"), "a re-measure overwrites the row"

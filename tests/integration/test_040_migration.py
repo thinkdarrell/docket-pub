@@ -22,7 +22,9 @@ PREFIX = "m040-"
 def fresh_040():
     with db() as conn:
         runner.apply_migrations(conn)
-        # 042's table references meeting_videos, which 040's down drops.
+        # 042's table references meeting_videos, which 040's down drops; 046 re-keys
+        # 042's table and, left recorded, would be skipped by the re-apply.
+        runner.rollback_migration(conn, 46)
         runner.rollback_migration(conn, 42)
         runner.rollback_migration(conn, 40)
     yield
@@ -91,6 +93,7 @@ def test_040_down_removes_all(fresh_040):
         runner.apply_migrations(conn)
     _insert_with_source("video", PREFIX + "video-row")
     with db() as conn:
+        runner.rollback_migration(conn, 46)
         runner.rollback_migration(conn, 42)
         runner.rollback_migration(conn, 40)
 

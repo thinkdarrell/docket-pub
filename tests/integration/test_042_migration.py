@@ -1,4 +1,4 @@
-"""Verify migration 042: `meeting_video_alignments`, its two CHECK constraints, one row per recording, and the cascade; down drops the table.
+"""Verify migration 042: `meeting_video_alignments`, its two CHECK constraints, one row per stretch since migration 046, and the cascade; down drops the table.
 
 Pattern: tests/integration/test_040_migration.py. Plan: plans/completed/video-links-land-on-the-moment.md (M2).
 """
@@ -25,9 +25,10 @@ def _delete_test_meetings() -> None:
 
 @pytest.fixture
 def fresh_042():
-    """Every migration applied, then 042 rolled back; the teardown re-applies it."""
+    """Every migration applied, then 046 (which re-keys 042's table) and 042 rolled back; the teardown re-applies both."""
     with db() as conn:
         runner.apply_migrations(conn)
+        runner.rollback_migration(conn, 46)
         runner.rollback_migration(conn, 42)
     yield
     with db() as conn:
@@ -111,7 +112,7 @@ def test_042_up_creates_the_table_and_its_checks_refuse_bad_rows(fresh_042):
     _measure(other, status="failed", offset_s=None, start_s=None, end_s=None)
 
 
-def test_042_one_row_per_recording_and_the_meeting_takes_it_along(applied_042):
+def test_042_one_row_per_stretch_and_the_meeting_takes_it_along(applied_042):
     meeting_id, video = _recording("cascade")
     _measure(video, status="rejected")
     with pytest.raises(psycopg2.errors.UniqueViolation):
@@ -130,6 +131,7 @@ def test_042_down_drops_the_table_and_up_restores_it(fresh_042):
     _measure(video)
 
     with db() as conn:
+        runner.rollback_migration(conn, 46)
         runner.rollback_migration(conn, 42)
     assert not _table_exists()
     with db_cursor() as cur:
