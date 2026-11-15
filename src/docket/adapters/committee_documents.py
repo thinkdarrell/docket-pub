@@ -439,17 +439,22 @@ def _action_end(lines: list[str], another_action_follows: bool) -> int:
     end.
 
     The action ends at the first line after which its words end with an
-    outcome ending, or one or two lines later when they still do (an ending
-    wrapped onto the next line). With no outcome ending, the whole stretch is
-    the action unless another action follows it; then the stretch also holds
-    the next item's lines, and the action is its first sentence.
+    outcome ending, or one or two lines later when the same ending, begun at
+    the same word, is still what they end with (an ending wrapped onto the
+    next line). With no outcome ending, the whole stretch is the action
+    unless another action follows it; then the stretch also holds the next
+    item's lines, and the action is its first sentence.
     """
     for count in range(1, len(lines) + 1):
-        if not _OUTCOME_ENDING.search(" ".join(lines[:count])):
+        ending = _OUTCOME_ENDING.search(" ".join(lines[:count]))
+        if ending is None:
             continue
         end = count
         for longer in range(count + 1, min(count + _ENDING_LOOKAHEAD, len(lines)) + 1):
-            if _OUTCOME_ENDING.search(" ".join(lines[:longer])):
+            wrapped = _OUTCOME_ENDING.search(" ".join(lines[:longer]))
+            # The next item's lines can end like an outcome too; only the
+            # ending already found, read further, extends the action.
+            if wrapped is not None and wrapped.start() == ending.start():
                 end = longer
         return end
     if not another_action_follows:

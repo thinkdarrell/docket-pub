@@ -348,54 +348,126 @@ def test_a_free_text_action_before_a_heading_or_the_end_is_the_whole_stretch():
 
 
 def test_each_outcome_ending_ends_an_action():
+    from docket.adapters.committee_documents import parse_minutes_items
+
+    # Each is printed with no full stop, after a line with none, and before
+    # another licence: without its ending the action would be its first line
+    # alone and the ending would be read as the next item's name.
     endings = [
-        "Item Recommeded to the City Council Agena.",
-        "Item Recommended to the City Council.",
-        "Item Recommended to the City Council Agenda with a No Recommendation.",
-        "Item Recommended to the City Council Agenda with No Recommendation.",
-        "Item Recommended to the City Council Agenda with a Recommendation to Deny.",
-        "Item Recommended to the City Council Consent Agenda for Approval.",
-        "Forwarded to the City Council Agenda without a Recommendation.",
-        "Forward Item to the City Council Agenda with a No Recommendation.",
-        "No Action - Informational Only.",
-        "Item Withdrawn.",
-        "Item Withdrawn by Administration.",
-        "Item Tabled.",
+        ("Item Recommended to the City Council Agenda", "recommended"),
+        ("Items Recommended to the City Council Agenda", "recommended"),
+        ("Item Recommeded to the City Council Agena", "recommended"),
+        ("Item Recommended to the City Council", "recommended"),
+        ("Item Recommended to the City Council Consent Agenda", "recommended_consent"),
+        ("Item Recommended to the City Council Consent", "recommended_consent"),
+        (
+            "Item Recommended to the City Council Agenda By The Committee Chair – Lack of Quorum",
+            "recommended_no_quorum",
+        ),
+        (
+            "Item Recommended to the City Council Agenda By The Committee Chair - Lack of Quorum",
+            "recommended_no_quorum",
+        ),
+        ("Item Recommended to the City Council Agenda with a No Recommendation", "no_recommendation"),
+        ("Item Recommended to the City Council Agenda with No Recommendation", "no_recommendation"),
+        ("Item Recommended to the City Council Agenda with a Recommendation to Deny", "recommended_deny"),
+        ("Item Recommended to the City Council Consent Agenda for Approval", "recommended_consent"),
+        ("Forwarded to the City Council Agenda without a Recommendation", "no_recommendation"),
+        ("Forwarded to the City Council Agenda with a Recommendation", "other"),
+        ("Forward Item to the City Council Agenda with a No Recommendation", "no_recommendation"),
+        ("No Action – Information Only", "information_only"),
+        ("No Action - Informational Only", "information_only"),
+        ("Item Withdrawn", "withdrawn"),
+        ("Item Withdrawn by Administration", "withdrawn"),
+        ("Item Withdrawn by the Administration", "withdrawn"),
+        ("Item Tabled", "tabled"),
+        ("Item Delayed", "delayed"),
+        ("The Minutes were Approved", "minutes_approved"),
+        ("The Minutes were Approved as Recorded", "minutes_approved"),
+        ("The Minutes were Approved with Said Corrections", "minutes_approved"),
+        ("Meeting Adjourned", "adjourned"),
+        ("ITEM TABLED", "tabled"),
+        ("Item Tabled. . ", "tabled"),
+    ]
+    for ending, category in endings:
+        facts = parse_minutes_items(
+            "\n".join(
+                [
+                    HEADER,
+                    "A. LICENSES",
+                    "First Shop",
+                    "Action Taken:",
+                    "After a long discussion",
+                    ending,
+                    "Second Shop",
+                    "Action Taken:",
+                    "Held over",
+                ]
+            )
+        )
+        assert [item.action_text for item in facts.items] == [
+            "After a long discussion " + ending.strip(),
+            "Held over",
+        ], ending
+        assert [item.name for item in facts.items] == ["First Shop", "Second Shop"], ending
+        assert facts.items[0].action_category == category, ending
+
+
+def test_an_action_ends_at_the_first_ending_and_at_the_longest_reading_of_it():
+    facts = _parse(
+        "A. LICENSES",
+        "First Shop",
+        "Action Taken:",
+        "Item Recommended to the City Council",
+        "Agenda",
+        "for Approval",
+        "Second Shop",
+        "Action Taken:",
         "Item Delayed",
-        "The Minutes were Approved with Said Corrections.",
-        "Meeting Adjourned.",
+        "Third Shop",
+        "The earlier item withdrawn",
+        "Action Taken:",
+        "Item Tabled",
+        "and nothing more",
+        "to add",
+        "Item Tabled",
+        "Fourth Shop",
+        "Action Taken:",
+        "An ending in the middle, item tabled, is not an ending",
+        "Fifth Shop",
+        "Action Taken:",
+        "Held over",
+    )
+    assert [(item.name, item.action_text) for item in facts.items] == [
+        # One line further is an ending and two lines further is a longer one.
+        ("First Shop", "Item Recommended to the City Council Agenda for Approval"),
+        # Words that end like an outcome, later in the stretch, are the next
+        # item's lines: the action ended at the first ending.
+        ("Second Shop", "Item Delayed"),
+        # An ending three lines further is too far to be the same action.
+        ("Third Shop", "Item Tabled"),
+        ("and nothing more", "An ending in the middle, item tabled, is not an ending"),
+        ("Fifth Shop", "Held over"),
     ]
-    lines = ["A. BUSINESS"]
-    for number, ending in enumerate(endings):
-        lines += [f"Matter {number}", "Action Taken:", ending]
-    lines += ["Matter last", "Action Taken:", "Item Tabled."]
+    assert facts.items[2].body == "Third Shop\nThe earlier item withdrawn"
+    assert facts.items[3].body == "and nothing more\nto add\nItem Tabled\nFourth Shop"
 
-    facts = _parse(*lines)
 
-    # Each action stops at its ending, so the next matter's name is not
-    # swallowed by a free-text action running on to a full stop.
-    assert [item.action_text for item in facts.items] == endings + ["Item Tabled."]
-    assert [item.name for item in facts.items] == [
-        f"Matter {number}" for number in range(len(endings))
-    ] + ["Matter last"]
-    assert [item.action_category for item in facts.items] == [
-        "recommended",
-        "recommended",
-        "no_recommendation",
-        "no_recommendation",
-        "recommended_deny",
-        "recommended_consent",
-        "no_recommendation",
-        "no_recommendation",
-        "information_only",
-        "withdrawn",
-        "withdrawn",
-        "tabled",
-        "delayed",
-        "minutes_approved",
-        "adjourned",
-        "tabled",
+def test_an_action_with_no_words_is_still_an_item():
+    facts = _parse(
+        "1) First",
+        "Action Taken:",
+        "2) Second",
+        "Action Taken:",
+        "Action Taken:",
+        "Item Tabled.",
+    )
+    assert [(item.name, item.action_text, item.action_category) for item in facts.items] == [
+        ("First", "", "other"),
+        ("Second", "", "other"),
+        ("Second", "Item Tabled.", "tabled"),
     ]
+    assert [item.group for item in facts.items] == [None, "2) Second", "2) Second"]
 
 
 # --- categories, mover and seconder ---------------------------------------
@@ -431,9 +503,23 @@ def test_category_order():
     assert category("Item Delayed until the meeting is adjourned.") == "delayed"
     assert category("Meeting Adjourned.") == "adjourned"
     assert category("Applicant Not Present for Meeting.") == "other"
+    # Words that fit two categories take the earlier one in the list.
+    assert category("The Minutes were Approved. " + NO_QUORUM) == "minutes_approved"
+    assert category(NO_QUORUM + " The chair noted a recommendation to deny.") == "recommended_no_quorum"
+    assert category("Sent with a no recommendation, after a recommendation to deny failed.") == "recommended_deny"
+    assert category("Item Recommended to the City Council. No Action – Information on the rest.") == "recommended"
+    assert category("No Action – Information Only. An earlier item was withdrawn.") == "information_only"
+    assert category("Item Withdrawn after it was tabled.") == "withdrawn"
+    # The minutes' misspelling is read in every category that has the word.
+    assert category("Item Recommeded to the City Council Consent Agenda.") == "recommended_consent"
+    assert category("Item Recommeded to the City Council Agenda By The Committee Chair – Lack of Quorum.") == (
+        "recommended_no_quorum"
+    )
     # A word that only contains a category's word is not that category.
     assert category("The item was undelayed.") == "other"
     assert category("The matter was stabled.") == "other"
+    assert category("The offer stands unwithdrawn.") == "other"
+    assert category("The committee readjourned.") == "other"
 
 
 def test_mover_and_seconder():
@@ -547,7 +633,11 @@ def test_page_lines_and_the_repeated_header_are_dropped_only_when_they_are_whole
     facts = _parse(
         "1) A Matter",
         "See Page 2 of 6 of the report",
+        "No Action Taken: at the last meeting",
+        "See Page 2 of 6",
+        "Page 2 of 6 follows",
         "Page 2 of 6",
+        "PAGE 3 OF 6",
         "full transcription available upon request",
         "BUDGET AND FINANCE COMMITTEE MEETING",
         "MINUTES",
@@ -558,7 +648,13 @@ def test_page_lines_and_the_repeated_header_are_dropped_only_when_they_are_whole
         "CITY COUNCIL CHAMBERS",
     )
     (item,) = facts.items
-    assert item.body == "See Page 2 of 6 of the report\nThe minutes of the last meeting were read"
+    assert item.body.splitlines() == [
+        "See Page 2 of 6 of the report",
+        "No Action Taken: at the last meeting",
+        "See Page 2 of 6",
+        "Page 2 of 6 follows",
+        "The minutes of the last meeting were read",
+    ]
     assert item.action_text == "Item Tabled."
     assert facts.trailing_lines == 0
 
@@ -575,6 +671,10 @@ def test_present_spellings():
     assert present("Councilor(s) Present Tate") == "Tate"
     assert present("Councilor(s) Present:") is None
     assert present("COUNCILOR LATONYA A. TATE, COMMITTEE CHAIR") is None
+    # The first such line is the one.
+    assert present("Councilor(s) Present: Tate\nCouncilor(s) Present: Moore") == "Tate"
+    assert present("Councilor(s)Present: Tate") == "Tate"
+    assert present("Also, Councilor(s) Present: Tate") is None
     # Only a header line says who was present.
     after_header = parse_minutes_items(
         "PUBLIC SAFETY COMMITTEE MEETING\nMINUTES\nA. CALL TO ORDER\nCouncilor(s) Present: Tate"
