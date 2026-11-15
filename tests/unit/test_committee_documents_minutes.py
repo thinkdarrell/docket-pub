@@ -510,11 +510,22 @@ def test_names_and_groups_follow_how_many_actions_share_a_heading():
 
 
 def test_an_item_before_any_heading_is_named_by_its_first_line():
-    facts = _parse(
-        "A matter with no heading",
-        "and a second line",
-        "Action Taken:",
-        "Item Tabled.",
+    from docket.adapters.committee_documents import parse_minutes_items
+
+    # The header is at most twenty lines; with no heading line in the text,
+    # what follows the twentieth is the first item's.
+    header = [f"HEADER LINE {number}" for number in range(1, 21)]
+    facts = parse_minutes_items(
+        "\n".join(
+            header
+            + [
+                "A matter with no heading",
+                "and a second line",
+                "HEADER LINE 3",
+                "Action Taken:",
+                "Item Tabled.",
+            ]
+        )
     )
     (item,) = facts.items
     assert (item.heading_label, item.heading_text, item.owns_heading, item.group) == (None, None, False, None)
