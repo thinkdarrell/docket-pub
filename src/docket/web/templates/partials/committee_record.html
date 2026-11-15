@@ -20,6 +20,8 @@
   'tabled': 'Tabled',
   'delayed': 'Delayed',
 } %}
+{#- The labels are this template's own words, printed as written (| safe):
+    the apostrophe in "council's" is not turned into an entity. #}
 {%- macro _item(item, show_group) %}
     <li class="committee-item">
       {%- if show_group %}
@@ -40,7 +42,7 @@
       <p class="t-meta committee-item__motion">Seconded by {{ item.seconded_by }}</p>
       {%- endif %}
       {%- if _labels.get(item.action_category) %}
-      <p class="t-mono committee-item__outcome">{{ _labels[item.action_category] }}</p>
+      <p class="t-mono committee-item__outcome">{{ _labels[item.action_category] | safe }}</p>
       {%- endif %}
       {%- if item.action_text %}
       <p class="t-meta committee-item__record">The minutes record:</p>

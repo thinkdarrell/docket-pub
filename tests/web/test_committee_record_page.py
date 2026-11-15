@@ -240,6 +240,13 @@ def test_the_record_follows_the_strip_and_comes_before_the_source_links(client):
     assert page.index('<section class="committee-record"') < page.index('<section class="mtg-sources">')
 
 
+def test_a_label_is_printed_as_written_and_the_minutes_words_are_escaped(client):
+    seeded = _seeded()
+    raw = client.get(f"/al/birmingham/meetings/{seeded['meeting']}/").get_data(as_text=True)
+    assert "Recommended to the council's consent agenda" in raw
+    assert "Pike Road Market &amp; Meats" in raw and "Pike Road Market & Meats" not in raw
+
+
 def test_each_document_opens_the_citys_address_in_a_new_tab(client):
     seeded = _seeded()
     record = _record(_page(client, seeded["meeting"]))

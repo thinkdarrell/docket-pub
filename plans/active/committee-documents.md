@@ -103,6 +103,9 @@ As authored on 2026-11-13, nothing has been executed and there are no discoverie
 - Observation (M5, 2026-11-15): the rule-removal check found four rules that the tests committed as failing (`1507ff5`) left free, and three clauses that did nothing.
   Evidence: each stated rule of `for_meeting`, of the strip's edit in `meeting_detail.html` and of `partials/committee_record.html` was taken out of, or loosened in, an in-memory copy of its file, one at a time, and `tests/web/test_committee_record_page.py` run against each copy (a pytest plugin in the session scratchpad that compiles the altered service into its module, or hands Jinja the altered template in place of the file; no committed file was edited by the check). First pass, against the code of `6c8df36` and the tests of `1507ff5`: `64 alterations: 57 failed a test, 7 failed none, 0 broken`. The four free rules: `for_meeting` listing only documents that have a kind; a kind's further copies listed lowest id first; no "Procedural" where no item is procedural; and minutes that were read and hold no item still counting as minutes (so that an agenda beside them does not say the minutes are "not yet posted"). The three that did nothing: the property `has_agenda` and the template's `elif committee_record.has_agenda`, since a record exists only when the meeting has a document with a kind, so a record with no minutes always has an agenda and a plain `else` says the same; and the procedural list never printing a group, which no test told from printing one. The first two were deleted (the property is gone and the template reads `else`); the third was made the same rule as the main list, in one macro, and pinned. Second pass, with the assertions below added: `62 alterations: 62 failed a test, 0 failed none, 0 broken`. Added after `1507ff5`: in `test_for_meeting_gives_the_documents_primaries_first_and_the_primary_minutes_items_in_order`, a third copy of the minutes and an attached document with no kind; in `test_an_item_shows_only_what_the_minutes_gave_it`, that the record has no "Procedural" and one list; the new `test_minutes_that_were_read_and_hold_no_item_are_still_minutes` and `test_procedural_items_show_their_group_once_too`. The file now holds 28 tests: `28 passed, 1 warning in 4.44s`.
 
+- Observation (M5, 2026-11-15): the first run of M5's acceptance on the dev server failed its second clause, and the tests had not seen it. The page held `Recommended to the council&#39;s consent agenda`: the label came out of a template variable, so Jinja wrote its apostrophe as an entity, and every page test read the page through `html.unescape`.
+  Evidence: with the dev server on the throwaway database and the budget minutes loaded, `curl -s http://127.0.0.1:5000/al/birmingham/meetings/1/ | grep -c 'Friends of Avondale Park'` printed `4` and `grep -c "Recommended to the council's consent agenda"` on the same page printed `0`. A browser shows the same words either way; the acceptance reads the page as sent. The label is now printed with `| safe` (the labels are the template's own constants, never a document's words), and the new `test_a_label_is_printed_as_written_and_the_minutes_words_are_escaped` reads the page as sent: the label with its apostrophe, and an item's name with `&` still written `&amp;`. The removal pass run again with that alteration added: `63 alterations: 63 failed a test, 0 failed none, 0 broken`; the file's 29 tests: `29 passed, 1 warning in 4.59s`. The acceptance run again is in Artifacts and Notes.
+
 ## Decision Log
 
 - Decision: Committee documents and committee items live in two new tables, `committee_documents` and `committee_items`. Nothing is written to `agenda_items`, `votes`, `meetings.agenda_url` or `meetings.minutes_url`.
@@ -569,6 +572,32 @@ M4 acceptance, observed 2026-11-15. `./tools/verify`, run at commit `634429a` (t
     verify: all 6 checks passed in 223s.
 
 The unit, web and services tiers printed `2824 passed, 5 skipped, 4 xfailed, 2 warnings in 102.99s`; M3's last run printed `2794 passed`, and the difference is the 30 tests of `tests/services/test_committee_documents_attach.py`, which run alone print `30 passed, 1 warning in 4.14s`. The integration tier printed `1023 passed, 2 warnings in 109.71s`, as after M3. The test that a second `attach` creates nothing is `test_minutes_with_no_meeting_create_one_and_a_second_attach_creates_nothing`; run alone after that verify it printed `1 passed, 29 deselected`. It asserts that after the second call the only `cdoc-` meeting is the one the first call made and that all five counts and `crowded_days` of the second report are empty. The rule-removal passes are in Surprises & Discoveries.
+M5 acceptance, observed 2026-11-15. `./tools/verify`, run on the tree this commit holds (the read, the partial, the strip, their tests and the plan's decisions; the only later change is this file's own record of the run), exited zero:
+
+    verify: test-db ... ok (0s) postgresql://docket:docket_dev@localhost:5432/docket_test_61bde166
+    verify: unit+web+services ... ok (111s)
+    verify: integration ... ok (110s)
+    verify: judge-fixtures ... ok (0s)
+    verify: workflows ... ok (1s)
+    verify: transcriber ... ok (7s)
+    verify: plans ... ok (0s)
+    verify: all 6 checks passed in 229s.
+
+The unit, web and services tiers printed `2853 passed, 5 skipped, 4 xfailed, 2 warnings in 109.63s`; the run before any edit printed `2824 passed`, and the difference is the 29 tests of `tests/web/test_committee_record_page.py`. The integration tier printed `1023 passed`, as before. An earlier run, at commit `0996989` and before the label's apostrophe was mended, printed `2852 passed` and `verify: all 6 checks passed in 228s.`
+
+The dev server. The "local database" was the throwaway one, built with `tools/test-db` (`docket_test_61bde166`, which holds four cities and no meeting) and dropped with `tools/test-db --drop` afterwards; nothing else was touched. A script in the session scratchpad inserted one meeting under Birmingham ("Budget and Finance Committee Meeting", 2026-10-12, typed `committee`, `body_name` "Budget and Finance Committee") and one `committee_documents` row as `sync_listings` leaves it, then called `_read(row, <the bytes of tests/fixtures/committee_documents/bf_minutes_2026-10-12.pdf>)` and `attach(<Birmingham's id>, date(2026, 11, 15))`. It printed:
+
+    meeting 1 report AttachReport(matched=1, created=0, ambiguous=0, unattached_agendas=0, unattached_minutes=0, crowded_days=[])
+    {'status': 'read', 'kind': 'minutes', 'meeting_date': datetime.date(2026, 10, 12), 'meeting_id': 1, 'attached_by': 'matched', 'items': 12}
+
+With `DATABASE_URL` set to that database and `venv/bin/flask --app docket.web:create_app run --port 5000` running:
+
+    $ curl -s http://127.0.0.1:5000/al/birmingham/meetings/1/ | grep -c 'Friends of Avondale Park'
+    4
+    $ curl -s http://127.0.0.1:5000/al/birmingham/meetings/1/ | grep -c "Recommended to the council's consent agenda"
+    9
+
+The first is at least 1 and the page contains the second, on nine lines, which is the fixture's nine `recommended_consent` items. Read from the same page: the strip says "Items in the minutes 11 Votes 0 committees record motions, not roll calls Total dollars $0 0 items with amounts"; the record holds 12 items, 11 in the list and the approval of the minutes under "Procedural" at its end; it opens "From the committee's own documents", "Minutes (PDF)", "Councilors present: Woods, Alexander, Smitherman, O’Quinn", "What the committee took up"; and the Friends of Avondale Park item ends "Amount: $4,000.00 Moved by Alexander, seconded by Woods Recommended to the council's consent agenda The minutes record: Councilor Alexander Motioned to Approve. Councilor Woods Seconded the Motion. Item Recommended to the City Council Consent Agenda." The page's one document link is the address the script gave the row, with `target="_blank" rel="noopener"`. The page was read with `curl` and a script, not looked at in a browser: how it looks with the styles applied was not observed.
 
 ## Interfaces and Dependencies
 
@@ -643,6 +672,9 @@ In `src/docket/services/committee_documents.py`:
     def committee_of(body_name: str | None) -> str | None: ...
     def attach(municipality_id: int, today: date) -> AttachReport: ...
     def primary_documents(meeting_id: int) -> dict: ...
+    class CommitteeDocumentLink: ...   # kind, url: str; is_primary, has_text: bool
+    class MeetingCommitteeRecord: ...  # documents: tuple[CommitteeDocumentLink, ...]; minutes_url, present: str | None; items: tuple[dict, ...]; properties has_minutes, substantive, procedural
+    PROCEDURAL_CATEGORIES: frozenset[str]   # minutes_approved, adjourned
     def for_meeting(meeting_id: int) -> MeetingCommitteeRecord | None: ...
     def refresh_city(municipality_id: int, metadata: dict, today: date, read_limit: int | None) -> RefreshReport: ...
     def refresh_all(today: date) -> int: ...
