@@ -15,21 +15,29 @@ what either says; this module decides what is stored and owns every write.
   ``committee_items`` rows.
 - ``reparse`` reads stored text again, with no fetch, after a rule has been
   mended and ``PARSER_VERSION`` raised.
+- ``attach`` gives each read document the committee meeting it records: the
+  meeting row that already exists for that committee and date, or, for
+  minutes that have none, a new row, because minutes prove a meeting was
+  held. ``primary_documents`` says which of a meeting's documents of each
+  kind is the one to show.
 
 Nothing here writes ``agenda_items``, ``votes``, ``meetings.agenda_url`` or
 ``meetings.minutes_url``: every reader of those treats a row as council
 business. A committee's action is its minutes' own words and one of a closed
 list of categories, never a vote.
 
-Plan `committee-documents`, M3.
+Plan `committee-documents`, M3 (listing, reading, storing) and M4 (attaching).
 """
 
 from __future__ import annotations
 
 import hashlib
 import logging
+from dataclasses import dataclass, field
+from datetime import date
 
 from docket.adapters import committee_documents as source
+from docket.adapters._helpers import classify_title
 from docket.analysis.minutes_parser import extract_text_from_pdf
 from docket.db import db_cursor
 
@@ -228,3 +236,164 @@ def reparse(municipality_id: int) -> int:
         with db_cursor() as cur:
             _store_reading(cur, row, row["text"])
     return len(rows)
+
+
+@dataclass
+class AttachReport:
+    """What one ``attach`` call did. ``matched`` and ``created`` count the
+    documents it attached, to a meeting that existed and to one it made;
+    ``ambiguous`` counts those of the matched that had several meetings to
+    choose from. The two ``unattached`` counts are the documents it
+    considered and left with no meeting. ``crowded_days`` are the dates of
+    the meetings it made on which the city also has a second visible Granicus
+    meeting typed ``council``: the sign of a committee clip mislabelled."""
+
+    matched: int = 0
+    created: int = 0
+    ambiguous: int = 0
+    unattached_agendas: int = 0
+    unattached_minutes: int = 0
+    crowded_days: list[date] = field(default_factory=list)
+
+
+def committee_of(body_name: str | None) -> str | None:
+    """The one canonical committee a meeting's ``body_name`` names, or None
+    when it names none or several."""
+    named = source.committees_named(body_name or "")
+    return named[0] if len(named) == 1 else None
+
+
+def attach(municipality_id: int, today: date) -> AttachReport:
+    """Give each read document with no meeting the meeting it records.
+
+    A document is considered when it is ``read`` or ``no_text`` and has a
+    kind, a date and a committee. Its candidates are the city's visible
+    committee meetings on that date whose ``body_name`` names one of its
+    committees. With none, minutes whose date is their own header's and not
+    after ``today`` create the meeting; anything else stays unattached and is
+    considered again on the next call. Minutes are taken before agendas, so
+    an agenda finds the meeting its minutes made in the same call. One
+    transaction per document; a document that has a meeting is never moved.
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            """SELECT id, kind, committees, meeting_date, date_source, special, work_session, page_url
+                 FROM committee_documents
+                WHERE municipality_id = %s
+                  AND status IN ('read', 'no_text')
+                  AND kind IS NOT NULL
+                  AND meeting_date IS NOT NULL
+                  AND cardinality(committees) > 0
+                  AND meeting_id IS NULL
+                ORDER BY (kind <> 'minutes'), id""",
+            (municipality_id,),
+        )
+        documents = cur.fetchall()
+
+    report = AttachReport()
+    created_days: set[date] = set()
+    for doc in documents:
+        with db_cursor() as cur:
+            cur.execute(
+                """SELECT id, body_name, video_url
+                     FROM meetings
+                    WHERE municipality_id = %s AND meeting_date = %s
+                      AND is_hidden = FALSE AND meeting_type = 'committee'
+                    ORDER BY id""",
+                (municipality_id, doc["meeting_date"]),
+            )
+            candidates = [m for m in cur.fetchall() if committee_of(m["body_name"]) in doc["committees"]]
+            if candidates:
+                if len(candidates) > 1:
+                    report.ambiguous += 1
+                    first_named = [m for m in candidates if committee_of(m["body_name"]) == doc["committees"][0]]
+                    candidates = sorted(first_named or candidates, key=lambda m: (m["video_url"] is None, m["id"]))
+                meeting_id, attached_by = candidates[0]["id"], "matched"
+            elif doc["kind"] == "minutes" and doc["date_source"] == "header" and doc["meeting_date"] <= today:
+                meeting_id, attached_by = _create_meeting(cur, municipality_id, doc)
+            else:
+                if doc["kind"] == "minutes":
+                    report.unattached_minutes += 1
+                else:
+                    report.unattached_agendas += 1
+                continue
+            cur.execute(
+                "UPDATE committee_documents SET meeting_id = %s, attached_by = %s WHERE id = %s AND meeting_id IS NULL",
+                (meeting_id, attached_by, doc["id"]),
+            )
+        if attached_by == "created":
+            report.created += 1
+            created_days.add(doc["meeting_date"])
+        else:
+            report.matched += 1
+
+    if created_days:
+        with db_cursor() as cur:
+            cur.execute(
+                """SELECT meeting_date
+                     FROM meetings
+                    WHERE municipality_id = %s AND meeting_date = ANY(%s)
+                      AND is_hidden = FALSE AND meeting_type = 'council' AND external_id ~ '^[0-9]+$'
+                    GROUP BY meeting_date
+                   HAVING count(*) > 1
+                    ORDER BY meeting_date""",
+                (municipality_id, sorted(created_days)),
+            )
+            report.crowded_days = [r["meeting_date"] for r in cur.fetchall()]
+
+    log.info(
+        "committee documents: attach matched=%d created=%d ambiguous=%d unattached_agendas=%d "
+        "unattached_minutes=%d crowded_days=%s",
+        report.matched, report.created, report.ambiguous, report.unattached_agendas, report.unattached_minutes,
+        [d.isoformat() for d in report.crowded_days],
+    )
+    return report
+
+
+def _create_meeting(cur, municipality_id: int, doc: dict) -> tuple[int, str]:
+    """Make the meeting a set of minutes proves was held, named for the
+    document's first-named committee; returns its id and ``created``. When a
+    row already holds the address the new one would take (it was no
+    candidate: hidden, or typed otherwise since), nothing is made and that
+    row's id is returned with ``matched``."""
+    committee = doc["committees"][0]
+    external_id = f"cdoc-{source.COMMITTEE_SLUGS[committee].removesuffix('-committee')}-{doc['meeting_date'].isoformat()}"
+    title = committee + (" Committee Work Session" if doc["work_session"] else " Committee Meeting")
+    if doc["special"]:
+        title = "Special Called " + title
+    classified = classify_title(title)
+    cur.execute(
+        """INSERT INTO meetings (municipality_id, external_id, title, meeting_date,
+                                 meeting_type, session_kind, body_name, type_source, source_url)
+           VALUES (%s, %s, %s, %s, %s, %s, %s, 'title', %s)
+           ON CONFLICT (municipality_id, external_id) DO NOTHING
+           RETURNING id""",
+        (municipality_id, external_id, title, doc["meeting_date"], classified.meeting_type, classified.session_kind,
+         classified.body_name, doc["page_url"]),
+    )
+    row = cur.fetchone()
+    if row:
+        return row["id"], "created"
+    cur.execute(
+        "SELECT id FROM meetings WHERE municipality_id = %s AND external_id = %s", (municipality_id, external_id)
+    )
+    return cur.fetchone()["id"], "matched"
+
+
+def primary_documents(meeting_id: int) -> dict:
+    """The meeting's one primary document of each kind it has, by kind
+    (``agenda``, ``minutes``): among its attached documents of that kind, one
+    that does not disagree with its listing before one that does, then the
+    lowest id. Each is its ``committee_documents`` row without the text. A
+    meeting with no document gives an empty dict."""
+    with db_cursor() as cur:
+        cur.execute(
+            """SELECT DISTINCT ON (kind)
+                      id, kind, url, page_url, listed_name, status, meeting_date, committees, listing_disagrees,
+                      present, trailing_lines, attached_by
+                 FROM committee_documents
+                WHERE meeting_id = %s AND kind IS NOT NULL
+                ORDER BY kind, listing_disagrees, id""",
+            (meeting_id,),
+        )
+        return {r["kind"]: dict(r) for r in cur.fetchall()}
