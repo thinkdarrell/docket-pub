@@ -18,7 +18,10 @@ It then runs one targeted statement (decision 0026): it deletes the rows
 `rejected` at method version 2, so those recordings are candidates for the
 next measuring pass, where the stretch rule may confirm what the
 whole-recording verdict threw out. On the production read of 2026-11-12 that
-was 60 rows, every stored row then being at version 2. Rows `passed` at
+was 60 rows, every stored row then being at version 2. A row the owner
+switched off (`rejected` with the reason `operator`, a passed row whose
+links were sent back to Granicus) is kept, so a switch that is on when the
+migration runs stays on and can be restored. Rows `passed` at
 version 2 are kept and stay trusted (`ALIGN_TRUSTED_VERSION` in
 `transcriber/transcriber/align.py`, `MIN_METHOD_VERSION` in
 `src/docket/services/video_links.py`); `failed` rows are kept and retried by
@@ -52,7 +55,8 @@ ALTER TABLE meeting_video_alignments
     DROP CONSTRAINT IF EXISTS meeting_video_alignments_stretch_positive;
 ALTER TABLE meeting_video_alignments
     ADD CONSTRAINT meeting_video_alignments_stretch_positive CHECK (stretch >= 1);
-DELETE FROM meeting_video_alignments WHERE status = 'rejected' AND method_version = 2;
+DELETE FROM meeting_video_alignments
+ WHERE status = 'rejected' AND method_version = 2 AND reason IS DISTINCT FROM 'operator';
 """
 
 SQL_DOWN = r"""

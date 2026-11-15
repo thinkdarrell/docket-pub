@@ -743,6 +743,12 @@ def test_a_switched_off_row_is_not_a_candidate_until_it_is_restored(conn, align_
     assert sorted(got) == ["no_reason", "off_other_clip", "windows"]
     assert tdb.alignment_backlog(conn, **floor) == backlog_before + 3
 
+    # The exemption is for a `rejected` row only: a row passed by hand keeps the reason `operator`
+    # (production row 832) and answers to the ordinary rules, here the changed clip id.
+    align_rows.measured(align_rows.video(meeting, "by_hand"), clip="999900", reason="operator")
+    got = _mine(tdb.alignment_candidates(conn, limit=1000, **floor))
+    assert sorted(got) == ["by_hand", "no_reason", "off_other_clip", "windows"]
+
 
 def test_save_alignment_replaces_a_recordings_stretch_rows(conn, align_rows):
     """Plan `youtube-links-cover-matching-stretches`, M2: one row per stretch, replaced whole on a re-measure."""

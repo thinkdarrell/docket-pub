@@ -344,12 +344,15 @@ def upload(conn, out: TranscriptOutput) -> int:
 # the meeting row names today; anything else is as good as no measurement. The floor depends on
 # the row: a `passed` row counts from the trusted version up, any other row from the method
 # version asked for, so a method that can only add coverage re-measures the rejections and
-# leaves the passes alone. A recording's rows share one version, status family, and clip, so
-# the join reads its first stretch (`a.stretch = 1`) and a recording is one row here.
+# leaves the passes alone. A `rejected` row whose reason is `operator` is the owner's off switch
+# and is never a candidate, by its version or by its clip id; the reason is nullable, so the
+# comparison is the NULL-safe one. A recording's rows share one version, status family, and
+# clip, so the join reads its first stretch (`a.stretch = 1`) and a recording is one row here.
 _ALIGNMENT_UNMEASURED = """(a.meeting_video_id IS NULL
-            OR a.method_version < CASE WHEN a.status = 'passed' THEN %(trusted_version)s
-                                       ELSE %(method_version)s END
-            OR a.granicus_clip_id <> m.external_id)"""
+            OR ((a.status <> 'rejected' OR a.reason IS DISTINCT FROM 'operator')
+                AND (a.method_version < CASE WHEN a.status = 'passed' THEN %(trusted_version)s
+                                             ELSE %(method_version)s END
+                     OR a.granicus_clip_id <> m.external_id)))"""
 
 _ALIGNMENT_FROM_WHERE = f"""
       FROM meeting_videos v
@@ -386,7 +389,9 @@ def alignment_candidates(conn, *, method_version: int, trusted_version: int, lim
     measurement, or a `passed` one below `trusted_version`, or a `rejected` or `failed` one
     below `method_version`, or one made against another clip id, or a `failed` one older than
     `retry_failed_days`. A `passed` row at the trusted floor or later and a `rejected` row at
-    the method version, against the current clip, are final. A recording holds one row per
+    the method version, against the current clip, are final. A `rejected` row whose reason is
+    `operator` is the owner's off switch and is never a candidate, whatever its version or
+    clip id, until the owner restores it to `passed`. A recording holds one row per
     confirmed stretch and is read by its first, so it is returned once however many it has.
     Recordings never measured (the first four cases) come before failures being retried; within
     each, newest meeting first, the primary recording first. Read-only; the caller ends the
