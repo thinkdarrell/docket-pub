@@ -142,6 +142,25 @@ def test_046_up_keys_rows_on_recording_and_stretch_and_deletes_the_version_2_rej
     assert len(_rows(a)) == 2
 
 
+def test_046_up_keeps_a_switched_off_row(fresh_046):
+    """Plan `youtube-links-cover-matching-stretches`, M5: a `rejected` row with reason `operator`
+    is a passed row the owner switched off, and the DELETE leaves it; a rejection with any other
+    reason, or none, goes."""
+    _, off = _recording("OFF")
+    _measure(off, status="rejected", reason="operator", offset_s=635.48, start_s=635.5, end_s=4078.7)
+    _, windows = _recording("WIN")
+    _measure(windows, status="rejected", reason="windows")
+    _, no_reason = _recording("NUL")
+    _measure(no_reason, status="rejected", reason=None)
+
+    with db() as conn:
+        runner.apply_migrations(conn)
+
+    assert _rows(off) == [(1, "rejected", "operator", 2, 635.48)]
+    assert _rows(windows) == []
+    assert _rows(no_reason) == []
+
+
 def test_046_down_keeps_the_first_stretch_and_restores_the_single_key(applied_046):
     _, a = _recording("A")
     _measure(a, stretch=1)

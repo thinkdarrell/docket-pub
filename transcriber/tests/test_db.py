@@ -503,18 +503,23 @@ class _AlignRows:
         return vid
 
     def measured(self, meeting_video_id: int, *, clip: str, status: str = "passed", version: int = METHOD,
-                 days_ago: int = 0) -> None:
-        """A stored measurement, written as the migration's owner would (not through save_alignment)."""
+                 days_ago: int = 0, reason: str | None = None) -> None:
+        """A stored measurement, written as the migration's owner would (not through save_alignment).
+
+        A `reason` that is given is stored; left out, the row gets the reason its status has by
+        default (none on a passed row, `score` on a rejected one, an error text on a failed one).
+        """
         span = (635.48, 635.5, 4078.7) if status == "passed" else (None, None, None)
+        stored_reason = reason
+        if reason is None:
+            stored_reason = {"passed": None, "rejected": "score", "failed": "AudioFetchError: no audio"}[status]
         with self.conn.cursor() as cur:
             cur.execute(
                 """INSERT INTO meeting_video_alignments
                        (meeting_video_id, granicus_clip_id, method_version, status, reason,
                         offset_s, granicus_start_s, granicus_end_s, measured_at)
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, now() - make_interval(days => %s))""",
-                [meeting_video_id, clip, version, status,
-                 {"passed": None, "rejected": "score", "failed": "AudioFetchError: no audio"}[status],
-                 *span, days_ago],
+                [meeting_video_id, clip, version, status, stored_reason, *span, days_ago],
             )
         self.conn.commit()
 
@@ -688,6 +693,55 @@ def test_a_passed_row_at_the_trusted_floor_is_not_a_candidate_at_the_next_versio
     assert _mine(got) == ["passed", "rejected"]
     assert tdb.alignment_backlog(
         conn, method_version=METHOD + 1, trusted_version=METHOD + 1) == backlog_no_floor + 2
+
+
+def test_a_switched_off_row_is_not_a_candidate_until_it_is_restored(conn, align_rows):
+    """Plan `youtube-links-cover-matching-stretches`, M5: a `rejected` row with reason `operator`
+    is the owner's off switch. It is never a candidate, whatever its version or clip id, and the
+    restore puts it back under the ordinary rules. The statements are the runbook's, narrowed to
+    this test's recordings."""
+    floor = dict(method_version=METHOD + 1, trusted_version=METHOD)
+    backlog_before = tdb.alignment_backlog(conn, **floor)
+    meeting = align_rows.meeting("999923", 6)
+    off = align_rows.video(meeting, "off", primary=True)
+    align_rows.measured(off, clip="999923")
+    off_other_clip = align_rows.video(meeting, "off_other_clip")
+    align_rows.measured(off_other_clip, clip="999900")
+    align_rows.measured(align_rows.video(meeting, "windows"), clip="999923", status="rejected", reason="windows")
+    no_reason = align_rows.video(meeting, "no_reason")
+    align_rows.measured(no_reason, clip="999923", status="rejected")
+    with conn.cursor() as cur:      # the fixture gives a rejection a reason; this one has none
+        cur.execute("UPDATE meeting_video_alignments SET reason = NULL WHERE meeting_video_id = %s", [no_reason])
+    conn.commit()
+    assert [(r["status"], r["reason"]) for r in _alignment_row(conn, no_reason)] == [("rejected", None)]
+    align_rows.measured(align_rows.video(meeting, "on"), clip="999923")
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """UPDATE meeting_video_alignments SET status = 'rejected', reason = 'operator'
+                WHERE status = 'passed' AND meeting_video_id IN (%s, %s)""", [off, off_other_clip])
+        assert cur.rowcount == 2
+    conn.commit()
+    assert [(r["status"], r["reason"]) for r in _alignment_row(conn, off)] == [("rejected", "operator")]
+
+    got = _mine(tdb.alignment_candidates(conn, limit=1000, **floor))
+    assert sorted(got) == ["no_reason", "windows"]
+    assert tdb.alignment_backlog(conn, **floor) == backlog_before + 2
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """UPDATE meeting_video_alignments SET status = 'passed', reason = NULL
+                WHERE status = 'rejected' AND reason = 'operator' AND meeting_video_id IN (%s, %s)""",
+            [off, off_other_clip])
+        assert cur.rowcount == 2
+    conn.commit()
+    row = _alignment_row(conn, off)
+    assert len(row) == 1 and (row[0]["status"], row[0]["reason"], row[0]["offset_s"], row[0]["granicus_start_s"],
+                              row[0]["granicus_end_s"]) == ("passed", None, 635.48, 635.5, 4078.7)
+    # Restored, the rows are passed rows again: one stays trusted, the other is against another clip.
+    got = _mine(tdb.alignment_candidates(conn, limit=1000, **floor))
+    assert sorted(got) == ["no_reason", "off_other_clip", "windows"]
+    assert tdb.alignment_backlog(conn, **floor) == backlog_before + 3
 
 
 def test_save_alignment_replaces_a_recordings_stretch_rows(conn, align_rows):

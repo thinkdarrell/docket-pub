@@ -189,6 +189,28 @@ def test_cut_recording_yields_one_stretch_per_offset():
     assert m.stretches == ()
 
 
+def test_a_cut_off_the_piece_grid_leaves_part_of_a_piece_covered_past_it():
+    """A pin of behaviour as it stands, not of behaviour wanted (debt row `D152`): it passed when
+    written. A stretch's ends are found in 60-second pieces, and the piece that holds a cut can
+    confirm on its matching part, so the earlier stretch's coverage runs past a cut that is off
+    the piece grid by up to one piece. Plan `youtube-links-cover-matching-stretches`, M5."""
+    import transcriber.align as align
+
+    g_samples, g = _granicus(align)
+    # The recording leaves the first part at clip second 1,400, which is 20 s into a piece.
+    youtube = np.concatenate([_cut(g_samples, 300, 1400), _cut(g_samples, 1690, 2000)])
+    m = align.measure(g, align.features(youtube))
+
+    assert (m.status, m.reason) == ("passed", None)
+    assert len(m.stretches) == 2
+    first, second = m.stretches
+    # Clip seconds 1,400 to 1,440 are stored under offset 300, where the recording
+    # shows clip second 1,690 onward: a link there is wrong by 290 s.
+    _assert_stretch(first, offset=300.0, start=300.0, end=1440.0, windows=(4, 4))
+    assert 1400 < first.granicus_end_s <= 1460, "the limit: at most one piece past the cut"
+    _assert_stretch(second, offset=590.0, start=1700.0, end=2000.0, windows=(1, 1))
+
+
 def test_recording_that_runs_past_the_clip_is_covered_to_the_clips_end():
     import transcriber.align as align
 
