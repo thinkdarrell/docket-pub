@@ -23,10 +23,28 @@ GRANICUS = "https://bhamal.granicus.com/DownloadFile.php?view_id=2&clip_id="
 
 
 def _measurement(status="passed", reason=None):
-    from transcriber.align import Measurement
-    return Measurement(status=status, reason=reason, offset_s=635.48, granicus_start_s=635.48,
-                       granicus_end_s=4078.7, score=23.6, runner_up=6.0, windows=12,
-                       windows_confirmed=10)
+    """What the matcher returns: a passed measurement carries its one stretch and the stretch's
+    figures; a rejected one has the same whole-recording figures, no span, and no stretch."""
+    from transcriber.align import Measurement, Stretch
+    figures = dict(offset_s=635.48, score=23.6, runner_up=6.0, windows=12, windows_confirmed=10)
+    if status != "passed":
+        return Measurement(status=status, reason=reason, granicus_start_s=None, granicus_end_s=None,
+                           **figures)
+    stretch = Stretch(granicus_start_s=635.48, granicus_end_s=4078.7, **figures)
+    return Measurement(status=status, reason=reason, granicus_start_s=635.48, granicus_end_s=4078.7,
+                       stretches=(stretch,), **figures)
+
+
+def _two_stretches():
+    """A recording that matches its clip at two offsets (the cut recording of test_align.py)."""
+    from transcriber.align import Measurement, Stretch
+    first = Stretch(offset_s=300.0, granicus_start_s=300.0, granicus_end_s=1500.0, score=49.5,
+                    runner_up=3.7, windows=4, windows_confirmed=4)
+    second = Stretch(offset_s=490.0, granicus_start_s=1690.0, granicus_end_s=2000.0, score=13.3,
+                     runner_up=3.7, windows=2, windows_confirmed=2)
+    return Measurement(status="passed", reason=None, offset_s=300.0, granicus_start_s=300.0,
+                       granicus_end_s=1500.0, score=49.5, runner_up=3.7, windows=4,
+                       windows_confirmed=4, stretches=(first, second))
 
 
 def _cand(row_id, video_id, meeting_id, clip):
@@ -56,15 +74,17 @@ class FakeDB:
         self.candidates = list(candidates)
         self.read_error, self.save_error_at, self.backlog_error = read_error, save_error_at, backlog_error
         self.reads = []
+        self.backlog_reads = []
         self.saved = []
 
-    def alignment_candidates(self, conn, *, method_version, limit, retry_failed_days=7):
-        self.reads.append((method_version, limit))
+    def alignment_candidates(self, conn, *, method_version, trusted_version, limit, retry_failed_days=7):
+        self.reads.append((method_version, trusted_version, limit))
         if self.read_error is not None:
             raise self.read_error
         return self.candidates[:limit]
 
-    def alignment_backlog(self, conn, *, method_version, retry_failed_days=7):
+    def alignment_backlog(self, conn, *, method_version, trusted_version, retry_failed_days=7):
+        self.backlog_reads.append((method_version, trusted_version))
         if self.backlog_error is not None:
             raise self.backlog_error
         return len(self.candidates) - len({s.cand.meeting_video_id for s in self.saved})
@@ -82,7 +102,7 @@ class FakeDB:
 def _cfg(tmp_path):
     return cli.Config(since=date(2025, 10, 28), limit=10, max_hours=None, host="test",
                       work_dir=tmp_path / "work", archive_dir=tmp_path / "archive",
-                      dry_run_file=None, version="0.5.0")
+                      dry_run_file=None, version="0.6.0")
 
 
 def _wire(monkeypatch, fdb, *, youtube_errors=None, granicus_errors=None, results=None, on_measure=None):
@@ -157,7 +177,8 @@ def test_each_candidate_is_measured_once_saved_once_and_the_work_folder_is_left_
         counts = measure.measure_pass(conn, cfg, limit=20, sleep=seen.sleeps.append)
 
     assert counts == {"passed": 1, "rejected": 1, "failed": 0}
-    assert fdb.reads == [(align.ALIGN_METHOD_VERSION, 20)]
+    assert fdb.reads == [(align.ALIGN_METHOD_VERSION, align.ALIGN_TRUSTED_VERSION, 20)]
+    assert fdb.backlog_reads == [(align.ALIGN_METHOD_VERSION, align.ALIGN_TRUSTED_VERSION)]
     assert fdb.statuses() == [("FR84h22hQvA", "passed"), ("uvqFjIfPLLU", "rejected")]
     first, second = fdb.saved
     assert first.version == align.ALIGN_METHOD_VERSION and first.reason is None
@@ -179,11 +200,36 @@ def test_each_candidate_is_measured_once_saved_once_and_the_work_folder_is_left_
                              (("features", "align-3170.wav"), ("features", "align-yt-uvqFjIfPLLU.wav"))]
     assert seen.sleeps == [measure.MEASURE_PAUSE_S, measure.MEASURE_PAUSE_S] == [3.0, 3.0]
     assert _left_in(cfg.work_dir) == []
-    assert ("measure meeting 3184 clip 2026 video FR84h22hQvA: passed offset=635.48s "
+    assert ("measure meeting 3184 clip 2026 video FR84h22hQvA: passed stretch 1/1 offset=635.48s "
             "covers=635.5-4078.7s score=23.6 runner_up=6.0 windows=10/12") in caplog.messages
     assert ("measure meeting 3170 clip 2024 video uvqFjIfPLLU: rejected (windows) offset=635.48s "
-            "covers=635.5-4078.7s score=23.6 runner_up=6.0 windows=10/12") in caplog.messages
+            "covers=none score=23.6 runner_up=6.0 windows=10/12") in caplog.messages
     assert caplog.messages[-1] == "measure done {'passed': 1, 'rejected': 1, 'failed': 0} remaining=0"
+
+
+def test_a_measurement_with_two_stretches_is_saved_once_and_logged_once_per_stretch(
+        monkeypatch, tmp_path, caplog):
+    from transcriber import measure
+    cfg, conn = _cfg(tmp_path), FakeConn()
+    fdb = FakeDB([_cand(11, "FR84h22hQvA", 3184, "2026")])
+    seen = _wire(monkeypatch, fdb, results={"FR84h22hQvA": _two_stretches()})
+    with caplog.at_level(logging.INFO):
+        counts = measure.measure_pass(conn, cfg, limit=20, sleep=seen.sleeps.append)
+
+    assert counts == {"passed": 1, "rejected": 0, "failed": 0}      # counted per recording
+    assert len(fdb.saved) == 1 and conn.commits == 1
+    assert fdb.saved[0].status == "passed" and len(fdb.saved[0].measurement.stretches) == 2
+    prefix = "measure meeting 3184 clip 2026 video FR84h22hQvA: "
+    lines = [m for m in caplog.messages if m.startswith(prefix)]
+    assert lines == [
+        prefix + "passed stretch 1/2 offset=300.00s covers=300.0-1500.0s score=49.5 runner_up=3.7 windows=4/4",
+        prefix + "passed stretch 2/2 offset=490.00s covers=1690.0-2000.0s score=13.3 runner_up=3.7 windows=2/2",
+    ]
+    at = caplog.messages.index(lines[0])
+    assert caplog.messages[at + 1] == lines[1]                      # consecutive, each its own record
+    assert not any("\n" in m for m in caplog.messages)
+    assert all(r.levelno == logging.INFO for r in caplog.records if r.getMessage().startswith(prefix))
+    assert caplog.messages[-1] == "measure done {'passed': 1, 'rejected': 0, 'failed': 0} remaining=0"
 
 
 def test_two_recordings_of_one_meeting_fetch_the_granicus_audio_once_and_get_a_row_each(
@@ -425,7 +471,7 @@ def test_main_measures_before_the_engine_loads_and_meeting_id_skips_the_measurin
     assert m_kw["deadline"] is None                            # no --max-hours
     assert isinstance(m_kw["stop"], QuietStop) and l_kw["stop_flag"] is m_kw["stop"]   # one Ctrl-C for both
     assert isinstance(l_kw["started"], float)
-    assert m_cfg.version == "0.5.0"
+    assert m_cfg.version == "0.6.0"
 
     events.clear()
     assert cli.main(["--measure-limit", "7", "--max-hours", "2"]) == 0

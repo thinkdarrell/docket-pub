@@ -47,14 +47,17 @@ class _Seed:
 
     def measurement(self, meeting_video_id: int, *, status: str = "passed", clip: str = CLIP,
                     method_version: int = 2, offset_s=635.48, start_s=635.5, end_s=3935.5,
-                    reason: str | None = None) -> None:
+                    reason: str | None = None, stretch: int | None = None) -> None:
+        """One row; ``stretch`` is named only when given, so the column default stays in use."""
+        columns = ("meeting_video_id, granicus_clip_id, method_version, status, reason, offset_s, "
+                   "granicus_start_s, granicus_end_s, score, runner_up, windows, windows_confirmed")
+        values = "%s, %s, %s, %s, %s, %s, %s, %s, 23.6, 6.0, 12, 10"
+        params = [meeting_video_id, clip, method_version, status, reason, offset_s, start_s, end_s]
+        if stretch is not None:
+            columns, values = columns + ", stretch", values + ", %s"
+            params.append(stretch)
         with db_cursor() as cur:
-            cur.execute(
-                "INSERT INTO meeting_video_alignments (meeting_video_id, granicus_clip_id, method_version, "
-                "status, reason, offset_s, granicus_start_s, granicus_end_s, score, runner_up, windows, "
-                "windows_confirmed) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 23.6, 6.0, 12, 10)",
-                (meeting_video_id, clip, method_version, status, reason, offset_s, start_s, end_s),
-            )
+            cur.execute(f"INSERT INTO meeting_video_alignments ({columns}) VALUES ({values})", params)
 
     def item(self, meeting_id: int, number: str, external_id: str | None, *, is_consent: bool = False,
              cue_s: float | None = None) -> int:
@@ -218,3 +221,49 @@ def test_item_links_on_meeting_3184s_shape(seed):
     upcoming = seed.meeting("event-99042028", video_url=None)
     seed.item(upcoming, "1", "event-99042028-1")
     assert vl.item_links(upcoming) == {}, "a meeting with no video has no video links"
+
+
+def test_a_recording_with_several_stretches_yields_one_recording_per_stretch_in_start_order(seed):
+    """Plan youtube-links-cover-matching-stretches, M3: a recording that matches its clip at two
+    offsets holds one passed row per stretch, and each row is a Recording of its own."""
+    from docket.services import video_links as vl
+
+    meeting_id = seed.meeting()
+    # The second upload is inserted before the primary, and the primary's later
+    # stretch before its first, so neither order is just insertion order.
+    second = seed.recording(meeting_id, "vll-second")
+    primary = seed.recording(meeting_id, "vll-primary", is_primary=True)
+    seed.measurement(second, method_version=3, offset_s=101.28, start_s=101.3, end_s=5050.0)
+    seed.measurement(primary, method_version=3, offset_s=490.0, start_s=1690.0, end_s=2000.0, stretch=2)
+    seed.measurement(primary, method_version=3, offset_s=300.0, start_s=300.0, end_s=1500.0, stretch=1)
+
+    assert vl.for_meeting(meeting_id).recordings == (
+        vl.Recording(video_id="vll-primary", offset_s=300.0, start_s=300.0, end_s=1500.0),
+        vl.Recording(video_id="vll-primary", offset_s=490.0, start_s=1690.0, end_s=2000.0),
+        vl.Recording(video_id="vll-second", offset_s=101.28, start_s=101.3, end_s=5050.0),
+    )
+
+    in_second_stretch = seed.item(meeting_id, "1", "371101", cue_s=1800.0)
+    between = seed.item(meeting_id, "2", "371102", cue_s=1600.0)
+    links = vl.item_links(meeting_id)
+    assert links[in_second_stretch].url == "https://www.youtube.com/watch?v=vll-primary&t=1310s"
+    # 1,600 s lies between the primary recording's stretches and inside the
+    # second recording's span, so the order rule opens the second recording
+    # (the gap with no other recording is the unit test's).
+    assert links[between].url == "https://www.youtube.com/watch?v=vll-second&t=1498s"
+
+    # Two stretches of one recording may overlap on the Granicus clock (a
+    # recording that replays part of the clip): the one that starts first is
+    # tried first, whatever its stretch number.
+    replay = seed.meeting("99042029")
+    replayed = seed.recording(replay, "vll-replay", is_primary=True)
+    seed.measurement(replayed, clip="99042029", method_version=3, offset_s=900.0, start_s=1500.0,
+                     end_s=1800.0, stretch=1)
+    seed.measurement(replayed, clip="99042029", method_version=3, offset_s=400.0, start_s=1300.0,
+                     end_s=1905.0, stretch=2)
+    assert [(r.offset_s, r.start_s) for r in vl.for_meeting(replay).recordings] == [
+        (400.0, 1300.0), (900.0, 1500.0)]
+    # And of two that start at the same second, the lower stretch number.
+    seed.measurement(replayed, clip="99042029", method_version=3, offset_s=350.0, start_s=1300.0,
+                     end_s=1400.0, stretch=3)
+    assert [r.offset_s for r in vl.for_meeting(replay).recordings] == [400.0, 350.0, 900.0]

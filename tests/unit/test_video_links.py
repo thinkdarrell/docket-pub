@@ -294,6 +294,24 @@ def test_of_two_recordings_the_one_that_covers_the_moment_and_of_two_that_do_the
         "https://www.youtube.com/watch?v=E0cpl0Snx20&t=910s")
 
 
+def test_a_moment_in_a_later_stretch_of_one_recording_opens_youtube_and_one_in_the_gap_opens_granicus():
+    """Plan youtube-links-cover-matching-stretches, M3: a recording that matches its clip at two
+    offsets reaches the builder as one Recording per stretch, each with its own offset."""
+    from docket.services import video_links as vl
+
+    first = vl.Recording(video_id=YT, offset_s=300.0, start_s=300.0, end_s=1500.0)
+    second = vl.Recording(video_id=YT, offset_s=490.0, start_s=1690.0, end_s=2000.0)
+    video = _meeting_3184(vl, recordings=(first, second))
+    watch = "https://www.youtube.com/watch?v=" + YT + "&t="
+
+    assert vl.link_for(video, seconds=1800.0).url == watch + "1310s"   # the second stretch's offset
+    assert vl.link_for(video, seconds=1000.0).url == watch + "700s"    # the first's
+    assert vl.link_for(video, seconds=1690.0).url == watch + "1200s"   # the second stretch's first second
+    gap = vl.link_for(video, seconds=1600.0, chapter_id="371150")
+    assert (gap.site, gap.url) == ("granicus", PLAYER + "&meta_id=371150")
+    assert vl.link_for(video, seconds=1500.0, chapter_id="371150").site == "granicus"   # end excluded
+
+
 def test_a_youtube_meeting_links_to_its_own_video_with_no_conversion():
     from docket.services import video_links as vl
 
