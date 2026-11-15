@@ -1,0 +1,27 @@
+# 0104 — A recording's coverage is stored in stretches, one row per confirmed stretch with its own offset and span, and the pass mark is applied to each stretch
+
+## Decision
+
+A YouTube recording's measurement against its Granicus clip is stored in stretches: one `meeting_video_alignments` row per confirmed stretch, a contiguous run of the recording that matches the clip at one offset, each with its own offset and span. The pass mark of decision `0078` is applied to each stretch, with the runner-up taken outside every confirmed offset; a window that matches strongly at another offset ends a stretch instead of rejecting the recording; the pieces of decision `0081` trim each stretch's ends; and a row passed at method version 2 stays trusted at version 3 (`ALIGN_TRUSTED_VERSION` in `transcriber/transcriber/align.py`, `MIN_METHOD_VERSION` in `src/docket/services/video_links.py`).
+
+## Rationale
+
+The matcher gave one verdict for the whole of a recording. On the production read of 2026-11-12 (`docs/runbooks/transcripts.md`, History), 171 of the 359 attached recordings had been measured and 60 were rejected. About 33 of the 60 match the clip at two offsets, a stream that dropped and resumed or two pieces stitched together, and were rejected whole as `conflict` or `windows` (meeting 2387: score 118.1, runner-up 67.8; meetings 157 to 168 of early 2023, all with the same shape). About 12 more are strong single matches that one strong window at another offset, or the window share, threw out (meeting 2238: 34 of 40 windows agree, score 158.9, runner-up 4.7). Every link of those meetings opened Granicus although the recording held the moment.
+
+Coverage is found per offset from the windows the recording already has. The offsets tried are the whole-recording peak and then the best offset of every window that matches strongly somewhere else, strongest first, four at most (`MAX_OFFSETS`). Under each, a window is a conflict, agreeing, or quiet; a stretch is a run of windows with no conflict in it, trimmed to its first and last agreeing window; its score is the whole-recording cross-correlation at its offset. On the synthetic signals of `transcriber/tests/test_align.py` the rule gives: a recording cut once (seconds 300 to 1,500 of the clip, then 1,690 to 2,000), which the old method rejected as `conflict` with 4 of 6 windows, two stretches, offset 300.00 covering 300.0 to 1500.0 at score 49.5 with 4 of 4 windows and offset 490.00 covering 1690.0 to 2000.0 at score 13.3 with 2 of 2, runner-up 3.7 for both; a 3-second step, rejected before as `windows`, two stretches at 400.00 and 403.00; a 300-second window replaced by another part of the clip, three stretches, two of which overlap on the Granicus clock; a second part of 155 seconds, one stretch and the short part left to Granicus, because one window lifts no whole-recording peak to the pass score. That last guard is deliberate: a single window that matches strongly elsewhere, the shape that rejected meeting 2238, ends a stretch and is not stored as one.
+
+The pass mark was chosen on 72 labelled pairs of real recordings (decision `0078`), and that audio is gone, so the rule had to keep the table's verdicts by construction and not by re-measuring. It does: for a recording that matches at one offset and has no conflict window, the candidate set is the peak alone, the one run is every counted window trimmed to the first and last agreeing one, and the runner-up excludes the same 5 seconds, so every figure is the figure the old method computed. The single-offset synthetic cases print the same offset, coverage, score, runner-up, and window counts at version 3 as at version 2. That is also why a row passed at version 2 stays trusted: the stretch rule gives such a recording the row it already has, so the bump re-measures only the rejections, about 60 downloads instead of 171.
+
+Two alternatives lost. Cross-correlating the unexplained remainder of the recording again after each stretch gives cleaner scores for a short second part, but it changes the figures of every recording that has any conflict window and could not be checked against the labelled table either. Archiving each recording's band-energy features so a change of method costs no download (`D110`) changes what the pass stores and the archive's shape; the trusted floor bounds this bump at no cost, and the debt row stands for the next one.
+
+What a rejection means changed with it. `conflict` is no longer a reason a stored row can carry, and a rejected row carries the whole recording's figures under its best offset and no span. The runbook's rule for passing a rejected row by hand read that span and is withdrawn: what it would have passed now passes as a stretch.
+
+Known costs, stated in `docs/specs/video-links.md` (Known limits): a recording that matches at five or more offsets is rejected whole, as `margin`; at a cut, up to one window on either side is given up; two stretches of one recording may overlap, and the first by start wins.
+
+## Date
+
+2026-11-12, the plan author (Claude) from the operator's goal and a prototype run on the synthetic signals, in plan `youtube-links-cover-matching-stretches` (built in its M1 to M3 on 2026-11-15, as method version 3 and migration 046); graduated from the plan's Decision Log by its M4 session on 2026-11-15. It pays debt row `D98`, whose trigger had fired on the 2026-11-12 read.
+
+## Status
+
+accepted

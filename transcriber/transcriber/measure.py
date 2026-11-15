@@ -11,8 +11,16 @@ For each recording that ``db.alignment_candidates`` returns, newest meeting firs
 Granicus audio in the work folder at 8 kHz (decoded from the archive's ``audio.flac`` when
 the meeting has one, downloaded from Granicus otherwise), download the YouTube recording's
 smallest audio track, convert it to 8 kHz, let ``align.measure`` compare the two, store one
-``meeting_video_alignments`` row, commit, and log one line. Both WAV files and the download
-are deleted when the recording has been measured; nothing is written to the archive.
+row per confirmed stretch (one ``rejected`` or ``failed`` row otherwise) in
+``meeting_video_alignments``, commit, and log one line per stretch (one line otherwise). Both
+WAV files and the download are deleted when the recording has been measured; nothing is
+written to the archive.
+
+The candidates are the recordings with no measurement, those rejected or failed under an
+older method than ``align.ALIGN_METHOD_VERSION``, and those passed under a method older than
+the trusted floor, ``align.ALIGN_TRUSTED_VERSION``: a row that passed at the floor or later is
+not measured again when the method version rises (plan
+``youtube-links-cover-matching-stretches``).
 
 A recording whose audio cannot be fetched, converted, read, or measured gets a ``failed`` row
 (tried again after seven days) and the pass goes on. Three failed fetches in a row end the
@@ -94,9 +102,14 @@ def _save_measured(conn, cand: tdb.AlignmentCandidate, m: align.Measurement, cou
     tdb.save_alignment(conn, cand, method_version=align.ALIGN_METHOD_VERSION,
                        status=m.status, reason=m.reason, measurement=m)
     conn.commit()
-    counts[m.status] += 1
-    log.info("measure meeting %s clip %s video %s: %s",
-             cand.meeting_id, cand.external_id, cand.video_id, align.describe(m))
+    counts[m.status] += 1                # per recording, however many stretches it has
+    if m.status == "passed":
+        lines = [align.describe_stretch(m, k) for k in range(1, len(m.stretches) + 1)]
+    else:
+        lines = [align.describe(m)]
+    for line in lines:                   # one record per stretch, so each carries the prefix
+        log.info("measure meeting %s clip %s video %s: %s",
+                 cand.meeting_id, cand.external_id, cand.video_id, line)
 
 
 def _save_failed(conn, cand: tdb.AlignmentCandidate, error: BaseException, counts: dict) -> None:
@@ -110,7 +123,8 @@ def _save_failed(conn, cand: tdb.AlignmentCandidate, error: BaseException, count
 
 
 def _run(conn, cfg, counts: dict, *, limit: int, stop, deadline, clock, sleep) -> None:
-    candidates = tdb.alignment_candidates(conn, method_version=align.ALIGN_METHOD_VERSION, limit=limit)
+    candidates = tdb.alignment_candidates(conn, method_version=align.ALIGN_METHOD_VERSION,
+                                          trusted_version=align.ALIGN_TRUSTED_VERSION, limit=limit)
     conn.rollback()                      # read-only; end the transaction before the downloads
 
     # Meeting by meeting, in the order each meeting first appears: a meeting's recordings are
@@ -163,7 +177,8 @@ def _run(conn, cfg, counts: dict, *, limit: int, stop, deadline, clock, sleep) -
     if ended:
         log.info("measure: %s; stopping", ended)
 
-    remaining = tdb.alignment_backlog(conn, method_version=align.ALIGN_METHOD_VERSION)
+    remaining = tdb.alignment_backlog(conn, method_version=align.ALIGN_METHOD_VERSION,
+                                      trusted_version=align.ALIGN_TRUSTED_VERSION)
     conn.rollback()
     log.info("measure done %s remaining=%s", counts, remaining)
 

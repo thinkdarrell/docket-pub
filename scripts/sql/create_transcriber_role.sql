@@ -6,13 +6,17 @@
 -- The role writes only the producer's tables and reads the reference
 -- tables the claim query joins. It also reads meeting_videos (the YouTube
 -- recordings attached to a meeting) and writes meeting_video_alignments
--- (where each recording sits on its Granicus clip's clock), without
--- DELETE: a re-measure overwrites the row. It never sees votes, AI tables,
--- or the review tables.
+-- (where each recording sits on its Granicus clip's clock, one row per
+-- confirmed stretch) with DELETE, because a re-measure replaces a
+-- recording's stretch rows. It never sees votes, AI tables, or the review
+-- tables.
 --
 -- A role created before migration 042 lacks the last two GRANT statements
 -- of this file (meeting_videos and meeting_video_alignments); the owner
--- runs those two alone, since CREATE ROLE refuses a role that exists.
+-- runs those two alone, since CREATE ROLE refuses a role that exists. A
+-- role created between migrations 042 and 046 lacks only the DELETE, which
+-- the owner grants alone with
+--   GRANT DELETE ON meeting_video_alignments TO transcriber;
 
 CREATE ROLE transcriber LOGIN PASSWORD :'password';
 
@@ -34,4 +38,4 @@ GRANT USAGE, SELECT
 
 GRANT SELECT ON meeting_videos TO transcriber;
 
-GRANT SELECT, INSERT, UPDATE ON meeting_video_alignments TO transcriber;
+GRANT SELECT, INSERT, UPDATE, DELETE ON meeting_video_alignments TO transcriber;

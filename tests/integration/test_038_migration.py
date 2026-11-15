@@ -28,9 +28,11 @@ def fresh_038():
         # 040 re-creates the type_source CHECK that 038's down drops with
         # the column; roll it back first so re-applying restores both.
         # 042's table references meeting_videos, which 040's down drops.
+        # 046 re-keys 042's table and, left recorded, would be skipped by the re-apply.
         # 043 adds a column to city_calendar_events, which 038's down drops;
         # rolled back first, the re-apply restores the column with the table.
         runner.rollback_migration(conn, 43)
+        runner.rollback_migration(conn, 46)
         runner.rollback_migration(conn, 42)
         runner.rollback_migration(conn, 40)
         runner.rollback_migration(conn, 38)

@@ -20,4 +20,4 @@ The price is coverage, and links in what is given up open Granicus. On the nine 
 
 ## Status
 
-accepted
+accepted; `0104` applies the pieces to each stretch's ends; this is method version 3

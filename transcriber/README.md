@@ -127,31 +127,42 @@ the pass puts the meeting's Granicus audio in `C:\docket-archive\work\` at 8 kHz
 (decoded from the archive's `audio.flac` when the meeting has one, downloaded
 from Granicus otherwise, with a 3-second pause after each Granicus request),
 downloads the YouTube recording's smallest audio track with yt-dlp, compares the
-sound of the two, and stores one row in `meeting_video_alignments`: the offset in
-seconds, the stretch of the Granicus clock the recording covers, the score, and
-whether the match passed. It keeps none of the audio: the `align-*.wav` files and
+sound of the two, and stores one row in `meeting_video_alignments` per confirmed
+stretch: a run of the recording that matches the clip at one offset, with that
+offset in seconds, the span of the Granicus clock it covers, and the score. A
+recording that plays straight through is one stretch; one that dropped and
+resumed, or was stitched from two pieces, is one stretch per piece. A recording
+with no confirmed stretch gets one `rejected` row, and one whose audio could
+not be fetched one `failed` row. It keeps none of the audio: the `align-*.wav` files and
 the `yt-*` download are deleted as soon as a recording is measured, and the
 archive is only read. A meeting with two recordings has its Granicus audio
 fetched once.
 
-The log has one line per recording, in one of three forms, and one line at the end:
+The log has one line per confirmed stretch of a recording that passed, one line
+for a recording that was rejected or failed, and one line at the end:
 
-    measure meeting <id> clip <clip id> video <video id>: passed offset=<s>s covers=<from>-<to>s score=<s> runner_up=<s> windows=<confirmed>/<counted>
-    measure meeting <id> clip <clip id> video <video id>: rejected (<reason>) offset=... (the same fields)
+    measure meeting <id> clip <clip id> video <video id>: passed stretch <k>/<n> offset=<s>s covers=<from>-<to>s score=<s> runner_up=<s> windows=<confirmed>/<counted>
+    measure meeting <id> clip <clip id> video <video id>: rejected (<reason>) offset=<s>s covers=none score=<s> runner_up=<s> windows=<confirmed>/<counted>
     measure meeting <id> clip <clip id> video <video id>: failed (<error>)
     measure done {'passed': <n>, 'rejected': <n>, 'failed': <n>} remaining=<n>
 
 A passing line reads like `measure meeting 3184 clip 2026 video FR84h22hQvA: passed
-offset=635.48s covers=635.5-3958.7s score=23.6 runner_up=6.0 windows=10/12`: the
-YouTube recording starts 635.48 seconds into the Granicus clip and is confirmed
-from second 635.5 to second 3958.7 of it.
+stretch 1/1 offset=635.48s covers=635.5-3958.7s score=23.6 runner_up=6.0
+windows=10/12`: the YouTube recording starts 635.48 seconds into the Granicus
+clip and is confirmed from second 635.5 to second 3958.7 of it. A recording that
+matches at two offsets prints two such lines, `passed stretch 1/2 ...` and
+`passed stretch 2/2 ...`, each with its own offset and span; the counts in the
+last line are recordings, so it adds one to `passed`.
 
-`passed` means links for that meeting can open YouTube inside the covered
-stretch. `rejected` means the audio was compared and the match was not good
-enough (the reason is `score`, `margin`, `windows`, `conflict`, `no_window`, or
-`edges`);
+`passed` means links for that meeting can open YouTube inside each covered
+stretch, and open Granicus for a moment between two stretches. `rejected` means
+the audio was compared and no stretch of it matched well enough (the reason is
+`score`, `margin`, `windows`, `no_window`, or `edges`, and the figures are the
+whole recording's under its best offset);
 that recording's links stay on Granicus, and it is not measured again until the
-method changes. `failed` means the audio could not be fetched or read; it is
+method changes. A recording that passed is not measured again when the method
+changes, unless the change also raises the version from which a passed row is
+trusted (`ALIGN_TRUSTED_VERSION` in `transcriber/align.py`). `failed` means the audio could not be fetched or read; it is
 tried again once the row is a week old. `remaining` is how many recordings still
 wait.
 
@@ -172,16 +183,24 @@ To work through the backlog on purpose, without transcribing:
     docker compose run --rm transcriber --limit 0 --measure-limit 400 --max-hours 8
 
 The speech model still loads once the measuring is done, and the run then exits
-with nothing claimed.
+with nothing claimed. On the read of 2026-11-12, 171 of 359 attached recordings
+had been measured. The pass after the stretches (method version 3) measures the
+188 never measured, the recordings rejected at version 2 (60 on that read), and
+the failed ones due a retry, about 250 in all; a recording that passed at
+version 2 is not measured again.
 
 **Rebuild the image** (`docker compose build`) after pulling this change, since
 the Dockerfile copies the package; an image built before it runs as before and
-measures nothing.
+measures nothing. An image built before the stretches (producer version 0.5.0 or
+earlier) writes through `ON CONFLICT (meeting_video_id)`, which the re-keyed
+table of migration 046 refuses, so its pass logs `measure: skipped (...)` and
+measures nothing until the image is rebuilt.
 
 A line `measure: skipped (permission denied for table meeting_video_alignments)`
 (or `... for table meeting_videos`) means the production GRANT has not been run:
 the two statements at the end of `scripts/sql/create_transcriber_role.sql`, run
-by the database owner. `measure: skipped (relation "meeting_video_alignments"
+by the database owner, or, when the role could already write the table before
+migration 046, `GRANT DELETE ON meeting_video_alignments TO transcriber;` alone. `measure: skipped (relation "meeting_video_alignments"
 does not exist ...)` means migration 042 has not been deployed. Either way the
 run transcribes as usual. A run of `failed` lines that name yt-dlp is the same
 trouble a `yt-` meeting would have (see "YouTube recordings" above).
