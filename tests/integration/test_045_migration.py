@@ -34,6 +34,7 @@ def fresh_045():
         runner.apply_migrations(conn)
     with db_cursor() as cur:
         cur.execute("DELETE FROM committee_documents WHERE url LIKE 'https://www.birminghamal.gov/m045/%'")
+        cur.execute("DELETE FROM meetings WHERE external_id LIKE 'm045-%'")
 
 
 def _tables() -> set[str]:
@@ -51,9 +52,10 @@ def _birmingham() -> dict:
         return cur.fetchone()
 
 
-def _document(url: str = URL, **columns) -> int:
+def _document(url: str = URL, municipality_id: int | None = None, **columns) -> int:
     names = ["municipality_id", "url", "page_url", "page_committee", *columns]
-    values = [_birmingham()["id"], url, PAGES_ROOT + "public-safety-committee", "Public Safety", *columns.values()]
+    values = [municipality_id or _birmingham()["id"], url, PAGES_ROOT + "public-safety-committee", "Public Safety",
+              *columns.values()]
     with db_cursor() as cur:
         cur.execute(
             f"INSERT INTO committee_documents ({', '.join(names)}) "
@@ -156,12 +158,56 @@ def test_045_each_check_admits_its_values_and_nothing_else(fresh_045):
             cur.execute("UPDATE committee_items SET action_category = 'passed' WHERE id = %s", (item,))
 
 
+def test_045_what_must_be_given_cannot_be_null(fresh_045):
+    with db() as conn:
+        runner.apply_migrations(conn)
+    doc = _document()
+    item = _item(doc)
+    required = {
+        "committee_documents": (doc, ("municipality_id", "url", "page_url", "page_committee", "first_seen_at",
+                                      "last_seen_at", "fetch_attempts", "committees", "listing_disagrees", "special",
+                                      "work_session")),
+        "committee_items": (item, ("document_id", "position", "owns_heading", "name", "body", "action_text",
+                                   "action_category")),
+    }
+    for table, (row_id, columns) in required.items():
+        for column in columns:
+            with pytest.raises(psycopg2.errors.NotNullViolation):
+                with db_cursor() as cur:
+                    cur.execute(f"UPDATE {table} SET {column} = NULL WHERE id = %s", (row_id,))
+    with pytest.raises(psycopg2.errors.ForeignKeyViolation):
+        _document(URL + "?nowhere", municipality_id=2_000_000_000)
+
+
+def test_045_a_document_outlives_its_meeting(fresh_045):
+    with db() as conn:
+        runner.apply_migrations(conn)
+    doc = _document()
+    with db_cursor() as cur:
+        cur.execute(
+            "INSERT INTO meetings (municipality_id, external_id, title, meeting_date, meeting_type) "
+            "VALUES (%s, 'm045-meeting', 'Public Safety Committee Meeting', '2026-09-22', 'committee') RETURNING id",
+            (_birmingham()["id"],),
+        )
+        meeting = cur.fetchone()["id"]
+        cur.execute("UPDATE committee_documents SET meeting_id = %s, attached_by = 'matched' WHERE id = %s",
+                    (meeting, doc))
+        cur.execute("DELETE FROM meetings WHERE id = %s", (meeting,))
+        cur.execute("SELECT meeting_id FROM committee_documents WHERE id = %s", (doc,))
+        assert cur.fetchone() == {"meeting_id": None}, "the document stays, with no meeting"
+
+
 def test_045_one_row_per_address_and_per_position_and_items_go_with_their_document(fresh_045):
     with db() as conn:
         runner.apply_migrations(conn)
     doc = _document()
     with pytest.raises(psycopg2.errors.UniqueViolation):
         _document()
+    with db_cursor() as cur:
+        cur.execute("SELECT id FROM municipalities WHERE slug = 'mobile'")
+        mobile = cur.fetchone()["id"]
+    other = _document(municipality_id=mobile)
+    assert other != doc, "the same address under another city is another row"
     _item(doc, position=1)
     with pytest.raises(psycopg2.errors.UniqueViolation):
         _item(doc, position=1)

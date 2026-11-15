@@ -422,14 +422,32 @@ def test_joint_minutes_keep_both_committees_in_the_headers_order_and_special(net
     assert len(_items(row["id"])) == 10
 
 
-def test_a_fetch_that_fails_three_times_is_not_tried_a_fourth(net):
+def test_a_work_session_is_stored_as_one(net, monkeypatch):
+    from docket.services import committee_documents as service
+
+    listing = (BUCKET + "work-session.pdf", "AGENDA.pdf", "JUNE 2, 2026")
+    _listed(net, ED_PAGE, listing)
+    net.pdfs[listing[0]] = b"%PDF-work-session"
+    text = ("ECONOMIC AND WORKFORCE DEVELOPMENT / TOURISM COMMITTEE WORK SESSION\nTUESDAY, JUNE 2, 2026\n"
+            + "\n".join(f"A presentation to the committee, the {n}th of the afternoon." for n in range(12)))
+    monkeypatch.setattr(service, "extract_text_from_pdf", lambda pdf: text)
+
+    assert service.read_pending(_city(), 10) == 1
+
+    row = _document(listing[0])
+    assert (row["status"], row["kind"], row["work_session"], row["special"]) == ("read", "agenda", True, False)
+
+
+def test_a_fetch_that_fails_three_times_is_not_tried_a_fourth(net, caplog):
     from docket.services import committee_documents as service
 
     _listed(net, BF_PAGE, BF_MINUTES)
     net.pdfs[BF_MINUTES[0]] = None
 
     for attempt in (1, 2, 3):
-        assert service.read_pending(_city(), 10) == 0
+        with caplog.at_level("ERROR", logger=service.log.name):
+            assert service.read_pending(_city(), 10) == 0
+        assert caplog.records == [], "no PDF is an ordinary failure: nothing is read, and nothing raises to be logged"
         row = _document(BF_MINUTES[0])
         assert (row["status"], row["fetch_attempts"]) == ("fetch_failed", attempt)
         assert (row["fetched_at"], row["pdf_sha256"], row["text"], row["parser_version"]) == (None, None, None, None)
@@ -484,7 +502,8 @@ def test_read_pending_takes_the_oldest_first_up_to_its_limit_and_only_this_city(
     listings = [(BUCKET + f"{n}.pdf", "AGENDA.pdf", "JUNE 2, 2026") for n in names]
     _listed(net, ED_PAGE, *listings)
     _listed(net, ED_PAGE, (BUCKET + "mobile.pdf", "AGENDA.pdf", "JUNE 2, 2026"), city=_city("mobile"))
-    seen = {"a": 1, "b": 2, "c": 3}
+    # a and b were first seen at the same moment; a has the lower id (c, a, b is the order listed).
+    seen = {"a": 1, "b": 1, "c": 3}
     with db_cursor() as cur:
         for name, day in seen.items():
             cur.execute("UPDATE committee_documents SET first_seen_at = %s WHERE url = %s",

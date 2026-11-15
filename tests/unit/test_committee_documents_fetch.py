@@ -129,13 +129,28 @@ def test_fetch_pdf_stops_past_forty_megabytes(net):
     net.get.return_value = resp
 
     assert fetch_pdf(PDF) is None
-    assert len(served) <= 41, "it stops reading once the limit is passed, and does not take the whole body"
+    assert len(served) == 40, "it stops at the chunk that passes forty megabytes, and takes no more of the body"
     resp.close.assert_called_once()
 
     # Exactly forty megabytes is not past the limit.
     net.get.return_value = _response(chunks=[b"%PDF-" + b"x" * (MB - 5)] + [b"x" * MB] * 39)
     body = fetch_pdf(PDF)
     assert body is not None and len(body) == 40 * MB
+
+
+def test_fetch_pdf_is_none_when_the_body_breaks_off_part_way(net):
+    from docket.adapters.committee_documents import fetch_pdf
+
+    def chunks(chunk_size=None):
+        yield b"%PDF-1.7 the first part"
+        raise requests.exceptions.ChunkedEncodingError("connection broken")
+
+    resp = _response()
+    resp.iter_content.side_effect = chunks
+    net.get.return_value = resp
+
+    assert fetch_pdf(PDF) is None
+    resp.close.assert_called_once()
 
 
 def test_fetch_pdf_is_none_for_a_body_that_is_not_a_pdf(net):

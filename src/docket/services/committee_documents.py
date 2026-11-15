@@ -161,7 +161,6 @@ def _store_reading(cur, row: dict, text: str) -> None:
         url=row["url"], listed_name=row["listed_name"], listed_heading=row["listed_heading"],
         page_url=row["page_url"],
     )
-    text = text or ""
     facts = None
     minutes = None
     if len("".join(text.split())) < MIN_TEXT_CHARS:
