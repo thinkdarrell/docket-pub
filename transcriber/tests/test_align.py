@@ -88,6 +88,7 @@ def test_unrelated_audio_is_rejected_on_score():
 
     assert (m.status, m.reason) == ("rejected", "score")
     assert m.score < align.PASS_SCORE
+    assert m.stretches == ()
 
 
 def test_recording_that_starts_before_the_clip_counts_only_windows_inside_it():
@@ -108,19 +109,44 @@ def test_recording_that_starts_before_the_clip_counts_only_windows_inside_it():
     assert m.granicus_end_s == pytest.approx(905.0, abs=0.1)
 
 
-def test_cut_recording_is_rejected():
+def _assert_stretch(stretch, *, offset, start, end, windows, label=""):
+    """One stretch's offset and coverage within 0.1 s and its (confirmed, counted) windows."""
+    assert stretch.offset_s == pytest.approx(offset, abs=0.1), label
+    assert stretch.granicus_start_s == pytest.approx(start, abs=0.1), label
+    assert stretch.granicus_end_s == pytest.approx(end, abs=0.1), label
+    assert (stretch.windows_confirmed, stretch.windows) == windows, label
+
+
+def test_cut_recording_yields_one_stretch_per_offset():
     import transcriber.align as align
 
+    assert align.ALIGN_METHOD_VERSION == 3 and align.ALIGN_TRUSTED_VERSION == 2
     g_samples, g = _granicus(align)
     # Two true offsets: 300 s for the first 1,200 s, 490 s for the last 310 s.
     youtube = np.concatenate([_cut(g_samples, 300, 1500), _cut(g_samples, 1690, 2000)])
     m = align.measure(g, align.features(youtube))
 
-    assert (m.status, m.reason) == ("rejected", "conflict")
+    assert (m.status, m.reason) == ("passed", None)
+    assert len(m.stretches) == 2
+    first, second = m.stretches
+    # Four grid windows confirm 300.
+    _assert_stretch(first, offset=300.0, start=300.0, end=1500.0, windows=(4, 4))
+    # The grid window at 1,200 s and the end window at 1,210 s confirm 490.
+    _assert_stretch(second, offset=490.0, start=1690.0, end=2000.0, windows=(2, 2))
+    for stretch in m.stretches:
+        assert stretch.score >= align.PASS_SCORE
+        assert stretch.score - stretch.runner_up >= align.PASS_MARGIN
+    # The measurement's own figures are the first stretch's.
     assert m.offset_s == pytest.approx(300.0, abs=0.1)
-    # Four windows confirm 300; the fifth grid window and the end window both
-    # match strongly at 490.
-    assert (m.windows_confirmed, m.windows) == (4, 6)
+    assert (m.granicus_start_s, m.granicus_end_s) == (first.granicus_start_s, first.granicus_end_s)
+    assert (m.windows_confirmed, m.windows) == (4, 4)
+    assert align.describe_stretch(m, 1).startswith(
+        "passed stretch 1/2 offset=300.00s covers=300.0-1500.0s")
+    assert align.describe_stretch(m, 2).startswith(
+        "passed stretch 2/2 offset=490.00s covers=1690.0-2000.0s")
+    assert align.describe(m).count("\n") == 1
+    assert align.describe(m) == "\n".join(
+        [align.describe_stretch(m, 1), align.describe_stretch(m, 2)])
 
 
 def test_recording_that_runs_past_the_clip_is_covered_to_the_clips_end():
@@ -141,7 +167,7 @@ def test_recording_that_runs_past_the_clip_is_covered_to_the_clips_end():
     assert m.granicus_end_s == pytest.approx(2000.0, abs=0.1)
 
 
-def test_offset_step_inside_the_agreement_tolerance_passes_and_a_larger_one_is_rejected():
+def test_offset_step_inside_the_agreement_tolerance_passes_and_a_larger_one_splits_into_two_stretches():
     import transcriber.align as align
 
     g_samples, g = _granicus(align)
@@ -152,12 +178,57 @@ def test_offset_step_inside_the_agreement_tolerance_passes_and_a_larger_one_is_r
     assert (m.status, m.reason) == ("passed", None)
     assert m.offset_s == pytest.approx(400.0, abs=0.1)
     assert (m.windows_confirmed, m.windows) == (5, 5)
+    assert len(m.stretches) == 1
 
-    # 3 s missing: outside it.
+    # 3 s missing: outside it, so the recording sits at two offsets.
     large = np.concatenate([_cut(g_samples, 400, 1000), _cut(g_samples, 1003, 1605)])
     m = align.measure(g, align.features(large))
-    assert m.status == "rejected"
-    assert m.reason in ("windows", "conflict")
+    assert (m.status, m.reason) == ("passed", None)
+    assert len(m.stretches) == 2
+    _assert_stretch(m.stretches[0], offset=400.0, start=400.0, end=1000.0, windows=(2, 2))
+    _assert_stretch(m.stretches[1], offset=403.0, start=1003.0, end=1605.0, windows=(3, 3))
+
+
+def test_a_replaced_window_splits_one_offset_into_two_stretches():
+    import transcriber.align as align
+
+    g_samples, g = _granicus(align)
+    # The third 5-minute window is another part of the clip: a true match at
+    # offset 900 in the middle of a recording that sits at offset 400.
+    youtube = np.concatenate([_cut(g_samples, 400, 1000), _cut(g_samples, 1500, 1800),
+                              _cut(g_samples, 1300, 1905)])
+    m = align.measure(g, align.features(youtube))
+
+    assert (m.status, m.reason) == ("passed", None)
+    assert len(m.stretches) == 3
+    # In order of where the coverage starts; the second and third overlap on
+    # the Granicus clock, because the recording plays that part twice.
+    _assert_stretch(m.stretches[0], offset=400.0, start=400.0, end=1000.0, windows=(2, 2))
+    _assert_stretch(m.stretches[1], offset=400.0, start=1300.0, end=1905.0, windows=(3, 3))
+    _assert_stretch(m.stretches[2], offset=900.0, start=1500.0, end=1800.0, windows=(1, 1))
+    # The measurement's own window counts are the first stretch's, not the
+    # 5 of 6 the whole recording has under offset 400.
+    assert (m.windows_confirmed, m.windows) == (2, 2)
+    for stretch in m.stretches:
+        assert stretch.score >= align.PASS_SCORE
+        assert stretch.score - stretch.runner_up >= align.PASS_MARGIN
+        assert stretch.runner_up == m.runner_up
+
+
+def test_a_quiet_window_inside_a_stretch_stays_inside_it():
+    import transcriber.align as align
+
+    g_samples, g = _granicus(align)
+    # The same recording with unrelated audio in the third window: it matches
+    # nowhere, so it ends no stretch.
+    youtube = np.concatenate([_cut(g_samples, 400, 1000), _signal(11, 300),
+                              _cut(g_samples, 1300, 1905)])
+    m = align.measure(g, align.features(youtube))
+
+    assert (m.status, m.reason) == ("passed", None)
+    assert len(m.stretches) == 1
+    _assert_stretch(m.stretches[0], offset=400.0, start=400.0, end=1905.0, windows=(5, 6))
+    assert (m.windows_confirmed, m.windows) == (5, 6)
 
 
 # ---------------------------------------------------------------------------
@@ -261,6 +332,7 @@ def test_recording_whose_windows_pass_and_whose_pieces_do_not_is_rejected(monkey
     assert (m.granicus_start_s, m.granicus_end_s) == (None, None)
     assert m.offset_s == pytest.approx(400.0, abs=0.1)
     assert (m.windows_confirmed, m.windows) == (4, 4)
+    assert m.stretches == ()
     assert align.describe(m).startswith("rejected (edges) offset=400.")
     assert "covers=none" in align.describe(m)
 
@@ -332,4 +404,4 @@ def test_measure_files_matches_measure(tmp_path):
     assert from_files == from_arrays
     assert from_files.status == "passed"
     assert from_files.offset_s == pytest.approx(200.0, abs=0.1)
-    assert align.describe(from_files).startswith("passed offset=200.")
+    assert align.describe(from_files).startswith("passed stretch 1/1 offset=200.")
