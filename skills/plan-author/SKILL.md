@@ -96,6 +96,22 @@ constrains:
    milestone found it by reading, after a debt row had been worded from
    the plan's guess), and the type resolver's elimination rule (the second
    review).
+   When the work changes a predicate over a table that a documented
+   statement writes by hand (an off switch, a hand pass, a delete an
+   operator pastes from a runbook or a spec), the research greps the
+   runbooks and the specs for statements that write that table, and each
+   row state such a statement leaves is a case the plan works the new
+   predicate on and a row one of its tests seeds. A count of production
+   does not show these states, because the statement may never have been
+   run. A sentence that the statement "still works" is an acceptance
+   clause with that test behind it, never an aside. One plan gave every
+   row that is not `passed` a higher version floor than a `passed` one and
+   wrote, in Idempotence and in the spec, that the owner's off switch
+   still worked; the switch sets `passed` rows to `rejected` at the
+   version they hold, which the new floor made candidates for re-measuring
+   and the plan's own migration deleted, no test seeded such a row, and
+   the closing review halted on it as severe; the answer was a fifth
+   milestone.
    When the work changes a rule that prose states, the research greps the
    words the old rule is stated with (`stays public`, `is never cleared`)
    across code and documents alike, docstrings and comments included, and
