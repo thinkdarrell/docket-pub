@@ -13,7 +13,7 @@ One operator runs docket.pub from one machine, the Legion, with the production p
 | **The Legion, WSL checkout** `~/docket-pub` | development, `./tools/verify`, the factory, deploys | Docker is not available here |
 | **The Legion, Windows clone** `C:\docket-pub` | the transcriber, in Docker Desktop with the GPU | archive at `C:\docket-archive`; chapter 5 |
 | **Healthchecks.io** | one check per worker task | a missed ping pages the operator |
-| **Namecheap DNS** | `docket.pub` apex CNAME to Railway; `www` is an HTTP-only redirect, which is why HSTS omits subdomains (`0025`, `D10`) | |
+| **Cloudflare DNS** | `docket.pub` apex, a proxied CNAME to Railway; `www` is redirected to the apex at Cloudflare's edge (`0091`) | `docs/specs/operations.md`, Domain and headers, owns the records; HSTS still omits subdomains (`0025`, `D10`) |
 
 ## The daily rhythm
 
