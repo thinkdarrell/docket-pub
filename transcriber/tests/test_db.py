@@ -734,9 +734,15 @@ def test_save_alignment_replaces_a_recordings_stretch_rows(conn, align_rows):
         granicus_start_s=None, granicus_end_s=None, score=5.4, runner_up=4.3, windows=3,
         windows_confirmed=1, fresh=True, stretch=1)]
 
+    # An error text is kept to its first 4,000 characters, as before the table was re-keyed.
+    tdb.save_alignment(conn, cand, method_version=METHOD, status="failed", reason="AudioFetchError: " + "x" * 5000)
+    conn.commit()
+    row = _alignment_row(conn, vid)
+    assert len(row) == 1 and (row[0]["stretch"], row[0]["status"], len(row[0]["reason"])) == (1, "failed", 4000)
+
     no_stretches = Measurement(status="passed", reason=None, offset_s=300.0, granicus_start_s=300.0,
                                granicus_end_s=1500.0, score=49.5, runner_up=3.7, windows=4, windows_confirmed=4)
     with pytest.raises(ValueError, match="a passed measurement has no stretches"):
         tdb.save_alignment(conn, cand, method_version=METHOD, status="passed", measurement=no_stretches)
-    conn.rollback()
-    assert len(_alignment_row(conn, vid)) == 1, "the refused save left the stored row alone"
+    # Read in the same transaction, before any rollback: the refusal came before the delete.
+    assert len(_alignment_row(conn, vid)) == 1, "the refused save wrote nothing"
