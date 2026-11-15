@@ -18,7 +18,7 @@ Plan 1: `docs/superpowers/plans/2026-10-07-transcripts-foundation.md` (PR #99).
   public proxy as the narrow `transcriber` role. It never calls an LLM.
   An ordinary run first measures, without the GPU, where each YouTube recording
   attached to a Granicus meeting sits on that clip's clock, one
-  `meeting_video_alignments` row per recording; "Measuring YouTube recordings" in
+  `meeting_video_alignments` row per confirmed stretch of a recording; "Measuring YouTube recordings" in
   `transcriber/README.md` has the log lines and the `--measure-limit` flag.
   Setup and run commands: `transcriber/README.md`, which also has the desktop
   operating notes, a "What to expect" section from the first runs, and the
@@ -291,29 +291,30 @@ recording, and for a meeting whose audio is not in the archive the whole Granicu
 MP4 (`D110`). The run of 2026-11-06 measured 20 in under an hour.
 
 After a run, query 4 under "The operator's read-only queries" in
-`plans/completed/video-links-land-on-the-moment.md` lists what was stored. Read
-every `rejected` row and the lowest-scoring `passed` rows. On the 18 that passed
-first, the runner-up score was 3.3 to 6.0; a `rejected` row whose runner-up is
-near its score is a recording that matches at two offsets (`D98`), not a wrong
-match. The count of `rejected` rows by reason is the trigger of `D97` and `D98`.
+`plans/completed/video-links-land-on-the-moment.md` lists what was stored. Its
+first and third statements count rows, and since migration 046 a row is a
+stretch and not a recording, so `count(DISTINCT meeting_video_id)` in place of
+`count(*)` is the count of recordings. Read every `rejected` row and the
+lowest-scoring `passed` rows. A recording that matches its clip at two offsets
+(a stream that dropped and resumed, two pieces stitched together) comes back as
+two or more `passed` rows for one `meeting_video_id`, each with its own
+`offset_s` and span. A `rejected` row made at method version 3 carries the whole
+recording's offset, score, runner-up, and window counts and no span, and its
+reason is `score`, `margin`, `windows`, `no_window`, or `edges`. On the 18 that
+passed first, the runner-up score was 3.3 to 6.0. The count of `rejected` rows
+by reason is the trigger of `D97`.
 
-A rejected row can be passed by hand when its confirmed span is exactly its
-confirmed windows: `granicus_end_s - granicus_start_s = windows_confirmed * 300`.
-Then every window inside the span agreed on the offset and the windows that
-disagreed all lie outside it, so links inside the span land where they should
-and links outside it stay on Granicus. The statement is the reverse of the
-operator's off switch in the plan's "Idempotence and Recovery":
+No rejected row is passed by hand. The rule that once allowed it read the span
+of a rejected row, which a rejected row no longer carries, and what it passed
+by hand now passes as a stretch (decision `0104`). Row 832 (meeting 15), passed
+under that rule on 2026-11-12 with reason `operator`, stands as it is, one
+stretch. To have one recording measured again, the database owner deletes its
+rows and the next run measures it:
 
-    UPDATE meeting_video_alignments
-       SET status = 'passed', reason = 'operator'
-     WHERE meeting_video_id = <id> AND status = 'rejected'
-       AND granicus_end_s - granicus_start_s = windows_confirmed * 300
-    RETURNING meeting_video_id, status, granicus_start_s, granicus_end_s;
+    DELETE FROM meeting_video_alignments WHERE meeting_video_id = <id>;
 
-The row is then current and is not measured again until `ALIGN_METHOD_VERSION`
-rises. Record each override under History with the figures that justified it.
-A rejected row whose span is longer than its confirmed windows is not a
-candidate: the span holds windows that did not confirm.
+A recording the operator believes right that is rejected again is an issue on
+`thinkdarrell/docket-pub` with its figures, not an override.
 
 ## Checking progress from the laptop
 
@@ -351,10 +352,15 @@ Created once per database (done on Railway 2026-10-10):
 It can read `meetings`, `municipalities`, `council_members`, `agenda_items`,
 `meeting_videos` and write only `transcripts`, `transcript_segments`,
 `transcript_speakers`, `producer_heartbeats`, and `meeting_video_alignments`
-(insert and update, no delete: a re-measure overwrites the row). The grants on
-`meeting_videos` and `meeting_video_alignments` came with migration 042; a role
-created before it needs the last two `GRANT` statements of that file run alone
-by the database owner. The connection string lives only in `transcriber/.env` on
+(select, insert, update, and delete: a re-measure replaces a recording's stretch
+rows). The grants on `meeting_videos` and `meeting_video_alignments` came with
+migration 042 and the DELETE with the reshaping of migration 046 (no migration
+grants anything to the role); a role created before 042 needs
+the last two `GRANT` statements of that file run alone by the database owner,
+and one created between 042 and 046 needs only
+`GRANT DELETE ON meeting_video_alignments TO transcriber;`, after which
+`SELECT has_table_privilege('transcriber', 'meeting_video_alignments', 'DELETE');`
+prints `t`. The connection string lives only in `transcriber/.env` on
 the Legion. Rotate with `ALTER ROLE transcriber PASSWORD '...'` and update that file.
 
 ## Granicus junk clips (Monday test streams)

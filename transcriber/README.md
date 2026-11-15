@@ -183,7 +183,10 @@ To work through the backlog on purpose, without transcribing:
     docker compose run --rm transcriber --limit 0 --measure-limit 400 --max-hours 8
 
 The speech model still loads once the measuring is done, and the run then exits
-with nothing claimed.
+with nothing claimed. The first pass over the backlog measured every attached
+recording. The pass after the stretches (method version 3) is about 60
+recordings, the ones rejected at version 2: a recording that passed at version
+2 is not measured again.
 
 **Rebuild the image** (`docker compose build`) after pulling this change, since
 the Dockerfile copies the package; an image built before it runs as before and
@@ -195,7 +198,8 @@ measures nothing until the image is rebuilt.
 A line `measure: skipped (permission denied for table meeting_video_alignments)`
 (or `... for table meeting_videos`) means the production GRANT has not been run:
 the two statements at the end of `scripts/sql/create_transcriber_role.sql`, run
-by the database owner. `measure: skipped (relation "meeting_video_alignments"
+by the database owner, or, when the role could already write the table before
+migration 046, `GRANT DELETE ON meeting_video_alignments TO transcriber;` alone. `measure: skipped (relation "meeting_video_alignments"
 does not exist ...)` means migration 042 has not been deployed. Either way the
 run transcribes as usual. A run of `failed` lines that name yt-dlp is the same
 trouble a `yt-` meeting would have (see "YouTube recordings" above).
