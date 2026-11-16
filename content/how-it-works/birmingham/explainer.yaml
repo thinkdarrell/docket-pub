@@ -16,8 +16,9 @@ stops:
     name: Submitted
     side_route_of: null
     description: >-
-      A councilmember, the Mayor or the City Attorney submits the item, and it
-      has to reach the City Clerk by 5:00 p.m. on Wednesday.
+      A councilmember, the Mayor or the City Attorney submits the item. The
+      deadline to reach the City Clerk is 5:00 p.m. on Wednesday; a late item
+      can still be taken up by unanimous consent or on an addendum.
     rules:
       - statement: >-
           A councilmember, the Mayor or the City Attorney can submit an
@@ -52,8 +53,9 @@ stops:
         url: https://library.municode.com/al/birmingham/codes/code_of_ordinances
         source_file: general-code-title-2-chapter-2.txt
       - statement: >-
-          An item must reach the City Clerk by 5:00 p.m. on Wednesday to be on
-          the agenda.
+          The deadline for an item to reach the City Clerk is 5:00 p.m. on
+          Wednesday. An item that misses it cannot be voted on, with two
+          exceptions.
         quote: >-
           All reports, communications, ordinances, resolutions, contract
           documents or other matters to be submitted to the city council shall
@@ -74,8 +76,8 @@ stops:
         url: https://library.municode.com/al/birmingham/codes/code_of_ordinances
         source_file: general-code-title-2-chapter-2.txt
       - statement: >-
-          Everything is sent to the Mayor for an administrative recommendation
-          when it is introduced.
+          Ordinances, resolutions and contract documents are sent to the Mayor
+          for an administrative recommendation when they are introduced.
         quote: >-
           All ordinances, resolutions and contract documents shall, upon
           introduction, be submitted to the mayor for his or her
@@ -151,8 +153,9 @@ stops:
         source_file: general-code-title-2-chapter-2.txt
       - statement: >-
           Committees are appointed by the council president, subject to the
-          council's approval. Two members make a quorum. Whether the public
-          may take part is at the chair's complete discretion.
+          council's approval. Two members make a quorum, except on the
+          Committee of the Whole. Whether the public may take part is at the
+          chair's complete discretion.
         quote: >-
           All standing and special committees shall be appointed by the
           president of the city council, subject to approval by the city
