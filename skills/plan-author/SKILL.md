@@ -183,7 +183,7 @@ constrains:
    that stacks under 720 pixels and ticked a Progress line saying the journey
    swaps without reloading the page; three sessions each looked for a browser,
    found none, and recorded the layout and the swap as unobserved, and the
-   operator's look was first written down by the closing milestone (`D125`).
+   operator's look was first written down by the closing milestone (debt row `D125`, paid and deleted on 2026-11-16).
    Take the acceptance-first order seriously — it is the
    only reliable sizing test, and writing the story first produces
    milestones whose acceptance is invented afterwards to fit.
