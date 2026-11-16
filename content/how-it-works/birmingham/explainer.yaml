@@ -76,8 +76,8 @@ stops:
         url: https://library.municode.com/al/birmingham/codes/code_of_ordinances
         source_file: general-code-title-2-chapter-2.txt
       - statement: >-
-          Everything is sent to the Mayor for an administrative recommendation
-          when it is introduced.
+          Ordinances, resolutions and contract documents are sent to the Mayor
+          for an administrative recommendation when they are introduced.
         quote: >-
           All ordinances, resolutions and contract documents shall, upon
           introduction, be submitted to the mayor for his or her
@@ -153,8 +153,9 @@ stops:
         source_file: general-code-title-2-chapter-2.txt
       - statement: >-
           Committees are appointed by the council president, subject to the
-          council's approval. Two members make a quorum. Whether the public
-          may take part is at the chair's complete discretion.
+          council's approval. Two members make a quorum, except on the
+          Committee of the Whole. Whether the public may take part is at the
+          chair's complete discretion.
         quote: >-
           All standing and special committees shall be appointed by the
           president of the city council, subject to approval by the city
