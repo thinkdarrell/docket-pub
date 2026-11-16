@@ -7,7 +7,7 @@ stays out of the unit suite).
 """
 
 from dataclasses import replace
-from datetime import date
+from datetime import date, time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -529,68 +529,52 @@ class TestMinutesPdfDownloadIsFollowedByThePause:
 # --- start_time extraction tests -------------------------------------------
 
 
-def test_parse_upcoming_row_extracts_start_time():
-    """The hidden span carries a Unix timestamp — keep the time component, not
-    just the date. 1747780200 = 2025-05-20 22:30 UTC = 17:30 America/Chicago (CDT)."""
-    from datetime import time
-
-    from bs4 import BeautifulSoup
-
-    html = '''
-    <tr class="row-name1">
-      <td headers="EventName">Council Meeting</td>
-      <td headers="EventDate Regular-City-Council-Meeting">
-        <span style="display: none">1747780200</span>
-        2025-05-20
-      </td>
-      <td><a href="//example.com/AgendaViewer.php?view_id=2&amp;event_id=12345">Agenda</a></td>
-    </tr>
-    '''
-    soup = BeautifulSoup(html, "html.parser")
-    row = soup.find("tr")
-
-    adapter = _adapter()
-
-    raw = adapter._parse_upcoming_row(row)
-    assert raw is not None
-    assert raw.start_time == time(17, 30)
+def _row(html: str):
+    return BeautifulSoup(html, "html.parser").find("tr")
 
 
-def test_parse_archive_row_extracts_start_time():
-    """Archive parser also reads a hidden Unix timestamp; same conversion
-    direction as the upcoming parser. Pins the conversion direction for the
-    production path used by every historical Birmingham meeting.
+def test_upcoming_row_stores_the_time_the_city_lists():
+    """The real 2026-05-19 row lists "09:00 AM" beside the hidden timestamp
+    1779206400. Granicus writes that number as the listed wall time on a Pacific
+    clock (16:00Z is 09:00 PDT), so the stored time is 09:00, not the 11:00 that
+    reading it as an instant in Chicago gives (issue #88)."""
+    raw = _adapter()._parse_upcoming_row(_row(UPCOMING_ROW_HTML))
 
-    1773268200 = 2026-03-11 22:30 UTC = 17:30 America/Chicago (CST, before spring forward)."""
-    from datetime import time
+    assert raw.meeting_date == date(2026, 5, 19)
+    assert raw.start_time == time(9, 0)
 
-    from bs4 import BeautifulSoup
 
-    html = '''
-    <tr class="even">
-      <td class="listItem" headers="Name" scope="row">Special City Council Meeting</td>
-      <td class="listItem" headers="Date">
-        <span style="display:none;">1773268200</span>
-        03/11/2026
-      </td>
-      <td class="listItem" headers="Duration">01h 15m</td>
-      <td class="listItem" headers="Agenda">
-        <a href="//bhamal.granicus.com/AgendaViewer.php?view_id=2&amp;clip_id=1970">Agenda</a>
-      </td>
-      <td class="listItem" headers="Minutes"></td>
-      <td class="listItem" headers="VideoLink">
-        <a href="javascript:void(0);" onclick="window.open('//bhamal.granicus.com/MediaPlayer.php?view_id=2&amp;clip_id=1970')">Video</a>
-      </td>
-    </tr>
-    '''
-    soup = BeautifulSoup(html, "html.parser")
-    row = soup.find("tr")
+def test_upcoming_row_in_winter_stores_the_listed_time():
+    """Synthetic row: 1768325400 is 2026-01-13 17:30Z, 09:30 on a Pacific clock
+    in standard time. The reading holds on both sides of the clock change."""
+    html = UPCOMING_ROW_HTML.replace("1779206400", "1768325400").replace(
+        "May 19, 2026 - 09:00 AM", "January 13, 2026 - 09:30 AM"
+    )
+    raw = _adapter()._parse_upcoming_row(_row(html))
 
-    adapter = _adapter()
+    assert raw.meeting_date == date(2026, 1, 13)
+    assert raw.start_time == time(9, 30)
 
-    raw = adapter._parse_archive_row(row)
-    assert raw is not None
-    assert raw.start_time == time(17, 30)
+
+def test_archive_row_has_a_date_and_no_start_time():
+    """The real 2026-05-12 archive row lists a date and no time, and its hidden
+    timestamp 1778569200 is midnight on a Pacific clock. Midnight is the absence
+    of a time, so nothing is stored; the old reading stored 02:00 (issue #88)."""
+    raw = _adapter()._parse_archive_row(_row(ARCHIVE_ROW_HTML))
+
+    assert raw.meeting_date == date(2026, 5, 12)
+    assert raw.start_time is None
+
+
+def test_archive_row_in_winter_has_a_date_and_no_start_time():
+    """Synthetic row: 1768291200 is midnight Pacific standard time on 2026-01-13."""
+    html = ARCHIVE_ROW_HTML.replace("1778569200", "1768291200").replace(
+        "May 12, 2026", "January 13, 2026"
+    )
+    raw = _adapter()._parse_archive_row(_row(html))
+
+    assert raw.meeting_date == date(2026, 1, 13)
+    assert raw.start_time is None
 
 
 # --- duration extraction (plans/completed/youtube-council-channel.md, M2) ------
