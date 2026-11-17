@@ -6,7 +6,9 @@
    docket.services.coming_up.Entry and the page prints what it carries and
    nothing else: a time, a place or call-in details the source does not
    give are absent, never filled in (docs/PRINCIPLES.md, source or silence).
-   The first link of an entry is the city's own document where there is one.
+   The first link of an entry is the city's own document where there is one;
+   an entry whose source_url is None says, under its links, that docket.pub
+   holds no link to one.
 
    Each entry is an <article> whose id is its uid up to the "@" (the
    upcoming-hearings feed links a hearing by it), with data-entry-uid and
@@ -77,6 +79,9 @@
         <li><a href="{{ url }}"{% if not url.startswith('/') %} rel="external noopener"{% endif %}>{{ label }}</a></li>
         {%- endfor %}
     </ul>
+    {%- if not entry.source_url %}
+    <p class="cu-nosource">docket.pub holds no link to a city document for this entry.</p>
+    {%- endif %}
 </article>
 {% endmacro %}
 
@@ -88,7 +93,8 @@
             <h1 class="hero-title t-display">What's coming up in {{ municipality.name }}</h1>
             <p class="hero-sub cu-lede">
                 Meetings, scheduled public hearings and neighborhood association meetings in
-                the next {{ window_days }} days. Every entry links to the city document it came from.
+                the next {{ window_days }} days. Each entry links to the city document it came
+                from, or says that docket.pub holds no link to one.
             </p>
             <div class="cu-subscribe">
                 <p class="cu-subscribe-ways">
@@ -143,12 +149,18 @@
     <p>
         Meetings come from the council's video site and the city's calendar. A meeting either of
         them calls cancelled is shown marked cancelled, with the one that says so named.
+        A calendar event docket.pub does not read as a council or committee meeting is left out.
     </p>
     <p>
         A hearing's date is read by docket.pub from the text of a resolution on a council agenda,
         without a language model. An agenda is posted before its meeting, so a listed resolution
         may not yet have been adopted, and a hearing the council later moved may still show on its
         first date.
+    </p>
+    <p>
+        The list of hearings can be incomplete. A resolution whose hearing date docket.pub could
+        not read from the agenda's text is left out, and so are hearings held by city boards and
+        commissions other than the council.
     </p>
     {%- if schedule %}
     <p>

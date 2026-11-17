@@ -192,11 +192,44 @@ def test_the_heading_names_the_city(client):
     assert _text(page.select_one("title")).startswith("What's coming up in Birmingham")
 
 
-def test_the_lede_says_sixty_days_and_that_every_entry_is_linked_to_its_document(client):
+def test_the_lede_says_sixty_days_and_that_an_entry_links_its_document_or_says_it_has_none(client):
     lede = _text(_page(client).select_one(".cu-lede"))
 
     assert "the next 60 days" in lede
-    assert "links to the city document it came from" in lede
+    assert "Each entry links to the city document it came from, or says that docket.pub holds no link to one." in lede
+    assert "Every entry" not in lede
+
+
+NO_DOCUMENT = "docket.pub holds no link to a city document for this entry."
+
+
+def test_a_meeting_with_no_city_document_says_so_after_its_links(client):
+    """Only the video site lists it and its row has no agenda address."""
+    row = seed.upcoming_row(date(2026, 11, 24), agenda_url=None)
+
+    article = _article(_page(client), f"meeting-{row}@docket.pub")
+
+    assert [a["href"] for a in article.select(".cu-links a")] == [f"/al/birmingham/meetings/{row}/"]
+    (note,) = article.select("p.cu-nosource")
+    assert _text(note) == NO_DOCUMENT
+    assert note.find_previous_sibling().get("class") == ["cu-links", "t-mono"]
+
+
+def test_a_hearing_with_no_city_document_says_so(client):
+    """None of the meetings that set it has an agenda address."""
+    hearing, _item = seed.hearing(seed.TITLES[63046], agenda_url=None)
+
+    article = _article(_page(client), f"hearing-{hearing}@docket.pub")
+
+    assert all(a["href"].startswith("/al/birmingham/items/") for a in article.select(".cu-links a"))
+    assert [_text(p) for p in article.select("p.cu-nosource")] == [NO_DOCUMENT]
+
+
+def test_an_entry_with_a_city_document_does_not_say_it_has_none(client, seeded):
+    page = _page(client)
+
+    assert len(page.select("article[data-entry-uid]")) > 5
+    assert page.select(".cu-nosource") == []
 
 
 def test_the_subscribe_link_is_the_feeds_address(client):
@@ -535,6 +568,10 @@ def test_where_these_dates_come_from_names_each_source_and_what_is_not_reflected
         "read by docket.pub from the text of a resolution on a council agenda, without a language model",
         "may not yet have been adopted",
         "may still show on its first date",
+        "A calendar event docket.pub does not read as a council or committee meeting is left out",
+        "The list of hearings can be incomplete",
+        "A resolution whose hearing date docket.pub could not read from the agenda's text is left out",
+        "so are hearings held by city boards and commissions other than the council",
         "computed by docket.pub from the monthly rule",
         "covers 2026 only",
         "moved for a holiday is not reflected",

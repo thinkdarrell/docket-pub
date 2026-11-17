@@ -89,6 +89,7 @@
   font-size: 12px;
 }
 .cu-links a { color: var(--accent-ink); overflow-wrap: anywhere; }
+.cu-nosource { margin: var(--space-1) 0 0; color: var(--ink-3); font-size: 12px; }
 
 /* ── a date's neighborhood meetings ───────────────────
    Closed until asked for, so a date with a dozen of them stays short. */

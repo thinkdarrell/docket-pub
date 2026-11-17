@@ -14,7 +14,9 @@ in America/Chicago), in three kinds:
 - `neighborhood`: the dated meetings `docket.services.neighborhood_schedule`
   computes from the city's published schedule.
 
-Every entry carries the city document it came from. A value the source does
+An entry carries the city document it came from where a stored row gives
+its address; `source_url` is None where none does, and the page says so
+under that entry. A value the source does
 not give (a time, a place, call-in details) is absent, never filled in
 (`docs/PRINCIPLES.md`, "Source or silence").
 
