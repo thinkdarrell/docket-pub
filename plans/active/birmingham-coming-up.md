@@ -1486,6 +1486,26 @@ Finished state, `./tools/verify` (16:34Z to 16:39Z), run on commit b13fe32 with 
 
 The fast tiers went from 3358 passed to 3430, the 30 tests of `tests/unit/test_ics.py` and the 42 of `tests/web/test_coming_up_feed.py`, with none failed; the integration tier is unchanged at 1042.
 
+### M8b: what the session observed
+
+Session of 2026-11-17 (UTC), Claude, started on commit bc93071 with a clean tree. Every line below was printed by a command the session ran in this worktree.
+
+Starting state, `./tools/verify`, before any edit (16:45Z to 16:50Z), exit 0:
+
+    3430 passed, 5 skipped, 4 xfailed, 2 warnings in 163.84s (0:02:43)
+    1042 passed, 2 warnings in 113.58s (0:01:53)
+    judge fixtures: 12 of 12 passed
+    134 passed, 1 warning in 9.97s
+    plans: 1 of 1 ok
+    verify: plans ... ok (0s)
+    verify: all 6 checks passed in 290s.
+
+Before the route was changed and before `src/docket/web/templates/rss/scheduled_hearings.xml.j2` existed (16:51Z), `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/web/test_hearings_rss_flagged.py -q -p no:cacheprovider` ended:
+
+    16 failed, 4 passed, 1 warning in 2.48s
+
+The 16 are the ten route tests that need Birmingham's feed to hold stored hearings or to leave out a title that only says "hearing", and the six that render the new template alone on hand-built entries (each on `jinja2.exceptions.TemplateNotFound: rss/scheduled_hearings.xml.j2`). The four that pass in this state are true of the old path as well, and are there for the other side of the branch or for what both paths share: `test_the_same_title_is_in_the_feed_of_a_city_without_the_flag` (Mobile's feed lists the title, as it must before and after), `test_the_flagged_feed_is_served_as_rss_with_the_hours_cache_header`, `test_a_flagged_city_with_no_hearing_in_the_window_has_a_feed_with_no_item` (an empty database gives the old path no item either), and `test_a_city_that_loses_the_flag_returns_to_the_title_test` (with the gate answering no, which is how every city is answered in this state). The commit that holds the tests in this state is the one that adds this paragraph.
+
 ## Interfaces and Dependencies
 
 No new package. `pdfplumber` and `pyyaml` (through `python-frontmatter`; `src/docket/services/how_it_works.py` already imports `yaml`) are in the environment; `requirements.txt` and `requirements.lock` are not changed.
