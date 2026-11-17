@@ -37,6 +37,15 @@ How to see it working, once every milestone is done: `./tools/verify` passes wit
 
 As authored on 2026-11-16, nothing has been executed, so no session has discovered anything. What the authoring research found in production's rows, which shaped the design, is recorded in Context and Orientation under "What production's rows look like" and is not repeated here.
 
+- Observation (M1, 2026-11-17): The 38 tests the plan lists left half of the reader's clauses untested. Of 62 single-clause removals, 31 failed no test.
+  Evidence: `removals tried=62 failed a test=31 survived=31`, then, after 24 added tests, `removals tried=62 failed a test=62 survived=0` (Artifacts and Notes, "M1: what the session observed", lists the 31). The 25 fixture titles are alike in ways that hide clauses: every dated one writes its date with a comma, none puts "on" before a date that follows the trigger, none has two triggers, and every vacation title says both "vacation of" and "right of way" or says "closure of".
+
+- Observation (M1, 2026-11-17): The reader's first date form and the author's SQL for "dated" (Concrete Steps) do not allow the same words between the trigger and the date. The SQL allows "on " or "for "; M1's rule, which the reader follows, allows a comma, spaces, and "on". A title reading "setting a public hearing for November 17, 2026" would be dated by the SQL and not by the reader's first form.
+  Evidence: read from the two texts in this plan; none of the 25 fixture titles has "for" there, so no test shows it. M3's comparison of the dry run against the author's 67 dated is where a stored title of that shape would show, as an item the SQL dates and the reader does not. This session did not change the rule: M1 states it, and widening it is a decision for M3's evidence.
+
+- Observation (M1, 2026-11-17): The trigger's leading word boundary means "resetting a public hearing" is not a trigger. The session pinned the rule as M1 writes it (`test_trigger_starts_at_a_word`) and did not judge whether a resolution that resets a hearing should be read.
+  Evidence: `read_hearing("A Resolution resetting a public hearing November 17, 2026")` returns `None`, asserted. No fixture title says "resetting".
+
 ## Decision Log
 
 - Decision: The hearing reader reads an item's `title` alone, never its `description`.
@@ -150,6 +159,18 @@ As authored on 2026-11-16, nothing has been executed, so no session has discover
 - Decision: No `STATUS` line in the feed. A cancelled meeting's event is told from another by its `SUMMARY` alone, which begins "Cancelled: ", and by the cancellation sentences in its `DESCRIPTION`.
   Rationale: The second review said that Google Calendar and Apple Calendar remove an event marked `STATUS:CANCELLED` from a subscribed calendar instead of showing it. A search on 2026-11-16 neither confirmed nor refuted that for either program, and production holds no cancelled event to try it with. The decision this corrects exists so that a subscriber sees a meeting is off; a line that may make some programs hide the event works against that, and words in the title are shown by every program. What is given up: the standard marker, so a program that would have struck the event through or dimmed it does not. If a cancelled event is one day seen in real calendar programs and they are found to show a marked event, adding the line back is one line and one test (M9's debt row for this plan's leftovers says so).
   Date/Author: 2026-11-16, Darrell Nance (operator), on Claude's recommendation; written into the plan by Claude at his direction.
+
+- Decision: A date form whose match is not a real day yields nothing and the next form is tried; the subject of such a title is the text after the trigger, as for any title whose date did not follow the trigger at once. In the second and third forms only the first match after the trigger is read: if it is not a real day, that form yields nothing, and a later match of the same form is not looked for.
+  Rationale: M1 says "a date that is not a real day is no date" and "the first of these that yields one", and does not say what an impossible date does to the subject or whether a second match of one form counts. Reading only the first match is the literal sense of "the first ... after the trigger"; searching on for a later one would be the reader picking among several dates in one sentence. The fixture's test of "February 30, 2026" pins the first half; nothing in the 25 titles has two matches of one form, so the second half is the code as written and no test.
+  Date/Author: 2026-11-17, Claude, M1 session.
+
+- Decision: The minimum length of the prefix rule is the module constant `PREFIX_MIN` in `src/docket/enrichment/hearings.py`, which M2's `group_readings` imports for its own "at least 90 characters" test and does not restate.
+  Rationale: M1 names the constant in passing and Interfaces does not list it. M2 applies the same threshold in a second place; "One owner per fact".
+  Date/Author: 2026-11-17, Claude, M1 session.
+
+- Decision: The tests import the reader inside each test function, not at the top of the file.
+  Rationale: `skills/plan-execute/SKILL.md` asks for it, so the before state reads as tests failing and not as one collection error. Validation's "saw it fail on import" is met as 37 tests each failing with `ModuleNotFoundError` (Artifacts and Notes, "M1: what the session observed").
+  Date/Author: 2026-11-17, Claude, M1 session.
 
 ## Outcomes & Retrospective
 
@@ -606,6 +627,17 @@ Every failure was `ModuleNotFoundError: No module named 'docket.enrichment.heari
 With `src/docket/enrichment/hearings.py` written, the same command ended, on its first run against the reader:
 
     38 passed, 1 warning in 0.03s
+
+The removal check (`skills/plan-execute/SKILL.md`: tests that pass on the first run of the code have not yet shown they test it). A scratch script outside the repository made 62 copies of the reader's source, each with one clause taken out or weakened, loaded each copy in place of the module through a pytest plugin (the committed file was never edited), and ran the test file against it. First pass, against the 38 tests of commit 5ca396c:
+
+    removals tried=62 failed a test=31 survived=31
+
+The 31 that no test could tell from the rule: collapsing whitespace; "the" in the trigger; the trigger's and the first date form's ignoring of case; the trigger beginning at a word; the trigger being the first match; the optional comma in a date; a year of four digits and no more; "on" between the trigger and the date; the second and the third date forms reading only after the trigger; the third form's full stop or semicolon; the third form's "to be held" clause; the second form tried before the third; the correction applying only when the date read equals the first of the two; "zone district" and "rezon" in the zoning test; "vacation of" and "right of way" in the vacation test; the three orders of the kind tests (weed lots before zoning, zoning before vacation, vacation before budget); the property count being the first; the `weeds:<count>` key, and its being for weed lots alone; bracket groups removed from the key; the cut at "(Submitted by", at "(Recommended by", and at either; equal keys in `same_hearing`; and the shorter key opening the longer and not merely lying inside it. Twenty-four tests (25 collected, one being parametrized over the full stop and the semicolon) were then added under the comment "rules pinned after the removal check" in `tests/unit/test_hearing_reader.py`, none of them in commit 5ca396c; three read fixture titles (62182's "[First Reading]", 3167's "(Submitted by", the three weed-lot keys) and the rest read constructed sentences. Second pass, same 62 removals, against the 62 tests:
+
+    62 passed, 1 warning in 0.06s
+    removals tried=62 failed a test=62 survived=0
+
+Keys the tests observed, each asserted: item 3297's is 101 characters and item 3339's opens with it; item 2116's is 100 characters, ends `zac202500019`, and holds no `november`; item 1680's opens with the 82-character zoning wording followed by `casenozac202500013`, and item 1681's with the same followed by `casenozac202500022`.
 
 ## Interfaces and Dependencies
 

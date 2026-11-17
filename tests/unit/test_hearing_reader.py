@@ -205,3 +205,195 @@ def test_reader_imports_nothing_from_docket():
     source = Path(hearings.__file__).read_text(encoding="utf-8")
     assert "import docket" not in source
     assert "from docket" not in source
+
+
+# --- rules pinned after the removal check -----------------------------------
+#
+# Each test below was added after taking one rule out of a copy of the reader
+# left every earlier test passing. The sentences are constructed, not stored
+# titles; each differs from a fixture title only in the clause it pins.
+
+SETS = "A Resolution setting a public hearing "
+
+
+def _date_of(title):
+    from docket.enrichment.hearings import read_hearing
+
+    reading = read_hearing(title)
+    assert reading is not None
+    return reading.hearing_date
+
+
+def _kind_of(title):
+    from docket.enrichment.hearings import read_hearing
+
+    return read_hearing(title).kind
+
+
+def test_whitespace_runs_are_one_space_before_any_rule_reads():
+    title = "A Resolution setting a\tpublic\n hearing November  17,\n2026, to consider a plan"
+    assert _date_of(title) == date(2026, 11, 17)
+
+
+def test_trigger_reads_the_public_hearing():
+    title = "A Resolution providing for the public hearing November 17, 2026, to hear objections"
+    assert _date_of(title) == date(2026, 11, 17)
+
+
+def test_trigger_and_date_ignore_case():
+    title = "A RESOLUTION SETTING A PUBLIC HEARING NOVEMBER 17, 2026, TO CONSIDER A PLAN"
+    assert _date_of(title) == date(2026, 11, 17)
+
+
+def test_trigger_starts_at_a_word():
+    from docket.enrichment.hearings import read_hearing
+
+    assert read_hearing("A Resolution resetting a public hearing November 17, 2026") is None
+
+
+def test_trigger_is_the_first_match():
+    title = (
+        SETS + "November 17, 2026, to consider a plan, and providing for a public "
+        "hearing December 1, 2026, to hear objections"
+    )
+    assert _date_of(title) == date(2026, 11, 17)
+
+
+def test_date_comma_is_optional():
+    assert _date_of(SETS + "November 17 2026 to consider a plan") == date(2026, 11, 17)
+
+
+def test_date_year_is_four_digits_and_no_more():
+    assert _date_of(SETS + "November 17, 20266 to consider a plan") is None
+
+
+def test_first_form_allows_on_between_trigger_and_date():
+    from docket.enrichment.hearings import read_hearing
+
+    reading = read_hearing(SETS + "on November 17, 2026, to consider a plan")
+    assert reading.hearing_date == date(2026, 11, 17)
+    assert reading.subject == "to consider a plan"
+
+
+def test_second_form_reads_only_after_the_trigger():
+    title = (
+        "A Resolution, further to notice given on the 3rd day of March, 2026, "
+        "setting a public hearing to consider a plan"
+    )
+    assert _date_of(title) is None
+
+
+def test_second_form_is_tried_before_the_third():
+    title = (
+        SETS + "to consider a plan, to be held on March 3, 2026, notice having "
+        "been given on the 7th day of April, 2026"
+    )
+    assert _date_of(title) == date(2026, 4, 7)
+
+
+@pytest.mark.parametrize("stop", [".", ";"])
+def test_third_form_stops_at_a_full_stop_or_semicolon(stop):
+    title = (
+        SETS + "to consider a plan to be held in the Council Chambers" + stop
+        + " The plan was filed on March 3, 2026"
+    )
+    assert _date_of(title) is None
+
+
+def test_third_form_needs_the_to_be_held_clause():
+    assert _date_of(SETS + "to consider the plan filed on March 3, 2026") is None
+
+
+def test_third_form_reads_only_after_the_trigger():
+    title = (
+        "The meeting to be held on March 3, 2026, having been called off, a "
+        "Resolution setting a public hearing to consider a plan"
+    )
+    assert _date_of(title) is None
+
+
+def test_change_note_moves_only_the_date_it_names():
+    title = (
+        "[CHANGE HEARING DATE FROM OCTOBER 21, 2025 TO NOVEMBER 4, 2025] "
+        + SETS + "October 28, 2025 to consider a plan"
+    )
+    assert _date_of(title) == date(2025, 10, 28)
+
+
+def test_kind_zoning_by_zone_district_and_by_rezon():
+    assert _kind_of(SETS + "November 17, 2026, to change zone district boundaries") == "zoning"
+    assert _kind_of(SETS + "November 17, 2026, to rezone the property at 1 Main Street") == "zoning"
+
+
+def test_kind_vacation_by_each_of_its_words():
+    assert _kind_of(SETS + "November 17, 2026, to consider the vacation of an alley") == "vacation"
+    assert _kind_of(SETS + "November 17, 2026, to consider a fence in the right-of-way") == "vacation"
+    assert _kind_of(SETS + "November 17, 2026, to consider a fence in the right of way") == "vacation"
+
+
+def test_kind_is_the_first_that_fits():
+    weeds_and_zoning = (
+        "A Resolution finding that (3) properties have noxious or dangerous weeds "
+        "growing thereon contrary to the Zoning Ordinance and providing for a public "
+        "hearing November 17, 2026"
+    )
+    assert _kind_of(weeds_and_zoning) == "weed_lots"
+    assert _kind_of(SETS + "November 17, 2026, to rezone a lot after the vacation of an alley") == "zoning"
+    assert _kind_of(SETS + "November 17, 2026, to consider the closure of Budget Lane") == "vacation"
+
+
+def test_property_count_is_the_first_in_the_text():
+    from docket.enrichment.hearings import read_hearing
+
+    reading = read_hearing(
+        "A Resolution finding that (212) properties have noxious or dangerous weeds, "
+        "(3) properties of them owned by the City, and providing for a public hearing "
+        "November 17, 2026"
+    )
+    assert reading.property_count == 212
+    assert reading.subject_key == "weeds:212"
+
+
+def test_weed_lot_key_is_the_property_count():
+    from docket.enrichment.hearings import same_hearing
+
+    assert _read(62882).subject_key == "weeds:212"
+    assert _read(63109).subject_key == "weeds:136"
+    assert _read(63166).subject_key == "weeds:136"
+    assert same_hearing("weeds:136", "weeds:136")
+    assert not same_hearing("weeds:212", "weeds:136")
+
+
+def test_a_count_makes_the_key_only_for_a_weed_lot_hearing():
+    from docket.enrichment.hearings import read_hearing
+
+    reading = read_hearing(SETS + "November 17, 2026, to rezone the (3) properties at 1 Main Street")
+    assert reading.kind == "zoning"
+    assert reading.property_count == 3
+    assert reading.subject_key == "torezonethe3propertiesat1mainstreet"
+
+
+def test_key_drops_bracket_groups():
+    key = _read(62182).subject_key
+    assert "[First Reading]" in TITLES[62182]
+    assert key.endswith("deteriorationconditionoftheroadway")
+
+
+def test_key_is_cut_at_submitted_by_and_recommended_by():
+    from docket.enrichment.hearings import read_hearing
+
+    assert "(Submitted by" in TITLES[3167]
+    assert _read(3167).subject_key.endswith("fromneighboringbusinesses")
+    recommended = read_hearing(
+        SETS + "November 17, 2026, to consider a plan. (RECOMMENDED BY THE BUDGET COMMITTEE)"
+    )
+    assert recommended.subject_key == "toconsideraplan"
+
+
+def test_same_hearing_needs_the_shorter_key_to_open_the_longer():
+    from docket.enrichment.hearings import same_hearing
+
+    key = _read(1680).subject_key
+    inside = key[5:100]
+    assert len(inside) == 95 and inside in key
+    assert not same_hearing(inside, key)
