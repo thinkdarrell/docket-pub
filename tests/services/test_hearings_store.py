@@ -96,7 +96,7 @@ def _stored() -> list[dict]:
     with db_cursor() as cur:
         cur.execute(
             """SELECT h.id, h.municipality_id, h.hearing_date, h.kind, h.subject, h.subject_key, h.property_count,
-                      h.rule_version, array_agg(phi.agenda_item_id ORDER BY phi.agenda_item_id) AS items
+                      h.rule_version, h.created_at, h.updated_at, array_agg(phi.agenda_item_id ORDER BY phi.agenda_item_id) AS items
                  FROM public_hearings h
                  JOIN public_hearing_items phi ON phi.hearing_id = h.id
                  JOIN agenda_items ai ON ai.id = phi.agenda_item_id
@@ -387,6 +387,9 @@ def test_a_stored_short_key_is_lengthened_when_the_longer_title_arrives():
     assert stored[0]["subject_key"] == long.subject_key
     assert stored[0]["subject"] == long.subject
     assert report.created == 0
+    assert first[0]["updated_at"] == first[0]["created_at"]
+    assert stored[0]["created_at"] == first[0]["created_at"]
+    assert stored[0]["updated_at"] > first[0]["updated_at"], "the lengthening is stamped"
 
 
 def test_a_stored_long_key_is_kept_when_only_the_short_title_is_read():
@@ -735,3 +738,168 @@ def test_list_upcoming_counts_an_item_with_no_processing_status_as_visible():
     hearings.refresh_hearings(_city(), SINCE)
 
     assert [[i["item_id"] for i in h["items"]] for h in hearings.list_upcoming(_city(), NOV_17, NOV_17)] == [[item]]
+
+
+# --- rules pinned after the removal check ------------------------------------
+# Plan `birmingham-coming-up`, M2: each test below fails when one clause of
+# the service is taken out, and no test above it did.
+
+# Two sentences that set a hearing of one day with one subject and read as
+# different kinds: the kind is tested on the whole title, the key on the
+# subject alone.
+_PLAIN = "A Resolution setting a public hearing November 17, 2026, to consider the renewal of a franchise for a carriage service."
+_BUDGETED = "A Resolution, there being funds in the budget, " + _PLAIN[len("A Resolution "):]
+
+
+def test_find_readings_ignores_case_in_its_sql_test():
+    from docket.services import hearings
+
+    item = _item(_meeting(), TITLES[62830].replace("public hearing", "PUBLIC Hearing"))
+
+    assert [r["item_id"] for r in hearings.find_readings(_city(), SINCE)] == [item]
+
+
+def test_group_a_key_that_lies_inside_another_without_opening_it_stands_alone():
+    from docket.enrichment.hearings import PREFIX_MIN, read_hearing
+    from docket.services import hearings
+
+    whole = TITLES[62830]
+    inside = whole.replace("to consider the adoption of a resolution ", "")
+    whole_key, inside_key = read_hearing(whole).subject_key, read_hearing(inside).subject_key
+    assert inside_key in whole_key and not whole_key.startswith(inside_key) and len(inside_key) >= PREFIX_MIN
+    assert read_hearing(inside).kind == read_hearing(whole).kind
+
+    groups = hearings.group_readings([_row(1, whole), _row(2, inside)])
+
+    assert sorted(g["item_ids"] for g in groups) == [[1], [2]]
+
+
+def test_a_stored_hearing_of_another_kind_with_the_same_key_is_not_matched():
+    from docket.enrichment.hearings import read_hearing
+    from docket.services import hearings
+
+    plain, budgeted = read_hearing(_PLAIN), read_hearing(_BUDGETED)
+    assert (plain.kind, budgeted.kind) == ("other", "budget")
+    assert plain.subject_key == budgeted.subject_key and plain.hearing_date == budgeted.hearing_date
+    first = _item(_meeting(date(2026, 10, 6)), _PLAIN)
+    hearings.refresh_hearings(_city(), SINCE)
+    second = _item(_meeting(OCT_13), _BUDGETED)
+
+    report = hearings.refresh_hearings(_city(), OCT_13)
+
+    assert sorted((h["kind"], h["items"]) for h in _stored()) == [("budget", [second]), ("other", [first])]
+    assert report.created == 1
+
+
+def test_a_stored_hearing_of_another_date_with_the_same_key_is_not_matched():
+    """The run loads the stored hearings of November 17 because another of its items sets one that day."""
+    from docket.services import hearings
+
+    moved = _PLAIN.replace("November 17, 2026", "November 24, 2026")
+    first = _item(_meeting(date(2026, 10, 6)), _PLAIN)
+    hearings.refresh_hearings(_city(), SINCE)
+    meeting = _meeting(OCT_13)
+    second = _item(meeting, moved)
+    third = _item(meeting, TITLES[62182])
+
+    report = hearings.refresh_hearings(_city(), OCT_13)
+
+    assert sorted((h["hearing_date"], h["items"]) for h in _stored()) == [
+        (NOV_17, [first]),
+        (NOV_17, [third]),
+        (date(2026, 11, 24), [second]),
+    ]
+    assert report.created == 2
+
+
+def test_a_stored_short_key_is_taken_by_one_of_two_longer_groups_and_not_by_both():
+    """A cut title was stored alone; the two whole titles it opens then arrive. One takes the stored hearing, the other is new."""
+    from docket.enrichment.hearings import read_hearing
+    from docket.services import hearings
+
+    cut = _item(_meeting(date(2025, 11, 11)), CUT_1680)
+    hearings.refresh_hearings(_city(), SINCE)
+    cut_hearing = _stored()[0]["id"]
+    meeting = _meeting(date(2025, 11, 18))
+    a = _item(meeting, TITLES[1680])
+    b = _item(meeting, TITLES[1681])
+
+    report = hearings.refresh_hearings(_city(), date(2025, 11, 18))
+
+    stored = _stored()
+    assert sorted(h["items"] for h in stored) == [[cut, a], [b]]
+    taken = next(h for h in stored if h["id"] == cut_hearing)
+    assert taken["items"] == [cut, a], "the first group in order takes it"
+    assert taken["subject_key"] == read_hearing(TITLES[1680]).subject_key
+    assert report.created == 1
+
+
+def test_a_stored_hearing_matched_exactly_is_not_also_given_a_short_key():
+    """One whole title is stored; a second case and a title cut inside the case number then arrive. The cut title could be either's, so it is neither's, the stored one's included."""
+    from docket.services import hearings
+
+    a = _item(_meeting(date(2025, 11, 11)), TITLES[1680])
+    hearings.refresh_hearings(_city(), SINCE)
+    meeting = _meeting(date(2025, 11, 18))
+    b = _item(meeting, TITLES[1681])
+    cut = _item(meeting, CUT_1680)
+
+    report = hearings.refresh_hearings(_city(), SINCE)
+
+    assert sorted(h["items"] for h in _stored()) == [[a], [b], [cut]]
+    assert report.created == 2
+
+
+def test_a_run_leaves_another_citys_hearing_with_no_link_alone():
+    from docket.services import hearings
+
+    mobile = _city("mobile")
+    with db_cursor() as cur:
+        cur.execute(
+            """INSERT INTO public_hearings (municipality_id, hearing_date, kind, subject, subject_key, rule_version)
+               VALUES (%s, %s, 'other', 'HEARINGS_TEST_ unlinked', 'hearingstestunlinked', 1) RETURNING id""",
+            (mobile, NOV_17),
+        )
+        unlinked = cur.fetchone()["id"]
+    try:
+        _item(_meeting(), TITLES[62830])
+        hearings.refresh_hearings(_city(), SINCE)
+        with db_cursor() as cur:
+            cur.execute("SELECT count(*) AS n FROM public_hearings WHERE id = %s", (unlinked,))
+            assert cur.fetchone()["n"] == 1
+        hearings.refresh_hearings(mobile, SINCE)
+        with db_cursor() as cur:
+            cur.execute("SELECT count(*) AS n FROM public_hearings WHERE id = %s", (unlinked,))
+            assert cur.fetchone()["n"] == 0, "its own city's run removes it"
+    finally:
+        with db_cursor() as cur:
+            cur.execute("DELETE FROM public_hearings WHERE subject = 'HEARINGS_TEST_ unlinked'")
+
+
+def test_list_upcoming_is_in_date_order_whatever_order_the_hearings_were_stored_in():
+    from docket.services import hearings
+
+    _item(_meeting(OCT_13), TITLES[63108])  # December 8, stored first
+    hearings.refresh_hearings(_city(), SINCE)
+    _item(_meeting(OCT_26), TITLES[62830])  # November 17, stored second
+    hearings.refresh_hearings(_city(), SINCE)
+    by_id = [h["hearing_date"] for h in _stored()]
+    assert by_id == [date(2026, 12, 8), NOV_17]
+
+    listed = hearings.list_upcoming(_city(), NOV_17, date(2026, 12, 8))
+
+    assert [h["hearing_date"] for h in listed] == [NOV_17, date(2026, 12, 8)]
+
+
+def test_list_upcoming_keeps_each_hearings_items_together():
+    """Two hearings of one day whose items' meetings interleave: two entries, not three."""
+    from docket.services import hearings
+
+    a1 = _item(_meeting(OCT_13), TITLES[62830])
+    b = _item(_meeting(date(2026, 10, 20)), TITLES[62182])
+    a2 = _item(_meeting(OCT_26), TITLES[62830])
+    hearings.refresh_hearings(_city(), SINCE)
+
+    listed = hearings.list_upcoming(_city(), NOV_17, NOV_17)
+
+    assert [[i["item_id"] for i in h["items"]] for h in listed] == [[a1, a2], [b]]

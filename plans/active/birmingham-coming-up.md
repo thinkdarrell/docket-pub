@@ -46,6 +46,15 @@ As authored on 2026-11-16, nothing has been executed, so no session has discover
 - Observation (M1, 2026-11-17): The trigger's leading word boundary means "resetting a public hearing" is not a trigger. The session pinned the rule as M1 writes it (`test_trigger_starts_at_a_word`) and did not judge whether a resolution that resets a hearing should be read.
   Evidence: `read_hearing("A Resolution resetting a public hearing November 17, 2026")` returns `None`, asserted. No fixture title says "resetting".
 
+- Observation (M2, 2026-11-17): The tests M2 lists, and the session's first additions to them, left 11 rules of the store free. Of 79 single-clause removals from the service and the migration, 13 failed no test; nine tests were added and 77 then fail one. The two that remain cannot be told from their absence by any result, and are there for cost alone.
+  Evidence: `removals tried=79 failed a test=66 survived=13`, then `removals tried=79 failed a test=77 survived=2` (Artifacts and Notes, "M2: what the session observed", lists the 13). The two: the SQL test on the title in `find_readings` (`title ~* 'public\s+(show\s+cause\s+)?hearing'`), without which every item of the range is passed to `read_hearing`, which returns `None` for the same ones; and the `hearing_date = ANY(...)` bound on the stored hearings `refresh_hearings` loads, without which every stored hearing of the city is loaded and the match, which compares dates itself, picks the same ones. Narrowing either is a different matter and is pinned: the SQL test without its `\s+`, without "show cause", or with case not ignored each fails a test.
+
+- Observation (M2, 2026-11-17): Three things in the migration have no test: `ON DELETE CASCADE` from `municipalities` to `public_hearings`, the two indexes, and the NOT NULLs.
+  Evidence: no removal was tried for them. A test of the first would delete a city row, and the plan's tests use the cities the migrations seed (`D122`); an index changes no result; the NOT NULL columns are always written by the one INSERT in `refresh_hearings`.
+
+- Observation (M2, 2026-11-17): The first migration test written passes without the migration. `test_047_down_removes_the_tables_and_the_key` asserts that after up and down there are no tables and no key, which is also true of a database migration 047 never touched.
+  Evidence: the before state, `5 failed, 1 passed, 1 warning, 45 errors`. The removal check shows the test is not idle once the migration exists: the down without its key removal, without either `DROP TABLE`, each fails a test.
+
 ## Decision Log
 
 - Decision: The hearing reader reads an item's `title` alone, never its `description`.
@@ -698,6 +707,17 @@ The five failures are five of the six migration tests (the module `docket.migrat
 With `src/docket/migrations/047_public_hearings.py` written and registered in `runner.py`, and `src/docket/services/hearings.py` written, the same command ended, on its first run against them:
 
     51 passed, 1 warning in 4.19s
+
+The removal check (`skills/plan-execute/SKILL.md`). A scratch script outside the repository made 79 copies, 69 of `src/docket/services/hearings.py` and 10 of `src/docket/migrations/047_public_hearings.py`, each with one clause taken out or weakened, loaded each copy in place of its module through a pytest plugin (no committed file was edited), and ran the two test files against it with `-x`; after each altered migration the two tables were dropped and the committed migration applied again, and the throwaway database was dropped and rebuilt after each pass. First pass, against the 51 tests of commit d747b8e:
+
+    removals tried=79 failed a test=66 survived=13
+
+The 13 that no test could tell from the rule: the SQL title test in `find_readings` being there at all, and its ignoring of case; in `group_readings`, that a short key must open the longer one and not merely lie inside it; in the match against stored hearings, that a stored hearing is matched to one group only (three removals: the test of "not yet matched", and the marking in each of the two passes), that it must be of the group's date, and of the group's kind; the bound on which stored hearings are loaded; `updated_at` being stamped when a stored key is lengthened; the deletion of unlinked hearings being scoped to the city; and in `list_upcoming`, the order by hearing date (hearings are stored in date order by one run, so id order hid it) and the keeping of one hearing's rows together. Nine tests were then added under the comment "rules pinned after the removal check" in `tests/services/test_hearings_store.py`, none of them in commit d747b8e, and three assertions about `created_at` and `updated_at` were added to `test_a_stored_short_key_is_lengthened_when_the_longer_title_arrives`, which is in it. Two of the nine read constructed sentences (one subject, one day, read as kind `other` and, with "there being funds in the budget" before the trigger, as `budget`); the rest read fixture titles. Second pass, same 79 removals, against the 60 tests:
+
+    60 passed, 1 warning in 5.03s
+    removals tried=79 failed a test=77 survived=2
+
+The two left are named in Surprises & Discoveries with why nothing can tell them from their absence.
 
 ## Interfaces and Dependencies
 
