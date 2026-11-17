@@ -39,7 +39,7 @@ from zoneinfo import ZoneInfo
 
 from docket.adapters._helpers import MEETING_TYPES, label_for
 from docket.db import db_cursor
-from docket.enrichment.hearings import KIND_LABELS
+from docket.enrichment.hearings import KIND_LABELS, KIND_TITLES
 from docket.services import hearings, meeting_types, neighborhood_schedule
 from docket.services.query import is_cancelled_title
 
@@ -295,16 +295,25 @@ def _meeting_entry(slug: str, row: dict | None, event: dict | None) -> Entry:
 
 def _hearing_entry(slug: str, hearing: dict) -> Entry:
     kind = hearing["kind"]
+    title = KIND_TITLES[kind]
     if kind == "other":
-        title, badge, badge_label = "Public hearing", "hearing", "Hearing"
+        badge, badge_label = "hearing", "Hearing"
     else:
-        title = f"{KIND_LABELS[kind]} hearing"
         badge, badge_label = kind.replace("_", "-"), KIND_LABELS[kind]
 
     if kind == "weed_lots":
         # The list of lots is the subject; the count says it, and no count is invented.
         count = hearing["property_count"]
-        detail = (f"{count} properties",) if count is not None else ()
+        # "listed in a resolution", not "found by the council": nothing here
+        # checks that the resolution was adopted.
+        detail = (
+            (
+                f"{count} {'property' if count == 1 else 'properties'} listed in a resolution"
+                " as having noxious or dangerous weeds",
+            )
+            if count is not None
+            else ()
+        )
     else:
         detail = (_clip(hearing["subject"], _SUBJECT_MAX),)
 

@@ -196,7 +196,7 @@ def test_the_items_are_in_the_order_of_their_hearings(client):
     seed.hearing(seed.TITLES[62882], seed.OCT_26)
 
     assert _titles(client) == [
-        "Weed lots hearing, November 17, 2026",
+        "Hearing on overgrown lots, November 17, 2026",
         "Zoning hearing, November 24, 2026",
     ]
 
@@ -206,7 +206,7 @@ def test_a_weed_lot_hearings_description_says_how_many_properties(client):
 
     lines = _items(client)[0].findtext("description").split("\n")
 
-    assert lines[0] == "212 properties"
+    assert lines[0] == "212 properties listed in a resolution as having noxious or dangerous weeds"
     assert lines[1] == f"City agenda: {seed.AGENDA}"
     assert lines[2].startswith("On the agenda of October 26, 2026: http://localhost/al/birmingham/items/")
     assert len(lines) == 3

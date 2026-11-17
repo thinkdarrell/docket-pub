@@ -82,10 +82,17 @@ def test_constants():
     assert hearings.KINDS == ("zoning", "weed_lots", "vacation", "budget", "other")
     assert hearings.KIND_LABELS == {
         "zoning": "Zoning",
-        "weed_lots": "Weed lots",
-        "vacation": "Street or right-of-way",
+        "weed_lots": "Overgrown lots",
+        "vacation": "Streets",
         "budget": "Budget",
         "other": "Other",
+    }
+    assert hearings.KIND_TITLES == {
+        "zoning": "Zoning hearing",
+        "weed_lots": "Hearing on overgrown lots",
+        "vacation": "Hearing on closing a street or giving up a right-of-way",
+        "budget": "Budget hearing",
+        "other": "Public hearing",
     }
     assert hearings.PREFIX_MIN == 90
 

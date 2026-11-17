@@ -665,9 +665,9 @@ def test_a_weed_lot_hearing_says_how_many_properties_and_not_its_subject():
 
     entry = _by_uid(_entries())[f"hearing-{hearing}@docket.pub"]
 
-    assert entry.title == "Weed lots hearing"
-    assert entry.detail == ("212 properties",)
-    assert (entry.badge, entry.badge_label) == ("weed-lots", "Weed lots")
+    assert entry.title == "Hearing on overgrown lots"
+    assert entry.detail == ("212 properties listed in a resolution as having noxious or dangerous weeds",)
+    assert (entry.badge, entry.badge_label) == ("weed-lots", "Overgrown lots")
 
 
 def test_a_weed_lot_hearing_with_no_count_has_no_detail():
@@ -678,7 +678,7 @@ def test_a_weed_lot_hearing_with_no_count_has_no_detail():
 
     entry = _by_uid(_entries())[f"hearing-{hearing}@docket.pub"]
 
-    assert entry.title == "Weed lots hearing"
+    assert entry.title == "Hearing on overgrown lots"
     assert entry.detail == ()
 
 
@@ -690,9 +690,11 @@ def test_a_vacation_hearing_and_a_budget_hearing_are_titled_and_labelled_by_kind
 
     found = _by_uid(_entries())
 
-    assert found[f"hearing-{vacation}@docket.pub"].title == "Street or right-of-way hearing"
+    assert found[f"hearing-{vacation}@docket.pub"].title == (
+        "Hearing on closing a street or giving up a right-of-way"
+    )
     assert found[f"hearing-{vacation}@docket.pub"].badge == "vacation"
-    assert found[f"hearing-{vacation}@docket.pub"].badge_label == "Street or right-of-way"
+    assert found[f"hearing-{vacation}@docket.pub"].badge_label == "Streets"
     assert found[f"hearing-{budget}@docket.pub"].title == "Budget hearing"
     assert (found[f"hearing-{budget}@docket.pub"].badge, found[f"hearing-{budget}@docket.pub"].badge_label) == (
         "budget",

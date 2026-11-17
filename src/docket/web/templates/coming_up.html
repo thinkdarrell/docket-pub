@@ -26,6 +26,10 @@
        (the date's meetings and hearings), neighborhood (its neighborhood
        meetings), each in the service's order
      window_days (int)   — coming_up.WINDOW_DAYS
+     kind (str | None)   — the one kind shown, or None for all three
+     kind_words (str | None) — that kind in words ("public hearings")
+     filters (list[tuple[str, str, bool]]) — the filter row: words, the
+       page's address for that choice, and whether it is the one shown
      undated (list[tuple[str, str]]) — name and reason of each association
        the schedule gives no dates
      schedule (dict | None) — the neighborhood schedule's title, url,
@@ -103,7 +107,7 @@
                     <a href="{{ feeds.file }}">Calendar file (.ics)</a>
                 </p>
                 <p class="cu-subscribe-only">
-                    Only:
+                    Subscribe to only:
                     {% for words, address in feeds.kinds -%}
                     <a href="{{ address }}">{{ words }}</a>{% if not loop.last %} · {% endif %}
                     {% endfor -%}
@@ -123,6 +127,13 @@
     </div>
 </section>
 
+<nav class="cu-filter" aria-label="Show">
+    <span class="cu-filter-h">Show:</span>
+    {% for words, address, shown in filters -%}
+    <a href="{{ address }}"{% if shown %} aria-current="page"{% endif %}>{{ words }}</a>
+    {% endfor -%}
+</nav>
+
 <div class="cu-list">
 {%- for day in days %}
 <section class="cu-day">
@@ -131,7 +142,7 @@
     {{ entry_article(entry) }}
     {%- endfor %}
     {%- if day.neighborhood %}
-    <details class="cu-neighborhood">
+    <details class="cu-neighborhood"{% if kind == 'neighborhood' %} open{% endif %}>
         <summary>{{ day.neighborhood | length }} neighborhood association meeting{{ '' if day.neighborhood | length == 1 else 's' }}</summary>
         {%- for entry in day.neighborhood %}
         {{ entry_article(entry) }}
@@ -140,7 +151,7 @@
     {%- endif %}
 </section>
 {%- else %}
-<p class="cu-empty">Nothing is listed for the next {{ window_days }} days.</p>
+<p class="cu-empty">{% if kind %}No {{ kind_words }} are{% else %}Nothing is{% endif %} listed for the next {{ window_days }} days.</p>
 {%- endfor %}
 </div>
 
@@ -150,6 +161,8 @@
         Meetings come from the council's video site and the city's calendar. A meeting either of
         them calls cancelled is shown marked cancelled, with the one that says so named.
         A calendar event docket.pub does not read as a council or committee meeting is left out.
+        A committee meeting is listed once the city puts it on its calendar, which can be only
+        a few days before it is held.
     </p>
     <p>
         A hearing's date is read by docket.pub from the text of a resolution on a council agenda,
