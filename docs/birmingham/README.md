@@ -8,7 +8,7 @@ It is a **map, not an owner**. By the project's rule that every fact lives in ex
 
 | | Chapter | One line |
 | --- | --- | --- |
-| 1 | [Where Birmingham's records come from](01-sources.md) | Granicus, the city calendar, the council's YouTube channel, the 2023 manifest, and the council committees' pages; what each supplies and what it does not |
+| 1 | [Where Birmingham's records come from](01-sources.md) | Granicus, the city calendar, the council's YouTube channel, the 2023 manifest, the council committees' pages, and the neighborhood association meeting schedule; what each supplies and what it does not |
 | 2 | [How a meeting enters the database](02-ingest.md) | The daily ingest: the meeting row, agenda items and cue points, the meeting-type ladder, minutes votes, and the adoption sweep |
 | 3 | [Votes, members, and the facts on an item](03-votes-and-facts.md) | Minutes votes and video-OCR votes kept apart, matching votes to items, provisional links and promotion, resolving member names, amounts and topics |
 | 4 | [Summaries, scores, and badges](04-ai-summaries.md) | The one stage a language model touches: Wave 0, extraction, rewrite, reconcile, floors, badges, the meeting summary, the budget, the dollar check |
@@ -23,12 +23,15 @@ It is a **map, not an owner**. By the project's rule that every fact lives in ex
   ───────────────────                     ──────────────────────────────────────────────
   Granicus archive ──────────────────▶  ingest_all ─▶ meetings, agenda_items (+cue points),
     agendas, minutes PDF, video clip,                   votes + member_votes from the minutes,
-    index points                                        minutes_adopted_at from the adoption sweep
+    index points                                        minutes_adopted_at from the adoption sweep,
+                                                        public_hearings (+ public_hearing_items) from item titles
   City website (calendar) ───────────▶  city_calendar ─▶ city_calendar_events ─┐
   YouTube channel ───────────────────▶  youtube_ingest ─▶ meeting_videos ──────┼─▶ meeting-type ladder
   2023 manifest (operator, once) ────▶  backfill script ─▶ meetings, agenda_items ┘   (type, sitting, body)
   City website (committee pages) ────▶  committee_documents ─▶ committee_documents, committee_items,
                                                                a cdoc- meeting when minutes have no row
+  Neighborhood schedule (PDF) ───────▶  no task: saved and transcribed by hand under content/coming-up/,
+                                                        each rule's dates computed when the page is built
 
   Granicus clip frames ──────────────▶  video_ocr ─▶ votes + member_votes (source video_ocr)
 
@@ -52,6 +55,7 @@ It is a **map, not an owner**. By the project's rule that every fact lives in ex
   THE READER (Flask web, per request)
   ───────────────────────────────────
   /al/birmingham/            opener + doors composed from facts, no model
+  /coming-up/ (+ .ics)       the next 60 days: meetings, scheduled hearings, neighborhood meetings
   /meetings/<id>/            summary, votes (source + provisional/adopted), cards, source rail
   /items/<id>/               headline, facts, "from the video", vote block with a timed link
   /meetings/<id>/transcript/ turns, speakers at ≥0.6 confidence, timed links
@@ -78,6 +82,7 @@ These are `docs/PRINCIPLES.md` as they show up in the Birmingham flow; the chapt
 | `meetings`, `agenda_items`, `processing_status` | `ingest_all`, the YouTube pass, the 2023 backfill; `committee_documents` creates a `meetings` row when minutes have none | 2 |
 | `committee_documents`, `committee_items` | `committee_documents` | 1, 2 |
 | `city_calendar_events` | `city_calendar` | 1, 2 |
+| `public_hearings`, `public_hearing_items` | ingest (its hearing step), the operator's `scripts/backfill_hearings.py` | 2, 6 |
 | `meeting_videos` | `youtube_ingest` | 1, 5 |
 | `votes`, `member_votes` | ingest (minutes), `video_ocr` (video), `resolve_member_votes` (member ids) | 3 |
 | `vote_agenda_items` | `vote_matching`, the adoption promotion, admins | 3 |
