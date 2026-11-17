@@ -86,8 +86,8 @@ def find_readings(municipality_id: int, since: date, until: date | None = None) 
     """Every item of the city's meetings dated `since` to `until` whose title reads as setting a hearing.
 
     One dict per item, in item-id order: `item_id`, `meeting_id`,
-    `meeting_date`, `reading`. A reading with no date is returned too. One
-    SELECT, which reads neither hearings table.
+    `meeting_date`, `title` (as stored) and `reading`. A reading with no
+    date is returned too. One SELECT, which reads neither hearings table.
     """
     with db_cursor() as cur:
         cur.execute(_FIND_SQL, {"city": municipality_id, "since": since, "until": until})
@@ -101,6 +101,7 @@ def find_readings(municipality_id: int, since: date, until: date | None = None) 
                     "item_id": row["item_id"],
                     "meeting_id": row["meeting_id"],
                     "meeting_date": row["meeting_date"],
+                    "title": row["title"],
                     "reading": reading,
                 }
             )

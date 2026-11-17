@@ -205,6 +205,22 @@ As authored on 2026-11-16, nothing has been executed, so no session has discover
   Rationale: It holds the rule M2 states in one sentence (exact keys first, then the one stored hearing `same_hearing` accepts) and is easier to read and to take a clause out of apart from the transaction's statements. It is private; `refresh_hearings` is its only caller.
   Date/Author: 2026-11-17, Claude, M2 session.
 
+- Decision: `find_readings` returns the item's stored `title` beside the four keys M2 gave its rows (`item_id`, `meeting_id`, `meeting_date`, `reading`).
+  Rationale: M3's dry run prints the first 70 characters of each matched item's title and must issue one SELECT; a reading holds the subject, not the title, so without the key the script would have to ask for the titles a second time. The key is added and nothing is taken away, so `group_readings`, `refresh_hearings` and M2's tests read the rows as before (the store file's 54 tests pass unchanged).
+  Date/Author: 2026-11-17, Claude, M3 session.
+
+- Decision: The script's dry run issues two statements, not one: `query.get_municipality(slug)` to turn `--city` into an id, then `find_readings`' one SELECT. An unknown or inactive slug prints a line to standard error and exits 1.
+  Rationale: M3 says the dry run "issues one SELECT and reads neither new table". `find_readings` takes an id and the script takes a slug, so one read of `municipalities` is unavoidable; it is a read of one row by its slug through the service that owns it, and what the sentence protects (no write, neither hearings table read, so the dry run works before migration 047 is applied) holds.
+  Date/Author: 2026-11-17, Claude, M3 session.
+
+- Decision: The script's totals line is computed from what it printed (`find_readings` and `group_readings`), with and without `--dry-run`; the real run then prints `created=` and `linked=` from `refresh_hearings`' report. `refresh_hearings` reads the items again inside its own call.
+  Rationale: M3 says the real run "prints the same and then calls `refresh_hearings`". Printing from the report alone would give the dry run and the real run two code paths for one line. The second read is one SELECT; the two can differ only if an item is ingested between them, which the next run levels.
+  Date/Author: 2026-11-17, Claude, M3 session.
+
+- Decision: Ingest's stage 3c logs one line at INFO, `Hearings: matched=<n> dated=<n> undated=<n> hearings=<n> created=<n> linked=<n>`, and logs nothing for a city without the flag.
+  Rationale: M3 says "log its counts" and not their form. The words are the report's field names, the same the script prints, so a worker log line and a dry run read alike.
+  Date/Author: 2026-11-17, Claude, M3 session.
+
 ## Outcomes & Retrospective
 
 As authored on 2026-11-16, nothing has been executed and there is no outcome to report. Each milestone session adds its paragraph beneath this one; the closing retrospective is written by the retro stage after the last milestone, not by a milestone.
@@ -759,6 +775,16 @@ Before the ingest step and the script existed (2026-11-17 04:33Z), `DATABASE_URL
     15 failed, 1 passed, 1 warning in 1.09s
 
 Four of the five ingest tests fail (no hearing stored, no "Hearings:" error, no "Hearings:" log line, and `refresh_recent` not called between the meeting-type stage and the vote stage) and all eleven script tests fail with `ImportError: cannot import name 'backfill_hearings' from 'scripts'`. The one pass is `test_ingest_of_a_city_without_the_flag_stores_no_hearing_and_reports_no_error`, which holds of an ingest with no hearings step at all; it is there for the step once it exists. The commit that holds the tests in this state is the one that adds this paragraph.
+
+With stage 3c added to `ingest_municipality`, the key `title` added to `find_readings`' rows, and `scripts/backfill_hearings.py` written, the same command with `tests/services/test_hearings_store.py` added (M2's file, since `find_readings` changed) ended, on its first run against them:
+
+    70 passed, 1 warning in 7.52s
+
+which is the 16 new tests and the store file's 54. `venv/bin/python scripts/backfill_hearings.py --city birmingham` printed, and exited 2:
+
+    usage: backfill_hearings.py [-h] --city CITY --since YYYY-MM-DD
+                                [--until YYYY-MM-DD] [--dry-run]
+    backfill_hearings.py: error: the following arguments are required: --since
 
 ## Interfaces and Dependencies
 
