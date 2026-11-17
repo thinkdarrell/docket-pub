@@ -632,6 +632,59 @@ def test_the_template_global_reads_the_flag(client):
     assert has(None) is False
 
 
+# --- rules pinned after the removal check -----------------------------------
+
+
+def test_a_place_with_no_attend_pairs_is_printed_on_its_own_line(client, monkeypatch):
+    """No entry of the service has a place and an empty `attend` today; the template's branch is for one that does."""
+    from dataclasses import replace
+
+    from docket.services import coming_up
+
+    (real,) = [e for e in _listed() if e.uid == "na-acipco-finley-20261202@docket.pub"]
+    made = replace(real, attend=(), place="Council Chambers, City Hall")
+    monkeypatch.setattr(coming_up, "list_entries", lambda municipality, **kwargs: [made])
+
+    (article,) = _page(client).select("article[data-entry-uid]")
+
+    assert [_text(p) for p in article.select("p.cu-place")] == ["Council Chambers, City Hall"]
+    assert article.select(".cu-attend") == []
+    marked = article.find_all(lambda tag: any(c in ("cu-detail", "cu-place", "cu-links") for c in tag.get("class", [])))
+    assert [tag["class"][0] for tag in marked] == ["cu-detail", "cu-place", "cu-links"]
+
+
+def test_a_day_with_two_neighborhood_meetings_says_meetings(client, monkeypatch):
+    from dataclasses import replace
+
+    first = seed.association("Acipco-Finley")
+    seed.use_schedule(monkeypatch, first, replace(first, name="Second Association"))
+    page = _page(client)
+    (section,) = [s for s in page.select("section.cu-day") if _text(s.select_one("h2")) == "Wednesday, December 2, 2026"]
+
+    assert _text(section.select_one("summary")) == "2 neighborhood association meetings"
+    assert len(section.select("details article")) == 2
+
+
+def test_a_flagged_city_with_no_schedule_has_a_page_without_the_neighborhood_paragraph(client, seeded, monkeypatch):
+    from docket.services import neighborhood_schedule
+
+    monkeypatch.setattr(neighborhood_schedule, "get_schedule", lambda slug: None)
+    page = _page(client)
+
+    assert {a["data-entry-uid"] for a in page.select("article[data-entry-uid]")} == {
+        seeded.council,
+        seeded.off,
+        seeded.untimed,
+        seeded.zoning,
+        seeded.weeds,
+    }
+    sources = _text(page.select_one("section.cu-sources"))
+    assert "Neighborhood dates" not in sources
+    assert "A hearing's date is read by docket.pub" in sources
+    assert page.select(".cu-undated") == []
+    assert page.select("details") == []
+
+
 # --- the labels' colours ----------------------------------------------------
 
 
