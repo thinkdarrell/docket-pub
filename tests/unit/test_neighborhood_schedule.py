@@ -4,7 +4,8 @@ Plan `birmingham-coming-up`, M4. Three groups. The first reads the real
 Birmingham file under `content/coming-up/birmingham/`. The second builds a
 three-association schedule in a temporary directory to show what the loader
 refuses. The third opens the saved PDF and holds every transcribed row to
-the row the city printed.
+the row the city printed. A fourth group, at the end of the file, is M5's:
+the dates each rule gives over the schedule's year.
 
 `docket.services.neighborhood_schedule` is imported inside each test, not at
 the top of the module, so the file collects before the module exists.
@@ -822,3 +823,187 @@ def test_a_row_transcribed_twice_under_two_names_fails_the_cross_check(tmp_path)
 
     problems = cross_check(_copy_with(tmp_path, change))
     assert problems == ["Hillman Heights: name, rule_text and type_text equal 0 table rows, not one"]
+
+
+# ---------------------------------------------------------------------------
+# Dates: each rule expanded over the schedule's year (plan
+# birmingham-coming-up, M5)
+# ---------------------------------------------------------------------------
+
+YEAR_START = date(2026, 1, 1)
+YEAR_END = date(2026, 12, 31)
+
+
+def _occurrences(schedule, start: date, end: date):
+    from docket.services.neighborhood_schedule import occurrences
+
+    return occurrences(schedule, start, end)
+
+
+def _dates_of(name: str, start: date = YEAR_START, end: date = YEAR_END) -> list[date]:
+    return [o.on for o in _occurrences(_load(BIRMINGHAM), start, end) if o.association.name == name]
+
+
+# Counted on a 2026 calendar by the plan's author ("Dates worked by hand").
+@pytest.mark.parametrize(
+    "name, month, day",
+    [
+        ("Acipco-Finley", 11, 4),
+        ("Acipco-Finley", 12, 2),
+        ("Brown Springs", 11, 19),
+        ("Brown Springs", 12, 17),
+        ("Huffman", 11, 23),
+        ("Huffman", 12, 28),
+        ("Gate City", 12, 14),
+        ("Jones Valley", 1, 2),
+        ("Jones Valley", 5, 1),
+        ("East Birmingham", 2, 23),
+        ("Overton", 10, 6),
+        ("Overton", 12, 1),
+    ],
+)
+def test_a_date_worked_by_hand(name, month, day):
+    in_month = [d for d in _dates_of(name) if d.month == month]
+    assert in_month == [date(2026, month, day)]
+
+
+def test_overton_meets_in_its_six_months_and_not_in_november():
+    dates = _dates_of("Overton")
+    assert [d.month for d in dates] == [2, 4, 6, 8, 10, 12]
+    assert _dates_of("Overton", date(2026, 11, 1), date(2026, 11, 30)) == []
+
+
+@pytest.mark.parametrize("name", ["Glen Iris", "Bridlewood"])
+def test_an_association_with_no_rule_is_given_no_date(name):
+    assert _dates_of(name) == []
+
+
+def test_the_whole_of_2026_is_1158_meetings():
+    schedule = _load(BIRMINGHAM)
+    found = _occurrences(schedule, YEAR_START, YEAR_END)
+    assert len(found) == 1158  # 96 associations x 12 months, and Overton's 6
+    per_name: dict[str, int] = {}
+    for o in found:
+        per_name[o.association.name] = per_name.get(o.association.name, 0) + 1
+    assert per_name.pop("Overton") == 6
+    assert len(per_name) == 96
+    assert set(per_name.values()) == {12}
+    assert len({(o.association.name, o.on) for o in found}) == 1158
+
+
+def test_every_date_is_the_rules_weekday_and_its_ordinal_week():
+    weekdays = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+    ordinals = ["first", "second", "third", "fourth"]
+    for o in _occurrences(_load(BIRMINGHAM), YEAR_START, YEAR_END):
+        assert weekdays[o.on.weekday()] == o.association.weekday, o
+        assert ordinals[(o.on.day - 1) // 7] == o.association.ordinal, o
+
+
+def test_nothing_is_produced_for_another_year():
+    schedule = _load(BIRMINGHAM)
+    assert _occurrences(schedule, date(2027, 1, 1), date(2027, 12, 31)) == []
+    assert _occurrences(schedule, date(2025, 1, 1), date(2025, 12, 31)) == []
+    # A window that runs past the year's end holds the year's dates alone.
+    past_the_end = _occurrences(schedule, date(2026, 12, 20), date(2027, 2, 28))
+    assert past_the_end
+    assert {o.on.year for o in past_the_end} == {2026}
+    assert max(o.on for o in past_the_end) == date(2026, 12, 28)
+
+
+def test_the_year_is_the_schedules_own():
+    schedule = dataclasses.replace(_load(BIRMINGHAM), year=2027)
+    acipco = [o.on for o in _occurrences(schedule, date(2026, 1, 1), date(2027, 12, 31))
+              if o.association.name == "Acipco-Finley"]
+    assert len(acipco) == 12
+    assert acipco[0] == date(2027, 1, 6)  # the first Wednesday of January 2027
+
+
+def test_both_ends_of_the_range_are_inside_it():
+    nov_4, dec_2 = date(2026, 11, 4), date(2026, 12, 2)
+    assert _dates_of("Acipco-Finley", nov_4, dec_2) == [nov_4, dec_2]
+    assert _dates_of("Acipco-Finley", date(2026, 11, 5), date(2026, 12, 1)) == []
+    assert _dates_of("Acipco-Finley", nov_4, nov_4) == [nov_4]
+    assert _dates_of("Acipco-Finley", dec_2, nov_4) == []
+
+
+def test_an_occurrence_is_its_association_and_its_date_and_cannot_be_changed():
+    schedule = _load(BIRMINGHAM)
+    first = _occurrences(schedule, date(2026, 11, 4), date(2026, 11, 4))[0]
+    assert first.association is _by_name(schedule)[first.association.name]
+    assert first.on == date(2026, 11, 4)
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        first.on = date(2026, 11, 5)
+
+
+def _made_up(name: str, time: str | None, *, ordinal="first", weekday="monday", months=None):
+    from docket.services.neighborhood_schedule import Association
+
+    return Association(
+        name=name, rule_text="made up", ordinal=ordinal, weekday=weekday, months=months, time=time,
+        type_text="In-Person", modes=("in_person",), place=None, remote=None, undated_reason=None,
+    )
+
+
+def test_the_order_is_date_then_time_with_none_last_then_name():
+    schedule = dataclasses.replace(
+        _load(BIRMINGHAM),
+        associations=(
+            _made_up("Zeta", "18:00"),
+            _made_up("Untimed", None),
+            _made_up("Alpha", "18:00"),
+            _made_up("Late", "19:00"),
+            _made_up("Early", "09:30"),
+            _made_up("Second week", "08:00", ordinal="second"),
+        ),
+    )
+    found = _occurrences(schedule, date(2026, 6, 1), date(2026, 7, 31))
+    assert [(o.on, o.association.name) for o in found] == [
+        (date(2026, 6, 1), "Early"),
+        (date(2026, 6, 1), "Alpha"),
+        (date(2026, 6, 1), "Zeta"),
+        (date(2026, 6, 1), "Late"),
+        (date(2026, 6, 1), "Untimed"),
+        (date(2026, 6, 8), "Second week"),
+        (date(2026, 7, 6), "Early"),
+        (date(2026, 7, 6), "Alpha"),
+        (date(2026, 7, 6), "Zeta"),
+        (date(2026, 7, 6), "Late"),
+        (date(2026, 7, 6), "Untimed"),
+        (date(2026, 7, 13), "Second week"),
+    ]
+
+
+def test_the_real_schedule_comes_out_in_that_order():
+    found = _occurrences(_load(BIRMINGHAM), YEAR_START, YEAR_END)
+    keys = [(o.on, o.association.time, o.association.name) for o in found]
+    assert keys == sorted(keys)
+
+
+@pytest.mark.parametrize(
+    "ordinal, weekday, expected",
+    [
+        # September 2026 begins on a Tuesday.
+        ("first", "tuesday", date(2026, 9, 1)),
+        ("first", "monday", date(2026, 9, 7)),
+        ("second", "tuesday", date(2026, 9, 8)),
+        ("third", "sunday", date(2026, 9, 20)),
+        ("fourth", "tuesday", date(2026, 9, 22)),
+        ("fourth", "monday", date(2026, 9, 28)),
+        ("fourth", "saturday", date(2026, 9, 26)),
+    ],
+)
+def test_the_ordinal_weekday_of_a_month(ordinal, weekday, expected):
+    schedule = dataclasses.replace(
+        _load(BIRMINGHAM), associations=(_made_up("One", "18:00", ordinal=ordinal, weekday=weekday, months=(9,)),)
+    )
+    assert [o.on for o in _occurrences(schedule, YEAR_START, YEAR_END)] == [expected]
+
+
+def test_undated_returns_bridlewood_and_glen_iris():
+    from docket.services.neighborhood_schedule import undated
+
+    schedule = _load(BIRMINGHAM)
+    found = undated(schedule)
+    assert [a.name for a in found] == ["Bridlewood", "Glen Iris"]
+    assert all(a.ordinal is None and a.undated_reason for a in found)
+    assert found[0] is _by_name(schedule)["Bridlewood"]

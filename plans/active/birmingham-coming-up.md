@@ -1056,6 +1056,26 @@ The fast tiers went from 3015 passed to 3147, the 132 tests of `tests/unit/test_
 
 The session's task came with a piece of the operator's terminal: `error: unexpected argument '-1' found`, the `tip:` line, and `Usage: tail [OPTION]... [FILE]...`. That is the `tail -1` refusal M3's second session already recorded in Surprises & Discoveries, with the line that works (`tail -n 1 <file> <file>`), and it bears on nothing in M4; nothing was done about it here.
 
+### M5: what the session observed
+
+Session of 2026-11-17 (UTC), Claude, started on commit 3e3bf72 with a clean tree. Every line below was printed by a command the session ran in this worktree.
+
+Starting state, `./tools/verify`, before any edit (13:48Z to 13:52Z), exit 0:
+
+    3147 passed, 5 skipped, 4 xfailed, 2 warnings in 134.67s (0:02:14)
+    1042 passed, 2 warnings in 115.12s (0:01:55)
+    judge fixtures: 12 of 12 passed
+    134 passed, 1 warning in 10.63s
+    plans: 1 of 1 ok
+    verify: plans ... ok (0s)
+    verify: all 6 checks passed in 263s.
+
+Before `occurrences`, `undated` and the script existed (2026-11-17 13:53Z), `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_neighborhood_schedule.py tests/unit/test_coming_up_reading_sheet.py -q -p no:cacheprovider` ended:
+
+    54 failed, 132 passed, 1 warning in 10.80s
+
+The 132 that pass are M4's, untouched. Of the 54, 31 are the date tests appended to `tests/unit/test_neighborhood_schedule.py` (30 fail with `ImportError: cannot import name 'occurrences' from 'docket.services.neighborhood_schedule'` and one with the same for `undated`), and 23 are the new file `tests/unit/test_coming_up_reading_sheet.py` (22 fail with `ImportError: cannot import name 'coming_up_reading_sheet' from 'scripts'` and one, the test of the saved runbook, with `FileNotFoundError`). Every new name is imported inside its test, so both files collected. The commit that holds the tests in this state is the one that adds this paragraph.
+
 ## Interfaces and Dependencies
 
 No new package. `pdfplumber` and `pyyaml` (through `python-frontmatter`; `src/docket/services/how_it_works.py` already imports `yaml`) are in the environment; `requirements.txt` and `requirements.lock` are not changed.
