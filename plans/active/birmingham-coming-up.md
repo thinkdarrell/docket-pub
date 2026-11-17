@@ -23,7 +23,7 @@ How to see it working, once every milestone is done: `./tools/verify` passes wit
 ## Progress
 
 - [x] (2026-11-17 03:53Z) M1: The hearing reader exists as a pure module, and its tests pin what it reads from twenty-five real Birmingham agenda titles.
-- [ ] M2: Hearings are stored once per hearing with a link to every agenda item that set them, by a migration and a service whose tests pin the grouping.
+- [x] (2026-11-17 04:21Z) M2: Hearings are stored once per hearing with a link to every agenda item that set them, by a migration and a service whose tests pin the grouping.
 - [ ] M3: Ingest keeps hearings current, the backfill script has a dry run, and the dry run's reading of production's rows is recorded and compared with the two earlier counts.
 - [ ] M4: The 2026 neighborhood schedule is checked in as the saved PDF and a transcription, and a loader refuses a malformed file or one that disagrees with the PDF.
 - [ ] M5: Each schedule rule expands to its 2026 dates, tested against dates worked by hand, and the reading sheet for the operator is generated.
@@ -210,6 +210,8 @@ As authored on 2026-11-16, nothing has been executed, so no session has discover
 As authored on 2026-11-16, nothing has been executed and there is no outcome to report. Each milestone session adds its paragraph beneath this one; the closing retrospective is written by the retro stage after the last milestone, not by a milestone.
 
 M1, 2026-11-17. `src/docket/enrichment/hearings.py` exists with the interface Interfaces gives (and the constant `PREFIX_MIN`), imports the standard library only, and reads all 25 fixture titles as the table of expected readings says, the four pair cases included; no row of the table had to be changed. No carve-out against M1's acceptance: the single-file command ended `62 passed`, the before state was recorded (37 failed, 1 passed, on the missing module), and `./tools/verify` ended `all 6 checks passed`. What the milestone's own test list did not cover, and the session added: 24 tests for the 31 clauses a removal check found free. Left for M3 to look at on real rows: whether any stored title puts "for" between the trigger and its date (Surprises & Discoveries). Next: M2, storage.
+
+M2, 2026-11-17. Migration 047 creates `public_hearings` and `public_hearing_items` and sets Birmingham's `"coming_up": true`, and `src/docket/services/hearings.py` exists with the five functions and two names Interfaces gives for M2 and M3 (and a private `_match_stored`). No carve-out against M2's acceptance clauses: the status command lists 047 as applied, the migration test passes up, down, and up again, the store tests pass with the two named tests recorded, and `./tools/verify` ended `all 6 checks passed`. One thing the plan asked for was not done as written and is not an acceptance clause: the migration's number was chosen from this worktree's refs, without `gh pr list`, which the session's task did not allow (Decision Log); someone with GitHub in reach checks that no open pull request also holds a 047 before the merge. What the milestone's own test list did not cover, and the session added: nine tests for 11 rules a removal check found free; two clauses that exist for cost alone, and three properties of the migration, are named in Surprises & Discoveries as untested. Nothing reads or writes the tables yet outside tests: ingest's step and the backfill script are M3. Next: M3.
 
 ## Context and Orientation
 
@@ -718,6 +720,24 @@ The 13 that no test could tell from the rule: the SQL title test in `find_readin
     removals tried=79 failed a test=77 survived=2
 
 The two left are named in Surprises & Discoveries with why nothing can tell them from their absence.
+
+Acceptance, run on commit 38e5df8 with a clean tree. `DATABASE_URL=$(tools/test-db) venv/bin/python -m docket.migrations.runner --status` ended with these lines, and `tools/test-db --drop` followed and exited 0:
+
+      [applied] 46: docket.migrations.046_alignment_stretches
+      [applied] 47: docket.migrations.047_public_hearings
+
+The migration test passes up, down, and up again as `tests/integration/test_047_migration.py::test_047_up_down_up PASSED`. From a run of the two files with `-v`, which ended `60 passed, 1 warning in 5.73s` (54 in the store file, 6 in the migration file): the test for two items making one hearing is `tests/services/test_hearings_store.py::test_two_items_on_two_meetings_make_one_hearing_with_two_links`; the tests for the withdrawn, hidden, and cancelled links are `test_list_upcoming_leaves_out_a_hearing_with_no_visible_link[withdrawn]`, `[hidden]` and `[cancelled]` (a hearing whose only link is of that sort is not listed) and `test_list_upcoming_returns_only_the_visible_link_of_a_hearing[withdrawn]`, `[hidden]` and `[cancelled]` (a hearing with one such link and one visible link is listed with the visible one alone). All eight printed `PASSED`.
+
+Finished state, `./tools/verify`, on commit 38e5df8 with a clean tree:
+
+    3004 passed, 5 skipped, 4 xfailed, 2 warnings in 127.15s (0:02:07)
+    1036 passed, 2 warnings in 113.70s (0:01:53)
+    judge fixtures: 12 of 12 passed
+    134 passed, 1 warning in 10.75s
+    verify: plans ... ok (0s)
+    verify: all 6 checks passed in 255s.
+
+The fast tiers went from 2950 passed to 3004, the 54 tests of the store file; the integration tier from 1030 to 1036, the 6 migration tests; none failed.
 
 ## Interfaces and Dependencies
 
