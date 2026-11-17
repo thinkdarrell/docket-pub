@@ -124,6 +124,21 @@ As authored on 2026-11-16, nothing has been executed, so no session has discover
 - Observation (M7, 2026-11-17): The link added to the city page's partial broke five existing tests, and only the full check showed it. Five tests in two files render the city page with a `SimpleNamespace` for the city, and `coming_up.is_coming_up_city` takes a dict.
   Evidence: the session's first finished `./tools/verify` ended `5 failed, 3352 passed` and `verify: 1 of 6 checks failed in 285s.`, each failure `AttributeError: 'types.SimpleNamespace' object has no attribute 'get'` (Artifacts and Notes, "M7: what the session observed", names the five). The session had written into Outcomes & Retrospective, one commit earlier, that the finished run passed, before running it; that sentence is corrected in place there by an appended note, and the lesson is the working rule's own: the run comes first, then the sentence.
 
+- Observation (M8, 2026-11-17): Seventy-two of the 73 tests that failed before the code passed on their first run against it, and the removal check then found one clause free. Of 146 single-clause removals from `ics.py`, the two routes and their helpers, the template and the city-page partial, 145 failed a test and one failed none: the event's `URL` could have been the entry's first link whatever its `source_url`. One test was added and every removal then fails one.
+  Evidence: `removals tried=147 failed a test=145 survived=2`, then `removals tried=147 failed a test=146 survived=1`, the survivor of the second pass being the control (Artifacts and Notes, "M8: what the session observed").
+
+- Observation (M8, 2026-11-17): The one test that failed on the first run was wrong, and wrong in the way the format invites: it counted an address in the folded text. A 75-byte fold falls inside any long address, so a test or a person searching the body of the feed for a link must unfold it first.
+  Evidence: `AssertionError: assert 1 == 2` in `test_a_city_documents_address_is_not_given_a_second_host`, which now counts in the unfolded lines. In the real feed the schedule PDF's 122-character address is folded in both places each neighborhood event prints it (`URL:https://s3.us-east-2.amazonaws.com/assets.birminghamal.gov/s3fs-public/` and a continuation line). M8's own acceptance test of `localhost/http` is of the folded body and holds there by a narrow margin of position, not by rule; the unit test asserts the same of the unfolded text.
+
+- Observation (M8, 2026-11-17): Before this milestone `/al/birmingham/coming-up.ics` was not a 404: the badge catch-all `/al/<slug>/<badge_slug>/` matched it but for the trailing slash and answered with a redirect to the address with one. The fixed route now outranks it.
+  Evidence: `308 http://localhost/al/mobile/coming-up.ics/`, printed by the application built from commit 74cff6d's `src`; `test_the_route_is_the_feed_and_not_the_badge_catch_all` asks Werkzeug's matcher and passes now. A removal that gave the feed's route a trailing slash fails a test.
+
+- Observation (M8, 2026-11-17): The whole feed is 140 events and about 98 kilobytes with the day set to 2026-11-16, and 135 of the 140 are neighborhood meetings; one association's feed in the same window is one event, because the 2026 schedule gives no date after December 31. A reader who subscribes to one association in November sees December's meeting and then nothing until a 2027 schedule is saved, which is what the summary's "(2026 schedule)" is there to say.
+  Evidence: `events 140 articles 140 bytes 98239`, `{'meeting': 3, 'hearing': 2, 'neighborhood': 135}` and `acipco-finley events 1`, printed by a scratch script that asked the application for the feed.
+
+- Observation (M8, 2026-11-17): A neighborhood meeting's event has a start and no end, as M8 requires, and its start is the next day in UTC for an evening meeting (`DTSTART:20261118T000000Z` for 6:00 p.m. on November 17 in Chicago). A calendar program converts it back; how each draws an event with no end is the operator's look (step 7).
+  Evidence: the body the scratch script printed, read by the session; `test_an_evening_start_falls_on_the_next_day_in_utc`.
+
 ## Decision Log
 
 - Decision: The hearing reader reads an item's `title` alone, never its `description`.
@@ -1429,6 +1444,31 @@ The removal check (`skills/plan-execute/SKILL.md`). Seventy-one of the 73 tests 
 The two: the control, and one that no test could tell from the rule, the event's `URL` being the entry's first link whatever its `source_url` (in every entry of the service, and in every hand-built entry of the unit tests, the city document is the first link). One test was added under the comment "rules pinned after the removal check" in `tests/unit/test_ics.py`, `test_the_url_is_the_entrys_source_and_not_whatever_link_comes_first`, which is in neither 74cff6d nor 66b5eb3. Between the first pass's copy and its run one line of the template had changed and was not yet committed: the association block's condition, `feeds.associations and schedule`, became `feeds.associations`, since a city whose schedule gives an association a feed has a schedule; the pass ran against the shorter form, and both removals of it (always, never) fail a test.
 
 In the before state the two 404 tests of the feed file failed on a redirect: a scratch command that built the application from commit 74cff6d's `src` and asked for `/al/mobile/coming-up.ics` printed `308 http://localhost/al/mobile/coming-up.ics/`.
+
+Correction to two counts in the removal-check paragraph above, same session. Of the 73 tests that failed in the before state, 72 passed on their first run against the code and the 73rd after its own mistake was mended (the paragraph says 71 and the 72nd). And the first pass ran three files holding 129 tests, the 29 of `tests/unit/test_ics.py`, the 42 of `tests/web/test_coming_up_feed.py` and the 58 of `tests/web/test_coming_up_page.py`, as they stood at commit 66b5eb3 (the paragraph says "the 72 tests", a figure that fits neither state).
+
+Second pass, the same 147, against the 130 tests of commit fce3496 (the added test makes 30 in the unit file):
+
+    130 passed, 1 warning in 15.88s
+    removals tried=147 failed a test=146 survived=1
+
+The one that survives is the control, as it must. After the pass `diff -rq` of the copy's `src` against the worktree's printed nothing: every clause was put back. Of the 145 that failed in the first pass, 72 were stopped by a test of `tests/unit/test_ics.py` and 73 by one of `tests/web/test_coming_up_feed.py`; none needed M7's page file, which ran last.
+
+Acceptance. From a run of `tests/unit/test_ics.py` and `tests/web/test_coming_up_feed.py` with `-v`, which ended `72 passed, 1 warning in 6.59s` (30 and 42), each of these printed `PASSED`: `test_the_feed_is_served_for_birmingham_as_a_calendar` (200, `text/calendar; charset=utf-8`), `test_a_city_without_the_flag_has_no_feed` (404 for `/al/mobile/coming-up.ics`), `test_the_feed_opens_as_a_calendar_named_for_the_city`, the count test `test_the_feed_has_one_event_per_article_of_the_page_with_the_same_uids`, `test_each_kind_narrows_the_feed_to_the_pages_articles_of_that_kind`, `test_an_association_narrows_the_feed_to_its_own_meetings`, `test_an_unknown_kind_and_an_unknown_association_are_404`, `test_a_kind_and_an_association_that_exclude_each_other_are_an_empty_calendar`, `test_the_page_offers_the_webcal_address_the_google_link_and_the_file`, `test_the_page_offers_every_dated_association_its_own_feed_under_one_summary`, and in the unit file `test_a_cancelled_entrys_summary_begins_cancelled_and_its_description_opens_with_the_sentence`, `test_the_attend_pairs_follow_the_detail_and_precede_the_first_link` and `test_no_line_is_longer_than_75_bytes_and_a_long_summary_unfolds_to_itself`.
+
+The figures M8's acceptance asks for, from the scratch script of the earlier paragraph run again on commit fce3496 with the rows the feed test's fixture seeds and the day set to 2026-11-16 (the tests assert the equalities; the script prints the numbers):
+
+    status 200 text/calendar; charset=utf-8 | events 140 articles 140 bytes 98239
+    ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//docket.pub//Coming up//EN']
+    {'meeting': 3, 'hearing': 2, 'neighborhood': 135} sum 140
+    unknown kind 404 unknown association 404 mobile 404
+    acipco-finley events 1
+
+The event count and the entry count the feed and the page agree on is 140. The first three lines of the body are `BEGIN:VCALENDAR`, `VERSION:2.0` and `PRODID:-//docket.pub//Coming up//EN`. The three `?kind=` requests returned 3, 2 and 135 events, which sum to the whole feed's 140. `?kind=council` and `?association=nowhere` each answered 404.
+
+`git diff origin/main -- src/docket/web/public.py | grep -c "^+.*db_cursor\|^+.*db()"` printed `0`, and `grep -n "db_cursor\|db()" src/docket/web/public.py src/docket/web/ics.py` printed nothing: neither the route nor the module executes SQL. `git diff 72d2a5b --stat` over the files this plan does not edit (`src/docket/web/__init__.py`, `src/docket/worker`, `services/briefing.py`, `services/meeting_types.py`, `services/query.py`, `layout.css`, `mobile.css`, `requirements.txt`, `Dockerfile`) and over the whole of `src/docket/services` printed nothing: M8 changed no service.
+
+The session's task came with the same piece of the operator's terminal M4's to M7's did (`error: unexpected argument '-1' found`, the `tip:` line, the `tail` usage line). It is the `tail -1` refusal M3's second session recorded, with the line that works (`tail -n 1 <file> <file>`); it bears on nothing in M8, and no command this session ran or wrote for the operator uses `tail -1`.
 
 ## Interfaces and Dependencies
 
