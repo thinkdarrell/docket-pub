@@ -91,6 +91,15 @@ As authored on 2026-11-16, nothing has been executed, so no session has discover
 - Observation (M4, 2026-11-17): Nothing in the 99 rows differs from what the plan's Context said the table reading holds. The 97 dated associations, Overton's six months, the two undated rows and Highland Park's cell are as the author found them, so M5's count of 1,158 and M6's 97 slugs stand on this transcription.
   Evidence: `test_the_two_undated_rows_and_their_reasons`, `test_overton_alone_names_its_months`, and the cross-check passing on the checked-in file; 96 rules of every month and Overton's make the 97.
 
+- Observation (M5, 2026-11-17): The count for 2026 is the author's 1,158, with no correction. M4's transcription found no row the author's table reading had misread in its rule, so the arithmetic stands: 96 associations of twelve months, 1,152, and Overton's 6.
+  Evidence: `test_the_whole_of_2026_is_1158_meetings` passed on the first run of `occurrences`; it also asserts that Overton has 6, that 96 other names have 12 each, and that no association has two meetings on one day.
+
+- Observation (M5, 2026-11-17): A sheet generated in the middle of November shows the reader little of each rule. "The association's next three dates of the schedule year" are, on 2026-11-17, one date for 59 associations and two for 38, since only what is left of November and December remains; no row shows three.
+  Evidence: counted on the saved `docs/runbooks/coming-up-reading-birmingham.md`: 59 "Next dates" lines hold one date, 38 hold two, 2 read "none, because the rule is given no dates", and none reads "none left". The dates are right (the hand-worked ones for Acipco-Finley, Brown Springs, Huffman, Gate City and Overton are on the sheet as the plan gives them), and a reader checks the rule by the "Read as" line, which is there for every row; the Decision Log says why the dates were still counted from the day and not from January.
+
+- Observation (M5, 2026-11-17): The tests the session first wrote left four clauses free, all in how the script names the content's commit and the day. Of 81 single-clause removals from `occurrences`, `undated`, `Occurrence` and the script, 4 failed no test; two tests were added and all then fail one.
+  Evidence: `removals tried=81 failed a test=77 survived=4`, then, with two more removals about the same command and a control, `removals tried=84 failed a test=83 survived=1`, the one being the control, which changes nothing (Artifacts and Notes, "M5: what the session observed").
+
 ## Decision Log
 
 - Decision: The hearing reader reads an item's `title` alone, never its `description`.
@@ -305,6 +314,22 @@ As authored on 2026-11-16, nothing has been executed, so no session has discover
 - Decision: The cross-check's dict of table misreadings, `TABLE_MISREADS` in `tests/unit/test_neighborhood_schedule.py`, holds one exception: Highland Park, whose fourth cell `extract_tables()` returns empty while the page prints "Visit highland-park.org for in-person meeting location / MI: 819 7094 5731". Its `place` and `remote` are held to the three pages' `extract_text()` instead. The cross-check also fails when a listed exception is not needed (the table does hold the row's place and remote), when a listed name is no association, and when a table row that is not one of the two header rows is transcribed by no association.
   Rationale: M4 asks that each exception added be recorded here. The three further failures keep the dict from outliving its reason and keep the count honest in both directions: 99 associations each matching one row does not by itself show that no row was left out when a row could be matched twice, and a test of the PDF (`test_highland_park_is_the_one_row_the_table_reading_gets_wrong`) pins that this is the only row with an empty fourth cell.
   Date/Author: 2026-11-17, Claude, M4 session.
+
+- Decision: The sheet's "next three dates" are counted from the day the sheet is generated, in America/Chicago, through December 31 of the schedule's year, and the sheet's second line prints that day. A row with fewer than three left prints what is left; a dated row with none left prints "none left in <year> from <day>"; an undated row prints "none, because the rule is given no dates".
+  Rationale: M5 says "the association's next three dates of the schedule year" and not from when. The other reading is the year's first three (January to March). "Next" is the plain word for from now, and the dates from now are the ones the page will show a reader, so they are the ones worth a person's eye; the cost is that a sheet made late in the year shows one or two dates a row (Surprises & Discoveries), and the "Read as" line, which states the ordinal, the weekday, the months and the time, is what carries the check of the rule. The day is passed to `sheet()` as an argument, so the tests fix it.
+  Date/Author: 2026-11-17, Claude, M5 session.
+
+- Decision: The sheet's form. One line with a box per association, in the file's order, holding the name and the `rule_text` in quotes; under it five indented lines without boxes: "Read as" (the ordinal, the weekday, "every month" or the months by name, and the time on the twelve-hour clock, or "no dates." and the undated reason), "Type" (the `type_text` in quotes and the modes), "Place", "Call-in" (each the text or "none"), and "Next dates". Above them the source's title, revision date, address, saved copy with its read date, digest and year; at the foot a record to fill in, as the "How it works" sheet has. The intro tells the reader to add a `checked` entry to the YAML, which is the operator's step 1.
+  Rationale: M5 lists what each line holds and not its shape. Only the association's line carries a box, so `grep -c '^- \[ \]'` counts associations, which is the acceptance; one long line per row would hide the place and the call-in details a reader has to compare.
+  Date/Author: 2026-11-17, Claude, M5 session.
+
+- Decision: The script has its own test file, `tests/unit/test_coming_up_reading_sheet.py`, which M5 does not ask for, and one of its tests reads the saved runbook: its box lines, ticked or not (`- [ ]` or `- [x]`), must name the schedule's associations in the file's order.
+  Rationale: The script it is modelled on has no tests, and M5 names tests for the dates alone. The sheet is what a person signs against the PDF, so a line that printed the wrong field would be a quiet defect; the removal check needs tests to run against. The runbook test keeps the saved sheet from losing or gaining a row when the YAML changes without the sheet being regenerated, and accepts a ticked box so the operator's reading does not break it. It does not compare the sheet's other lines with the YAML: regenerating after a correction is the sheet's own instruction, and a test that demanded equality would fail on every tick.
+  Date/Author: 2026-11-17, Claude, M5 session.
+
+- Decision: `undated` returns the associations in the file's order; `occurrences` computes each date in a private `_ordinal_weekday(year, month, ordinal, weekday)`; the script reads `content/coming-up/<city>/` under the repository root, not under `config.COMING_UP_ROOT`, and exits 1 with a line on standard error for a city with no schedule file and 2 with its usage for any number of arguments but one.
+  Rationale: M5 gives `undated` no order and the file's is alphabetical as the city printed it. The script follows `scripts/how_it_works_reading_sheet.py` in both the root and the exit codes: it is run from a checkout to make a file that is committed, and the commit it names is that checkout's.
+  Date/Author: 2026-11-17, Claude, M5 session.
 
 ## Outcomes & Retrospective
 
@@ -1087,6 +1112,19 @@ The one failure was `test_the_saved_runbook_has_one_box_per_association`, with `
 `git log -1 --format='%h %cs' -- content/coming-up/birmingham` printed `6632307 2026-11-17`, the same commit. `grep -c '^- \[ \]' docs/runbooks/coming-up-reading-birmingham.md` printed `99`. The script with no city printed its docstring to standard error and exited 2; with `mobile` it printed `no schedule file: .../content/coming-up/mobile/neighborhood-schedule.yaml` and exited 1. With the sheet saved and its line added to the Runbooks list of `docs/specs/operations.md`, the two test files ended:
 
     186 passed, 1 warning in 11.13s
+
+The removal check (`skills/plan-execute/SKILL.md`). A scratch script outside the repository made 81 copies, 20 of `src/docket/services/neighborhood_schedule.py` (the skipping of an undated association, the months, the year being the schedule's, each bound and its being inclusive, the direction of the weekday offset, the ordinal counted and counted from the first, the day of the month, each of the four terms of the order and the sort itself, `undated`'s test and its sense, `Occurrence` being frozen and holding the association itself) and 61 of `scripts/coming_up_reading_sheet.py`, each with one clause taken out or weakened, executed each copy in place of its module through a pytest plugin (no committed file was edited), and ran the two test files against it with `-x`, six copies at a time. First pass, against the tests of commit 1be6787:
+
+    removals tried=81 failed a test=77 survived=4
+
+The four that no test could tell from the rule, all in the script: that `main` asks for the commit of the city's content directory and not of the repository; that `git log` is given that path at all; that the format is `%h %cs` (changed to `%h %as`, the author's date, which is the same day here); and that the day is America/Chicago's and not UTC's. Two tests were then added under the comment "rules pinned after the removal check" in `tests/unit/test_coming_up_reading_sheet.py`, neither in commit 1be6787: one replaces `subprocess.run` and asserts the whole command, its working directory and `check=True`; the other sets the clock to 03:00 UTC on November 17 and asserts the day is November 16. Second pass, the same 81 with two more removals the new test invites (`check=True`, the working directory) and a control whose copy changes nothing:
+
+    188 passed, 1 warning in 11.14s
+    removals tried=84 failed a test=83 survived=1
+
+The one that survives is the control, as it must: a copy with `NEXT_DATES = 1 + 2` for `NEXT_DATES = 3` passes every test, which shows the plugin itself fails nothing.
+
+What the hand-worked dates look like on the saved sheet, generated 2026-11-17: Acipco-Finley "Wednesday, December 2, 2026" (November 4 is past); Brown Springs "Thursday, November 19, 2026; Thursday, December 17, 2026"; Gate City "Monday, December 14, 2026"; Overton "Tuesday, December 1, 2026" under "first Tuesday, in February, April, June, August, October and December, 6:00 p.m."; Glen Iris "no dates. The schedule says: First Monday of this month @ 6:30 pm".
 
 ## Interfaces and Dependencies
 

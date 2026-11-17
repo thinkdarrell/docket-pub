@@ -205,3 +205,42 @@ def test_the_saved_runbook_has_one_box_per_association():
     boxes = re.findall(r"^- \[[ x]\] \*\*(.+?)\*\*: ", text, re.M)
     assert boxes == [a.name for a in _schedule().associations]
     assert re.search(r"as of commit [0-9a-f]{7,} \d{4}-\d{2}-\d{2}, on \d{4}-\d{2}-\d{2}\.", text)
+
+
+# --- rules pinned after the removal check (plan birmingham-coming-up, M5) ---
+
+
+def test_the_commit_asked_for_is_the_last_to_change_the_citys_content_directory(capsys, monkeypatch):
+    script = _script()
+    calls = []
+
+    class Done:
+        stdout = "feedbee 2026-01-02\n"
+
+    def fake_run(args, **kwargs):
+        calls.append((args, kwargs))
+        return Done()
+
+    monkeypatch.setattr(script.subprocess, "run", fake_run)
+    monkeypatch.setattr(script, "_today", lambda: NOV_17)
+    assert script.main(["coming_up_reading_sheet.py", "birmingham"]) == 0
+    assert len(calls) == 1
+    args, kwargs = calls[0]
+    assert args == ["git", "log", "-1", "--format=%h %cs", "--", str(BIRMINGHAM)]
+    assert Path(kwargs["cwd"]) == REPO
+    assert kwargs["check"] is True
+    assert "as of commit feedbee 2026-01-02, on 2026-11-17." in capsys.readouterr().out
+
+
+def test_today_is_the_day_in_birmingham_not_in_utc(monkeypatch):
+    import datetime as real
+
+    script = _script()
+
+    class At3amUtc:
+        @staticmethod
+        def now(tz=None):
+            return real.datetime(2026, 11, 17, 3, 0, tzinfo=real.timezone.utc).astimezone(tz)
+
+    monkeypatch.setattr(script, "datetime", At3amUtc)
+    assert script._today() == date(2026, 11, 16)
