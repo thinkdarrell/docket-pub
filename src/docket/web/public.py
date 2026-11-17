@@ -9,7 +9,8 @@ from __future__ import annotations
 import re
 import threading
 import time
-from datetime import date
+from datetime import date, datetime, timezone
+from urllib.parse import quote
 
 from flask import (
     Blueprint,
@@ -26,8 +27,9 @@ from flask import (
 
 from docket.enrichment.topics import all_topics, get_topic_display_name
 from docket.models.data_quality import friendly_label
-from docket.services import briefing, query, video_links
+from docket.services import briefing, coming_up, query, video_links
 from docket.services import how_it_works as how_it_works_service
+from docket.web import ics
 
 bp = Blueprint("public", __name__)
 
@@ -91,6 +93,19 @@ def city_provenance(municipality):
     if mid is None:
         return empty
     return briefing.city_provenance(mid)
+
+
+@bp.app_template_global("has_coming_up")
+def has_coming_up(municipality) -> bool:
+    """Whether this city has a "What's coming up" page, so a template draws
+    its link only where the page answers. The gate is one metadata key and
+    ``docket.services.coming_up.is_coming_up_city`` owns its meaning (plan
+    birmingham-coming-up, M7). Accepts the municipality dict the routes pass
+    or, as ``city_provenance`` does, any object with a ``metadata``
+    attribute; a stand-in without one is not a flagged city."""
+    if not isinstance(municipality, dict):
+        municipality = {"metadata": getattr(municipality, "metadata", None)}
+    return coming_up.is_coming_up_city(municipality)
 
 
 _overview_cache: dict[str, tuple] = {}
@@ -808,6 +823,13 @@ def upcoming_hearings_rss(city):
 
     60-minute cache via ``_rss_cached``. F5 fix-up S4 adds a matching
     ``Cache-Control`` header.
+
+    A city that has the coming-up page (``coming_up.is_coming_up_city``)
+    gets the page's hearing entries here, the hearings a resolution set a
+    date for, in place of every upcoming agenda line containing the word
+    "hearing"; every other city gets what it always got. The address, the
+    cache and the headers are the same on both paths (plan
+    birmingham-coming-up, M8b).
     """
     municipality = query.get_municipality(city)
     if not municipality:
@@ -818,6 +840,15 @@ def upcoming_hearings_rss(city):
     )
 
     def _render():
+        if coming_up.is_coming_up_city(municipality):
+            return render_template(
+                "rss/scheduled_hearings.xml.j2",
+                entries=coming_up.filter_entries(coming_up.list_entries(municipality), kind="hearing"),
+                municipality=municipality,
+                feed_url=feed_url,
+                page_url=url_for("public.coming_up_page", slug=city, _external=True),
+                absolute=_absolute_url,
+            )
         items = query.list_upcoming_hearings(municipality["id"])
         return render_template(
             "rss/upcoming_hearings.xml.j2",
@@ -1175,6 +1206,137 @@ def how_it_works(slug):
     ))
     resp.headers["Vary"] = "HX-Request"
     return resp
+
+
+def _coming_up_days(entries) -> list[dict]:
+    """The entries, already in date order, as one dict per date.
+
+    ``entries`` holds the date's meetings and hearings and ``neighborhood``
+    its neighborhood meetings, each in the order the service gave, so the
+    page can put a date's neighborhood meetings together under one summary.
+    """
+    days: list[dict] = []
+    for entry in entries:
+        if not days or days[-1]["on"] != entry.on:
+            days.append({"on": entry.on, "entries": [], "neighborhood": []})
+        days[-1]["neighborhood" if entry.kind == "neighborhood" else "entries"].append(entry)
+    return days
+
+
+def _absolute_url(url: str) -> str:
+    """A site path as an absolute address; an address that is already absolute, unchanged.
+
+    An entry's links are of two sorts, the city's documents (full addresses)
+    and docket.pub's own pages (site paths beginning ``/``). A feed is read
+    outside the site, so every link it prints goes through here (plan
+    birmingham-coming-up, M8; the upcoming-hearings feed of a flagged city
+    uses it as well).
+    """
+    if url.startswith(("http://", "https://")):
+        return url
+    return request.url_root.rstrip("/") + url
+
+
+# The calendar's name for each `?kind=`, after the city's name.
+_COMING_UP_KIND_NAMES = {
+    "meeting": "meetings",
+    "hearing": "public hearings",
+    "neighborhood": "neighborhood meetings",
+}
+
+
+def _coming_up_feeds(slug: str) -> dict:
+    """Every address of the calendar feed the page offers, built here and nowhere else.
+
+    ``webcal`` is the feed's address with the scheme calendar programs
+    register for subscribing; ``google`` hands that address to Google
+    Calendar; ``file`` is the plain address, which a browser downloads.
+    ``kinds`` and ``associations`` are ``(words, address)`` pairs of the
+    narrowed feeds, each a ``webcal`` address.
+    """
+
+    def webcal(**narrowed) -> str:
+        return f"webcal://{request.host}{url_for('public.coming_up_ics', slug=slug, **narrowed)}"
+
+    return {
+        "webcal": webcal(),
+        "google": "https://calendar.google.com/calendar/render?cid=" + quote(webcal(), safe=""),
+        "file": url_for("public.coming_up_ics", slug=slug),
+        "kinds": [(_COMING_UP_KIND_NAMES[kind], webcal(kind=kind)) for kind in coming_up.KINDS],
+        "associations": [(name, webcal(association=feed)) for name, feed in coming_up.association_feeds(slug)],
+    }
+
+
+@bp.route("/al/<slug>/coming-up/")
+def coming_up_page(slug):
+    """What is ahead in this city in the next 60 days, every entry linked to the city's document.
+
+    Meetings, scheduled public hearings and neighborhood association
+    meetings, all from one call of ``coming_up.list_entries``; the calendar
+    feed is built from the same call, so the two cannot differ. A city that
+    does not exist, or whose metadata does not carry ``"coming_up": true``,
+    is 404. The address takes no parameter: the window always starts today.
+    The fixed last segment outranks the ``/al/<slug>/<badge_slug>/``
+    catch-all.
+    """
+    municipality = query.get_municipality(slug)
+    if not coming_up.is_coming_up_city(municipality):
+        abort(404)
+    return render_template(
+        "coming_up.html",
+        municipality=municipality,
+        days=_coming_up_days(coming_up.list_entries(municipality)),
+        window_days=coming_up.WINDOW_DAYS,
+        undated=coming_up.undated_associations(slug),
+        schedule=coming_up.schedule_source(slug),
+        feeds=_coming_up_feeds(slug),
+    )
+
+
+@bp.route("/al/<slug>/coming-up.ics")
+def coming_up_ics(slug):
+    """The coming-up page's entries as a calendar a program can subscribe to: one event per entry.
+
+    Built from the same ``coming_up.list_entries`` call as the page, with
+    the page's 404 rule. ``?kind=`` narrows it to one of ``coming_up.KINDS``
+    and ``?association=`` to one association of the city's schedule that
+    has dates; any other value of either is 404, so a mistyped address is
+    not mistaken for an empty calendar. A narrowed feed with nothing in the
+    window is a calendar with no event.
+    """
+    municipality = query.get_municipality(slug)
+    if not coming_up.is_coming_up_city(municipality):
+        abort(404)
+    kind = request.args.get("kind")
+    if kind is not None and kind not in coming_up.KINDS:
+        abort(404)
+    association = request.args.get("association")
+    association_names = {feed: name for name, feed in coming_up.association_feeds(slug)}
+    if association is not None and association not in association_names:
+        abort(404)
+
+    if association is not None:
+        name = f"{association_names[association]} Neighborhood Association"
+    elif kind is not None:
+        name = f"{municipality['name']} {_COMING_UP_KIND_NAMES[kind]}"
+    else:
+        name = f"{municipality['name']} coming up"
+    entries = coming_up.filter_entries(coming_up.list_entries(municipality), kind=kind, association=association)
+    text = ics.render_calendar(
+        entries,
+        name=name,
+        now=datetime.now(timezone.utc),
+        absolute=_absolute_url,
+        page_url=url_for("public.coming_up_page", slug=slug, _external=True),
+    )
+    return Response(
+        text,
+        mimetype="text/calendar",
+        headers={
+            "Cache-Control": "public, max-age=3600",
+            "Content-Disposition": f'inline; filename="{slug}-coming-up.ics"',
+        },
+    )
 
 
 @bp.route("/about/")

@@ -102,6 +102,20 @@ def bag():
         b.cleanup()
 
 
+@pytest.fixture
+def legacy_bag():
+    """``bag``, under Mobile: a city whose upcoming-hearings feed is still the title test.
+
+    Birmingham's feed lists its stored hearings since plan
+    `birmingham-coming-up`, M8b.
+    """
+    b = _bag_for("mobile")
+    try:
+        yield b
+    finally:
+        b.cleanup()
+
+
 @pytest.fixture(scope="module")
 def app():
     flask_app = create_app()
@@ -179,7 +193,7 @@ def test_item_detail_200_for_anonymous_when_parent_visible(client, bag):
 # ---------------------------------------------------------------------------
 
 
-def test_upcoming_hearings_rss_excludes_hidden(client, bag):
+def test_upcoming_hearings_rss_excludes_hidden(client, legacy_bag):
     """If a hidden meeting were a public hearing, its row must NOT appear
     in /al/<city>/upcoming-hearings.rss. We seed both shapes and assert
     the hidden one's title is absent from the rendered XML.
@@ -193,8 +207,8 @@ def test_upcoming_hearings_rss_excludes_hidden(client, bag):
     # (meeting-title ILIKE '%hearing%') actually surfaces the visible row.
     # The hidden row also matches the heuristic — and so MUST be
     # excluded purely by is_hidden = FALSE.
-    mid_visible = bag.add_meeting(is_hidden=False, title="TEST_HIDE_rss_visible hearing")
-    mid_hidden = bag.add_meeting(is_hidden=True, title="TEST_HIDE_rss_hidden hearing")
+    mid_visible = legacy_bag.add_meeting(is_hidden=False, title="TEST_HIDE_rss_visible hearing")
+    mid_hidden = legacy_bag.add_meeting(is_hidden=True, title="TEST_HIDE_rss_hidden hearing")
 
     # The seed default meeting_date (2099-05-01) is outside the 60-day
     # window; bump both into range so the visible row would surface if
@@ -212,7 +226,7 @@ def test_upcoming_hearings_rss_excludes_hidden(client, bag):
     from docket.web import public as public_mod
     public_mod._rss_cache.clear()
 
-    rv = client.get(f"/al/{bag.city_slug}/upcoming-hearings.rss")
+    rv = client.get(f"/al/{legacy_bag.city_slug}/upcoming-hearings.rss")
     assert rv.status_code == 200
     body = rv.get_data(as_text=True)
     # Hidden meeting must NOT surface, regardless of whether the visible

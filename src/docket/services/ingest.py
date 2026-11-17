@@ -27,7 +27,7 @@ from docket.adapters import get_adapter
 from docket.adapters._helpers import classify_title, normalize_title
 from docket.db import db, db_cursor
 from docket.models.protocol import RawMeeting
-from docket.services import meeting_types
+from docket.services import hearings, meeting_types
 from docket.services.enrichment import enrich_agenda_item
 from docket.services.member_votes import load_roster_index
 
@@ -149,6 +149,20 @@ def ingest_municipality(slug: str, since: date | None = None) -> IngestResult:
     except Exception as e:
         errors.append(f"Meeting types: {e}")
         logger.error("  Failed to resolve meeting types for %s: %s", slug, e)
+
+    # Stage 3c: keep the city's scheduled public hearings in step with the
+    # items now stored. Only a city whose metadata carries "coming_up" has
+    # any; for another, refresh_recent returns None (docket.services.hearings).
+    try:
+        report = hearings.refresh_recent(municipality_id)
+        if report is not None:
+            logger.info(
+                "Hearings: matched=%d dated=%d undated=%d hearings=%d created=%d linked=%d",
+                report.matched, report.dated, report.undated, report.hearings, report.created, report.linked,
+            )
+    except Exception as e:
+        errors.append(f"Hearings: {e}")
+        logger.error("  Failed to refresh hearings for %s: %s", slug, e)
 
     # Stage 4: Extract votes from minutes (if adapter supports it)
     total_votes = 0

@@ -273,6 +273,23 @@ constrains:
    branch-protection write, each found by the session that could not run
    it, and its specs stated a protection as fact for an hour before the
    operator set it, which the closing review halted on as severe.
+   A read of production is such a command, not only a write: a factory
+   session's read-only `psql` against the Railway database is refused by
+   the harness's auto-mode classifier (`Reason: [Unauthorized Access]`).
+   So a comparison on real rows that needs code the plan itself writes (the
+   dry run of a new script) is cut as two milestones with the operator's
+   run between them: the first ends with the script and the lines the
+   operator runs, and the second opens with the operator's saved output,
+   named by path, as its precondition. A figure the comparison is held
+   against is written at authoring with the statement that printed it
+   and, where the comparison is row by row, the ids it returned; a count
+   alone can be met by different rows. Plan `birmingham-coming-up` put the
+   production dry run inside M3's acceptance: its first session was
+   refused and left the entry open, its second was refused the one
+   statement that would have listed the author's 78 ids, and the plan
+   carried an operator's count of 71 whose query was written nowhere, so
+   M3 was ticked with both differences unexplained and the check of ids
+   went to the operator's steps (`D154`, step 4).
    An operator step that can only follow the merge (an API key created, a
    variable set on Railway, a deploy, a production backfill, a rebuilt
    image on the Legion) is never a clause of a milestone's acceptance or

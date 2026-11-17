@@ -9,7 +9,11 @@
        video_url. A split count whose source is the video says so after it.
        A cancelled row (title matches query.CANCELLED_PREDICATE_SQL) says
        "cancelled" in place of its counts, as an upcoming row says
-       "upcoming". #}
+       "upcoming".
+
+   Beside "All meetings", a city with a "What's coming up" page links it
+   (the Jinja global ``has_coming_up``; plan birmingham-coming-up, M7), and
+   its "Follow:" line links that page's calendar feed (M8). #}
 <section class="brf-meetings-section" aria-labelledby="brf-meetings-h">
   <header class="brf-head">
     <h2 id="brf-meetings-h" class="brf-h2">Recent meetings</h2>
@@ -53,10 +57,16 @@
   {% endif %}
   <p class="brf-meetings-foot">
     <a href="{{ url_for('public.city_meetings', slug=municipality.slug) }}">All meetings →</a>
+    {%- if has_coming_up(municipality) %} ·
+    <a href="{{ url_for('public.coming_up_page', slug=municipality.slug) }}">What's coming up →</a>
+    {%- endif %}
   </p>
   <p class="brf-follow">
     Follow:
     <a href="{{ url_for('public.upcoming_hearings_rss', city=municipality.slug) }}">upcoming hearings (RSS)</a> ·
+    {%- if has_coming_up(municipality) %}
+    <a href="{{ url_for('public.coming_up_ics', slug=municipality.slug) }}">calendar (.ics)</a> ·
+    {%- endif %}
     <a href="{{ url_for('public.coverage_rss') }}">coverage</a>
   </p>
 </section>

@@ -57,6 +57,7 @@ MIGRATIONS = [
     "docket.migrations.044_hidden_reason",
     "docket.migrations.045_committee_documents",
     "docket.migrations.046_alignment_stretches",
+    "docket.migrations.047_public_hearings",
 ]
 
 

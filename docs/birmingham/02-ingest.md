@@ -1,6 +1,6 @@
 # 2. How a meeting enters the database
 
-The daily ingest turns what chapter 1's sources publish into rows in `meetings`, `agenda_items`, `votes`, and `member_votes`; the committees' own documents take a separate, smaller path into two tables of their own ("The committee documents path", below). One service owns the whole transaction: `ingest_municipality("birmingham")` in `src/docket/services/ingest.py`, called by the worker task `ingest_all` (`src/docket/worker/tasks.py`) and runnable by hand. This chapter follows one meeting through it.
+The daily ingest turns what chapter 1's sources publish into rows in `meetings`, `agenda_items`, `votes`, and `member_votes`, and, from the stored item titles, the scheduled public hearings ("Scheduled hearings", below); the committees' own documents take a separate, smaller path into two tables of their own ("The committee documents path", below). One service owns the whole transaction: `ingest_municipality("birmingham")` in `src/docket/services/ingest.py`, called by the worker task `ingest_all` (`src/docket/worker/tasks.py`) and runnable by hand. This chapter follows one meeting through it.
 
 ## The order of the morning
 
@@ -43,6 +43,10 @@ For a clip meeting with a minutes link whose `votes_scanned` gate is open, the a
 
 Then the **minutes adoption sweep** (`src/docket/services/minutes_adoption.py`): when a later meeting carries an agenda item whose title approves the minutes of an earlier date or date range, and that item has a passed vote, the earlier meeting's `minutes_adopted_at` is set. Adoption is the moment a meeting's minutes become official, and chapter 3 explains why it matters: a vote-to-item link made from unadopted minutes is provisional, and adoption promotes it. Dates are parsed from the item's title, never guessed (`0010`); when several rows share the adopted date, only those with minutes are flipped, and when none has minutes the sweep warns and skips.
 
+## Scheduled hearings
+
+Between steps 3 and 4, for a city whose metadata carries `coming_up` (chapter 1), ingest reads the titles of the agenda items of recent meetings for a resolution that sets a public hearing, by fixed rules and with no language model, and keeps `public_hearings` and `public_hearing_items` in step with what it reads; a title that gives no date stores nothing (`0108`), and a failure here is logged and stops nothing. It is a step of ingest and not a worker task of its own (`0111`). The coming-up page (chapter 6) lists the hearings. `docs/specs/coming-up.md`, "Scheduled hearings", owns the reader's rules, the two tables, and the refresh.
+
 ## The committee documents path
 
 The committees' agendas and minutes (chapter 1, section 5) do not pass through `ingest_municipality`. The worker task `committee_documents` calls `refresh_all` in `src/docket/services/committee_documents.py`, which runs four steps for the city, each of which can be run again without harm:
@@ -69,6 +73,7 @@ This path writes no `agenda_items`, `votes`, or `member_votes` row and leaves `m
 | The ladder, the label, the calendar, the YouTube pass, the hiding of clips that are not meetings | `docs/specs/meeting-types.md` |
 | The committee documents: listing, reading, attaching, creating a `cdoc-` row | `docs/specs/committee-documents.md`; `src/docket/services/committee_documents.py` |
 | The adoption sweep | `src/docket/services/minutes_adoption.py`, decisions `0007`, `0010` |
+| The scheduled hearings: the reader, the two tables, the refresh | `docs/specs/coming-up.md`; `src/docket/enrichment/hearings.py`, `src/docket/services/hearings.py` |
 | Task order and times | `src/docket/worker/scheduler.py`; `docs/runbooks/cron-worker.md` for operating it |
 
 Next: [3. Votes, members, and the facts on an item](03-votes-and-facts.md).

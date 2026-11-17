@@ -207,6 +207,8 @@ def sitemap_city_meetings(slug: str) -> Response:
         entries = [(_abs(f"/al/{slug}/"), None),
                    (_abs(f"/al/{slug}/meetings/"), None),
                    (_abs(f"/al/{slug}/council/"), None)]
+        if sitemap_svc.has_coming_up(slug):
+            entries.append((_abs(f"/al/{slug}/coming-up/"), None))
         entries += [(_abs(f"/al/{slug}/meetings/{m['id']}/"), m["updated_at"])
                     for m in sitemap_svc.list_meetings(slug)]
         return _urlset(entries)

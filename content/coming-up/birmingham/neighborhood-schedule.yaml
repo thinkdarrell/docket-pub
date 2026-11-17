@@ -1,0 +1,918 @@
+# The 2026 neighborhood association meeting schedule, transcribed by hand
+# from the saved PDF beside it (plan birmingham-coming-up, M4). The
+# loader is src/docket/services/neighborhood_schedule.py, which refuses a
+# malformed file or one whose saved PDF is not the one named here.
+#
+# name, rule_text and type_text are the PDF's cells as printed, misspellings
+# included, a cell that wraps onto two lines written on one. place and remote
+# are parts of the fourth cell, each copied as printed.
+source:
+  title: "City of Birmingham Community Resource Services Division Neighborhood Association Meeting Schedule"
+  revised: 2026-02-03
+  url: "https://s3.us-east-2.amazonaws.com/assets.birminghamal.gov/s3fs-public/2026-02/2026_NA_Meeting_Schedule_rev._2-3-2026.pdf"
+  file: "sources/2026_NA_Meeting_Schedule_rev._2-3-2026.pdf"
+  sha256: "f9987d63389a280b5333fb9675d090bcf76c3069ccce7f05ea1052fabda7333e"
+  read: 2026-11-17
+  year: 2026
+checked:
+  - by: "Claude, plan birmingham-coming-up M4"
+    on: 2026-11-17
+    how: "each row compared with the saved PDF's page"
+  - by: "Darrell Nance"
+    on: 2026-11-17
+    how: "the four judgement rows (Glen Iris, East Birmingham, East Brownsville, Gate City) read against the saved PDF; the other 95 rows read by Claude against the PDF's page images, not by a person"
+associations:
+  - name: "Acipco-Finley"
+    rule_text: "First Wednesday of each month @ 5:30 p.m."
+    ordinal: first
+    weekday: wednesday
+    time: "17:30"
+    type_text: "In-Person"
+    modes: [in_person]
+    place: "Acipco Finley Community Room, 453 38th Ave W, Birmingham, AL 35207"
+    remote: null
+  - name: "Airport Highlands"
+    rule_text: "Second Monday of each month @ 6:00 p.m."
+    ordinal: second
+    weekday: monday
+    time: "18:00"
+    type_text: "In Person"
+    modes: [in_person]
+    place: "Pleasant View Baptist Church, 900 17th Av N, 35206"
+    remote: null
+  - name: "Apple Valley"
+    rule_text: "First Tuesday of each month @ 6:00 p.m."
+    ordinal: first
+    weekday: tuesday
+    time: "18:00"
+    type_text: "In-Person"
+    modes: [in_person]
+    place: "East Pinson Valley Recreation Center, 3000 Jefferson State Parkway 35215"
+    remote: null
+  - name: "Arlington West End"
+    rule_text: "Second Tuesday of each month @ 6:00 p.m."
+    ordinal: second
+    weekday: tuesday
+    time: "18:00"
+    type_text: "In Person"
+    modes: [in_person]
+    place: "Birmingham Public Library-West End Branch, 1348 Tuscaloosa Avenue SW, 35211"
+    remote: null
+  - name: "Belview Heights"
+    rule_text: "Second Tuesday of each month @ 6:30 p.m."
+    ordinal: second
+    weekday: tuesday
+    time: "18:30"
+    type_text: "In-Person"
+    modes: [in_person]
+    place: "Charles A. Brown Elementary School, 4811 Court J, 35208"
+    remote: null
+  - name: "Bridlewood"
+    rule_text: "First Tuesday of each month @ 6:00 p.m."
+    ordinal: null
+    weekday: null
+    time: "18:00"
+    type_text: "No Meetings"
+    modes: []
+    place: null
+    remote: null
+    undated_reason: "The schedule says: No Meetings"
+  - name: "Brown Springs"
+    rule_text: "Third Thursday of each month @ 6:00 p.m."
+    ordinal: third
+    weekday: thursday
+    time: "18:00"
+    type_text: "Conference Call"
+    modes: [phone]
+    place: null
+    remote: "Dial: 712-832-8330 / Access Code: 5102692"
+  - name: "Brownville Heights"
+    rule_text: "First Monday of each month @ 6:00 p.m."
+    ordinal: first
+    weekday: monday
+    time: "18:00"
+    type_text: "In Person"
+    modes: [in_person]
+    place: "Brownsville Heights Community Center, 9225 Airport Road, 35217"
+    remote: null
+  - name: "Brummit Heights"
+    rule_text: "First Thursday of each month @ 1:00 p.m."
+    ordinal: first
+    weekday: thursday
+    time: "13:00"
+    type_text: "In-Persopn"
+    modes: [in_person]
+    place: "Brownsville Heights Community Center, 9225 Airport Road, 35217"
+    remote: null
+  - name: "Bush Hills"
+    rule_text: "Fourth Tuesday of each month @ 6:30 p.m."
+    ordinal: fourth
+    weekday: tuesday
+    time: "18:30"
+    type_text: "In Person"
+    modes: [in_person]
+    place: "Bush Hills Connections Complex, 1203 Bush Circle, 35208"
+    remote: null
+  - name: "Central City"
+    rule_text: "Third Tuesday of each month @ 6:00 p.m."
+    ordinal: third
+    weekday: tuesday
+    time: "18:00"
+    type_text: "In-Person"
+    modes: [in_person]
+    place: "Birmingham Public Library- Central Library Branch (Downtown), 1st Floor 2100 Park PL, 35203"
+    remote: null
+  - name: "Central Park"
+    rule_text: "Second Thursday of each month @ 6:00 p.m."
+    ordinal: second
+    weekday: thursday
+    time: "18:00"
+    type_text: "In-Person"
+    modes: [in_person]
+    place: "Central Park Library 2100 Park Place, 35203"
+    remote: null
+  - name: "Central Pratt"
+    rule_text: "First Monday of each month @ 6:00 p.m."
+    ordinal: first
+    weekday: monday
+    time: "18:00"
+    type_text: "In Person"
+    modes: [in_person]
+    place: "Howze-Sanford Recreation Center 320 Ave D, 35214"
+    remote: null
+  - name: "College Hills"
+    rule_text: "First Monday of each month @ 6:00 p.m."
+    ordinal: first
+    weekday: monday
+    time: "18:00"
+    type_text: "In-Person / Conference Call"
+    modes: [in_person, phone]
+    place: "Legion Field 400 Graymont Avenue D, 35204"
+    remote: "Dial: 605-313-4338 / Access Code: 5306598"
+  - name: "Collegeville"
+    rule_text: "First Monday of each month @ 6:00 p.m."
+    ordinal: first
+    weekday: monday
+    time: "18:00"
+    type_text: "In Person"
+    modes: [in_person]
+    place: "Antioch Baptist Church 3309 33rd Street North, 35207"
+    remote: null
+  - name: "Crestline"
+    rule_text: "Fourth Thursday of each month @ 6:00 p.m."
+    ordinal: fourth
+    weekday: thursday
+    time: "18:00"
+    type_text: "In Person"
+    modes: [in_person]
+    place: "Hope Community Church Church 4445 Montevallo Road, 35213"
+    remote: null
+  - name: "Crestwood North"
+    rule_text: "Fourth Tuesday of each month @ 6:30 p.m."
+    ordinal: fourth
+    weekday: tuesday
+    time: "18:30"
+    type_text: "In Person"
+    modes: [in_person]
+    place: "Girls Inc., 5130 8th Court South, 35212"
+    remote: null
+  - name: "Crestwood South"
+    rule_text: "Fourth Monday of each month @ 6:30 p.m."
+    ordinal: fourth
+    weekday: monday
+    time: "18:30"
+    type_text: "In-Person"
+    modes: [in_person]
+    place: "Levite Jewish Community Center 3960 Montclair Road, 35213"
+    remote: null
+  - name: "Dolomite"
+    rule_text: "Fourth Tuesday of each month 6:00 p.m."
+    ordinal: fourth
+    weekday: tuesday
+    time: "18:00"
+    type_text: "Conference Call"
+    modes: [phone]
+    place: null
+    remote: "Dial: 720-843-2269/ Access Code: 3789426"
+  - name: "Druid Hills"
+    rule_text: "Fourth Monday of each month @ 6:30 p.m."
+    ordinal: fourth
+    weekday: monday
+    time: "18:30"
+    type_text: "In-Person"
+    modes: [in_person]
+    place: "Protective Stadium 1020 24th Street, 35203"
+    remote: null
+  - name: "East Avondale"
+    rule_text: "Second Tuesday of each month @ 6:00 p.m."
+    ordinal: second
+    weekday: tuesday
+    time: "18:00"
+    type_text: "Conference Call"
+    modes: [phone]
+    place: null
+    remote: "Dial: 720-740-9645 / Access Code: 6758192"
+  - name: "East Birmingham"
+    rule_text: "Fourth Monday @ 6:00 p.m."
+    ordinal: fourth
+    weekday: monday
+    time: "18:00"
+    type_text: "In-Person"
+    modes: [in_person]
+    place: "Shields Center 3936 14th Avenue North, 35214"
+    remote: null
+  - name: "East Brownsville"
+    rule_text: "Second Tuesday of each month @ 5:30 p.m."
+    ordinal: second
+    weekday: tuesday
+    time: "17:30"
+    type_text: "Conference Call / In-Person"
+    modes: [phone, in_person]
+    place: "(May-Nov) Mary Dorsey Center 4560 Park Ave SW, 35221"
+    remote: "(Jan-Apr) Dial: 605-313-4198/ Access Code: 461297"
+  - name: "East Lake"
+    rule_text: "First Tuesday of each month @ 6:00 p.m."
+    ordinal: first
+    weekday: tuesday
+    time: "18:00"
+    type_text: "In-Person"
+    modes: [in_person]
+    place: "Household of Faith Church, 7501 Division Ave, Birmingham, AL 35206"
+    remote: null
+  - name: "East Thomas"
+    rule_text: "Third Tuesday of each month @ 6:00 p.m."
+    ordinal: third
+    weekday: tuesday
+    time: "18:00"
+    type_text: "Zoom"
+    modes: [video]
+    place: null
+    remote: "MI: 776 982 3770 / Access Code: 35204"
+  - name: "Eastwood"
+    rule_text: "First Thursday of each month @ 6:30 p.m."
+    ordinal: first
+    weekday: thursday
+    time: "18:30"
+    type_text: "Confernce Call/ In Person"
+    modes: [phone, in_person]
+    place: "Habitat for Humaity 7952 Crestwood Blvd, 35210"
+    remote: "Dial: 978-990-5186978-990-5186/ Access Code: 6967307"
+  - name: "Echo Highlands"
+    rule_text: "First Thursday of each month @ 7:00 p.m."
+    ordinal: first
+    weekday: thursday
+    time: "19:00"
+    type_text: "Zoom"
+    modes: [video]
+    place: null
+    remote: "MI: 575-218-8259 / Access Code: 1234"
+  - name: "Enon Ridge"
+    rule_text: "Fourth Thursday of each month @ 5:30 p.m."
+    ordinal: fourth
+    weekday: thursday
+    time: "17:30"
+    type_text: "Zoom/ In-Person"
+    modes: [video, in_person]
+    place: "New Salem Baptist 1632 6th Street North, 35204"
+    remote: "MI: 832 8648 7107"
+  - name: "Ensley"
+    rule_text: "Third Thursday of each month @ 6:00 p.m."
+    ordinal: third
+    weekday: thursday
+    time: "18:00"
+    type_text: "Conference Call/In-Person"
+    modes: [phone, in_person]
+    place: "McAlpine & Ensley Recreation Center (alternate months)"
+    remote: null
+  - name: "Ensley Highlands"
+    rule_text: "Second Monday of each month @ 6:00 p.m."
+    ordinal: second
+    weekday: monday
+    time: "18:00"
+    type_text: "In-Person"
+    modes: [in_person]
+    place: "Birmingham Public Library- Five Points West Branch, 4812 Avenue W, 35208"
+    remote: null
+  - name: "Evergreen"
+    rule_text: "Third Tuesday of each month @ 6:00 p.m."
+    ordinal: third
+    weekday: tuesday
+    time: "18:00"
+    type_text: "In Person"
+    modes: [in_person]
+    place: "Evergreen Mssionary Baptist Church Community Center 1867 16th ST N, 35234"
+    remote: null
+  - name: "Fairmont"
+    rule_text: "First Tuesday of each month @ 6:00 p.m."
+    ordinal: first
+    weekday: tuesday
+    time: "18:00"
+    type_text: "In Person"
+    modes: [in_person]
+    place: "Mt. Carmel Christ Church 5110 Cheek Road, 35207"
+    remote: null
+  - name: "Fairview"
+    rule_text: "First Tuesday of each month @5:30 p.m."
+    ordinal: first
+    weekday: tuesday
+    time: "17:30"
+    type_text: "Conference Call"
+    modes: [phone]
+    place: null
+    remote: "Dial: 1-602-580-9667/ Access Code: 5658130"
+  - name: "Five Points South"
+    rule_text: "Third Tuesday of each month @ 6:00 p.m."
+    ordinal: third
+    weekday: tuesday
+    time: "18:00"
+    type_text: "In Person"
+    modes: [in_person]
+    place: "Highland United Methodist Church 1045 -20th Street South, 35205"
+    remote: null
+  - name: "Forest Park/South Avondale"
+    rule_text: "First Tuesday of each month @ 6:00 p.m."
+    ordinal: first
+    weekday: tuesday
+    time: "18:00"
+    type_text: "In Person"
+    modes: [in_person]
+    place: "Birmingham Public Library- Avondale Branch - 509 40th Street South, 35222"
+    remote: null
+  - name: "Fountain Heights"
+    rule_text: "Fourth Tuesday of each month @ 6:00 p.m."
+    ordinal: fourth
+    weekday: tuesday
+    time: "18:00"
+    type_text: "In-Person"
+    modes: [in_person]
+    place: "Fountain Heights Recreation Center 1101 15th Avenue North, 35204"
+    remote: null
+  - name: "Garden Highlands"
+    rule_text: "Third Friday of each month @ 4:00 p.m."
+    ordinal: third
+    weekday: friday
+    time: "16:00"
+    type_text: "In-Person"
+    modes: [in_person]
+    place: "Mt. Hilliard Baptist Church 2612 23rd Street SW, 35211"
+    remote: null
+  - name: "Gate City"
+    rule_text: "Second Monday of each month @4 p.m."
+    ordinal: second
+    weekday: monday
+    time: "16:00"
+    type_text: "Teleconfernce / In-Person"
+    modes: [phone, in_person]
+    place: "Marks Village Campus of Hope 7527 66th Street South, 35212"
+    remote: null
+  - name: "Germania Park"
+    rule_text: "Third Thursday of each month @ 6:00 p.m."
+    ordinal: third
+    weekday: thursday
+    time: "18:00"
+    type_text: "Conference Call"
+    modes: [phone]
+    place: null
+    remote: "Dial: 1-701-802-5384 / Acess Code: 3042330"
+  - name: "Glen Iris"
+    rule_text: "First Monday of this month @ 6:30 pm"
+    ordinal: null
+    weekday: null
+    time: "18:30"
+    type_text: "Zoom/ In-Person"
+    modes: [video, in_person]
+    place: "Saint Eliash Maronite Catholic Church 836 8th Street South, 35205"
+    remote: null
+    undated_reason: "The schedule says: First Monday of this month @ 6:30 pm"
+  - name: "Grasselli"
+    rule_text: "First Monday of each month @ 3:00 p.m."
+    ordinal: first
+    weekday: monday
+    time: "15:00"
+    type_text: "In-Person"
+    modes: [in_person]
+    place: "Mary Dorsey Center 4105 Avenue Q Central Park, 35208"
+    remote: null
+  - name: "Graymont"
+    rule_text: "Third Wednesday of each month @ 4:30 p.m."
+    ordinal: third
+    weekday: wednesday
+    time: "16:30"
+    type_text: "Conference Call/ In Person"
+    modes: [phone, in_person]
+    place: "Birmingham Public Library - Smithfield Branch - 8th Avenue West, 35204"
+    remote: null
+  - name: "Green Acres"
+    rule_text: "Third Tuesday of each month @ 6:30 p.m."
+    ordinal: third
+    weekday: tuesday
+    time: "18:30"
+    type_text: "In-Person"
+    modes: [in_person]
+    place: "Lifting Christ Worship Center 1001 Pineview Road, 35228"
+    remote: null
+  - name: "Harriman Park"
+    rule_text: "Fourth Thursday of each month @ 4:30 p.m."
+    ordinal: fourth
+    weekday: thursday
+    time: "16:30"
+    type_text: "In-Person"
+    modes: [in_person]
+    place: "Harriman Park Recreation Center 4345 Shuttlesworth Drive, 35207"
+    remote: null
+  - name: "Highland Park"
+    rule_text: "Second Tuesday of each month @ 6:00 p.m."
+    ordinal: second
+    weekday: tuesday
+    time: "18:00"
+    type_text: "In Person & Zoom"
+    modes: [in_person, video]
+    place: "Visit highland-park.org for in-person meeting location"
+    remote: "MI: 819 7094 5731"
+  - name: "Hillman"
+    rule_text: "Third Thursday of each month @ 5:00 p.m."
+    ordinal: third
+    weekday: thursday
+    time: "17:00"
+    type_text: "In-Person"
+    modes: [in_person]
+    place: "Mary Dorsey Center 4560 Park Avenue SW, 35221"
+    remote: null
+  - name: "Hillman Park"
+    rule_text: "Third Thursday of each month @ 5:00 p.m."
+    ordinal: third
+    weekday: thursday
+    time: "17:00"
+    type_text: "In-Person"
+    modes: [in_person]
+    place: "Mary Dorsey Center 4560 Park Avenue SW, 35221"
+    remote: null
+  - name: "Hooper City"
+    rule_text: "Second Thursday of each month @ 6:00 p.m."
+    ordinal: second
+    weekday: thursday
+    time: "18:00"
+    type_text: "In-Person"
+    modes: [in_person]
+    place: "Hooper City Rec. Center 3901 4th Street West"
+    remote: "952 206 4918 Code: 223418"
+  - name: "Huffman"
+    rule_text: "Fourth Monday of each month @ 7:00 p.m."
+    ordinal: fourth
+    weekday: monday
+    time: "19:00"
+    type_text: "In-Person"
+    modes: [in_person]
+    place: "Huffman Baptist Church, 700 Huffman Road, 35215"
+    remote: null
+  - name: "Industrial"
+    rule_text: "Fourth Thursday of each month @ 6:00 p.m."
+    ordinal: fourth
+    weekday: thursday
+    time: "18:00"
+    type_text: "Conference Call/In-Person"
+    modes: [phone, in_person]
+    place: "Mary Dorsey Center 4560 Park Avenue SW 35221"
+    remote: "Dial 712 432 3973 Code# 690507"
+  - name: "Inglenook"
+    rule_text: "Second Monday of each month @ 5:30 p.m."
+    ordinal: second
+    weekday: monday
+    time: "17:30"
+    type_text: "In-Person"
+    modes: [in_person]
+    place: "Inglenook Recreation Center 4016 37th Avenue N, 35217"
+    remote: null
+  - name: "Jones Valley"
+    rule_text: "First Friday of each month @4:00 p.m."
+    ordinal: first
+    weekday: friday
+    time: "16:00"
+    type_text: "In-Person"
+    modes: [in_person]
+    place: "Birmingham Public Library 3301 Jefferson Ave SW, Birmingham, AL 35221"
+    remote: null
+  - name: "Killough Springs"
+    rule_text: "Second Tuesday of each month @ 6:00 p.m."
+    ordinal: second
+    weekday: tuesday
+    time: "18:00"
+    type_text: "In Person/Zoom"
+    modes: [in_person, video]
+    place: "Smith Middle School 1124 Five Mile Road, 35215"
+    remote: "Dial: 312-626-6799/ Access Code:2021"
+  - name: "Kingston"
+    rule_text: "Fourth Monday of each month @ 6:00 p.m."
+    ordinal: fourth
+    weekday: monday
+    time: "18:00"
+    type_text: "In-Person"
+    modes: [in_person]
+    place: "Royal Event Center 4641 Richard Arrington Boulevard North, 35212"
+    remote: null
+  - name: "Liberty Highlands"
+    rule_text: "Fourth Thursday of each month @ 6:00 p.m."
+    ordinal: fourth
+    weekday: thursday
+    time: "18:00"
+    type_text: "In-Person"
+    modes: [in_person]
+    place: "First Ebenezer Baptist Church 5100 Civic Circle, 35210"
+    remote: null
+  - name: "Maple Grove"
+    rule_text: "First Monday of each month @ 6:00 p.m."
+    ordinal: first
+    weekday: monday
+    time: "18:00"
+    type_text: "Coference Call"
+    modes: [phone]
+    place: null
+    remote: "Dial: 848-220-3300 / Code: 5524784"
+  - name: "Mason City"
+    rule_text: "First Tuesday of each month @ 4:30 p.m."
+    ordinal: first
+    weekday: tuesday
+    time: "16:30"
+    type_text: "Teleconfernce"
+    modes: [phone]
+    place: null
+    remote: "Dial: 712-770-8710 / Access Code: 846423"
+  - name: "North Avondale"
+    rule_text: "Third Thursday of each month @ 6:00 p.m."
+    ordinal: third
+    weekday: thursday
+    time: "18:00"
+    type_text: "In-Person"
+    modes: [in_person]
+    place: "Dr Martin Luther King Recration Center 529 43rd Street North, 35222"
+    remote: null
+  - name: "North Birmingham"
+    rule_text: "Second Monday of each month @ 6:00 p.m."
+    ordinal: second
+    weekday: monday
+    time: "18:00"
+    type_text: "In-Person"
+    modes: [in_person]
+    place: "Birmingham Public Library- North Birmingham Bracnch 2501 31th Avenue North, 35207"
+    remote: null
+  - name: "North Eastlake"
+    rule_text: "Second Tuesday of each month @ 6:00 p.m."
+    ordinal: second
+    weekday: tuesday
+    time: "18:00"
+    type_text: "Conference Call/ In-Person"
+    modes: [phone, in_person]
+    place: "Southern Museum of Flight 4343 73rd Street North, 35206"
+    remote: null
+  - name: "North Pratt"
+    rule_text: "Second Tuesday of each month @ 6:00 p.m."
+    ordinal: second
+    weekday: tuesday
+    time: "18:00"
+    type_text: "Conference Call/ In-Person"
+    modes: [phone, in_person]
+    place: "New Haven Apartments 13 Avenue West, 35214"
+    remote: "Dial: 1-605-313-4100 / Access Code: 1226945"
+  - name: "North Titusville"
+    rule_text: "First Wednesday of each month @ 5:00 p.m."
+    ordinal: first
+    weekday: wednesday
+    time: "17:00"
+    type_text: "In-Person"
+    modes: [in_person]
+    place: "Memorial Park Recreational Center 524 6th Avenue South, 35206"
+    remote: null
+  - name: "Norwood"
+    rule_text: "Fourth Wednesday of each month @ 6:00 p.m."
+    ordinal: fourth
+    weekday: wednesday
+    time: "18:00"
+    type_text: "Zoom"
+    modes: [video]
+    place: null
+    remote: "Meeting ID: 881 4501 5528 / Access Code: 758080"
+  - name: "Oak Ridge Park"
+    rule_text: "Second Monday of each month @ 7:00 p.m."
+    ordinal: second
+    weekday: monday
+    time: "19:00"
+    type_text: "In Person"
+    modes: [in_person]
+    place: "Harris Homes Community Center 514 Chester Avenue, 35212"
+    remote: null
+  - name: "Oak Ridge/West Ensley"
+    rule_text: "Second Thursday of each month @ 4:00 p.m."
+    ordinal: second
+    weekday: thursday
+    time: "16:00"
+    type_text: "Conference Call"
+    modes: [phone]
+    place: null
+    remote: "Dial: 952-206-4918 / Access Code: 223418"
+  - name: "Oakwood Place"
+    rule_text: "First Tuesday of each month @ 4:00 p.m."
+    ordinal: first
+    weekday: tuesday
+    time: "16:00"
+    type_text: "In-Person"
+    modes: [in_person]
+    place: "Harrison Park Recreation Center 1615 McMillan Avenue SW, 35211"
+    remote: null
+  - name: "Overton"
+    rule_text: "Meeting months: First Tuesday of each month on Feb, April, June, Aug, Oct & Dec. @ 6:00 p.m."
+    ordinal: first
+    weekday: tuesday
+    months: [2, 4, 6, 8, 10, 12]
+    time: "18:00"
+    type_text: "In Person"
+    modes: [in_person]
+    place: "Macedonia Baptist Church 803 Maple Street, 35210"
+    remote: null
+  - name: "Oxmoor"
+    rule_text: "Second Monday of each month @ 6:00 p.m."
+    ordinal: second
+    weekday: monday
+    time: "18:00"
+    type_text: "In-Person"
+    modes: [in_person]
+    place: "Oxmoor Valley Community Center 1992 Wenonah Rd, 35211"
+    remote: null
+  - name: "Penfield Park"
+    rule_text: "Second Tuesday of each month @ 6:00 p.m."
+    ordinal: second
+    weekday: tuesday
+    time: "18:00"
+    type_text: "In Person"
+    modes: [in_person]
+    place: "Brownsville Heights Community Center 9225 Airport Road, 35217"
+    remote: null
+  - name: "Pine Knoll Vista"
+    rule_text: "Third Thursday of each month @ 6:30 p.m."
+    ordinal: third
+    weekday: thursday
+    time: "18:30"
+    type_text: "Zoom"
+    modes: [video]
+    place: null
+    remote: "Meeting ID: 882 1281 8508 / Passcode: 998900"
+  - name: "Powderly"
+    rule_text: "Second Monday of each month @ 5:30 p.m."
+    ordinal: second
+    weekday: monday
+    time: "17:30"
+    type_text: "In-Person"
+    modes: [in_person]
+    place: "Henry Crumpton Recreation Center 3446 Gloria Road, 35211"
+    remote: null
+  - name: "Redmont Park"
+    rule_text: "Fourth Tuesday of each month @ 5:00 p.m."
+    ordinal: fourth
+    weekday: tuesday
+    time: "17:00"
+    type_text: "In-Person"
+    modes: [in_person]
+    place: "Birmingham Botanical Gardens 2612 Lane Park Road, 35223"
+    remote: null
+  - name: "Riley Travelick"
+    rule_text: "Second Tuesday of each month @ 6:00 p.m."
+    ordinal: second
+    weekday: tuesday
+    time: "18:00"
+    type_text: "In-Person"
+    modes: [in_person]
+    place: "Nobel Chapel CME 3700 Maple Avenue SW, Birmingham, AL 35221"
+    remote: null
+  - name: "Rising/West Princeton"
+    rule_text: "Second Monday of each month @ 6:00 p.m."
+    ordinal: second
+    weekday: monday
+    time: "18:00"
+    type_text: "In Person"
+    modes: [in_person]
+    place: "Rising West-Princeton Community Center 1708 1st Avenue West, 35208"
+    remote: null
+  - name: "Roebuck"
+    rule_text: "Second Monday of each month @ 6:30 p.m."
+    ordinal: second
+    weekday: monday
+    time: "18:30"
+    type_text: "In Person"
+    modes: [in_person]
+    place: "BPD- East Precinct 600 Red Lane Road, 355212"
+    remote: null
+  - name: "Roebuck Springs/South Roebuck"
+    rule_text: "Second Thursday of each month @ 7:00 p.m."
+    ordinal: second
+    weekday: thursday
+    time: "19:00"
+    type_text: "In Person"
+    modes: [in_person]
+    place: "New Beginning Christian Ministry 501 Mountain Drive, 35206"
+    remote: null
+  - name: "Roosevelt"
+    rule_text: "Second Thursday of each month @ 6:30 p.m."
+    ordinal: second
+    weekday: thursday
+    time: "18:30"
+    type_text: "Conference Call / In-Person"
+    modes: [phone, in_person]
+    place: "Roosevelt City Recreation Center 5904 Higan Avenue, 35228"
+    remote: "Dial: 425-436-6337 / Access Code: 6868376"
+  - name: "Sandusky"
+    rule_text: "Second Tuesday of each month @ 6:00 p.m."
+    ordinal: second
+    weekday: tuesday
+    time: "18:00"
+    type_text: "In Person"
+    modes: [in_person]
+    place: "Jimmie Hudson Rec Center 237 Pratt City Highway, 35214"
+    remote: null
+  - name: "Sherman Heights"
+    rule_text: "Second Monday of each month @ 6:00 p.m."
+    ordinal: second
+    weekday: monday
+    time: "18:00"
+    type_text: "Conference call/ In Person"
+    modes: [phone, in_person]
+    place: "Morning Star Christian Church 100 40th Avenue North, 35207"
+    remote: "Dial: 952-206-4918 / Access Code: 223418"
+  - name: "Smithfield"
+    rule_text: "Second Thursday of each month @ 6:00 p.m."
+    ordinal: second
+    weekday: thursday
+    time: "18:00"
+    type_text: "In Person"
+    modes: [in_person]
+    place: "Smithfield Community Center 150 Reverand Abraham Woods Jr. Boulevard, 35204"
+    remote: null
+  - name: "Smithfield Estates"
+    rule_text: "Third Saturday of each month @ 2:00 p.m."
+    ordinal: third
+    weekday: saturday
+    time: "14:00"
+    type_text: "In-Person"
+    modes: [in_person]
+    place: "Bethel Baptist Church 3233 29th Avenue N, 35207"
+    remote: null
+  - name: "South East Lake"
+    rule_text: "Fourth Monday of each month @ 6:00 p.m."
+    ordinal: fourth
+    weekday: monday
+    time: "18:00"
+    type_text: "Zoom/In Person"
+    modes: [video, in_person]
+    place: "EastLake UMC 7753 1th Avenue South, 35206"
+    remote: "MI: 861 7134 5083 / Code: 992893"
+  - name: "South Pratt"
+    rule_text: "Third Tuesday of each month @ 6:00 p.m."
+    ordinal: third
+    weekday: tuesday
+    time: "18:00"
+    type_text: "In-Person"
+    modes: [in_person]
+    place: "Lively Hope Baptist Church 905 Court T, 35214"
+    remote: null
+  - name: "South Titusville"
+    rule_text: "Second Tuesday of each month @ 5:30 p.m."
+    ordinal: second
+    weekday: tuesday
+    time: "17:30"
+    type_text: "In-Person"
+    modes: [in_person]
+    place: "Holy Family Christo Rey School 1832 Center Way S, 35205"
+    remote: null
+  - name: "South Woodlawn"
+    rule_text: "Third Tuesday of each month @6:00 p.m."
+    ordinal: third
+    weekday: tuesday
+    time: "18:00"
+    type_text: "In-Person"
+    modes: [in_person]
+    place: "Birmingham Public Library - Woodlawn Branch 5709 1st Avenue North, 35212"
+    remote: null
+  - name: "Southside"
+    rule_text: "Third Thursday of each month @ 6:00 p.m."
+    ordinal: third
+    weekday: thursday
+    time: "18:00"
+    type_text: "In-Person"
+    modes: [in_person]
+    place: "BPD South Precinct 1320 19th St S, Birmingham, Al 35205"
+    remote: null
+  - name: "Springlake"
+    rule_text: "First Thursday of each month @ 6:30 p.m."
+    ordinal: first
+    weekday: thursday
+    time: "18:30"
+    type_text: "In Person/Zoom"
+    modes: [in_person, video]
+    place: "Huffman High School 950 Springville Road"
+    remote: "Meeting ID: 205 256 1913 / Code: 2021"
+  - name: "Sun Valley"
+    rule_text: "Third Tuesday of each month @ 6:30 p.m."
+    ordinal: third
+    weekday: tuesday
+    time: "18:30"
+    type_text: "Zoom/ In-Person"
+    modes: [video, in_person]
+    place: "East Pinson Valley Recreation Center 3000 Jefferson State Parkway, 35215"
+    remote: "Meeting ID: 575-218-8259 /Access Code: 1234"
+  - name: "Tarpley City"
+    rule_text: "Fourth Monday of each month @ 6:00 p.m."
+    ordinal: fourth
+    weekday: monday
+    time: "18:00"
+    type_text: "In Person"
+    modes: [in_person]
+    place: "Mary Dorsey Center 4560 Park Avenue SW, 35221"
+    remote: null
+  - name: "Thomas"
+    rule_text: "First Tuesday of each month @ 6:00 p.m."
+    ordinal: first
+    weekday: tuesday
+    time: "18:00"
+    type_text: "In Person"
+    modes: [in_person]
+    place: "Thomas Baptist Church, 155 1st Street Thomas, 35214"
+    remote: null
+  - name: "Tuxedo"
+    rule_text: "Second Monday of each month @ 5:00 p.m."
+    ordinal: second
+    weekday: monday
+    time: "17:00"
+    type_text: "In-Person"
+    modes: [in_person]
+    place: "Birmingham Public Library - East Ensley Branch 900 14th Street Ensley, 35218"
+    remote: null
+  - name: "Wahouma"
+    rule_text: "First Tuesday of each month @ 6:00 p.m."
+    ordinal: first
+    weekday: tuesday
+    time: "18:00"
+    type_text: "In-Person"
+    modes: [in_person]
+    place: "Birmingham Public Library - East Lake Branch 5 Oporto Madrid Boulevard N., 35206"
+    remote: null
+  - name: "West Brownsville"
+    rule_text: "Second Thursday of each month @ 10: 00 a.m."
+    ordinal: second
+    weekday: thursday
+    time: "10:00"
+    type_text: "Conference Call"
+    modes: [phone]
+    place: null
+    remote: "Dial: 720-740-9813 / Access Code: 5502844"
+  - name: "West End Manor"
+    rule_text: "Second Monday of each month @ 5:00 p.m."
+    ordinal: second
+    weekday: monday
+    time: "17:00"
+    type_text: "In Person"
+    modes: [in_person]
+    place: "New Hope Baptist Church 1740 Cleburn Ave S.W"
+    remote: null
+  - name: "West Goldwire"
+    rule_text: "Second Monday of each month @ 5:30 p.m."
+    ordinal: second
+    weekday: monday
+    time: "17:30"
+    type_text: "Conference Call"
+    modes: [phone]
+    place: null
+    remote: "Dial: 720-843-2957 / Access Code: 6679362"
+  - name: "Woodland Park"
+    rule_text: "Fourth Monday of each month @ 6:00 p.m."
+    ordinal: fourth
+    weekday: monday
+    time: "18:00"
+    type_text: "In-Person / Zoom"
+    modes: [in_person, video]
+    place: "Woodland Park Church of Christ 1700 Dr. Martin Luther King Jr. Boulevard, 35211"
+    remote: "Meeting ID: 788 955 4024 / Code: 683868"
+  - name: "Woodlawn"
+    rule_text: "Second Monday of each month @ 6:00 p.m."
+    ordinal: second
+    weekday: monday
+    time: "18:00"
+    type_text: "In-Person"
+    modes: [in_person]
+    place: "Willow Wod Park, 5312 Georgia Road, 35212"
+    remote: null
+  - name: "Wylam"
+    rule_text: "First Tuesday of each month @ 6:00 p.m."
+    ordinal: first
+    weekday: tuesday
+    time: "18:00"
+    type_text: "In Person"
+    modes: [in_person]
+    place: "Birmingham Public Library -Wylam Library Branch 4300 7th Ave 35224"
+    remote: null
+  - name: "Zion City"
+    rule_text: "First Monday of each month @ 6:30 p.m."
+    ordinal: first
+    weekday: monday
+    time: "18:30"
+    type_text: "Teleconfernce"
+    modes: [phone]
+    place: null
+    remote: "Dial: 605-313-9638 / Access Code: 3979206"
