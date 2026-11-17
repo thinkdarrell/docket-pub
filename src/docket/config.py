@@ -45,6 +45,10 @@ BLOG_PREVIEW_TOKEN = os.environ.get("BLOG_PREVIEW_TOKEN", "")
 # (see docs/superpowers/specs/2026-11-12-how-it-works-design.md)
 HOW_IT_WORKS_ROOT = os.environ.get("HOW_IT_WORKS_ROOT", "content/how-it-works")
 
+# "What's coming up" content, one directory per city slug: the saved
+# neighborhood schedule and its transcription (plan birmingham-coming-up, M4)
+COMING_UP_ROOT = os.environ.get("COMING_UP_ROOT", "content/coming-up")
+
 # YouTube Data API v3 key for the youtube_ingest task and
 # scripts/backfill_youtube_meetings.py; unset, both read nothing
 # (plans/completed/youtube-council-channel.md, M4).

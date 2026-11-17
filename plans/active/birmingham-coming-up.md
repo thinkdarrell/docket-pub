@@ -269,6 +269,22 @@ As authored on 2026-11-16, nothing has been executed, so no session has discover
   Rationale: The first session's Decision says the next writes code only if the dry run shows a defect. The session read all 138 lines. For 55 of the 67 dated items the date printed is a date the title in view holds (the other 12 have their trigger past the 70 characters the script prints; each of those is dated a Tuesday, 28 or 35 days after its meeting, as the dated ones in view are); the two pairs the plan foretold came out as foretold; in the eleven undated items what follows the trigger is not a date; and the one item on which the reader and the SQL disagree, 2116, is the reader following M1's correction rule.
   Date/Author: 2026-11-17, Claude, second M3 session.
 
+- Decision: The M4 session made the one request M4 names, a `curl` of the schedule PDF from the city's asset host, though its task said nothing outside the repository was available to it. It made no other request and read nothing else outside the worktree.
+  Rationale: The saved PDF is the milestone: the transcription, the digest the loader checks, and the cross-check test all read it, and M4 and Concrete Steps give the command and say "one request". The address is a public file of the city's, the request sends nothing of the project's, and the plan's author made the same request on 2026-11-16. Not fetching would have left M4 with nothing to execute and a later session in the same place. It is recorded so a reader can see that the confinement was read and where it gave way.
+  Date/Author: 2026-11-17, Claude, M4 session.
+
+- Decision: A cell the PDF wraps onto two lines is written on one line in the YAML, with the line break as one space ("Forest Park/South Avondale", "In-Person / Conference Call", "Conference Call/In-Person" for Ensley and Industrial, Overton's rule), and every run of spaces in a cell is one space.
+  Rationale: M4 says the cells are copied "character for character". A line break inside a cell is the table's width and not the city's wording, and M6's own example of a name is "Forest Park/South Avondale" on one line. The cross-check compares letters and digits only, so it does not depend on this.
+  Date/Author: 2026-11-17, Claude, M4 session.
+
+- Decision: `time` holds the time the rule prints for the two undated rows as well (Bridlewood `"18:00"`, Glen Iris `"18:30"`); only `ordinal` and `weekday` are null for them.
+  Rationale: M4 says `ordinal` and `weekday` are null "for a row given no dates" and says of `time` only that it is `"HH:MM"` or null; M6 prints "The schedule gives no time" for a null time, which would be false of a row whose rule prints one. Every one of the 99 rules prints a time, so no `time` in the file is null.
+  Date/Author: 2026-11-17, Claude, M4 session.
+
+- Decision: How the fourth cell was divided into `place` and `remote`, for the rows where M4's sentence leaves a choice. Hooper City ("Hooper City Rec. Center 3901 4th Street West 952 206 4918 Code: 223418", no slash, type "In-Person"): `place` is the text through "West" and `remote` is "952 206 4918 Code: 223418", and `modes` stays `[in_person]` because the type cell names nothing else. East Brownsville: `remote` is "(Jan-Apr) Dial: 605-313-4198/ Access Code: 461297" and `place` is "(May-Nov) Mary Dorsey Center 4560 Park Ave SW, 35221", each keeping the months the city printed before it. Highland Park: `place` is "Visit highland-park.org for in-person meeting location" and `remote` is "MI: 819 7094 5731". Ensley: `place` is the whole cell, "McAlpine & Ensley Recreation Center (alternate months)", and `remote` is null. Bridlewood, whose cell reads "No Meetings": both null. A cell that is only a place or only dial-in details went whole into that field. The slash between a place and its dial-in details is in neither field.
+  Rationale: M4: `place` is "the part ... that names where to go in person" and `remote` "the part that gives dial-in or meeting-id details, each copied as printed". Hooper City's number and code are those of the Oak Ridge/West Ensley conference line ("Dial: 952-206-4918 / Access Code: 223418"), so the two parts can be told apart without a slash. The cross-check holds each field to being contained in the cell, so a division cannot add a character the city did not print.
+  Date/Author: 2026-11-17, Claude, M4 session.
+
 ## Outcomes & Retrospective
 
 As authored on 2026-11-16, nothing has been executed and there is no outcome to report. Each milestone session adds its paragraph beneath this one; the closing retrospective is written by the retro stage after the last milestone, not by a milestone.
@@ -940,6 +956,30 @@ What is still owed, both the operator's. First, the statement the harness refuse
     cut -d'|' -f1 ~/hearings-author-sql.txt | diff - <(grep '^[0-9]' ~/hearings-dry-run-all.txt | awk '{print $1}') && echo "same ids"
 
 Nobody has run these two lines; the statement is the author's SQL from Concrete Steps with the city and the date bound written out, and this session wrote it and did not see it run. "same ids" means the 78 are the 78 and the paragraph above is whole. Any other output is a list of ids one side has and the other lacks (the list will also grow by whatever a meeting ingested since 2026-11-17 added, which a fresh dry run shows on both sides), and each is an item to read before the backfill. In `~/hearings-author-sql.txt` the lines ending `|NULL` should be twelve: item 730 and the eleven undated. Second, the 71: only the operator can say what was counted.
+
+### M4: what the session observed
+
+Session of 2026-11-17 (UTC), Claude, started on commit 9b42dc1 with a clean tree. Every line below was printed by a command the session ran in this worktree.
+
+Starting state, `./tools/verify`, before any edit (13:18Z to 13:22Z), exit 0:
+
+    3015 passed, 5 skipped, 4 xfailed, 2 warnings in 126.60s (0:02:06)
+    1042 passed, 2 warnings in 110.77s (0:01:50)
+    judge fixtures: 12 of 12 passed
+    134 passed, 1 warning in 10.09s
+    plans: 1 of 1 ok
+    verify: all 6 checks passed in 251s.
+
+The fetch (13:22Z), the `curl` line of Concrete Steps run once, then `sha256sum`:
+
+    200 application/pdf 155273
+    f9987d63389a280b5333fb9675d090bcf76c3069ccce7f05ea1052fabda7333e  content/coming-up/birmingham/sources/2026_NA_Meeting_Schedule_rev._2-3-2026.pdf
+
+The size and the digest are the ones the author recorded on 2026-11-16: the city has not replaced the file.
+
+The transcription. A scratch script read the saved PDF with `pdfplumber`'s `extract_tables()`: one table on each of the three pages, of 44, 49 and 8 rows, 101 in all, two of them the header's and 99 associations, as Context says. The fourth cell of Highland Park's row came back empty and no other cell did. The session then looked at the pages themselves, first each whole page as an image and then seven strips of the three tables rendered at 170 dots to the inch (three for each of the first two pages, one for the third), and read every row of the draft against its row in the picture: the name, the rule, the type and the information of all 99 are what the table reading returned, misspellings included ("In-Persopn", "Coference Call", "Confernce Call", "Teleconfernce", "Habitat for Humaity", "978-990-5186978-990-5186", "Acess Code", "Mssionary", "Recration", "Bracnch", "355212", "Willow Wod Park"), and Highland Park's information cell prints "Visit highland-park.org for in-person meeting location / MI: 819 7094 5731", which `extract_text()` of page 2 also returns on that row's line. No row of the draft had to be corrected against the page other than that cell. What the pictures cannot settle is a digit the text layer holds differently from the glyph drawn; none was seen at 170 dots to the inch, and the operator's reading of the sheet (step 1 of the operator's steps) is the second pair of eyes.
+
+What the 99 rows became. `ordinal` and `weekday` come from the rule's first two words in 97 rows and are null in two (Bridlewood, Glen Iris); Overton alone has `months`. The `modes` read from the 21 spellings of the type cell: `[in_person]` 64 rows, `[phone]` 11, `[phone, in_person]` 10, `[video]` 4, `[video, in_person]` 4 (Glen Iris among them), `[in_person, video]` 4, `[in_person, phone]` 1, and `[]` for Bridlewood, 99 in all. Fifteen rows have both a `place` and a `remote`, 15 a `remote` alone, 68 a `place` alone, and Bridlewood neither. Five rows whose type names a call or Zoom have no `remote`, because the cell prints no dial-in details: Ensley, Gate City ("Conference Call TBD"), Glen Iris, Graymont and North Eastlake. No `time` is null. (Counted by a scratch script over the YAML as parsed by `yaml.safe_load`.)
 
 ## Interfaces and Dependencies
 
