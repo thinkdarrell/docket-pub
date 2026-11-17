@@ -237,6 +237,7 @@ As authored on 2026-11-16, nothing has been executed, so no session has discover
 - Decision: The item line's title is the stored title with every run of whitespace replaced by one space and cut at 70 characters, and nothing is trimmed from its ends.
   Rationale: M3 says "the first 70 characters of the collapsed title", and the reader's own collapse (`re.sub(r"\s+", " ", title)`) trims nothing. The session first wrote a `.strip()` after it; no fixture title begins or ends with whitespace, so no test could tell it from its absence, and it was taken out before the removal check and never committed with a test.
   Date/Author: 2026-11-17, Claude, M3 session.
+  Corrected the same day by the same session: the `.strip()` is in commit 6bccc6a, which holds the script as first written, and is gone in commit db271a3. It was taken out before the removal check ran, and the finished `./tools/verify` ran without it.
 
 ## Outcomes & Retrospective
 
