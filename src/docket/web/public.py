@@ -823,6 +823,13 @@ def upcoming_hearings_rss(city):
 
     60-minute cache via ``_rss_cached``. F5 fix-up S4 adds a matching
     ``Cache-Control`` header.
+
+    A city that has the coming-up page (``coming_up.is_coming_up_city``)
+    gets the page's hearing entries here, the hearings a resolution set a
+    date for, in place of every upcoming agenda line containing the word
+    "hearing"; every other city gets what it always got. The address, the
+    cache and the headers are the same on both paths (plan
+    birmingham-coming-up, M8b).
     """
     municipality = query.get_municipality(city)
     if not municipality:
@@ -833,6 +840,15 @@ def upcoming_hearings_rss(city):
     )
 
     def _render():
+        if coming_up.is_coming_up_city(municipality):
+            return render_template(
+                "rss/scheduled_hearings.xml.j2",
+                entries=coming_up.filter_entries(coming_up.list_entries(municipality), kind="hearing"),
+                municipality=municipality,
+                feed_url=feed_url,
+                page_url=url_for("public.coming_up_page", slug=city, _external=True),
+                absolute=_absolute_url,
+            )
         items = query.list_upcoming_hearings(municipality["id"])
         return render_template(
             "rss/upcoming_hearings.xml.j2",

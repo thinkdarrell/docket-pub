@@ -133,6 +133,30 @@ def bag():
         b.cleanup()
 
 
+@pytest.fixture
+def legacy_bag():
+    """``bag``, under Mobile: a city whose upcoming-hearings feed is still the title test.
+
+    Birmingham's feed lists its stored hearings since plan
+    `birmingham-coming-up`, M8b, so a test of what the title test puts in
+    a feed seeds a city without the ``coming_up`` key.
+    """
+    with db() as conn:
+        apply_migrations(conn)
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, slug FROM municipalities WHERE slug = 'mobile'"
+            )
+            row = cur.fetchone()
+            assert row is not None, "Mobile must be seeded"
+            city_id, city_slug = row[0], row[1]
+    b = _Bag(city_id, city_slug)
+    try:
+        yield b
+    finally:
+        b.cleanup()
+
+
 def _bag_for(city_slug: str) -> _Bag:
     """Look up city_id for ``city_slug`` and build a tracked ``_Bag``.
 
@@ -372,10 +396,10 @@ def test_data_debt_rss_renders_valid_xml(bag, client):
     assert any("RSS-debt-item" in (t or "") for t in item_titles)
 
 
-def test_upcoming_hearings_rss_renders_valid_xml(bag, client):
+def test_upcoming_hearings_rss_renders_valid_xml(legacy_bag, client):
     soon = (date.today() + timedelta(days=14)).isoformat()
-    bag.add_meeting(soon, title="Public Hearing on RSS test")
-    rv = client.get("/al/birmingham/upcoming-hearings.rss")
+    legacy_bag.add_meeting(soon, title="Public Hearing on RSS test")
+    rv = client.get("/al/mobile/upcoming-hearings.rss")
     assert rv.status_code == 200
     assert rv.mimetype == "application/rss+xml"
     body = rv.get_data(as_text=True)
@@ -532,26 +556,26 @@ def test_upcoming_hearings_emits_one_item_per_matching_agenda_item(bag, client):
 
 
 def test_upcoming_hearings_rss_unique_guids_for_multi_hearing_meeting(
-    bag, client
+    legacy_bag, client
 ):
     """Override 1 (R6): each ``<item>`` in the feed gets a unique
     ``<guid>``. Latent before fix-up: every item from a meeting with
     multiple hearings shared ``meeting_url#hearing`` and feed readers
     silently deduped them."""
     soon = (date.today() + timedelta(days=14)).isoformat()
-    m = bag.add_meeting(soon, title="Multi-hearing council meeting")
-    bag.add_item(
+    m = legacy_bag.add_meeting(soon, title="Multi-hearing council meeting")
+    legacy_bag.add_item(
         m, title="Public hearing on rezoning",
         data_quality="ok", data_debt_priority=None,
         processing_status="completed",
     )
-    bag.add_item(
+    legacy_bag.add_item(
         m, title="Public hearing on budget amendment",
         data_quality="ok", data_debt_priority=None,
         processing_status="completed",
     )
 
-    rv = client.get("/al/birmingham/upcoming-hearings.rss")
+    rv = client.get("/al/mobile/upcoming-hearings.rss")
     assert rv.status_code == 200
     body = rv.get_data(as_text=True)
     root = ET.fromstring(body)
@@ -573,17 +597,17 @@ def test_upcoming_hearings_rss_unique_guids_for_multi_hearing_meeting(
 
 
 def test_upcoming_hearings_rss_meeting_title_fallback_unique_guid(
-    bag, client
+    legacy_bag, client
 ):
     """Override 1: meetings whose own title matches but with no
     per-item hearings still emit a row, with a stable
     ``#hearing-meeting-<id>`` GUID anchor."""
     soon = (date.today() + timedelta(days=14)).isoformat()
-    m = bag.add_meeting(soon, title="Public Hearing on Annual Plan")
+    m = legacy_bag.add_meeting(soon, title="Public Hearing on Annual Plan")
     # No agenda items at all — the SQL must surface this via the
     # meeting-title fallback branch.
 
-    rv = client.get("/al/birmingham/upcoming-hearings.rss")
+    rv = client.get("/al/mobile/upcoming-hearings.rss")
     body = rv.get_data(as_text=True)
     root = ET.fromstring(body)
     channel = root.find("channel")

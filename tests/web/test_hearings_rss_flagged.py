@@ -101,9 +101,11 @@ def _render(entries, **context) -> ET.Element:
 
 
 def _entry(**changes):
+    from dataclasses import replace
+
     from docket.services.coming_up import Entry
 
-    made = dict(
+    made = Entry(
         kind="hearing",
         uid="hearing-7@docket.pub",
         on=date(2026, 12, 8),
@@ -124,8 +126,7 @@ def _entry(**changes):
         attend=(),
         association=None,
     )
-    made.update(changes)
-    return Entry(**made)
+    return replace(made, **changes)
 
 
 # --- the flagged city's feed ------------------------------------------------

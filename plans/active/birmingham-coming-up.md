@@ -1506,6 +1506,22 @@ Before the route was changed and before `src/docket/web/templates/rss/scheduled_
 
 The 16 are the ten route tests that need Birmingham's feed to hold stored hearings or to leave out a title that only says "hearing", and the six that render the new template alone on hand-built entries (each on `jinja2.exceptions.TemplateNotFound: rss/scheduled_hearings.xml.j2`). The four that pass in this state are true of the old path as well, and are there for the other side of the branch or for what both paths share: `test_the_same_title_is_in_the_feed_of_a_city_without_the_flag` (Mobile's feed lists the title, as it must before and after), `test_the_flagged_feed_is_served_as_rss_with_the_hours_cache_header`, `test_a_flagged_city_with_no_hearing_in_the_window_has_a_feed_with_no_item` (an empty database gives the old path no item either), and `test_a_city_that_loses_the_flag_returns_to_the_title_test` (with the gate answering no, which is how every city is answered in this state). The commit that holds the tests in this state is the one that adds this paragraph.
 
+With the branch in `public.upcoming_hearings_rss` and `src/docket/web/templates/rss/scheduled_hearings.xml.j2` written (16:52Z), the same command ended, on its first run against them:
+
+    20 passed, 1 warning in 2.38s
+
+The four tests M8b re-seats, run as they stood, after the route change and before any of them was edited (16:52Z), by `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest` on their four node ids with `-q -p no:cacheprovider`:
+
+    3 failed, 1 passed, 1 warning in 1.38s
+
+The three that failed, each because the title it seeded under Birmingham is no longer in Birmingham's feed: `tests/integration/test_f5_data_debt.py::test_upcoming_hearings_rss_renders_valid_xml` at line 387, `assert False` / `where False = any(<generator object test_upcoming_hearings_rss_renders_valid_xml.<locals>.<genexpr> ...>)` (no item title holds "RSS test"); `::test_upcoming_hearings_rss_unique_guids_for_multi_hearing_meeting` at line 567, `assert 0 == 2` / `where 0 = len([])`; `::test_upcoming_hearings_rss_meeting_title_fallback_unique_guid` at line 595, `assert 0 == 1` / `where 0 = len([])`. The one that passed is `tests/integration/test_admin_hide_meeting.py::test_upcoming_hearings_rss_excludes_hidden`: its one assertion about the body is that the hidden meeting's title is absent, and Birmingham's feed now holds neither of the two titles it seeds. So three of the four could see the change and the fourth could not (Surprises & Discoveries).
+
+The four were then re-seated as M8b says: `tests/integration/test_f5_data_debt.py` gained the fixture `legacy_bag` (written as `bag` is, for the slug `mobile`) and its three tests seed through it and ask for `/al/mobile/upcoming-hearings.rss`; `tests/integration/test_admin_hide_meeting.py` gained a fixture `legacy_bag` made by that file's `_bag_for("mobile")`, which made one without trouble, and its test seeds through it. No assertion of the four was changed and no other test of either file was touched. The two integration files, the new file, and M7's and M8's page and feed files then ended, in one run:
+
+    182 passed, 1 warning in 23.44s
+
+`venv/bin/ruff check` on the new test file is clean after one helper was rewritten (a `dict(...)` call, `C408`; the rewrite builds the entry and applies `dataclasses.replace`, and the 20 tests passed again, `20 passed, 1 warning in 2.49s`); on `src/docket/web/public.py` it reports the one finding M7 and M8 recorded (`C408` at line 330, the transcript route), and on `tests/integration/test_admin_hide_meeting.py` an unsorted import block at line 9 (`I001`), neither in a line this session wrote.
+
 ## Interfaces and Dependencies
 
 No new package. `pdfplumber` and `pyyaml` (through `python-frontmatter`; `src/docket/services/how_it_works.py` already imports `yaml`) are in the environment; `requirements.txt` and `requirements.lock` are not changed.

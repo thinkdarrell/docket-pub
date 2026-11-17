@@ -1,0 +1,34 @@
+{#- The upcoming-hearings feed of a city that has the coming-up page: one
+    <item> per hearing entry of that page, in the page's order.
+
+    The envelope is that of rss/upcoming_hearings.xml.j2, which every other
+    city still gets. An item links its article on the coming-up page (the
+    article's id is the entry's uid up to the "@"), and its guid is that
+    same address. There is no <pubDate>: an entry does not carry the day its
+    hearing was first read, and the hearing's own date is in the future.
+    Every link goes through ``absolute``, since a feed is read outside the
+    site. This file's name does not end in .xml, so nothing is escaped
+    unless it says so here. -#}
+{%- macro description(entry) -%}
+{%- for line in entry.detail %}{{ line }}
+{% endfor -%}
+{%- for label, url in entry.links %}{{ label }}: {{ absolute(url) }}{% if not loop.last %}
+{% endif %}{% endfor -%}
+{%- endmacro -%}
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>{{ municipality.name }} upcoming hearings — docket.pub</title>
+    <link>{{ url_for('public.city_overview', slug=municipality.slug, _external=True) }}</link>
+    <description>Public hearings the {{ municipality.name }} council has scheduled, by the date of the hearing.</description>
+    <language>en-us</language>
+    <lastBuildDate>{{ rss_now_rfc822() }}</lastBuildDate>
+    <atom:link href="{{ feed_url }}" rel="self" type="application/rss+xml" />
+{% for entry in entries %}    <item>
+      <title>{{ entry.title | e }}, {{ entry.on.strftime('%B %-d, %Y') }}</title>
+      <link>{{ page_url | e }}#{{ entry.uid.split('@')[0] | e }}</link>
+      <description><![CDATA[{{ description(entry) | cdata_safe }}]]></description>
+      <guid isPermaLink="true">{{ page_url | e }}#{{ entry.uid.split('@')[0] | e }}</guid>
+    </item>
+{% endfor %}  </channel>
+</rss>
