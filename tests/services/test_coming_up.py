@@ -1015,7 +1015,6 @@ def test_the_schedule_asked_for_is_the_citys(monkeypatch):
 
     def get_schedule(slug):
         asked.append(slug)
-        return None
 
     monkeypatch.setattr(neighborhood_schedule, "get_schedule", get_schedule)
     coming_up.list_entries(_city_row("mobile"), today=TODAY)

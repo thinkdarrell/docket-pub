@@ -1162,6 +1162,12 @@ Before `src/docket/services/coming_up.py` existed (2026-11-17 14:18Z), `DATABASE
 
 Every one of the 87 failed with `ImportError: cannot import name 'coming_up' from 'docket.services'`. The service is imported inside each test, so the file collected. The commit that holds the tests in this state is the one that adds this paragraph. The seeding helpers are in the test file itself; M7 moves them to `tests/support/coming_up_seed.py`, as M7 says.
 
+With `src/docket/services/coming_up.py` written (14:20Z), the same command ended, on its first run against the service:
+
+    87 passed, 1 warning in 6.24s
+
+Between that run and the commit that holds the service, two things changed and the file was run again (`87 passed, 1 warning in 5.96s`): `row["session_kind"] or "regular"` became `row["session_kind"]` in the service, since the column is NOT NULL (migration 038) and no stored row could tell the two apart; and a `return None` that `ruff check` flagged was taken out of one test's stand-in function. `venv/bin/ruff check` on the two files then printed `All checks passed!`.
+
 ## Interfaces and Dependencies
 
 No new package. `pdfplumber` and `pyyaml` (through `python-frontmatter`; `src/docket/services/how_it_works.py` already imports `yaml`) are in the environment; `requirements.txt` and `requirements.lock` are not changed.
