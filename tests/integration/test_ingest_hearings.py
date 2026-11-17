@@ -218,3 +218,20 @@ def test_the_hearings_step_runs_after_the_meeting_types_and_before_the_votes(mon
     ingest.ingest_municipality("birmingham")
 
     assert order == ["meeting types", "hearings", "votes", "adoptions"]
+
+
+# --- rules pinned after the removal check ------------------------------------
+
+
+def test_the_log_line_holds_each_count_of_the_report_under_its_own_name(adapter, monkeypatch, caplog):
+    from docket.services import hearings
+    from docket.services.ingest import ingest_municipality
+
+    report = hearings.HearingReport(matched=6, dated=5, undated=1, hearings=4, created=3, linked=2)
+    monkeypatch.setattr(hearings, "refresh_recent", lambda municipality_id: report)
+
+    with caplog.at_level(logging.INFO, logger="docket.services.ingest"):
+        ingest_municipality("birmingham")
+
+    lines = [r.getMessage() for r in caplog.records if r.getMessage().startswith("Hearings:")]
+    assert lines == ["Hearings: matched=6 dated=5 undated=1 hearings=4 created=3 linked=2"]

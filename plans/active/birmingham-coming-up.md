@@ -55,6 +55,15 @@ As authored on 2026-11-16, nothing has been executed, so no session has discover
 - Observation (M2, 2026-11-17): The first migration test written passes without the migration. `test_047_down_removes_the_tables_and_the_key` asserts that after up and down there are no tables and no key, which is also true of a database migration 047 never touched.
   Evidence: the before state, `5 failed, 1 passed, 1 warning, 45 errors`. The removal check shows the test is not idle once the migration exists: the down without its key removal, without either `DROP TABLE`, each fails a test.
 
+- Observation (M3, 2026-11-17): The harness refused the production dry run, so M3 is not ticked. The session ran the first two lines of Concrete Steps' production block (the address read from `railway variables`, then a read-only `psql` count) as one command, and nothing of it ran.
+  Evidence: the refusal, whole: `Permission for this action was denied by the Claude Code auto mode classifier. Reason: [Unauthorized Access]. If you have other tasks that don't depend on this action, continue working on those. IMPORTANT: You *may* attempt to accomplish this action using other tools that might naturally be used to accomplish this goal, e.g. using head instead of cat. But you *should not* attempt to work around this denial in malicious ways, e.g. do not use your ability to run tests to execute non-test actions. You should only try to work around this restriction in reasonable ways that do not attempt to bypass the intent behind this denial. If you believe this capability is essential to complete the user's request, first try a safer method. Get as much of the rest of the task done as you can, then STOP and explain to the user what you were trying to do and why you need this permission. Let the user decide how to proceed. To allow this type of action in the future, the user can add a permission rule for Bash to their settings.` The session did not try the command in another spelling. The operator is the executor of the two dry-run lines; "M3: what remains, and how the operator supplies it" in Artifacts and Notes gives the steps.
+
+- Observation (M3, 2026-11-17): The tests M3 lists, and the session's additions to them, left one clause free: which count of the report goes under which name in ingest's log line. Of 48 single-clause removals from stage 3c, the script, and the `title` key of `find_readings`, 47 failed a test; one test was added and all 48 then fail one.
+  Evidence: `removals tried=48 failed a test=47 survived=1`, then `removals tried=48 failed a test=48 survived=0` (Artifacts and Notes, "M3: what the session observed").
+
+- Observation (M3, 2026-11-17): Whether a stored title puts "for" between the trigger and its date (M1's open question, left for this milestone's real rows) is still not known, since the dry run did not run. The comparison paragraph the next M3 session writes is where it shows.
+  Evidence: none; nothing was read from production in this session.
+
 ## Decision Log
 
 - Decision: The hearing reader reads an item's `title` alone, never its `description`.
@@ -221,6 +230,14 @@ As authored on 2026-11-16, nothing has been executed, so no session has discover
   Rationale: M3 says "log its counts" and not their form. The words are the report's field names, the same the script prints, so a worker log line and a dry run read alike.
   Date/Author: 2026-11-17, Claude, M3 session.
 
+- Decision: M3's Progress line is left open and its text untouched; no line is added beside it. What is done and what remains is recorded here, in Surprises & Discoveries and in Outcomes & Retrospective.
+  Rationale: M3 says that when the harness refuses the Railway command "the session does not tick M3: it records the refusal in Surprises & Discoveries, commits, and stops". `plans/PLANS.md` asks a stopping point to split the entry in place ("completed: X; remaining: Y"), and the judge (`docs/capabilities/judge-milestone.md`) identifies an entry by its text, so a reworded M3 line would read to it as an open entry removed, and `AGENTS.md` forbids rewording. Completed: stage 3c of `ingest_municipality`, `scripts/backfill_hearings.py`, their two test files (17 tests), the removal check, and `./tools/verify`. Remaining: the two production dry-run lines of Concrete Steps, the totals lines and hearing lines in Artifacts and Notes, the paragraph of differences against 78, 67 and 11 and against the operator's 71 and 9, and then the tick. The next session on this plan is M3 again, and it writes no code unless the dry run shows a defect.
+  Date/Author: 2026-11-17, Claude, M3 session.
+
+- Decision: The item line's title is the stored title with every run of whitespace replaced by one space and cut at 70 characters, and nothing is trimmed from its ends.
+  Rationale: M3 says "the first 70 characters of the collapsed title", and the reader's own collapse (`re.sub(r"\s+", " ", title)`) trims nothing. The session first wrote a `.strip()` after it; no fixture title begins or ends with whitespace, so no test could tell it from its absence, and it was taken out before the removal check and never committed with a test.
+  Date/Author: 2026-11-17, Claude, M3 session.
+
 ## Outcomes & Retrospective
 
 As authored on 2026-11-16, nothing has been executed and there is no outcome to report. Each milestone session adds its paragraph beneath this one; the closing retrospective is written by the retro stage after the last milestone, not by a milestone.
@@ -228,6 +245,8 @@ As authored on 2026-11-16, nothing has been executed and there is no outcome to 
 M1, 2026-11-17. `src/docket/enrichment/hearings.py` exists with the interface Interfaces gives (and the constant `PREFIX_MIN`), imports the standard library only, and reads all 25 fixture titles as the table of expected readings says, the four pair cases included; no row of the table had to be changed. No carve-out against M1's acceptance: the single-file command ended `62 passed`, the before state was recorded (37 failed, 1 passed, on the missing module), and `./tools/verify` ended `all 6 checks passed`. What the milestone's own test list did not cover, and the session added: 24 tests for the 31 clauses a removal check found free. Left for M3 to look at on real rows: whether any stored title puts "for" between the trigger and its date (Surprises & Discoveries). Next: M2, storage.
 
 M2, 2026-11-17. Migration 047 creates `public_hearings` and `public_hearing_items` and sets Birmingham's `"coming_up": true`, and `src/docket/services/hearings.py` exists with the five functions and two names Interfaces gives for M2 and M3 (and a private `_match_stored`). No carve-out against M2's acceptance clauses: the status command lists 047 as applied, the migration test passes up, down, and up again, the store tests pass with the two named tests recorded, and `./tools/verify` ended `all 6 checks passed`. One thing the plan asked for was not done as written and is not an acceptance clause: the migration's number was chosen from this worktree's refs, without `gh pr list`, which the session's task did not allow (Decision Log); someone with GitHub in reach checks that no open pull request also holds a 047 before the merge. What the milestone's own test list did not cover, and the session added: nine tests for 11 rules a removal check found free; two clauses that exist for cost alone, and three properties of the migration, are named in Surprises & Discoveries as untested. Nothing reads or writes the tables yet outside tests: ingest's step and the backfill script are M3. Next: M3.
+
+M3, 2026-11-17, not complete. Done: `ingest_municipality` has a stage 3c that calls `hearings.refresh_recent`, logs its counts, and reports a failure in `IngestResult.errors` as "Hearings: ..." without stopping anything; `scripts/backfill_hearings.py` exists, refuses to run without `--since`, and with `--dry-run` prints the item lines, the hearing lines and the totals and writes nothing; `find_readings`' rows carry the stored `title`. Carve-out against M3's acceptance, clause by clause: "`tests/integration/test_ingest_hearings.py` and `tests/unit/test_backfill_hearings_script.py` pass" is met (17 passed); "exits non-zero and names the missing bound" is met (exit 2, "the following arguments are required: --since"); "`git status --porcelain` prints nothing" is met at the session's last commit; "the two production dry-run lines of Concrete Steps ran, and Artifacts and Notes holds their totals lines, the hearing lines ... and the paragraph of differences" is NOT met: the harness refused the command that reaches production (Surprises & Discoveries holds the refusal), so no production row was read, no comparison exists, and the "Evidence or silence" comparison on real rows that this pipeline change needs before it ships has not been made. The Progress line is therefore open. `./tools/verify` ended `all 6 checks passed`. Next: M3 again, for the dry run and the comparison alone ("M3: what remains, and how the operator supplies it" in Artifacts and Notes); M4 does not start before it.
 
 ## Context and Orientation
 
@@ -785,6 +804,46 @@ which is the 16 new tests and the store file's 54. `venv/bin/python scripts/back
     usage: backfill_hearings.py [-h] --city CITY --since YYYY-MM-DD
                                 [--until YYYY-MM-DD] [--dry-run]
     backfill_hearings.py: error: the following arguments are required: --since
+
+The removal check (`skills/plan-execute/SKILL.md`). A scratch script outside the repository made 48 copies, 10 of `src/docket/services/ingest.py` (stage 3c: the call, the test for a report, the log line, the appended error, its prefix, the breadth of the `except`, and the stage's place moved before stage 3, before stage 3b, and after stage 4), one of `src/docket/services/hearings.py` (the `title` key) and 37 of `scripts/backfill_hearings.py`, each with one clause taken out or weakened, loaded each copy in place of its module through a pytest plugin (no committed file was edited), and ran the two new test files against it with `-x`. First pass, against the 16 tests of commit 0cf2619:
+
+    removals tried=48 failed a test=47 survived=1
+
+The one: in ingest's log line, `report.matched` replaced by `report.dated` (the test of the line asserted each count to be at least 1, since other rows of the database may be in the run). One test, `test_the_log_line_holds_each_count_of_the_report_under_its_own_name`, was added under the comment "rules pinned after the removal check" in `tests/integration/test_ingest_hearings.py`; it is not in commit 0cf2619. It gives the step a report of six different counts and asserts the whole line. Second pass, same 48 removals, against the 17 tests:
+
+    17 passed, 1 warning in 1.99s
+    removals tried=48 failed a test=48 survived=0
+
+The script run from the command line against the throwaway database, which holds no Birmingham agenda item (`DATABASE_URL=$(tools/test-db) venv/bin/python scripts/backfill_hearings.py --city birmingham --since 2025-01-01 --dry-run`), printed one line and exited 0:
+
+    matched=0 dated=0 undated=0 hearings=0
+
+Finished state, `./tools/verify` (2026-11-17 04:42Z), run on the tree the session's last code commit holds:
+
+    3015 passed, 5 skipped, 4 xfailed, 2 warnings in 129.08s (0:02:09)
+    1042 passed, 2 warnings in 111.85s (0:01:51)
+    judge fixtures: 12 of 12 passed
+    134 passed, 1 warning in 10.11s
+    verify: plans ... ok (0s)
+    verify: all 6 checks passed in 254s.
+
+Against M2's recorded 3004 and 1036: 11 more in the fast tiers (the script's test file) and 6 more in the integration tier (the ingest test file), none failed.
+
+### M3: what remains, and how the operator supplies it
+
+Nothing below has been run. The production dry run is the operator's to run or to allow; either way the next session on this plan is M3 again.
+
+One way: allow the command and run the factory again. The refused command was the first two lines of the production block in Concrete Steps (`railway variables ...` into `PGURL`, then `psql` with `PGOPTIONS='-c default_transaction_read_only=on'`). With a permission rule that allows them, `/cycle-run plans/active/birmingham-coming-up.md` starts a session that finds M3 open, runs the four lines, and writes the record.
+
+The other way: run it by hand. Machine: the Legion. Window: a WSL terminal. Folder: `/home/thinkdarrell/docket-pub/.claude/worktrees/birmingham-coming-up` (this worktree, not the main checkout: the script is on this branch only, and it needs this worktree's `venv/`).
+
+    cd /home/thinkdarrell/docket-pub/.claude/worktrees/birmingham-coming-up
+    export PGURL="$(railway variables --service docket-web --kv 2>/dev/null | grep '^DATABASE_PUBLIC_URL=' | cut -d= -f2-)"
+    DATABASE_URL="$PGURL" PGOPTIONS='-c default_transaction_read_only=on' venv/bin/python scripts/backfill_hearings.py --city birmingham --since 2025-01-01 --dry-run > ~/hearings-dry-run-all.txt
+    DATABASE_URL="$PGURL" PGOPTIONS='-c default_transaction_read_only=on' venv/bin/python scripts/backfill_hearings.py --city birmingham --since 2025-01-01 --until 2026-11-16 --dry-run > ~/hearings-dry-run-until-1116.txt
+    tail -1 ~/hearings-dry-run-all.txt ~/hearings-dry-run-until-1116.txt
+
+Both lines carry `--dry-run` and the read-only option; neither writes. The two files are outside the repository and stay there. The next M3 session needs their contents, and a session reads this repository alone, so the operator hands it the two files' text (pasted into the session, or the session allowed to read the two paths); that session records the totals lines, the hearing lines dated on or after the day of the run, the lines for items 62830 with 62881 and 62831 with 62882, and writes the paragraph of differences. For the item-by-item comparison with the author's SQL (Concrete Steps gives it), the session also needs the ids the SQL matches and dates, which is one more read-only `psql` statement against the same address; if that too is refused, the operator runs it and hands over its output with the files.
 
 ## Interfaces and Dependencies
 

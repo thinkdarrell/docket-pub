@@ -48,7 +48,7 @@ TITLE_SHOWN = 70
 
 def _item_line(row: dict) -> str:
     reading = row["reading"]
-    title = re.sub(r"\s+", " ", row["title"]).strip()
+    title = re.sub(r"\s+", " ", row["title"])
     count = "-" if reading.property_count is None else reading.property_count
     return (
         f"{row['item_id']}  {row['meeting_date']}  {reading.hearing_date or 'no date'}  "
