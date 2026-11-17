@@ -102,7 +102,7 @@
                     <a href="{{ address }}">{{ words }}</a>{% if not loop.last %} · {% endif %}
                     {% endfor -%}
                 </p>
-                {%- if feeds.associations and schedule %}
+                {%- if feeds.associations %}
                 <details class="cu-subscribe-associations">
                     <summary>One neighborhood association ({{ schedule.year }} schedule)</summary>
                     <ul class="cu-subscribe-list" role="list">

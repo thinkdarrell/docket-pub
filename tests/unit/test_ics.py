@@ -494,3 +494,20 @@ def test_the_module_executes_no_sql_and_imports_no_service_that_does():
 
     assert not [name for name in imported if name.startswith("docket")]
     assert not [name for name in imported if name.startswith("flask")]
+
+
+# --- rules pinned after the removal check -------------------------------------
+
+
+def test_the_url_is_the_entrys_source_and_not_whatever_link_comes_first():
+    """No entry of the service lists a link before its city document today; the rule is `source_url` first."""
+    entry = _entry(
+        source_url=CITY_DOC,
+        links=(
+            ("Meeting on docket.pub", "/al/birmingham/meetings/3207/"),
+            ("City calendar", CITY_DOC),
+        ),
+    )
+    (event,) = _events(_render(entry))
+
+    assert _value(event, "URL") == CITY_DOC
