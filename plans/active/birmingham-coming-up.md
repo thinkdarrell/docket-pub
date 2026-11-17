@@ -1142,6 +1142,26 @@ The fast tiers went from 3147 passed to 3203: the 31 date tests added to `tests/
 
 The session's task came with the same piece of the operator's terminal M4's did (`error: unexpected argument '-1' found`, the `tip:` line, the `tail` usage line). It is the `tail -1` refusal M3's second session recorded, with the line that works; it bears on nothing in M5, and no command this session ran or wrote for the operator uses `tail -1`.
 
+### M6: what the session observed
+
+Session of 2026-11-17 (UTC), Claude, started on commit f19350d with a clean tree. Every line below was printed by a command the session ran in this worktree.
+
+Starting state, `./tools/verify`, before any edit (ended 14:17Z), exit 0:
+
+    3203 passed, 5 skipped, 4 xfailed, 2 warnings in 138.70s (0:02:18)
+    1042 passed, 2 warnings in 113.04s (0:01:53)
+    judge fixtures: 12 of 12 passed
+    134 passed, 1 warning in 10.82s
+    plans: 1 of 1 ok
+    verify: plans ... ok (0s)
+    verify: all 6 checks passed in 265s.
+
+Before `src/docket/services/coming_up.py` existed (2026-11-17 14:18Z), `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/services/test_coming_up.py -q -p no:cacheprovider` ended:
+
+    87 failed, 1 warning in 5.69s
+
+Every one of the 87 failed with `ImportError: cannot import name 'coming_up' from 'docket.services'`. The service is imported inside each test, so the file collected. The commit that holds the tests in this state is the one that adds this paragraph. The seeding helpers are in the test file itself; M7 moves them to `tests/support/coming_up_seed.py`, as M7 says.
+
 ## Interfaces and Dependencies
 
 No new package. `pdfplumber` and `pyyaml` (through `python-frontmatter`; `src/docket/services/how_it_works.py` already imports `yaml`) are in the environment; `requirements.txt` and `requirements.lock` are not changed.
