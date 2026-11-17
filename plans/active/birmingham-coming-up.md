@@ -603,6 +603,10 @@ Before the reader existed (2026-11-17 03:45Z), `DATABASE_URL=$(tools/test-db) ve
 
 Every failure was `ModuleNotFoundError: No module named 'docket.enrichment.hearings'`; the one pass is the test that the fixture holds the 25 ids of the table. The reader is imported inside each test (as `skills/plan-execute/SKILL.md` asks), so the before state is 37 tests failing and not one collection error; Validation's words "fail on import" are met in that form. The commit that holds the tests failing is the one that adds this paragraph.
 
+With `src/docket/enrichment/hearings.py` written, the same command ended, on its first run against the reader:
+
+    38 passed, 1 warning in 0.03s
+
 ## Interfaces and Dependencies
 
 No new package. `pdfplumber` and `pyyaml` (through `python-frontmatter`; `src/docket/services/how_it_works.py` already imports `yaml`) are in the environment; `requirements.txt` and `requirements.lock` are not changed.
