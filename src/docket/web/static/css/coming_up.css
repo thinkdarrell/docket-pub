@@ -1,0 +1,135 @@
+/* coming_up.css — the "What's coming up" page (templates/coming_up.html).
+   Loaded from the page's {% block head %}, after mobile.css.
+   Layout uses the custom properties styles.css defines. The eight label
+   pairs below are this file's own colours: styles.css has no set of eight
+   tints that can be told apart. Plan birmingham-coming-up, M7. */
+
+.cu-subscribe { margin: var(--space-4) 0 0; font-size: 15px; }
+.cu-subscribe a { color: var(--accent-ink); font-weight: 500; }
+
+/* ── the list ─────────────────────────────────────────
+   One section per date; one article per entry. A single column at every
+   width, held to a readable measure, so nothing has a reason to overflow. */
+.cu-list { max-width: 760px; padding: var(--space-6) 0 0; }
+.cu-day { padding: 0 0 var(--space-8); }
+.cu-day-h {
+  margin: 0 0 var(--space-3);
+  padding: 0 0 var(--space-2);
+  border-bottom: 1px solid var(--rule-strong);
+  font-size: 22px;
+  letter-spacing: -0.01em;
+}
+.cu-empty { margin: 0; color: var(--ink-2); font-size: 17px; }
+
+.cu-entry {
+  padding: var(--space-4) 0;
+  border-bottom: 1px solid var(--rule);
+  scroll-margin-top: 80px;
+}
+.cu-entry-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+}
+.cu-time { font-size: 13px; color: var(--ink-2); }
+.cu-entry-title {
+  margin: 0;
+  font-size: var(--type-card);
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.cu-detail, .cu-place {
+  margin: var(--space-1) 0 0;
+  color: var(--ink-2);
+  font-size: 15px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+/* ── how to attend ────────────────────────────────────
+   Where to go and how to call in, as the schedule prints them. */
+.cu-attend {
+  margin: var(--space-3) 0 0;
+  padding: var(--space-2) var(--space-3);
+  border-left: 2px solid var(--rule-strong);
+  background: var(--paper-2);
+}
+.cu-attend-h { margin: 0 0 var(--space-1); }
+.cu-attend-line {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.cu-attend-label { color: var(--ink-3); font-weight: 500; }
+
+.cu-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+.cu-links a { color: var(--accent-ink); overflow-wrap: anywhere; }
+
+/* ── a date's neighborhood meetings ───────────────────
+   Closed until asked for, so a date with a dozen of them stays short. */
+.cu-neighborhood { margin: var(--space-3) 0 0; }
+.cu-neighborhood > summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  color: var(--ink-2);
+  font-size: 15px;
+  font-weight: 500;
+}
+.cu-neighborhood > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.cu-neighborhood > .cu-entry { padding-left: var(--space-4); }
+
+/* ── the labels ───────────────────────────────────────
+   One per kind and one for cancelled. Every label is the same size, weight
+   and place; only the two colours differ, and each text colour has a
+   contrast of at least 4.5 to 1 against its background (the ratios are
+   asserted in tests/web/test_coming_up_page.py). The page has no dark
+   theme, so there is one pair each. */
+.cu-badge {
+  display: inline-block;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.cu-badge--meeting      { background: #dbe9f6; color: #12395e; }
+.cu-badge--zoning       { background: #e8def5; color: #45236e; }
+.cu-badge--weed-lots    { background: #dff0d8; color: #24511a; }
+.cu-badge--vacation     { background: #fbe5cc; color: #6b3a05; }
+.cu-badge--budget       { background: #f6ecc0; color: #5a4700; }
+.cu-badge--hearing      { background: #e4e4e8; color: #33333d; }
+.cu-badge--neighborhood { background: #d5efec; color: #0f4d47; }
+.cu-badge--cancelled    { background: #f8d9d6; color: #7a1712; }
+
+/* ── where these dates come from ──────────────────────*/
+.cu-sources {
+  max-width: 700px;
+  padding: var(--space-8) 0 var(--space-12);
+  color: var(--ink-2);
+  font-size: 15px;
+  line-height: 1.6;
+}
+.cu-sources-h { margin: 0 0 var(--space-3); font-size: 22px; color: var(--ink); }
+.cu-sources p { margin: 0 0 var(--space-3); }
+.cu-sources a { color: var(--accent-ink); overflow-wrap: anywhere; }
+.cu-undated { margin: 0; padding: 0 0 0 var(--space-5); }
+.cu-undated-name { color: var(--ink); font-weight: 500; }

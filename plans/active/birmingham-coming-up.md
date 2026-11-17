@@ -1256,6 +1256,12 @@ Before the route, the template, the stylesheet, the city-page link and the sitem
 
 The 100 that pass are M6's 97, unchanged by the move, and three of the new file's 54 that hold of an application with no such page: `/al/mobile/coming-up/` and `/al/nowhere/coming-up/` answer 404 (from the badge catch-all today), and the test of the contrast arithmetic itself. The 51 that fail are the rest of `tests/web/test_coming_up_page.py`: the page tests on a 404 for `/al/birmingham/coming-up/`, the stylesheet tests on `FileNotFoundError` for `src/docket/web/static/css/coming_up.css`, and the city-page, partial, sitemap and template-global tests on the link, the line and the names that are not there. The commit that holds the tests in this state is the one that adds this paragraph.
 
+With the route `public.coming_up_page` and the template global `has_coming_up` in `src/docket/web/public.py`, `src/docket/web/templates/coming_up.html`, `src/docket/web/static/css/coming_up.css`, the link in `partials/briefing/meetings.html`, `sitemap.has_coming_up` and the line in `crawlers.sitemap_city_meetings` written (15:00Z), the same command ended, on its first run against them:
+
+    151 passed, 1 warning in 16.93s
+
+A scratch script then seeded a merged council meeting, a cancelled pair and two hearings in the throwaway database, set the day to 2026-11-16, and asked the application for the three addresses: it printed `status [200, 404, 404] articles 139 entries 139 bytes 161852`, the three codes being Birmingham's, `mobile`'s and `nowhere`'s, and the session read the first day's markup and the "Where these dates come from" section in what came back. `venv/bin/ruff check` on the changed Python files reports one finding, `C408` at `src/docket/web/public.py:324` (a `dict()` call in the transcript route), which is in no line this session wrote and was left.
+
 ## Interfaces and Dependencies
 
 No new package. `pdfplumber` and `pyyaml` (through `python-frontmatter`; `src/docket/services/how_it_works.py` already imports `yaml`) are in the environment; `requirements.txt` and `requirements.lock` are not changed.

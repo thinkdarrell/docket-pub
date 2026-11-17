@@ -11,6 +11,7 @@ from __future__ import annotations
 import math
 
 from docket.db import db_cursor
+from docket.services import coming_up, query
 
 #: Item URLs per items sitemap file. The sitemap protocol caps a file at
 #: 50,000 URLs; 10,000 keeps each file small enough to render in well under
@@ -51,6 +52,15 @@ def city_exists(slug: str) -> bool:
             (slug,),
         )
         return cur.fetchone() is not None
+
+
+def has_coming_up(slug: str) -> bool:
+    """Whether the city has a "What's coming up" page for the sitemap to list.
+
+    ``coming_up.is_coming_up_city`` owns the test; a slug that is no active
+    city has none.
+    """
+    return coming_up.is_coming_up_city(query.get_municipality(slug))
 
 
 def list_meetings(slug: str) -> list[dict]:

@@ -471,7 +471,7 @@ def test_the_attend_block_follows_the_detail_lines_and_holds_each_pair_as_label_
     (article,) = _page(client).select("article[data-entry-uid]")
 
     (block,) = article.select("div.cu-attend")
-    assert _text(block) == "How to attend Where The hall Call-in Dial: 555 0100"
+    assert _text(block) == "How to attend Where : The hall Call-in : Dial: 555 0100"
     assert [(_text(line.select_one(".cu-attend-label")), _text(line.select_one(".cu-attend-text")))
             for line in block.select(".cu-attend-line")] == [("Where", "The hall"), ("Call-in", "Dial: 555 0100")]
     assert _text(article).count("The hall") == 1  # the place is in the block and not a second time

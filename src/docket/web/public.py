@@ -26,7 +26,7 @@ from flask import (
 
 from docket.enrichment.topics import all_topics, get_topic_display_name
 from docket.models.data_quality import friendly_label
-from docket.services import briefing, query, video_links
+from docket.services import briefing, coming_up, query, video_links
 from docket.services import how_it_works as how_it_works_service
 
 bp = Blueprint("public", __name__)
@@ -91,6 +91,15 @@ def city_provenance(municipality):
     if mid is None:
         return empty
     return briefing.city_provenance(mid)
+
+
+@bp.app_template_global("has_coming_up")
+def has_coming_up(municipality) -> bool:
+    """Whether this city has a "What's coming up" page, so a template draws
+    its link only where the page answers. The gate is one metadata key and
+    ``docket.services.coming_up.is_coming_up_city`` owns its meaning (plan
+    birmingham-coming-up, M7)."""
+    return coming_up.is_coming_up_city(municipality)
 
 
 _overview_cache: dict[str, tuple] = {}
@@ -1175,6 +1184,46 @@ def how_it_works(slug):
     ))
     resp.headers["Vary"] = "HX-Request"
     return resp
+
+
+def _coming_up_days(entries) -> list[dict]:
+    """The entries, already in date order, as one dict per date.
+
+    ``entries`` holds the date's meetings and hearings and ``neighborhood``
+    its neighborhood meetings, each in the order the service gave, so the
+    page can put a date's neighborhood meetings together under one summary.
+    """
+    days: list[dict] = []
+    for entry in entries:
+        if not days or days[-1]["on"] != entry.on:
+            days.append({"on": entry.on, "entries": [], "neighborhood": []})
+        days[-1]["neighborhood" if entry.kind == "neighborhood" else "entries"].append(entry)
+    return days
+
+
+@bp.route("/al/<slug>/coming-up/")
+def coming_up_page(slug):
+    """What is ahead in this city in the next 60 days, every entry linked to the city's document.
+
+    Meetings, scheduled public hearings and neighborhood association
+    meetings, all from one call of ``coming_up.list_entries``; the calendar
+    feed is built from the same call, so the two cannot differ. A city that
+    does not exist, or whose metadata does not carry ``"coming_up": true``,
+    is 404. The address takes no parameter: the window always starts today.
+    The fixed last segment outranks the ``/al/<slug>/<badge_slug>/``
+    catch-all.
+    """
+    municipality = query.get_municipality(slug)
+    if not coming_up.is_coming_up_city(municipality):
+        abort(404)
+    return render_template(
+        "coming_up.html",
+        municipality=municipality,
+        days=_coming_up_days(coming_up.list_entries(municipality)),
+        window_days=coming_up.WINDOW_DAYS,
+        undated=coming_up.undated_associations(slug),
+        schedule=coming_up.schedule_source(slug),
+    )
 
 
 @bp.route("/about/")

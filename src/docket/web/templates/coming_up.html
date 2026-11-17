@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{# coming_up.html — what is ahead in a city in the next 60 days.
+
+   One list in date order of three kinds of entry: meetings, scheduled
+   public hearings, and neighborhood association meetings. Every entry is a
+   docket.services.coming_up.Entry and the page prints what it carries and
+   nothing else: a time, a place or call-in details the source does not
+   give are absent, never filled in (docs/PRINCIPLES.md, source or silence).
+   The first link of an entry is the city's own document where there is one.
+
+   Each entry is an <article> whose id is its uid up to the "@" (the
+   upcoming-hearings feed links a hearing by it), with data-entry-uid and
+   data-entry-kind; a cancelled meeting also carries
+   data-entry-cancelled="true", and its detail sentences name the source
+   that says so. A date's neighborhood meetings sit together inside one
+   <details>, after that date's meetings and hearings.
+
+   The label colours are in css/coming_up.css; a label always has words, so
+   colour is never the only signal, and no kind's label outranks another's.
+
+   Args:
+     municipality (dict) — the city
+     days (list[dict])   — one per date, in date order: on (date), entries
+       (the date's meetings and hearings), neighborhood (its neighborhood
+       meetings), each in the service's order
+     window_days (int)   — coming_up.WINDOW_DAYS
+     undated (list[tuple[str, str]]) — name and reason of each association
+       the schedule gives no dates
+     schedule (dict | None) — the neighborhood schedule's title, url,
+       revised (date) and year, or None for a city with no schedule
+
+   Plan birmingham-coming-up, M7.
+#}
+{% block title %}What's coming up in {{ municipality.name }} — docket.pub{% endblock %}
+
+{% block head %}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/coming_up.css') }}">
+{% endblock %}
+
+{% macro clock(moment) -%}
+{{ moment.strftime('%-I:%M') }} {{ 'a.m.' if moment.hour < 12 else 'p.m.' }}
+{%- endmacro %}
+
+{% macro entry_article(entry) %}
+<article class="cu-entry" id="{{ entry.uid.split('@')[0] }}" data-entry-uid="{{ entry.uid }}" data-entry-kind="{{ entry.kind }}"
+         {%- if entry.cancelled %} data-entry-cancelled="true"{% endif %}>
+    <p class="cu-entry-head">
+        <span class="cu-badge cu-badge--{{ entry.badge }}">{{ entry.badge_label }}</span>
+        {%- if entry.cancelled %}
+        <span class="cu-badge cu-badge--cancelled">Cancelled</span>
+        {%- endif %}
+        {%- if entry.starts_at %}
+        <time class="cu-time t-mono" datetime="{{ entry.starts_at.isoformat() }}">{{ clock(entry.starts_at) }}{% if entry.ends_at %} to {{ clock(entry.ends_at) }}{% endif %}</time>
+        {%- endif %}
+    </p>
+    <h3 class="cu-entry-title">{{ entry.title }}</h3>
+    {%- for line in entry.detail %}
+    <p class="cu-detail">{{ line }}</p>
+    {%- endfor %}
+    {%- if entry.attend %}
+    <div class="cu-attend">
+        <p class="cu-attend-h t-eyebrow">How to attend</p>
+        {%- for label, text in entry.attend %}
+        <p class="cu-attend-line"><span class="cu-attend-label">{{ label }}</span>: <span class="cu-attend-text">{{ text }}</span></p>
+        {%- endfor %}
+    </div>
+    {%- elif entry.place %}
+    <p class="cu-place">{{ entry.place }}</p>
+    {%- endif %}
+    <ul class="cu-links t-mono" role="list">
+        {%- for label, url in entry.links %}
+        <li><a href="{{ url }}"{% if not url.startswith('/') %} rel="external noopener"{% endif %}>{{ label }}</a></li>
+        {%- endfor %}
+    </ul>
+</article>
+{% endmacro %}
+
+{% block content %}
+<section class="hero hero--detail">
+    <div class="hero-top">
+        <div>
+            <div class="t-eyebrow">Coming up</div>
+            <h1 class="hero-title t-display">What's coming up in {{ municipality.name }}</h1>
+            <p class="hero-sub cu-lede">
+                Meetings, scheduled public hearings and neighborhood association meetings in
+                the next {{ window_days }} days. Every entry links to the city document it came from.
+            </p>
+            <p class="cu-subscribe"><a href="/al/{{ municipality.slug }}/coming-up.ics">Subscribe to this calendar</a></p>
+        </div>
+    </div>
+</section>
+
+<div class="cu-list">
+{%- for day in days %}
+<section class="cu-day">
+    <h2 class="cu-day-h t-display">{{ day.on.strftime('%A, %B %-d, %Y') }}</h2>
+    {%- for entry in day.entries %}
+    {{ entry_article(entry) }}
+    {%- endfor %}
+    {%- if day.neighborhood %}
+    <details class="cu-neighborhood">
+        <summary>{{ day.neighborhood | length }} neighborhood association meeting{{ '' if day.neighborhood | length == 1 else 's' }}</summary>
+        {%- for entry in day.neighborhood %}
+        {{ entry_article(entry) }}
+        {%- endfor %}
+    </details>
+    {%- endif %}
+</section>
+{%- else %}
+<p class="cu-empty">Nothing is listed for the next {{ window_days }} days.</p>
+{%- endfor %}
+</div>
+
+<section class="cu-sources" aria-labelledby="cu-sources-h">
+    <h2 id="cu-sources-h" class="cu-sources-h t-display">Where these dates come from</h2>
+    <p>
+        Meetings come from the council's video site and the city's calendar. A meeting either of
+        them calls cancelled is shown marked cancelled, with the one that says so named.
+    </p>
+    <p>
+        A hearing's date is read by docket.pub from the text of a resolution on a council agenda,
+        without a language model. An agenda is posted before its meeting, so a listed resolution
+        may not yet have been adopted, and a hearing the council later moved may still show on its
+        first date.
+    </p>
+    {%- if schedule %}
+    <p>
+        Neighborhood dates are computed by docket.pub from the monthly rule in the city's schedule,
+        <a href="{{ schedule.url }}" rel="external noopener">{{ schedule.title }}</a>
+        (revised {{ schedule.revised.strftime('%B %-d, %Y') }}), which covers {{ schedule.year }} only.
+        A meeting moved for a holiday is not reflected.
+    </p>
+    {%- endif %}
+    {%- if undated %}
+    <p>The schedule gives these associations no dates docket.pub can compute:</p>
+    <ul class="cu-undated">
+        {%- for name, reason in undated %}
+        <li><strong class="cu-undated-name">{{ name }}</strong>: <span class="cu-undated-reason">{{ reason }}</span></li>
+        {%- endfor %}
+    </ul>
+    {%- endif %}
+</section>
+{% endblock %}
