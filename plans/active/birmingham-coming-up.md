@@ -583,6 +583,26 @@ The times that go with them, from the schedule: Acipco-Finley 17:30, Brown Sprin
 
 The production dry run's totals lines, hearing lines, and the comparison paragraph. As authored, none exists.
 
+### M1: what the session observed
+
+Session of 2026-11-17 (UTC), Claude, started on commit df07111 with a clean tree. Every line below was printed by a command the session ran in this worktree.
+
+Starting state, `./tools/verify`, before any edit:
+
+    2888 passed, 5 skipped, 4 xfailed, 2 warnings in 122.52s (0:02:02)
+    1030 passed, 2 warnings in 111.23s (0:01:51)
+    judge fixtures: 12 of 12 passed
+    134 passed, 1 warning in 10.03s
+    verify: all 6 checks passed in 247s.
+
+The fixture was written by a scratch script that read the 25 indented JSON lines of "The fixture titles" out of this file and checked, for each, that the title's length is the smaller of `len` and 420; all 25 held.
+
+Before the reader existed (2026-11-17 03:45Z), `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_hearing_reader.py -q -p no:cacheprovider` ended:
+
+    37 failed, 1 passed, 1 warning in 0.11s
+
+Every failure was `ModuleNotFoundError: No module named 'docket.enrichment.hearings'`; the one pass is the test that the fixture holds the 25 ids of the table. The reader is imported inside each test (as `skills/plan-execute/SKILL.md` asks), so the before state is 37 tests failing and not one collection error; Validation's words "fail on import" are met in that form. The commit that holds the tests failing is the one that adds this paragraph.
+
 ## Interfaces and Dependencies
 
 No new package. `pdfplumber` and `pyyaml` (through `python-frontmatter`; `src/docket/services/how_it_works.py` already imports `yaml`) are in the environment; `requirements.txt` and `requirements.lock` are not changed.
