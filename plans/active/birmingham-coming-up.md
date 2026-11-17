@@ -652,6 +652,25 @@ The fast tiers went from 2888 passed to 2950, the 62 tests of the new file, with
 
 Keys the tests observed, each asserted: item 3297's is 101 characters and item 3339's opens with it; item 2116's is 100 characters, ends `zac202500019`, and holds no `november`; item 1680's opens with the 82-character zoning wording followed by `casenozac202500013`, and item 1681's with the same followed by `casenozac202500022`.
 
+### M2: what the session observed
+
+Session of 2026-11-17 (UTC), Claude, started on commit a394e97 with a clean tree. Every line below was printed by a command the session ran in this worktree.
+
+Starting state, `./tools/verify`, before any edit:
+
+    2950 passed, 5 skipped, 4 xfailed, 2 warnings in 123.47s (0:02:03)
+    1030 passed, 2 warnings in 110.47s (0:01:50)
+    judge fixtures: 12 of 12 passed
+    134 passed, 1 warning in 11.03s
+    verify: plans ... ok (0s)
+    verify: all 6 checks passed in 249s.
+
+The hearings migration is number 047 (Decision Log, this date, says how the number was chosen). Before the migration and the service existed (2026-11-17 04:05Z), `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/integration/test_047_migration.py tests/services/test_hearings_store.py -q -p no:cacheprovider` ended:
+
+    5 failed, 1 passed, 1 warning, 45 errors in 1.20s
+
+The five failures are five of the six migration tests (the module `docket.migrations.047_public_hearings` does not exist and `runner.MIGRATIONS` holds no 47, so the tables are not made). The one pass is `test_047_down_removes_the_tables_and_the_key`, which holds of a database the migration never touched: no tables, no key. The 45 errors are every test of the store file, each stopped in the file's own cleanup, which runs before each test and deletes from `public_hearings`, a table that does not exist. The service is imported inside each test, so the file collected. The commit that holds the tests in this state is the one that adds this paragraph.
+
 ## Interfaces and Dependencies
 
 No new package. `pdfplumber` and `pyyaml` (through `python-frontmatter`; `src/docket/services/how_it_works.py` already imports `yaml`) are in the environment; `requirements.txt` and `requirements.lock` are not changed.
