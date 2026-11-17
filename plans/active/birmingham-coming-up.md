@@ -1234,6 +1234,28 @@ The fast tiers went from 3203 passed to 3300, the 97 tests of `tests/services/te
 
 The session's task came with the same piece of the operator's terminal M4's and M5's did (`error: unexpected argument '-1' found`, the `tip:` line, the `tail` usage line). It is the `tail -1` refusal M3's second session recorded, with the line that works (`tail -n 1 <file> <file>`); it bears on nothing in M6, and no command this session ran or wrote for the operator uses `tail -1`.
 
+### M7: what the session observed
+
+Session of 2026-11-17 (UTC), Claude, started on commit 355dbc9 with a clean tree. Every line below was printed by a command the session ran in this worktree.
+
+Starting state, `./tools/verify`, before any edit (14:53Z to 14:57Z), exit 0:
+
+    3300 passed, 5 skipped, 4 xfailed, 2 warnings in 145.65s (0:02:25)
+    1042 passed, 2 warnings in 111.14s (0:01:51)
+    judge fixtures: 12 of 12 passed
+    134 passed, 1 warning in 9.74s
+    plans: 1 of 1 ok
+    verify: plans ... ok (0s)
+    verify: all 6 checks passed in 270s.
+
+The seeding helpers moved first, as M7 says: `tests/support/coming_up_seed.py` now holds the constants and the functions that were the "seeding" part of `tests/services/test_coming_up.py` (under public names: `city_row`, `delete_seeded`, `at`, `upcoming_row`, `event`, `event_url`, `source_url`, `held_meeting`, `item`, `store_hearings`, `hearing_of`, `hearing`, `entries`, `association`, `use_schedule`), and M6's file imports the module and binds each to the underscore name its tests already call, so no test body of M6's changed.
+
+Before the route, the template, the stylesheet, the city-page link and the sitemap line existed (2026-11-17 14:58Z), `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/services/test_coming_up.py tests/web/test_coming_up_page.py -q -p no:cacheprovider` ended:
+
+    51 failed, 100 passed, 1 warning in 14.69s
+
+The 100 that pass are M6's 97, unchanged by the move, and three of the new file's 54 that hold of an application with no such page: `/al/mobile/coming-up/` and `/al/nowhere/coming-up/` answer 404 (from the badge catch-all today), and the test of the contrast arithmetic itself. The 51 that fail are the rest of `tests/web/test_coming_up_page.py`: the page tests on a 404 for `/al/birmingham/coming-up/`, the stylesheet tests on `FileNotFoundError` for `src/docket/web/static/css/coming_up.css`, and the city-page, partial, sitemap and template-global tests on the link, the line and the names that are not there. The commit that holds the tests in this state is the one that adds this paragraph.
+
 ## Interfaces and Dependencies
 
 No new package. `pdfplumber` and `pyyaml` (through `python-frontmatter`; `src/docket/services/how_it_works.py` already imports `yaml`) are in the environment; `requirements.txt` and `requirements.lock` are not changed.
