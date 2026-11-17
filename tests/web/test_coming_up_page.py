@@ -685,6 +685,16 @@ def test_a_flagged_city_with_no_schedule_has_a_page_without_the_neighborhood_par
     assert page.select("details") == []
 
 
+def test_the_template_global_takes_a_stand_in_that_is_not_a_dict(client):
+    """Other tests render the city page with a `SimpleNamespace` for the city, which has no `.get`."""
+    has = client.application.jinja_env.globals["has_coming_up"]
+
+    assert has(SimpleNamespace(slug="birmingham", name="Birmingham")) is False
+    assert has(SimpleNamespace(slug="x", metadata={"coming_up": True})) is True
+    assert has(SimpleNamespace(slug="x", metadata={"briefing": True})) is False
+    assert has(SimpleNamespace(slug="x", metadata=None)) is False
+
+
 # --- the labels' colours ----------------------------------------------------
 
 

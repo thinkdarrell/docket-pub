@@ -98,7 +98,11 @@ def has_coming_up(municipality) -> bool:
     """Whether this city has a "What's coming up" page, so a template draws
     its link only where the page answers. The gate is one metadata key and
     ``docket.services.coming_up.is_coming_up_city`` owns its meaning (plan
-    birmingham-coming-up, M7)."""
+    birmingham-coming-up, M7). Accepts the municipality dict the routes pass
+    or, as ``city_provenance`` does, any object with a ``metadata``
+    attribute; a stand-in without one is not a flagged city."""
+    if not isinstance(municipality, dict):
+        municipality = {"metadata": getattr(municipality, "metadata", None)}
     return coming_up.is_coming_up_city(municipality)
 
 
