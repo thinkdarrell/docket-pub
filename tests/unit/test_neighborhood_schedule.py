@@ -18,7 +18,7 @@ import hashlib
 import os
 import re
 import shutil
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import pytest
@@ -636,6 +636,46 @@ def test_changing_the_checked_in_digest_by_a_digit_is_refused(tmp_path):
     with pytest.raises(ScheduleError) as excinfo:
         _load(city_dir)
     assert PDF_SHA256 in str(excinfo.value)
+
+
+# --- rules pinned after the removal check (plan birmingham-coming-up, M4) ---
+
+
+def _two_checks(doc):
+    doc["checked"].append({"by": "A second reader", "on": date(2026, 11, 20), "how": "read against the PDF"})
+
+
+PINNED_REFUSALS = [
+    ("revised with a time of day", _source(revised=datetime(2026, 2, 3, 9, 0)), ["source", "revised"]),
+    ("check date with a time of day", _check(on=datetime(2026, 11, 17, 9, 0)), ["checked", "on"]),
+    ("source a list of its own keys", _set("source", list(_doc()["source"])), ["source", "mapping"]),
+    ("month true", _assoc(1, months=[True, 8]), ["Birch Hill", "months", "True"]),
+    ("modes a mapping", _assoc(0, modes={"in_person": True}), ["Alder Park", "modes", "list"]),
+    ("url empty", _source(url=""), ["source", "url"]),
+    ("file not text", _source(file=5), ["source", "file"]),
+    ("year true", _source(year=True), ["source", "year"]),
+    ("check how empty", _check(how=""), ["checked", "how"]),
+    ("associations an empty mapping", _set("associations", {}), ["associations", "list"]),
+]
+
+
+@pytest.mark.parametrize(
+    "mutate, expected", [r[1:] for r in PINNED_REFUSALS], ids=[r[0] for r in PINNED_REFUSALS]
+)
+def test_the_loader_also_refuses(tmp_path, mutate, expected):
+    doc = _doc()
+    mutate(doc)
+    message = _refused(tmp_path, doc)
+    for words in expected:
+        assert words in message, message
+
+
+def test_every_check_is_kept_in_the_order_written(tmp_path):
+    doc = _doc()
+    _two_checks(doc)
+    schedule = _load(_write_city(tmp_path, doc))
+    assert [c.by for c in schedule.checked] == ["A reader", "A second reader"]
+    assert schedule.checked[1].on == date(2026, 11, 20)
 
 
 # ---------------------------------------------------------------------------

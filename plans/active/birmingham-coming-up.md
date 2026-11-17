@@ -85,6 +85,12 @@ As authored on 2026-11-16, nothing has been executed, so no session has discover
 - Observation (M4, 2026-11-17): The `checked` entry M4 writes, `on: <date>`, does not parse to a key named "on". PyYAML reads YAML 1.1, where a bare `on` (like `yes`, `off`, `no`) is a boolean, so the entry arrives as `{'by': ..., True: datetime.date(2026, 11, 17), 'how': ...}`. The loader as first written refused the checked-in file for it.
   Evidence: the first run of the tests against the loader, `24 failed, 93 passed`, every failure `` `checked[0]` is missing the key `on` ``. `yaml.safe_dump` writes the key as `'on':`, in quotes, which is why the tests on a file the test itself dumps did not show it and only the hand-written file did. The operator's step 1 adds a second `checked` entry by hand, and would have met the same refusal.
 
+- Observation (M4, 2026-11-17): The tests the session first wrote left 13 of the loader's clauses free. Of 87 single-clause removals, 13 failed no test; eleven tests were added and 84 then fail one. The three that remain cannot be told from their absence by any result.
+  Evidence: `removals tried=87 failed a test=74 survived=13`, then `removals tried=87 failed a test=84 survived=3` (Artifacts and Notes, "M4: what the session observed", lists the 13). The three: `time` having to be text and not merely something whose printed form is `HH:MM` (YAML yields no such value: an unquoted `17:30` is the number 1050, which is refused either way); `source.sha256` having to be text (a digest that is not text never equals the saved file's, so the digest comparison refuses it with another message); and `checked` having to be a list (a mapping or a string in its place is refused one step later, entry by entry, as not a mapping). Each is there so the refusal says what is wrong.
+
+- Observation (M4, 2026-11-17): Nothing in the 99 rows differs from what the plan's Context said the table reading holds. The 97 dated associations, Overton's six months, the two undated rows and Highland Park's cell are as the author found them, so M5's count of 1,158 and M6's 97 slugs stand on this transcription.
+  Evidence: `test_the_two_undated_rows_and_their_reasons`, `test_overton_alone_names_its_months`, and the cross-check passing on the checked-in file; 96 rules of every month and Overton's make the 97.
+
 ## Decision Log
 
 - Decision: The hearing reader reads an item's `title` alone, never its `description`.
@@ -1011,6 +1017,28 @@ With `src/docket/services/neighborhood_schedule.py` written (13:29Z), the same c
 All 24 were tests of the checked-in file, and all for one reason, which was a defect in the file's format as M4 gives it and not in a test: `ScheduleError: .../neighborhood-schedule.yaml: `checked[0]` is missing the key `on``. PyYAML reads YAML 1.1, in which a bare `on` is the boolean true, so the key written `on: 2026-11-17` arrives as `True` (Surprises & Discoveries; the Decision Log says what was done). With seven lines added to the loader and four tests for them, the command ended:
 
     121 passed, 1 warning in 9.11s
+
+The removal check (`skills/plan-execute/SKILL.md`). A scratch script outside the repository made 87 copies of `src/docket/services/neighborhood_schedule.py`, each with one clause taken out or weakened, loaded each copy in place of the module through a pytest plugin (the committed file was never edited), and ran the test file against it with `-x`. First pass, against the 121 tests of commit cb1f964:
+
+    removals tried=87 failed a test=74 survived=13
+
+The 13 that no test could tell from the rule: a date that carries a time of day being no date; the test that a block is a mapping, where the block is a list of its own key names; `true` being no month number; `time` having to be text; `modes` having to be a list, where it is a mapping; `source.url`, `source.file` and `source.sha256` each having to be text; `true` being no year; `checked` having to be a list; a check's `how` having to be text; every check being kept, not the first alone; and `associations` having to be a list, where it is an empty mapping. Eleven tests were then added under the comment "rules pinned after the removal check" in `tests/unit/test_neighborhood_schedule.py` (ten cases of one parametrized test and one test of two checks), none of them in commit cb1f964. Second pass, same 87 removals, against the 132 tests:
+
+    132 passed, 1 warning in 9.10s
+    removals tried=87 failed a test=84 survived=3
+
+The three left are named in Surprises & Discoveries with why nothing can tell them from their absence. The cross-check is test code, in the test file; its clauses were not put through the script, and are tried instead by the eleven altered copies of Birmingham's directory that the file itself builds, each of which must fail it, beside the untouched copy that must pass.
+
+Acceptance, run on the tree of the commit that adds this paragraph. `sha256sum content/coming-up/birmingham/sources/*.pdf` printed `f9987d63389a280b5333fb9675d090bcf76c3069ccce7f05ea1052fabda7333e`, and `grep -c` of that digest printed 1 for `neighborhood-schedule.yaml` and 1 for `sources/README.md`. The cross-check's dict holds one exception, Highland Park, for the reason the Decision Log gives. The two alterations Validation names were made on a copy of `content/coming-up/birmingham/` in the session's scratch directory by a scratch script that imports the test file's `cross_check` and the loader; the checked-in file was never altered, so there was nothing to restore in the repository, and the copy was put back and read clean again (`[]`, 99 associations). With Huffman's `rule_text` changed by one letter ("Fourta Monday of each month @ 7:00 p.m."), the cross-check returned:
+
+    Huffman: name, rule_text and type_text equal 0 table rows, not one
+    table row 'Huffman' is transcribed by no association
+
+and the loader loaded that copy without complaint, 99 associations: the loader does not read the table, the cross-check does. With the last two characters of the YAML's `sha256` changed from `3e` to `4e`, `load_schedule` raised `ScheduleError`:
+
+    <copy>/neighborhood-schedule.yaml: the saved sources/2026_NA_Meeting_Schedule_rev._2-3-2026.pdf has SHA-256 f9987d63389a280b5333fb9675d090bcf76c3069ccce7f05ea1052fabda7333e, and `source.sha256` says f9987d63389a280b5333fb9675d090bcf76c3069ccce7f05ea1052fabda7334e: the file was replaced or the transcription names another revision
+
+Both alterations are also tests in the file (`test_one_letter_changed_in_a_rule_text_fails_the_cross_check`, on Acipco-Finley, and `test_changing_the_checked_in_digest_by_a_digit_is_refused`), so they are tried on every run of `./tools/verify`.
 
 ## Interfaces and Dependencies
 
