@@ -19,7 +19,8 @@ Every page below is served by the Flask app in `src/docket/web/` (routes in `pub
 | Data debt | `/al/birmingham/data-debt`, `.rss` | chapter 4 |
 | Source health | `/al/birmingham/source-health/` | chapter 7 |
 | How the council works | `/al/birmingham/how-it-works/` (`?journey=` picks the real item followed) | checked-in rules and journeys under `content/how-it-works/birmingham/`, not meeting data; only a journey's links are read from chapters 2 and 5 (`docs/specs/how-it-works.md`) |
-| Upcoming hearings feed | `/al/birmingham/upcoming-hearings.rss` | chapter 2 |
+| What's coming up, and its calendar feed | `/al/birmingham/coming-up/`, `/al/birmingham/coming-up.ics` (`?kind=`, `?association=` narrow the feed) | the next 60 days in one list: upcoming meetings from chapter 2's Granicus rows and the city calendar, the public hearings a resolution on a council agenda has set (read from agenda item titles by fixed rules at ingest), and neighborhood association meetings computed from the city's schedule checked in under `content/coming-up/birmingham/` (`docs/specs/coming-up.md`) |
+| Upcoming hearings feed | `/al/birmingham/upcoming-hearings.rss` | the scheduled hearings of the coming-up page (`docs/specs/coming-up.md`); for a city without that page, chapter 2's upcoming meetings whose titles say "hearing" |
 | Editorial coverage, blog | `/coverage/`, `/al/birmingham/blog` | markdown in `content/`, not meeting data |
 | About, methodology, corrections | `/about/`, `/about/how-we-read-minutes/`, `/about/corrections/` | static |
 

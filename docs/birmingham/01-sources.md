@@ -1,6 +1,6 @@
 # 1. Where Birmingham's records come from
 
-Everything on `/al/birmingham/` traces back to five places the city itself publishes. Nothing is typed in by hand except the one manifest in section 4. This chapter names each source, what it supplies, and what it does not.
+Everything on `/al/birmingham/` traces back to six places the city itself publishes. Nothing is typed in by hand except the one manifest in section 4 and the transcription of the neighborhood schedule in section 6. This chapter names each source, what it supplies, and what it does not.
 
 | Source | What it supplies | Read by | Decision |
 | --- | --- | --- | --- |
@@ -9,8 +9,9 @@ Everything on `/al/birmingham/` traces back to five places the city itself publi
 | The council's YouTube channel (`citycouncilbham`) | Recordings of council and committee meetings, most of which Granicus never carries | `src/docket/adapters/youtube.py` | `0067`–`0070` |
 | The 2023 archive manifest | 24 Boutwell-era meetings Granicus did not record, from the Wayback Machine and YouTube | `src/docket/services/archived_meetings.py` | `0033` |
 | The council committees' pages on birminghamal.gov (eight, one per standing committee) | Each committee's agenda and minutes PDFs: what the committee took up and what it did, and proof that a committee met when nothing recorded it | `src/docket/adapters/committee_documents.py` | `0095`–`0098` |
+| The Community Resource Services Division's neighborhood association meeting schedule (a three-page PDF on the city's asset host, revised February 3, 2026) | The monthly meeting rule, meeting type, place and call-in details of each of the 99 neighborhood associations, for 2026 | saved under `content/coming-up/birmingham/sources/` and transcribed by hand into `neighborhood-schedule.yaml` beside it; loaded by `src/docket/services/neighborhood_schedule.py` | `0110` |
 
-The Birmingham row in `municipalities` (seeded by migration `001`, slug `birmingham`, adapter `GranicusAdapter`, `adapter_config` with the Granicus `base_url` and `view_id`) carries the flags that turn each source on in its `metadata` JSONB: `calendar_url` (migration `038`) and the other calendar keys (migration `043`: the search and sitemap addresses, the department, and `calendar_complete_from`), `youtube_channel` and `youtube_channel_id` (migration `040`), `briefing: true` (migration `037`, which turns on the city-page opener), `committee_document_pages` (migration `045`, the eight committee pages), and `council_schedule.weekday` (Tuesday). Each worker task picks the cities it serves by one of those keys, so Birmingham is the only city every stage runs for.
+The Birmingham row in `municipalities` (seeded by migration `001`, slug `birmingham`, adapter `GranicusAdapter`, `adapter_config` with the Granicus `base_url` and `view_id`) carries the flags that turn each source on in its `metadata` JSONB: `calendar_url` (migration `038`) and the other calendar keys (migration `043`: the search and sitemap addresses, the department, and `calendar_complete_from`), `youtube_channel` and `youtube_channel_id` (migration `040`), `briefing: true` (migration `037`, which turns on the city-page opener), `committee_document_pages` (migration `045`, the eight committee pages), `coming_up: true` (migration `047`, which turns on the coming-up page, its feed, and the reading of scheduled hearings at ingest), and `council_schedule.weekday` (Tuesday). Each worker task picks the cities it serves by one of those keys, so Birmingham is the only city every stage runs for.
 
 ## 1. Granicus: the primary source
 
@@ -53,6 +54,10 @@ Each of the council's eight standing committees has a page on the city's website
 - **A committee's action is not a vote.** Minutes record a motion and a second, not a roll call. The action is kept in the minutes' own words with one of twelve categories ("recommended to the council's consent agenda", "delayed", and so on) and never becomes a row in `votes` or `agenda_items` (`0095`, `0098`).
 
 Minutes can also prove a meeting that no recording shows: when minutes name a committee and date with no meeting row, a row is created (chapter 2). `docs/specs/committee-documents.md` owns every rule.
+
+## 6. The neighborhood schedule: the one transcribed document
+
+The city publishes when its neighborhood associations meet as a PDF table, one row per association: a rule ("First Wednesday of each month @ 5:30 p.m."), a meeting type, and a place or call-in details. Nothing fetches it on a schedule. The PDF is saved in the repository as fetched, its rows are transcribed by hand into a YAML file whose loader refuses it when the saved PDF's digest is not the one recorded, and a test compares every transcribed row with the PDF's own table on every run. The coming-up page (chapter 6) computes each association's dates from its rule and links the city's PDF from every one; a rule the schedule does not state (a meeting moved for a holiday, an association whose row says "No Meetings") gives no date (`0110`). The schedule covers 2026 only. `docs/specs/coming-up.md` owns the file's format and how the next schedule is saved.
 
 ## What is never a source
 
