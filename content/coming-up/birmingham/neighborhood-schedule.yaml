@@ -18,6 +18,9 @@ checked:
   - by: "Claude, plan birmingham-coming-up M4"
     on: 2026-11-17
     how: "each row compared with the saved PDF's page"
+  - by: "Darrell Nance"
+    on: 2026-11-17
+    how: "the four judgement rows (Glen Iris, East Birmingham, East Brownsville, Gate City) read against the saved PDF; the other 95 rows read by Claude against the PDF's page images, not by a person"
 associations:
   - name: "Acipco-Finley"
     rule_text: "First Wednesday of each month @ 5:30 p.m."
