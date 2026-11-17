@@ -15,8 +15,13 @@ of ``rule_text``; an association the schedule gives no usable rule has no
 "Source or silence"). ``place`` and ``remote`` are parts of the city's
 information cell, each as printed.
 
-The loader reads files only. Nothing here imports from the web layer, opens
-the database, or computes a date (plan ``birmingham-coming-up``, M4).
+``occurrences`` turns each rule into the dates it gives in the schedule's
+year: the ordinal weekday of each of the association's months, and nothing
+else. No date is moved for a holiday, and no date is produced for a year the
+schedule was not published for.
+
+The module reads files only. Nothing here imports from the web layer or opens
+the database (plan ``birmingham-coming-up``, M4 and M5).
 """
 
 from __future__ import annotations
@@ -100,6 +105,14 @@ class Schedule:
     year: int
     checked: tuple[Check, ...]
     associations: tuple[Association, ...]
+
+
+@dataclass(frozen=True)
+class Occurrence:
+    """One dated meeting a schedule rule gives: the association, and the day."""
+
+    association: Association
+    on: date
 
 
 def _is_text(value: Any) -> bool:
@@ -291,3 +304,35 @@ def get_schedule(slug: str) -> Schedule | None:
     schedule = load_schedule(city_dir)
     _cache[slug] = schedule
     return schedule
+
+
+def _ordinal_weekday(year: int, month: int, ordinal: str, weekday: str) -> date:
+    """The first, second, third or fourth ``weekday`` of a month. Every month has four of each."""
+    first = date(year, month, 1)
+    to_first = (WEEKDAYS.index(weekday) - first.weekday()) % 7
+    return date(year, month, 1 + to_first + 7 * ORDINALS.index(ordinal))
+
+
+def occurrences(schedule: Schedule, start: date, end: date) -> list[Occurrence]:
+    """Every dated meeting the schedule's rules give from ``start`` to ``end``, both included.
+
+    Dates are computed for ``schedule.year`` alone, so a range outside that
+    year is empty. An association with no ``ordinal`` gives none. Ordered by
+    date, then time with no time last, then name.
+    """
+    found = []
+    for association in schedule.associations:
+        if association.ordinal is None:
+            continue
+        months = association.months if association.months is not None else range(1, 13)
+        for month in months:
+            on = _ordinal_weekday(schedule.year, month, association.ordinal, association.weekday)
+            if start <= on <= end:
+                found.append(Occurrence(association=association, on=on))
+    found.sort(key=lambda o: (o.on, o.association.time is None, o.association.time or "", o.association.name))
+    return found
+
+
+def undated(schedule: Schedule) -> list[Association]:
+    """The associations the schedule gives no usable rule, in the file's order."""
+    return [a for a in schedule.associations if a.ordinal is None]
