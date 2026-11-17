@@ -28,7 +28,7 @@ How to see it working, once every milestone is done: `./tools/verify` passes wit
 - [x] (2026-11-17 13:43Z) M4: The 2026 neighborhood schedule is checked in as the saved PDF and a transcription, and a loader refuses a malformed file or one that disagrees with the PDF.
 - [x] (2026-11-17 14:08Z) M5: Each schedule rule expands to its 2026 dates, tested against dates worked by hand, and the reading sheet for the operator is generated.
 - [x] (2026-11-17 14:47Z) M6: One service returns the next 60 days of entries of all three kinds, with meetings from the two sources merged by a tested rule.
-- [ ] M7: The page is served at the coming-up address for Birmingham alone and is linked from the city page and the sitemap.
+- [x] (2026-11-17 15:56Z) M7: The page is served at the coming-up address for Birmingham alone and is linked from the city page and the sitemap.
 - [ ] M8: The calendar feed is served beside the page, and a test finds one event per entry on the page.
 - [ ] M8b: Birmingham's existing upcoming-hearings RSS feed lists the scheduled hearings the page lists, and a city without the flag keeps the feed it has.
 - [ ] M9: The specs, the decision records, the debt rows, and the tour describe what was built and list the operator's steps after the merge.
@@ -1351,6 +1351,18 @@ The first `./tools/verify` on the finished work (15:43Z to 15:48Z, on commit a6b
     verify: 1 of 6 checks failed in 285s.
 
 The five are three tests of `tests/web/test_base_rail_conditional.py` (`test_city_html_page_sources_rendered_with_kpis`, `test_city_html_no_source_sheet_rendered`, `test_city_html_bottom_tabs_still_present`) and two of `tests/web/test_card_navigation.py` (`test_city_html_rendered_no_rail_refs`, `test_city_html_recent_meetings_have_href`), each with `AttributeError: 'types.SimpleNamespace' object has no attribute 'get'`. Those tests render the city page with a `SimpleNamespace` standing in for the city row, the new link's gate reached `is_coming_up_city`, and that function calls `.get` on what it is given. The defect was this session's, in the template global, and the session's own two test files could not show it: they render with real rows. The global now reads a stand-in's `metadata` attribute, as `city_provenance` beside it reads a stand-in's `id` (Decision Log); one test was added for it, and the two files that failed, with M6's and M7's, then ended `180 passed, 1 warning in 16.82s`. Four removals of the new clause and the two of the global from the first pass were run against the 58 tests with the control: `removals tried=7 failed a test=6 survived=1`, the one being the control.
+
+Finished state, `./tools/verify` (15:51Z to 15:56Z), run on commit b07faf8 with a clean tree, exit 0; the commit after it changes this plan file alone:
+
+    3358 passed, 5 skipped, 4 xfailed, 2 warnings in 159.22s (0:02:39)
+    1042 passed, 2 warnings in 112.51s (0:01:52)
+    judge fixtures: 12 of 12 passed
+    134 passed, 1 warning in 9.79s
+    plans: 1 of 1 ok
+    verify: plans ... ok (0s)
+    verify: all 6 checks passed in 284s.
+
+The fast tiers went from 3300 passed to 3358, the 58 tests of `tests/web/test_coming_up_page.py`, with none failed; the integration tier is unchanged at 1042. After it, on the same tree, `git diff origin/main -- src/docket/web/public.py | grep -c "^+.*db_cursor\|^+.*db()"` printed `0` again.
 
 ## Interfaces and Dependencies
 
