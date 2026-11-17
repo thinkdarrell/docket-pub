@@ -1594,6 +1594,24 @@ Finished state, `./tools/verify` (17:01Z to 17:06Z), run on commit 7526f27 with 
 
 The fast tiers went from 3430 passed to 3450, the 20 tests of `tests/web/test_hearings_rss_flagged.py`, with none failed; the integration tier is unchanged at 1042, its four re-seated tests among them.
 
+### M9: what the session observed
+
+Session of 2026-11-17 (UTC), Claude, started on commit a44f7be with a clean tree. Every line below was printed by a command the session ran in this worktree.
+
+Starting state, `./tools/verify`, before any edit (17:12Z to 17:17Z), exit 0:
+
+    3450 passed, 5 skipped, 4 xfailed, 2 warnings in 161.80s (0:02:41)
+    1042 passed, 2 warnings in 111.16s (0:01:51)
+    judge fixtures: 12 of 12 passed
+    134 passed, 1 warning in 10.90s
+    plans: 1 of 1 ok
+    verify: plans ... ok (0s)
+    verify: all 6 checks passed in 287s.
+
+Identifiers, by the rule in Identifiers as far as this worktree allows. The session did not run `gh` (its task gives it nothing outside the repository). It read the highest decision file and the highest debt id on every ref this checkout holds: `origin/main`, `origin/fix/granicus-start-time-pacific` (pull request #181's), and the local branches `main`, `fix/granicus-start-time-pacific`, `fix/transcriber-js-runtime` and this one. Each printed `0106` and `D153`. So the decisions this milestone writes are `0107` to `0111` and the debt rows `D154` to `D163`. While the first `./tools/verify` ran, the session also ran `git fetch --dry-run`, which contacts the remote and changes nothing; it printed nothing.
+
+The first commit of the session adds `docs/specs/coming-up.md` and its row in `docs/specs/index.md`. Things in the spec that the session checked against the code and not only against this plan: the names of the thirteen test files and the fixture it lists (`ls` printed each); the page's `<title>` and the sentences of "Where these dates come from" (read in `src/docket/web/templates/coming_up.html`); the eight label colours' class names (`grep -n "cu-badge--" src/docket/web/static/css/coming_up.css` printed eight rules); the order of the three links on the city page's "Follow:" line (read in `partials/briefing/meetings.html`); and the constants `WINDOW_DAYS = 60`, `RECENT_DAYS = 120`, `PREFIX_MIN = 90`, `RULE_VERSION = 1` and the reader's kind patterns (`grep` of the four modules). Everything else in the spec is this plan's Plan of Work as corrected by its Decision Log.
+
 ## Interfaces and Dependencies
 
 No new package. `pdfplumber` and `pyyaml` (through `python-frontmatter`; `src/docket/services/how_it_works.py` already imports `yaml`) are in the environment; `requirements.txt` and `requirements.lock` are not changed.
