@@ -28,8 +28,13 @@
        the schedule gives no dates
      schedule (dict | None) — the neighborhood schedule's title, url,
        revised (date) and year, or None for a city with no schedule
+     feeds (dict) — the calendar feed's addresses, every one built by the
+       route: webcal (what a calendar program subscribes to), google (the
+       same handed to Google Calendar), file (the plain address), kinds and
+       associations (lists of (words, webcal address) for the narrowed
+       feeds). This template builds no address.
 
-   Plan birmingham-coming-up, M7.
+   Plan birmingham-coming-up, M7; the subscribe block is M8's.
 #}
 {% block title %}What's coming up in {{ municipality.name }} — docket.pub{% endblock %}
 
@@ -85,7 +90,29 @@
                 Meetings, scheduled public hearings and neighborhood association meetings in
                 the next {{ window_days }} days. Every entry links to the city document it came from.
             </p>
-            <p class="cu-subscribe"><a href="/al/{{ municipality.slug }}/coming-up.ics">Subscribe to this calendar</a></p>
+            <div class="cu-subscribe">
+                <p class="cu-subscribe-ways">
+                    <a href="{{ feeds.webcal }}">Subscribe in your calendar</a> ·
+                    <a href="{{ feeds.google }}" rel="external noopener">Add to Google Calendar</a> ·
+                    <a href="{{ feeds.file }}">Calendar file (.ics)</a>
+                </p>
+                <p class="cu-subscribe-only">
+                    Only:
+                    {% for words, address in feeds.kinds -%}
+                    <a href="{{ address }}">{{ words }}</a>{% if not loop.last %} · {% endif %}
+                    {% endfor -%}
+                </p>
+                {%- if feeds.associations and schedule %}
+                <details class="cu-subscribe-associations">
+                    <summary>One neighborhood association ({{ schedule.year }} schedule)</summary>
+                    <ul class="cu-subscribe-list" role="list">
+                        {%- for name, address in feeds.associations %}
+                        <li><a href="{{ address }}">{{ name }}</a></li>
+                        {%- endfor %}
+                    </ul>
+                </details>
+                {%- endif %}
+            </div>
         </div>
     </div>
 </section>

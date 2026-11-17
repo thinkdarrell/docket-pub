@@ -4,8 +4,21 @@
    pairs below are this file's own colours: styles.css has no set of eight
    tints that can be told apart. Plan birmingham-coming-up, M7. */
 
+/* ── the ways to subscribe (plan birmingham-coming-up, M8) ── */
 .cu-subscribe { margin: var(--space-4) 0 0; font-size: 15px; }
+.cu-subscribe p { margin: 0 0 var(--space-2); }
 .cu-subscribe a { color: var(--accent-ink); font-weight: 500; }
+.cu-subscribe-only { color: var(--ink-2); }
+.cu-subscribe-associations summary { cursor: pointer; color: var(--ink-2); }
+.cu-subscribe-list {
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+  columns: 220px;
+  column-gap: var(--space-6);
+  font-size: 14px;
+}
+.cu-subscribe-list li { padding: 2px 0; break-inside: avoid; }
 
 /* ── the list ─────────────────────────────────────────
    One section per date; one article per entry. A single column at every

@@ -1384,6 +1384,24 @@ Before `src/docket/web/ics.py`, the route `public.coming_up_ics`, `public._absol
 
 The 73 are every test of the two new files (29 in `tests/unit/test_ics.py`, each on `ImportError: cannot import name 'ics' from 'docket.web'`, the module being imported inside each test so the file collects; 42 in `tests/web/test_coming_up_feed.py`) and two of M7's in `tests/web/test_coming_up_page.py` that this session changed to M8's rule before the code: `test_the_subscribe_link_is_the_feeds_address` (M7's one link "Subscribe to this calendar" is replaced by a block, and the test now looks for "Calendar file (.ics)" inside `.cu-subscribe`) and `test_the_partial_draws_the_link_for_a_flagged_city_alone` (the "Follow:" line of a flagged city gains "calendar (.ics)"; a city without the flag keeps its two links). A third M7 test was changed and passes in both states: `test_a_day_with_one_neighborhood_meeting_says_meeting_and_a_day_with_none_has_no_summary` counted every `<details>` on the page and now counts those inside `section.cu-day`, since M8's subscribe block holds a `<details>` of its own. The two 404 tests of the new feed file fail in this state as well: `/al/mobile/coming-up.ics` has no trailing slash, so the badge catch-all answers it with a redirect and not a 404. The 153 that pass are M6's 97 and 56 of M7's 58. The commit that holds the tests in this state is the one that adds this paragraph.
 
+With `src/docket/web/ics.py`, `public._absolute_url`, `public._coming_up_feeds`, the route `public.coming_up_ics`, the subscribe block in `coming_up.html` and its rules in `coming_up.css`, and the "calendar (.ics)" link in `partials/briefing/meetings.html` written (16:12Z), the same command ended, on its first run against them:
+
+    1 failed, 225 passed, 1 warning in 22.75s
+
+The one was a mistake in the test, not in the code: `test_a_city_documents_address_is_not_given_a_second_host` counted the city document's address in the folded text, where the `DESCRIPTION` line is folded inside the address, so it found one where it expected two (`AssertionError: assert 1 == 2`). The test now counts in the unfolded lines; that is the one assertion changed after commit 74cff6d besides those the removal check adds. The command then ended:
+
+    226 passed, 1 warning in 22.56s
+
+A scratch script then seeded the rows the feed test's fixture seeds (a council meeting both sources list, a pair the calendar calls cancelled, a council row with no time, a zoning hearing and a weed-lot hearing) in the throwaway database, set the day to 2026-11-16, and asked the application for the page and the feed. It printed:
+
+    status 200 text/calendar; charset=utf-8 | events 140 articles 140 bytes 98247
+    ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//docket.pub//Coming up//EN']
+    {'meeting': 3, 'hearing': 2, 'neighborhood': 135} sum 140
+    unknown kind 404 unknown association 404 mobile 404
+    acipco-finley events 1
+
+and the session read the first events of the body, the subscribe block of the page, and the whole of the Acipco-Finley feed (one event, `UID:na-acipco-finley-20261202@docket.pub`, `DTSTART:20261202T233000Z`, which is 5:30 p.m. in Chicago, no `DTEND`, named `X-WR-CALNAME:Acipco-Finley Neighborhood Association`). `venv/bin/ruff check` on `src/docket/web/ics.py` and the two new test files printed `All checks passed!`; on `src/docket/web/public.py` it reports the one finding M7 recorded (`C408`, a `dict()` call in the transcript route), in no line this session wrote.
+
 ## Interfaces and Dependencies
 
 No new package. `pdfplumber` and `pyyaml` (through `python-frontmatter`; `src/docket/services/how_it_works.py` already imports `yaml`) are in the environment; `requirements.txt` and `requirements.lock` are not changed.

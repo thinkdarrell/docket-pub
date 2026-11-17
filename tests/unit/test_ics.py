@@ -277,7 +277,9 @@ def test_an_entry_with_no_detail_has_a_description_of_its_links_and_the_page():
 
 
 def test_a_city_documents_address_is_not_given_a_second_host():
-    text = _render(_entry())
+    text = "\n".join(
+        _unfold(_render(_entry()))
+    )  # unfolded: a fold may fall inside the address
 
     assert "docket.test/http" not in text
     assert text.count(CITY_DOC) == 2  # once in the description, once as the URL

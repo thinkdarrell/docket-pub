@@ -9,7 +9,8 @@ from __future__ import annotations
 import re
 import threading
 import time
-from datetime import date
+from datetime import date, datetime, timezone
+from urllib.parse import quote
 
 from flask import (
     Blueprint,
@@ -28,6 +29,7 @@ from docket.enrichment.topics import all_topics, get_topic_display_name
 from docket.models.data_quality import friendly_label
 from docket.services import briefing, coming_up, query, video_links
 from docket.services import how_it_works as how_it_works_service
+from docket.web import ics
 
 bp = Blueprint("public", __name__)
 
@@ -1205,6 +1207,50 @@ def _coming_up_days(entries) -> list[dict]:
     return days
 
 
+def _absolute_url(url: str) -> str:
+    """A site path as an absolute address; an address that is already absolute, unchanged.
+
+    An entry's links are of two sorts, the city's documents (full addresses)
+    and docket.pub's own pages (site paths beginning ``/``). A feed is read
+    outside the site, so every link it prints goes through here (plan
+    birmingham-coming-up, M8; the upcoming-hearings feed of a flagged city
+    uses it as well).
+    """
+    if url.startswith(("http://", "https://")):
+        return url
+    return request.url_root.rstrip("/") + url
+
+
+# The calendar's name for each `?kind=`, after the city's name.
+_COMING_UP_KIND_NAMES = {
+    "meeting": "meetings",
+    "hearing": "public hearings",
+    "neighborhood": "neighborhood meetings",
+}
+
+
+def _coming_up_feeds(slug: str) -> dict:
+    """Every address of the calendar feed the page offers, built here and nowhere else.
+
+    ``webcal`` is the feed's address with the scheme calendar programs
+    register for subscribing; ``google`` hands that address to Google
+    Calendar; ``file`` is the plain address, which a browser downloads.
+    ``kinds`` and ``associations`` are ``(words, address)`` pairs of the
+    narrowed feeds, each a ``webcal`` address.
+    """
+
+    def webcal(**narrowed) -> str:
+        return f"webcal://{request.host}{url_for('public.coming_up_ics', slug=slug, **narrowed)}"
+
+    return {
+        "webcal": webcal(),
+        "google": "https://calendar.google.com/calendar/render?cid=" + quote(webcal(), safe=""),
+        "file": url_for("public.coming_up_ics", slug=slug),
+        "kinds": [(_COMING_UP_KIND_NAMES[kind], webcal(kind=kind)) for kind in coming_up.KINDS],
+        "associations": [(name, webcal(association=feed)) for name, feed in coming_up.association_feeds(slug)],
+    }
+
+
 @bp.route("/al/<slug>/coming-up/")
 def coming_up_page(slug):
     """What is ahead in this city in the next 60 days, every entry linked to the city's document.
@@ -1227,6 +1273,53 @@ def coming_up_page(slug):
         window_days=coming_up.WINDOW_DAYS,
         undated=coming_up.undated_associations(slug),
         schedule=coming_up.schedule_source(slug),
+        feeds=_coming_up_feeds(slug),
+    )
+
+
+@bp.route("/al/<slug>/coming-up.ics")
+def coming_up_ics(slug):
+    """The coming-up page's entries as a calendar a program can subscribe to: one event per entry.
+
+    Built from the same ``coming_up.list_entries`` call as the page, with
+    the page's 404 rule. ``?kind=`` narrows it to one of ``coming_up.KINDS``
+    and ``?association=`` to one association of the city's schedule that
+    has dates; any other value of either is 404, so a mistyped address is
+    not mistaken for an empty calendar. A narrowed feed with nothing in the
+    window is a calendar with no event.
+    """
+    municipality = query.get_municipality(slug)
+    if not coming_up.is_coming_up_city(municipality):
+        abort(404)
+    kind = request.args.get("kind")
+    if kind is not None and kind not in coming_up.KINDS:
+        abort(404)
+    association = request.args.get("association")
+    association_names = {feed: name for name, feed in coming_up.association_feeds(slug)}
+    if association is not None and association not in association_names:
+        abort(404)
+
+    if association is not None:
+        name = f"{association_names[association]} Neighborhood Association"
+    elif kind is not None:
+        name = f"{municipality['name']} {_COMING_UP_KIND_NAMES[kind]}"
+    else:
+        name = f"{municipality['name']} coming up"
+    entries = coming_up.filter_entries(coming_up.list_entries(municipality), kind=kind, association=association)
+    text = ics.render_calendar(
+        entries,
+        name=name,
+        now=datetime.now(timezone.utc),
+        absolute=_absolute_url,
+        page_url=url_for("public.coming_up_page", slug=slug, _external=True),
+    )
+    return Response(
+        text,
+        mimetype="text/calendar",
+        headers={
+            "Cache-Control": "public, max-age=3600",
+            "Content-Disposition": f'inline; filename="{slug}-coming-up.ics"',
+        },
     )
 
 
