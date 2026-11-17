@@ -200,7 +200,8 @@ def test_the_lede_says_sixty_days_and_that_every_entry_is_linked_to_its_document
 
 
 def test_the_subscribe_link_is_the_feeds_address(client):
-    (link,) = [a for a in _page(client).select("a") if _text(a) == "Subscribe to this calendar"]
+    """M8 replaced M7's one link with a block; `tests/web/test_coming_up_feed.py` has the rest of it."""
+    (link,) = [a for a in _page(client).select(".cu-subscribe a") if _text(a) == "Calendar file (.ics)"]
 
     assert link["href"] == "/al/birmingham/coming-up.ics"
 
@@ -275,7 +276,7 @@ def test_a_day_with_one_neighborhood_meeting_says_meeting_and_a_day_with_none_ha
     (details,) = by_heading["Wednesday, December 2, 2026"].select("details")
     assert _text(details.select_one("summary")) == "1 neighborhood association meeting"
     assert by_heading["Tuesday, November 17, 2026"].select("details") == []
-    assert len(page.select("details")) == 1
+    assert len(page.select("section.cu-day details")) == 1  # M8's subscribe block holds one of its own
 
 
 def test_a_window_with_nothing_in_it_says_so(client, monkeypatch):
@@ -590,10 +591,11 @@ def test_the_partial_draws_the_link_for_a_flagged_city_alone(render_partial):
     assert 'href="/al/birmingham/coming-up/"' in flagged
     assert "coming-up" not in plain
     assert "All meetings →" in plain
-    # the "Follow:" line is as it was
-    for html in (flagged, plain):
-        follow = BeautifulSoup(html, "html.parser").select_one("p.brf-follow")
-        assert [_text(a) for a in follow.select("a")] == ["upcoming hearings (RSS)", "coverage"]
+    # the "Follow:" line of a city without the page is as it was; M8 added the calendar to a flagged city's
+    follow = BeautifulSoup(plain, "html.parser").select_one("p.brf-follow")
+    assert [_text(a) for a in follow.select("a")] == ["upcoming hearings (RSS)", "coverage"]
+    follow = BeautifulSoup(flagged, "html.parser").select_one("p.brf-follow")
+    assert [_text(a) for a in follow.select("a")] == ["upcoming hearings (RSS)", "calendar (.ics)", "coverage"]
 
 
 def test_the_sitemap_lists_the_page_for_birmingham_and_not_for_mobile(client):

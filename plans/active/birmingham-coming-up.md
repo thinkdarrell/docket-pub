@@ -1364,6 +1364,26 @@ Finished state, `./tools/verify` (15:51Z to 15:56Z), run on commit b07faf8 with 
 
 The fast tiers went from 3300 passed to 3358, the 58 tests of `tests/web/test_coming_up_page.py`, with none failed; the integration tier is unchanged at 1042. After it, on the same tree, `git diff origin/main -- src/docket/web/public.py | grep -c "^+.*db_cursor\|^+.*db()"` printed `0` again.
 
+### M8: what the session observed
+
+Session of 2026-11-17 (UTC), Claude, started on commit 72d2a5b with a clean tree. Every line below was printed by a command the session ran in this worktree.
+
+Starting state, `./tools/verify`, before any edit (16:02Z to 16:07Z), exit 0:
+
+    3358 passed, 5 skipped, 4 xfailed, 2 warnings in 167.51s (0:02:47)
+    1042 passed, 2 warnings in 112.92s (0:01:52)
+    judge fixtures: 12 of 12 passed
+    134 passed, 1 warning in 10.63s
+    plans: 1 of 1 ok
+    verify: plans ... ok (1s)
+    verify: all 6 checks passed in 295s.
+
+Before `src/docket/web/ics.py`, the route `public.coming_up_ics`, `public._absolute_url`, the page's subscribe block and the city page's "calendar (.ics)" link existed (2026-11-17 16:09Z), `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_ics.py tests/web/test_coming_up_feed.py tests/web/test_coming_up_page.py tests/services/test_coming_up.py -q -p no:cacheprovider` ended:
+
+    73 failed, 153 passed, 1 warning in 21.36s
+
+The 73 are every test of the two new files (29 in `tests/unit/test_ics.py`, each on `ImportError: cannot import name 'ics' from 'docket.web'`, the module being imported inside each test so the file collects; 42 in `tests/web/test_coming_up_feed.py`) and two of M7's in `tests/web/test_coming_up_page.py` that this session changed to M8's rule before the code: `test_the_subscribe_link_is_the_feeds_address` (M7's one link "Subscribe to this calendar" is replaced by a block, and the test now looks for "Calendar file (.ics)" inside `.cu-subscribe`) and `test_the_partial_draws_the_link_for_a_flagged_city_alone` (the "Follow:" line of a flagged city gains "calendar (.ics)"; a city without the flag keeps its two links). A third M7 test was changed and passes in both states: `test_a_day_with_one_neighborhood_meeting_says_meeting_and_a_day_with_none_has_no_summary` counted every `<details>` on the page and now counts those inside `section.cu-day`, since M8's subscribe block holds a `<details>` of its own. The two 404 tests of the new feed file fail in this state as well: `/al/mobile/coming-up.ics` has no trailing slash, so the badge catch-all answers it with a redirect and not a 404. The 153 that pass are M6's 97 and 56 of M7's 58. The commit that holds the tests in this state is the one that adds this paragraph.
+
 ## Interfaces and Dependencies
 
 No new package. `pdfplumber` and `pyyaml` (through `python-frontmatter`; `src/docket/services/how_it_works.py` already imports `yaml`) are in the environment; `requirements.txt` and `requirements.lock` are not changed.
