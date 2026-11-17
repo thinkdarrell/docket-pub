@@ -739,6 +739,27 @@ Finished state, `./tools/verify`, on commit 38e5df8 with a clean tree:
 
 The fast tiers went from 2950 passed to 3004, the 54 tests of the store file; the integration tier from 1030 to 1036, the 6 migration tests; none failed.
 
+### M3: what the session observed
+
+Session of 2026-11-17 (UTC), Claude, started on commit b08c5f8 with a clean tree. Every line below was printed by a command the session ran in this worktree.
+
+Starting state, `./tools/verify`, before any edit. The session kept only the last 25 lines of the run, so the two pytest summary lines of the fast tiers and the integration tier were not seen; what was seen:
+
+    134 passed, 1 warning in 10.71s
+    plans: 1 of 1 ok
+    verify: unit+web+services ... ok (130s)
+    verify: integration ... ok (112s)
+    verify: plans ... ok (0s)
+    verify: all 6 checks passed in 253s.
+
+The tree was the commit M2's finished run was made one commit before (38e5df8, whose run reported `3004 passed` and `1036 passed`; b08c5f8 changed this plan file alone). Those two figures are M2's record, not this session's observation.
+
+Before the ingest step and the script existed (2026-11-17 04:33Z), `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/integration/test_ingest_hearings.py tests/unit/test_backfill_hearings_script.py -q -p no:cacheprovider` ended:
+
+    15 failed, 1 passed, 1 warning in 1.09s
+
+Four of the five ingest tests fail (no hearing stored, no "Hearings:" error, no "Hearings:" log line, and `refresh_recent` not called between the meeting-type stage and the vote stage) and all eleven script tests fail with `ImportError: cannot import name 'backfill_hearings' from 'scripts'`. The one pass is `test_ingest_of_a_city_without_the_flag_stores_no_hearing_and_reports_no_error`, which holds of an ingest with no hearings step at all; it is there for the step once it exists. The commit that holds the tests in this state is the one that adds this paragraph.
+
 ## Interfaces and Dependencies
 
 No new package. `pdfplumber` and `pyyaml` (through `python-frontmatter`; `src/docket/services/how_it_works.py` already imports `yaml`) are in the environment; `requirements.txt` and `requirements.lock` are not changed.
