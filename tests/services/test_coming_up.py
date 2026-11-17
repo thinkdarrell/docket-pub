@@ -1165,3 +1165,99 @@ def test_the_service_reads_no_server_clock_and_imports_nothing_from_the_web():
     assert "CURRENT_TIMESTAMP" not in source.upper()
     assert "docket.web" not in source
     assert "docket.worker" not in source
+
+
+# --- rules pinned after the removal check -----------------------------------
+
+
+def _hearing_with_subject(subject: str) -> str:
+    """The one detail line of a hearing whose resolution's subject is `subject`."""
+    hearing, _ = _hearing(f"A Resolution setting a public hearing November 24, 2026, {subject}")
+    (line,) = _by_uid(_entries())[f"hearing-{hearing}@docket.pub"].detail
+    return line
+
+
+def test_a_subject_of_240_characters_is_whole_and_one_of_241_is_cut():
+    # Two subjects that part at their first words, so they are two hearings.
+    exactly = ("to consider a moratorium on " + "new billboards and " * 11 + "x" * 240)[:239] + "."
+    over = ("to weigh a moratorium on " + "new billboards and " * 11 + "x" * 240)[:240] + "."
+    assert (len(exactly), len(over)) == (240, 241)
+
+    assert _hearing_with_subject(exactly) == exactly
+    cut = _hearing_with_subject(over)
+    assert cut.endswith("…") and len(cut) < 240
+    assert over.startswith(cut[:-1] + " ")
+
+
+def test_a_subject_whose_last_whole_word_ends_at_the_240th_character_keeps_it():
+    words = "to consider a moratorium on " + "new billboards and " * 11
+    head = (words + "x" * 240)[:240]
+    assert len(head) == 240 and not head.endswith(" ")
+
+    assert _hearing_with_subject(head + " and then more words follow.") == head + "…"
+
+
+def test_an_entry_cannot_be_changed():
+    from dataclasses import FrozenInstanceError
+
+    row = _upcoming_row(NOV_24)
+    entry = _by_uid(_entries())[f"meeting-{row}@docket.pub"]
+
+    with pytest.raises(FrozenInstanceError):
+        entry.title = "Another title"
+
+
+def test_the_agenda_date_has_no_leading_zero():
+    hearing, item = _hearing(TITLES[63046], date(2026, 10, 6))
+
+    entry = _by_uid(_entries())[f"hearing-{hearing}@docket.pub"]
+
+    assert entry.links[1] == ("On the agenda of October 6, 2026", f"/al/birmingham/items/{item}/")
+
+
+def test_a_committee_row_is_not_merged_with_a_council_event_of_its_day():
+    event = _event(_at(NOV_17, 9, 30))
+    row = _upcoming_row(NOV_17, meeting_type="committee", body_name="Budget and Finance")
+
+    found = _by_uid(_entries())
+
+    assert {f"calendar-{event}@docket.pub", f"meeting-{row}@docket.pub"} <= set(found)
+    assert found[f"calendar-{event}@docket.pub"].links == (("City calendar", _source_url(event)),)
+
+
+@pytest.mark.parametrize(
+    "title, status, expected",
+    [
+        (COUNCIL_EVENT, "cancelled", "City Council meeting"),
+        ("CANCELLED: " + COUNCIL_EVENT, "active", "City Council meeting"),
+        (COMMITTEE_EVENT, "postponed", "Budget and Finance"),
+    ],
+)
+def test_an_event_that_is_off_keeps_the_title_it_would_have_had(title, status, expected):
+    event = _event(_at(NOV_23, 15, 30), title, status=status)
+
+    entry = _by_uid(_entries())[f"calendar-{event}@docket.pub"]
+
+    assert entry.cancelled is True
+    assert entry.title == expected
+
+
+def test_an_untimed_entry_of_an_earlier_day_comes_before_a_timed_one_of_a_later_day():
+    earlier_untimed = _upcoming_row(NOV_17, start=None)
+    hearing, _ = _hearing(TITLES[62182])  # November 17, 2026
+    later_timed = _upcoming_row(NOV_24, start=time(9, 0))
+    ours = (f"meeting-{earlier_untimed}@docket.pub", f"hearing-{hearing}@docket.pub", f"meeting-{later_timed}@docket.pub")
+
+    assert tuple(e.uid for e in _entries() if e.uid in ours) == ours
+
+
+def test_a_row_naming_a_giveaway_is_still_merged_with_the_days_council_event():
+    giveaway = _event(_at(NOV_17, 10, 0), GIVEAWAY_EVENT)
+    council = _event(_at(NOV_17, 9, 30))
+    row = _upcoming_row(NOV_17, event_id=giveaway)
+
+    found = _by_uid(_entries())
+
+    assert f"meeting-{row}@docket.pub" not in found
+    assert f"calendar-{giveaway}@docket.pub" not in found
+    assert found[f"calendar-{council}@docket.pub"].links[2][1] == f"/al/birmingham/meetings/{row}/"
