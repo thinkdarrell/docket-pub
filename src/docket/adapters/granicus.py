@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import re
 import time
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time as wall_time
 from zoneinfo import ZoneInfo
 
 import requests
@@ -29,6 +29,23 @@ from docket.analysis.minutes_parser import (
 from docket.models.protocol import RawAgendaItem, RawMeeting, RawVote
 
 logger = logging.getLogger(__name__)
+
+
+# Granicus writes a row's hidden timestamp on its own Pacific clock: the number
+# is the wall time the city lists, encoded as if the city were in Pacific time.
+_GRANICUS_CLOCK = ZoneInfo("America/Los_Angeles")
+
+
+def _listed_date_and_time(ts: int) -> tuple[date, wall_time | None]:
+    """The date and wall-clock time a publisher row lists, from its hidden timestamp.
+
+    Reading the number as an instant and converting it to the city's zone stores a
+    time two hours late for Birmingham (issue #88). An archive row lists a date and
+    no time, and its timestamp is midnight; midnight is returned as no time.
+    """
+    listed = datetime.fromtimestamp(ts, tz=_GRANICUS_CLOCK)
+    start = listed.time().replace(microsecond=0)
+    return listed.date(), (start if start != wall_time(0, 0) else None)
 
 _DURATION_RE = re.compile(r"^(?:(\d+)h)?\s*(?:(\d+)m)?\s*(?:(\d+)s)?$")
 
@@ -363,12 +380,9 @@ class GranicusAdapter:
             hidden_span = date_cell.find("span", style=re.compile(r"display:\s*none"))
             if hidden_span:
                 try:
-                    ts = int(hidden_span.get_text(strip=True))
-                    dt_ct = datetime.fromtimestamp(ts, tz=timezone.utc).astimezone(
-                        ZoneInfo("America/Chicago")
+                    meeting_date, start_time = _listed_date_and_time(
+                        int(hidden_span.get_text(strip=True))
                     )
-                    meeting_date = dt_ct.date()
-                    start_time = dt_ct.time().replace(microsecond=0)
                 except (ValueError, OSError):
                     pass
             if not meeting_date:
@@ -481,12 +495,9 @@ class GranicusAdapter:
             hidden_span = date_cell.find("span", style=re.compile(r"display:\s*none"))
             if hidden_span:
                 try:
-                    ts = int(hidden_span.get_text(strip=True))
-                    dt_ct = datetime.fromtimestamp(ts, tz=timezone.utc).astimezone(
-                        ZoneInfo("America/Chicago")
+                    meeting_date, start_time = _listed_date_and_time(
+                        int(hidden_span.get_text(strip=True))
                     )
-                    meeting_date = dt_ct.date()
-                    start_time = dt_ct.time().replace(microsecond=0)
                 except (ValueError, OSError):
                     pass
 
