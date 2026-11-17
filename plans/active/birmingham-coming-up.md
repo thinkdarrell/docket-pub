@@ -141,6 +141,18 @@ As authored on 2026-11-16, nothing has been executed, so no session has discover
 
 - Correction (M8, same session) to the second observation above. Its last sentence says M8's acceptance test of `localhost/http` "holds there by a narrow margin of position, not by rule". No margin was measured, and the sentence should not have claimed one. What was observed is only this: the feed test asserts that string is absent from the folded body, a fold can fall inside any string, and the unit test asserts the same absence in the unfolded text, where a fold cannot hide it.
 
+- Observation (M8b, 2026-11-17): Three of the four tests M8b re-seats failed when run unchanged after the route change, and the fourth passed. `test_upcoming_hearings_rss_excludes_hidden` asserts one thing of the feed's body, that the hidden meeting's title is absent, and Birmingham's feed after the change holds neither title the test seeds.
+  Evidence: `3 failed, 1 passed, 1 warning in 1.38s`; the three messages are `assert False` on the `any(...)` over item titles, `assert 0 == 2` and `assert 0 == 1` (Artifacts and Notes, "M8b: what the session observed"). The test's own comment calls the absence "the load-bearing one" and does not assert that the visible meeting is listed, so it could not tell the two paths apart on Birmingham and cannot, on Mobile, tell a feed that hides hidden meetings from a feed that lists nothing. It is re-seated with its assertions unchanged, as M8b says; the weakness was there before this plan and is not this milestone's to mend (Decision Log).
+
+- Observation (M8b, 2026-11-17): All 16 tests that failed before the code passed on their first run against it, and the removal check then found no clause free. Of 70 single-clause removals from the route and the template, every one fails a test; the first pass had one removal the session built badly, which changed nothing and so failed nothing.
+  Evidence: `removals tried=69 failed a test=67 survived=2`, then `removals tried=71 failed a test=70 survived=1`, the survivor of the second pass being the control (Artifacts and Notes, "M8b: what the session observed").
+
+- Observation (M8b, 2026-11-17): Flask does not escape anything in the RSS templates. Its autoescaping goes by the file's last extension, and both feed templates end `.j2`, so `{{ ... }}` prints its value as it is; the older template escapes its item title by hand for that reason.
+  Evidence: with the `| e` taken off the new template's title, `test_a_title_and_an_address_with_an_ampersand_are_well_formed_and_read_back_whole` fails (the removal "title not escaped"); with the description's CDATA section taken off, the seeded city agenda address, which holds `&`, makes the feed fail to parse (the removal "description not CDATA, unescaped"). The channel's `<title>` and `<description>` print the city's name unescaped in both templates; no seeded city's name holds a character that needs it.
+
+- Observation (M8b, 2026-11-17): An item's title says the kind and the day and nothing of what the hearing is about ("Zoning hearing, November 24, 2026"), so two zoning hearings set for one day are two items with one title, told apart by their descriptions and guids. That is M8b's rule as written and the page's own title for the entry.
+  Evidence: the feed the scratch script printed; `_hearing_entry` in `src/docket/services/coming_up.py` gives every hearing of a kind the same title.
+
 ## Decision Log
 
 - Decision: The hearing reader reads an item's `title` alone, never its `description`.
@@ -451,6 +463,18 @@ As authored on 2026-11-16, nothing has been executed, so no session has discover
 - Decision: Forms M8 names and does not spell. An event's lines are in this order: `UID`, `DTSTAMP`, `DTSTART`, `DTEND`, `SUMMARY`, `DESCRIPTION`, `LOCATION`, `URL`, `CATEGORIES`. `DTSTAMP` is the moment of the request, the same for every event of one response. `X-WR-CALNAME` and `CATEGORIES` are escaped as text; `URL` is not, being an address and not text. A carriage return in a value, alone or before a line feed, is one line break. An entry with no link at all has no `URL` line (no entry of the service is of that shape). The feed is not cached in the process: it carries `Cache-Control: public, max-age=3600` and is rebuilt on each request, as the page is. On the city page "calendar (.ics)" sits between "upcoming hearings (RSS)" and "coverage". On the page the block is `<div class="cu-subscribe">` holding `<p class="cu-subscribe-ways">` (the three links, in M8's order, separated by " · "), `<p class="cu-subscribe-only">` ("Only:" and the three kind links), and `<details class="cu-subscribe-associations">` with the links in `<ul class="cu-subscribe-list">`; the `<details>` is left out when the city's schedule gives no association a feed. The Google link carries `rel="external noopener"`, as every link of the page that leaves the site does.
   Rationale: Each is the plain reading; they are listed so M8b, which reuses `_absolute_url`, and M9, whose spec owns the feed's properties and the three ways to subscribe, do not have to open the module or the template to learn them. M7's Decision already says the page is not cached and why; the same holds of the feed, whose tests set the day and seed per test.
   Date/Author: 2026-11-17, Claude, M8 session.
+
+- Decision: Forms M8b names and does not spell. The template is given `entries`, `municipality`, `feed_url`, `page_url` and `absolute`. An `<item>`'s children are, in order, `<title>`, `<link>`, `<description>`, `<guid>`. The description's lines are joined by a line feed with none after the last, the detail lines first and then the links in the entry's order. The items are in the order `coming_up.list_entries` returns, which is the page's. The channel's `<link>` is the city page, as the older template's is. The gate is asked inside `_render`, so its answer is kept with the rendered text for the hour, which is what Idempotence and Recovery says of a city that loses the flag. The item's title is escaped by hand and the description is a CDATA section; the page's address and the uid in `<link>` and `<guid>` are printed as they are.
+  Rationale: Each is the plain reading; they are listed so M9, whose spec owns what the feed returns for a flagged city, does not have to open the template. On the last: Flask escapes nothing in a template whose name ends `.j2` (Surprises & Discoveries), so each value is escaped where it can hold a character that needs it and nowhere else. The page's address is `url_for` on a slug that matched a city row, and a uid is `hearing-<number>@docket.pub`; an escape there could not be told from its absence by any test, and the session's first draft, which had one, was shortened before the removal check.
+  Date/Author: 2026-11-17, Claude, M8b session.
+
+- Decision: `test_upcoming_hearings_rss_excludes_hidden` is re-seated under Mobile with its assertions as they were, though it passed unchanged after the route change and so is the one of the four that could not see it.
+  Rationale: M8b says the four are changed to seed a city that still takes the old path and that "their assertions are otherwise unchanged". Giving the test an assertion that the visible meeting is listed would mend a weakness that predates this plan, in a file about hiding meetings, and the skill's rule is that such a thing goes in no commit of this milestone. That Mobile's feed does list a title containing "hearing" is asserted by this milestone's own `test_the_same_title_is_in_the_feed_of_a_city_without_the_flag`. `_bag_for("mobile")` made a bag without trouble, so the test needed no seeding of its own.
+  Date/Author: 2026-11-17, Claude, M8b session.
+
+- Decision: The new test file holds 20 tests where M8b lists four cases, and six of them render the template alone on hand-built entries.
+  Rationale: M8b's four cases are the first four tests of the file. The rest pin what M8b's paragraphs state and its test list does not reach: the envelope line by line against the older feed's, the absence of `<pubDate>`, the guid equal to the link and marked permanent, the order of the items, a weed-lot hearing's description, the mimetype and the header, the hour's cache under the city's key, an empty window, a city that loses the flag, and that the route asks the service once and keeps the hearings. The service never makes a title holding `&`, a subject holding `]]>`, an entry with two detail lines or none, or a uid of another number than the stored hearing's, so those rules of the template can only be shown on an entry built by hand; the route tests show the same template on real rows.
+  Date/Author: 2026-11-17, Claude, M8b session.
 
 ## Outcomes & Retrospective
 
@@ -1521,6 +1545,41 @@ The four were then re-seated as M8b says: `tests/integration/test_f5_data_debt.p
     182 passed, 1 warning in 23.44s
 
 `venv/bin/ruff check` on the new test file is clean after one helper was rewritten (a `dict(...)` call, `C408`; the rewrite builds the entry and applies `dataclasses.replace`, and the 20 tests passed again, `20 passed, 1 warning in 2.49s`); on `src/docket/web/public.py` it reports the one finding M7 and M8 recorded (`C408` at line 330, the transcript route), and on `tests/integration/test_admin_hide_meeting.py` an unsorted import block at line 9 (`I001`), neither in a line this session wrote.
+
+The removal check (`skills/plan-execute/SKILL.md`). All 16 tests that failed before the code passed on their first run against it, so the first run showed nothing about whether they test it. As in M7 and M8 the check worked on a copy of `src`, `tests`, `content` and `pyproject.toml` in the session's scratch directory, since a template is read from disk (no committed file was edited): a scratch script took one clause out of the copy, or weakened it, ran `tests/web/test_hearings_rss_flagged.py` and the four re-seated tests there with `-x` against the throwaway database with the copy first on the import path, and wrote the file back from the worktree's. First pass, 69 copies: 17 of the route (the gate always yes, always no and negated; the filter absent, of another kind, and with no kind; no entries; the old template on the new path; the feed's address; the page's address relative, the city page's, and the feed's; `absolute` doing nothing; the cache absent, its key without the city, and its key under another name) and 51 of the template (the XML declaration; each line of the envelope, its presence, its words and its order; the items cut to one and reversed; the title's escaping, its comma, and five forms of its date; five forms of the link and eight of the guid; a `<pubDate>` added; the CDATA section, the `cdata_safe` filter, and escaping inside it; the detail lines absent, run together, and cut to one; the links absent, cut to one, without a label, without the colon, not made absolute, run together, with a newline after the last, and before the detail), and a control whose copy changes a comment:
+
+    baseline on the copy: 0 24 passed, 1 warning in 2.84s
+    removals tried=69 failed a test=67 survived=2
+
+The two: the control, and one the session had built badly. It was meant to take the flagged path out of the cache and did not: it dropped the cache's entry inside `_render`, which `_rss_cached` then stores again, so the copy behaved as the code does. It was replaced by a removal that does what was meant (`_render()` called directly for a flagged city), and two the first pass had left out were added, the mimetype and the `Cache-Control` header. Second pass, 71 copies, against the same 24 tests:
+
+    baseline on the copy: 0 24 passed, 1 warning in 2.75s
+    removals tried=71 failed a test=70 survived=1
+
+The one that survives is the control, as it must. No test was added after commit 09ac56d, which holds the tests failing, and the one change to a test since is the helper `_entry` rewritten for `ruff` (above). After the pass `diff -rq` of the copy's `src` against the worktree's printed nothing but compiled files: every clause was put back. Between commit 15daf93 and the first pass's copy one thing in the template changed and was not yet committed: the `| e` filters on the page's address and on the uid in `<link>` and `<guid>` were taken out, since nothing a route or the service produces there holds a character to escape and no test could have told the filter from its absence; both passes ran against the shorter form (Decision Log).
+
+Acceptance. From a run of `tests/web/test_hearings_rss_flagged.py` and the four re-seated tests with `-v`, 24 lines read `PASSED` and none otherwise; the new file's 20 include the count test `test_the_feed_has_one_item_per_hearing_article_of_the_page`, `test_a_stored_zoning_hearing_is_one_item_titled_by_kind_and_date`, `test_a_title_that_only_says_hearing_is_not_in_the_flagged_citys_feed` and `test_the_same_title_is_in_the_feed_of_a_city_without_the_flag`. The new file and the whole of the two integration files ended `82 passed, 1 warning in 7.70s`.
+
+The figures M8b's acceptance asks for, from a scratch script that seeded what the count test seeds (a council meeting the video site lists, a zoning hearing set for November 24 and a weed-lot hearing set for November 17) and the two old-path meetings, set the day to 2026-11-16, and asked the application for both feeds and the page (the tests assert the equalities; the script prints the numbers):
+
+    status 200 application/rss+xml; charset=utf-8 | public, max-age=3600
+    items 2 hearing articles 2 all articles 139 bytes 1725
+    birmingham holds the old title: False | mobile items 1 holds it: True
+
+The item count and the hearing-article count the count test found equal is 2. The session read the whole of Birmingham's feed as the script printed it; its first item, with the two ids replaced:
+
+    <item>
+      <title>Weed lots hearing, November 17, 2026</title>
+      <link>http://localhost/al/birmingham/coming-up/#hearing-<id></link>
+      <description><![CDATA[212 properties
+    City agenda: https://bhamal.granicus.com/AgendaViewer.php?view_id=2&event_id=990001
+    On the agenda of October 26, 2026: http://localhost/al/birmingham/items/<id>/]]></description>
+      <guid isPermaLink="true">http://localhost/al/birmingham/coming-up/#hearing-<id></guid>
+    </item>
+
+`git diff origin/main --stat -- src/docket/services/query.py src/docket/web/templates/rss/upcoming_hearings.xml.j2` printed nothing. `git diff bc93071 --stat` over `src/docket/web/__init__.py`, `src/docket/worker`, the whole of `src/docket/services`, `src/docket/web/static`, `requirements.txt` and `Dockerfile` printed nothing: M8b changed one route and added one template. `git diff origin/main -- src/docket/web/public.py | grep -c "^+.*db_cursor\|^+.*db()"` printed `0`.
+
+The session's task came with the same piece of the operator's terminal M4's to M8's did (`error: unexpected argument '-1' found`, the `tip:` line, the `tail` usage line). It is the `tail -1` refusal M3's second session recorded, with the line that works (`tail -n 1 <file> <file>`); it bears on nothing in M8b, and no command this session ran or wrote for the operator uses `tail -1`.
 
 ## Interfaces and Dependencies
 

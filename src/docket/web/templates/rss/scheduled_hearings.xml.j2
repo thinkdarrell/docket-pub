@@ -8,7 +8,8 @@
     hearing was first read, and the hearing's own date is in the future.
     Every link goes through ``absolute``, since a feed is read outside the
     site. This file's name does not end in .xml, so nothing is escaped
-    unless it says so here. -#}
+    unless it says so here: the title is, and the description is a CDATA
+    section; the page's address and a uid hold nothing to escape. -#}
 {%- macro description(entry) -%}
 {%- for line in entry.detail %}{{ line }}
 {% endfor -%}
@@ -26,9 +27,9 @@
     <atom:link href="{{ feed_url }}" rel="self" type="application/rss+xml" />
 {% for entry in entries %}    <item>
       <title>{{ entry.title | e }}, {{ entry.on.strftime('%B %-d, %Y') }}</title>
-      <link>{{ page_url | e }}#{{ entry.uid.split('@')[0] | e }}</link>
+      <link>{{ page_url }}#{{ entry.uid.split('@')[0] }}</link>
       <description><![CDATA[{{ description(entry) | cdata_safe }}]]></description>
-      <guid isPermaLink="true">{{ page_url | e }}#{{ entry.uid.split('@')[0] | e }}</guid>
+      <guid isPermaLink="true">{{ page_url }}#{{ entry.uid.split('@')[0] }}</guid>
     </item>
 {% endfor %}  </channel>
 </rss>
