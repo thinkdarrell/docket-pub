@@ -106,7 +106,15 @@ record the refusal verbatim, name the operator as its executor, and do not
 re-spell the command (`bash scripts/deploy.sh` for a denied
 `scripts/deploy.sh`, a copy under another name) to get past the denial. The
 denial is a rule the repository or the harness set, and an observation
-obtained around it records the bypass, not the behaviour.
+obtained around it records the bypass, not the behaviour. A line the
+session writes for the operator to run by hand in its place is run by the
+session first, in every part the refusal does not cover: the same program
+and flags, on files of the worktree. One plan's session, refused a
+production dry run, wrote the operator three lines, and the third,
+`tail -1 <file> <file>`, is refused by the `tail` of the development
+machine (uutils coreutils 0.10.0 takes `-1` before one file and wants
+`-n 1` before two); the next session saw that in one run on two files of
+the checkout, after the operator's terminal had shown it.
 
 ## Write the evidence back
 
