@@ -82,6 +82,9 @@ As authored on 2026-11-16, nothing has been executed, so no session has discover
 - Observation (M3, second session, 2026-11-17): The last of the by-hand lines the first M3 session wrote for the operator fails on this machine. `tail -1 <file> <file>` is refused by the `tail` installed here; the two dry-run lines before it had already written their files, so nothing was lost. The line that works is `tail -n 1 <file> <file>`.
   Evidence: the operator's terminal printed `error: unexpected argument '-1' found`, `tip: to pass '-1' as a value, use '-- -1'`, `Usage: tail [OPTION]... [FILE]...`; the session ran `tail -1 AGENTS.md CLAUDE.md` in this worktree and got the same three lines and exit 1, and `tail -n 1 AGENTS.md CLAUDE.md` printed both files' last lines and exited 0; `tail --version` prints `tail (uutils coreutils) 0.10.0`.
 
+- Observation (M4, 2026-11-17): The `checked` entry M4 writes, `on: <date>`, does not parse to a key named "on". PyYAML reads YAML 1.1, where a bare `on` (like `yes`, `off`, `no`) is a boolean, so the entry arrives as `{'by': ..., True: datetime.date(2026, 11, 17), 'how': ...}`. The loader as first written refused the checked-in file for it.
+  Evidence: the first run of the tests against the loader, `24 failed, 93 passed`, every failure `` `checked[0]` is missing the key `on` ``. `yaml.safe_dump` writes the key as `'on':`, in quotes, which is why the tests on a file the test itself dumps did not show it and only the hand-written file did. The operator's step 1 adds a second `checked` entry by hand, and would have met the same refusal.
+
 ## Decision Log
 
 - Decision: The hearing reader reads an item's `title` alone, never its `description`.
@@ -283,6 +286,18 @@ As authored on 2026-11-16, nothing has been executed, so no session has discover
 
 - Decision: How the fourth cell was divided into `place` and `remote`, for the rows where M4's sentence leaves a choice. Hooper City ("Hooper City Rec. Center 3901 4th Street West 952 206 4918 Code: 223418", no slash, type "In-Person"): `place` is the text through "West" and `remote` is "952 206 4918 Code: 223418", and `modes` stays `[in_person]` because the type cell names nothing else. East Brownsville: `remote` is "(Jan-Apr) Dial: 605-313-4198/ Access Code: 461297" and `place` is "(May-Nov) Mary Dorsey Center 4560 Park Ave SW, 35221", each keeping the months the city printed before it. Highland Park: `place` is "Visit highland-park.org for in-person meeting location" and `remote` is "MI: 819 7094 5731". Ensley: `place` is the whole cell, "McAlpine & Ensley Recreation Center (alternate months)", and `remote` is null. Bridlewood, whose cell reads "No Meetings": both null. A cell that is only a place or only dial-in details went whole into that field. The slash between a place and its dial-in details is in neither field.
   Rationale: M4: `place` is "the part ... that names where to go in person" and `remote` "the part that gives dial-in or meeting-id details, each copied as printed". Hooper City's number and code are those of the Oak Ridge/West Ensley conference line ("Dial: 952-206-4918 / Access Code: 223418"), so the two parts can be told apart without a slash. The cross-check holds each field to being contained in the cell, so a division cannot add a character the city did not print.
+  Date/Author: 2026-11-17, Claude, M4 session.
+
+- Decision: The loader reads a `checked` entry's boolean-true key as the key `on`, and the checked-in file keeps `on:` unquoted as M4 writes it. An entry that holds both the bare key and a quoted `"on"` is refused as carrying an unknown key.
+  Rationale: The alternatives were to quote the key in the file (`"on": 2026-11-17`) or to rename it (`date:`). Quoting leaves a trap for the next person to add an entry, who is the operator in step 1 and who will write what M4's example shows; renaming changes a format M4 and M5's reading sheet name. Reading the key as written costs seven lines in one place, has a test for each spelling, and is confined to `checked` entries: nowhere else in the file is `on` a key.
+  Date/Author: 2026-11-17, Claude, M4 session.
+
+- Decision: The loader's refusals beyond the ten M4 lists. A top-level value of the wrong shape (the file not a mapping, `source` not a mapping, `associations` not a list, an entry not a mapping, `checked` not a list); a `name` that is empty or not text; `place` or `remote` that is neither text nor null, or is empty text; `months` that is not a list or is an empty list; a `modes` that is not a list; an empty `undated_reason`; `source.title`, `url`, `file` or `sha256` empty or not text; `source.revised`, `source.read` or a check's `on` not a date; `source.year` not a whole number; a check's `by` or `how` empty; a `source.file` that resolves outside the city's directory; a schedule file that is missing or is not YAML. The dataclass `Check` (`by`, `on`, `how`) holds one `checked` entry, and `Association` carries `months` (a tuple, or `None` for every month) and `undated_reason` beside the nine keys of M4's example. Module constants `ORDINALS`, `WEEKDAYS`, `MODES` and `SCHEDULE_FILE` name the vocabularies and the file.
+  Rationale: Each is a shape the ten rules assume and do not state; without them a wrong shape ends in a `TypeError` or `KeyError` that names neither the file nor the association, which M4 requires of every refusal. None refuses anything M4's format allows: `time` may be null, `modes` may be empty, `months` may be absent. M5 adds `occurrences` and needs `months` and the vocabularies' order, so they are named now and once.
+  Date/Author: 2026-11-17, Claude, M4 session.
+
+- Decision: The cross-check's dict of table misreadings, `TABLE_MISREADS` in `tests/unit/test_neighborhood_schedule.py`, holds one exception: Highland Park, whose fourth cell `extract_tables()` returns empty while the page prints "Visit highland-park.org for in-person meeting location / MI: 819 7094 5731". Its `place` and `remote` are held to the three pages' `extract_text()` instead. The cross-check also fails when a listed exception is not needed (the table does hold the row's place and remote), when a listed name is no association, and when a table row that is not one of the two header rows is transcribed by no association.
+  Rationale: M4 asks that each exception added be recorded here. The three further failures keep the dict from outliving its reason and keep the count honest in both directions: 99 associations each matching one row does not by itself show that no row was left out when a row could be matched twice, and a test of the PDF (`test_highland_park_is_the_one_row_the_table_reading_gets_wrong`) pins that this is the only row with an empty fourth cell.
   Date/Author: 2026-11-17, Claude, M4 session.
 
 ## Outcomes & Retrospective
@@ -986,6 +1001,16 @@ Before the loader existed (2026-11-17 13:28Z), `DATABASE_URL=$(tools/test-db) ve
     101 failed, 16 passed, 1 warning in 8.67s
 
 Ninety-seven of the failures are `ModuleNotFoundError: No module named 'docket.services.neighborhood_schedule'`, three are `ImportError: cannot import name 'neighborhood_schedule' from 'docket.services'` (the three `get_schedule` tests), and one is `FileNotFoundError` (the test that reads the loader's source for an import of the web layer). The loader is imported inside each test, so the file collected. The 16 that pass do not need the loader: the cross-check, which reads the YAML with `yaml.safe_load` and the PDF with `pdfplumber` (the checked-in file against the table, an untouched copy, and twelve altered copies each failing it, the letter changed in a `rule_text` among them), the two tests of the PDF's own table (101 rows, two of them the header's; Highland Park the one row with an empty fourth cell), and the test of `config.COMING_UP_ROOT`. So the cross-check was seen passing on the transcription before any loader could have shaped it. The commit that holds the tests in this state is the one that adds this paragraph.
+
+Correction to the paragraph above, same session: the altered copies that each fail the cross-check are eleven, not twelve (one letter in a `rule_text`, eight changed cells, a row left out, a row transcribed twice); with the checked-in file, the untouched copy, the two tests of the table and the test of the root they are the 16.
+
+With `src/docket/services/neighborhood_schedule.py` written (13:29Z), the same command ended, on its first run against the loader:
+
+    24 failed, 93 passed, 1 warning in 9.10s
+
+All 24 were tests of the checked-in file, and all for one reason, which was a defect in the file's format as M4 gives it and not in a test: `ScheduleError: .../neighborhood-schedule.yaml: `checked[0]` is missing the key `on``. PyYAML reads YAML 1.1, in which a bare `on` is the boolean true, so the key written `on: 2026-11-17` arrives as `True` (Surprises & Discoveries; the Decision Log says what was done). With seven lines added to the loader and four tests for them, the command ended:
+
+    121 passed, 1 warning in 9.11s
 
 ## Interfaces and Dependencies
 

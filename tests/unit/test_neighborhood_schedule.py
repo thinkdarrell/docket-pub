@@ -543,6 +543,34 @@ def test_each_mode_of_the_vocabulary_loads(tmp_path, mode):
     assert _load(_write_city(tmp_path, doc)).associations[0].modes == (mode,)
 
 
+@pytest.mark.parametrize("key", ["on", '"on"'])
+def test_a_checks_date_is_read_whether_or_not_its_key_is_quoted(tmp_path, key):
+    """YAML 1.1 reads a bare `on` as the boolean true; the loader reads it as the key."""
+    city_dir = _write_city(tmp_path, _doc())
+    path = city_dir / SCHEDULE_FILE
+    text = path.read_text(encoding="utf-8")
+    assert text.count("'on': 2026-11-17") == 1
+    path.write_text(text.replace("'on': 2026-11-17", f"{key}: 2026-11-17"), encoding="utf-8")
+    assert _load(city_dir).checked[0].on == date(2026, 11, 17)
+
+
+def test_a_check_that_writes_its_date_twice_is_refused(tmp_path):
+    from docket.services.neighborhood_schedule import ScheduleError
+
+    city_dir = _write_city(tmp_path, _doc())
+    path = city_dir / SCHEDULE_FILE
+    text = path.read_text(encoding="utf-8")
+    path.write_text(text.replace("'on': 2026-11-17", "'on': 2026-11-17\n  on: 2026-11-18"), encoding="utf-8")
+    with pytest.raises(ScheduleError) as excinfo:
+        _load(city_dir)
+    assert "checked[0]" in str(excinfo.value)
+
+
+def test_the_checked_in_file_writes_its_checks_date_under_a_bare_key():
+    text = (BIRMINGHAM / SCHEDULE_FILE).read_text(encoding="utf-8")
+    assert "\n    on: 2026-11-17\n" in text
+
+
 def test_a_missing_schedule_file_is_refused(tmp_path):
     from docket.services.neighborhood_schedule import ScheduleError
 
