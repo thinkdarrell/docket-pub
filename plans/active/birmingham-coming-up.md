@@ -172,6 +172,30 @@ As authored on 2026-11-16, nothing has been executed, so no session has discover
   Rationale: `skills/plan-execute/SKILL.md` asks for it, so the before state reads as tests failing and not as one collection error. Validation's "saw it fail on import" is met as 37 tests each failing with `ModuleNotFoundError` (Artifacts and Notes, "M1: what the session observed").
   Date/Author: 2026-11-17, Claude, M1 session.
 
+- Decision: The hearings migration is number 047, chosen from this worktree's own refs without asking GitHub for the open pull requests.
+  Rationale: Identifiers asks for the lowest number above every one spent on `origin/main` and on any open pull request, by `gh pr list --state open`. This session's task forbade it anything outside the repository, so `gh` was not run. What the session read instead: `origin/main` as this checkout last fetched it (commit 069e7ed) and the one other remote branch it knows, `origin/fix/granicus-start-time-pacific` (pull request #181's), both of whose highest migration is 046. A pull request opened since the last fetch that also takes 047 would not have been seen; the closing stage, or the operator before merging, checks `gh pr list --state open` and renumbers if so (the file name, the entry in `runner.py`, the test file's name and its `47`s, and the docstring of `services/hearings.py`).
+  Date/Author: 2026-11-17, Claude, M2 session.
+
+- Decision: `group_readings` returns its groups ordered by hearing date and then by each group's lowest item id, and `refresh_hearings` inserts new hearings in that order.
+  Rationale: M2 fixes the order rows are taken in (longest key first) and not the order groups come back in. M3's dry run prints one line per hearing and compares runs, so the order must not depend on key lengths; date then lowest item id is what a person reading the lines expects.
+  Date/Author: 2026-11-17, Claude, M2 session.
+
+- Decision: `HearingReport.linked` is the number of item links the run wrote, which is every dated item of the run, on a repeated run as on the first; `created` is the number of hearings inserted, 0 on a repeated run.
+  Rationale: M2 names the field and not its meaning. Links are written in one upsert statement, which does not say which were new without a second statement; `created=0` is what Validation's operator step 4 reads to know a second run made nothing. The dataclass's docstring says so.
+  Date/Author: 2026-11-17, Claude, M2 session.
+
+- Decision: `list_upcoming` counts an item whose `processing_status` is NULL as not withdrawn (`IS DISTINCT FROM 'withdrawn'`), and `refresh_recent` takes "today" in America/Chicago from a module function `_today()` that a test replaces.
+  Rationale: The column is nullable (migration 013 gives it a default and no NOT NULL), and `<> 'withdrawn'` on a NULL would hide a hearing whose item nothing says was withdrawn. The city's day is the one the rest of the plan uses (M6's window), and a test of "120 days" needs a fixed day.
+  Date/Author: 2026-11-17, Claude, M2 session.
+
+- Decision: `refresh_recent` reads the `coming_up` key with its own one-line SELECT and requires the JSON value `true`; it does not wait for M6's `coming_up.is_coming_up_city`.
+  Rationale: `services/coming_up.py` (M6) imports this module, so this module cannot import it. The two tests of the key are the same test (the JSON boolean true and nothing else); M9's spec names the key's one meaning.
+  Date/Author: 2026-11-17, Claude, M2 session.
+
+- Decision: The two-pass match of groups against stored hearings is a pure function, `_match_stored(groups, stored)`, in `src/docket/services/hearings.py`, beside the five names Interfaces lists.
+  Rationale: It holds the rule M2 states in one sentence (exact keys first, then the one stored hearing `same_hearing` accepts) and is easier to read and to take a clause out of apart from the transaction's statements. It is private; `refresh_hearings` is its only caller.
+  Date/Author: 2026-11-17, Claude, M2 session.
+
 ## Outcomes & Retrospective
 
 As authored on 2026-11-16, nothing has been executed and there is no outcome to report. Each milestone session adds its paragraph beneath this one; the closing retrospective is written by the retro stage after the last milestone, not by a milestone.
@@ -670,6 +694,10 @@ The hearings migration is number 047 (Decision Log, this date, says how the numb
     5 failed, 1 passed, 1 warning, 45 errors in 1.20s
 
 The five failures are five of the six migration tests (the module `docket.migrations.047_public_hearings` does not exist and `runner.MIGRATIONS` holds no 47, so the tables are not made). The one pass is `test_047_down_removes_the_tables_and_the_key`, which holds of a database the migration never touched: no tables, no key. The 45 errors are every test of the store file, each stopped in the file's own cleanup, which runs before each test and deletes from `public_hearings`, a table that does not exist. The service is imported inside each test, so the file collected. The commit that holds the tests in this state is the one that adds this paragraph.
+
+With `src/docket/migrations/047_public_hearings.py` written and registered in `runner.py`, and `src/docket/services/hearings.py` written, the same command ended, on its first run against them:
+
+    51 passed, 1 warning in 4.19s
 
 ## Interfaces and Dependencies
 
