@@ -981,6 +981,12 @@ The transcription. A scratch script read the saved PDF with `pdfplumber`'s `extr
 
 What the 99 rows became. `ordinal` and `weekday` come from the rule's first two words in 97 rows and are null in two (Bridlewood, Glen Iris); Overton alone has `months`. The `modes` read from the 21 spellings of the type cell: `[in_person]` 64 rows, `[phone]` 11, `[phone, in_person]` 10, `[video]` 4, `[video, in_person]` 4 (Glen Iris among them), `[in_person, video]` 4, `[in_person, phone]` 1, and `[]` for Bridlewood, 99 in all. Fifteen rows have both a `place` and a `remote`, 15 a `remote` alone, 68 a `place` alone, and Bridlewood neither. Five rows whose type names a call or Zoom have no `remote`, because the cell prints no dial-in details: Ensley, Gate City ("Conference Call TBD"), Glen Iris, Graymont and North Eastlake. No `time` is null. (Counted by a scratch script over the YAML as parsed by `yaml.safe_load`.)
 
+Before the loader existed (2026-11-17 13:28Z), `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_neighborhood_schedule.py -q -p no:cacheprovider` ended:
+
+    101 failed, 16 passed, 1 warning in 8.67s
+
+Ninety-seven of the failures are `ModuleNotFoundError: No module named 'docket.services.neighborhood_schedule'`, three are `ImportError: cannot import name 'neighborhood_schedule' from 'docket.services'` (the three `get_schedule` tests), and one is `FileNotFoundError` (the test that reads the loader's source for an import of the web layer). The loader is imported inside each test, so the file collected. The 16 that pass do not need the loader: the cross-check, which reads the YAML with `yaml.safe_load` and the PDF with `pdfplumber` (the checked-in file against the table, an untouched copy, and twelve altered copies each failing it, the letter changed in a `rule_text` among them), the two tests of the PDF's own table (101 rows, two of them the header's; Highland Park the one row with an empty fourth cell), and the test of `config.COMING_UP_ROOT`. So the cross-check was seen passing on the transcription before any loader could have shaped it. The commit that holds the tests in this state is the one that adds this paragraph.
+
 ## Interfaces and Dependencies
 
 No new package. `pdfplumber` and `pyyaml` (through `python-frontmatter`; `src/docket/services/how_it_works.py` already imports `yaml`) are in the environment; `requirements.txt` and `requirements.lock` are not changed.
