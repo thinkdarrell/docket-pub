@@ -22,7 +22,7 @@ How to see it working, once every milestone is done: `./tools/verify` passes wit
 
 ## Progress
 
-- [ ] M1: The hearing reader exists as a pure module, and its tests pin what it reads from twenty-five real Birmingham agenda titles.
+- [x] (2026-11-17 03:53Z) M1: The hearing reader exists as a pure module, and its tests pin what it reads from twenty-five real Birmingham agenda titles.
 - [ ] M2: Hearings are stored once per hearing with a link to every agenda item that set them, by a migration and a service whose tests pin the grouping.
 - [ ] M3: Ingest keeps hearings current, the backfill script has a dry run, and the dry run's reading of production's rows is recorded and compared with the two earlier counts.
 - [ ] M4: The 2026 neighborhood schedule is checked in as the saved PDF and a transcription, and a loader refuses a malformed file or one that disagrees with the PDF.
@@ -175,6 +175,8 @@ As authored on 2026-11-16, nothing has been executed, so no session has discover
 ## Outcomes & Retrospective
 
 As authored on 2026-11-16, nothing has been executed and there is no outcome to report. Each milestone session adds its paragraph beneath this one; the closing retrospective is written by the retro stage after the last milestone, not by a milestone.
+
+M1, 2026-11-17. `src/docket/enrichment/hearings.py` exists with the interface Interfaces gives (and the constant `PREFIX_MIN`), imports the standard library only, and reads all 25 fixture titles as the table of expected readings says, the four pair cases included; no row of the table had to be changed. No carve-out against M1's acceptance: the single-file command ended `62 passed`, the before state was recorded (37 failed, 1 passed, on the missing module), and `./tools/verify` ended `all 6 checks passed`. What the milestone's own test list did not cover, and the session added: 24 tests for the 31 clauses a removal check found free. Left for M3 to look at on real rows: whether any stored title puts "for" between the trigger and its date (Surprises & Discoveries). Next: M2, storage.
 
 ## Context and Orientation
 
@@ -636,6 +638,17 @@ The 31 that no test could tell from the rule: collapsing whitespace; "the" in th
 
     62 passed, 1 warning in 0.06s
     removals tried=62 failed a test=62 survived=0
+
+Finished state, `./tools/verify`, on commit 04b9d2c with a clean tree:
+
+    2950 passed, 5 skipped, 4 xfailed, 2 warnings in 122.96s (0:02:02)
+    1030 passed, 2 warnings in 112.29s (0:01:52)
+    judge fixtures: 12 of 12 passed
+    134 passed, 1 warning in 9.82s
+    verify: plans ... ok (0s)
+    verify: all 6 checks passed in 248s.
+
+The fast tiers went from 2888 passed to 2950, the 62 tests of the new file, with none failed; the integration tier is unchanged at 1030.
 
 Keys the tests observed, each asserted: item 3297's is 101 characters and item 3339's opens with it; item 2116's is 100 characters, ends `zac202500019`, and holds no `november`; item 1680's opens with the 82-character zoning wording followed by `casenozac202500013`, and item 1681's with the same followed by `casenozac202500022`.
 
