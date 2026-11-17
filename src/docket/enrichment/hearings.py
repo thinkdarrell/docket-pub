@@ -27,10 +27,21 @@ KINDS = ("zoning", "weed_lots", "vacation", "budget", "other")
 
 KIND_LABELS = {
     "zoning": "Zoning",
-    "weed_lots": "Weed lots",
-    "vacation": "Street or right-of-way",
+    "weed_lots": "Overgrown lots",
+    "vacation": "Streets",
     "budget": "Budget",
     "other": "Other",
+}
+
+# What a reader sees as a hearing's title, in plain words. `vacation` covers
+# both a street's closure and the city giving up ("vacating") a right-of-way,
+# so its title names both.
+KIND_TITLES = {
+    "zoning": "Zoning hearing",
+    "weed_lots": "Hearing on overgrown lots",
+    "vacation": "Hearing on closing a street or giving up a right-of-way",
+    "budget": "Budget hearing",
+    "other": "Public hearing",
 }
 
 # A key that opens another names the same hearing only when it is at least

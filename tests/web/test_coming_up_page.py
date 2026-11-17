@@ -181,6 +181,60 @@ def test_the_route_takes_no_date_from_the_address(client, seeded):
         assert asked == plain
 
 
+# --- the filter row ---------------------------------------------------------
+
+
+def _filter_links(page):
+    (nav,) = page.select("nav.cu-filter")
+    return [(_text(a), a["href"], a.get("aria-current")) for a in nav.select("a")]
+
+
+def test_the_filter_row_links_the_page_itself_once_per_kind_and_marks_all_as_current(client, seeded):
+    page = _page(client)
+
+    assert page.select_one("nav.cu-filter")["aria-label"] == "Show"
+    assert _filter_links(page) == [
+        ("All", PAGE, "page"),
+        ("Meetings", PAGE + "?kind=meeting", None),
+        ("Public hearings", PAGE + "?kind=hearing", None),
+        ("Neighborhood meetings", PAGE + "?kind=neighborhood", None),
+    ]
+
+
+@pytest.mark.parametrize("kind", ["meeting", "hearing", "neighborhood"])
+def test_a_kind_in_the_address_shows_that_kind_alone_and_marks_it_current(client, seeded, kind):
+    plain = _page(client)
+    wanted = {a["data-entry-uid"] for a in plain.select(f'article[data-entry-kind="{kind}"]')}
+    assert wanted
+
+    page = _page(client, PAGE + f"?kind={kind}")
+
+    assert {a["data-entry-uid"] for a in page.select("article[data-entry-uid]")} == wanted
+    assert [href for _, href, current in _filter_links(page) if current == "page"] == [PAGE + f"?kind={kind}"]
+
+
+def test_the_neighborhood_filter_opens_each_days_summary_and_the_plain_page_does_not(client):
+    assert all(not d.has_attr("open") for d in _page(client).select("details.cu-neighborhood"))
+
+    blocks = _page(client, PAGE + "?kind=neighborhood").select("details.cu-neighborhood")
+
+    assert blocks and all(d.has_attr("open") for d in blocks)
+
+
+@pytest.mark.parametrize("query", ["?kind=council", "?kind=", "?kind=Meeting"])
+def test_a_kind_that_is_not_one_of_the_three_has_no_page(client, query):
+    assert client.get(PAGE + query).status_code == 404
+
+
+def test_a_filter_with_nothing_in_it_says_so_and_keeps_the_filter_row(client):
+    """No meeting or hearing is seeded, so only the schedule's neighborhood meetings exist."""
+    page = _page(client, PAGE + "?kind=hearing")
+
+    assert page.select("article[data-entry-uid]") == []
+    assert _text(page.select_one(".cu-empty")) == "No public hearings are listed for the next 60 days."
+    assert len(_filter_links(page)) == 4
+
+
 # --- the head of the page ---------------------------------------------------
 
 
@@ -402,11 +456,13 @@ def test_a_weed_lot_hearing_says_how_many_properties_and_not_its_subject(client,
     article = _article(_page(client), seeded.weeds)
     text = _text(article)
 
-    assert [_text(p) for p in article.select(".cu-detail")] == ["212 properties"]
+    assert [_text(p) for p in article.select(".cu-detail")] == [
+        "212 properties listed in a resolution as having noxious or dangerous weeds"
+    ]
     subject = _hearing_subject(seeded.weeds_id)
     assert subject and subject not in text
     assert "to hear and" not in text
-    assert _text(article.select_one(".cu-entry-title")) == "Weed lots hearing"
+    assert _text(article.select_one(".cu-entry-title")) == "Hearing on overgrown lots"
 
 
 def test_every_article_has_exactly_one_label_of_its_kind(client, seeded):
@@ -427,7 +483,7 @@ def test_every_article_has_exactly_one_label_of_its_kind(client, seeded):
     (zoning,) = _article(page, seeded.zoning).select("span.cu-badge")
     assert zoning["class"] == ["cu-badge", "cu-badge--zoning"]
     assert _text(zoning) == "Zoning"
-    assert _text(_article(page, seeded.weeds).select_one("span.cu-badge")) == "Weed lots"
+    assert _text(_article(page, seeded.weeds).select_one("span.cu-badge")) == "Overgrown lots"
     assert _text(_article(page, seeded.council).select_one("span.cu-badge")) == "Meeting"
 
 
@@ -568,6 +624,7 @@ def test_where_these_dates_come_from_names_each_source_and_what_is_not_reflected
         "read by docket.pub from the text of a resolution on a council agenda, without a language model",
         "may not yet have been adopted",
         "may still show on its first date",
+        "A committee meeting is listed once the city puts it on its calendar",
         "A calendar event docket.pub does not read as a council or committee meeting is left out",
         "The list of hearings can be incomplete",
         "A resolution whose hearing date docket.pub could not read from the agenda's text is left out",

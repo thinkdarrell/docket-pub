@@ -489,7 +489,7 @@ def test_the_one_subscribe_link_of_before_is_gone(client):
 
 def test_the_page_offers_each_kind_alone_as_a_webcal_address(client):
     block = _subscribe(_page(client))
-    (only,) = [p for p in block.select("p") if _text(p).startswith("Only:")]
+    (only,) = [p for p in block.select("p") if _text(p).startswith("Subscribe to only:")]
 
     assert [(_text(a), a["href"]) for a in only.select("a")] == [
         ("meetings", WEBCAL + "?kind=meeting"),

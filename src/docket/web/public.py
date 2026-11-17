@@ -1245,6 +1245,14 @@ _COMING_UP_KIND_NAMES = {
 }
 
 
+def _coming_up_filters(slug: str, kind: str | None) -> list[tuple[str, str, bool]]:
+    """The page's filter row: ``(words, address, is the one shown)`` for all kinds and then each kind."""
+    page = url_for("public.coming_up_page", slug=slug)
+    return [("All", page, kind is None)] + [
+        (_COMING_UP_KIND_NAMES[k].capitalize(), f"{page}?kind={k}", kind == k) for k in coming_up.KINDS
+    ]
+
+
 def _coming_up_feeds(slug: str) -> dict:
     """Every address of the calendar feed the page offers, built here and nowhere else.
 
@@ -1275,17 +1283,24 @@ def coming_up_page(slug):
     meetings, all from one call of ``coming_up.list_entries``; the calendar
     feed is built from the same call, so the two cannot differ. A city that
     does not exist, or whose metadata does not carry ``"coming_up": true``,
-    is 404. The address takes no parameter: the window always starts today.
+    is 404. The address takes no date: the window always starts today.
     The fixed last segment outranks the ``/al/<slug>/<badge_slug>/``
-    catch-all.
+    catch-all. ``?kind=`` narrows the list to one of ``coming_up.KINDS``, as
+    it does the feed; any other value is 404.
     """
     municipality = query.get_municipality(slug)
     if not coming_up.is_coming_up_city(municipality):
         abort(404)
+    kind = request.args.get("kind")
+    if kind is not None and kind not in coming_up.KINDS:
+        abort(404)
     return render_template(
         "coming_up.html",
         municipality=municipality,
-        days=_coming_up_days(coming_up.list_entries(municipality)),
+        days=_coming_up_days(coming_up.filter_entries(coming_up.list_entries(municipality), kind=kind)),
+        kind=kind,
+        kind_words=_COMING_UP_KIND_NAMES.get(kind),
+        filters=_coming_up_filters(slug, kind),
         window_days=coming_up.WINDOW_DAYS,
         undated=coming_up.undated_associations(slug),
         schedule=coming_up.schedule_source(slug),
