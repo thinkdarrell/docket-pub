@@ -289,7 +289,8 @@ constrains:
    statement that would have listed the author's 78 ids, and the plan
    carried an operator's count of 71 whose query was written nowhere, so
    M3 was ticked with both differences unexplained and the check of ids
-   went to the operator's steps (`D154`, step 4).
+   went to the operator's steps (debt row `D154`, step 4, since run and
+   deleted: the ids were the same).
    An operator step that can only follow the merge (an API key created, a
    variable set on Railway, a deploy, a production backfill, a rebuilt
    image on the Legion) is never a clause of a milestone's acceptance or
