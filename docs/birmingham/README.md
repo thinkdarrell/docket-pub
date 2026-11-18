@@ -46,6 +46,7 @@ It is a **map, not an owner**. By the project's rule that every fact lives in ex
   ─────────────────────────────────────────────
   Granicus / YouTube audio ──────────▶  transcriber ─▶ transcripts, transcript_segments, transcript_speakers
   both recordings' audio ────────────▶  measuring pass ─▶ meeting_video_alignments (offset, span)
+                                                       ─▶ granicus_clip_sound (where the clip is silent)
 
                                         transcript_pipeline (worker, one stage per day):
                                           speakers ─▶ events (+ minutes_texts, meeting_events)
@@ -91,7 +92,7 @@ These are `docs/PRINCIPLES.md` as they show up in the Birmingham flow; the chapt
 | `ai_runs`, `ai_response_cache`, `ai_batches`, `ai_batch_items` | the AI pipeline | 4 |
 | `city_briefing_facts` | `briefing_facts` | 4, 6 |
 | `transcripts`, `transcript_segments`, `transcript_speakers`, `producer_heartbeats` | the transcriber (desktop) | 5 |
-| `meeting_video_alignments` | the transcriber's measuring pass | 5 |
+| `meeting_video_alignments`, `granicus_clip_sound` | the transcriber's measuring pass | 5 |
 | `minutes_texts`, `meeting_events`, `minutes_discrepancies` | `transcript_pipeline` | 5 |
 | `agenda_item_search_cards`, `transcript_card_runs` | the search-card stage | 5 |
 
