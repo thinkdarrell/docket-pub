@@ -62,6 +62,8 @@ def test_a_block_is_silent_below_minus_60_dbfs_and_not_at_minus_59_94():
     # 20 * log10(33 / 32768) is -59.94 and 20 * log10(32 / 32768) is -60.21
     assert sound.measure(_constant(33, 60)).spans == ()
     assert sound.measure(_constant(32, 60)).spans == ((0.0, 60.0),)
+    # the level is the whole 60-second block's: half noise and half zeros is one audible block
+    assert sound.measure(np.concatenate([_noise(30), _zeros(30)])).spans == ()
 
 
 def test_a_tail_shorter_than_ten_seconds_joins_the_block_before_it():
@@ -72,6 +74,8 @@ def test_a_tail_shorter_than_ten_seconds_joins_the_block_before_it():
     assert measured.duration_s == 605.0
     assert measured.spans == ((0.0, 605.0),)
     assert measured.silent_s == 605.0
+    # five silent seconds after ten minutes of noise are part of the last, audible block
+    assert sound.measure(np.concatenate([_noise(600), _zeros(5)])).spans == ()
 
 
 def test_a_tail_of_ten_seconds_or_more_is_a_block_of_its_own():

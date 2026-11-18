@@ -18,7 +18,7 @@ This plan does not make any link open YouTube at a moment that it opens Granicus
 
 As authored on 2026-11-17, nothing has been executed.
 
-- [ ] M1: `transcriber/transcriber/sound.py` measures where 8 kHz audio is silent, in 60-second blocks against a floor of -60 dBFS, and `transcriber/tests/test_sound.py` passes with its eight tests
+- [x] (2026-11-18 04:10Z) M1: `transcriber/transcriber/sound.py` measures where 8 kHz audio is silent, in 60-second blocks against a floor of -60 dBFS, and `transcriber/tests/test_sound.py` passes with its eight tests
 - [ ] M2: migration 048 creates `granicus_clip_sound`, the `transcriber` role may select, insert, and update it, and `transcriber/transcriber/db.py` saves one row per meeting and replaces it on a second save, with the migration, role, and producer database tests passing
 - [ ] M3: the measuring pass saves and logs each Granicus clip's sound once per meeting before it measures the meeting's recordings, the producer version is 0.7.0, and `transcriber/tests/test_measure.py` passes with its three new tests
 - [ ] M4: `src/docket/services/video_links.py` loads a clip's sound, and the meeting page prints the YouTube link first and "Granicus player · no sound" or "no sound for N of M minutes" when the clip is silent throughout or for ten minutes or more, with the loader, unit, and web tests passing
@@ -60,6 +60,12 @@ From M1's session of 2026-11-18 (UTC) on the Legion, in this worktree, starting 
 
 - Observation: the eight tests fail before the module exists, each on the import inside its own function, and the file collects.
   Evidence: at 04:04Z, `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest transcriber/tests/test_sound.py -q -p no:cacheprovider` printed `8 failed, 1 warning in 0.13s`. The commit that holds the tests failing is the one that adds this entry.
+
+- Observation: M1's acceptance is met. The eight tests pass against the module, the transcriber check is at 142, and `./tools/verify` is green.
+  Evidence: at 04:04Z the file's command printed `8 passed, 1 warning in 0.54s`. `./tools/verify`, started at 04:05Z after the last edit and finished at 04:10Z: `3464 passed, 5 skipped, 4 xfailed, 2 warnings`, `1042 passed, 2 warnings`, `judge fixtures: 12 of 12 passed`, `142 passed, 1 warning` (134 and 8), `verify: plans ... ok (0s)`, `verify: all 6 checks passed in 292s.`
+
+- Observation: eleven rules were taken out of a copy of `transcriber/transcriber/sound.py` held in memory, one at a time (a pytest plugin in the session scratchpad that compiles the altered source as `transcriber.sound`; the committed file was not edited), and the eight tests run against each. Eight removals failed a test on the first run, two more after an assertion was added for each, and one cannot be told from its absence.
+  Evidence: failing a test as first written: the floor at -61 (1 failed) and at -59.9 (1 failed); a short tail always joined (1); the guard that a lone short block stays a block (1); a block of zeros not silent (5); neighbouring silent blocks not joined (4); no check for empty samples (1); the comparison reversed (4). Free as first written, then pinned: `BLOCK_S` at 30 passed all eight, and `test_a_block_is_silent_below_minus_60_dbfs_and_not_at_minus_59_94` gained the assertion that thirty seconds of noise and thirty of zeros are one audible block (then 1 failed); a short tail never joined passed all eight, because 605 seconds of zeros are one span either way, and `test_a_tail_shorter_than_ten_seconds_joins_the_block_before_it` gained the assertion that five silent seconds after ten minutes of noise give no span (then 1 failed). Both assertions were added after the commit that holds the tests failing (`8def4ee`). Still free: `silent_s` without its cap of `duration_s` passes all eight. No input was found for which the sum exceeds the duration (the Decision Log entry on the review says why), so no test can show the cap; it stays as the plan states it.
 
 ## Decision Log
 
