@@ -316,6 +316,45 @@ rows and the next run measures it:
 A recording the operator believes right that is rejected again is an issue on
 `thinkdarrell/docket-pub` with its figures, not an override.
 
+The pass also measures where each Granicus clip it fetches is silent and stores
+one row per meeting in `granicus_clip_sound` (`docs/specs/video-links.md`, "A
+clip with no sound"), from producer version 0.7.0 on. A recording rejected by
+an earlier version was compared without its clip's sound being stored, and a
+`rejected` row is final, so those clips are measured for sound only once their
+rejected rows are deleted. Do it after the image runs 0.7.0 and the role has
+its grant on the new table ("The transcriber role"), never before: a row
+deleted while the old image runs is measured by the old image, which stores no
+sound, and is then final again. Count, then delete in one statement, as the
+database owner:
+
+    SELECT count(*) FROM meeting_video_alignments WHERE status = 'rejected' AND reason IS DISTINCT FROM 'operator';
+    DELETE FROM meeting_video_alignments WHERE status = 'rejected' AND reason IS DISTINCT FROM 'operator';
+
+The count was 42 on 2026-11-17. A row the owner switched off (`rejected` with
+the reason `operator`, below) is kept. Then run the backlog command above until
+`remaining=0`; each meeting whose clip is fetched logs one `sound` line. What
+was stored, read-only:
+
+    SELECT s.meeting_id, m.meeting_date, s.granicus_clip_id, round(s.duration_s) AS duration_s, round(s.silent_s) AS silent_s, jsonb_array_length(s.silent_spans) AS spans FROM granicus_clip_sound s JOIN meetings m ON m.id = s.meeting_id ORDER BY m.meeting_date;
+
+A row whose `silent_s` equals its `duration_s` is a clip the meeting page calls
+"no sound", and one with 600 or more silent seconds reads "no sound for N of M
+minutes". A clip the page calls silent that is audible in the Granicus player
+is an issue on `thinkdarrell/docket-pub` with the row's figures, and the note
+is turned off for that meeting by deleting its row:
+
+    DELETE FROM granicus_clip_sound WHERE meeting_id = <id>;
+
+The row returns when the clip is next measured. To take the note and the "(no
+sound)" label off the whole site without a deploy, the owner puts every row
+below the version the site trusts; the second statement is the restore:
+
+    UPDATE granicus_clip_sound SET method_version = 0;
+    UPDATE granicus_clip_sound SET method_version = 1 WHERE method_version = 0;
+
+As with the switch below, the first covers the rows that exist when it runs: a
+clip measured afterwards is stored at the current version.
+
 Every YouTube link can be sent back to Granicus without a deploy, and brought
 back the same way. The first statement is the switch and the second the
 restore:
@@ -369,16 +408,26 @@ Created once per database (done on Railway 2026-10-10):
 
 It can read `meetings`, `municipalities`, `council_members`, `agenda_items`,
 `meeting_videos` and write only `transcripts`, `transcript_segments`,
-`transcript_speakers`, `producer_heartbeats`, and `meeting_video_alignments`
+`transcript_speakers`, `producer_heartbeats`, `meeting_video_alignments`
 (select, insert, update, and delete: a re-measure replaces a recording's stretch
-rows). The grants on `meeting_videos` and `meeting_video_alignments` came with
+rows), and `granicus_clip_sound` (select, insert, and update, no delete: a
+meeting's row is replaced in place). The grants on `meeting_videos` and `meeting_video_alignments` came with
 migration 042 and the DELETE with the reshaping of migration 046 (no migration
 grants anything to the role); a role created before 042 needs
 the last two `GRANT` statements of that file run alone by the database owner,
 and one created between 042 and 046 needs only
 `GRANT DELETE ON meeting_video_alignments TO transcriber;`, after which
 `SELECT has_table_privilege('transcriber', 'meeting_video_alignments', 'DELETE');`
-prints `t`. The connection string lives only in `transcriber/.env` on
+prints `t`. The grant on `granicus_clip_sound` came with migration 048; a role
+created before it needs one statement, run alone by the database owner after
+the deploy that applies the migration:
+
+    GRANT SELECT, INSERT, UPDATE ON granicus_clip_sound TO transcriber;
+
+after which `SELECT has_table_privilege('transcriber', 'granicus_clip_sound', 'INSERT');`
+prints `t`. Until it is run the measuring pass logs `measure: skipped
+(permission denied for table granicus_clip_sound)` and measures nothing, and
+the run transcribes as usual. The connection string lives only in `transcriber/.env` on
 the Legion. Rotate with `ALTER ROLE transcriber PASSWORD '...'` and update that file.
 
 ## Granicus junk clips (Monday test streams)
