@@ -414,7 +414,7 @@ rows), and `granicus_clip_sound` (select, insert, and update, no delete: a
 meeting's row is replaced in place). The grants on `meeting_videos` and `meeting_video_alignments` came with
 migration 042 and the DELETE with the reshaping of migration 046 (no migration
 grants anything to the role); a role created before 042 needs
-the last two `GRANT` statements of that file run alone by the database owner,
+the two `GRANT` statements of that file on those two tables run alone by the database owner,
 and one created between 042 and 046 needs only
 `GRANT DELETE ON meeting_video_alignments TO transcriber;`, after which
 `SELECT has_table_privilege('transcriber', 'meeting_video_alignments', 'DELETE');`
