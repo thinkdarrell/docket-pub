@@ -2,8 +2,9 @@
 
 No test here downloads anything or runs the matcher: `measure.source_for` and
 `measure.fetch_audio` are stand-ins that write a few bytes, the three `measure.align`
-functions return fixed values (the matcher itself is test_align.py's), and the database is a
-recorder in the style of FakeDB in test_cli_loop.py. `transcriber.measure` is imported inside
+functions return fixed values (the matcher itself is test_align.py's), `sound.measure` returns
+one fixed ClipSound (the rule itself is test_sound.py's), and the database is a recorder in
+the style of FakeDB in test_cli_loop.py. `transcriber.measure` is imported inside
 each test so the file collects before the module exists.
 """
 from __future__ import annotations
@@ -18,8 +19,12 @@ import psycopg2.errors
 from transcriber import cli
 from transcriber.audio import AudioFetchError
 from transcriber.db import AlignmentCandidate
+from transcriber.sound import ClipSound
 
 GRANICUS = "https://bhamal.granicus.com/DownloadFile.php?view_id=2&clip_id="
+
+# what the stand-in for sound.measure returns for every clip (plan silent-granicus-says-so, M3)
+CLIP_SOUND = ClipSound(duration_s=6019.0, silent_s=2719.0, spans=((0.0, 60.0), (780.0, 2040.0)))
 
 
 def _measurement(status="passed", reason=None):
@@ -68,14 +73,17 @@ class FakeConn:
 
 
 class FakeDB:
-    """Stands in for the three transcriber.db functions the pass calls."""
+    """Stands in for the four transcriber.db functions the pass calls."""
 
-    def __init__(self, candidates, *, read_error=None, save_error_at=None, backlog_error=None):
+    def __init__(self, candidates, *, read_error=None, save_error_at=None, backlog_error=None,
+                 sound_error=None):
         self.candidates = list(candidates)
         self.read_error, self.save_error_at, self.backlog_error = read_error, save_error_at, backlog_error
+        self.sound_error = sound_error
         self.reads = []
         self.backlog_reads = []
         self.saved = []
+        self.sounds = []
 
     def alignment_candidates(self, conn, *, method_version, trusted_version, limit, retry_failed_days=7):
         self.reads.append((method_version, trusted_version, limit))
@@ -95,6 +103,12 @@ class FakeDB:
         self.saved.append(SimpleNamespace(cand=cand, version=method_version, status=status,
                                           reason=reason, measurement=measurement, commits=conn.commits))
 
+    def save_clip_sound(self, conn, cand, sound, *, method_version):
+        if self.sound_error is not None:
+            raise self.sound_error
+        self.sounds.append(SimpleNamespace(cand=cand, sound=sound, version=method_version,
+                                           commits=conn.commits, rows_before=len(self.saved)))
+
     def statuses(self):
         return [(s.cand.video_id, s.status) for s in self.saved]
 
@@ -102,7 +116,7 @@ class FakeDB:
 def _cfg(tmp_path):
     return cli.Config(since=date(2025, 10, 28), limit=10, max_hours=None, host="test",
                       work_dir=tmp_path / "work", archive_dir=tmp_path / "archive",
-                      dry_run_file=None, version="0.6.0")
+                      dry_run_file=None, version="0.7.0")
 
 
 def _wire(monkeypatch, fdb, *, youtube_errors=None, granicus_errors=None, results=None, on_measure=None):
@@ -111,12 +125,12 @@ def _wire(monkeypatch, fdb, *, youtube_errors=None, granicus_errors=None, result
     `youtube_errors` maps a video id to the exception its download raises (after leaving a
     partial file, as yt-dlp would), `granicus_errors` a clip id to the exception its fetch
     raises, `results` a video id to the Measurement its match returns (a passing one otherwise);
-    `on_measure(video_id)` runs after each match.
+    `on_measure(video_id)` runs after each match. Every clip's sound is CLIP_SOUND.
     """
-    from transcriber import measure
+    from transcriber import measure, sound
     youtube_errors, granicus_errors, results = youtube_errors or {}, granicus_errors or {}, results or {}
-    seen = SimpleNamespace(downloads=[], fetches=[], measured=[], sleeps=[])
-    for name in ("alignment_candidates", "alignment_backlog", "save_alignment"):
+    seen = SimpleNamespace(downloads=[], fetches=[], measured=[], sleeps=[], reads=[], sounded=[])
+    for name in ("alignment_candidates", "alignment_backlog", "save_alignment", "save_clip_sound"):
         monkeypatch.setattr(measure.tdb, name, getattr(fdb, name))
 
     def fake_source_for(external_id, work_dir, *, audio_format="bestaudio/best"):
@@ -140,7 +154,12 @@ def _wire(monkeypatch, fdb, *, youtube_errors=None, granicus_errors=None, result
 
     def fake_read_wav(path):
         assert Path(path).exists(), f"{path} was read before it was written"
+        seen.reads.append(Path(path).name)
         return Path(path).name
+
+    def fake_sound_measure(samples):
+        seen.sounded.append(samples)
+        return CLIP_SOUND
 
     def fake_measure(granicus, youtube):
         video_id = youtube[1][len("align-yt-"):-len(".wav")]
@@ -154,6 +173,7 @@ def _wire(monkeypatch, fdb, *, youtube_errors=None, granicus_errors=None, result
     monkeypatch.setattr(measure.align, "read_wav", fake_read_wav)
     monkeypatch.setattr(measure.align, "features", lambda samples: ("features", samples))
     monkeypatch.setattr(measure.align, "measure", fake_measure)
+    monkeypatch.setattr(sound, "measure", fake_sound_measure)
     return seen
 
 
@@ -217,7 +237,7 @@ def test_a_measurement_with_two_stretches_is_saved_once_and_logged_once_per_stre
         counts = measure.measure_pass(conn, cfg, limit=20, sleep=seen.sleeps.append)
 
     assert counts == {"passed": 1, "rejected": 0, "failed": 0}      # counted per recording
-    assert len(fdb.saved) == 1 and conn.commits == 1
+    assert len(fdb.saved) == 1 and conn.commits == 2     # the clip's sound, then the recording
     assert fdb.saved[0].status == "passed" and len(fdb.saved[0].measurement.stretches) == 2
     prefix = "measure meeting 3184 clip 2026 video FR84h22hQvA: "
     lines = [m for m in caplog.messages if m.startswith(prefix)]
@@ -238,7 +258,8 @@ def test_a_measurement_with_two_stretches_is_saved_once_and_logged_once_per_stre
     caplog.clear()
     with caplog.at_level(logging.INFO):
         counts = measure.measure_pass(conn, cfg, limit=20, sleep=seen.sleeps.append)
-    assert counts == {"passed": 0, "rejected": 0, "failed": 0} and conn.commits == 0
+    assert counts == {"passed": 0, "rejected": 0, "failed": 0}
+    assert conn.commits == 1               # the clip's sound, committed before the refused save
     assert [m for m in caplog.messages if m.startswith(prefix)] == []
     assert any(m.startswith("measure: skipped (") for m in caplog.messages)
 
@@ -482,7 +503,7 @@ def test_main_measures_before_the_engine_loads_and_meeting_id_skips_the_measurin
     assert m_kw["deadline"] is None                            # no --max-hours
     assert isinstance(m_kw["stop"], QuietStop) and l_kw["stop_flag"] is m_kw["stop"]   # one Ctrl-C for both
     assert isinstance(l_kw["started"], float)
-    assert m_cfg.version == "0.6.0"
+    assert m_cfg.version == "0.7.0"
 
     events.clear()
     assert cli.main(["--measure-limit", "7", "--max-hours", "2"]) == 0
@@ -534,4 +555,92 @@ def test_an_unexpected_error_on_one_recording_saves_failed_with_its_class_name_a
     assert counts == {"passed": 1, "rejected": 0, "failed": 1}
     assert fdb.statuses() == [("abc", "failed"), ("def", "passed")]
     assert fdb.saved[0].reason == "RuntimeError: boom" and fdb.saved[0].measurement is None
+    assert _left_in(cfg.work_dir) == []
+
+
+SOUND_LINE = "measure meeting %s clip %s: sound duration=6019s silent=2719s spans=2"
+
+
+def test_a_meeting_with_two_recordings_saves_its_clips_sound_once_commits_it_and_logs_it(
+        monkeypatch, tmp_path, caplog):
+    from transcriber import measure, sound
+    cfg, conn = _cfg(tmp_path), FakeConn()
+    first, second = _cand(121, "96jZkW4zv7U", 3197, "2034"), _cand(122, "E0cpl0Snx20", 3197, "2034")
+    fdb = FakeDB([first, second])
+    commits_at_measure = []
+    seen = _wire(monkeypatch, fdb, on_measure=lambda video_id: commits_at_measure.append(conn.commits))
+    with caplog.at_level(logging.INFO):
+        counts = measure.measure_pass(conn, cfg, limit=20, sleep=seen.sleeps.append)
+
+    assert counts == {"passed": 2, "rejected": 0, "failed": 0}
+    assert len(fdb.sounds) == 1                               # once per meeting, not per recording
+    saved = fdb.sounds[0]
+    assert saved.cand is first and saved.sound is CLIP_SOUND
+    assert saved.version == sound.SOUND_METHOD_VERSION == 1
+    assert saved.rows_before == 0 and saved.commits == 0      # before either recording's row
+    assert commits_at_measure == [1, 2]                       # and committed before the first is measured
+    assert conn.commits == 3
+    # the sound is measured on the samples the features are made from, read once
+    assert seen.reads.count("align-3197.wav") == 1
+    assert seen.sounded == ["align-3197.wav"]
+    assert [g for g, _ in seen.measured] == [("features", "align-3197.wav")] * 2
+    line = SOUND_LINE % (3197, 2034)
+    assert caplog.messages.count(line) == 1
+    record = next(r for r in caplog.records if r.getMessage() == line)
+    assert record.levelno == logging.INFO and record.name == "transcriber.measure"
+    assert caplog.messages.index(line) < min(
+        i for i, m in enumerate(caplog.messages) if m.startswith("measure meeting 3197 clip 2034 video "))
+    assert _left_in(cfg.work_dir) == []
+
+
+def test_a_meeting_whose_granicus_fetch_fails_saves_no_sound(monkeypatch, tmp_path, caplog):
+    from transcriber import measure
+    cfg, conn = _cfg(tmp_path), FakeConn()
+    whole = _cand(133, "whole", 1302, "2802")
+    fdb = FakeDB([_cand(131, "part1", 1301, "2801"), _cand(132, "part2", 1301, "2801"), whole])
+    seen = _wire(monkeypatch, fdb, granicus_errors={"2801": AudioFetchError("HTTP error 404 Not Found")})
+    with caplog.at_level(logging.INFO):
+        counts = measure.measure_pass(conn, cfg, limit=20, sleep=seen.sleeps.append)
+
+    assert counts == {"passed": 1, "rejected": 0, "failed": 2}
+    assert [s.cand for s in fdb.sounds] == [whole]            # the clip that was fetched, and only it
+    assert seen.sounded == ["align-1302.wav"]
+    assert [m for m in caplog.messages if ": sound " in m] == [SOUND_LINE % (1302, 2802)]
+    assert _left_in(cfg.work_dir) == []
+
+
+def test_a_failed_youtube_download_still_has_the_clips_sound_saved_before_its_failed_row(
+        monkeypatch, tmp_path, caplog):
+    from transcriber import measure
+    cfg, conn = _cfg(tmp_path), FakeConn()
+    cand = _cand(141, "abc", 1401, "2901")
+    fdb = FakeDB([cand])
+    seen = _wire(monkeypatch, fdb, youtube_errors={"abc": AudioFetchError("HTTP Error 403: Forbidden")})
+    with caplog.at_level(logging.INFO):
+        counts = measure.measure_pass(conn, cfg, limit=20, sleep=seen.sleeps.append)
+
+    assert counts == {"passed": 0, "rejected": 0, "failed": 1}
+    assert fdb.statuses() == [("abc", "failed")]
+    assert len(fdb.sounds) == 1 and fdb.sounds[0].cand is cand
+    assert fdb.sounds[0].rows_before == 0                     # saved before the failed row
+    assert fdb.saved[0].commits == 1                          # and committed before it
+    line = SOUND_LINE % (1401, 2901)
+    assert caplog.messages.index(line) < caplog.messages.index(
+        "measure meeting 1401 clip 2901 video abc: failed (AudioFetchError: HTTP Error 403: Forbidden)")
+    assert _left_in(cfg.work_dir) == []
+
+    # a database error on the sound's save is not caught beside the clip's fetch errors: it ends
+    # the pass as a missing table or grant does, with no failed row, no download, and no line
+    # saying the sound was stored
+    denied = psycopg2.errors.InsufficientPrivilege("permission denied for table granicus_clip_sound\n")
+    conn, fdb = FakeConn(), FakeDB([cand, _cand(142, "def", 1402, "2902")], sound_error=denied)
+    seen = _wire(monkeypatch, fdb)
+    caplog.clear()
+    with caplog.at_level(logging.INFO):
+        counts = measure.measure_pass(conn, cfg, limit=20, sleep=seen.sleeps.append)
+    assert counts == {"passed": 0, "rejected": 0, "failed": 0}
+    assert fdb.saved == [] and seen.downloads == [] and conn.commits == 0
+    assert _granicus_fetches(seen) == [GRANICUS + "2901"]
+    assert "measure: skipped (permission denied for table granicus_clip_sound)" in caplog.messages
+    assert not any(": sound " in m for m in caplog.messages)
     assert _left_in(cfg.work_dir) == []

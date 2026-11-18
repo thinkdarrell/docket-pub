@@ -154,6 +154,28 @@ matches at two offsets prints two such lines, `passed stretch 1/2 ...` and
 `passed stretch 2/2 ...`, each with its own offset and span; the counts in the
 last line are recordings, so it adds one to `passed`.
 
+Before the lines of a meeting's recordings the log has one line about the
+Granicus clip itself:
+
+    measure meeting <id> clip <clip id>: sound duration=<seconds>s silent=<seconds>s spans=<count>
+
+Some Granicus clips have no sound for all or part of their length, and a
+YouTube recording cannot be matched against a silent stretch. From the audio it
+has already fetched the pass measures where the clip is silent, in 60-second
+blocks, and stores it in `granicus_clip_sound`, one row per meeting, replaced
+each time the clip is fetched again. `duration` is the clip's length, `silent`
+the seconds of it that are silent, and `spans` the number of separate silent
+runs: `sound duration=2516s silent=2516s spans=1` is a clip with no sound at
+all, `silent=0s spans=0` an ordinary one. The site prints "no sound" beside the
+meeting's Granicus link when the two figures are equal or `silent` is 600 or
+more; a recording of a clip with no sound cannot match it, and its own line
+reads `rejected`. A meeting whose Granicus audio could not be fetched has no `sound`
+line. A line `measure: skipped (permission denied for table
+granicus_clip_sound)` means the grant on that table has not been run, and
+`... relation "granicus_clip_sound" does not exist ...` that migration 048 has
+not been deployed; `docs/runbooks/transcripts.md`, "The transcriber role", has
+the statement. Either way nothing is measured and the run transcribes as usual.
+
 `passed` means links for that meeting can open YouTube inside each covered
 stretch, and open Granicus for a moment between two stretches. `rejected` means
 the audio was compared and no stretch of it matched well enough (the reason is
@@ -198,8 +220,8 @@ measures nothing until the image is rebuilt.
 
 A line `measure: skipped (permission denied for table meeting_video_alignments)`
 (or `... for table meeting_videos`) means the production GRANT has not been run:
-the two statements at the end of `scripts/sql/create_transcriber_role.sql`, run
-by the database owner, or, when the role could already write the table before
+the two `GRANT` statements of `scripts/sql/create_transcriber_role.sql` that
+name `meeting_videos` and `meeting_video_alignments`, run by the database owner, or, when the role could already write the table before
 migration 046, `GRANT DELETE ON meeting_video_alignments TO transcriber;` alone. `measure: skipped (relation "meeting_video_alignments"
 does not exist ...)` means migration 042 has not been deployed. Either way the
 run transcribes as usual. A run of `failed` lines that name yt-dlp is the same

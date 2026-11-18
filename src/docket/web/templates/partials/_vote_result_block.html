@@ -17,7 +17,10 @@
    v.video_link on a vote read off the video: YouTube at the converted
    second when a measured recording covers the item's moment, the Granicus
    chapter otherwise. This template builds no video URL; it prints the
-   link's url and names the site it opens (the link's label).
+   link's url and names the site it opens (the link's label), and says
+   "(no sound)" after it when the link opens the Granicus player where the
+   clip was measured silent (the link's no_sound; plan
+   `silent-granicus-says-so`, M5).
 #}
 {% macro vote_source_link(v) -%}
   {%- if v.video_link -%}
@@ -25,7 +28,7 @@
        href="{{ v.video_link.url }}"
        data-item-id="{{ item.id }}"
        target="_blank" rel="noreferrer">
-      Watch this vote{% if v.video_link.label %} on {{ v.video_link.label }}{% endif %} ↗
+      Watch this vote{% if v.video_link.label %} on {{ v.video_link.label }}{% endif %}{% if v.video_link.no_sound %} (no sound){% endif %} ↗
     </a>
   {%- elif v.minutes_url -%}
     <a class="link t-meta"

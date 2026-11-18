@@ -69,6 +69,18 @@ class _Seed:
             )
             return cur.fetchone()["id"]
 
+    def sound(self, meeting_id: int, *, clip: str = CLIP, method_version: int = 1,
+              duration_s: float = 6019.0, silent_s: float = 2719.0,
+              spans: str = "[[0, 60], [780, 2040], [5160, 6019]]",
+              measured_at: str = "2026-11-18 02:30:00+00") -> None:
+        """The meeting's sound row (migration 048); ``spans`` is the JSON text."""
+        with db_cursor() as cur:
+            cur.execute(
+                "INSERT INTO granicus_clip_sound (meeting_id, granicus_clip_id, method_version, duration_s, "
+                "silent_s, silent_spans, measured_at) VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s)",
+                (meeting_id, clip, method_version, duration_s, silent_s, spans, measured_at),
+            )
+
 
 @pytest.fixture
 def seed():
@@ -268,3 +280,59 @@ def test_a_recording_with_several_stretches_yields_one_recording_per_stretch_in_
     seed.measurement(replayed, clip="99042029", method_version=3, offset_s=400.0, start_s=1300.0,
                      end_s=1905.0, stretch=2)
     assert [r.offset_s for r in vl.for_meeting(replay).recordings] == [400.0, 350.0, 900.0]
+
+
+# A clip's sound (plan `silent-granicus-says-so`, M4).
+
+def test_a_clips_sound_is_loaded_with_its_spans_and_its_chicago_date(seed):
+    from docket.services import video_links as vl
+
+    meeting_id = seed.meeting()
+    unmeasured = seed.meeting("99042027")
+    # 02:30 UTC on the 18th is 8:30 in the evening of the 17th in Chicago.
+    seed.sound(meeting_id, measured_at="2026-11-18 02:30:00+00")
+
+    expected = vl.ClipSound(duration_s=6019.0, silent_s=2719.0,
+                            spans=((0.0, 60.0), (780.0, 2040.0), (5160.0, 6019.0)),
+                            measured_on=date(2026, 11, 17))
+    videos = vl.for_meetings([meeting_id, unmeasured])
+    assert videos[meeting_id].sound == expected
+    assert vl.clip_sound_for(meeting_id) == expected
+    spans = videos[meeting_id].sound.spans
+    assert isinstance(spans, tuple) and all(isinstance(span, tuple) for span in spans)
+    assert all(isinstance(number, float) for span in spans for number in span)
+    assert isinstance(expected.duration_s, float) and isinstance(videos[meeting_id].sound.silent_s, float)
+
+    # A meeting with no row has no sound, and its neighbour's is not lent to it.
+    assert videos[unmeasured].sound is None
+    assert vl.clip_sound_for(unmeasured) is None
+    assert vl.clip_sound_for(-1) is None
+
+
+def test_a_sound_row_against_another_clip_or_below_the_trusted_version_is_ignored(seed):
+    from docket.services import video_links as vl
+
+    # Measured against clip 99042000, before this meeting's event id became
+    # the clip id it has now.
+    other_clip = seed.meeting()
+    seed.sound(other_clip, clip="99042000")
+    # Switched off by the owner: version 0 is below the site's floor.
+    switched_off = seed.meeting("99042027")
+    seed.sound(switched_off, clip="99042027", method_version=0)
+
+    assert vl.MIN_SOUND_VERSION == 1
+    videos = vl.for_meetings([other_clip, switched_off])
+    assert videos[other_clip].sound is None
+    assert videos[switched_off].sound is None
+    assert vl.clip_sound_for(other_clip) is None
+    assert vl.clip_sound_for(switched_off) is None
+
+    # The same rows are used once the clip id matches and the version is at
+    # the floor or above it (a floor, not an equality).
+    with db_cursor() as cur:
+        cur.execute("UPDATE granicus_clip_sound SET granicus_clip_id = %s WHERE meeting_id = %s",
+                    (CLIP, other_clip))
+        cur.execute("UPDATE granicus_clip_sound SET method_version = 2 WHERE meeting_id = %s",
+                    (switched_off,))
+    assert vl.clip_sound_for(other_clip) is not None
+    assert vl.for_meeting(switched_off).sound is not None

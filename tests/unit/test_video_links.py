@@ -417,3 +417,168 @@ def test_a_youtube_link_is_built_from_the_video_id_and_never_by_appending():
     # So is a look-alike host whose address happens to carry v=.
     assert vl.youtube_id("https://notyoutube.com/watch?v=FR84h22hQvA") is None
     assert vl.youtube_id("https://www.youtube.com/watch?v=") is None
+
+
+# ---------------------------------------------------------------------------
+# A clip's sound and the meeting page's note (plan `silent-granicus-says-so`,
+# M4). ``ClipSound`` is imported inside each test, as above.
+# ---------------------------------------------------------------------------
+
+def test_a_clip_silent_throughout_notes_no_sound():
+    from datetime import date
+
+    from docket.services import video_links as vl
+
+    # Meeting 275's clip 1414, as measured: every block silent.
+    sound = vl.ClipSound(2516.0, 2516.0, ((0.0, 2516.0),), date(2026, 11, 17))
+    assert sound.note == "no sound"
+
+
+def test_a_partly_silent_clip_notes_its_silent_minutes_of_its_length():
+    from datetime import date
+
+    from docket.services import video_links as vl
+
+    # Meeting 3197's clip 2034: 2,719 / 60 is 45.3 and 6,019 / 60 is 100.3.
+    spans = ((0.0, 60.0), (120.0, 180.0), (240.0, 720.0), (780.0, 2040.0), (5160.0, 6019.0))
+    sound = vl.ClipSound(6019.0, 2719.0, spans, date(2026, 11, 17))
+    assert sound.note == "no sound for 45 of 100 minutes"
+    # A half rounds up, for the silence and for the length: 1,530 / 60 is 25.5
+    # and 5,430 / 60 is 90.5.
+    assert vl.ClipSound(5430.0, 1530.0, ((0.0, 1530.0),), date(2026, 11, 17)).note == (
+        "no sound for 26 of 91 minutes")
+
+
+def test_a_clip_with_an_audible_block_never_reads_as_silent_for_all_its_minutes():
+    from datetime import date
+
+    from docket.services import video_links as vl
+
+    # Sixty silent blocks and a 25-second audible tail: 3,600 / 60 is 60 and
+    # 3,625 / 60 rounds to 60, and the page must not say 60 of 60.
+    sound = vl.ClipSound(3625.0, 3600.0, ((0.0, 3600.0),), date(2026, 11, 17))
+    assert sound.note == "no sound for 59 of 60 minutes"
+
+
+def test_a_clip_silent_for_less_than_ten_minutes_has_no_note():
+    from datetime import date
+
+    from docket.services import video_links as vl
+
+    assert vl.NOTE_MIN_SILENT_S == 600.0
+    assert vl.ClipSound(6019.0, 599.0, ((0.0, 599.0),), date(2026, 11, 17)).note is None
+    # Ten minutes is noted: the floor is included.
+    assert vl.ClipSound(6019.0, 600.0, ((0.0, 600.0),), date(2026, 11, 17)).note == (
+        "no sound for 10 of 100 minutes")
+
+
+# ---------------------------------------------------------------------------
+# A link into a silent stretch says so (plan `silent-granicus-says-so`, M5).
+# ---------------------------------------------------------------------------
+
+def _clip_2034(vl, *, recordings=()):
+    """Meeting 3197's player page with a partly silent clip: 6,019 seconds,
+    silent from 0 to 60, 780 to 2,040, and 5,160 to its end."""
+    from datetime import date
+
+    sound = vl.ClipSound(6019.0, 2719.0, ((0.0, 60.0), (780.0, 2040.0), (5160.0, 6019.0)),
+                         date(2026, 11, 17))
+    return vl.MeetingVideo(video_url=PLAYER, recordings=tuple(recordings), sound=sound)
+
+
+def _clip_1414(vl, *, spans=((0.0, 2516.0),)):
+    """Meeting 275's player page with a clip silent throughout its 2,516 seconds."""
+    from datetime import date
+
+    return vl.MeetingVideo(video_url=PLAYER,
+                           sound=vl.ClipSound(2516.0, 2516.0, spans, date(2026, 11, 17)))
+
+
+def test_a_moment_inside_a_silent_span_is_labelled_no_sound():
+    from docket.services import video_links as vl
+
+    link = vl.link_for(_clip_2034(vl), seconds=900.0, chapter_id="77")
+    assert (link.url, link.site, link.timed) == (PLAYER + "&meta_id=77", "granicus", True)
+    assert link.no_sound is True
+    assert link.phrase == "video chapter on Granicus (no sound)"
+    # A span's first second is silent.
+    assert vl.link_for(_clip_2034(vl), seconds=780.0, chapter_id="77").no_sound is True
+    assert vl.link_for(_clip_2034(vl), seconds=0, chapter_id="77").no_sound is True
+
+
+def test_a_moment_at_the_end_of_a_silent_span_is_not_labelled():
+    from docket.services import video_links as vl
+
+    link = vl.link_for(_clip_2034(vl), seconds=2040.0, chapter_id="77")
+    assert link.no_sound is False
+    assert link.phrase == "video chapter on Granicus"
+    # Nor is a moment between two spans, or one just before a span.
+    assert vl.link_for(_clip_2034(vl), seconds=100.0, chapter_id="77").no_sound is False
+    assert vl.link_for(_clip_2034(vl), seconds=779.9, chapter_id="77").no_sound is False
+    # A meeting with no sound row labels nothing.
+    assert vl.link_for(vl.MeetingVideo(video_url=PLAYER), seconds=900.0,
+                       chapter_id="77").no_sound is False
+
+
+def test_a_covered_moment_opens_youtube_and_is_never_labelled():
+    from docket.services import video_links as vl
+
+    passed = vl.Recording(video_id=YT, offset_s=2000.0, start_s=2162.0, end_s=5132.0)
+    link = vl.link_for(_clip_2034(vl, recordings=(passed,)), seconds=3000.0, chapter_id="77")
+    assert (link.site, link.url) == ("youtube", "https://www.youtube.com/watch?v=FR84h22hQvA&t=1000s")
+    assert link.no_sound is False
+    # Also when the moment a stretch covers lies in a silent span.
+    whole = vl.Recording(video_id=YT, offset_s=0.0, start_s=0.0, end_s=6019.0)
+    link = vl.link_for(_clip_2034(vl, recordings=(whole,)), seconds=900.0, chapter_id="77")
+    assert (link.site, link.no_sound, link.phrase) == ("youtube", False, "video on YouTube")
+    # The phrase of a YouTube link never carries the words.
+    youtube = vl.VideoLink(url="https://example.com/", site="youtube", label="YouTube",
+                           seconds=5, timed=True, no_sound=True)
+    assert youtube.phrase == "video on YouTube"
+
+
+def test_the_plain_player_of_a_clip_silent_throughout_is_labelled():
+    from docket.services import video_links as vl
+
+    link = vl.link_for(_clip_1414(vl))
+    assert (link.url, link.timed, link.no_sound) == (PLAYER, False, True)
+    assert link.phrase == "video on Granicus (no sound)"
+    # A second that cannot be read is a missing one.
+    assert vl.link_for(_clip_1414(vl), seconds="soon").no_sound is True
+
+
+def test_the_plain_player_of_a_partly_silent_clip_is_not_labelled():
+    from docket.services import video_links as vl
+
+    link = vl.link_for(_clip_2034(vl))
+    assert (link.url, link.no_sound) == (PLAYER, False)
+    assert link.phrase == "video on Granicus"
+    # A chapter with no second is not a moment either.
+    assert vl.link_for(_clip_2034(vl), chapter_id="77").no_sound is False
+
+
+def test_every_moment_of_a_clip_silent_throughout_is_labelled():
+    from docket.services import video_links as vl
+
+    link = vl.link_for(_clip_1414(vl), seconds=2516.0, chapter_id="77")
+    assert link.no_sound is True
+    assert link.phrase == "video chapter on Granicus (no sound)"
+    # Whatever the moment is and whatever the spans say: the clip's two
+    # figures decide.
+    assert vl.link_for(_clip_1414(vl, spans=()), seconds=100.0, chapter_id="77").no_sound is True
+    assert vl.link_for(_clip_1414(vl, spans=()), seconds=-5.0).no_sound is True
+
+
+def test_a_moment_past_the_end_of_a_clip_that_ends_in_silence_is_labelled():
+    from docket.services import video_links as vl
+
+    assert vl.link_for(_clip_2034(vl), seconds=6025.0, chapter_id="77").no_sound is True
+    assert vl.link_for(_clip_2034(vl), seconds=6019.0, chapter_id="77").no_sound is True
+    # A span that ends before the clip does keeps its end: a clip whose last
+    # span stops at 5,400 does not label a moment past the clip's end.
+    from datetime import date
+
+    audible_end = vl.MeetingVideo(video_url=PLAYER, sound=vl.ClipSound(
+        6019.0, 1500.0, ((780.0, 2040.0), (5160.0, 5400.0)), date(2026, 11, 17)))
+    assert vl.link_for(audible_end, seconds=6025.0, chapter_id="77").no_sound is False
+    assert vl.link_for(audible_end, seconds=5400.0, chapter_id="77").no_sound is False

@@ -150,6 +150,17 @@ constrains:
    agenda", a cancelled meeting written "the council met", a tabled vote
    written "failed", a withdrawn item written "the largest", and the
    fixes cost four milestones after the six the plan was cut into.
+   When the work adds to a value several pages print something every
+   printing must say (a flag on a link, a qualifier on a status), the
+   research greps the callers of the function that builds the value, not
+   the templates that print one of its fields, and Context lists each
+   caller's template as an edit or a leave-alone, with the field it
+   prints. One plan put `no_sound` on `VideoLink`, edited the vote macro,
+   and listed the three templates that print `phrase` as needing no edit;
+   a fifth caller of `link_for`, the how-it-works journey, prints `label`,
+   so its pill opened a silent stretch unlabelled while the plan's Purpose
+   and the spec it wrote said every such link says so (all three closing
+   reviewers found it; debt row `D173`).
 3. Write each candidate milestone's acceptance before its narrative.
    Acceptance is a small number of checks a different person can run or read
    and agree on: a command together with the output it prints, or a named

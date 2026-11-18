@@ -210,6 +210,29 @@ def test_source_link_names_youtube_when_the_link_opens_youtube(render_partial):
     assert "Read minutes" not in html
 
 
+def test_source_link_says_no_sound_when_the_granicus_link_opens_in_silence(render_partial):
+    # Plan `silent-granicus-says-so`, M5.
+    from docket.services.video_links import VideoLink
+
+    player = "https://bhamal.granicus.com/MediaPlayer.php?view_id=2&clip_id=2034"
+    silent = VideoLink(url=player + "&meta_id=371164", site="granicus", label="Granicus",
+                       seconds=None, timed=True, no_sound=True)
+    audible = VideoLink(url=player + "&meta_id=371170", site="granicus", label="Granicus",
+                        seconds=None, timed=True)
+    html = _render(
+        render_partial,
+        vote_data=_FakeData(
+            prevailing=_FakeVote(video_timestamp=900.0, video_url=player, video_link=silent),
+            # A row of the history whose link opens where there is sound says nothing.
+            history=[_FakeVote(vote_id=2, video_timestamp=3000.0, video_url=player,
+                               video_link=audible)],
+        ),
+    )
+    assert "Watch this vote on Granicus (no sound) ↗" in html
+    assert html.count("(no sound)") == 1
+    assert html.count("Watch this vote on Granicus ↗") == 1
+
+
 def test_source_link_without_a_video_link_falls_through_to_minutes(render_partial):
     # A timestamp and a video_url are no longer enough: the template prints
     # the video link only when the service built one.
