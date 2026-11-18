@@ -9,6 +9,7 @@ Granicus clip / YouTube recording
   transcriber: claim → audio → Whisper + diarization → clean → upload
         │  writes transcripts, transcript_segments, transcript_speakers
         │  measures YouTube against Granicus → meeting_video_alignments
+        │  measures where the Granicus clip is silent → granicus_clip_sound
         ▼
   Railway worker, one stage per transcript per day:
     speakers → events (transcript side + minutes side) → compare
@@ -21,7 +22,7 @@ Granicus clip / YouTube recording
 
 ## 1. The transcriber (desktop)
 
-The transcriber is a Docker container on the operator's Windows machine, with an NVIDIA GPU, run by hand from the Windows clone of this repository (`transcriber/README.md`, `docs/runbooks/transcripts.md`). It reaches the production database only through `TRANSCRIBER_DATABASE_URL`, a role that can read `meetings`, `municipalities`, `council_members`, `agenda_items`, and `meeting_videos`, write the three transcript tables and its heartbeat, and select, insert, update, and delete `meeting_video_alignments` (`scripts/sql/create_transcriber_role.sql`; decisions `0030`, `0076`, `0105`).
+The transcriber is a Docker container on the operator's Windows machine, with an NVIDIA GPU, run by hand from the Windows clone of this repository (`transcriber/README.md`, `docs/runbooks/transcripts.md`). It reaches the production database only through `TRANSCRIBER_DATABASE_URL`, a role that can read `meetings`, `municipalities`, `council_members`, `agenda_items`, and `meeting_videos`, write the three transcript tables and its heartbeat, select, insert, update, and delete `meeting_video_alignments`, and select, insert, and update `granicus_clip_sound` (`scripts/sql/create_transcriber_role.sql`; decisions `0030`, `0076`, `0105`, `0112`).
 
 A run does three things in order:
 
@@ -67,7 +68,9 @@ A Granicus clip's agenda items carry cue points: `agenda_items.video_timestamp_s
 
 The transcriber's **measuring pass** (`transcriber/transcriber/measure.py`, `align.py`) takes both recordings' audio, reduces each to a band-energy envelope, and cross-correlates them whole and in five-minute windows. A recording that plays straight through matches its clip at one offset; one that dropped and resumed, or was stitched from two pieces, matches at two or more. The pass therefore looks for **stretches**, runs of windows that agree on one offset: a window that matches strongly at another offset ends a stretch instead of rejecting the recording, and a stretch passes when its score is clear of the runner-up by a margin, enough of its windows agree, and its ends confirm (`0104`). The result is one `meeting_video_alignments` row per confirmed stretch, each `passed` with its own `offset_s` and the Granicus span it covers; a recording with no confirmed stretch holds one `rejected` row, and one whose audio could not be fetched one `failed` row, each stamped with the `method_version`. A `rejected` row at the current method is final, a `passed` row stays trusted when the method changes unless the trusted floor rises with it, and a `failed` one is retried after a week.
 
-At **render time**, `src/docket/services/video_links.py` builds every timed link (`0078`): for a moment at second `s` on the Granicus clock, the link opens **YouTube** at `s − offset_s` when any `passed` stretch at a trusted method version, against the meeting's current clip, covers `s` (half-open: `start ≤ s < end`) and the converted second, taken with that stretch's offset, is not negative; the primary recording's stretches are tried first, then the others by where each starts. Otherwise, a second that falls between two stretches included, it opens the **Granicus** chapter (the player with `meta_id` set to the chapter id) or, with no chapter, the plain player. Each link's wording names the site it opens. Nothing converted is stored. `yt-` meetings, which have no Granicus clock, link straight into their own video.
+From the Granicus audio it has already read, the pass also measures where the clip itself has no sound, in sixty-second blocks, and stores it in `granicus_clip_sound`, one row per meeting (`0112`, `0113`); `docs/specs/video-links.md`, "A clip with no sound", owns the rule and what the site does with the row.
+
+At **render time**, `src/docket/services/video_links.py` builds every timed link (`0078`): for a moment at second `s` on the Granicus clock, the link opens **YouTube** at `s − offset_s` when any `passed` stretch at a trusted method version, against the meeting's current clip, covers `s` (half-open: `start ≤ s < end`) and the converted second, taken with that stretch's offset, is not negative; the primary recording's stretches are tried first, then the others by where each starts. Otherwise, a second that falls between two stretches included, it opens the **Granicus** chapter (the player with `meta_id` set to the chapter id) or, with no chapter, the plain player. Each link's wording names the site it opens, and a Granicus link that opens where the clip was measured silent says "(no sound)" after the site's name; it is not sent to YouTube instead (`0114`). Nothing converted is stored. `yt-` meetings, which have no Granicus clock, link straight into their own video.
 
 Which moment a link opens (`docs/specs/video-links.md`):
 
