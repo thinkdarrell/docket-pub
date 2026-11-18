@@ -220,8 +220,8 @@ measures nothing until the image is rebuilt.
 
 A line `measure: skipped (permission denied for table meeting_video_alignments)`
 (or `... for table meeting_videos`) means the production GRANT has not been run:
-the two statements at the end of `scripts/sql/create_transcriber_role.sql`, run
-by the database owner, or, when the role could already write the table before
+the two `GRANT` statements of `scripts/sql/create_transcriber_role.sql` that
+name `meeting_videos` and `meeting_video_alignments`, run by the database owner, or, when the role could already write the table before
 migration 046, `GRANT DELETE ON meeting_video_alignments TO transcriber;` alone. `measure: skipped (relation "meeting_video_alignments"
 does not exist ...)` means migration 042 has not been deployed. Either way the
 run transcribes as usual. A run of `failed` lines that name yt-dlp is the same
