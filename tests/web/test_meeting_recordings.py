@@ -227,3 +227,60 @@ def test_archived_row_with_a_manifest_title_names_no_title_source(client):
         with db() as conn, conn.cursor() as cur:
             _cleanup(cur)
             conn.commit()
+
+
+# A clip's sound on the meeting page (plan `silent-granicus-says-so`, M4).
+
+def _sound(ext: str, duration_s: float, silent_s: float, spans: str) -> None:
+    """A sound row for the fixture meeting whose external id is PREFIX + ext."""
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            """INSERT INTO granicus_clip_sound (meeting_id, granicus_clip_id, method_version, duration_s,
+                                                silent_s, silent_spans, measured_at)
+               SELECT id, external_id, 1, %s, %s, %s::jsonb, '2026-11-18 02:30:00+00'
+                 FROM meetings WHERE external_id = %s""",
+            (duration_s, silent_s, spans, PREFIX + ext),
+        )
+        assert cur.rowcount == 1
+        conn.commit()
+
+
+def test_a_silent_clip_with_a_youtube_recording_puts_youtube_first_and_says_no_sound(client, rows):
+    _sound("2018", 2516.0, 2516.0, "[[0, 2516]]")
+    rail = _sources(_get(client, f"/al/birmingham/meetings/{rows['attached']}/"))
+    assert '<div class="t-meta">Granicus player · no sound</div>' in rail
+    assert rail.index(">Watch on YouTube</div>") < rail.index(">Watch video</div>")
+    assert rail.count(">Watch on YouTube</div>") == 1 and rail.count(">Watch video</div>") == 1
+    # The date is Chicago's: the row was measured at 02:30 UTC on the 18th.
+    granicus = rail[rail.index(f'href="{GRANICUS_PLAYER.replace("&", "&amp;")}"'):]
+    granicus = granicus[:granicus.index("</a>")]
+    assert 'title="Measured by docket.pub on 2026-11-17"' in granicus
+    assert ">Watch video</div>" in granicus
+    youtube = rail[rail.index(f'href="{_watch(PREFIX + "gjv")}"'):]
+    assert "Measured by" not in youtube[:youtube.index("</a>")]
+
+
+def test_a_partly_silent_clip_says_how_many_minutes_have_no_sound(client, rows):
+    _sound("2018", 6019.0, 2719.0, "[[0, 60], [120, 180], [240, 720], [780, 2040], [5160, 6019]]")
+    rail = _sources(_get(client, f"/al/birmingham/meetings/{rows['attached']}/"))
+    assert '<div class="t-meta">Granicus player · no sound for 45 of 100 minutes</div>' in rail
+    assert rail.index(">Watch on YouTube</div>") < rail.index(">Watch video</div>")
+
+
+def test_a_clip_silent_for_five_minutes_leaves_the_links_as_they_were(client, rows):
+    unmeasured = _sources(_get(client, f"/al/birmingham/meetings/{rows['attached']}/"))
+    _sound("2018", 6019.0, 300.0, "[[0, 300]]")
+    rail = _sources(_get(client, f"/al/birmingham/meetings/{rows['attached']}/"))
+    assert "no sound" not in rail
+    assert "Measured by" not in rail
+    assert rail.index(">Watch video</div>") < rail.index(">Watch on YouTube</div>")
+    assert rail == unmeasured, "a row with no note changes nothing in the section"
+
+
+def test_a_silent_clip_without_a_youtube_recording_says_no_sound_and_prints_no_youtube_link(client, rows):
+    _sound("2020", 2516.0, 2516.0, "[[0, 2516]]")
+    rail = _sources(_get(client, f"/al/birmingham/meetings/{rows['plain']}/"))
+    assert '<div class="t-meta">Granicus player · no sound</div>' in rail
+    assert 'title="Measured by docket.pub on 2026-11-17"' in rail
+    assert "Watch on YouTube" not in rail
+    assert rail.count(">Watch video</div>") == 1

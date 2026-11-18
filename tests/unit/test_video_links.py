@@ -417,3 +417,56 @@ def test_a_youtube_link_is_built_from_the_video_id_and_never_by_appending():
     # So is a look-alike host whose address happens to carry v=.
     assert vl.youtube_id("https://notyoutube.com/watch?v=FR84h22hQvA") is None
     assert vl.youtube_id("https://www.youtube.com/watch?v=") is None
+
+
+# ---------------------------------------------------------------------------
+# A clip's sound and the meeting page's note (plan `silent-granicus-says-so`,
+# M4). ``ClipSound`` is imported inside each test, as above.
+# ---------------------------------------------------------------------------
+
+def test_a_clip_silent_throughout_notes_no_sound():
+    from datetime import date
+
+    from docket.services import video_links as vl
+
+    # Meeting 275's clip 1414, as measured: every block silent.
+    sound = vl.ClipSound(2516.0, 2516.0, ((0.0, 2516.0),), date(2026, 11, 17))
+    assert sound.note == "no sound"
+
+
+def test_a_partly_silent_clip_notes_its_silent_minutes_of_its_length():
+    from datetime import date
+
+    from docket.services import video_links as vl
+
+    # Meeting 3197's clip 2034: 2,719 / 60 is 45.3 and 6,019 / 60 is 100.3.
+    spans = ((0.0, 60.0), (120.0, 180.0), (240.0, 720.0), (780.0, 2040.0), (5160.0, 6019.0))
+    sound = vl.ClipSound(6019.0, 2719.0, spans, date(2026, 11, 17))
+    assert sound.note == "no sound for 45 of 100 minutes"
+    # A half rounds up, for the silence and for the length: 1,530 / 60 is 25.5
+    # and 5,430 / 60 is 90.5.
+    assert vl.ClipSound(5430.0, 1530.0, ((0.0, 1530.0),), date(2026, 11, 17)).note == (
+        "no sound for 26 of 91 minutes")
+
+
+def test_a_clip_with_an_audible_block_never_reads_as_silent_for_all_its_minutes():
+    from datetime import date
+
+    from docket.services import video_links as vl
+
+    # Sixty silent blocks and a 25-second audible tail: 3,600 / 60 is 60 and
+    # 3,625 / 60 rounds to 60, and the page must not say 60 of 60.
+    sound = vl.ClipSound(3625.0, 3600.0, ((0.0, 3600.0),), date(2026, 11, 17))
+    assert sound.note == "no sound for 59 of 60 minutes"
+
+
+def test_a_clip_silent_for_less_than_ten_minutes_has_no_note():
+    from datetime import date
+
+    from docket.services import video_links as vl
+
+    assert vl.NOTE_MIN_SILENT_S == 600.0
+    assert vl.ClipSound(6019.0, 599.0, ((0.0, 599.0),), date(2026, 11, 17)).note is None
+    # Ten minutes is noted: the floor is included.
+    assert vl.ClipSound(6019.0, 600.0, ((0.0, 600.0),), date(2026, 11, 17)).note == (
+        "no sound for 10 of 100 minutes")
