@@ -80,3 +80,10 @@ def test_can_save_and_replace_measurements(transcriber_role):
     # DELETE since migration 046: a re-measure replaces a recording's stretch rows.
     for p in ("SELECT", "INSERT", "UPDATE", "DELETE"):
         assert _priv("meeting_video_alignments", p), p
+
+
+def test_can_save_clip_sound_and_not_delete_it(transcriber_role):
+    # Migration 048: a meeting's sound row is replaced in place and goes with its meeting.
+    for p in ("SELECT", "INSERT", "UPDATE"):
+        assert _priv("granicus_clip_sound", p), p
+    assert not _priv("granicus_clip_sound", "DELETE")

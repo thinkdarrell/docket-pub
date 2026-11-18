@@ -806,3 +806,64 @@ def test_save_alignment_replaces_a_recordings_stretch_rows(conn, align_rows):
         tdb.save_alignment(conn, cand, method_version=METHOD, status="passed", measurement=no_stretches)
     # Read in the same transaction, before any rollback: the refusal came before the delete.
     assert len(_alignment_row(conn, vid)) == 1, "the refused save wrote nothing"
+
+
+# --- where a Granicus clip is silent (plan silent-granicus-says-so M2) ---
+
+def _sound_rows(conn, meeting_id: int) -> list[dict]:
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            """SELECT meeting_id, granicus_clip_id, method_version, duration_s, silent_s, silent_spans,
+                      measured_at > now() - interval '1 minute' AS fresh
+                 FROM granicus_clip_sound WHERE meeting_id = %s""",
+            [meeting_id])
+        return [dict(r) for r in cur.fetchall()]
+
+
+def test_save_clip_sound_stores_the_clip_its_version_and_its_spans(conn, align_rows):
+    from transcriber.sound import ClipSound
+
+    meeting = align_rows.meeting("999923", 6)
+    vid = align_rows.video(meeting, "sound", primary=True)
+    cand = next(c for c in tdb.alignment_candidates(conn, method_version=METHOD, trusted_version=METHOD, limit=1000)
+                if c.meeting_video_id == vid)
+    conn.rollback()
+    sound = ClipSound(duration_s=6019.0, silent_s=2719.0,
+                      spans=((0.0, 60.0), (120.0, 180.0), (240.0, 720.0), (780.0, 2040.0), (5160.0, 6019.0)))
+
+    # The save does not commit: the caller's rollback takes it back.
+    tdb.save_clip_sound(conn, cand, sound, method_version=1)
+    conn.rollback()
+    assert _sound_rows(conn, meeting) == []
+
+    tdb.save_clip_sound(conn, cand, sound, method_version=1)
+    conn.commit()
+    assert _sound_rows(conn, meeting) == [dict(
+        meeting_id=meeting, granicus_clip_id="999923", method_version=1, duration_s=6019.0, silent_s=2719.0,
+        silent_spans=[[0.0, 60.0], [120.0, 180.0], [240.0, 720.0], [780.0, 2040.0], [5160.0, 6019.0]],
+        fresh=True)]
+
+
+def test_save_clip_sound_twice_leaves_one_row_holding_the_second_calls_values(conn, align_rows):
+    from dataclasses import replace
+    from transcriber.sound import ClipSound
+
+    meeting = align_rows.meeting("999924", 6)
+    vid = align_rows.video(meeting, "soundTwice", primary=True)
+    cand = next(c for c in tdb.alignment_candidates(conn, method_version=METHOD, trusted_version=METHOD, limit=1000)
+                if c.meeting_video_id == vid)
+    tdb.save_clip_sound(conn, cand, ClipSound(duration_s=2516.0, silent_s=2516.0, spans=((0.0, 2516.0),)),
+                        method_version=1)
+    with conn.cursor() as cur:
+        cur.execute("UPDATE granicus_clip_sound SET measured_at = now() - interval '30 days' "
+                    "WHERE meeting_id = %s", [meeting])
+    conn.commit()
+    assert _sound_rows(conn, meeting)[0]["fresh"] is False
+
+    # The second call differs in every column the writer sets, the clip id and the empty spans included.
+    tdb.save_clip_sound(conn, replace(cand, external_id="999925"),
+                        ClipSound(duration_s=3761.0, silent_s=0.0, spans=()), method_version=2)
+    conn.commit()
+    assert _sound_rows(conn, meeting) == [dict(
+        meeting_id=meeting, granicus_clip_id="999925", method_version=2, duration_s=3761.0, silent_s=0.0,
+        silent_spans=[], fresh=True)]
