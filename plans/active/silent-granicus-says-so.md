@@ -1,0 +1,297 @@
+# A Granicus recording with no sound says so: the measuring pass records where a clip is silent, the meeting page leads with the council's YouTube recording, and a link into a silent stretch is labelled
+
+This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
+
+This document must be maintained in accordance with `plans/PLANS.md`.
+
+## Purpose / Big Picture
+
+Birmingham's council meetings are recorded twice: by the city's Granicus archive (a "clip", played on the Granicus player page) and on the council's YouTube channel. For some meetings the Granicus clip has no sound, for all of its length or for part of it. docket.pub does not know this. Its meeting page offers "Watch video" (the Granicus player) first and "Watch on YouTube" second, and a link that opens the video at a moment falls back to the Granicus player whenever the YouTube recording could not be matched to the clip, which is exactly what happens when the clip is silent, because the match is made from the sound. A reader is sent to a recording they cannot hear while an audible one is attached to the same meeting.
+
+After this plan docket.pub measures and stores, for each Granicus clip it compares with a YouTube recording, the stretches of the clip that are silent. On the meeting page of a clip that is silent throughout, or for ten minutes or more, the YouTube link is printed first and the Granicus link says what was measured: "Granicus player · no sound", or "Granicus player · no sound for 45 of 100 minutes". A link that opens the Granicus player at a moment inside a silent stretch says "(no sound)" after its name, so the reader knows before clicking.
+
+To see it working once the operator has taken the steps under Validation and Acceptance: open `https://docket.pub/al/birmingham/meetings/275/` (the council meeting of 2021-02-02, Granicus clip 1414, measured silent from end to end). The source links show "Watch on YouTube" first and then "Watch video" with "Granicus player · no sound" beneath it. Open `https://docket.pub/al/birmingham/meetings/3197/` (2026-11-10, clip 2034): the Granicus link reads "Granicus player · no sound for 45 of 100 minutes".
+
+This plan does not make any link open YouTube at a moment that it opens Granicus at today, and it does not change what the transcriber transcribes. Both are deliberate and are explained in the Decision Log; the second is left to a successor plan named there.
+
+## Progress
+
+As authored on 2026-11-17, nothing has been executed.
+
+- [ ] M1: `transcriber/transcriber/sound.py` measures where 8 kHz audio is silent, in 60-second blocks against a floor of -60 dBFS, and `transcriber/tests/test_sound.py` passes with its seven tests
+- [ ] M2: migration 048 creates `granicus_clip_sound`, the `transcriber` role may select, insert, and update it, and `transcriber/transcriber/db.py` saves one row per meeting and replaces it on a second save, with the migration, role, and producer database tests passing
+- [ ] M3: the measuring pass saves and logs each Granicus clip's sound once per meeting before it measures the meeting's recordings, the producer version is 0.7.0, and `transcriber/tests/test_measure.py` passes with its three new tests
+- [ ] M4: `src/docket/services/video_links.py` loads a clip's sound, and the meeting page prints the YouTube link first and "Granicus player · no sound" or "no sound for N of M minutes" when the clip is silent throughout or for ten minutes or more, with the loader, unit, and web tests passing
+- [ ] M5: a link that opens the Granicus player inside a silent stretch, or the plain player of a clip that is silent throughout, carries "(no sound)" in its phrase and on the vote link, with the unit and web tests passing
+- [ ] M6: the specs, runbook, README, architecture note, decision records, and `docs/DEBT.md` describe the sound measurement, and debt rows record the operator's post-merge steps, the clips never measured for sound, and the transcripts still made from silent audio
+
+## Surprises & Discoveries
+
+As authored on 2026-11-17, no milestone has run. The authoring research found the following, each observed on 2026-11-17 on the Legion (the Linux machine under WSL whose checkout is `/home/thinkdarrell/docket-pub`), with `main` at commit `d98b798` (the tip of `origin/main`, pull request #183).
+
+- Observation: the starting state is green, and `./tools/verify` took 270 seconds against a budget of 180.
+  Evidence: `verify: unit+web+services ... ok (151s)` with `3464 passed, 5 skipped, 4 xfailed, 1 warning`; `verify: integration ... ok (108s)` with `1042 passed, 1 warning`; `judge fixtures: 12 of 12 passed`; `verify: transcriber ... ok (10s)` with `134 passed`; `verify: plans ... ok (0s)`; `verify: all 6 checks passed in 270s.`
+
+- Observation: per-file baselines, each run with `DATABASE_URL=$(tools/test-db)` and `-q -p no:cacheprovider`.
+  Evidence: `tests/unit/test_video_links.py` 25 passed; `tests/integration/test_video_link_loader.py` 6; `tests/integration/test_transcriber_role.py` 5; `tests/web/test_meeting_recordings.py` 11; `tests/web/test_vote_result_block.py` 21; `tests/integration/test_046_migration.py` 4; `transcriber/tests/test_measure.py` 12; `transcriber/tests/test_db.py` 29; `transcriber/tests/test_align.py` 17. A file under `transcriber/tests/` is run in its own pytest command, never together with a file under `tests/` (a completed plan recorded that the combined command fails to collect).
+
+- Observation: the silence rule of M1, written as a prototype and run on the whole audio of three real clips, separates silent from audible with nothing in between.
+  Evidence: each clip was fetched with `ffmpeg -user_agent <the browser string in transcriber/transcriber/audio.py> -i "https://bhamal.granicus.com/DownloadFile.php?view_id=2&clip_id=<id>" -vn -ac 1 -ar 8000 -c:a pcm_s16le` and cut into 60-second blocks, a shorter last block counted when it held 10 seconds or more; a block's level is 20 times the base-10 logarithm of its root-mean-square sample value over 32768. Clip 1424 (2021-01, a meeting whose YouTube recording passed): 3,761 seconds, 63 blocks, none silent, levels from -30.2 to -17.8 dBFS. Clip 1414 (2021-02-02, meeting 275): 2,516 seconds, 42 blocks, all silent, levels from -73.8 to -70.2. Clip 2034 (2026-11-10, meeting 3197): 6,019 seconds, 101 blocks, 46 silent with levels from -70.9 to -69.7 and 55 audible with levels from -40.6 to -24.3; the silent spans were 0 to 60, 120 to 180, 240 to 720, 780 to 2,040, and 5,160 to 6,019 seconds, 2,719 seconds in all. No block of any of the three lay between -66 and -50 dBFS. The audio was deleted after measuring.
+
+- Observation: the audible part of clip 2034 is the part its YouTube recording was matched on.
+  Evidence: meeting 3197 has two recordings; `25o-l7-PP24` is `passed` with coverage 2,162 to 5,132 seconds on the Granicus clock, inside the audible run 2,040 to 5,160, and `P0vkxIkJXb4` is `rejected` with reason `score` at 5.6.
+
+- Observation: the Granicus player plays the same file the transcriber downloads, so a clip silent in the download is silent in the player.
+  Evidence: `DownloadFile.php?view_id=2&clip_id=1414` answers 302 to `https://archive-video.granicus.com/bhamal/bhamal_1b9101a9-522a-4fec-9531-e277c1b14aa3.mp4`, and the player page for clip 1414 names the stream `https://archive-stream.granicus.com/OnDemand/_definst_/mp4:archive/bhamal/bhamal_1b9101a9-522a-4fec-9531-e277c1b14aa3.mp4/playlist.m3u8`, the same file. Nobody listened to the player during authoring; the operator's look under Validation and Acceptance includes it.
+
+- Observation: on the meetings whose Granicus clip is silent throughout, almost no link that opens the video at a moment is rendered today, so the meeting page's two untimed links are where a reader meets the silent recording.
+  Evidence: production, read-only. Of the meetings holding a recording rejected with reason `score` below 7.5, 29 have no passed stretch at all: they hold 1,498 agenda items, every one with a cue point and a chapter id, 0 votes read off the video, and no transcript (transcripts exist only for meetings from 2025-10-28 on, 67 rows in all). The links that open at a moment are the vote link (needs a vote read off the video), the item link on the transcript page and the minutes-versus-video row (both need a transcript), and the source button (which no page includes), so none is rendered for those 29. Three more such meetings have a passed stretch as well (meeting 3197 among them); they hold 235 items, 234 cued, and 5 votes read off the video.
+
+- Observation: the stored measurements on 2026-11-17, by status, reason, and method version.
+  Evidence: `SELECT status, reason, method_version, count(*), count(DISTINCT meeting_video_id) FROM meeting_video_alignments GROUP BY 1,2,3` printed `passed` with no reason at version 2: 108 rows, 108 recordings; `passed` with no reason at version 3: 299 rows, 204 recordings; `rejected`, `score`, version 3: 38 and 38; `rejected`, `no_window`, version 3: 4 and 4; `failed` at version 3: 6 rows with six different error texts; and one row that is `passed` at version 2 with the reason `operator`, a state no documented statement produces (the restore clears the reason). This plan neither reads nor changes that row.
+
+- Observation: a fully silent clip the transcriber has met is already kept off the site, and a partly silent one is not detected.
+  Evidence: meeting 14 (2026-02-24, clip 1951) has a transcript row with status `low_speech`, 602 seconds of audio and "0s of speech detected"; meeting 2541 (2026-09-28, clip 2013) the same with 1,521 seconds and no YouTube recording attached. Meeting 3197 has no transcript row yet.
+
+## Decision Log
+
+- Decision: silence is stored per clip in a table of its own, `granicus_clip_sound`, keyed on the meeting, and not as a new `reason` on a `meeting_video_alignments` row.
+  Rationale: silence is a property of the Granicus clip, not of one YouTube recording; a partly silent clip needs spans, which an alignment row of a rejected recording does not carry; and decision `0106` makes the transcriber's candidate query the only reader of `reason`, which a site that read it would break.
+  Date/Author: 2026-11-17, the authoring session.
+
+- Decision: a block is 60 seconds and is silent below -60 dBFS.
+  Rationale: on the three clips measured whole (Surprises), silent blocks lay between -73.8 and -69.7 dBFS and audible ones between -40.6 and -17.8, with no block between -66 and -50, so -60 has about ten decibels of room on the silent side and twenty on the audible side. Sixty seconds is the size of the pieces the matcher already checks a stretch's ends in (`EDGE_S` in `transcriber/transcriber/align.py`) and keeps a three-hour clip to about 180 blocks. A block that is quiet but not silent (a recess with an open microphone) stays audible, which is the safe side for a public note that says "no sound".
+  Date/Author: 2026-11-17, the authoring session.
+
+- Decision: the clips already rejected are measured for sound because the operator deletes their rejected rows, not because the matcher's method version rises or the candidate query changes.
+  Rationale: `ALIGN_METHOD_VERSION` means the matcher's arithmetic changed, and it has not. The candidate query's predicate is read by three hand statements in `docs/runbooks/transcripts.md` (the off switch, its restore, and the delete of one recording's rows), and leaving it untouched means none of them needs re-proving. Deleting a recording's rows is the documented way to have it measured again, and one statement with a `WHERE` covers the 42 recordings (decision `0026`).
+  Date/Author: 2026-11-17, the authoring session.
+
+- Decision: no link that opens the video at a moment is redirected to an untimed YouTube link when the moment is silent on Granicus; the Granicus link is kept and labelled "(no sound)".
+  Rationale: a moment is stored on the Granicus clock, and the YouTube second for it is known only from an offset measured from the sound, which a silent stretch does not give. Sending a reader who clicked "Watch this vote" to the start of a three-hour recording, or to the wrong one of two parts, replaces a true link that says its limit with one that promises a moment and does not deliver it. The meeting page's untimed YouTube link is one click away and is now printed first.
+  Date/Author: 2026-11-17, the authoring session.
+
+- Decision: the meeting page notes silence only when the clip is silent throughout or for 600 seconds or more.
+  Rationale: a stream that starts a few minutes before the meeting does is ordinary and not worth a note; ten minutes is the shortest gap the measured cases suggest a reader would miss (clip 2034 has 45 minutes). The figure is one constant, `NOTE_MIN_SILENT_S`.
+  Date/Author: 2026-11-17, the authoring session.
+
+- Decision: transcribing the YouTube recording when the Granicus clip is silent is not in this plan. Its successor is a plan to be authored under the slug `transcribe-youtube-when-granicus-is-silent`.
+  Rationale: a transcript made from YouTube audio has its times on YouTube's clock, while every stored time of a Granicus meeting is on the Granicus clock (`docs/specs/video-links.md`, "The two clocks"); every reader of a transcript time (the item assignment by cue point, the minutes-versus-video link, the search cards) would have to learn which clock a transcript is on. That is a change of its own size. Today it would give a transcript to one meeting (meeting 14) and mend one (3197); M6 records it as debt with that count.
+  Date/Author: 2026-11-17, the authoring session.
+
+- Decision: the migration number, decision numbers, and debt ids are taken when the work is done, not here.
+  Rationale: this plan names migration 048 because `origin/main` holds 047 as its highest on 2026-11-17 and no pull request is open. If `origin/main` holds a 048 when M2 starts, M2 takes the lowest free number, uses it in the file and test names, and records the change here. M6 numbers each decision record and each debt row with the lowest number above every one spent on `origin/main` and on any open pull request at that moment (`docs/DEBT.md` row `D70` states the rule); on 2026-11-17 the highest are decision `0111` and debt row `D169`.
+  Date/Author: 2026-11-17, the authoring session.
+
+## Outcomes & Retrospective
+
+As authored on 2026-11-17, nothing has been executed and there is no outcome to report.
+
+## Context and Orientation
+
+docket.pub is a Flask site over PostgreSQL that publishes Alabama council records. The site's code is under `src/docket/`; its tests are under `tests/` in tiers (`unit`, `web`, `services`, `integration`). A second program, the transcriber, lives under `transcriber/` with its own tests under `transcriber/tests/`. The transcriber runs on the operator's desktop (the Legion) inside Docker, not on the hosting service (Railway), and reaches the production database through a database role named `transcriber` that may touch only a few tables. `AGENTS.md` at the repository root is the map and names the one check command, `./tools/verify`.
+
+A Granicus meeting is a row of `meetings` whose `external_id` is all digits (the clip id) and whose `video_url` is the player page, `https://bhamal.granicus.com/MediaPlayer.php?view_id=2&clip_id=<id>`. A YouTube recording attached to such a meeting is a row of `meeting_videos` (`provider = 'youtube'`). The two recordings of one meeting do not start at the same moment, so before the site may open YouTube at a second stored on the Granicus clock, the transcriber measures the offset between them from the sound. That is the measuring pass, `measure_pass` in `transcriber/transcriber/measure.py`, which runs at the start of an ordinary transcriber run. For each meeting that has a recording to measure it puts the Granicus clip's audio in a work folder as an 8 kHz mono 16-bit WAV file (`_granicus_features`), reads it with `align.read_wav` (which returns the samples as a numpy array of 16-bit integers), compares each of the meeting's recordings against it, and stores the result in `meeting_video_alignments`: `passed` rows, one per matching stretch, or one `rejected` or `failed` row. The recordings it measures are chosen by `alignment_candidates` in `transcriber/transcriber/db.py`; a recording `rejected` at the current method version is not chosen again until the database owner deletes its rows.
+
+The site turns "this meeting, this second, this chapter" into a link in one module, `src/docket/services/video_links.py`. `for_meetings` loads a `MeetingVideo` per meeting (the `video_url`, the passed stretches as `Recording` objects, the consent block); `link_for` returns a `VideoLink` that opens YouTube at a converted second when a passed stretch covers the moment, and otherwise the Granicus player, at a chapter when the chapter id is all digits. `VideoLink.phrase` is the text templates print: "video on YouTube", "video chapter on Granicus", "video on Granicus", or "video". The vote link is printed by the macro `vote_source_link` in `src/docket/web/templates/partials/_vote_result_block.html` as "Watch this vote on <label>". The meeting page, `src/docket/web/templates/meeting_detail.html`, prints two untimed links in its source-links section (`<section class="mtg-sources">`): "Watch video" with the meta line "Granicus player", and, when the meeting has a YouTube recording and its own `video_url` is not on YouTube, "Watch on YouTube" with the meta line "council channel". The route is `meeting_detail` in `src/docket/web/public.py`, which passes `recordings=query.videos_for_meeting(meeting_id)` to the template.
+
+"dBFS" is decibels relative to the loudest value a sample can hold: 0 is the loudest, and a level of -60 is a thousandth of that amplitude. "Silent" in this plan means a 60-second block of a clip's audio whose level is below -60 dBFS.
+
+What was found, on GitHub issue #174 of `thinkdarrell/docket-pub` and in Surprises above: 42 recordings are `rejected` (38 `score`, 4 `no_window`). Every clip behind the ones tested is silent throughout or in part: the virtual meetings of February to July 2021, and single meetings in 2020, 2022, 2024, 2025, and 2026. The matcher is right to reject them and the YouTube recordings are the right ones.
+
+Every reader and writer of what this plan adds or changes. The new table `granicus_clip_sound` has one writer, the transcriber (`save_clip_sound`, M2), and one reader, `video_links.py` (M4); it is deleted with its meeting by cascade. A row is used only when its `granicus_clip_id` equals the meeting's current `external_id`, the test `for_meetings` already applies to a measurement, so a row measured before an event id became a clip id, or against a clip the meeting no longer has, is ignored and replaced at the next measuring. No column of an existing table changes, no status gains a value, and `alignment_candidates` is not edited, so the three hand statements in `docs/runbooks/transcripts.md` that write `meeting_video_alignments` (the off switch, its restore, the delete of one recording's rows) behave as they do today. `VideoLink` gains a field with a default, so every existing construction and comparison of one keeps working; the tests that pin today's phrases keep passing because the field is false unless a clip's sound says otherwise.
+
+The states that would make the new sentence false, and what happens in each. A meeting whose own video is on YouTube (`yt-` external id) has no sound row and its template branch is not touched. A meeting whose clip was replaced in place under the same clip id after it was measured keeps a stale row, as its measurement does today (`docs/DEBT.md` row `D99`); M6 adds this to that row. A meeting with a sound row and no YouTube recording any more (the recording was moved to another meeting row) still prints the note, which is still true of the clip, and prints no YouTube link. A clip whose every recording passed before this plan shipped is never fetched again, so it has no sound row and no note even if part of it is silent; M6 records this as debt. A clip never compared with a YouTube recording (no recording attached) is never measured; meeting 2541 is one.
+
+## Plan of Work
+
+### M1: the silence rule
+
+Create `transcriber/transcriber/sound.py`. It imports numpy and nothing else of the project. It holds four constants and their meaning in comments (`SOUND_METHOD_VERSION = 1`, raised when the arithmetic or a constant changes; `BLOCK_S = 60`; `SILENCE_FLOOR_DBFS = -60.0`; `MIN_TAIL_S = 10`), the frozen dataclass `ClipSound`, and the function `measure`, all as given under Interfaces and Dependencies.
+
+The rule `measure` applies. The samples are cut into consecutive blocks of `BLOCK_S` seconds. What is left after the last whole block is a block of its own when it holds at least `MIN_TAIL_S` seconds, and is otherwise part of the block before it; when there is no block before it, it is the only block. A block's level is 20 times the base-10 logarithm of (the root-mean-square of its samples, taken as 64-bit floats, divided by 32768); a block whose root-mean-square is zero is silent. A block is silent when its level is below `SILENCE_FLOOR_DBFS`. Neighbouring silent blocks are joined into one span from the first block's start to the last block's end, in seconds, the end never past the duration. `duration_s` is the number of samples over the rate, `silent_s` the sum of the spans' lengths, and `spans` the spans in order. No samples raises `ValueError`.
+
+Create `transcriber/tests/test_sound.py` with seven test functions and no parametrizing, each building its samples with numpy at 8,000 samples a second. Noise for an audible block is `numpy.random.default_rng(0).normal(0, 1000, n)` cast to 16-bit integers (about -30 dBFS). The seven: six hundred seconds of zeros give `duration_s == 600.0`, `silent_s == 600.0`, and `spans == ((0.0, 600.0),)`; six hundred seconds of noise give no spans and `silent_s == 0.0`; noise for 300 seconds, zeros for 1,500, noise for 3,600, and zeros for 600 give `spans == ((300.0, 1800.0), (5400.0, 6000.0))` and `silent_s == 2100.0`; sixty seconds of the constant sample value 33 are not silent and sixty seconds of the constant value 32 are (20·log10(33/32768) is -59.94 and 20·log10(32/32768) is -60.21); 605 seconds of zeros give one span `(0.0, 605.0)` (a 5-second tail joins the block before it); 600 seconds of zeros followed by 15 seconds of noise give `spans == ((0.0, 600.0),)` and `duration_s == 615.0` (a 15-second tail is its own block); and an empty array raises `ValueError`.
+
+### M2: the table, the grant, and the writer
+
+Create `src/docket/migrations/048_granicus_clip_sound.py` in the shape of `src/docket/migrations/046_alignment_stretches.py` (a module docstring that says what and why, then `SQL_UP` and `SQL_DOWN` strings) and register it in the list in `src/docket/migrations/runner.py` after `docket.migrations.047_public_hearings`. The up creates the table exactly as given under Interfaces and Dependencies, with `IF NOT EXISTS`; the down drops it with `IF EXISTS`. The migration grants nothing: as its docstring must say, the `transcriber` role's grant is in `scripts/sql/create_transcriber_role.sql`, and on a database whose role already exists the owner runs the one statement by hand.
+
+In `scripts/sql/create_transcriber_role.sql` add, after the grant on `meeting_video_alignments`, the statement `GRANT SELECT, INSERT, UPDATE ON granicus_clip_sound TO transcriber;`, and extend the comment at the top of the file: what the table holds, that the role does not delete from it (a row is replaced in place and goes with its meeting), and that a role created before migration 048 lacks this one statement, which the owner runs alone.
+
+In `transcriber/transcriber/db.py` add `save_clip_sound` as given under Interfaces and Dependencies, beside `save_alignment`. It is one `INSERT ... ON CONFLICT (meeting_id) DO UPDATE` that sets every column, `measured_at` to `now()`; the spans go in as JSON through `psycopg2.extras.Json`, a list of two-number lists. It reads the sound by attribute so this module still does not import numpy, and it does not commit.
+
+Tests. Create `tests/integration/test_048_migration.py` after the pattern of `tests/integration/test_046_migration.py` (the same skip mark against Railway, a prefix `m048-` for the meetings it seeds, fixtures that roll back 48 and re-apply) with four tests: after the up, a row with `duration_s = 600`, `silent_s = 120`, and spans `[[0, 120]]` inserts and reads back with those values; a row whose `silent_s` exceeds its `duration_s` raises `psycopg2.errors.CheckViolation`; deleting the meeting deletes its sound row; after the down the table does not exist (`to_regclass('granicus_clip_sound')` is NULL) and the up applies again. In `tests/integration/test_transcriber_role.py` add one test, `test_can_save_clip_sound_and_not_delete_it`: `_priv("granicus_clip_sound", p)` is true for `SELECT`, `INSERT`, and `UPDATE` and false for `DELETE`. In `transcriber/tests/test_db.py` add two tests beside `test_save_alignment_twice_leaves_one_row_holding_the_second_calls_values`, using the same fixtures that file already has for a meeting with recordings: one save stores the candidate's meeting id, its `external_id` as `granicus_clip_id`, the method version, the duration, the silent seconds, and the spans; a second save for the same meeting with other values leaves one row holding the second call's values.
+
+### M3: the pass stores what it measured
+
+In `transcriber/transcriber/measure.py`, `_granicus_features` reads the WAV once and returns two things, the features as today and `sound.measure(samples)` on the same samples. In `_run`, when the Granicus audio of a meeting was fetched, and before any of its recordings is measured, call `tdb.save_clip_sound(conn, group[0], clip_sound, method_version=sound.SOUND_METHOD_VERSION)`, commit, and log on the module's logger at INFO
+
+    measure meeting <meeting id> clip <clip id>: sound duration=<seconds>s silent=<seconds>s spans=<count>
+
+with the two figures as whole seconds. The save comes first so that a YouTube download that fails afterwards does not lose it. A `psycopg2.Error` from the save is not caught there: it ends the pass through the path that exists (`measure: skipped (...)`), which is what a missing table or a missing grant should do, exactly as migration 042's absence does today. A meeting whose Granicus fetch failed saves no sound row. Update the module docstring to say so. Set `__version__` in `transcriber/transcriber/__init__.py` to `"0.7.0"`.
+
+In `transcriber/tests/test_measure.py` the stand-ins need to return something for the new call: read how `_wire` and `FakeDB` stub `align.read_wav`, `align.features`, and `save_alignment`, give `sound.measure` a stand-in that returns a fixed `ClipSound(duration_s=6019.0, silent_s=2719.0, spans=((0.0, 60.0), (780.0, 2040.0)))`, and have `FakeDB` record `save_clip_sound` calls. Add three tests: a meeting with two recordings saves its sound once, commits it, and logs `measure meeting <id> clip <clip>: sound duration=6019s silent=2719s spans=2`; a meeting whose Granicus fetch raises `AudioFetchError` saves no sound; a meeting whose YouTube download raises still has its sound saved before the `failed` row.
+
+### M4: the site reads it and the meeting page says it
+
+In `src/docket/services/video_links.py` add the constants `MIN_SOUND_VERSION = 1` (a floor, compared with `>=`, as `MIN_METHOD_VERSION` is) and `NOTE_MIN_SILENT_S = 600.0`, the frozen dataclass `ClipSound`, a field `sound: ClipSound | None = None` at the end of `MeetingVideo`, and the function `clip_sound_for`, all as given under Interfaces and Dependencies. `for_meetings` gains a fourth read and sets `sound` on each `MeetingVideo`; `clip_sound_for` runs the same statement for one meeting, and the statement is written once, as a module constant both use:
+
+    SELECT s.meeting_id, s.duration_s, s.silent_s, s.silent_spans, s.measured_at
+      FROM granicus_clip_sound s
+      JOIN meetings m ON m.id = s.meeting_id
+     WHERE s.meeting_id = ANY(%s)
+       AND s.method_version >= %s
+       AND s.granicus_clip_id = m.external_id
+
+`ClipSound.note` is the meeting page's text: `"no sound"` when `silent_s >= duration_s`; otherwise `"no sound for N of M minutes"` when `silent_s >= NOTE_MIN_SILENT_S`, where N and M are the silent seconds and the duration in whole minutes, a half rounding up (`int(seconds / 60 + 0.5)`); otherwise `None`. `measured_on` is the date of `measured_at`. Extend the module docstring with one paragraph on the sound row.
+
+In `src/docket/web/public.py`, `meeting_detail` passes `clip_sound=video_links.clip_sound_for(meeting_id)` to the template. In `src/docket/web/templates/meeting_detail.html`, in the source-links section, set a variable that is the note when `clip_sound` has one and `'MediaPlayer.php'` is in `meeting.video_url`. With a note, the Granicus link's meta line reads `Granicus player · <note>` and the `<a>` carries `title="Measured by docket.pub on <measured_on in ISO form>"`; and when the page also has the YouTube link (the existing `_youtube` test), the YouTube link is printed before the Granicus link. Without a note the section is byte for byte what it is today. Print each link's markup once: move the two existing `<a>` blocks into the order the variable decides (a Jinja macro per link, or an if/else around the pair), without changing their text.
+
+Tests. In `tests/unit/test_video_links.py` add three: `ClipSound(2516.0, 2516.0, ((0.0, 2516.0),), date(2026, 11, 17)).note == "no sound"`; `ClipSound(6019.0, 2719.0, ..., ...).note == "no sound for 45 of 100 minutes"` (2,719 / 60 is 45.3 and 6,019 / 60 is 100.3); and a clip with `silent_s == 599.0` has no note. In `tests/integration/test_video_link_loader.py` add two, extending the `_Seed` helper with a method that inserts a sound row: a row at the current clip id and version 1 comes back on `for_meetings(...)[id].sound` and from `clip_sound_for(id)` with its spans as a tuple of two-float tuples in order; a row against another clip id, and a row at version 0, each give `None`. In `tests/web/test_meeting_recordings.py` add four, seeding sound rows for the meetings its `rows` fixture already makes: on the Granicus meeting with a YouTube recording and a wholly silent clip, the source-links section contains `Granicus player · no sound` and "Watch on YouTube" comes before "Watch video" in it; with 2,719 silent seconds of 6,019 it contains `no sound for 45 of 100 minutes`; with 300 silent seconds the section has no "no sound" and "Watch video" comes first, as today; and on the Granicus meeting without a YouTube recording a wholly silent clip prints the note and no YouTube link.
+
+### M5: a link into silence says so
+
+In `src/docket/services/video_links.py`, `VideoLink` gains `no_sound: bool = False` as its last field, and `phrase` appends ` (no sound)` to either Granicus phrase when it is true. In `link_for`, in the branch that returns a Granicus link, `no_sound` is true when the `MeetingVideo` has a `sound` and either the moment is a number that lies in one of its spans (start included, end excluded) or there is no moment and the clip is silent throughout (`silent_s >= duration_s`). Nothing else in `link_for` changes: a moment a passed stretch covers still opens YouTube, also when it lies in a silent span, and a YouTube link never carries the flag. In `src/docket/web/templates/partials/_vote_result_block.html`, the macro `vote_source_link` prints ` (no sound)` after the label when `v.video_link.no_sound`. The three templates that print `phrase` (`partials/transcript_body.html`, `partials/minutes_vs_video.html`, `admin/_discrepancy_row.html`) and the Granicus branch of `partials/source_anchor_button.html` need no edit, because the phrase carries the words. Update the docstrings of `VideoLink` and `link_for`.
+
+Tests. In `tests/unit/test_video_links.py` add five, each building a `MeetingVideo` for a player URL with `sound=ClipSound(6019.0, 2719.0, ((0.0, 60.0), (780.0, 2040.0), (5160.0, 6019.0)), date(2026, 11, 17))` unless said otherwise: a moment at 900 with chapter id `"77"` gives a Granicus link with `no_sound` true and the phrase `video chapter on Granicus (no sound)`; a moment at 2,040 (the end of a span, excluded) gives `no_sound` false and the phrase `video chapter on Granicus`; with a `Recording` covering 2,162 to 5,132 and a moment at 3,000 the link opens YouTube and `no_sound` is false; with no moment and a wholly silent clip the phrase is `video on Granicus (no sound)`; with no moment and the partly silent clip the phrase is `video on Granicus`. In `tests/web/test_vote_result_block.py` add one beside `test_source_link_names_youtube_when_the_link_opens_youtube`: a vote whose `video_link` is a Granicus `VideoLink` with `no_sound=True` renders "Watch this vote on Granicus (no sound)".
+
+### M6: the documents
+
+Edit `docs/specs/video-links.md`: a new section, "A clip with no sound", after "The measuring pass", stating in the present tense the table, the rule and its constants (naming `transcriber/transcriber/sound.py` as their owner and not repeating the values that file sets, except where a sentence needs one), when the pass writes a row, which rows the site trusts, the meeting page's note and the order of its links, and the "(no sound)" label; the sentence in "What a link says" gains the two labelled phrases and the vote link's; "The measuring pass" gains the log line; "Known limits" gains the three limits named below as debt. Edit `docs/specs/meeting-types.md`, the paragraph that begins "The same page lists a row's recordings", to state the note and the order. Edit `docs/runbooks/transcripts.md`, "Measuring YouTube recordings (the backlog)": the statement that has the rejected recordings measured again (given under Validation and Acceptance), the read-only query that lists sound rows, and, under "The transcriber role", the new grant. Edit `transcriber/README.md`, "Measuring YouTube recordings": one paragraph on the sound line in the log and what it means. Edit `ARCHITECTURE.md`, the bullet that lists what the `transcriber` role can write, to add `granicus_clip_sound`. Edit `docs/specs/index.md` only if its line for `video-links.md` lists the file's sections.
+
+Write decision records under `docs/decisions/` in the format of `docs/decisions/DECISION_FORMAT.md`, numbered by the rule in the Decision Log, for the decisions of this plan that bind later work: silence is stored per clip and trusted by clip id and version; a block is 60 seconds and silent below -60 dBFS, with the three clips' figures as the data; a link into a silent stretch is labelled and not redirected to an untimed YouTube link. Add to decision `0030`'s successors nothing: a record is written once; the new record on the table names `0030` and `0076` as the records it extends.
+
+In `docs/DEBT.md`, add to row `D99` that a clip replaced in place also keeps a stale sound row, and add three rows numbered by the same rule. One: the operator's steps for this plan, in the order under Validation and Acceptance, with "the pull request merges" as its trigger. Two: a clip whose every recording passed before this plan shipped, and a clip with no YouTube recording attached, is never measured for sound, so a partly silent clip among them carries no note; the trigger is a reader's or the operator's report of one, or the successor plan below, whichever comes first. Three: the transcriber still transcribes the Granicus audio of a silent clip (a wholly silent one ends `low_speech` and unpublished, a partly silent one publishes with unmarked holes), with the counts from Surprises and the successor plan's slug, `transcribe-youtube-when-granicus-is-silent`, as its trigger.
+
+This milestone does not move the plan file and does not write the closing retrospective; the lifecycle's last two steps belong to whoever closes the plan after the pull request's review.
+
+## Concrete Steps
+
+Every command is run from the root of the plan's worktree, `.claude/worktrees/silent-granicus-says-so` under the checkout, which needs its own `venv/` (built the way `docs/specs/operations.md`, Local environment, says). Each session starts by reading `AGENTS.md` and this file, runs `./tools/verify` before it edits, and runs it again before it records the milestone.
+
+One file of the site's tests:
+
+    DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_video_links.py -q -p no:cacheprovider
+
+One file of the transcriber's tests, in a command of its own:
+
+    DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest transcriber/tests/test_sound.py -q -p no:cacheprovider
+
+Drop the throwaway database afterwards with `tools/test-db --drop`. Both forms were run during authoring against files that exist today and printed the counts under Surprises. Never run bare `pytest` against the database `.env` names: `tests/conftest.py` refuses it.
+
+The migration's state:
+
+    DATABASE_URL=$(tools/test-db) venv/bin/python -m docket.migrations.runner --status
+
+Expected after M2, as its last line: `[applied] 48: docket.migrations.048_granicus_clip_sound`.
+
+## Validation and Acceptance
+
+Each milestone is accepted on the checks below, observed by the session that ran them and recorded in Progress and Surprises with the lines the commands printed. The totals are the baselines under Surprises plus the tests each milestone adds; a session that finds a different baseline at its start (because `origin/main` moved) records the baseline it found and holds the milestone to that figure plus its own additions.
+
+M1. `transcriber/tests/test_sound.py` prints `7 passed`. The transcriber check of `./tools/verify` prints `141 passed` (134 and 7), and `./tools/verify` ends `all 6 checks passed`.
+
+M2. `tests/integration/test_048_migration.py` prints `4 passed`; `tests/integration/test_transcriber_role.py` prints `6 passed` (5 and 1); `transcriber/tests/test_db.py` prints `31 passed` (29 and 2); the status command prints the line above; `./tools/verify` ends `all 6 checks passed` with the integration tier at `1047 passed` (1,042 and 5) and the transcriber check at `143 passed`.
+
+M3. `transcriber/tests/test_measure.py` prints `15 passed` (12 and 3); `(cd transcriber && ../venv/bin/python -c "import transcriber; print(transcriber.__version__)")` prints `0.7.0` (it printed `0.6.0` during authoring); `./tools/verify` ends `all 6 checks passed` with the transcriber check at `146 passed`.
+
+M4. `tests/unit/test_video_links.py` prints `28 passed` (25 and 3); `tests/integration/test_video_link_loader.py` prints `8 passed` (6 and 2); `tests/web/test_meeting_recordings.py` prints `15 passed` (11 and 4); `./tools/verify` ends `all 6 checks passed` with the first tier at `3471 passed` (3,464 and 7) and the integration tier at `1049 passed`.
+
+M5. `tests/unit/test_video_links.py` prints `33 passed` (28 and 5); `tests/web/test_vote_result_block.py` prints `22 passed` (21 and 1); `./tools/verify` ends `all 6 checks passed` with the first tier at `3477 passed`.
+
+M6. `grep -c "granicus_clip_sound" docs/specs/video-links.md docs/runbooks/transcripts.md ARCHITECTURE.md scripts/sql/create_transcriber_role.sql` prints a count of 1 or more for each of the four files; `grep -n "no sound" docs/specs/video-links.md docs/specs/meeting-types.md` prints lines from both; `docs/DEBT.md` holds three new rows whose ids are above every id on `origin/main`, one of which lists the six operator steps below in order; `docs/decisions/` holds the three new records; `./tools/verify` ends `all 6 checks passed`.
+
+The operator's steps, after the pull request merges. No milestone session takes any of them, and their order matters: a rejected row deleted before the new transcriber image is running is measured by the old image, which stores no sound, and is then final again.
+
+1. Deploy the web service and the worker from a clean `main` (`scripts/deploy.sh --service docket-web`, then `--service worker`). The web service applies migration 048 when it starts. Check with `railway ssh --service docket-web "cd /app && python -m docket.migrations.runner --status"`.
+2. As the database owner, grant the role its access: `GRANT SELECT, INSERT, UPDATE ON granicus_clip_sound TO transcriber;`
+3. On the Legion, rebuild the transcriber image so it runs version 0.7.0 (`docker compose build` in `transcriber/`, as `transcriber/README.md` says).
+4. As the database owner, have the rejected recordings measured again. First count them: `SELECT count(*) FROM meeting_video_alignments WHERE status = 'rejected' AND reason IS DISTINCT FROM 'operator';` printed 42 on 2026-11-17. Then, in one statement: `DELETE FROM meeting_video_alignments WHERE status = 'rejected' AND reason IS DISTINCT FROM 'operator';` A row the owner switched off (`rejected` with the reason `operator`) is kept.
+5. Run the backlog command of `docs/runbooks/transcripts.md` until its `measure done` line says `remaining=0`: `docker compose run --rm transcriber --limit 0 --measure-limit 400 --max-hours 8`. Each meeting logs one `sound` line.
+6. Read what was stored, read-only: `SELECT s.meeting_id, m.meeting_date, s.granicus_clip_id, round(s.duration_s) AS duration_s, round(s.silent_s) AS silent_s, jsonb_array_length(s.silent_spans) AS spans FROM granicus_clip_sound s JOIN meetings m ON m.id = s.meeting_id ORDER BY m.meeting_date;` Expected from the authoring measurements: meeting 275 (clip 1414) with 2,516 and 2,516; meeting 3197 (clip 2034) with 6,019 and 2,719 in five spans. Then look at the two pages named under Purpose, at a desktop width and at a phone width, and play the Granicus player of meeting 275 for a few seconds to hear that it is silent. A clip the page calls silent that is audible in the player is an issue on `thinkdarrell/docket-pub` with the row's figures, and the note is turned off for that meeting by deleting its sound row.
+
+## Idempotence and Recovery
+
+Every step of every milestone can be repeated. The migration creates with `IF NOT EXISTS` and drops with `IF EXISTS`; `venv/bin/python -m docket.migrations.runner --down 48` removes the table and nothing else. `save_clip_sound` replaces a meeting's row. The measuring pass writes a sound row each time it fetches a clip, so a wrong row is corrected by deleting the meeting's alignment rows (the documented way to have a recording measured again) and running the pass.
+
+If the site is deployed and the table is empty, every page renders as it does today, because the note and the label appear only where a row exists. If the transcriber runs version 0.7.0 before step 1 or step 2, the pass logs `measure: skipped (...)` naming the missing table or privilege and the run goes on to transcribe; nothing is lost and the next run after the grant measures. To take the note and the label off the whole site without a deploy, the database owner runs `DELETE FROM granicus_clip_sound;` (the rows return as clips are measured again), or, to keep them off, `UPDATE granicus_clip_sound SET method_version = 0;`, which puts every row below the site's floor; the restore is `UPDATE granicus_clip_sound SET method_version = 1 WHERE method_version = 0;`.
+
+A milestone that will not fit its session is split in place in Progress (completed, remaining), the split is recorded in the Decision Log, and the session stops.
+
+## Artifacts and Notes
+
+The prototype of the rule, as run during authoring (Surprises), for comparison with M1's module. It is a prototype's output, not the module's:
+
+    clip1424.wav duration=3761s blocks=63 silent_blocks=0
+      spans: []
+      audible blocks: min=-30.2 median=-22.8 max=-17.8 dBFS
+    clip1414.wav duration=2516s blocks=42 silent_blocks=42
+      spans: [(0, 2516)]
+      silent blocks:  min=-73.8 max=-70.2 dBFS
+    clip2034.wav duration=6019s blocks=101 silent_blocks=46
+      spans: [(0, 60), (120, 180), (240, 720), (780, 2040), (5160, 6019)]
+      audible blocks: min=-40.6 median=-32.5 max=-24.3 dBFS
+      silent blocks:  min=-70.9 max=-69.7 dBFS
+
+The block counts follow from the rule: 6,019 seconds is 100 whole blocks and a 19-second tail that counts on its own (101); 2,516 is 41 and a 56-second tail (42); 3,761 is 62 and a 41-second tail (63).
+
+The findings this plan rests on are on issue #174 of `thinkdarrell/docket-pub`, in the comments of 2026-11-17.
+
+## Interfaces and Dependencies
+
+No new library: numpy is already a dependency of the transcriber (`transcriber/requirements.txt`) and of the site.
+
+In `transcriber/transcriber/sound.py`, at the end of M1:
+
+    SOUND_METHOD_VERSION = 1
+    BLOCK_S = 60
+    SILENCE_FLOOR_DBFS = -60.0
+    MIN_TAIL_S = 10
+
+    @dataclass(frozen=True)
+    class ClipSound:
+        duration_s: float
+        silent_s: float
+        spans: tuple[tuple[float, float], ...]
+
+    def measure(samples: np.ndarray, rate: int = 8000) -> ClipSound: ...
+
+The table, at the end of M2:
+
+    CREATE TABLE IF NOT EXISTS granicus_clip_sound (
+        meeting_id       INTEGER PRIMARY KEY REFERENCES meetings(id) ON DELETE CASCADE,
+        granicus_clip_id TEXT NOT NULL,
+        method_version   INTEGER NOT NULL,
+        duration_s       DOUBLE PRECISION NOT NULL CHECK (duration_s > 0),
+        silent_s         DOUBLE PRECISION NOT NULL CHECK (silent_s >= 0 AND silent_s <= duration_s),
+        silent_spans     JSONB NOT NULL DEFAULT '[]'::jsonb,
+        measured_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+
+`silent_spans` is a JSON array of two-number arrays, `[start_s, end_s]`, in order, on the Granicus clock.
+
+In `transcriber/transcriber/db.py`, at the end of M2 (`cand` is the `AlignmentCandidate` that file defines; its `meeting_id` and `external_id` are the row's `meeting_id` and `granicus_clip_id`; `sound` is read by its attributes `duration_s`, `silent_s`, and `spans`):
+
+    def save_clip_sound(conn, cand: AlignmentCandidate, sound, *, method_version: int) -> None: ...
+
+In `src/docket/services/video_links.py`, at the end of M4:
+
+    MIN_SOUND_VERSION = 1
+    NOTE_MIN_SILENT_S = 600.0
+
+    @dataclass(frozen=True)
+    class ClipSound:
+        duration_s: float
+        silent_s: float
+        spans: tuple[tuple[float, float], ...]
+        measured_on: date
+
+        @property
+        def note(self) -> str | None: ...
+
+    def clip_sound_for(meeting_id: int) -> ClipSound | None: ...
+
+and `MeetingVideo` has the field `sound: ClipSound | None = None`. At the end of M5, `VideoLink` has the field `no_sound: bool = False`. The site's `ClipSound` and the transcriber's are two classes on purpose: the transcriber is a separate program that the site does not import, and the site's carries the date and the note.
+
+Revision note, 2026-11-17: the plan as first authored. Nothing has been revised.
