@@ -22,11 +22,18 @@ the trusted floor, ``align.ALIGN_TRUSTED_VERSION``: a row that passed at the flo
 not measured again when the method version rises (plan
 ``youtube-links-cover-matching-stretches``).
 
+The Granicus audio is read once, and from the same samples ``sound.measure`` finds where the
+clip is silent. That is stored once per meeting in ``granicus_clip_sound``
+(``db.save_clip_sound``), committed, and logged as one ``sound`` line before any of the
+meeting's recordings is measured, so a YouTube download that fails afterwards does not lose
+it. A meeting whose Granicus audio could not be fetched saves no sound row (plan
+``silent-granicus-says-so``, M3).
+
 A recording whose audio cannot be fetched, converted, read, or measured gets a ``failed`` row
 (tried again after seven days) and the pass goes on. Three failed fetches in a row end the
-pass. Nothing the pass meets ends the run: a database error (migration 042 not applied, or
-the role lacks its grants) and anything else unexpected are logged as one
-``measure: skipped (...)`` warning, and the run goes on to transcription.
+pass. Nothing the pass meets ends the run: a database error (migration 042 or 048 not applied,
+or the role lacks its grants, the sound row's among them) and anything else unexpected are
+logged as one ``measure: skipped (...)`` warning, and the run goes on to transcription.
 """
 from __future__ import annotations
 
@@ -36,7 +43,7 @@ from pathlib import Path
 
 import psycopg2
 
-from . import align, inputs
+from . import align, inputs, sound
 from . import db as tdb
 from .audio import YOUTUBE_PREFIX, download_url_for, fetch_audio, remove_downloads, source_for
 
@@ -70,9 +77,9 @@ def _halt(stop, deadline: float | None, clock) -> str | None:
 
 
 def _granicus_features(cfg, cand: tdb.AlignmentCandidate, wav: Path, sleep):
-    """The Granicus clip's features, by way of an 8 kHz WAV at ``wav`` (the caller deletes it).
-    The archive's audio.flac is read when the meeting has one, which spares Granicus a
-    request; it is never written, replaced, or removed here."""
+    """The Granicus clip's features and where it is silent, both from one read of an 8 kHz WAV
+    at ``wav`` (the caller deletes it). The archive's audio.flac is read when the meeting has
+    one, which spares Granicus a request; it is never written, replaced, or removed here."""
     flac = inputs.audio_path(cfg.archive_dir, cand.meeting_id)
     if flac.exists():
         fetch_audio(str(flac), wav, rate=MEASURE_RATE, attempts=1)
@@ -81,7 +88,18 @@ def _granicus_features(cfg, cand: tdb.AlignmentCandidate, wav: Path, sleep):
             fetch_audio(download_url_for(cand.external_id), wav, rate=MEASURE_RATE)
         finally:
             sleep(MEASURE_PAUSE_S)       # owed for the request, whether or not it succeeded
-    return align.features(align.read_wav(wav))
+    samples = align.read_wav(wav)
+    return align.features(samples), sound.measure(samples)
+
+
+def _save_sound(conn, cand: tdb.AlignmentCandidate, clip_sound: sound.ClipSound) -> None:
+    """Store, commit, and log where the meeting's clip is silent. A database error is the
+    caller's: it ends the pass, as a missing table or grant should."""
+    tdb.save_clip_sound(conn, cand, clip_sound, method_version=sound.SOUND_METHOD_VERSION)
+    conn.commit()
+    log.info("measure meeting %s clip %s: sound duration=%.0fs silent=%.0fs spans=%d",
+             cand.meeting_id, cand.external_id, clip_sound.duration_s, clip_sound.silent_s,
+             len(clip_sound.spans))
 
 
 def _measure_recording(cfg, cand: tdb.AlignmentCandidate, granicus) -> align.Measurement:
@@ -143,7 +161,7 @@ def _run(conn, cfg, counts: dict, *, limit: int, stop, deadline, clock, sleep) -
         granicus_wav = Path(cfg.work_dir) / f"align-{group[0].meeting_id}.wav"
         try:
             try:
-                granicus = _granicus_features(cfg, group[0], granicus_wav, sleep)
+                granicus, clip_sound = _granicus_features(cfg, group[0], granicus_wav, sleep)
             except psycopg2.Error:
                 raise
             except Exception as e:  # noqa: BLE001 — one clip's failure is its recordings' failed rows
@@ -151,6 +169,9 @@ def _run(conn, cfg, counts: dict, *, limit: int, stop, deadline, clock, sleep) -
                     _save_failed(conn, cand, e, counts)
                 failures += 1            # one failed fetch, however many recordings it had
             else:
+                # once per meeting and before its recordings, so a download that fails
+                # afterwards does not lose it
+                _save_sound(conn, group[0], clip_sound)
                 for cand in group:
                     ended = _halt(stop, deadline, clock)
                     if ended:
