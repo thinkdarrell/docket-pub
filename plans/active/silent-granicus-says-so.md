@@ -226,6 +226,18 @@ From M6's session of 2026-11-18 (UTC) on the Legion, in this worktree, starting 
   Rationale: the plan gives the rule's order (silent throughout, then a span, then false) and not its place; a pure function of two values keeps `link_for`'s branch one return, and the source button's call (`video` is None) gets false from the same line because it has no sound. In the macro the words follow the label, as the plan says; a link without a label (a host the builder does not know) never has the flag, since `link_for` sets it only on a Granicus link, so the two `{% if %}`s need not nest. A link with the flag reads "Watch this vote on Granicus (no sound) ↗".
   Date/Author: 2026-11-18, M5's session.
 
+- Decision: M6's decision records are `0112` (the table, and which rows the site trusts), `0113` (the block and the floor), and `0114` (a link into silence is labelled and not redirected), and its debt rows are `D170` (the operator's six steps), `D171` (the clips never measured for sound), and `D172` (the transcripts still made from silent audio).
+  Rationale: the rule of the entry above on numbering. `origin/main`, fetched in this session, is at `106ca9d` (pull request #184, merged after this branch left `d98b798`) and holds decision `0111` and debt row `D169` as its highest; `gh pr list --state open --json number,title,headRefName` printed `[]` (its first try ended `TLS handshake timeout`). The only other remote branches are `origin/fix/granicus-start-time-pacific` and this plan's own.
+  Date/Author: 2026-11-18, M6's session.
+
+- Decision: M6 writes four things the plan's paragraph for it does not list, each inside a file it names. `docs/specs/index.md` is edited, because its line for `video-links.md` lists what the file states. The runbook also holds the statement that deletes one meeting's sound row and the pair that takes the note and the label off the whole site and restores them (`UPDATE granicus_clip_sound SET method_version = 0;` and its restore), taken from this plan's Idempotence and Recovery and from step 6 of the operator's steps. `transcriber/README.md` also says what `measure: skipped (...)` means when it names `granicus_clip_sound`. `docs/specs/video-links.md` changes one existing sentence of "The measuring pass", which said a database error is "the table is missing, or the role lacks the grant", to name the sound row's table and grant among them.
+  Rationale: the statements are how the owner acts on what the site now says, and a plan file that moves on closing is the wrong owner for them; the spec names the runbook as their place and does not repeat them. The README's sentence is the line the operator sees first if step 2 of the operator's steps is missed. The spec's sentence would otherwise have been made untrue by M3.
+  Date/Author: 2026-11-18, M6's session.
+
+- Decision: the debt row on the clips never measured gives 313 passed recordings, not a figure of this session's.
+  Rationale: it is the sum of the authoring session's read of 2026-11-17 under Surprises (108 and 204 recordings, and row 832), stated in the row with that date. This session read nothing from production.
+  Date/Author: 2026-11-18, M6's session.
+
 ## Outcomes & Retrospective
 
 As authored on 2026-11-17, nothing has been executed and there is no outcome to report.
