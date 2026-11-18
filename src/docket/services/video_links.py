@@ -40,17 +40,30 @@ apart inside that reading. :func:`consent_block` finds the run and
 a vote read off the video, with the one exception to the rule: a vote read
 long after the run opens YouTube at its own second.
 
-The functions above the "Database reads" line are pure. The three below it
+A Granicus clip can have no sound, for all of its length or for part of it.
+The transcriber measures where (``granicus_clip_sound``, migration 048: one
+row per meeting, the clip's length, its silent seconds, and its silent
+spans on the Granicus clock), and a row is used as a measurement is: made by
+a method version this module trusts, against the clip the meeting has now.
+:class:`ClipSound` is that row, loaded onto :class:`MeetingVideo` and, for
+the meeting page, by :func:`clip_sound_for`; its ``note`` is what the page
+prints beside the Granicus link.
+
+The functions above the "Database reads" line are pure. The four below it
 read through :func:`docket.db.db_cursor` and write nothing.
 
-Plan: plans/completed/video-links-land-on-the-moment.md (M4).
+Plan: plans/completed/video-links-land-on-the-moment.md (M4); the clip's
+sound, plan `silent-granicus-says-so` (M4).
 """
 from __future__ import annotations
 
 import math
 from collections.abc import Iterable
 from dataclasses import dataclass
+from datetime import date
 from urllib.parse import parse_qs, parse_qsl, quote, urlencode, urlparse, urlunparse
+
+from zoneinfo import ZoneInfo
 
 from docket.db import db_cursor
 
@@ -63,6 +76,21 @@ from docket.db import db_cursor
 # single-offset recording the same row), and ``ALIGN_TRUSTED_VERSION`` in
 # ``transcriber/transcriber/align.py`` is the same floor on the producer's side.
 MIN_METHOD_VERSION = 2
+
+# The lowest sound method version (``granicus_clip_sound.method_version``,
+# written from ``SOUND_METHOD_VERSION`` in ``transcriber/transcriber/sound.py``)
+# the site trusts. A floor, as ``MIN_METHOD_VERSION`` is; the owner puts a row
+# below it to switch its note off.
+MIN_SOUND_VERSION = 1
+
+# The meeting page notes a clip's silence when the clip is silent throughout
+# or for at least this many seconds. A stream that starts a few minutes
+# before the meeting does is ordinary and is not noted.
+NOTE_MIN_SILENT_S = 600.0
+
+# The zone a sound row's date is printed in: the one Birmingham's records are
+# dated in, so the date does not depend on the database session's time zone.
+_SOUND_DATE_ZONE = ZoneInfo("America/Chicago")
 
 # The consent block: the largest run of consent cue points whose neighbours
 # are at most CONSENT_GAP_S apart, when it holds at least CONSENT_MIN_ITEMS.
@@ -95,6 +123,40 @@ class ConsentBlock:
     chapter_id: str | None
 
 
+def _whole_minutes(seconds: float) -> int:
+    """Seconds as whole minutes, a half rounding up."""
+    return int(seconds / 60 + 0.5)
+
+
+@dataclass(frozen=True)
+class ClipSound:
+    """Where a meeting's Granicus clip is silent, as the transcriber measured it."""
+
+    duration_s: float                        # the clip's length
+    silent_s: float                          # the seconds of it that are silent
+    spans: tuple[tuple[float, float], ...]   # the silent spans on the Granicus clock, in order
+    measured_on: date                        # the day it was measured, in Chicago
+
+    @property
+    def note(self) -> str | None:
+        """What the meeting page says beside the Granicus link, or None.
+
+        "no sound" for a clip silent throughout. "no sound for N of M
+        minutes" for one silent for ``NOTE_MIN_SILENT_S`` or more, N and M in
+        whole minutes with a half rounding up, and N never more than M minus
+        1: a clip with an audible block must not read as silent for all of
+        its minutes, which rounding alone allows (3,600 silent seconds of
+        3,625 round to 60 of 60). Otherwise nothing.
+        """
+        if self.silent_s >= self.duration_s:
+            return "no sound"
+        if self.silent_s >= NOTE_MIN_SILENT_S:
+            minutes = _whole_minutes(self.duration_s)
+            silent = min(_whole_minutes(self.silent_s), minutes - 1)
+            return f"no sound for {silent} of {minutes} minutes"
+        return None
+
+
 @dataclass(frozen=True)
 class MeetingVideo:
     """What a link into one meeting's video is built from."""
@@ -102,6 +164,7 @@ class MeetingVideo:
     video_url: str | None
     recordings: tuple[Recording, ...] = ()
     consent: ConsentBlock | None = None
+    sound: ClipSound | None = None
 
 
 @dataclass(frozen=True)
@@ -332,14 +395,42 @@ def link_for(video: MeetingVideo | None, *, seconds: object = None, chapter_id: 
 # Database reads
 # ---------------------------------------------------------------------------
 
+# A meeting's sound row, when it was measured at a trusted sound version
+# against the clip the meeting has now. Written once: for_meetings and
+# clip_sound_for both run it.
+_SOUND_SQL = """
+    SELECT s.meeting_id, s.duration_s, s.silent_s, s.silent_spans, s.measured_at
+      FROM granicus_clip_sound s
+      JOIN meetings m ON m.id = s.meeting_id
+     WHERE s.meeting_id = ANY(%s)
+       AND s.method_version >= %s
+       AND s.granicus_clip_id = m.external_id
+"""
+
+
+def _clip_sounds(cur, ids: list[int]) -> dict[int, ClipSound]:
+    """Run ``_SOUND_SQL`` on ``cur`` and return each meeting's sound by meeting id."""
+    cur.execute(_SOUND_SQL, (ids, MIN_SOUND_VERSION))
+    return {
+        row["meeting_id"]: ClipSound(
+            duration_s=float(row["duration_s"]),
+            silent_s=float(row["silent_s"]),
+            spans=tuple((float(start), float(end)) for start, end in row["silent_spans"]),
+            measured_on=row["measured_at"].astimezone(_SOUND_DATE_ZONE).date())
+        for row in cur.fetchall()
+    }
+
+
 def for_meetings(meeting_ids: Iterable[int]) -> dict[int, MeetingVideo]:
     """Load what links into each meeting's video are built from.
 
     Returns one entry per meeting that exists, also for a meeting with no
-    ``video_url`` (:func:`link_for` then builds no link). Three reads: the
+    ``video_url`` (:func:`link_for` then builds no link). Four reads: the
     meetings; their recordings' stretches whose measurement passed, at a
-    trusted method version, against the clip the meeting has now; and their
-    consent items' cue points. No read replaces a NULL with a default.
+    trusted method version, against the clip the meeting has now; their
+    consent items' cue points; and their clips' sound, at a trusted sound
+    version, against the clip the meeting has now. No read replaces a NULL
+    with a default.
 
     A recording contributes one :class:`Recording` per passed stretch, in the
     order :func:`link_for` tries them: primary recording first, then by
@@ -391,10 +482,13 @@ def for_meetings(meeting_ids: Iterable[int]) -> dict[int, MeetingVideo]:
         for row in cur.fetchall():
             cues.setdefault(row["meeting_id"], []).append((row["video_timestamp_seconds"], row["external_id"]))
 
+        sounds = _clip_sounds(cur, ids)
+
     return {
         meeting_id: MeetingVideo(video_url=video_url,
                                  recordings=tuple(recordings.get(meeting_id, ())),
-                                 consent=consent_block(cues.get(meeting_id, ())))
+                                 consent=consent_block(cues.get(meeting_id, ())),
+                                 sound=sounds.get(meeting_id))
         for meeting_id, video_url in urls.items()
     }
 
@@ -402,6 +496,18 @@ def for_meetings(meeting_ids: Iterable[int]) -> dict[int, MeetingVideo]:
 def for_meeting(meeting_id: int) -> MeetingVideo | None:
     """:func:`for_meetings` for one meeting; None when the meeting does not exist."""
     return for_meetings([meeting_id]).get(meeting_id)
+
+
+def clip_sound_for(meeting_id: int) -> ClipSound | None:
+    """One meeting's sound, the ``sound`` :func:`for_meetings` would load, in one read.
+
+    None when the meeting has no row, or its row was measured below
+    ``MIN_SOUND_VERSION`` or against a clip the meeting no longer has. The
+    meeting page calls this and not :func:`for_meeting`, whose other three
+    reads it does not use.
+    """
+    with db_cursor() as cur:
+        return _clip_sounds(cur, [int(meeting_id)]).get(int(meeting_id))
 
 
 def item_links(meeting_id: int) -> dict[int, VideoLink]:

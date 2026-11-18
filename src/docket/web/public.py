@@ -280,6 +280,8 @@ def meeting_detail(slug, meeting_id):
     named_by_elimination = bool(calendar_event) and mtsvc.named_by_elimination(meeting_id)
 
     recordings = query.videos_for_meeting(meeting_id)
+    # Where the Granicus clip is silent, when it was measured; None otherwise.
+    clip_sound = video_links.clip_sound_for(meeting_id)
 
     from docket.services import committee_documents as cdsvc
     committee_record = cdsvc.for_meeting(meeting_id)
@@ -290,6 +292,7 @@ def meeting_detail(slug, meeting_id):
         calendar_event=calendar_event,
         named_by_elimination=named_by_elimination,
         recordings=recordings,
+        clip_sound=clip_sound,
         discrepancies=discrepancies,
         has_transcript=has_transcript,
         municipality=municipality,

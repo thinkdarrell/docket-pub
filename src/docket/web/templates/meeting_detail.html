@@ -428,22 +428,33 @@
             <span class="t-mono">↗</span>
         </a>
         {% endif %}
-        {% if meeting.video_url %}
-        <a class="rail-link" href="{{ meeting.video_url }}" target="_blank" rel="noreferrer" style="flex: 1; min-width: 180px;">
-            <div><div class="rail-link-label">Watch video</div><div class="t-meta">{% if 'youtube.com' in meeting.video_url %}YouTube (council channel){% else %}Granicus player{% endif %}</div></div>
+        {#- The row's own video, and a YouTube recording of a row whose own
+            video is elsewhere (a Granicus clip the council also streamed): a
+            second rail link (plans/completed/youtube-council-channel.md, M5).
+            Each link is one macro, printed once, so the two can change places:
+            when the Granicus clip was measured silent throughout or for ten
+            minutes or more (clip_sound.note, docket.services.video_links),
+            the Granicus link says so and the YouTube link, when there is one,
+            is printed first (plan `silent-granicus-says-so`, M4). With no
+            note the section is what it was before the note existed. #}
+        {%- set _youtube = (recordings or []) | selectattr('provider', 'equalto', 'youtube') | first %}
+        {%- set _has_youtube = _youtube and 'youtube.com' not in (meeting.video_url or '') %}
+        {%- set _sound_note = clip_sound.note if clip_sound and 'MediaPlayer.php' in (meeting.video_url or '') else none %}
+        {%- macro _watch_video() %}{% if meeting.video_url %}
+        <a class="rail-link" href="{{ meeting.video_url }}"{% if _sound_note %} title="Measured by docket.pub on {{ clip_sound.measured_on.isoformat() }}"{% endif %} target="_blank" rel="noreferrer" style="flex: 1; min-width: 180px;">
+            <div><div class="rail-link-label">Watch video</div><div class="t-meta">{% if 'youtube.com' in meeting.video_url %}YouTube (council channel){% else %}Granicus player{% if _sound_note %} · {{ _sound_note }}{% endif %}{% endif %}</div></div>
             <span class="t-mono">↗</span>
         </a>
-        {% endif %}
-        {#- A YouTube recording of a row whose own video is elsewhere (a
-            Granicus clip the council also streamed): a second rail link
-            (plans/completed/youtube-council-channel.md, M5). #}
-        {%- set _youtube = (recordings or []) | selectattr('provider', 'equalto', 'youtube') | first %}
-        {% if _youtube and 'youtube.com' not in (meeting.video_url or '') %}
+        {% endif %}{% endmacro %}
+        {%- macro _watch_youtube() %}{% if _has_youtube %}
         <a class="rail-link" href="{{ _youtube.url }}" target="_blank" rel="noreferrer" style="flex: 1; min-width: 180px;">
             <div><div class="rail-link-label">Watch on YouTube</div><div class="t-meta">council channel</div></div>
             <span class="t-mono">↗</span>
         </a>
-        {% endif %}
+        {% endif %}{% endmacro %}
+        {%- set _youtube_first = _sound_note and _has_youtube %}
+        {{ _watch_youtube() if _youtube_first else _watch_video() }}
+        {{ _watch_video() if _youtube_first else _watch_youtube() }}
         {% if has_transcript %}
         <a class="rail-link" href="/al/{{ municipality.slug }}/meetings/{{ meeting.id }}/transcript/"
            hx-get="/al/{{ municipality.slug }}/meetings/{{ meeting.id }}/transcript/"

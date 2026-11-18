@@ -276,6 +276,13 @@ def test_a_clip_silent_for_five_minutes_leaves_the_links_as_they_were(client, ro
     assert rail.index(">Watch video</div>") < rail.index(">Watch on YouTube</div>")
     assert rail == unmeasured, "a row with no note changes nothing in the section"
 
+    # Nor does a row on a meeting whose own video is not a Granicus player
+    # page: the note is about the Granicus clip, and this page links to none.
+    own_video = _sources(_get(client, f"/al/birmingham/meetings/{rows['yt']}/"))
+    _sound("yt-cotw", 2516.0, 2516.0, "[[0, 2516]]")
+    assert _sources(_get(client, f"/al/birmingham/meetings/{rows['yt']}/")) == own_video
+    assert "Measured by" not in own_video and "no sound" not in own_video
+
 
 def test_a_silent_clip_without_a_youtube_recording_says_no_sound_and_prints_no_youtube_link(client, rows):
     _sound("2020", 2516.0, 2516.0, "[[0, 2516]]")
