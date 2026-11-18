@@ -47,13 +47,17 @@ spans on the Granicus clock), and a row is used as a measurement is: made by
 a method version this module trusts, against the clip the meeting has now.
 :class:`ClipSound` is that row, loaded onto :class:`MeetingVideo` and, for
 the meeting page, by :func:`clip_sound_for`; its ``note`` is what the page
-prints beside the Granicus link.
+prints beside the Granicus link. A link that opens the Granicus player at a
+moment inside a silent span, or anywhere in a clip that is silent throughout,
+is still the Granicus link, and says "(no sound)" (``VideoLink.no_sound``):
+the moment is on the Granicus clock, and no measured recording gives its
+second on YouTube.
 
 The functions above the "Database reads" line are pure. The four below it
 read through :func:`docket.db.db_cursor` and write nothing.
 
 Plan: plans/completed/video-links-land-on-the-moment.md (M4); the clip's
-sound, plan `silent-granicus-says-so` (M4).
+sound, plan `silent-granicus-says-so` (M4, M5).
 """
 from __future__ import annotations
 
@@ -169,21 +173,30 @@ class MeetingVideo:
 
 @dataclass(frozen=True)
 class VideoLink:
-    """A finished link: where it goes and what it may say about itself."""
+    """A finished link: where it goes and what it may say about itself.
+
+    ``no_sound`` is true only on a Granicus link that opens where the clip
+    was measured silent (:func:`link_for` decides); a YouTube link never
+    carries it.
+    """
 
     url: str
     site: str             # 'youtube', 'granicus', or 'other'
     label: str | None     # 'YouTube', 'Granicus', or None
     seconds: int | None   # the second the link opens at on YouTube; None otherwise
     timed: bool           # True when the link lands on a second or a chapter
+    no_sound: bool = False   # True when a Granicus link opens where the clip is silent
 
     @property
     def phrase(self) -> str:
-        """Name the site, and say "chapter" only when the link carries one."""
+        """Name the site, say "chapter" only when the link carries one, and
+        say "(no sound)" after either Granicus phrase when the link opens
+        where the clip is silent."""
         if self.site == "youtube":
             return "video on YouTube"
         if self.site == "granicus":
-            return "video chapter on Granicus" if self.timed else "video on Granicus"
+            phrase = "video chapter on Granicus" if self.timed else "video on Granicus"
+            return phrase + " (no sound)" if self.no_sound else phrase
         return "video"
 
 
@@ -346,6 +359,26 @@ def vote_link(video: MeetingVideo | None, *, vote_s: object, is_consent: bool,
     return link_for(video, seconds=seconds, chapter_id=chapter_id)
 
 
+def _in_silence(sound: ClipSound | None, moment: float | None) -> bool:
+    """True when a Granicus link at ``moment`` opens where the clip has no sound.
+
+    A clip silent throughout (``silent_s >= duration_s``) has no moment with
+    sound, so every link into it does, a link with no moment and one at or
+    past the clip's end included. Otherwise the moment must be a number
+    inside a silent span, start included and end excluded, except that a
+    span reaching the clip's end has no upper bound: a cue point can sit on
+    the last second or past it. No sound row, no label.
+    """
+    if sound is None:
+        return False
+    if sound.silent_s >= sound.duration_s:
+        return True
+    if moment is None:
+        return False
+    return any(start <= moment and (moment < end or end >= sound.duration_s)
+               for start, end in sound.spans)
+
+
 def link_for(video: MeetingVideo | None, *, seconds: object = None, chapter_id: object = None,
              url: str | None = None) -> VideoLink | None:
     """Build the link for one moment of one meeting's video.
@@ -362,7 +395,10 @@ def link_for(video: MeetingVideo | None, *, seconds: object = None, chapter_id: 
       covers it (``start_s <= seconds < end_s``, the first such recording in
       order whose converted second is not negative); otherwise
       ``chapter_url(base, chapter_id)``, ``timed`` exactly when the chapter id
-      was applied.
+      was applied, and ``no_sound`` when the meeting's clip was measured
+      silent there (:func:`_in_silence`). A moment a recording covers opens
+      YouTube also when it lies in a silent span, and no YouTube link is
+      marked.
     - Any other address, a YouTube one with no readable video id included:
       returned unchanged, with no label.
     """
@@ -386,7 +422,8 @@ def link_for(video: MeetingVideo | None, *, seconds: object = None, chapter_id: 
                         return VideoLink(url=_watch_url(recording.video_id, at), site="youtube",
                                          label="YouTube", seconds=at, timed=True)
         return VideoLink(url=chapter_url(base, chapter_id), site="granicus", label="Granicus",
-                         seconds=None, timed=_is_chapter_id(chapter_id))
+                         seconds=None, timed=_is_chapter_id(chapter_id),
+                         no_sound=_in_silence(video.sound if video is not None else None, moment))
 
     return VideoLink(url=base, site="other", label=None, seconds=None, timed=False)
 
