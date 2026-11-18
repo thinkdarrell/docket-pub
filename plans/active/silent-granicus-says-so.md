@@ -19,7 +19,7 @@ This plan does not make any link open YouTube at a moment that it opens Granicus
 As authored on 2026-11-17, nothing has been executed.
 
 - [x] (2026-11-18 04:10Z) M1: `transcriber/transcriber/sound.py` measures where 8 kHz audio is silent, in 60-second blocks against a floor of -60 dBFS, and `transcriber/tests/test_sound.py` passes with its eight tests
-- [ ] M2: migration 048 creates `granicus_clip_sound`, the `transcriber` role may select, insert, and update it, and `transcriber/transcriber/db.py` saves one row per meeting and replaces it on a second save, with the migration, role, and producer database tests passing
+- [x] (2026-11-18 04:47Z) M2: migration 048 creates `granicus_clip_sound`, the `transcriber` role may select, insert, and update it, and `transcriber/transcriber/db.py` saves one row per meeting and replaces it on a second save, with the migration, role, and producer database tests passing
 - [ ] M3: the measuring pass saves and logs each Granicus clip's sound once per meeting before it measures the meeting's recordings, the producer version is 0.7.0, and `transcriber/tests/test_measure.py` passes with its three new tests
 - [ ] M4: `src/docket/services/video_links.py` loads a clip's sound, and the meeting page prints the YouTube link first and "Granicus player · no sound" or "no sound for N of M minutes" when the clip is silent throughout or for ten minutes or more, with the loader, unit, and web tests passing
 - [ ] M5: a link that opens the Granicus player inside a silent stretch, or the plain player of a clip that is silent throughout, carries "(no sound)" in its phrase and on the vote link, with the unit and web tests passing
@@ -78,6 +78,12 @@ From M2's session of 2026-11-18 (UTC) on the Legion, in this worktree, starting 
 - Observation: the seven new tests fail before the migration, the grant, and the writer exist, and each file collects with its existing tests passing beside them.
   Evidence: at 04:38Z, each in its own command with `DATABASE_URL=$(tools/test-db)` and `-q -p no:cacheprovider`: `tests/integration/test_048_migration.py` printed `4 failed, 1 warning in 0.22s`; `tests/integration/test_transcriber_role.py` printed `1 failed, 5 passed, 1 warning in 0.35s`; `transcriber/tests/test_db.py` printed `2 failed, 29 passed, 1 warning in 0.71s`. The failures name the missing table (`relation "granicus_clip_sound" does not exist`), the migration missing from the runner's list, and the missing `save_clip_sound`. The commit that holds the tests failing is the one that adds this entry.
 
+- Observation: M2's acceptance is met, with no carve-out. The three files pass, the status command ends with migration 48 applied, and `./tools/verify` is green with the integration tier at 1,047 and the transcriber check at 144.
+  Evidence: at 04:41Z, after the last edit, each in its own command: `tests/integration/test_048_migration.py` printed `4 passed, 1 warning in 0.36s`; `tests/integration/test_transcriber_role.py` printed `6 passed, 1 warning in 0.37s`; `transcriber/tests/test_db.py` printed `31 passed, 1 warning in 0.63s`. `DATABASE_URL=$(tools/test-db) venv/bin/python -m docket.migrations.runner --status` printed as its last line `[applied] 48: docket.migrations.048_granicus_clip_sound`. `./tools/verify`, started at 04:41Z and finished at 04:46Z: `3464 passed, 5 skipped, 4 xfailed, 2 warnings`, `1047 passed, 2 warnings`, `judge fixtures: 12 of 12 passed`, `144 passed, 1 warning`, `verify: plans ... ok (0s)`, `verify: all 6 checks passed in 295s.`
+
+- Observation: twenty-seven rules were taken out, one at a time, of copies held in memory (a pytest plugin in the session scratchpad that compiles the altered `transcriber/transcriber/db.py` into `transcriber.db`, swaps the migration module's `SQL_UP` and `SQL_DOWN` after the table was dropped from the throwaway database, or swaps the role file's text the role test reads; no committed file was edited), and the file that tests each run against it. Twenty-five removals failed a test on the first run and two more after an assertion was added for each; none is left free.
+  Evidence: the writer, thirteen, against `transcriber/tests/test_db.py`: no `ON CONFLICT` clause (1 failed); each of the six columns dropped from the `SET` list in turn, `measured_at` among them (1 failed each); a commit inside the save (1); the clip id taken from something other than `external_id` (2); `method_version` ignored (1); the spans dropped (1) and reversed (1); `silent_s` written from the duration (2). The migration, nine, against `tests/integration/test_048_migration.py`: no `CHECK (duration_s > 0)` (1 failed); no `silent_s >= 0` (1); no `silent_s <= duration_s` (1); no `ON DELETE CASCADE` (4 errors: the first test's teardown cannot delete its meetings and every later setup fails the same way); no primary key (1); no default on `silent_spans` (1); a down that keeps the table (2). Free as first written, then pinned: `CREATE TABLE` without `IF NOT EXISTS` and `DROP TABLE` without `IF EXISTS` each passed all four, and `test_048_up_creates_the_table_and_a_row_reads_back` gained a second run of `SQL_UP` on a database that holds the table, `test_048_down_drops_the_table_and_the_up_applies_again` a second run of `SQL_DOWN` on one that does not (then 1 failed each). Both assertions were added after the commit that holds the tests failing (`759de64`). The role file, five, against `tests/integration/test_transcriber_role.py`: no grant, a grant with `DELETE`, and a grant lacking each of `SELECT`, `INSERT`, and `UPDATE` (1 failed each).
+
 ## Decision Log
 
 - Decision: silence is stored per clip in a table of its own, `granicus_clip_sound`, keyed on the meeting, and not as a new `reason` on a `meeting_video_alignments` row.
@@ -119,6 +125,22 @@ From M2's session of 2026-11-18 (UTC) on the Legion, in this worktree, starting 
 - Decision: `tests/integration/test_048_migration.py` keeps four test functions.
   Rationale: the review proposed two, to spare `./tools/verify` the rollback and re-apply of a fixture per test. Measured during authoring, the four tests of `tests/integration/test_046_migration.py`, which use the same fixtures, ran in 0.49 seconds together, against an integration tier of 108 seconds; the saving is not measurable and four functions name what failed. The budget overrun is real and is not this plan's to mend.
   Date/Author: 2026-11-17, the authoring session, on the operator's review.
+
+- Decision: the migration is numbered 048, as the plan named it.
+  Rationale: `origin/main`, fetched at the start of M2's session, holds 047 as its highest and no pull request is open (Surprises), so the fallback to another number was not needed.
+  Date/Author: 2026-11-18, M2's session.
+
+- Decision: M2's four migration tests and two writer tests assert more than the plan's sentences for them list, and the test counts are the plan's.
+  Rationale: the plan names what each test shows and not every clause of the table. The removal check needs an assertion per clause, so the first migration test also shows that a meeting holds one row (a second insert raises `UniqueViolation`, which the writer's `ON CONFLICT (meeting_id)` depends on), that `silent_spans` defaults to `[]`, and that the up repeats harmlessly; the second also refuses a negative `silent_s` and a zero `duration_s` and admits a clip silent throughout (`silent_s` equal to `duration_s`, the case M4's note reads); the fourth also repeats the down. The first writer test also shows that the save does not commit (the caller's rollback takes it back), and the second changes every column between the two saves, the clip id and `measured_at` included, so no column of the `SET` list can be dropped unseen.
+  Date/Author: 2026-11-18, M2's session.
+
+- Decision: `save_clip_sound` converts the duration, the silent seconds, and each span's two numbers with `float()` before they are sent.
+  Rationale: the module does not import numpy and reads the sound by attribute, so it cannot know whether a caller's figures are Python floats or numpy's; `sound.measure` returns Python floats today, and the conversion keeps the stored JSON a list of two-number lists whatever a later caller passes. The function sits at the end of the module, after `save_alignment`, which was the module's last function.
+  Date/Author: 2026-11-18, M2's session.
+
+- Decision: one sentence of the role file's existing comment is reworded: "lacks the last two GRANT statements of this file (meeting_videos and meeting_video_alignments)" now names the two statements by their tables and does not call them the last two.
+  Rationale: the new grant is added after them, as the plan says, which made "the last two" false. The plan asks for the comment to be extended; leaving a sentence the same edit made untrue would send an owner with a role older than migration 042 to the wrong statements.
+  Date/Author: 2026-11-18, M2's session.
 
 ## Outcomes & Retrospective
 

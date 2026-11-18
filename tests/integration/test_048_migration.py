@@ -3,6 +3,7 @@
 Pattern: tests/integration/test_046_migration.py. Plan `silent-granicus-says-so`, M2.
 The runner's list is read inside the test functions so the file collects before the migration exists.
 """
+import importlib
 from datetime import date
 
 import psycopg2.errors
@@ -111,6 +112,10 @@ def test_048_up_creates_the_table_and_a_row_reads_back(fresh_048):
     b = _meeting("B")
     _sound(b, silent_s=0.0, spans=None)
     assert _rows(b)[0]["silent_spans"] == []
+    # The up is harmless to repeat on a database that already holds the table.
+    with db_cursor() as cur:
+        cur.execute(importlib.import_module(MODULE).SQL_UP)
+    assert len(_rows(a)) == 1
 
 
 def test_048_silent_longer_than_the_clip_is_refused(applied_048):
@@ -146,6 +151,9 @@ def test_048_down_drops_the_table_and_the_up_applies_again(applied_048):
     assert not _table_exists()
     with db() as conn:
         assert 48 not in runner.applied_versions(conn)
+    # The down is harmless to repeat on a database that no longer holds the table.
+    with db_cursor() as cur:
+        cur.execute(importlib.import_module(MODULE).SQL_DOWN)
 
     with db() as conn:
         runner.apply_migrations(conn)

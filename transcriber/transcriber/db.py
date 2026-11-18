@@ -461,3 +461,32 @@ def save_alignment(conn, cand: AlignmentCandidate, *, method_version: int, statu
                 [cand.meeting_video_id, number, cand.external_id, method_version, status,
                  stored_reason, *_figures(source)],
             )
+
+
+def save_clip_sound(conn, cand: AlignmentCandidate, sound, *, method_version: int) -> None:
+    """Store where a meeting's Granicus clip is silent, replacing the meeting's row. Does not commit.
+
+    `sound` is a `transcriber.sound.ClipSound`, read by its attributes `duration_s`, `silent_s`,
+    and `spans` (so this module does not import numpy). The row is keyed on the candidate's
+    `meeting_id`; `granicus_clip_id` is its `external_id`, `silent_spans` is the spans as a JSON
+    array of `[start_s, end_s]` pairs in the order given, and `measured_at` is the time of this
+    call. A second save for the same meeting sets every column again. The role cannot delete
+    from this table; a row goes with its meeting.
+    """
+    spans = [[float(start_s), float(end_s)] for start_s, end_s in sound.spans]
+    with conn.cursor() as cur:
+        cur.execute(
+            """INSERT INTO granicus_clip_sound
+                   (meeting_id, granicus_clip_id, method_version, duration_s, silent_s,
+                    silent_spans, measured_at)
+               VALUES (%s, %s, %s, %s, %s, %s, now())
+               ON CONFLICT (meeting_id) DO UPDATE
+                   SET granicus_clip_id = EXCLUDED.granicus_clip_id,
+                       method_version = EXCLUDED.method_version,
+                       duration_s = EXCLUDED.duration_s,
+                       silent_s = EXCLUDED.silent_s,
+                       silent_spans = EXCLUDED.silent_spans,
+                       measured_at = EXCLUDED.measured_at""",
+            [cand.meeting_id, cand.external_id, method_version, float(sound.duration_s),
+             float(sound.silent_s), psycopg2.extras.Json(spans)],
+        )

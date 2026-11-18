@@ -58,6 +58,7 @@ MIGRATIONS = [
     "docket.migrations.045_committee_documents",
     "docket.migrations.046_alignment_stretches",
     "docket.migrations.047_public_hearings",
+    "docket.migrations.048_granicus_clip_sound",
 ]
 
 
