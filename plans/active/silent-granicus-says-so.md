@@ -53,6 +53,14 @@ As authored on 2026-11-17, no milestone has run. The authoring research found th
 - Observation: a fully silent clip the transcriber has met is already kept off the site, and a partly silent one is not detected.
   Evidence: meeting 14 (2026-02-24, clip 1951) has a transcript row with status `low_speech`, 602 seconds of audio and "0s of speech detected"; meeting 2541 (2026-09-28, clip 2013) the same with 1,521 seconds and no YouTube recording attached. Meeting 3197 has no transcript row yet.
 
+From M1's session of 2026-11-18 (UTC) on the Legion, in this worktree, starting at commit `665cccf`.
+
+- Observation: the starting state in the worktree is green, and `./tools/verify` took 295 seconds.
+  Evidence: run at 03:39Z before any edit, with the worktree's own `venv/` built for this session (`python3.10 -m venv venv`, `venv/bin/pip install -e ".[dev]"`): `3464 passed, 5 skipped, 4 xfailed, 2 warnings`, `1042 passed, 2 warnings`, `judge fixtures: 12 of 12 passed`, `134 passed, 1 warning`, `verify: plans ... ok (0s)`, `verify: all 6 checks passed in 295s.`
+
+- Observation: the eight tests fail before the module exists, each on the import inside its own function, and the file collects.
+  Evidence: at 04:04Z, `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest transcriber/tests/test_sound.py -q -p no:cacheprovider` printed `8 failed, 1 warning in 0.13s`. The commit that holds the tests failing is the one that adds this entry.
+
 ## Decision Log
 
 - Decision: silence is stored per clip in a table of its own, `granicus_clip_sound`, keyed on the meeting, and not as a new `reason` on a `meeting_video_alignments` row.
