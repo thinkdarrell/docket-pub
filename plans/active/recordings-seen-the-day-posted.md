@@ -18,7 +18,7 @@ The plan also pays a long-overdue debt the change would otherwise deepen. The wo
 
 As authored on 2026-11-19, nothing has been executed.
 
-- [ ] M1: the worker registers an afternoon pass, `ingest_afternoon` at 16:30 for the cities `AFTERNOON_INGEST_SLUGS` names (Birmingham), `youtube_ingest_afternoon` at 16:45 and `non_meetings_afternoon` at 16:55 America/Chicago, beside the unchanged morning jobs, with the scheduler, task, health, and service tests passing
+- [x] (2026-11-19 18:32Z) M1: the worker registers an afternoon pass, `ingest_afternoon` at 16:30 for the cities `AFTERNOON_INGEST_SLUGS` names (Birmingham), `youtube_ingest_afternoon` at 16:45 and `non_meetings_afternoon` at 16:55 America/Chicago, beside the unchanged morning jobs, with the scheduler, task, health, and service tests passing
 - [ ] M2: `python -m docket.worker.scheduler --list` prints every job with the task it runs and its trigger in time-of-day order, and the docstrings of `src/docket/worker/tasks.py`, `src/docket/services/non_meetings.py` and `src/docket/services/city_calendar.py` state no clock time
 - [ ] M3: `README.md`, `docs/runbooks/cron-worker.md` and the other runbooks and specs that stated a worker task count or clock time point at `scheduler.py` and `--list` in its place, the runbook lists the afternoon jobs and the `docket-ingest-afternoon` check, and debt rows `D69` and `D138` are deleted
 - [ ] M4: the specs, the transcriber README, the transcripts runbook, and the Birmingham tour describe the afternoon pass and the Legion's scheduled `docket-transcriber` run, the durable decisions are records under `docs/decisions/`, and `docs/DEBT.md` carries the CivicClerk delay row, the operator's post-merge steps, and the written re-deferrals
@@ -115,6 +115,8 @@ As authored on 2026-11-19, nothing has been executed; the entries below are what
 ## Outcomes & Retrospective
 
 As authored on 2026-11-19, nothing has been executed and there is no outcome to report.
+
+- M1 (2026-11-19). The scheduler registers twenty-two jobs: the nineteen it had, at the times they had, and `ingest_afternoon` (16:30), `youtube_ingest_afternoon` (16:45) and `non_meetings_afternoon` (16:55), America/Chicago. `ingest_afternoon` is a task of its own with the Healthchecks variable `HEALTHCHECK_INGEST_AFTERNOON_UUID`; it visits the cities `AFTERNOON_INGEST_SLUGS` names (default `birmingham`) that are also active, and both ingest tasks read the active cities from `docket.services.ingest.active_slugs()`. Acceptance was met with no carve-out: verify passed all six checks before and after, the snippet printed the six expected lines, `--run-once not_a_task` names `ingest_afternoon`, and `test_build_scheduler_registers_all_jobs` was seen failing on the unchanged scheduler (commit `09ee1d4`) and passing after the edit (`9f81d76`). What remains: nothing a session of the repository has observed says the pass works in production; that is the operator's, after a deploy, as Validation and Acceptance lists. No document outside this plan mentions the afternoon pass yet; M2 adds `--list`, and M3 and M4 write the prose. M2 is next.
 
 ## Context and Orientation
 
@@ -283,6 +285,8 @@ Run at authoring on the unchanged tree, this printed the first three lines below
 
 Run at authoring, this exited 1 and printed `unknown task: 'not_a_task' (known: [...])` with nineteen names. Expected after M1: the same with twenty names, `'ingest_afternoon'` among them, exit 1.
 
+Observed by the M1 session on 2026-11-19: the snippet printed exactly the six lines above, and the second command exited 1 with twenty names, `'ingest_afternoon'` among them. Artifacts and Notes holds both.
+
 M2. After the edits:
 
     venv/bin/python -m docket.worker.scheduler --list
@@ -436,6 +440,18 @@ M1, the acceptance snippet of Concrete Steps, run after the edits, printed the s
 and `len(scheduler.build_scheduler().get_jobs())` printed `22`. `venv/bin/python -m docket.worker.scheduler --run-once not_a_task` exited 1 and printed `unknown task: 'not_a_task' (known: [...])` with twenty names, `'ingest_afternoon'` between `'committee_documents'` and `'ingest_all'`.
 
 M1, proving the new tests can fail. Thirty-seven rules were taken out of the code one at a time, each in a copy of the source altered in memory at import (a `sitecustomize.py` in the session scratchpad that replaces one string of one file as Python loads it, so the subprocess the config test starts sees the same alteration; no committed file was edited), and the four test files were run against each copy. All thirty-seven failed at least one test; none survived. By file: sixteen in `tasks.py` (the empty-setting guard and its INFO line; the inactive-city skip and its WARNING; the per-city `try` and its `log.exception`; the result line, each of its counts, and the order of the cities; the name `_safe_run` pings; and for `_do_ingest_all` the per-city `try` and the call of `active_slugs`), four in `config.py` (strip, drop empty parts, the default `birmingham`, the variable's name), two in `ingest.py` (`WHERE active = TRUE`, `ORDER BY slug`), one in `health.py`, and fourteen in `scheduler.py` (each afternoon job's hour, minute, day of week, `coalesce`, `max_instances` and task, and each of the three morning times). Two of the thirty-seven patterns matched two places in `tasks.py` on the first run and failed collection instead of a test; they were narrowed and rerun, and each then failed a test. No assertion was added after the commit that holds the tests failing (`09ee1d4`); the only change to a test file after it is the removal of an unused `monkeypatch` argument and a reworded docstring on `test_config_afternoon_ingest_slugs_defaults_to_birmingham`.
+
+M1, the verify run after the last code edit, on `9f81d76`:
+
+    verify: unit+web+services ... ok (165s)
+    verify: integration ... ok (113s)
+    verify: judge-fixtures ... ok (0s)
+    verify: workflows ... ok (0s)
+    verify: transcriber ... ok (11s)
+    verify: plans ... ok (0s)
+    verify: all 6 checks passed in 289s.
+
+with the tier totals `3495 passed, 5 skipped, 4 xfailed` (fifteen more than the 3480 of the starting run: six scheduler cases, six afternoon task tests, two config tests, one health test), `1050 passed` (one more: `tests/integration/test_ingest_active_slugs.py`), `judge fixtures: 12 of 12 passed`, and `147 passed`. For `D93`: this session's two verify runs took 291 and 289 seconds, and M1 added sixteen tests.
 
 ## Interfaces and Dependencies
 
