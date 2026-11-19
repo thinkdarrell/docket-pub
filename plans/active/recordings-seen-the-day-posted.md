@@ -42,6 +42,18 @@ As authored on 2026-11-19, nothing has been executed; the entries below are what
 - Observation (M1): `src/docket/worker/scheduler.py` still holds two citations of a plan by its `plans/completed/` path and clock times in the comments of other jobs. M1 changed neither: the file owns the times (Decision Log, the `D69` entry), and the citations are older plans' and outside this milestone.
   Evidence: `grep -n "plans/completed" src/docket/worker/scheduler.py` printed two lines when the file was read for M1.
 
+- Observation (M2): the M2 work was begun by one session and finished by a second, both on 2026-11-19. The second session found the branch with two M2 commits (`4c19160`, the tests failing; `696b1a6`, the code), a clean tree, the M2 Progress line unticked, no M2 entry in this section although the Artifacts paragraph "M2, the tests after the code" cites one, no removal check, and no closing verify run. Nothing in the repository says why the first session stopped.
+  Evidence: `git log --oneline -3` printed `696b1a6`, `4c19160`, `175258c` and `git status --short` printed nothing when the second session started. The second session ran every acceptance command again itself; the paragraphs in Artifacts and Notes headed "M2, second session" are its own observations, and the three M2 paragraphs above them are the first session's.
+
+- Observation (M2): APScheduler logs each `add_job` at INFO under its own logger, so a test of `--list` cannot assert that nothing at all is logged. This is the entry the first session's Artifacts paragraph cites; the second session read it from git and did not see the failure itself.
+  Evidence: `git diff 4c19160 696b1a6 -- tests` shows `assert caplog.records == []` in `test_main_with_list_prints_the_schedule_and_starts_nothing` replaced by `assert [r for r in caplog.records if r.name == scheduler.log.name] == []` with a comment naming APScheduler, and a spy added that asserts the scheduler was built once, in `config.WORKER_TIMEZONE`. The first session recorded `1 failed, 44 passed` for the run before that change.
+
+- Observation (M2): the job id as the third part of the sort key of `list_jobs` cannot be told from its absence by any test. The rows sorted are `(key, line)` pairs and every line begins with its job id followed by a space, so when two jobs share an hour and a minute the lines break the tie in the same order the id would.
+  Evidence: the removal check replaced `job.id` in the key with `""` and `tests/unit/test_worker_scheduler.py` printed `45 passed`; `test_list_jobs_sorts_by_hour_then_minute_then_job_id` still saw `alpha` before `zeta`. The key part is left in the code because the plan states it and it makes the order explicit.
+
+- Observation (M2): a removal check that alters the source as Python loads it does nothing when a cached `.pyc` of the file exists, because the loader then never reads the source. The second session's first run of its twenty-one removals showed all eighteen of the `scheduler.py` removals passing every test for that reason.
+  Evidence: the first run printed `45 passed` for each `scheduler.py` removal and `1 failed, 44 passed` for the three docstring removals (which the test reads from disk, not by import); with `PYTHONPYCACHEPREFIX` set to an empty directory in the session scratchpad for each run, the same removals failed tests as Artifacts and Notes records. A session using this technique sets that variable.
+
 ## Decision Log
 
 - Decision: The afternoon Birmingham-only ingest is a new worker task, `ingest_afternoon`, with its own entry in `TASKS` and its own Healthchecks variable; the afternoon runs of `youtube_ingest` and `non_meetings` are second scheduler jobs (`youtube_ingest_afternoon`, `non_meetings_afternoon`) that call the existing task functions and so ping the existing checks.
@@ -111,6 +123,18 @@ As authored on 2026-11-19, nothing has been executed; the entries below are what
 - Decision (M1): `active_slugs()` is placed immediately above `ingest_municipality` in `src/docket/services/ingest.py`, and its integration test seeds three cities (active, inactive, active) inserted in reverse slug order.
   Rationale: The plan asks for two cities and "sorted". With two rows inserted in slug order, a query without `ORDER BY` returns them sorted by accident; three rows inserted last-first make the removal of `ORDER BY slug` fail the test, which the removal check observed.
   Date/Author: 2026-11-19, the M1 session (Claude).
+
+- Decision (M2): The second M2 session continued from the two commits the first left and did not redo them.
+  Rationale: The repository is the fact (`skills/plan-execute/SKILL.md`): the code and tests of M2 were committed, the tests-failing commit precedes the code commit, and the starting verify run passed on `696b1a6`. What the milestone still lacked was evidence, so the session ran the acceptance commands, made the removal check, and wrote the living sections. The first session's Artifacts paragraphs are left as written and marked as that session's.
+  Date/Author: 2026-11-19, the second M2 session (Claude).
+
+- Decision (M2): Four tests beyond the three the plan names are in `tests/unit/test_worker_scheduler.py`: `test_list_jobs_sorts_by_hour_then_minute_then_job_id`, `test_list_jobs_builds_the_scheduler_in_the_given_timezone`, `test_main_refuses_list_together_with_run_once`, and `test_no_docstring_outside_the_scheduler_states_a_worker_clock_time`. They were written by the first M2 session, which recorded no reason; the reason given here is the second session's reading.
+  Rationale: Each holds a rule the plan states that the three named tests could not tell from its absence on the real schedule: the three-part sort key with numbers compared as numbers (the real jobs have no two at one time and no hour-10 job beside an hour-9 one that a text comparison would misplace within one test's reach), the `timezone` argument, "mutually exclusive with `--run-once`", and the docstring grep of Concrete Steps as a test, so a later docstring that states a time fails verify. The removal check shows each failing when its rule is taken out.
+  Date/Author: 2026-11-19, the second M2 session (Claude).
+
+- Decision (M2): One assertion was added after the tests-failing commit `4c19160`, inside `test_list_jobs_names_the_task_a_second_job_runs`: with `TASKS` patched to two lambdas and a scheduler of two jobs, each job is listed with its own task's key.
+  Rationale: The plan says the task name is found by identity and gives the reason (`recast_post_meeting_ai` is registered as a lambda). The removal check replaced `f is job.func` with a comparison of the functions' `__name__` and every test passed, because the real `TASKS` holds one lambda only. Two lambdas share the name `<lambda>`, so the added assertion fails under that replacement, which the session then observed.
+  Date/Author: 2026-11-19, the second M2 session (Claude).
 
 ## Outcomes & Retrospective
 
@@ -470,6 +494,23 @@ M2, the tests before the code. With seven tests added to `tests/unit/test_worker
 M2, the tests after the code. With `list_jobs` and `--list` added to `src/docket/worker/scheduler.py` and the docstrings of `src/docket/worker/tasks.py`, `src/docket/services/non_meetings.py` and `src/docket/services/city_calendar.py` reworded, `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_worker_scheduler.py tests/unit/test_worker_tasks.py tests/unit/test_worker_health.py -q -p no:cacheprovider` printed `87 passed, 1 warning in 0.92s`. The first run after the code printed `1 failed, 44 passed` for the scheduler file: `test_main_with_list_prints_the_schedule_and_starts_nothing` asserted that nothing at all was logged, and APScheduler logs each `add_job` at INFO; the Surprises entry says what was changed.
 
 M2, the acceptance commands of Concrete Steps, run after the edits. `venv/bin/python -m docket.worker.scheduler --list` exited 0, wrote nothing to standard error, and printed twenty-three lines, each equal to the expected line above (the test `test_list_jobs_prints_every_job_in_time_of_day_order` holds the twenty-two job lines as a literal and compares them). The same command with `DATABASE_URL` naming a host and port nothing listens on (`postgresql://nobody:x@127.0.0.1:1/none`) printed the same header. `venv/bin/python -m docket.worker.scheduler --list --run-once ingest_all` exited 2 with `scheduler.py: error: argument --run-once: not allowed with argument --list`. The docstring grep, `grep -rnE "\b(0[4-9]|1[01]|16):[0-5][0-9]\b" src/docket/worker/tasks.py src/docket/services/non_meetings.py src/docket/services/city_calendar.py`, printed nothing and exited 1; before the edits this session saw it print nine lines.
+
+M2, second session of 2026-11-19 (observed). The verify run before any edit, on `696b1a6`:
+
+    verify: test-db ... ok (1s) postgresql://docket:docket_dev@localhost:5432/docket_test_7eed746c
+    verify: unit+web+services ... ok (165s)
+    verify: integration ... ok (117s)
+    verify: judge-fixtures ... ok (0s)
+    verify: workflows ... ok (0s)
+    verify: transcriber ... ok (11s)
+    verify: plans ... ok (0s)
+    verify: all 6 checks passed in 295s.
+
+The session read the last fifteen lines of that run only, so it has the transcriber tier's `147 passed` and not the other tiers' totals.
+
+M2, second session, the acceptance commands of Concrete Steps, run on `696b1a6`. `venv/bin/python -m docket.worker.scheduler --list` exited 0, wrote 0 lines to standard error and 23 to standard output, and `diff` of that output against the twenty-three expected lines of Concrete Steps (taken from this file) printed nothing. With `DATABASE_URL=postgresql://nobody:x@127.0.0.1:1/none` the same command printed the header `timezone=America/Chicago jobs=22`. `venv/bin/python -m docket.worker.scheduler --list --run-once ingest_all` exited 2 and printed `scheduler.py: error: argument --run-once: not allowed with argument --list`. The docstring grep printed nothing and exited 1. `env | grep -c WORKER_TIMEZONE` printed `0`. `git diff 175258c 696b1a6 --stat -- src/docket/services` listed `city_calendar.py` (1 line changed) and `non_meetings.py` (3 added, 2 removed), all inside the two module docstrings, so no code changed in those modules. `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_worker_scheduler.py tests/unit/test_worker_tasks.py tests/unit/test_worker_health.py -q -p no:cacheprovider` printed `87 passed, 1 warning in 0.95s`.
+
+M2, second session, proving the new tests can fail. Twenty-one rules were taken out one at a time, each in a copy of the source altered as Python loads it (a `sitecustomize.py` in the session scratchpad that replaces one string of one file, both for the import and for `Path.read_text`, with `PYTHONPYCACHEPREFIX` naming an empty scratch directory; no committed file was edited), and `tests/unit/test_worker_scheduler.py` was run against each. Nineteen failed at least one test on the first valid run and two failed none. The nineteen: in `list_jobs`, the hour out of the key, the minute out of the key, a field that is not one number sorting first (hour, then minute), the hour and the minute compared as text, the task name taken from the job id, the trigger left off the line, the list left unsorted, and the `timezone` argument ignored; in `main`, `config.WORKER_TIMEZONE` ignored, the timezone not passed to `list_jobs`, the header line dropped, the header without its timezone, no `return` after the list, and `--list` not exclusive with `--run-once`; and a clock time put back into a docstring of each of `tasks.py`, `non_meetings.py` and `city_calendar.py`. The two that failed none: the job id out of the key (the Surprises entry says why nothing can tell), and the task found by function name in place of identity, which now fails `test_list_jobs_names_the_task_a_second_job_runs` through the one assertion added after `4c19160` (Decision Log); after that addition the file printed `45 passed` unaltered and `1 failed, 44 passed` under that removal. The run before the valid one is the fourth M2 Surprises entry.
 
 ## Interfaces and Dependencies
 

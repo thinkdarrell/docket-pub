@@ -260,12 +260,32 @@ def test_list_jobs_prints_every_job_in_time_of_day_order():
     assert lines == EXPECTED_LIST
 
 
-def test_list_jobs_names_the_task_a_second_job_runs():
+def test_list_jobs_names_the_task_a_second_job_runs(monkeypatch):
     """A second job on a morning task is listed under its own id with the
     name of the task it runs, found by identity in TASKS."""
     lines = scheduler.list_jobs()
     assert "youtube_ingest_afternoon youtube_ingest cron[hour='16', minute='45']" in lines
     assert "non_meetings_afternoon non_meetings cron[hour='16', minute='55']" in lines
+
+    # By identity, not by the function's name: two tasks registered as
+    # lambdas share the name "<lambda>", and each job is listed with its own.
+    from apscheduler.schedulers.blocking import BlockingScheduler
+    from apscheduler.triggers.cron import CronTrigger
+
+    tasks = {"first": lambda: None, "second": lambda: None}
+
+    def build(timezone="America/Chicago"):
+        sched = BlockingScheduler(timezone=timezone)
+        for job_id, task, hour in [("job_b", "second", 1), ("job_a", "first", 2)]:
+            sched.add_job(tasks[task], CronTrigger(hour=hour, minute=0, timezone=timezone), id=job_id)
+        return sched
+
+    monkeypatch.setattr(scheduler, "TASKS", tasks)
+    monkeypatch.setattr(scheduler, "build_scheduler", build)
+    assert scheduler.list_jobs() == [
+        "job_b second cron[hour='1', minute='0']",
+        "job_a first cron[hour='2', minute='0']",
+    ]
 
 
 def test_list_jobs_sorts_by_hour_then_minute_then_job_id(monkeypatch):
