@@ -8,6 +8,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && ln -sf /usr/bin/python3.11 /usr/bin/python
 
+# yt-dlp runs YouTube's player JavaScript in deno; without it every download prints a
+# "No supported JavaScript runtime" warning and some formats go missing (debt row D85).
+COPY --from=denoland/deno:bin-2.9.8 /deno /usr/local/bin/deno
+
 WORKDIR /app
 COPY requirements.txt .
 # Blackwell (sm_120) needs the CUDA 12.8 torch wheels. Pinned to 2.8 because

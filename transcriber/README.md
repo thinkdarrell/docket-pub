@@ -103,6 +103,12 @@ after pulling this change; an image built before it fails every `yt-` meeting
 with `No module named 'yt_dlp'`. When YouTube changes its pages, yt-dlp needs a
 newer release: rebuild with `docker compose build --no-cache` to pick it up.
 
+YouTube downloads need a JavaScript runtime: the image carries deno (copied in
+by the `Dockerfile`) and the `yt-dlp[default]` extra carries the scripts it
+runs. An image built before that still downloads, but prints `WARNING: [youtube]
+No supported JavaScript runtime could be found` before every recording; rebuild
+with `docker compose build` and the warning stops.
+
 `TRANSCRIBER_YTDLP_COOKIES` (optional) names a Netscape-format cookie file that
 yt-dlp sends with each download. Leave it unset: YouTube answers this home
 address without signing in. Set it only if `yt-` meetings start failing with
