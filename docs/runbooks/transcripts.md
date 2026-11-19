@@ -175,6 +175,11 @@ meeting 2543 fixture; seq 191 holds a real motion and vote, so 166-191 correctly
   meetings, so roughly 7 hours of Legion time.
 - The producer skips meetings with `is_hidden = TRUE`, so hiding a junk meeting
   also stops the GPU spending time on it.
+- The Legion also runs this command on a schedule, once a day after the worker's
+  afternoon pass; `transcriber/README.md`, "The scheduled run", says how.
+- A transcript uploaded by an evening run shows "Speaker N" until the worker's
+  next daily `transcript_pipeline` tick resolves its speakers. No afternoon or
+  evening tick exists (decision `0116`).
 
 ## Re-transcribing one meeting
 

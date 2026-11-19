@@ -596,6 +596,23 @@ M3, the verify run after the last edit to a file other than this plan (the tree 
 
 with the tier totals `3502 passed, 5 skipped, 4 xfailed`, `1050 passed`, `judge fixtures: 12 of 12 passed`, and `147 passed`, and exit status 0. For `D93`: this session's two verify runs took 302 and 299 seconds, and M3 added no test.
 
+M4, session of 2026-11-19 (observed). The verify run before any edit, on `c129af3`:
+
+    verify: test-db ... ok (0s) postgresql://docket:docket_dev@localhost:5432/docket_test_7eed746c
+    verify: unit+web+services ... ok (168s)
+    verify: integration ... ok (113s)
+    verify: judge-fixtures ... ok (0s)
+    verify: workflows ... ok (0s)
+    verify: transcriber ... ok (11s)
+    verify: plans ... ok (0s)
+    verify: all 6 checks passed in 292s.
+
+with the tier totals `3502 passed, 5 skipped, 4 xfailed`, `1050 passed`, `judge fixtures: 12 of 12 passed`, and `147 passed`, and exit status 0, under a 400-second timeout.
+
+M4, the numbers (observed on 2026-11-19 before any edit). `git fetch origin` exited 0; `git ls-tree --name-only origin/main docs/decisions/ | tail -3` printed `0113-...`, `0114-...` and `DECISION_FORMAT.md`; `git show origin/main:docs/DEBT.md | grep -o '^| D[0-9]*' | tail -1` printed `| D174`; `gh pr list --state open --json number,headRefName` printed `[]` and exited 0. `origin/main` was at `a484523`, the branch's base. The session therefore takes decisions `0115`, `0116` and `0117` and debt ids `D175` and `D176`.
+
+M4, the prose (the commit that holds this paragraph). A script in the session scratchpad, asserting that each phrase it replaced occurred exactly once, changed six files: `transcriber/README.md` (the "At log on" paragraph deleted; the section "The scheduled run" added between "Running" and "YouTube recordings"), `docs/runbooks/transcripts.md` (two bullets under "Running the producer (on the Legion)", the second naming decision `0116`, which the next commit writes), `docs/specs/operations.md` (the two "(daily, after" phrases, the new paragraph on the afternoon pass after the paragraph on clips that are not meetings, and one sentence in the Transcriber section), `docs/specs/meeting-types.md` (two phrases and two sentences), `docs/birmingham/02-ingest.md` (one sentence) and `docs/birmingham/07-operations.md` (the list item **Afternoon** after "Reporting", the two items after it renumbered, and the transcriber paragraph rewritten). After the edits `grep -n "^## The scheduled run\|At log on" transcriber/README.md` printed one line, `88:## The scheduled run`; `grep -c "docket-transcriber"` printed `1` for `transcriber/README.md` and `0` for the other three; `grep -n "daily, after" docs/specs/operations.md` printed nothing and exited 1; the M3 time grep printed the same three leave-alone files (`analytics.md` 1, `coming-up-reading-birmingham.md` 1, `v3-cutover.md` 4); and `grep -rn "17:30" README.md docs/specs docs/runbooks docs/birmingham transcriber/README.md` printed one line, in `transcriber/README.md`.
+
 ## Interfaces and Dependencies
 
 No new library. APScheduler's `BlockingScheduler` and `CronTrigger` are already used; `str()` of a `CronTrigger` prints as in the transcripts above on the installed version.

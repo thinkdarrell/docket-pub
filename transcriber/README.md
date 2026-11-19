@@ -85,8 +85,31 @@ Operating from PowerShell on the Legion:
   Manager); a push started in the background waits on it forever. In Git Bash
   write paths with forward slashes (`C:/docket-pub`).
 
-Task Scheduler (optional): a basic task "At log on" running
-`docker compose -f C:\path\to\transcriber\docker-compose.yml run --rm transcriber --max-hours 4`.
+## The scheduled run
+
+On the Legion a Windows Task Scheduler task named `docket-transcriber` runs the
+producer every day at 17:30 Central. It was registered on 2026-11-19 with these
+settings, as the operator reported them (no session of the repository has seen
+the machine): run only when the operator is logged on, start a missed run when
+the machine is next available, do not start on battery.
+
+The task runs `C:\docket-archive\run-transcriber.cmd`, a script kept on the
+Legion and not in this repository, which runs
+
+    docker compose -f C:\docket-pub\transcriber\docker-compose.yml run --rm -T transcriber --since 2025-10-28 --limit 10 --max-hours 3
+
+and appends its output to `C:\docket-archive\logs\transcriber-scheduled.log`.
+`--max-hours 3` ends a run three hours after it starts at the latest.
+
+The time is chosen to follow the worker's afternoon pass (the jobs
+`ingest_afternoon`, `youtube_ingest_afternoon` and `non_meetings_afternoon`,
+whose times `python -m docket.worker.scheduler --list` prints), so a recording
+Birmingham posts during the day is claimed that evening. A run by hand is still
+the command under "Running".
+
+When this was written the task had not fired once, so how long a scheduled run
+takes is not known. The operator records the first run's start and end, read
+from the log, here. Not yet recorded.
 
 ## YouTube recordings
 
