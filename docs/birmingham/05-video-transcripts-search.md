@@ -22,7 +22,7 @@ Granicus clip / YouTube recording
 
 ## 1. The transcriber (desktop)
 
-The transcriber is a Docker container on the operator's Windows machine, with an NVIDIA GPU, run by hand from the Windows clone of this repository (`transcriber/README.md`, `docs/runbooks/transcripts.md`). It reaches the production database only through `TRANSCRIBER_DATABASE_URL`, a role that can read `meetings`, `municipalities`, `council_members`, `agenda_items`, and `meeting_videos`, write the three transcript tables and its heartbeat, select, insert, update, and delete `meeting_video_alignments`, and select, insert, and update `granicus_clip_sound` (`scripts/sql/create_transcriber_role.sql`; decisions `0030`, `0076`, `0105`, `0112`).
+The transcriber is a Docker container on the operator's Windows machine, with an NVIDIA GPU, run from the Windows clone of this repository, once a day on a schedule and by hand when the operator chooses (`transcriber/README.md`, "The scheduled run"; `docs/runbooks/transcripts.md`). It reaches the production database only through `TRANSCRIBER_DATABASE_URL`, a role that can read `meetings`, `municipalities`, `council_members`, `agenda_items`, and `meeting_videos`, write the three transcript tables and its heartbeat, select, insert, update, and delete `meeting_video_alignments`, and select, insert, and update `granicus_clip_sound` (`scripts/sql/create_transcriber_role.sql`; decisions `0030`, `0076`, `0105`, `0112`).
 
 A run does three things in order:
 
