@@ -14,7 +14,8 @@ DATABASE_URL: str = os.environ.get(
 )
 
 # Timezone the cron worker (src/docket/worker/scheduler.py) registers its
-# jobs in. Every task time in docs/runbooks/cron-worker.md is in this zone.
+# jobs in. Every time `python -m docket.worker.scheduler --list` prints is in
+# this zone.
 WORKER_TIMEZONE: str = os.environ.get("WORKER_TIMEZONE", "America/Chicago")
 
 

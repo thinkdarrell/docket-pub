@@ -371,6 +371,8 @@ Run at authoring this printed `2`. Expected after M3: `0`.
 
 Expected after M3: 3 or more (the inventory row, the check row, the run-once line); it printed nothing matching at authoring (`grep -rn "ingest_afternoon" src docs README.md transcriber tests` printed nothing).
 
+Observed by the M3 session on 2026-11-19: the time grep printed the three leave-alone files only, the count grep printed nothing, the debt-row count printed `0`, and the last grep printed `6`. Artifacts and Notes holds them. One correction to the readings above: the count grep printed four lines, not six, before M3, because M1 had already taken "nineteen" out of `scheduler.py`.
+
 M4. After the edits:
 
     grep -n "^## The scheduled run\|At log on" transcriber/README.md
@@ -543,6 +545,29 @@ with the tier totals `3502 passed, 5 skipped, 4 xfailed`, `1050 passed`, `judge 
 M3, the greps of Concrete Steps before any edit, on `9ef4415`. The time grep listed the nine files of authoring; this session read the lines outside `docs/runbooks/cron-worker.md` and they were `README.md` 2, `docs/runbooks/analytics.md` 1, `docs/runbooks/coming-up-reading-birmingham.md` 1, `docs/runbooks/transcripts-pipeline-map.md` 1, `docs/runbooks/transcripts.md` 4, `docs/runbooks/v3-cutover.md` 4, `docs/specs/committee-documents.md` 1, `docs/specs/transcripts.md` 1. The count grep printed four lines (`docs/runbooks/cron-worker.md` line 4, `README.md` lines 25, 68 and 612), not the six of authoring: M1 took "nineteen" out of the two `scheduler.py` docstrings. `grep -c "^| D69 \|^| D138 " docs/DEBT.md` printed `2`.
 
 M3, `docs/runbooks/cron-worker.md` (the commit that holds this paragraph). The opening sentence names `scheduler.py` and `--list` and no count; the Task inventory has twenty rows in the order `--list` prints the jobs, without the cron column, with the new `ingest_afternoon` row before `process_batches`; the `youtube_ingest` and `non_meetings` rows name both job ids; the `railway variables` block gains `HEALTHCHECK_INGEST_AFTERNOON_UUID` and `HEALTHCHECK_YOUTUBE_INGEST_UUID`; the check table has a "Job or jobs" column in place of Schedule, the rule above it, and the row `docket-ingest-afternoon`; the run-once list gains `ingest_afternoon`; "(daily 08:45)" is "(daily)"; the alert note names `docket-ingest-afternoon`. The edit was made by a script in the session scratchpad that asserted each phrase it replaced occurred exactly once and that the inventory held nineteen rows and the check table fifteen before it wrote.
+
+M3, the other sites (the commit that holds this paragraph). A second scratchpad script, asserting that each phrase occurred exactly once before replacing it, changed: `README.md` at five places (the "Cron worker" paragraph, the "Meeting transcripts" parenthesis, the numbered item "Cron Worker (T27)", the file tree's comment on `tasks.py`, and the roadmap bullet, now "Tighten HSTS to `includeSubDomains`" naming decision `0091` and `D10`); `docs/runbooks/transcripts.md` at four places; `docs/runbooks/transcripts-pipeline-map.md`, `docs/specs/transcripts.md`, `docs/specs/committee-documents.md` and `docs/specs/city-page.md` at one each; the comment above `WORKER_TIMEZONE` in `src/docket/config.py` (Decision Log); and deleted the rows `D69` and `D138` from `docs/DEBT.md` (`git diff --stat -- docs/DEBT.md` printed `2 --`). The sentence naming the two silent-by-design tasks in the README was kept; `SILENT_BY_DESIGN` in `src/docket/worker/health.py` read `frozenset({"calibration_report", "prune_analytics"})` when this session looked.
+
+M3, the acceptance commands of Concrete Steps, run after the last edit. The time grep printed
+
+          1 docs/runbooks/analytics.md
+          1 docs/runbooks/coming-up-reading-birmingham.md
+          4 docs/runbooks/v3-cutover.md
+
+and nothing else. The count grep printed nothing and exited 1. `grep -c "^| D69 \|^| D138 " docs/DEBT.md` printed `0`. `grep -c "ingest_afternoon" docs/runbooks/cron-worker.md` printed `6`. A search of the tracked `.md` and `.py` files outside `plans/` and `docs/superpowers/` for `D69` or `D138` printed two lines, the `D149` row of `docs/DEBT.md` and decision `0111`, the two citations Plan of Work says remain. `venv/bin/python -m docket.worker.scheduler --list`, the command every pointer names, printed the header `timezone=America/Chicago jobs=22`.
+
+M3, the verify run after the last edit to a file other than this plan (the tree of the commit that holds this paragraph):
+
+    verify: test-db ... ok (0s) postgresql://docket:docket_dev@localhost:5432/docket_test_7eed746c
+    verify: unit+web+services ... ok (172s)
+    verify: integration ... ok (116s)
+    verify: judge-fixtures ... ok (0s)
+    verify: workflows ... ok (0s)
+    verify: transcriber ... ok (11s)
+    verify: plans ... ok (0s)
+    verify: all 6 checks passed in 299s.
+
+with the tier totals `3502 passed, 5 skipped, 4 xfailed`, `1050 passed`, `judge fixtures: 12 of 12 passed`, and `147 passed`, and exit status 0. For `D93`: this session's two verify runs took 302 and 299 seconds, and M3 added no test.
 
 ## Interfaces and Dependencies
 

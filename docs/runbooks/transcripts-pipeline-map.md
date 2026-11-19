@@ -16,7 +16,7 @@ reading that code.
 ```
   LEGION DESKTOP (plan 1, already live)                     RAILWAY WORKER (plan 2, this PR)
   ──────────────────────────────────────                    ────────────────────────────────────────────────────────
-  claim video ─► fetch audio ─► faster-whisper ─► upload    cron transcript_pipeline, 10:00 America/Chicago
+  claim video ─► fetch audio ─► faster-whisper ─► upload    cron transcript_pipeline, daily
        │              │              │              │        scheduler.py:80   tasks.py:392
    claimed      audio_fetched    transcribed    uploaded ──┐
                                                   │        │   per tick (up to TRANSCRIPT_PER_TICK = 5 claims):
