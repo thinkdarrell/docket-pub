@@ -324,14 +324,26 @@ def test_main_with_list_prints_the_schedule_and_starts_nothing(monkeypatch, caps
     monkeypatch.setattr(scheduler.health, "ping", fail)
     monkeypatch.setattr(scheduler.health, "unmonitored_tasks", fail)
     monkeypatch.setattr(scheduler.config, "WORKER_TIMEZONE", "America/New_York")
+    built_in = []
+    real_build = scheduler.build_scheduler
+
+    def build(timezone="America/Chicago"):
+        built_in.append(timezone)
+        return real_build(timezone=timezone)
+
+    monkeypatch.setattr(scheduler, "build_scheduler", build)
 
     with caplog.at_level(logging.INFO):
         scheduler.main()
 
+    assert built_in == ["America/New_York"]
+
     out = capsys.readouterr().out.splitlines()
     assert out[0] == "timezone=America/New_York jobs=22"
     assert out[1:] == EXPECTED_LIST
-    assert caplog.records == []
+    # APScheduler logs each add_job at INFO under its own logger; the worker's
+    # own logger (the startup lines, the unmonitored-tasks WARNING) says nothing.
+    assert [r for r in caplog.records if r.name == scheduler.log.name] == []
 
 
 def test_main_refuses_list_together_with_run_once(monkeypatch, capsys):
