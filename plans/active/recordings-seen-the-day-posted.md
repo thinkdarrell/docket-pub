@@ -36,6 +36,12 @@ As authored on 2026-11-19, nothing has been executed; the entries below are what
 - Observation: editing `README.md` fires the trigger of debt row `D149`, and editing the docstrings of `src/docket/services/non_meetings.py` and `src/docket/services/city_calendar.py` fires the triggers of `D121` and `D119`, none of which the scope brief named.
   Evidence: `D149`'s trigger reads "or the next change to `README.md` (`D138`)"; `D121`'s reads "The next touch of `non_meetings.py`, the admin template, or either calendar module"; `D119`'s reads "the next plan that touches the calendar rung, the hiding rule, or the calendar readers". The Decision Log says what the plan does with each.
 
+- Observation (M1): the comment above `WORKER_TIMEZONE` in `src/docket/config.py` says "Every task time in docs/runbooks/cron-worker.md is in this zone", and M3 removes the runbook's column of times, so that sentence goes stale when M3 lands. The plan's M3 does not name `config.py`.
+  Evidence: `src/docket/config.py` lines 16 and 17, read while adding `AFTERNOON_INGEST_SLUGS` below them. M1 left the comment alone, because it is true until M3; the M3 session should reword it to name `--list`.
+
+- Observation (M1): `src/docket/worker/scheduler.py` still holds two citations of a plan by its `plans/completed/` path and clock times in the comments of other jobs. M1 changed neither: the file owns the times (Decision Log, the `D69` entry), and the citations are older plans' and outside this milestone.
+  Evidence: `grep -n "plans/completed" src/docket/worker/scheduler.py` printed two lines when the file was read for M1.
+
 ## Decision Log
 
 - Decision: The afternoon Birmingham-only ingest is a new worker task, `ingest_afternoon`, with its own entry in `TASKS` and its own Healthchecks variable; the afternoon runs of `youtube_ingest` and `non_meetings` are second scheduler jobs (`youtube_ingest_afternoon`, `non_meetings_afternoon`) that call the existing task functions and so ping the existing checks.
@@ -85,6 +91,26 @@ As authored on 2026-11-19, nothing has been executed; the entries below are what
 - Decision: No decision number or debt id is fixed in this plan. The session that needs one takes the lowest number above every one spent on `origin/main` and on any open pull request at that moment.
   Rationale: Debt row `D70`: numbers are allocated by hand and a figure written at authoring goes stale while the plan waits. Context and Orientation gives the procedure.
   Date/Author: 2026-11-19, the authoring session (Claude).
+
+- Decision (M1): Two tests beyond the ones the plan names were added to `tests/unit/test_worker_tasks.py`: `test_ingest_afternoon_visits_the_configured_cities_in_the_configured_order` and `test_config_afternoon_ingest_slugs_defaults_to_birmingham`. The second reads the setting in a fresh interpreter (a subprocess), with the variable unset, empty, and set to two cities.
+  Rationale: The plan states two rules no named test could tell from their absence: that the cities are visited "in the configured order", and that the default is `birmingham` while an empty value turns the task off. `config.py` reads the variable once, at import, so only a new interpreter can show the default; reloading `docket.config` inside the test process would replace the module object other tests have patched. The removal check in Artifacts and Notes shows both tests failing when their rule is taken out.
+  Date/Author: 2026-11-19, the M1 session (Claude).
+
+- Decision (M1): The tests of `config._csv` live in `tests/unit/test_worker_tasks.py`, under their own heading.
+  Rationale: The plan says "in the same file or the existing config test file if one exists"; `ls tests/unit | grep -i config` printed nothing.
+  Date/Author: 2026-11-19, the M1 session (Claude).
+
+- Decision (M1): `test_build_scheduler_afternoon_pass` and `test_build_scheduler_morning_pass_is_unchanged` are each one parametrized test of three cases, under the names the plan gives.
+  Rationale: The file's existing `test_build_scheduler_job_hours` is written that way, and a failing case then names its job in the test id. Each case asserts everything the plan lists for its job.
+  Date/Author: 2026-11-19, the M1 session (Claude).
+
+- Decision (M1): The afternoon tests assert more of the log than the plan asks: the exact WARNING text for the inactive city, the exact INFO text for the empty setting, that `log.exception` carries the exception, and the result line with six distinct counts (`errors=2` from a two-item list).
+  Rationale: The plan fixes these strings, the M3 runbook will quote the result line to the operator, and a fixture with equal counts could not tell one count from another.
+  Date/Author: 2026-11-19, the M1 session (Claude).
+
+- Decision (M1): `active_slugs()` is placed immediately above `ingest_municipality` in `src/docket/services/ingest.py`, and its integration test seeds three cities (active, inactive, active) inserted in reverse slug order.
+  Rationale: The plan asks for two cities and "sorted". With two rows inserted in slug order, a query without `ORDER BY` returns them sorted by accident; three rows inserted last-first make the removal of `ORDER BY slug` fail the test, which the removal check observed.
+  Date/Author: 2026-11-19, the M1 session (Claude).
 
 ## Outcomes & Retrospective
 
@@ -395,6 +421,21 @@ M1, session of 2026-11-19 (observed). The verify run before any edit, on `3919b4
 with the tier totals `3480 passed, 5 skipped, 4 xfailed`, `1049 passed`, `judge fixtures: 12 of 12 passed`, and `147 passed`.
 
 M1, the tests before the code. With the test edits made and `src/` untouched, `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_worker_scheduler.py tests/unit/test_worker_tasks.py tests/unit/test_worker_health.py tests/integration/test_ingest_active_slugs.py -q -p no:cacheprovider` printed `17 failed, 64 passed, 1 warning in 1.20s`. The seventeen: `test_build_scheduler_registers_all_jobs`; the three cases of `test_build_scheduler_afternoon_pass`; the two `ingest_all` tests (they now patch `docket.worker.tasks.active_slugs`, which does not exist yet); the six `test_ingest_afternoon_*` tests; the two config tests; `test_tasks_registry_has_all_jobs`; `test_ingest_afternoon_has_its_healthcheck_variable`; and the integration test `test_active_slugs_lists_the_active_cities_in_slug_order` (`ImportError`). The three cases of `test_build_scheduler_morning_pass_is_unchanged` passed, as they must on the unchanged scheduler. The commit that holds this paragraph holds the tests in that failing state.
+
+M1, the tests after the code. With the edits to `src/docket/config.py`, `src/docket/services/ingest.py`, `src/docket/worker/tasks.py`, `src/docket/worker/health.py` and `src/docket/worker/scheduler.py` made, the same command printed `81 passed, 1 warning in 0.94s`.
+
+M1, the acceptance snippet of Concrete Steps, run after the edits, printed the six expected lines:
+
+    ingest_all cron[hour='6', minute='0'] True 1
+    youtube_ingest cron[hour='6', minute='45'] True 1
+    non_meetings cron[hour='6', minute='55'] True 1
+    ingest_afternoon cron[hour='16', minute='30'] True 1
+    youtube_ingest_afternoon cron[hour='16', minute='45'] True 1
+    non_meetings_afternoon cron[hour='16', minute='55'] True 1
+
+and `len(scheduler.build_scheduler().get_jobs())` printed `22`. `venv/bin/python -m docket.worker.scheduler --run-once not_a_task` exited 1 and printed `unknown task: 'not_a_task' (known: [...])` with twenty names, `'ingest_afternoon'` between `'committee_documents'` and `'ingest_all'`.
+
+M1, proving the new tests can fail. Thirty-seven rules were taken out of the code one at a time, each in a copy of the source altered in memory at import (a `sitecustomize.py` in the session scratchpad that replaces one string of one file as Python loads it, so the subprocess the config test starts sees the same alteration; no committed file was edited), and the four test files were run against each copy. All thirty-seven failed at least one test; none survived. By file: sixteen in `tasks.py` (the empty-setting guard and its INFO line; the inactive-city skip and its WARNING; the per-city `try` and its `log.exception`; the result line, each of its counts, and the order of the cities; the name `_safe_run` pings; and for `_do_ingest_all` the per-city `try` and the call of `active_slugs`), four in `config.py` (strip, drop empty parts, the default `birmingham`, the variable's name), two in `ingest.py` (`WHERE active = TRUE`, `ORDER BY slug`), one in `health.py`, and fourteen in `scheduler.py` (each afternoon job's hour, minute, day of week, `coalesce`, `max_instances` and task, and each of the three morning times). Two of the thirty-seven patterns matched two places in `tasks.py` on the first run and failed collection instead of a test; they were narrowed and rerun, and each then failed a test. No assertion was added after the commit that holds the tests failing (`09ee1d4`); the only change to a test file after it is the removal of an unused `monkeypatch` argument and a reworded docstring on `test_config_afternoon_ingest_slugs_defaults_to_birmingham`.
 
 ## Interfaces and Dependencies
 

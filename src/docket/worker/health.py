@@ -19,6 +19,11 @@ HEALTHCHECK_BASE = "https://hc-ping.com"
 # Task name → env var name. Unknown task names are a programmer error.
 TASK_UUID_ENV: dict[str, str] = {
     "ingest_all": "HEALTHCHECK_INGEST_UUID",
+    # Check docket-ingest-afternoon; the operator creates it and sets the
+    # variable on the worker service after the first deploy of the task.
+    # ping() short-circuits until then.
+    # Plan `recordings-seen-the-day-posted`, M1.
+    "ingest_afternoon": "HEALTHCHECK_INGEST_AFTERNOON_UUID",
     "ai_items": "HEALTHCHECK_AI_ITEMS_UUID",
     "ai_meetings": "HEALTHCHECK_AI_MEETINGS_UUID",
     "vote_matching": "HEALTHCHECK_VOTE_MATCH_UUID",

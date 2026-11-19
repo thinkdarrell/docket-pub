@@ -17,6 +17,16 @@ DATABASE_URL: str = os.environ.get(
 # jobs in. Every task time in docs/runbooks/cron-worker.md is in this zone.
 WORKER_TIMEZONE: str = os.environ.get("WORKER_TIMEZONE", "America/Chicago")
 
+
+def _csv(value: str) -> tuple[str, ...]:
+    """The comma-separated parts of a setting, stripped, empty parts dropped."""
+    return tuple(part.strip() for part in value.split(",") if part.strip())
+
+
+# The cities the worker's afternoon ingest visits (task ingest_afternoon).
+# An empty value turns the afternoon ingest off.
+AFTERNOON_INGEST_SLUGS: tuple[str, ...] = _csv(os.environ.get("AFTERNOON_INGEST_SLUGS", "birmingham"))
+
 SECRET_KEY: str = os.environ.get("SECRET_KEY", "dev-secret-change-in-production")
 
 DOMAIN_NAME: str = os.environ.get("DOMAIN_NAME", "docket.pub")

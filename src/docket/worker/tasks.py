@@ -32,7 +32,7 @@ from docket.services import (
     non_meetings,
     youtube_meetings,
 )
-from docket.services.ingest import ingest_municipality
+from docket.services.ingest import active_slugs, ingest_municipality
 from docket.services.maintenance import repair_empty_agendas
 from docket.services.member_votes import resolve_unresolved_member_votes
 from docket.services.video_ocr import _claim_next_ocr_meeting, _ocr_one_meeting
@@ -70,16 +70,53 @@ def _do_ingest_all() -> None:
 
     A failure for one city is logged but does not block the others.
     """
-    with db_cursor() as cur:
-        cur.execute("SELECT slug FROM municipalities WHERE active = TRUE ORDER BY slug")
-        rows = cur.fetchall()
-
-    for row in rows:
-        slug = row["slug"]
+    for slug in active_slugs():
         try:
             ingest_municipality(slug)
         except Exception:
             log.exception("ingest failed for %s", slug)
+
+
+def _do_ingest_afternoon() -> None:
+    """Ingest the cities ``AFTERNOON_INGEST_SLUGS`` names a second time in the day.
+
+    A recording a city posts during the day then has its meeting row, and
+    the row its recording's address, before the Legion's scheduled
+    transcriber run (``transcriber/README.md``, "The scheduled run"), so
+    the transcript is public that evening and not the next day. The cities
+    come from the setting ``AFTERNOON_INGEST_SLUGS`` in ``docket.config``
+    (Birmingham by default; an empty value turns this task off), and a
+    named city that is not active is passed over. Every other city keeps
+    its one visit a day, from ``ingest_all``.
+
+    A failure for one city is logged but does not block the others.
+    Plan `recordings-seen-the-day-posted`, M1.
+    """
+    slugs = config.AFTERNOON_INGEST_SLUGS
+    if not slugs:
+        log.info("ingest_afternoon: no cities configured (AFTERNOON_INGEST_SLUGS is empty)")
+        return
+
+    active = set(active_slugs())
+    for slug in slugs:
+        if slug not in active:
+            log.warning("ingest_afternoon: %s is not an active municipality; skipped", slug)
+            continue
+        try:
+            result = ingest_municipality(slug)
+        except Exception:
+            log.exception("ingest failed for %s", slug)
+            continue
+        log.info(
+            "ingest_afternoon %s: found=%d inserted=%d updated=%d items=%d votes=%d errors=%d",
+            slug,
+            result.meetings_found,
+            result.meetings_inserted,
+            result.meetings_updated,
+            result.agenda_items_inserted,
+            result.votes_inserted,
+            len(result.errors),
+        )
 
 
 def _do_ai_items() -> None:
@@ -228,6 +265,10 @@ def _do_process_badges() -> None:
 
 def task_ingest_all() -> None:
     _safe_run("ingest_all", _do_ingest_all)
+
+
+def task_ingest_afternoon() -> None:
+    _safe_run("ingest_afternoon", _do_ingest_afternoon)
 
 
 def task_ai_items() -> None:
@@ -563,6 +604,7 @@ def task_committee_documents() -> None:
 TASKS: dict[str, Callable[[], None]] = {
     "repair_empty_agendas": task_repair_empty_agendas,
     "ingest_all": task_ingest_all,
+    "ingest_afternoon": task_ingest_afternoon,
     "video_ocr": task_video_ocr,
     "ai_items": task_ai_items,
     "ai_meetings": task_ai_meetings,

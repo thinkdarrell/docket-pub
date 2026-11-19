@@ -81,6 +81,18 @@ class IngestResult:
         return len(self.errors) == 0
 
 
+def active_slugs() -> list[str]:
+    """The slugs of the active municipalities, in slug order.
+
+    The one list of cities the worker's ingest tasks visit: ``ingest_all``
+    visits each of them, and ``ingest_afternoon`` visits those of them its
+    setting names. Deactivating a city takes it out of both.
+    """
+    with db_cursor() as cur:
+        cur.execute("SELECT slug FROM municipalities WHERE active = TRUE ORDER BY slug")
+        return [row["slug"] for row in cur.fetchall()]
+
+
 def ingest_municipality(slug: str, since: date | None = None) -> IngestResult:
     """Run the full ingestion pipeline for a municipality.
 

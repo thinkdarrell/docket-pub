@@ -5,7 +5,7 @@ Two modes:
   python -m docket.worker.scheduler                   # daemon mode (Railway worker)
   python -m docket.worker.scheduler --run-once <task> # foreground one-shot
 
-The daemon registers all nineteen jobs with the timezone in $WORKER_TIMEZONE
+The daemon registers every job with the timezone in $WORKER_TIMEZONE
 (default America/Chicago, read through docket.config) and calls
 scheduler.start(), which blocks.
 
@@ -31,7 +31,7 @@ log = logging.getLogger(__name__)
 
 
 def build_scheduler(timezone: str = "America/Chicago") -> BlockingScheduler:
-    """Build a scheduler with all nineteen jobs registered. Does not start it."""
+    """Build a scheduler with every job registered. Does not start it."""
     sched = BlockingScheduler(timezone=timezone)
 
     sched.add_job(
@@ -85,6 +85,33 @@ def build_scheduler(timezone: str = "America/Chicago") -> BlockingScheduler:
         TASKS["non_meetings"],
         CronTrigger(hour=6, minute=55, timezone=timezone),
         id="non_meetings",
+        coalesce=True,
+        max_instances=1,
+    )
+    # The afternoon pass, Birmingham only: it repeats the morning's three
+    # source tasks so a recording posted during the day has its row and its
+    # attached YouTube recording before the Legion's scheduled transcriber
+    # run (transcriber/README.md, "The scheduled run"). The second and third
+    # are second jobs on the morning's tasks and ping the same checks.
+    # Plan `recordings-seen-the-day-posted`, M1.
+    sched.add_job(
+        TASKS["ingest_afternoon"],
+        CronTrigger(hour=16, minute=30, timezone=timezone),
+        id="ingest_afternoon",
+        coalesce=True,
+        max_instances=1,
+    )
+    sched.add_job(
+        TASKS["youtube_ingest"],
+        CronTrigger(hour=16, minute=45, timezone=timezone),
+        id="youtube_ingest_afternoon",
+        coalesce=True,
+        max_instances=1,
+    )
+    sched.add_job(
+        TASKS["non_meetings"],
+        CronTrigger(hour=16, minute=55, timezone=timezone),
+        id="non_meetings_afternoon",
         coalesce=True,
         max_instances=1,
     )
