@@ -135,7 +135,7 @@ python -m docket.worker.scheduler --run-once prune_analytics
 exit
 ```
 
-Each should emit a Healthchecks ping (visible on the dashboard within seconds — silent-by-design tasks skip the ping) and complete successfully. Order: do `repair` and `vote_matching` first — they're zero-cost (DB only). `ingest_all` hits Granicus and other adapters. `ai_items` and `ai_meetings` spend a few cents each on Anthropic. `video_ocr` runs ffmpeg + tesseract — note the worker RSS climbs to ~1.7 GB during an active scan (see "OCR worker resource ceiling" in CLAUDE.md key decisions).
+Each should emit a Healthchecks ping (visible on the dashboard within seconds — silent-by-design tasks skip the ping) and complete successfully. Order: do `repair` and `vote_matching` first — they're zero-cost (DB only). `ingest_all` hits Granicus and other adapters. `ai_items` and `ai_meetings` spend a few cents each on Anthropic. `video_ocr` runs ffmpeg + tesseract — note the worker RSS climbs to ~1.7 GB during an active scan (the worker's memory constraint is in `GOALS.md`, Constraints; `docs/specs/operations.md`, Railway specifics, says what follows from it).
 
 **Don't use `railway run --service worker python ...`** — that runs locally on your laptop, not in the container, and `postgres.railway.internal` won't resolve. If you must drive a one-shot from your laptop (e.g., the worker container is down), substitute `DATABASE_URL=$DATABASE_PUBLIC_URL` and run from `~/docket-pub`:
 
@@ -175,4 +175,4 @@ The one-time production run of `python -m docket.worker.scheduler --run-once res
 
 ## 18-month AI backfill (one-shot, separate from the worker)
 
-The worker handles steady-state. To populate AI summaries/scoring for historical items, use `python -m docket.ai.cli` from a laptop (see CLAUDE.md "AI pipeline operator commands" for the current invocation). The cron-driven `process_batches` task polls and ingests Anthropic Batches API results every 30 minutes, so submitting a batch via the CLI and waiting is the recommended path — the worker handles the ingest side automatically.
+The worker handles steady-state. To populate AI summaries/scoring for historical items, use `python -m docket.ai.cli` from a laptop (`docs/specs/operations.md`, Railway specifics, gives the invocation against `DATABASE_PUBLIC_URL`). The cron-driven `process_batches` task polls and ingests Anthropic Batches API results every 30 minutes, so submitting a batch via the CLI and waiting is the recommended path — the worker handles the ingest side automatically.
