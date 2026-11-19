@@ -217,3 +217,145 @@ def test_main_warns_which_tasks_have_no_heartbeat(monkeypatch, caplog):
     warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
     assert any("video_ocr" in m and "HEALTHCHECK" in m for m in warnings)
     fake_sched.start.assert_called_once()
+
+
+# --- --list: the schedule printed from the code -----------------------------
+# Plan `recordings-seen-the-day-posted`, M2.
+
+EXPECTED_LIST = [
+    "prune_analytics prune_analytics cron[day='1', hour='4', minute='0']",
+    "refresh_backfill_ratio_mv refresh_backfill_ratio_mv cron[hour='4', minute='30']",
+    "recast_post_meeting_ai recast_post_meeting_ai cron[hour='4', minute='45']",
+    "repair_empty_agendas repair_empty_agendas cron[day_of_week='0', hour='5', minute='0']",
+    "city_calendar city_calendar cron[hour='5', minute='30']",
+    "ingest_all ingest_all cron[hour='6', minute='0']",
+    "video_ocr video_ocr cron[hour='6', minute='30']",
+    "youtube_ingest youtube_ingest cron[hour='6', minute='45']",
+    "non_meetings non_meetings cron[hour='6', minute='55']",
+    "ai_items ai_items cron[hour='7', minute='0']",
+    "committee_documents committee_documents cron[hour='7', minute='15']",
+    "ai_meetings ai_meetings cron[hour='8', minute='0']",
+    "resolve_member_votes resolve_member_votes cron[hour='8', minute='45']",
+    "vote_matching vote_matching cron[hour='9', minute='0']",
+    "process_badges process_badges cron[hour='9', minute='30']",
+    "briefing_facts briefing_facts cron[hour='9', minute='45']",
+    "transcript_pipeline transcript_pipeline cron[hour='10', minute='0']",
+    "calibration_report calibration_report cron[hour='11', minute='0']",
+    "ingest_afternoon ingest_afternoon cron[hour='16', minute='30']",
+    "youtube_ingest_afternoon youtube_ingest cron[hour='16', minute='45']",
+    "non_meetings_afternoon non_meetings cron[hour='16', minute='55']",
+    "process_batches process_batches cron[minute='0,30']",
+]
+
+
+def test_list_jobs_prints_every_job_in_time_of_day_order():
+    """One line per job, `<job id> <task name> <trigger>`, earliest first; a
+    job with no single hour (process_batches) comes last."""
+    lines = scheduler.list_jobs()
+    assert len(lines) == len(scheduler.build_scheduler().get_jobs())
+    assert lines[0] == "prune_analytics prune_analytics cron[day='1', hour='4', minute='0']"
+    assert lines[-1] == "process_batches process_batches cron[minute='0,30']"
+    ids = [line.split(" ")[0] for line in lines]
+    assert ids.index("ingest_all") < ids.index("ingest_afternoon")
+    assert lines == EXPECTED_LIST
+
+
+def test_list_jobs_names_the_task_a_second_job_runs():
+    """A second job on a morning task is listed under its own id with the
+    name of the task it runs, found by identity in TASKS."""
+    lines = scheduler.list_jobs()
+    assert "youtube_ingest_afternoon youtube_ingest cron[hour='16', minute='45']" in lines
+    assert "non_meetings_afternoon non_meetings cron[hour='16', minute='55']" in lines
+
+
+def test_list_jobs_sorts_by_hour_then_minute_then_job_id(monkeypatch):
+    """Jobs at one time of day are listed by job id, and the hour and the
+    minute are compared as numbers (10 after 9, not before it)."""
+    from apscheduler.schedulers.blocking import BlockingScheduler
+    from apscheduler.triggers.cron import CronTrigger
+
+    def build(timezone="America/Chicago"):
+        sched = BlockingScheduler(timezone=timezone)
+        for job_id, kw in [
+            ("zeta",    {"hour": 9, "minute": 5}),
+            ("alpha",   {"hour": 9, "minute": 5}),
+            ("ten",     {"hour": 10, "minute": 0}),
+            ("late",    {"hour": 9, "minute": 10}),
+            ("several", {"hour": 9, "minute": "0,30"}),
+            ("hourly",  {"minute": 1}),
+        ]:
+            sched.add_job(scheduler.TASKS["ingest_all"],
+                          CronTrigger(timezone=timezone, **kw), id=job_id)
+        return sched
+
+    monkeypatch.setattr(scheduler, "build_scheduler", build)
+    ids = [line.split(" ")[0] for line in scheduler.list_jobs()]
+    # "several" has no single minute, so it follows every single minute of its
+    # hour; "hourly" has no single hour, so it follows every single hour.
+    assert ids == ["alpha", "zeta", "late", "several", "ten", "hourly"]
+
+
+def test_list_jobs_builds_the_scheduler_in_the_given_timezone(monkeypatch):
+    seen = []
+    real = scheduler.build_scheduler
+
+    def spy(timezone="America/Chicago"):
+        seen.append(timezone)
+        return real(timezone=timezone)
+
+    monkeypatch.setattr(scheduler, "build_scheduler", spy)
+    scheduler.list_jobs("America/New_York")
+    assert seen == ["America/New_York"]
+
+
+def test_main_with_list_prints_the_schedule_and_starts_nothing(monkeypatch, capsys, caplog):
+    """--list prints a header and the lines, starts no scheduler, pings no
+    check, runs no task and warns of nothing."""
+    import logging
+
+    from apscheduler.schedulers.blocking import BlockingScheduler
+
+    def fail(*a, **kw):
+        raise AssertionError("--list must start, run and ping nothing")
+
+    monkeypatch.setattr(sys, "argv", ["scheduler", "--list"])
+    monkeypatch.setattr(BlockingScheduler, "start", fail)
+    monkeypatch.setattr(scheduler, "run_once_task", fail)
+    monkeypatch.setattr(scheduler.health, "ping", fail)
+    monkeypatch.setattr(scheduler.health, "unmonitored_tasks", fail)
+    monkeypatch.setattr(scheduler.config, "WORKER_TIMEZONE", "America/New_York")
+
+    with caplog.at_level(logging.INFO):
+        scheduler.main()
+
+    out = capsys.readouterr().out.splitlines()
+    assert out[0] == "timezone=America/New_York jobs=22"
+    assert out[1:] == EXPECTED_LIST
+    assert caplog.records == []
+
+
+def test_main_refuses_list_together_with_run_once(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["scheduler", "--list", "--run-once", "ingest_all"])
+    monkeypatch.setattr(scheduler, "run_once_task",
+                        lambda name: pytest.fail("ran a task"))
+    with pytest.raises(SystemExit) as exc_info:
+        scheduler.main()
+    assert exc_info.value.code == 2
+    assert "not allowed with" in capsys.readouterr().err
+
+
+def test_no_docstring_outside_the_scheduler_states_a_worker_clock_time():
+    """scheduler.py owns the times; the task and service docstrings name the
+    order and the reason. The pattern is the plan's acceptance grep."""
+    import re
+    from pathlib import Path
+
+    src = Path(scheduler.__file__).resolve().parents[1]
+    pattern = re.compile(r"\b(0[4-9]|1[01]|16):[0-5][0-9]\b")
+    hits = [
+        f"{rel}:{n}: {line.strip()}"
+        for rel in ("worker/tasks.py", "services/non_meetings.py", "services/city_calendar.py")
+        for n, line in enumerate((src / rel).read_text().splitlines(), 1)
+        if pattern.search(line)
+    ]
+    assert hits == []

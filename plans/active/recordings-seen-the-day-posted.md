@@ -453,6 +453,20 @@ M1, the verify run after the last code edit, on `9f81d76`:
 
 with the tier totals `3495 passed, 5 skipped, 4 xfailed` (fifteen more than the 3480 of the starting run: six scheduler cases, six afternoon task tests, two config tests, one health test), `1050 passed` (one more: `tests/integration/test_ingest_active_slugs.py`), `judge fixtures: 12 of 12 passed`, and `147 passed`. For `D93`: this session's two verify runs took 291 and 289 seconds, and M1 added sixteen tests.
 
+M2, session of 2026-11-19 (observed). The verify run before any edit, on `175258c`:
+
+    verify: unit+web+services ... ok (167s)
+    verify: integration ... ok (111s)
+    verify: judge-fixtures ... ok (1s)
+    verify: workflows ... ok (0s)
+    verify: transcriber ... ok (10s)
+    verify: plans ... ok (0s)
+    verify: all 6 checks passed in 289s.
+
+with the tier totals `3495 passed, 5 skipped, 4 xfailed`, `1050 passed`, `judge fixtures: 12 of 12 passed`, and `147 passed`.
+
+M2, the tests before the code. With seven tests added to `tests/unit/test_worker_scheduler.py` and `src/` untouched, `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_worker_scheduler.py -q -p no:cacheprovider` printed `7 failed, 38 passed, 1 warning in 0.92s`. The seven: `test_list_jobs_prints_every_job_in_time_of_day_order`, `test_list_jobs_names_the_task_a_second_job_runs`, `test_list_jobs_sorts_by_hour_then_minute_then_job_id`, `test_list_jobs_builds_the_scheduler_in_the_given_timezone`, `test_main_with_list_prints_the_schedule_and_starts_nothing`, `test_main_refuses_list_together_with_run_once`, and `test_no_docstring_outside_the_scheduler_states_a_worker_clock_time`. The commit that holds this paragraph holds the tests in that failing state.
+
 ## Interfaces and Dependencies
 
 No new library. APScheduler's `BlockingScheduler` and `CronTrigger` are already used; `str()` of a `CronTrigger` prints as in the transcripts above on the installed version.
