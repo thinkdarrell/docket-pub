@@ -20,7 +20,7 @@ As authored on 2026-11-19, nothing has been executed.
 
 - [x] (2026-11-19 18:32Z) M1: the worker registers an afternoon pass, `ingest_afternoon` at 16:30 for the cities `AFTERNOON_INGEST_SLUGS` names (Birmingham), `youtube_ingest_afternoon` at 16:45 and `non_meetings_afternoon` at 16:55 America/Chicago, beside the unchanged morning jobs, with the scheduler, task, health, and service tests passing
 - [x] (2026-11-19 19:24Z) M2: `python -m docket.worker.scheduler --list` prints every job with the task it runs and its trigger in time-of-day order, and the docstrings of `src/docket/worker/tasks.py`, `src/docket/services/non_meetings.py` and `src/docket/services/city_calendar.py` state no clock time
-- [ ] M3: `README.md`, `docs/runbooks/cron-worker.md` and the other runbooks and specs that stated a worker task count or clock time point at `scheduler.py` and `--list` in its place, the runbook lists the afternoon jobs and the `docket-ingest-afternoon` check, and debt rows `D69` and `D138` are deleted
+- [x] (2026-11-19 19:43Z) M3: `README.md`, `docs/runbooks/cron-worker.md` and the other runbooks and specs that stated a worker task count or clock time point at `scheduler.py` and `--list` in its place, the runbook lists the afternoon jobs and the `docket-ingest-afternoon` check, and debt rows `D69` and `D138` are deleted
 - [ ] M4: the specs, the transcriber README, the transcripts runbook, and the Birmingham tour describe the afternoon pass and the Legion's scheduled `docket-transcriber` run, the durable decisions are records under `docs/decisions/`, and `docs/DEBT.md` carries the CivicClerk delay row, the operator's post-merge steps, and the written re-deferrals
 
 ## Surprises & Discoveries
@@ -53,6 +53,15 @@ As authored on 2026-11-19, nothing has been executed; the entries below are what
 
 - Observation (M2): a removal check that alters the source as Python loads it does nothing when a cached `.pyc` of the file exists, because the loader then never reads the source. The second session's first run of its twenty-one removals showed all eighteen of the `scheduler.py` removals passing every test for that reason.
   Evidence: the first run printed `45 passed` for each `scheduler.py` removal and `1 failed, 44 passed` for the three docstring removals (which the test reads from disk, not by import); with `PYTHONPYCACHEPREFIX` set to an empty directory in the session scratchpad for each run, the same removals failed tests as Artifacts and Notes records. A session using this technique sets that variable.
+
+- Observation (M3): the check table of `docs/runbooks/cron-worker.md` has no row for `transcript_pipeline` or `recast_post_meeting_ai`, though the inventory gives each a Healthchecks variable, and it had none before M3. M3 gave the table its "Job or jobs" column and the one new row the plan names and added no other.
+  Evidence: the scratchpad script asserted fifteen rows in the table before it wrote; the table now holds sixteen, and `grep -c "docket-transcript-pipeline\|docket-recast" docs/runbooks/cron-worker.md` printed `0`. A later doc-garden pass or the operator decides whether those checks exist.
+
+- Observation (M3): after M3 the `D149` row of `docs/DEBT.md` describes a README roadmap item that is no longer there and names the deleted `D138` in its trigger. M4 rewords that row (Plan of Work, M4); until then the row is stale by this milestone's doing.
+  Evidence: `grep -n "D138" docs/DEBT.md` printed the `D149` row alone after the deletion.
+
+- Observation (M3): `./tools/verify` took 302 seconds on the starting run, past the 300-second default timeout the authoring entry above warned of.
+  Evidence: `verify: all 6 checks passed in 302s.`, under a 600-second timeout.
 
 ## Decision Log
 
@@ -136,6 +145,22 @@ As authored on 2026-11-19, nothing has been executed; the entries below are what
   Rationale: The plan says the task name is found by identity and gives the reason (`recast_post_meeting_ai` is registered as a lambda). The removal check replaced `f is job.func` with a comparison of the functions' `__name__` and every test passed, because the real `TASKS` holds one lambda only. Two lambdas share the name `<lambda>`, so the added assertion fails under that replacement, which the session then observed.
   Date/Author: 2026-11-19, the second M2 session (Claude).
 
+- Decision (M3): The comment above `WORKER_TIMEZONE` in `src/docket/config.py` was reworded to say that every time `--list` prints is in that zone. Plan of Work for M3 does not name the file.
+  Rationale: The M1 Surprises entry and the M2 outcome both hand this to the M3 session, and it is M3's own edit that makes the old sentence false ("Every task time in docs/runbooks/cron-worker.md is in this zone": the runbook now holds no time). It is a two-line comment and no code; verify passed after it.
+  Date/Author: 2026-11-19, the M3 session (Claude).
+
+- Decision (M3): The inventory table of `docs/runbooks/cron-worker.md` keeps one row per task, twenty rows, not one per job; the `ingest_afternoon` row sits where `--list` prints its job, and `youtube_ingest` and `non_meetings` each keep one row, at their morning job's place, naming both job ids. A sentence above the table says so.
+  Rationale: The plan says the table "keeps its rows in the order `--list` prints the jobs", adds one row, and has the two existing rows say each task runs under two job ids, which is one row per task. A row per job would repeat a variable and a note.
+  Date/Author: 2026-11-19, the M3 session (Claude).
+
+- Decision (M3): Two things in the edited documents were left as they were: the runbook's Status line ("Task count grew from the original 5 through 2026-05") and the line `scheduler.py:80   tasks.py:392` in `docs/runbooks/transcripts-pipeline-map.md`. In the two runbook notes that said "after `youtube_ingest`", the `non_meetings` row now says "after each `youtube_ingest` run" and the `committee_documents` row "after the morning `youtube_ingest`", the wording M2 gave the two docstrings.
+  Rationale: The Status line is dated history of the first month and states no present count. The line numbers in the pipeline map are not a count or a clock time, and this session did not check them. The two notes would otherwise have contradicted the sentence M3 adds to the same rows about two runs a day.
+  Date/Author: 2026-11-19, the M3 session (Claude).
+
+- Decision (M3): The README's roadmap bullet keeps its place in the list under a new bold title, "Tighten HSTS to `includeSubDomains`".
+  Rationale: The plan asks for one bullet saying `www.docket.pub` redirects at Cloudflare's edge (decision `0091`) and that `includeSubDomains` remains (`D10`); the old title, "Move `www.docket.pub` to Railway", named the plan decision `0091` replaced. Both cited records were read: the file `docs/decisions/0091-www-docket-pub-redirects-to-the-apex-at-cloudflares-edge.md` exists and the `D10` row says HSTS omits `includeSubDomains`.
+  Date/Author: 2026-11-19, the M3 session (Claude).
+
 ## Outcomes & Retrospective
 
 As authored on 2026-11-19, nothing has been executed and there is no outcome to report.
@@ -143,6 +168,8 @@ As authored on 2026-11-19, nothing has been executed and there is no outcome to 
 - M1 (2026-11-19). The scheduler registers twenty-two jobs: the nineteen it had, at the times they had, and `ingest_afternoon` (16:30), `youtube_ingest_afternoon` (16:45) and `non_meetings_afternoon` (16:55), America/Chicago. `ingest_afternoon` is a task of its own with the Healthchecks variable `HEALTHCHECK_INGEST_AFTERNOON_UUID`; it visits the cities `AFTERNOON_INGEST_SLUGS` names (default `birmingham`) that are also active, and both ingest tasks read the active cities from `docket.services.ingest.active_slugs()`. Acceptance was met with no carve-out: verify passed all six checks before and after, the snippet printed the six expected lines, `--run-once not_a_task` names `ingest_afternoon`, and `test_build_scheduler_registers_all_jobs` was seen failing on the unchanged scheduler (commit `09ee1d4`) and passing after the edit (`9f81d76`). What remains: nothing a session of the repository has observed says the pass works in production; that is the operator's, after a deploy, as Validation and Acceptance lists. No document outside this plan mentions the afternoon pass yet; M2 adds `--list`, and M3 and M4 write the prose. M2 is next.
 
 - M2 (2026-11-19, two sessions). `python -m docket.worker.scheduler --list` prints `timezone=<tz> jobs=22` and one line per job, `<job id> <task name> <trigger>`, in time-of-day order, from the jobs `build_scheduler()` registers; it is exclusive with `--run-once`, and it printed the same with a database URL nothing listens on. The docstrings of `src/docket/worker/tasks.py`, `src/docket/services/non_meetings.py` and `src/docket/services/city_calendar.py` state the order and no clock time, and a test holds that. Acceptance was met with no carve-out: verify passed all six checks before and after the second session's edit, `--list` exited 0 with exactly the twenty-three expected lines, and the docstring grep printed nothing. Two things a reader should know: the milestone's code landed in a first session that left no closing evidence, and the second session re-ran every acceptance command and made the removal check, which found the by-identity rule unpinned (now pinned) and the job-id part of the sort key indistinguishable from its absence (Surprises). No document yet points at `--list`. M3 is next; it should also reword the `WORKER_TIMEZONE` comment in `src/docket/config.py` that the M1 Surprises entry names.
+
+- M3 (2026-11-19). No document outside the plan's leave-alone list states a worker task count or a worker clock time: `docs/runbooks/cron-worker.md`, `README.md`, `docs/runbooks/transcripts.md`, `docs/runbooks/transcripts-pipeline-map.md`, `docs/specs/transcripts.md`, `docs/specs/committee-documents.md` and `docs/specs/city-page.md` name `src/docket/worker/scheduler.py` and `--list` in its place. The runbook lists the task `ingest_afternoon`, its variable, its run-once line and the check `docket-ingest-afternoon`, says which two checks hear from two jobs and how to write their schedule, and debt rows `D69` and `D138` are deleted. The README half of `D149` is paid in the README; the row itself is M4's to reword. Acceptance was met with no carve-out: verify passed all six checks before (302 s) and after (299 s), the time grep printed the three leave-alone files only, the count grep printed nothing, the debt-row count printed `0`, and the runbook names `ingest_afternoon` on six lines. Beyond the files Plan of Work names, one comment in `src/docket/config.py` was reworded (Decision Log). What the acceptance greps cannot see: they match a fixed set of minutes and words, so a count or a time written another way would pass them; this session also searched those documents, `ARCHITECTURE.md`, `GOALS.md` and `AGENTS.md` for number words beside "tasks" or "jobs" and for any `HH:MM`, before the edits, and found worker times only in the files M3 then changed. M4 is next.
 
 ## Context and Orientation
 
