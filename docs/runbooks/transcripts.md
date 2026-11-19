@@ -23,7 +23,7 @@ Plan 1: `docs/superpowers/plans/2026-10-07-transcripts-foundation.md` (PR #99).
   Setup and run commands: `transcriber/README.md`, which also has the desktop
   operating notes, a "What to expect" section from the first runs, and the
   bring-up log.
-- **Railway worker**: the `transcript_pipeline` cron (10:00 CT) runs the LLM stages
+- **Railway worker**: the daily `transcript_pipeline` cron runs the LLM stages
   on uploaded transcripts; see "Worker stages (plan 2)".
 - **Web**: `/al/<slug>/meetings/<id>/transcript/` (full machine transcript with
   per-turn anchors `#t-N`, HTMX tab on the meeting page), a "From the video"
@@ -53,7 +53,7 @@ Plan 1: `docs/superpowers/plans/2026-10-07-transcripts-foundation.md` (PR #99).
 
 ## Worker stages (plan 2)
 
-`transcript_pipeline` runs at 10:00 America/Chicago (after vote matching) and
+`transcript_pipeline` runs daily, after vote matching, and
 advances up to `TRANSCRIPT_PER_TICK` (default 5) transcripts one stage each:
 
 | From | Stage | Model | To |
@@ -175,6 +175,11 @@ meeting 2543 fixture; seq 191 holds a real motion and vote, so 166-191 correctly
   meetings, so roughly 7 hours of Legion time.
 - The producer skips meetings with `is_hidden = TRUE`, so hiding a junk meeting
   also stops the GPU spending time on it.
+- The Legion also runs this command on a schedule, once a day after the worker's
+  afternoon pass; `transcriber/README.md`, "The scheduled run", says how.
+- A transcript uploaded by an evening run shows "Speaker N" until the worker's
+  next daily `transcript_pipeline` tick resolves its speakers. No afternoon or
+  evening tick exists (decision `0116`).
 
 ## Re-transcribing one meeting
 
@@ -196,7 +201,8 @@ states those rules and the busy guard below; this section is the procedure.
 Before the run:
 
 - Do not start it inside the worker's daily `transcript_pipeline` window
-  (10:00 America/Chicago, `src/docket/worker/scheduler.py`). The producer refuses
+  (the `transcript_pipeline` job of `src/docket/worker/scheduler.py`, whose time
+  `venv/bin/python -m docket.worker.scheduler --list` prints). The producer refuses
   a row whose `last_attempted_at` is within the last 30 minutes (`meeting N was
   touched at ...; wait 30 minutes`, exit 1); the worker's claim is the only
   writer that stamps that column (the producer's own status writes never stamp
@@ -252,7 +258,7 @@ row labelled "Too short to analyze (N words)") is the exception: `claim_meeting(
 clears its `uploaded_at` for the run, so its page stays a 404 and the meeting page
 has no transcript link until the new upload lands, as before the run; a re-run that
 ends without an upload puts `uploaded_at` back with the rest of the row. The worker's
-10:00 CT tick does the rest. If the transcript lands in the admin held tab and is
+next daily `transcript_pipeline` tick does the rest. If the transcript lands in the admin held tab and is
 retried from there, `retry_transcript()` nulls the `transcript_changed` marker
 (`docs/DEBT.md` `D52`); once it reaches `events_extracted`, run
 `venv/bin/python scripts/transcript_recompare.py --meeting-id 2543 --now --transcript-changed`

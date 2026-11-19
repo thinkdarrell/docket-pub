@@ -61,6 +61,11 @@ def test_every_registered_task_has_a_uuid_env_entry():
     assert not missing, f"tasks missing from TASK_UUID_ENV: {sorted(missing)}"
 
 
+def test_ingest_afternoon_has_its_healthcheck_variable():
+    """Check docket-ingest-afternoon. Plan `recordings-seen-the-day-posted`, M1."""
+    assert health.TASK_UUID_ENV["ingest_afternoon"] == "HEALTHCHECK_INGEST_AFTERNOON_UUID"
+
+
 def test_unmonitored_tasks_lists_tasks_whose_variable_is_unset(monkeypatch):
     """A task with no UUID variable is unmonitored; one with it set is not."""
     for env_var in health.TASK_UUID_ENV.values():

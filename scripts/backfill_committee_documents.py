@@ -18,8 +18,8 @@ that is rolled back, so the output is what a real run would do and nothing
 is written. A second dry run after a real run reports nothing new to read,
 attach or create. On a database that migration 045 has not reached, the dry
 run makes the two tables inside its own transaction; until it ends, writes
-to ``meetings`` and ``municipalities`` wait, so run it away from the
-worker's morning tasks (04:00 to 11:15 America/Chicago).
+to ``meetings`` and ``municipalities`` wait, so run it while no worker job
+is due (``python -m docket.worker.scheduler --list`` prints the schedule).
 
 Against production the operator sets DATABASE_URL to DATABASE_PUBLIC_URL
 (``docs/specs/operations.md``). Plan `committee-documents`, M6.

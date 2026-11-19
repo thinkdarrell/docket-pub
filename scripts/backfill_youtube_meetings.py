@@ -1,6 +1,6 @@
 """Match a city's whole YouTube channel to its meeting rows, once.
 
-Runs the same code as the daily worker task ``youtube_ingest``
+Runs the same code as the worker task ``youtube_ingest``
 (``docket.services.youtube_meetings.sync_city``) over every upload published
 since ``--since`` (default 2008-01-01) instead of the last 30 days: a
 recording attaches to the Granicus row it belongs to, or becomes a

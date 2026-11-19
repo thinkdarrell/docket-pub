@@ -26,12 +26,13 @@ One operator runs docket.pub from one machine, the Legion, with the production p
 5. **The front page** (chapter 6): `briefing_facts` rebuilds `city_briefing_facts` for every `briefing` city, which is what "Where they disagreed" and the council cards read.
 6. **Transcripts** (chapter 5): `transcript_pipeline` advances a few transcripts one stage each and builds search cards.
 7. **Reporting**: `calibration_report` (`docs/specs/calibration.md`) and cache cleanup.
-8. **All day**, twice an hour: `process_batches` collects finished Anthropic batch jobs.
-9. **Monthly**: `prune_analytics` keeps 24 months of Umami events.
+8. **Afternoon**: a second, shorter pass for Birmingham alone, `ingest_afternoon`, then `youtube_ingest` and `non_meetings` again, so that a recording posted during the day has its row before the Legion's scheduled transcriber run.
+9. **All day**, twice an hour: `process_batches` collects finished Anthropic batch jobs.
+10. **Monthly**: `prune_analytics` keeps 24 months of Umami events.
 
 Every task runs through one wrapper that pings its check at start, success, and failure with the traceback, and never re-raises, so one task's failure never stops the next. Each job is `coalesce=True, max_instances=1`. Any task can be run by hand: `python -m docket.worker.scheduler --run-once <task>`, through `railway ssh` for production, mindful of the memory constraint above.
 
-The transcriber is **not** on this schedule. The operator starts it by hand on the Windows side (`docker compose run --rm transcriber --since … --limit … --max-hours …`; an optional at-logon task exists), and its uploads are picked up by the worker's next `transcript_pipeline` tick.
+The transcriber is **not** a worker job. On the Legion, Windows Task Scheduler starts it once a day after the worker's afternoon pass (`transcriber/README.md`, "The scheduled run"); the operator can still start it by hand (`docker compose run --rm transcriber --since … --limit … --max-hours …`). Its uploads are picked up by the worker's next `transcript_pipeline` tick, so a same-day transcript shows "Speaker N" until the next morning.
 
 ## How a change reaches production
 

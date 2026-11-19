@@ -2,8 +2,9 @@
 
 The clerk's streaming equipment leaves recordings of a minute or a few in
 Birmingham's Granicus archive on days when no body met, under the same
-generic title as every real clip. The daily worker task ``non_meetings``
-(06:55 America/Chicago, after ``youtube_ingest``) hides such a clip and
+generic title as every real clip. The worker task ``non_meetings``
+(after each ``youtube_ingest`` run; ``docket.worker.scheduler`` owns the
+times) hides such a clip and
 records why (``meetings.hidden_reason = 'not_a_meeting'``, migration 044).
 Every reader of ``is_hidden`` then treats it exactly as a row an admin hid.
 

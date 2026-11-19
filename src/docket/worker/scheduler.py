@@ -1,17 +1,24 @@
 """APScheduler entry point for the docket.pub cron worker.
 
-Two modes:
+Three modes:
 
   python -m docket.worker.scheduler                   # daemon mode (Railway worker)
   python -m docket.worker.scheduler --run-once <task> # foreground one-shot
+  python -m docket.worker.scheduler --list            # print the schedule and exit
 
-The daemon registers all nineteen jobs with the timezone in $WORKER_TIMEZONE
+The daemon registers every job with the timezone in $WORKER_TIMEZONE
 (default America/Chicago, read through docket.config) and calls
 scheduler.start(), which blocks.
 
 The one-shot mode runs a single named task in the foreground using the same
 _safe_run wrapper as scheduled runs, ensuring environmental parity for
 manual triggers and verification.
+
+The list mode prints every job with the task it runs and its trigger, in
+time-of-day order, from the jobs build_scheduler() registers. It starts
+nothing, pings nothing, and opens no database connection. It is what a
+document points at in place of stating a time (plan
+`recordings-seen-the-day-posted`, M2).
 """
 
 from __future__ import annotations
@@ -31,7 +38,7 @@ log = logging.getLogger(__name__)
 
 
 def build_scheduler(timezone: str = "America/Chicago") -> BlockingScheduler:
-    """Build a scheduler with all nineteen jobs registered. Does not start it."""
+    """Build a scheduler with every job registered. Does not start it."""
     sched = BlockingScheduler(timezone=timezone)
 
     sched.add_job(
@@ -85,6 +92,33 @@ def build_scheduler(timezone: str = "America/Chicago") -> BlockingScheduler:
         TASKS["non_meetings"],
         CronTrigger(hour=6, minute=55, timezone=timezone),
         id="non_meetings",
+        coalesce=True,
+        max_instances=1,
+    )
+    # The afternoon pass, Birmingham only: it repeats the morning's three
+    # source tasks so a recording posted during the day has its row and its
+    # attached YouTube recording before the Legion's scheduled transcriber
+    # run (transcriber/README.md, "The scheduled run"). The second and third
+    # are second jobs on the morning's tasks and ping the same checks.
+    # Plan `recordings-seen-the-day-posted`, M1.
+    sched.add_job(
+        TASKS["ingest_afternoon"],
+        CronTrigger(hour=16, minute=30, timezone=timezone),
+        id="ingest_afternoon",
+        coalesce=True,
+        max_instances=1,
+    )
+    sched.add_job(
+        TASKS["youtube_ingest"],
+        CronTrigger(hour=16, minute=45, timezone=timezone),
+        id="youtube_ingest_afternoon",
+        coalesce=True,
+        max_instances=1,
+    )
+    sched.add_job(
+        TASKS["non_meetings"],
+        CronTrigger(hour=16, minute=55, timezone=timezone),
+        id="non_meetings_afternoon",
         coalesce=True,
         max_instances=1,
     )
@@ -211,6 +245,34 @@ def build_scheduler(timezone: str = "America/Chicago") -> BlockingScheduler:
     return sched
 
 
+def _single_number(field: str, otherwise: int) -> int:
+    """A trigger field as an integer when it is one number, else ``otherwise``."""
+    return int(field) if field.isdigit() else otherwise
+
+
+def list_jobs(timezone: str = "America/Chicago") -> list[str]:
+    """One line per job, ``<job id> <task name> <trigger>``, in time-of-day order.
+
+    The task name is the key of ``TASKS`` whose function the job runs, found
+    by identity, so a second job on a task (``youtube_ingest_afternoon``) is
+    listed with the task whose check it pings. The order is the trigger's
+    hour, then its minute, then the job id; a field that is not one number
+    (``process_batches`` has no hour and two minutes) sorts after every
+    number.
+    """
+    rows = []
+    for job in build_scheduler(timezone=timezone).get_jobs():
+        fields = {f.name: str(f) for f in job.trigger.fields}
+        task = next(name for name, f in TASKS.items() if f is job.func)
+        key = (
+            _single_number(fields["hour"], 24),
+            _single_number(fields["minute"], 60),
+            job.id,
+        )
+        rows.append((key, f"{job.id} {task} {job.trigger}"))
+    return [line for _, line in sorted(rows)]
+
+
 def run_once_task(name: str) -> None:
     """Foreground execution of a single named task. Exits non-zero on unknown name."""
     if name not in TASKS:
@@ -220,12 +282,26 @@ def run_once_task(name: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="docket.pub cron worker")
-    parser.add_argument(
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
         "--run-once",
         metavar="TASK",
         help="Run a single task in the foreground and exit (e.g. --run-once ingest_all)",
     )
+    mode.add_argument(
+        "--list",
+        action="store_true",
+        help="Print every job with the task it runs and its trigger, in time-of-day order, and exit",
+    )
     args = parser.parse_args()
+
+    if args.list:
+        tz = config.WORKER_TIMEZONE
+        lines = list_jobs(timezone=tz)
+        print(f"timezone={tz} jobs={len(lines)}")
+        for line in lines:
+            print(line)
+        return
 
     logging.basicConfig(
         level=logging.INFO,

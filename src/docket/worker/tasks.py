@@ -32,7 +32,7 @@ from docket.services import (
     non_meetings,
     youtube_meetings,
 )
-from docket.services.ingest import ingest_municipality
+from docket.services.ingest import active_slugs, ingest_municipality
 from docket.services.maintenance import repair_empty_agendas
 from docket.services.member_votes import resolve_unresolved_member_votes
 from docket.services.video_ocr import _claim_next_ocr_meeting, _ocr_one_meeting
@@ -70,16 +70,53 @@ def _do_ingest_all() -> None:
 
     A failure for one city is logged but does not block the others.
     """
-    with db_cursor() as cur:
-        cur.execute("SELECT slug FROM municipalities WHERE active = TRUE ORDER BY slug")
-        rows = cur.fetchall()
-
-    for row in rows:
-        slug = row["slug"]
+    for slug in active_slugs():
         try:
             ingest_municipality(slug)
         except Exception:
             log.exception("ingest failed for %s", slug)
+
+
+def _do_ingest_afternoon() -> None:
+    """Ingest the cities ``AFTERNOON_INGEST_SLUGS`` names a second time in the day.
+
+    A recording a city posts during the day then has its meeting row, and
+    the row its recording's address, before the Legion's scheduled
+    transcriber run (``transcriber/README.md``, "The scheduled run"), so
+    the transcript is public that evening and not the next day. The cities
+    come from the setting ``AFTERNOON_INGEST_SLUGS`` in ``docket.config``
+    (Birmingham by default; an empty value turns this task off), and a
+    named city that is not active is passed over. Every other city keeps
+    its one visit a day, from ``ingest_all``.
+
+    A failure for one city is logged but does not block the others.
+    Plan `recordings-seen-the-day-posted`, M1.
+    """
+    slugs = config.AFTERNOON_INGEST_SLUGS
+    if not slugs:
+        log.info("ingest_afternoon: no cities configured (AFTERNOON_INGEST_SLUGS is empty)")
+        return
+
+    active = set(active_slugs())
+    for slug in slugs:
+        if slug not in active:
+            log.warning("ingest_afternoon: %s is not an active municipality; skipped", slug)
+            continue
+        try:
+            result = ingest_municipality(slug)
+        except Exception:
+            log.exception("ingest failed for %s", slug)
+            continue
+        log.info(
+            "ingest_afternoon %s: found=%d inserted=%d updated=%d items=%d votes=%d errors=%d",
+            slug,
+            result.meetings_found,
+            result.meetings_inserted,
+            result.meetings_updated,
+            result.agenda_items_inserted,
+            result.votes_inserted,
+            len(result.errors),
+        )
 
 
 def _do_ai_items() -> None:
@@ -228,6 +265,10 @@ def _do_process_badges() -> None:
 
 def task_ingest_all() -> None:
     _safe_run("ingest_all", _do_ingest_all)
+
+
+def task_ingest_afternoon() -> None:
+    _safe_run("ingest_afternoon", _do_ingest_afternoon)
 
 
 def task_ai_items() -> None:
@@ -440,8 +481,8 @@ def task_transcript_pipeline() -> None:
 def _do_briefing_facts() -> None:
     """Rebuild city_briefing_facts for every city flagged ``briefing``.
 
-    A few SQL statements per city (two SELECTs, one upsert); runs at 09:45
-    after vote_matching (09:00) and process_badges (09:30) so the split
+    A few SQL statements per city (two SELECTs, one upsert); runs after
+    vote_matching and process_badges so the split
     votes name today's item links. Spec: plans/completed/birmingham-city-briefing.md.
     """
     n = briefing.recompute_all_flagged()
@@ -457,8 +498,8 @@ def _do_city_calendar() -> None:
 
     Birmingham only at first: the council page, the events search, and the
     sitemap's unstored event pages (33 on the first run, a handful after),
-    one second apart; runs at 05:30 so the rows exist before ingest_all
-    (06:00) resolves meeting types against them. A city's failure is logged
+    one second apart; runs before ingest_all so the rows exist when it
+    resolves meeting types against them. A city's failure is logged
     and does not block the others.
     Plan: plans/completed/meeting-types-name-the-body.md (M3); the search and
     sitemap readers are plan `committee-clips-named-or-hidden`, M1.
@@ -480,7 +521,8 @@ def _do_youtube_ingest() -> None:
     old, absorb young ``yt-`` rows into clips that arrived later
     (``youtube_meetings.sync_city``). Without ``YOUTUBE_API_KEY`` it logs and
     returns. An exhausted quota ends that city, not the task; any other failure
-    is logged and does not block the other cities.
+    is logged and does not block the other cities. Runs after each ingest
+    pass, morning and afternoon.
     Plan: plans/completed/youtube-council-channel.md (M4).
     """
     if not config.YOUTUBE_API_KEY:
@@ -518,9 +560,9 @@ def _do_non_meetings() -> None:
     on a day the stored calendar shows no council or committee event is
     hidden with the reason ``not_a_meeting``; one that has a transcript
     with speech is held back and listed on ``/admin/meetings/hidden``
-    (``non_meetings.hide_non_meetings``). Runs at 06:55, after
-    ``youtube_ingest`` (06:45) has attached any recording that names a
-    clip. A city whose sitemap reader has not finished a read without a failed
+    (``non_meetings.hide_non_meetings``). Runs after each
+    ``youtube_ingest`` run, morning and afternoon, has attached any
+    recording that names a clip. A city whose sitemap reader has not finished a read without a failed
     page in the last 36 hours is passed over; a city's failure is logged and does not block the others.
     Plan `committee-clips-named-or-hidden`, M4.
     """
@@ -543,7 +585,7 @@ def _do_committee_documents() -> None:
     rule has changed, and attach each document to its committee meeting,
     creating the meeting when minutes prove one that has no row
     (``committee_documents.refresh_all``). At most 33 requests, one second
-    apart. Runs at 07:15, after ``youtube_ingest`` (06:45) has created or
+    apart. Runs after the morning ``youtube_ingest`` has created or
     matched the day's recordings, so a new document finds its meeting. A
     city's failure is logged and does not block the others, and then fails
     the task.
@@ -563,6 +605,7 @@ def task_committee_documents() -> None:
 TASKS: dict[str, Callable[[], None]] = {
     "repair_empty_agendas": task_repair_empty_agendas,
     "ingest_all": task_ingest_all,
+    "ingest_afternoon": task_ingest_afternoon,
     "video_ocr": task_video_ocr,
     "ai_items": task_ai_items,
     "ai_meetings": task_ai_meetings,

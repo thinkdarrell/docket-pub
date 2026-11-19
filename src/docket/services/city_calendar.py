@@ -2,7 +2,7 @@
 
 A city whose ``municipalities.metadata`` carries ``calendar_url`` (Birmingham
 after migration 038) has its calendar read once a day by the worker task
-``city_calendar`` (05:30 America/Chicago, before ``ingest_all`` at 06:00) and
+``city_calendar`` (before ``ingest_all``; ``docket.worker.scheduler`` owns the times) and
 every event upserted on ``(municipality_id, source_event_id)``, so a second
 run changes no row count and a changed title or time overwrites the earlier
 one.
