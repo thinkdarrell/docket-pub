@@ -66,7 +66,7 @@ railway variables --service worker --set HEALTHCHECK_YOUTUBE_INGEST_UUID=<uuid>
 # railway variables --service worker --set HEALTHCHECK_PRUNE_ANALYTICS_UUID=<uuid>
 ```
 
-Suggested grace per check, and the job or jobs each check hears from. Give each check the schedule of its job as `--list` prints it, in America/Chicago. A check that hears from two jobs (`docket-youtube-ingest`, `docket-non-meetings`) takes one cron expression naming both hours, `<minute> <morning hour>,<afternoon hour> * * *`, so a missed afternoon run pages as a missed morning run does.
+Suggested grace per check, and the job or jobs each check hears from. Give each check the schedule of its job as `--list` prints it, in America/Chicago. A check that hears from two jobs (`docket-youtube-ingest`, `docket-non-meetings`) takes one cron expression naming both hours, `<minute> <morning hour>,<afternoon hour> * * *`, so a missed afternoon run pages as a missed morning run does. A job that runs on one day of the week is printed with the day as APScheduler numbers it, counting from Monday (`day_of_week='0'` is Monday), where a cron expression at Healthchecks counts from Sunday (`0` is Sunday, `1` is Monday): write the day into the check's schedule by its name, not by copying the digit.
 
 | Check name | Job or jobs | Grace |
 |---|---|---|
