@@ -1657,7 +1657,7 @@ def hide_meeting(meeting_id: int):
 def unhide_meeting(meeting_id: int):
     """Clear the hidden flag, the audit columns, and the reason, and exempt the row.
 
-    ``keep_visible_at`` is set and never cleared: the daily ``non_meetings``
+    ``keep_visible_at`` is set and never cleared: the ``non_meetings``
     rule does not hide a row an admin brought back
     (``docket.services.non_meetings``).
     """
