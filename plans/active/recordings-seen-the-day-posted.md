@@ -527,6 +527,23 @@ M2, second session, the verify run after the last edit, on `48293ae`:
 
 with the tier totals `3502 passed, 5 skipped, 4 xfailed` (seven more than the 3495 the first M2 session read before its edits: the seven tests M2 added), `1050 passed`, `judge fixtures: 12 of 12 passed`, and `147 passed`. For `D93`: the M2 sessions' three verify runs took 289, 295 and 294 seconds, and M2 added seven tests.
 
+M3, session of 2026-11-19 (observed). The verify run before any edit, on `9ef4415`:
+
+    verify: test-db ... ok (0s) postgresql://docket:docket_dev@localhost:5432/docket_test_7eed746c
+    verify: unit+web+services ... ok (177s)
+    verify: integration ... ok (113s)
+    verify: judge-fixtures ... ok (0s)
+    verify: workflows ... ok (0s)
+    verify: transcriber ... ok (12s)
+    verify: plans ... ok (0s)
+    verify: all 6 checks passed in 302s.
+
+with the tier totals `3502 passed, 5 skipped, 4 xfailed`, `1050 passed`, `judge fixtures: 12 of 12 passed`, and `147 passed`, and exit status 0. The run was given a 600-second timeout; under 300 it would have been cut off.
+
+M3, the greps of Concrete Steps before any edit, on `9ef4415`. The time grep listed the nine files of authoring; this session read the lines outside `docs/runbooks/cron-worker.md` and they were `README.md` 2, `docs/runbooks/analytics.md` 1, `docs/runbooks/coming-up-reading-birmingham.md` 1, `docs/runbooks/transcripts-pipeline-map.md` 1, `docs/runbooks/transcripts.md` 4, `docs/runbooks/v3-cutover.md` 4, `docs/specs/committee-documents.md` 1, `docs/specs/transcripts.md` 1. The count grep printed four lines (`docs/runbooks/cron-worker.md` line 4, `README.md` lines 25, 68 and 612), not the six of authoring: M1 took "nineteen" out of the two `scheduler.py` docstrings. `grep -c "^| D69 \|^| D138 " docs/DEBT.md` printed `2`.
+
+M3, `docs/runbooks/cron-worker.md` (the commit that holds this paragraph). The opening sentence names `scheduler.py` and `--list` and no count; the Task inventory has twenty rows in the order `--list` prints the jobs, without the cron column, with the new `ingest_afternoon` row before `process_batches`; the `youtube_ingest` and `non_meetings` rows name both job ids; the `railway variables` block gains `HEALTHCHECK_INGEST_AFTERNOON_UUID` and `HEALTHCHECK_YOUTUBE_INGEST_UUID`; the check table has a "Job or jobs" column in place of Schedule, the rule above it, and the row `docket-ingest-afternoon`; the run-once list gains `ingest_afternoon`; "(daily 08:45)" is "(daily)"; the alert note names `docket-ingest-afternoon`. The edit was made by a script in the session scratchpad that asserted each phrase it replaced occurred exactly once and that the inventory held nineteen rows and the check table fifteen before it wrote.
+
 ## Interfaces and Dependencies
 
 No new library. APScheduler's `BlockingScheduler` and `CronTrigger` are already used; `str()` of a `CronTrigger` prints as in the transcripts above on the installed version.
