@@ -382,6 +382,20 @@ The verify run at authoring, on `a484523`, before any edit:
 
 The nineteen jobs as `build_scheduler()` held them at authoring, printed as id, trigger, and function name, are the first eighteen and the last of the expected `--list` lines above without the three afternoon ones; `recast_post_meeting_ai` is registered in `TASKS` as a lambda, which is why `list_jobs` finds a job's task by identity and not by function name.
 
+M1, session of 2026-11-19 (observed). The verify run before any edit, on `3919b44`:
+
+    verify: unit+web+services ... ok (170s)
+    verify: integration ... ok (110s)
+    verify: judge-fixtures ... ok (1s)
+    verify: workflows ... ok (0s)
+    verify: transcriber ... ok (10s)
+    verify: plans ... ok (0s)
+    verify: all 6 checks passed in 291s.
+
+with the tier totals `3480 passed, 5 skipped, 4 xfailed`, `1049 passed`, `judge fixtures: 12 of 12 passed`, and `147 passed`.
+
+M1, the tests before the code. With the test edits made and `src/` untouched, `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_worker_scheduler.py tests/unit/test_worker_tasks.py tests/unit/test_worker_health.py tests/integration/test_ingest_active_slugs.py -q -p no:cacheprovider` printed `17 failed, 64 passed, 1 warning in 1.20s`. The seventeen: `test_build_scheduler_registers_all_jobs`; the three cases of `test_build_scheduler_afternoon_pass`; the two `ingest_all` tests (they now patch `docket.worker.tasks.active_slugs`, which does not exist yet); the six `test_ingest_afternoon_*` tests; the two config tests; `test_tasks_registry_has_all_jobs`; `test_ingest_afternoon_has_its_healthcheck_variable`; and the integration test `test_active_slugs_lists_the_active_cities_in_slug_order` (`ImportError`). The three cases of `test_build_scheduler_morning_pass_is_unchanged` passed, as they must on the unchanged scheduler. The commit that holds this paragraph holds the tests in that failing state.
+
 ## Interfaces and Dependencies
 
 No new library. APScheduler's `BlockingScheduler` and `CronTrigger` are already used; `str()` of a `CronTrigger` prints as in the transcripts above on the installed version.

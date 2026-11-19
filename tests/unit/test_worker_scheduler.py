@@ -18,8 +18,40 @@ def test_build_scheduler_registers_all_jobs():
         "recast_post_meeting_ai", "transcript_pipeline", "resolve_member_votes",
         "briefing_facts", "city_calendar", "youtube_ingest", "non_meetings",
         "committee_documents",
+        "ingest_afternoon", "youtube_ingest_afternoon", "non_meetings_afternoon",
     }
-    assert len(sched.get_jobs()) == 19
+    assert len(sched.get_jobs()) == 22
+
+
+@pytest.mark.parametrize("job_id,expected,task", [
+    ("ingest_afternoon",         ("16", "30", "*"), "ingest_afternoon"),
+    ("youtube_ingest_afternoon", ("16", "45", "*"), "youtube_ingest"),
+    ("non_meetings_afternoon",   ("16", "55", "*"), "non_meetings"),
+])
+def test_build_scheduler_afternoon_pass(job_id, expected, task):
+    """The afternoon pass: a Birmingham-only ingest, then second jobs on the
+    morning's youtube_ingest and non_meetings tasks.
+    Plan `recordings-seen-the-day-posted`, M1."""
+    sched = scheduler.build_scheduler(timezone="America/Chicago")
+    job = sched.get_job(job_id)
+    assert job is not None
+    fields = {f.name: str(f) for f in job.trigger.fields}
+    assert (fields["hour"], fields["minute"], fields["day_of_week"]) == expected
+    assert job.coalesce is True
+    assert job.max_instances == 1
+    assert job.func is scheduler.TASKS[task]
+
+
+@pytest.mark.parametrize("job_id,expected", [
+    ("ingest_all",     ("6", "0")),
+    ("youtube_ingest", ("6", "45")),
+    ("non_meetings",   ("6", "55")),
+])
+def test_build_scheduler_morning_pass_is_unchanged(job_id, expected):
+    sched = scheduler.build_scheduler(timezone="America/Chicago")
+    job = sched.get_job(job_id)
+    fields = {f.name: str(f) for f in job.trigger.fields}
+    assert (fields["hour"], fields["minute"]) == expected
 
 
 def test_build_scheduler_process_batches_every_30_minutes():

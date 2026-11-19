@@ -127,13 +127,7 @@ def test_youtube_ingest_runs_each_city_with_a_channel_and_survives_quota(caplog)
 # --- task_ingest_all ---------------------------------------------------------
 
 def test_ingest_all_loops_active_municipalities():
-    fake_rows = [{"slug": "birmingham"}, {"slug": "mobile"}]
-    fake_cursor = MagicMock()
-    fake_cursor.__enter__ = MagicMock(return_value=fake_cursor)
-    fake_cursor.__exit__ = MagicMock(return_value=False)
-    fake_cursor.fetchall.return_value = fake_rows
-
-    with patch("docket.worker.tasks.db_cursor", return_value=fake_cursor), \
+    with patch("docket.worker.tasks.active_slugs", return_value=["birmingham", "mobile"]), \
          patch("docket.worker.tasks.ingest_municipality") as mock_ingest:
         tasks._do_ingest_all()
 
@@ -143,20 +137,139 @@ def test_ingest_all_loops_active_municipalities():
 
 def test_ingest_all_continues_on_per_city_failure():
     """If Birmingham fails, Mobile should still get a chance."""
-    fake_cursor = MagicMock()
-    fake_cursor.__enter__ = MagicMock(return_value=fake_cursor)
-    fake_cursor.__exit__ = MagicMock(return_value=False)
-    fake_cursor.fetchall.return_value = [{"slug": "birmingham"}, {"slug": "mobile"}]
-
     def maybe_fail(slug):
         if slug == "birmingham":
             raise RuntimeError("bham broke")
 
-    with patch("docket.worker.tasks.db_cursor", return_value=fake_cursor), \
+    with patch("docket.worker.tasks.active_slugs", return_value=["birmingham", "mobile"]), \
          patch("docket.worker.tasks.ingest_municipality", side_effect=maybe_fail) as mock_ingest:
         tasks._do_ingest_all()  # must not raise
 
     assert mock_ingest.call_count == 2
+
+
+# --- task_ingest_afternoon ---------------------------------------------------
+# Plan recordings-seen-the-day-posted, M1. The afternoon ingest visits the
+# cities AFTERNOON_INGEST_SLUGS names that are also active, and no other.
+
+_ACTIVE = ["birmingham", "homewood", "mobile", "vestavia_hills"]
+
+
+def _ingest_result(**counts):
+    values = dict(meetings_found=7, meetings_inserted=1, meetings_updated=2,
+                  agenda_items_inserted=3, votes_inserted=4, errors=[])
+    values.update(counts)
+    return MagicMock(**values)
+
+
+def test_ingest_afternoon_ingests_only_the_configured_active_cities(caplog):
+    with patch("docket.worker.tasks.config.AFTERNOON_INGEST_SLUGS", ("birmingham",), create=True), \
+         patch("docket.worker.tasks.active_slugs", return_value=list(_ACTIVE)), \
+         patch("docket.worker.tasks.ingest_municipality", return_value=_ingest_result(errors=["a", "b"])) as mock_ingest, \
+         caplog.at_level("INFO", logger="docket.worker.tasks"):
+        tasks._do_ingest_afternoon()
+
+    assert [c.args for c in mock_ingest.call_args_list] == [("birmingham",)]
+    assert [c.kwargs for c in mock_ingest.call_args_list] == [{}]
+    lines = [r.getMessage() for r in caplog.records if r.levelname == "INFO"]
+    assert "ingest_afternoon birmingham: found=7 inserted=1 updated=2 items=3 votes=4 errors=2" in lines
+
+
+def test_ingest_afternoon_visits_the_configured_cities_in_the_configured_order():
+    with patch("docket.worker.tasks.config.AFTERNOON_INGEST_SLUGS", ("mobile", "birmingham"), create=True), \
+         patch("docket.worker.tasks.active_slugs", return_value=list(_ACTIVE)), \
+         patch("docket.worker.tasks.ingest_municipality", return_value=_ingest_result()) as mock_ingest:
+        tasks._do_ingest_afternoon()
+
+    assert [c.args for c in mock_ingest.call_args_list] == [("mobile",), ("birmingham",)]
+
+
+def test_ingest_afternoon_skips_a_configured_city_that_is_not_active(caplog):
+    with patch("docket.worker.tasks.config.AFTERNOON_INGEST_SLUGS", ("hoover", "birmingham"), create=True), \
+         patch("docket.worker.tasks.active_slugs", return_value=list(_ACTIVE)), \
+         patch("docket.worker.tasks.ingest_municipality", return_value=_ingest_result()) as mock_ingest, \
+         caplog.at_level("INFO", logger="docket.worker.tasks"):
+        tasks._do_ingest_afternoon()
+
+    assert [c.args for c in mock_ingest.call_args_list] == [("birmingham",)]
+    warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    assert warnings == ["ingest_afternoon: hoover is not an active municipality; skipped"]
+
+
+def test_ingest_afternoon_continues_on_per_city_failure(caplog):
+    def maybe_fail(slug):
+        if slug == "birmingham":
+            raise RuntimeError("bham broke")
+        return _ingest_result()
+
+    with patch("docket.worker.tasks.config.AFTERNOON_INGEST_SLUGS", ("birmingham", "mobile"), create=True), \
+         patch("docket.worker.tasks.active_slugs", return_value=list(_ACTIVE)), \
+         patch("docket.worker.tasks.ingest_municipality", side_effect=maybe_fail) as mock_ingest, \
+         caplog.at_level("INFO", logger="docket.worker.tasks"):
+        tasks._do_ingest_afternoon()  # must not raise
+
+    assert [c.args for c in mock_ingest.call_args_list] == [("birmingham",), ("mobile",)]
+    errors = [r for r in caplog.records if r.levelname == "ERROR"]
+    assert [r.getMessage() for r in errors] == ["ingest failed for birmingham"]
+    assert errors[0].exc_info is not None
+    infos = [r.getMessage() for r in caplog.records if r.levelname == "INFO"]
+    assert infos == ["ingest_afternoon mobile: found=7 inserted=1 updated=2 items=3 votes=4 errors=0"]
+
+
+def test_ingest_afternoon_does_nothing_when_no_city_is_configured(caplog):
+    with patch("docket.worker.tasks.config.AFTERNOON_INGEST_SLUGS", (), create=True), \
+         patch("docket.worker.tasks.active_slugs") as mock_active, \
+         patch("docket.worker.tasks.ingest_municipality") as mock_ingest, \
+         caplog.at_level("INFO", logger="docket.worker.tasks"):
+        tasks._do_ingest_afternoon()
+
+    mock_ingest.assert_not_called()
+    mock_active.assert_not_called()
+    assert [r.getMessage() for r in caplog.records] == [
+        "ingest_afternoon: no cities configured (AFTERNOON_INGEST_SLUGS is empty)"
+    ]
+    assert caplog.records[0].levelname == "INFO"
+
+
+def test_ingest_afternoon_is_registered_and_safe_run_wrapped():
+    with patch("docket.worker.tasks.health.ping") as mock_ping, \
+         patch("docket.worker.tasks.config.AFTERNOON_INGEST_SLUGS", (), create=True):
+        tasks.TASKS["ingest_afternoon"]()
+    assert [c.args for c in mock_ping.call_args_list] == [
+        ("ingest_afternoon", "start"), ("ingest_afternoon", "success")
+    ]
+
+
+# --- config: the afternoon ingest's cities ------------------------------------
+
+def test_config_csv_strips_parts_and_drops_empty_ones():
+    from docket import config
+
+    assert config._csv("birmingham, mobile,,") == ("birmingham", "mobile")
+    assert config._csv("") == ()
+    assert config._csv(" , ") == ()
+
+
+def test_config_afternoon_ingest_slugs_defaults_to_birmingham():
+    """Read in a fresh interpreter, because config reads the variable at import."""
+    import os
+    import subprocess
+    import sys
+
+    def read(env_value):
+        env = {k: v for k, v in os.environ.items() if k != "AFTERNOON_INGEST_SLUGS"}
+        if env_value is not None:
+            env["AFTERNOON_INGEST_SLUGS"] = env_value
+        out = subprocess.run(
+            [sys.executable, "-c",
+             "from docket import config; print(repr(config.AFTERNOON_INGEST_SLUGS))"],
+            env=env, capture_output=True, text=True, check=True,
+        )
+        return out.stdout.strip()
+
+    assert read(None) == "('birmingham',)"
+    assert read("") == "()"
+    assert read("birmingham, mobile") == "('birmingham', 'mobile')"
 
 
 # --- task wrappers call into the right service -------------------------------
@@ -235,6 +348,6 @@ def test_tasks_registry_has_all_jobs():
         "process_batches", "refresh_backfill_ratio_mv", "prune_analytics",
         "recast_post_meeting_ai", "transcript_pipeline", "resolve_member_votes",
         "briefing_facts", "city_calendar", "youtube_ingest", "non_meetings",
-        "committee_documents",
+        "committee_documents", "ingest_afternoon",
     }
     assert set(tasks.TASKS.keys()) == expected
