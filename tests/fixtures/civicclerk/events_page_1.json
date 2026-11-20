@@ -1,0 +1,21 @@
+{
+  "@odata.context": "https://mobileal.api.civicclerk.com/v1/$metadata#Events",
+  "@odata.count": 4,
+  "value": [
+    {"id": 501, "eventName": "City Council Meeting", "eventDate": "2026-11-17T10:30:00Z",
+     "createdOn": "2025-11-18T12:35:16.927Z", "eventCategoryId": 26, "categoryName": "City Council",
+     "agendaId": 473, "hasAgenda": true,
+     "publishedFiles": [
+       {"fileId": 3859, "type": "Agenda", "name": "11/17/26 Agenda", "publishOn": "2026-11-16T08:48:58.697Z"},
+       {"fileId": 3860, "type": "Agenda Packet", "name": "11/17/26 Agenda Packet", "publishOn": "2026-11-16T08:48:58.697Z"}
+     ]},
+    {"id": 500, "eventName": "City Council Meeting", "eventDate": "2026-11-10T10:00:00Z",
+     "createdOn": "2025-11-18T12:35:16.927Z", "eventCategoryId": 26, "categoryName": "City Council",
+     "agendaId": 472, "hasAgenda": true,
+     "publishedFiles": [
+       {"fileId": 3853, "type": "Agenda Packet", "name": "November 10, 2026 Agenda Packet", "publishOn": "2026-11-10T12:03:58.71Z"},
+       {"fileId": 3861, "type": "Minutes", "name": "November 10, 2026 Minutes", "publishOn": "2026-11-17T16:41:53.053Z"}
+     ]}
+  ],
+  "@odata.nextLink": "https://mobileal.api.civicclerk.com/v1/Events?$orderby=eventDate%20desc&$count=true&$filter=eventCategoryId%20eq%2026&$skiptoken=eventDate-2026-11-10T10%3A00%3A00Z,id-500"
+}

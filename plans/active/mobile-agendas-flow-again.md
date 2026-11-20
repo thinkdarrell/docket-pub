@@ -101,6 +101,13 @@ The observations below were added on 2026-11-20 by the operator's review revisio
 
 - Observation: a timestamp's fraction of a second is printed with one to three digits (`2026-11-10T12:03:58.71Z`, `2026-11-16T08:48:58.697Z`), which `datetime.fromisoformat` on Python 3.10 refuses for two digits.
 
+The observations below were made on 2026-11-20 by the session that executed M1. It ran no request to any city's site and no production query.
+
+- Observation (M1): the starting state was green. `./tools/verify`, run before any edit, ended `verify: all 6 checks passed in 320s.` (unit+web+services 187s, integration 120s, transcriber 12s).
+
+- Observation (M1): all sixteen new tests fail on the unchanged adapter, as the author expected. The commit that holds this entry holds the two fixture pages and the tests, with `src/` untouched.
+  Evidence: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_civicclerk.py -q -p no:cacheprovider; tools/test-db --drop` printed `16 failed, 16 passed, 1 warning in 0.55s`; the sixteen failures are the sixteen names M1 lists (the unchanged adapter has no `_session`, so each fails where the test patches it), and the sixteen passes are the seventeen existing tests less `test_event_to_meeting_normalizes_z_suffix_to_central`, deleted as M1 says.
+
 
 ## Decision Log
 
