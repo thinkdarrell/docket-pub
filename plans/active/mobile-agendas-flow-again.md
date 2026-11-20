@@ -193,6 +193,17 @@ The observations below were made on 2026-11-20 by the session that executed M4. 
 
 - Observation (M4): a meeting of the city that has no `processing_status` row is not given one by the reset; it is already waiting (`_waiting_external_ids` reads a missing row as waiting, M3). And `meetings_reopened` counts every `processing_status` row of the city, marked or not, so it is the number of the city's meetings that have such a row, not the number that were marked; `meetings_scraped`, printed above it, is the number that were marked. The second apply in `test_apply_deletes_the_citys_items_and_reopens_its_meetings_only` shows both: `meetings_scraped` 0, `meetings_reopened` 2.
 
+The observations below were made on 2026-11-20 by the session that executed M5. It ran no request to any city's site and no production query.
+
+- Observation (M5): the starting state was green. `./tools/verify`, run before any edit, ended `verify: all 6 checks passed in 313s.` (unit+web+services 182s, integration 118s, transcriber 12s).
+
+- Observation (M5): the session read no minutes file, so the one fact M5 leaves open, the last roll call that lists Jones, is still open, and the migration is written from the facts already in this plan, with Jones's term ending `2023-08-08`. The network was there (`git fetch origin` answered), but the session's own instructions said nothing outside the repository was available to it and that it must not go looking, so the 25 requests M5 allows were not spent. This is the branch M5 writes for a session with no network, taken for that other reason. The roll call of 2023-08-08 that seats Woods (file 701) is the evidence for the date; a day between 2023-03-28 and 2023-08-08 on which Jones had already left and Woods had not yet sat is a day on which the row `Scott Jones` still answers to "Jones", and a later session with leave to ask the city can move the date earlier.
+
+- Observation (M5): the migration's number is `049`. `git fetch origin` then `git ls-tree --name-only origin/main src/docket/migrations/` printed `048_granicus_clip_sound.py` as the highest, and `gh pr list --state open` printed one pull request, #188 (`docs/afternoon-pass-first-observations`), whose diff against `origin/main` is three documentation files and no migration.
+
+- Observation (M5): on the branch without the migration all five new tests fail. The commit that holds this entry holds `tests/integration/test_049_migration.py`, with `src/` untouched. The test file reads the migration module and the runner's list inside the test functions, so it collects.
+  Evidence: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/integration/test_049_migration.py -q -p no:cacheprovider; tools/test-db --drop` printed `5 failed, 1 warning in 0.22s`, naming `test_049_a_second_run_adds_no_row_and_changes_none`, `test_049_the_seated_seven_are_the_active_members`, `test_049_every_surname_of_the_saved_roll_calls_resolves_on_its_date`, `test_049_names_that_must_not_resolve` and `test_049_down_restores_the_seeded_roster_and_the_up_applies_again`.
+
 
 
 ## Decision Log
