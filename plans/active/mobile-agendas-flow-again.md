@@ -430,6 +430,11 @@ The observations below were made on 2026-11-20 by the session that executed M6. 
   Rationale: the count was written from memory and was wrong; `re.findall` over the two strings printed `10 11`.
   Date/Author: 2026-11-20, M5 session.
 
+- Decision (M6): five records are graduated to `docs/decisions/`, numbered `0118` to `0122` by the rule of this log's numbering decision (Surprises holds what was read): `0118` paging by the server's next link with no `$top`; `0119` an imported event gets no minutes link; `0120` the item title is the city's name, code first, with the parentheticals split and the consent mark from the heading; `0121` not ready is an exception and a failed request is an error, with the agenda asked for by the event's agenda id; `0122` the floor and the cap are `adapter_config` settings read by ingest, with the timestamp attribute and the reason the weekly repair was not widened.
+  Rationale: M6 lists five decisions and allows fewer where two belong together; each of the five is a rule a later session would otherwise undo for looking wrong. The decisions of this log that bind no later work stay here: the one-second floor is stated in `GOALS.md` and held by a test, the wall-clock time and the latest-file rule are in the spec, and the operator's order of steps is a debt row. The agenda-id rule has no record of its own because it is the same lesson as `0121` (an answer that is wrong must not look like one that is right) and is stated there.
+  Date/Author: 2026-11-20, M6 session.
+
+
 
 
 ## Outcomes & Retrospective
