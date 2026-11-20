@@ -16,6 +16,13 @@ Events are listed by following the server's own next-page link
 (``@odata.nextLink``) to the last page. ``$top`` and ``$skip`` are never sent:
 the server pages at 15 rows whatever is asked, and ``$top`` is a total, so a
 walk under ``$top=100`` stops at 100 rows.
+
+An agenda is a record of its own: ``Meetings/{agendaId}``, the id the event
+row gives, never the event's id. A meeting whose agenda the city has not
+published yet raises ``AgendaNotReady``; a request that fails raises, and is
+never an empty agenda. Each item is titled with the city's own item name (its
+ordinance or resolution code first), with the "(sponsored by ...)" and
+"(submitted by ...)" parentheticals split out of it.
 """
 
 from __future__ import annotations
@@ -31,7 +38,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 from docket.adapters._helpers import classify_meeting, is_consent_item
-from docket.models.protocol import RawAgendaItem, RawMeeting, RawVote
+from docket.models.protocol import AgendaNotReady, RawAgendaItem, RawMeeting, RawVote
 
 logger = logging.getLogger(__name__)
 
@@ -46,9 +53,41 @@ MAX_ATTEMPTS = 3
 # A listing longer than this many pages is an error, not a loop.
 MAX_PAGES = 200
 
+_TAG = re.compile(r"<[^>]+>")
+_SPONSORED_BY = re.compile(r"\(\s*sponsored by\s+([^)]+)\)", re.IGNORECASE)
+_SUBMITTED_BY = re.compile(r"\(\s*submitted by\s+([^)]+)\)", re.IGNORECASE)
+_SPACE_BEFORE_PUNCTUATION = re.compile(r"\s+([.;,:])")
+
+
+def split_item_name(raw: str) -> tuple[str, str | None, str | None]:
+    """Split a CivicClerk item name into (title, sponsor, submitter).
+
+    The city writes who sponsored and who submitted an item inside the item's
+    name: "... (sponsored by Mayor X) (submitted by Y, City Attorney)." The
+    title is the name with tags and entities removed and both parentheticals
+    taken out; the sponsor and the submitter are what the first of each says,
+    or None.
+    """
+    name = html.unescape(_TAG.sub("", raw or "")).replace("\xa0", " ")
+    name = re.sub(r"\s+", " ", name).strip()
+
+    sponsored = _SPONSORED_BY.search(name)
+    submitted = _SUBMITTED_BY.search(name)
+    sponsor = sponsored.group(1).strip() if sponsored else None
+    submitter = submitted.group(1).strip() if submitted else None
+
+    title = _SUBMITTED_BY.sub(" ", _SPONSORED_BY.sub(" ", name))
+    title = re.sub(r"\s+", " ", title).strip()
+    title = _SPACE_BEFORE_PUNCTUATION.sub(r"\1", title)
+    return title, sponsor or None, submitter or None
+
 
 class CivicClerkAdapter:
     """Adapter for cities using the CivicClerk CMS."""
+
+    # A CivicClerk item carries no video timestamp, so a stored agenda has
+    # nothing to be fetched again for.
+    items_carry_video_timestamps = False
 
     def __init__(self, municipality_slug: str, config: dict):
         self.municipality_slug = municipality_slug
@@ -185,21 +224,53 @@ class CivicClerkAdapter:
         return meetings
 
     def fetch_agenda_items(self, meeting: RawMeeting) -> list[RawAgendaItem]:
-        """Fetch and flatten hierarchical agenda items for a meeting."""
-        event_id = meeting.external_id
+        """Fetch the items of a meeting's agenda, by the event's agenda id.
 
-        try:
-            data = self._get(f"Meetings/{event_id}")
-        except requests.RequestException as e:
-            logger.warning("Failed to fetch meeting detail for %s: %s", event_id, e)
-            return []
+        Raises ``AgendaNotReady`` when the event has no agenda record yet (no
+        request is made for one), when the city has not published the agenda,
+        or when the agenda holds no item and the meeting's date, in the city's
+        own time zone, is today or later. An agenda with no item for an
+        earlier meeting is an empty list. A request that fails raises.
+        """
+        agenda_id = self._agenda_ids.get(meeting.external_id)
+        if agenda_id is None:
+            agenda_id = self._look_up_agenda_id(meeting)
+        if not agenda_id:
+            raise AgendaNotReady(
+                f"CivicClerk event {meeting.external_id} has no agenda record yet"
+            )
+
+        data = self._get(f"Meetings/{agenda_id}")
+        time.sleep(self.delay)
+
+        # An answer without the key is treated as published.
+        if data.get("agendaIsPublish") is False:
+            raise AgendaNotReady(
+                f"CivicClerk agenda {agenda_id} (event {meeting.external_id}) is not published"
+            )
 
         item_list = data.get("items") or data.get("meetingItems") or []
         items: list[RawAgendaItem] = []
         self._flatten_items(item_list, items, meeting.external_id, index=0)
 
-        time.sleep(self.delay)
+        if not items and meeting.meeting_date >= datetime.now(CENTRAL).date():
+            raise AgendaNotReady(
+                f"CivicClerk agenda {agenda_id} (event {meeting.external_id}) has no item yet"
+            )
         return items
+
+    def _look_up_agenda_id(self, meeting: RawMeeting) -> int:
+        """The agenda id of a meeting this instance did not list: one request for its event."""
+        event_number = int(meeting.external_id)  # ValueError for an id that is not a whole number
+        data = self._get("Events", {"$filter": f"id eq {event_number}"})
+        time.sleep(self.delay)
+        for event in data.get("value", []):
+            listed = self._event_to_meeting(event)
+            if listed is not None and listed.external_id == str(event_number):
+                return self._agenda_ids[listed.external_id]
+        raise ValueError(
+            f"CivicClerk has no event {event_number} for {self.municipality_slug}"
+        )
 
     def fetch_minutes_text(self, meeting: RawMeeting) -> str | None:
         """CivicClerk API doesn't expose minutes text directly."""
@@ -322,16 +393,22 @@ class CivicClerkAdapter:
         result: list[RawAgendaItem],
         meeting_external_id: str,
         index: int = 0,
+        in_consent: bool = False,
     ) -> int:
-        """Recursively flatten hierarchical agenda items into a flat list."""
+        """Recursively flatten hierarchical agenda items into a flat list.
+
+        A heading is not an item. The items under a heading whose name
+        contains "consent" are consent items, and so are the items under any
+        heading beneath it; an item whose own title says "consent" is one too.
+        """
         for item in item_list:
-            name = (
+            raw_name = (
                 item.get("agendaObjectItemName")
                 or item.get("name")
                 or item.get("itemName")
                 or ""
             )
-            desc = item.get("description") or ""
+            desc = item.get("agendaObjectItemDescription") or item.get("description") or ""
             item_number = (
                 item.get("agendaObjectItemNumber")
                 or item.get("itemNumber")
@@ -339,11 +416,15 @@ class CivicClerkAdapter:
                 or ""
             )
 
-            # Strip HTML tags and entities
-            name = html.unescape(re.sub(r"<[^>]+>", "", name)).strip()
-            desc = html.unescape(re.sub(r"<[^>]+>", "", desc)).strip()
+            # The title is the city's item name alone; the file number stays
+            # in item_number and is not put before it.
+            title, sponsor, submitter = split_item_name(raw_name)
 
-            full_title = f"{item_number} {name}".strip()
+            # Strip HTML tags and entities
+            desc = html.unescape(_TAG.sub("", desc)).strip()
+            if submitter:
+                submitted_by = f"Submitted by {submitter}."
+                desc = f"{desc} {submitted_by}" if desc else submitted_by
             truncated_desc = desc[:300] if desc else None
 
             # Detect section headers (not real agenda items)
@@ -353,24 +434,27 @@ class CivicClerkAdapter:
                 and len(item.get("childItems", [])) > 0
             )
 
-            if not is_section and full_title:
+            if not is_section and title:
                 item_id = item.get("id") or item.get("itemId")
                 result.append(
                     RawAgendaItem(
                         external_id=str(item_id) if item_id else f"{meeting_external_id}-{index}",
                         meeting_external_id=meeting_external_id,
                         item_number=str(item_number) if item_number else None,
-                        title=full_title,
+                        title=title,
                         description=truncated_desc,
                         section=None,
-                        is_consent=is_consent_item(full_title),
-                        sponsor=None,
+                        is_consent=in_consent or is_consent_item(title),
+                        sponsor=sponsor,
                     )
                 )
                 index += 1
 
             children = item.get("childItems") or item.get("children") or []
             if children:
-                index = self._flatten_items(children, result, meeting_external_id, index)
+                under_consent = in_consent or bool(is_section and "consent" in title.lower())
+                index = self._flatten_items(
+                    children, result, meeting_external_id, index, under_consent
+                )
 
         return index

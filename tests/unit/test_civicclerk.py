@@ -644,6 +644,8 @@ class TestFetchAgendaItems:
         assert not any(u.endswith("/Meetings/501") for u in urls)
         # The polite pause follows the one request.
         assert [c.args[0] for c in sleep.call_args_list] == [1.0]
+        # A CivicClerk item has no video timestamp, and the adapter says so.
+        assert CivicClerkAdapter.items_carry_video_timestamps is False
 
     def test_agenda_id_is_looked_up_for_a_meeting_not_listed(self):
         adapter = _mobile()
@@ -713,6 +715,11 @@ class TestFetchAgendaItems:
         outcome, get, _ = _fetch(_listed(), _meeting("501", TOMORROW), empty)
         assert isinstance(outcome, AgendaNotReady)
         assert get.call_count == 1
+
+        # Headings with nothing under them are no item either.
+        headings = {"id": 473, "agendaIsPublish": True, "items": _agenda()["items"][:1]}
+        outcome, _, _ = _fetch(_listed(), _meeting("501", TOMORROW), headings)
+        assert isinstance(outcome, AgendaNotReady)
 
         # A meeting held today is still coming.
         outcome, _, _ = _fetch(_listed(), _meeting("501", CHICAGO_TODAY), empty)
@@ -791,10 +798,15 @@ class TestItemsOfAnAgenda:
                 node(12, "Amend the zoning code"),
                 # As before this plan, an item whose own name says so.
                 node(13, "Approve the consent agenda"),
+                # Only a heading puts what is under it on the consent agenda: an
+                # item with a file number is no heading, whatever its name says.
+                node(14, "Consent to an assignment", children=[node(15, "Exhibit A")]),
             ]),
         ]
         flags = {item.external_id: item.is_consent for item in _flat(tree)}
-        assert flags == {"10": True, "11": True, "12": False, "13": True}
+        assert flags == {
+            "10": True, "11": True, "12": False, "13": True, "14": True, "15": False,
+        }
 
     def test_title_is_the_citys_item_name_and_keeps_its_code(self):
         items = _items_of_473()
@@ -850,6 +862,13 @@ class TestItemsOfAnAgenda:
             "Pay a claim; $5.00",
             None,
             "Jane Roe, Clerk",
+        )
+        # Spaces inside the parentheses are not part of the name, and a run of
+        # whitespace in it (a non-breaking space among them) is one space.
+        assert split_item_name("Pay ( Sponsored By  Council\xa0 Member Small ) the claim") == (
+            "Pay the claim",
+            "Council Member Small",
+            None,
         )
         # The first of two is the one kept; both are taken out of the title.
         assert split_item_name("X (sponsored by A) (sponsored by B) : y , z") == (
