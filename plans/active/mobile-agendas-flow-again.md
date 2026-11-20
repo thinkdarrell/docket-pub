@@ -20,7 +20,7 @@ One part of the stated goal is not delivered, and the reader should know it befo
 
 ## Progress
 
-- [ ] M1: `CivicClerkAdapter.list_meetings` follows the city system's next-page links to the last page, asks only for events on or after the date it is given, waits at least one second between requests, retries a request that fails, and gives each meeting its posted wall-clock start time and links to the city's own agenda file and, for an event created on or before its own date, minutes file; the tests built from the saved responses under `tests/fixtures/civicclerk/` pass and `./tools/verify` passes
+- [x] (2026-11-20 20:51Z) M1: `CivicClerkAdapter.list_meetings` follows the city system's next-page links to the last page, asks only for events on or after the date it is given, waits at least one second between requests, retries a request that fails, and gives each meeting its posted wall-clock start time and links to the city's own agenda file and, for an event created on or before its own date, minutes file; the tests built from the saved responses under `tests/fixtures/civicclerk/` pass and `./tools/verify` passes
 - [ ] M2: `CivicClerkAdapter.fetch_agenda_items` reads a meeting's items from the event's agenda id, raises `AgendaNotReady` where no agenda is published yet and an error where the request fails, and returns each item titled with the city's own item name (its ordinance or resolution code first), with its sponsor and its submitter split out; its tests pass and `./tools/verify` passes
 - [ ] M3: `ingest_municipality` reads `backlog_floor` and `agenda_fetch_cap` from a city's `adapter_config`, fetches agendas newest first up to the cap, leaves a meeting whose agenda is not ready unmarked and unreported, and does not re-fetch a stored agenda for an adapter whose items carry no video timestamps, while a city with neither setting ingests as before; its tests pass and `./tools/verify` passes
 - [ ] M4: `scripts/reset_agenda_items.py --city <slug>` prints what it would delete and, with `--apply`, deletes one city's stored agenda items and re-opens its meetings in one transaction, refusing a city whose items carry vote links or transcript links; its tests pass and `./tools/verify` passes
@@ -107,6 +107,15 @@ The observations below were made on 2026-11-20 by the session that executed M1. 
 
 - Observation (M1): all sixteen new tests fail on the unchanged adapter, as the author expected. The commit that holds this entry holds the two fixture pages and the tests, with `src/` untouched.
   Evidence: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_civicclerk.py -q -p no:cacheprovider; tools/test-db --drop` printed `16 failed, 16 passed, 1 warning in 0.55s`; the sixteen failures are the sixteen names M1 lists (the unchanged adapter has no `_session`, so each fails where the test patches it), and the sixteen passes are the seventeen existing tests less `test_event_to_meeting_normalizes_z_suffix_to_central`, deleted as M1 says.
+
+- Observation (M1): M1's acceptance was observed on the edited adapter. The single-file command printed `32 passed, 1 warning in 0.41s`; `./tools/verify` ended `verify: all 6 checks passed in 310s.` (unit+web+services 177s, integration 120s, transcriber 13s). Both were run after the last edit to `src/docket/adapters/civicclerk.py` and before the commit that holds it; nothing was edited while verify ran.
+
+- Observation (M1): every rule M1 states is held by a test. Forty-five alterations of the adapter were tried, one at a time, on a copy of its source compiled in memory by a scratch pytest plugin (the committed file was not edited), and the test file was run against each. Forty-four failed a named test by assertion. The forty-fifth, the page limit taken out altogether, did not end in a failed assertion: the test's server never stops giving a next link, so the walk ran until the process died with no summary line (it was the one run that took minutes); the limit moved from 200 to 201 failed `test_list_meetings_follows_next_links_to_the_last_page` in the ordinary way. No alteration left every test passing, so no assertion was added after the commit that holds the tests failing (`22611fe`).
+  Evidence: the run's last line was `45 removals tried, 45 failed a test, survived: []`. What was altered: the delay floor (removed; lowered to 0.5); the timeout; the number of attempts; the doubled second wait; the wait between attempts; the status check; the empty body; the body that is not JSON; the address in the error; a full address joined to the base; `requests.get` in place of the session; `$top` sent; `$skip` sent; the category filter; the date filter; the next link not followed; the next link's scheme, host, host case, path, and path-with-slash checks, each alone, and the check not called; the pause between pages; the page limit; the client-side `since` check; `eventId` read before `id`; the agenda id not remembered; `Z` converted to Central; a numeric offset not converted; the Agenda file not linked; the portal fallback removed, and given without `hasAgenda`; the minutes link given to an imported event, and not given at all; the file type not filtered; the latest file chosen as first in the list, last in the list, by publish time alone, and by file id alone; `createdOn` not turned into a Central date; an event created on its own date taken for an import; an unreadable `createdOn` keeping the link; the fraction of a second not cut off.
+
+- Observation (M1): from M1 until M2, a failed agenda request is tried three times and is then still stored as "no items". `fetch_agenda_items` was not edited (it is M2's), and it still catches `requests.RequestException` and returns an empty list; its request now goes through the new `_get`, so a failure costs three attempts and two waits before that. It also still asks for `Meetings/{event id}`. Neither matters before a deploy, and no deploy precedes M2.
+
+- Observation (M1): an `eventDate` that carried a fraction of a second of one or two digits would not parse on Python 3.10, and `_event_to_meeting` would then date the meeting today, as it did before this plan (`if meeting_date is None: meeting_date = date.today()`). No `eventDate` read while planning carried a fraction; M1 names the fraction rule for `createdOn` only, and the session left the fallback as it found it.
 
 
 ## Decision Log
@@ -195,10 +204,28 @@ The observations below were made on 2026-11-20 by the session that executed M1. 
   Rationale: as authored Q3 looked at one meeting and passed on no rows; a wider query alone shows id ranges nobody can judge without asking the city what each agenda holds.
   Date/Author: 2026-11-20, the operator's review revision (written by Claude at the operator's request).
 
+- Decision (M1): a next link's host is compared as the whole network location (`urlsplit(...).netloc`, case ignored), not as the hostname alone.
+  Rationale: M1 says "the host equals the base address's host". The hostname alone ignores a port and a `user@` prefix, so `https://mobileal.api.civicclerk.com:8443/v1/...` would pass; the base address has neither, so comparing the whole location refuses both and accepts everything the hostname comparison should. The test refuses six links (another host, the city's host as a prefix of another, the city's host as a `user@` part, `http`, a path under `/v2/`, a path `/v1Events`) and accepts the city's host in mixed case.
+  Date/Author: 2026-11-20, M1 session.
+
+- Decision (M1): an event with no `createdOn`, or one that cannot be read as a time, is treated as imported and gets no minutes link; an entry of `publishedFiles` with no `fileId` is not a file.
+  Rationale: M1 gives the minutes link "only when `createdOn` is present" and says nothing of one that is present and unreadable; `docs/PRINCIPLES.md` "Source or silence" decides it the same way. A file entry without an id cannot be linked. Neither case was seen in the city's answers.
+  Date/Author: 2026-11-20, M1 session.
+
+- Decision (M1): the rules M1 states but names no test for are asserted inside the sixteen named tests, not in further tests, so the count stays `32 passed`.
+  Rationale: the acceptance fixes the count. Added inside named tests: a listing that does not end raises `ValueError` after exactly 200 requests, the one pause between pages, and the remembered agenda ids (in `test_list_meetings_follows_next_links_to_the_last_page`); the category filter alone, no filter at all, and the client-side `since` check (in `..._asks_for_events_on_or_after_since`); the `(10, 30)` timeout (in `test_get_retries_a_timeout_then_succeeds`); the two waits and a rejected status (in `test_get_raises_after_three_failures`); a body that is not JSON (in `test_get_treats_an_empty_body_as_a_failure`); a numeric offset converted to Central (in `test_start_time_is_the_posted_wall_clock_time`); `id` read before `eventId` (in `test_agenda_link_falls_back_to_the_event_page_without_an_agenda_file`); publish time over list order and file id, and the tie (in `test_the_latest_file_of_a_type_is_the_one_linked`); an absent `createdOn` (in `test_no_minutes_link_for_an_event_created_after_its_date`). The tests hand the adapter real `requests.Response` objects, so they do not depend on which attribute of a response the adapter reads.
+  Date/Author: 2026-11-20, M1 session.
+
+- Decision (M1): `_get` knows a full address by its beginning (`https://` or `http://`) and then sends no params; `_minutes_portal_url` is deleted.
+  Rationale: M1 leaves the form of "either an endpoint or a full address" open; one argument keeps the two existing callers unchanged. Nothing else in `src/`, `tests/` or `scripts/` named `_minutes_portal_url` (searched before deleting).
+  Date/Author: 2026-11-20, M1 session.
+
 
 ## Outcomes & Retrospective
 
 As authored on 2026-11-20, nothing has been executed and there is no outcome to report. The closing milestone writes what M1 to M5 achieved against the Purpose above, what the operator still has to run, and what was left undone.
+
+M1, 2026-11-20: done, with no carve-out against its acceptance. `CivicClerkAdapter.list_meetings` walks the server's next links, sends the date floor to the server, never waits less than a second, retries a failed request twice, and gives each meeting its posted time and the city's own agenda and minutes files; `self._agenda_ids` holds each listed event's agenda id for M2. Observed: `32 passed` on the test file, `verify: all 6 checks passed in 310s.` Nothing was run against a city's site or production, so what the adapter does with the city's real answers is still unobserved; the fixtures are the only evidence. Next is M2.
 
 
 ## Context and Orientation
