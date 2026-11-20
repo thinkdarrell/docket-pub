@@ -137,6 +137,19 @@ The observations below were made on 2026-11-20 by the session that executed M2. 
 
 - Observation (M2): M2's acceptance was observed on the edited adapter. The single-file command printed `45 passed` (above); `./tools/verify` ended `verify: all 6 checks passed in 305s.` (unit+web+services 176s, integration 117s, transcriber 12s). Verify was run after the last edit to `src/` and `tests/` and before the commit that holds them; nothing was edited while it ran.
 
+The observations below were made on 2026-11-20 by the session that executed M3. It ran no request to any city's site and no production query.
+
+- Observation (M3): the starting state was green. `./tools/verify`, run before any edit, ended `verify: all 6 checks passed in 310s.` (unit+web+services 180s, integration 117s, transcriber 12s).
+
+- Observation (M3): the three existing files of M3's acceptance command print `27 passed` at the session's start.
+  Evidence: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/integration/test_ingest_hearings.py tests/integration/test_ingest_backfill_timestamps.py tests/unit/test_ingest_event_guard.py -q -p no:cacheprovider; tools/test-db --drop` printed `27 passed, 1 warning in 3.67s`.
+
+- Observation (M3): on the unchanged ingest, seven of the ten new tests fail and three pass. The commit that holds this entry holds `tests/integration/test_ingest_backlog_settings.py`, with `src/` untouched.
+  Evidence: the acceptance command (the new file and the three existing ones) printed `7 failed, 30 passed, 1 warning in 5.60s`. The three that pass before the change are `test_an_explicit_since_wins_over_the_floor`, `test_a_listed_file_link_replaces_a_stored_page_link` (as the author expected) and `test_a_city_with_neither_setting_ingests_as_before`: each holds something ingest already does and must still do, so none can fail first; what each holds after the change is shown by the removal check, recorded below.
+
+- Observation (M3): two returns of `ingest_municipality` that this milestone does not edit raise instead of returning. `IngestResult` has seven fields with no default, and the returns for an unknown slug and for a listing that fails pass six values (`IngestResult(slug, 0, 0, 0, 0, [...])`), so each raises `TypeError: IngestResult.__init__() missing 1 required positional argument: 'errors'`. The worker's `ingest_all` and `ingest_afternoon` catch any exception per city and log it, so a failed listing is logged as that `TypeError` and the next city still runs; the text `Failed to scrape meetings: ...` is never seen. It was so before this plan (the lines are unchanged since before M1), M3 does not name it, and the session left it; M1's adapter now raises after three failed attempts on a listing, so this is the path a Mobile listing failure takes. It is for M6 to put in `docs/DEBT.md`. The new return M3 adds passes seven values, as M3 writes it.
+  Evidence: `venv/bin/python -c "from docket.services.ingest import IngestResult; IngestResult('x',0,0,0,0,['e'])"` printed that `TypeError`; `grep -n "IngestResult(slug, 0, 0, 0, 0, \[" src/docket/services/ingest.py` printed lines 116 and 130.
+
 
 
 ## Decision Log
