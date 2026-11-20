@@ -112,6 +112,11 @@ def test_049_a_second_run_adds_no_row_and_changes_none(applied_049):
     versions = [int(m.rsplit(".", 1)[-1].split("_")[0]) for m in runner.MIGRATIONS]
     assert MODULE in runner.MIGRATIONS and versions == sorted(versions)
     assert _roster() == EXPECTED
+    # The three inserted members are Mobile's alone, whatever districts another city numbers 2, 5 and 6.
+    with db_cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM council_members "
+                    "WHERE name IN ('Samantha Ingram', 'Joel Daves', 'Scott Jones')")
+        assert cur.fetchone()["n"] == 3
     other_cities_before = [_roster(slug) for slug in ("birmingham", "vestavia_hills", "homewood")]
 
     with db_cursor() as cur:
@@ -184,18 +189,30 @@ def test_049_down_restores_the_seeded_roster_and_the_up_applies_again(applied_04
         with db_cursor() as cur:
             cur.execute(
                 "INSERT INTO council_members (municipality_id, name, term_start, term_end, active) VALUES "
-                "(%s, 'M049 Jones', '2020-01-01', NULL, TRUE), "
-                "(%s, 'M049 Carroll', NULL, NULL, TRUE), "
-                "(%s, 'M049 Pennington', '2020-01-01', NULL, TRUE), "
-                "(%s, 'M049 Underwoods', '2020-01-01', '2020-06-01', TRUE)",
-                (vestavia, vestavia, mobile, mobile),
+                "(%(v)s, 'M049 Jones', '2020-01-01', NULL, TRUE), "
+                "(%(v)s, 'M049 Carroll', '2020-01-01', NULL, FALSE), "
+                "(%(v)s, 'M049 Gregory', NULL, NULL, TRUE), "
+                "(%(v)s, 'M049 Woods', '2020-01-01', NULL, TRUE), "
+                "(%(v)s, 'M049 Fleming', '2020-01-01', NULL, TRUE), "
+                "(%(m)s, 'M049 Pennington', '2020-01-01', NULL, FALSE), "
+                "(%(m)s, 'M049 Underwoods', '2020-01-01', '2020-06-01', TRUE), "
+                "(%(m)s, 'M049 Jonesboro', NULL, NULL, TRUE), "
+                "(%(m)s, 'M049 Mcjones', NULL, NULL, TRUE)",
+                {"v": vestavia, "m": mobile},
             )
+        # Another city's members of the same surnames: no statement may touch them.
         bystanders = [
-            ("M049 Carroll", None, None, None, True),
+            ("M049 Carroll", None, date(2020, 1, 1), None, False),
+            ("M049 Fleming", None, date(2020, 1, 1), None, True),
+            ("M049 Gregory", None, None, None, True),
             ("M049 Jones", None, date(2020, 1, 1), None, True),
+            ("M049 Woods", None, date(2020, 1, 1), None, True),
         ]
+        # Mobile rows whose names only contain a surname: not that member.
         strangers = [
-            ("M049 Pennington", None, date(2020, 1, 1), None, True),
+            ("M049 Jonesboro", None, None, None, True),
+            ("M049 Mcjones", None, None, None, True),
+            ("M049 Pennington", None, date(2020, 1, 1), None, False),
             ("M049 Underwoods", None, date(2020, 1, 1), date(2020, 6, 1), True),
         ]
 
@@ -216,25 +233,30 @@ def test_049_down_restores_the_seeded_roster_and_the_up_applies_again(applied_04
             cur.execute(importlib.import_module(MODULE).SQL_DOWN)
         assert city_rows() == SEEDED
 
-        # A first name spelled another way, a suffix after the surname, a surname alone, and a
-        # start date already stored: the up finds each row by its whole-word surname.
+        # A first name spelled another way, a suffix after the surname, a surname alone: the up finds
+        # each row by its whole-word surname. A start date already stored is kept for the four members
+        # dated "where none is stored" (Gregory here) and replaced for Carroll, Woods and Fleming.
         with db_cursor() as cur:
             for surname, new_name in [("Carroll", "Bill Carroll Jr."), ("Small", "CJ Small"),
                                       ("Woods", "Woods"), ("Fleming", "Beau Fleming III")]:
                 cur.execute(
                     "UPDATE council_members SET name = %s WHERE municipality_id = %s AND name LIKE %s "
                     "RETURNING id, (SELECT name FROM council_members o WHERE o.id = council_members.id) AS old",
-                    (new_name, mobile, "%" + surname),
+                    (new_name, mobile, "% " + surname),
                 )
                 row = cur.fetchone()
                 renamed[row["id"]] = row["old"]
             cur.execute(
-                "UPDATE council_members SET term_start = '2019-11-05' "
-                "WHERE municipality_id = %s AND name = 'Gina Gregory'", (mobile,))
-            # A member the up would insert, already present under another first name.
+                "UPDATE council_members SET term_start = '2019-11-05' WHERE municipality_id = %s "
+                "AND name IN ('Gina Gregory', 'Bill Carroll Jr.', 'Woods', 'Beau Fleming III')", (mobile,))
+            assert cur.rowcount == 4
+            # Two of the members the up would insert, each already present under another form of the
+            # name: a suffix after the surname, and the surname alone. The third, Jones, is present
+            # only in another city (`M049 Jones`, above), which does not keep Mobile's from going in.
             cur.execute(
-                "INSERT INTO council_members (municipality_id, name, active) VALUES (%s, 'M049 Ingram', TRUE)",
-                (mobile,))
+                "INSERT INTO council_members (municipality_id, name, active) VALUES "
+                "(%(m)s, 'M049 Ingram Sr.', TRUE), (%(m)s, 'Daves', TRUE)",
+                {"m": mobile})
         assert len(renamed) == 4
 
         with db() as conn:
@@ -244,11 +266,20 @@ def test_049_down_restores_the_seeded_roster_and_the_up_applies_again(applied_04
                      "Josh Woods": "Woods", "Beau Fleming": "Beau Fleming III"}
         expected = [
             (respelled.get(name, name), district, date(2019, 11, 5) if name == "Gina Gregory" else start, end, active)
-            for name, district, start, end, active in EXPECTED if name != "Samantha Ingram"
-        ]
-        assert sorted(city_rows(), key=lambda r: (r[1], r[2])) == sorted(expected, key=lambda r: (r[1], r[2]))
-        assert test_rows("mobile") == [("M049 Ingram", None, None, None, True)] + strangers
+            for name, district, start, end, active in EXPECTED
+            if name not in ("Samantha Ingram", "Joel Daves")
+        ] + [("Daves", None, None, None, True)]
+        assert sorted(city_rows(), key=lambda r: (r[1] or 0, r[0])) == sorted(expected, key=lambda r: (r[1] or 0, r[0]))
+        assert test_rows("mobile") == [("M049 Ingram Sr.", None, None, None, True)] + strangers
         assert test_rows("vestavia_hills") == bystanders
+
+        # The down finds the respelled rows as well, and takes every Mobile row of an inserted surname.
+        with db() as conn:
+            runner.rollback_migration(conn, 49)
+        seeded = [(respelled.get(name, name), district, start, end, active)
+                  for name, district, start, end, active in SEEDED]
+        assert city_rows() == seeded
+        assert test_rows("mobile") == strangers and test_rows("vestavia_hills") == bystanders
     finally:
         with db_cursor() as cur:
             for member_id, old_name in renamed.items():
