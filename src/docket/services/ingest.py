@@ -742,6 +742,134 @@ def correct_chapter_ids(slug: str, *, limit: int = 50, dry_run: bool = False) ->
     return results
 
 
+# What `reset_agenda_items` counts for one city, each query taking the
+# municipality id once. The last three are the rows that block the reset.
+_RESET_ITEMS_OF_CITY = (
+    "SELECT a.id FROM agenda_items a JOIN meetings m ON m.id = a.meeting_id "
+    "WHERE m.municipality_id = %s"
+)
+_RESET_COUNTS = {
+    "meetings": "SELECT count(*) FROM meetings WHERE municipality_id = %s",
+    "meetings_scraped": (
+        "SELECT count(*) FROM processing_status ps JOIN meetings m ON m.id = ps.meeting_id "
+        "WHERE m.municipality_id = %s AND ps.agenda_items_scraped IS TRUE"
+    ),
+    "meetings_with_summary": (
+        "SELECT count(*) FROM meetings WHERE municipality_id = %s AND executive_summary IS NOT NULL"
+    ),
+    "agenda_items": f"SELECT count(*) FROM ({_RESET_ITEMS_OF_CITY}) items",
+    "audit_rows": f"SELECT count(*) FROM processing_status_audit WHERE agenda_item_id IN ({_RESET_ITEMS_OF_CITY})",
+    "vote_links": f"SELECT count(*) FROM vote_agenda_items WHERE agenda_item_id IN ({_RESET_ITEMS_OF_CITY})",
+    "transcript_segments": f"SELECT count(*) FROM transcript_segments WHERE agenda_item_id IN ({_RESET_ITEMS_OF_CITY})",
+    "minutes_discrepancies": f"SELECT count(*) FROM minutes_discrepancies WHERE agenda_item_id IN ({_RESET_ITEMS_OF_CITY})",
+}
+
+
+def reset_agenda_items(slug: str, *, apply: bool = False) -> dict:
+    """Delete one city's stored agenda items and re-open its meetings.
+
+    The supervised reset behind `scripts/reset_agenda_items.py`, run once
+    for a city whose stored items cannot be trusted (plan
+    `mobile-agendas-flow-again`, M4: every CivicClerk item stored before
+    that plan was fetched under an event id, and no predicate tells a right
+    one from a wrong one). The daily ingest then fetches the city's agendas
+    again.
+
+    It counts, for the city: `meetings`, `meetings_scraped` (marked
+    `agenda_items_scraped`), `meetings_with_summary` (an
+    `executive_summary`), `agenda_items`, `audit_rows`
+    (`processing_status_audit` rows on those items), and the rows that
+    block: `vote_links` (`vote_agenda_items`), `transcript_segments` and
+    `minutes_discrepancies` that reference those items. Any blocking count
+    above zero raises ValueError naming the three counts, with or without
+    `apply`, so a city whose items carry votes or a transcript is never
+    reset. An unknown slug raises ValueError.
+
+    `apply=False` returns the counts and writes nothing. `apply=True` runs
+    four statements, each selecting by the city's `municipality_id`, in the
+    one transaction the counts were read in, and returns the counts with
+    each statement's row count:
+
+    - `audit_rows_deleted`: the `processing_status_audit` rows of the
+      city's items, the one table whose foreign key to `agenda_items`
+      neither cascades nor sets NULL;
+    - `agenda_items_deleted`: the city's items (badges, batch items,
+      search cards and hearing links go by their own cascades);
+    - `summaries_cleared`: the city's meetings with any of
+      `executive_summary`, `executive_summary_voice`, `ai_prompt_version`,
+      `ai_metadata`, `ai_generated_at` set, all five set to NULL, since a
+      summary written from the deleted items is as untrustworthy as they
+      were; with `ai_prompt_version` NULL the meeting stage writes a new
+      one once the refilled items have theirs;
+    - `meetings_reopened`: the city's `processing_status` rows, with
+      `agenda_items_scraped` set FALSE.
+
+    The meetings, their links and `votes_scanned` are not touched. A second
+    `apply` after a refill deletes the refilled items.
+    """
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM municipalities WHERE slug = %s", (slug,))
+            row = cur.fetchone()
+            if row is None:
+                raise ValueError(f"Municipality '{slug}' not found")
+            municipality_id = row[0]
+
+            counts: dict[str, int] = {}
+            for name, sql in _RESET_COUNTS.items():
+                cur.execute(sql, (municipality_id,))
+                counts[name] = cur.fetchone()[0]
+
+            if counts["vote_links"] or counts["transcript_segments"] or counts["minutes_discrepancies"]:
+                raise ValueError(
+                    f"Refusing to reset '{slug}': its agenda items carry "
+                    f"{counts['vote_links']} vote links, "
+                    f"{counts['transcript_segments']} transcript segments and "
+                    f"{counts['minutes_discrepancies']} minutes discrepancies"
+                )
+
+            if not apply:
+                return counts
+
+            cur.execute(
+                f"DELETE FROM processing_status_audit WHERE agenda_item_id IN ({_RESET_ITEMS_OF_CITY})",
+                (municipality_id,),
+            )
+            counts["audit_rows_deleted"] = cur.rowcount
+            cur.execute(
+                "DELETE FROM agenda_items WHERE meeting_id IN "
+                "(SELECT id FROM meetings WHERE municipality_id = %s)",
+                (municipality_id,),
+            )
+            counts["agenda_items_deleted"] = cur.rowcount
+            cur.execute(
+                """
+                UPDATE meetings
+                   SET executive_summary = NULL,
+                       executive_summary_voice = NULL,
+                       ai_prompt_version = NULL,
+                       ai_metadata = NULL,
+                       ai_generated_at = NULL
+                 WHERE municipality_id = %s
+                   AND (executive_summary IS NOT NULL
+                        OR executive_summary_voice IS NOT NULL
+                        OR ai_prompt_version IS NOT NULL
+                        OR ai_metadata IS NOT NULL
+                        OR ai_generated_at IS NOT NULL)
+                """,
+                (municipality_id,),
+            )
+            counts["summaries_cleared"] = cur.rowcount
+            cur.execute(
+                "UPDATE processing_status SET agenda_items_scraped = FALSE WHERE meeting_id IN "
+                "(SELECT id FROM meetings WHERE municipality_id = %s)",
+                (municipality_id,),
+            )
+            counts["meetings_reopened"] = cur.rowcount
+
+    return counts
+
+
 def _ingest_agenda_items(
     municipality_id: int,
     adapter,

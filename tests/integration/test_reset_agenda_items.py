@@ -284,11 +284,25 @@ def test_apply_clears_the_citys_meeting_summaries_only():
     assert kept["ai_metadata"] == {"model": "built-in-the-test"}
     assert kept["ai_generated_at"] == GENERATED_AT
 
+    # Each of the other columns, set alone on a meeting, has it cleared too.
+    for column, value in (
+        ("executive_summary", "A summary."),
+        ("executive_summary_voice", "upcoming"),
+        ("ai_metadata", '{"model": "built-in-the-test"}'),
+        ("ai_generated_at", GENERATED_AT),
+    ):
+        with db_cursor() as cur:
+            cur.execute(f"UPDATE meetings SET {column} = %s WHERE id = %s", (value, city["meetings"][2]))
+        assert reset_agenda_items(SLUG, apply=True)["summaries_cleared"] == 1, column
+        assert _state(city["muni"])["meetings"][2][column] is None, column
+    assert _state(other["muni"])["meetings"][0] == kept
+
 
 def test_a_city_with_vote_links_is_refused():
     from docket.services.ingest import reset_agenda_items
 
     city = _seed_city(SLUG)
+    _seed_city(OTHER)
     with db_cursor() as cur:
         cur.execute(
             """
@@ -323,6 +337,8 @@ def test_a_city_with_vote_links_is_refused():
     with db_cursor() as cur:
         cur.execute("SELECT count(*) AS n FROM vote_agenda_items WHERE vote_id = %s", (vote_id,))
         assert cur.fetchone()["n"] == 1
+    # Another city's vote links do not block a city that has none.
+    assert reset_agenda_items(OTHER) == COUNTS
 
 
 def test_an_unknown_city_is_refused():
