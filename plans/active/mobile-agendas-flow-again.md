@@ -117,6 +117,13 @@ The observations below were made on 2026-11-20 by the session that executed M1. 
 
 - Observation (M1): an `eventDate` that carried a fraction of a second of one or two digits would not parse on Python 3.10, and `_event_to_meeting` would then date the meeting today, as it did before this plan (`if meeting_date is None: meeting_date = date.today()`). No `eventDate` read while planning carried a fraction; M1 names the fraction rule for `createdOn` only, and the session left the fallback as it found it.
 
+The observations below were made on 2026-11-20 by the session that executed M2. It ran no request to any city's site and no production query.
+
+- Observation (M2): the starting state was green. `./tools/verify`, run before any edit, ended `verify: all 6 checks passed in 304s.` (unit+web+services 174s, integration 118s, transcriber 12s).
+
+- Observation (M2): on the unchanged adapter the test file prints `20 failed, 25 passed`. The commit that holds this entry holds the fixture `meeting_473.json`, the thirteen new tests and the retitled assertions of `TestFlattenItems`, with `src/` untouched.
+  Evidence: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_civicclerk.py -q -p no:cacheprovider; tools/test-db --drop` printed `20 failed, 25 passed, 1 warning in 0.72s`. The twenty are nine of the thirteen `TestFlattenItems` tests (the nine whose title assertion dropped the number; the other four assert no title) and eleven of the thirteen new tests. The two new tests that pass before the change are `test_section_headings_are_not_items` and `test_an_empty_agenda_of_a_past_meeting_returns_no_items`: each holds something the adapter already did (a heading is not an item; an empty answer is an empty list), so neither can fail first, and what each has to hold after the change is shown by the removal check, recorded below.
+
 
 ## Decision Log
 

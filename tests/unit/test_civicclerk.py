@@ -1,17 +1,21 @@
 """Unit tests for the CivicClerk adapter: item flattening, the event listing
-(paging, the date filter, the delay, retries) and what a listed meeting carries
-(its posted time and its links to the city's own files)."""
+(paging, the date filter, the delay, retries), what a listed meeting carries
+(its posted time and its links to the city's own files), and what a fetched
+agenda gives (the right agenda, "not ready", and each item as the city titled it)."""
 
 import copy
 import json
-from datetime import date, time
+import re
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 import pytest
 import requests
 
 from docket.adapters.civicclerk import CivicClerkAdapter
+from docket.models.protocol import RawMeeting
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "civicclerk"
 
@@ -41,7 +45,7 @@ class TestFlattenItems:
         items = [{"id": 1, "agendaObjectItemName": "Roll Call", "agendaObjectItemNumber": "1"}]
         result = self._flatten(items)
         assert len(result) == 1
-        assert result[0].title == "1 Roll Call"
+        assert result[0].title == "Roll Call"
         assert result[0].external_id == "1"
         assert result[0].item_number == "1"
 
@@ -53,8 +57,8 @@ class TestFlattenItems:
         ]
         result = self._flatten(items)
         assert len(result) == 3
-        assert result[0].title == "1 Roll Call"
-        assert result[2].title == "3 Minutes"
+        assert result[0].title == "Roll Call"
+        assert result[2].title == "Minutes"
 
     # --- Section headers skipped --------------------------------------------
 
@@ -71,8 +75,8 @@ class TestFlattenItems:
         ]
         result = self._flatten(items)
         assert len(result) == 2
-        assert result[0].title == "A Item A"
-        assert result[1].title == "B Item B"
+        assert result[0].title == "Item A"
+        assert result[1].title == "Item B"
 
     def test_implicit_section_skipped(self):
         """Items with no item number but with children are treated as sections."""
@@ -86,7 +90,7 @@ class TestFlattenItems:
         ]
         result = self._flatten(items)
         assert len(result) == 1
-        assert result[0].title == "1 Rezoning"
+        assert result[0].title == "Rezoning"
 
     # --- Nested children ----------------------------------------------------
 
@@ -108,7 +112,7 @@ class TestFlattenItems:
         ]
         result = self._flatten(items)
         assert len(result) == 1
-        assert result[0].title == "1.1.1 Leaf"
+        assert result[0].title == "Leaf"
 
     # --- HTML stripping -----------------------------------------------------
 
@@ -122,7 +126,7 @@ class TestFlattenItems:
             },
         ]
         result = self._flatten(items)
-        assert result[0].title == "1 Bold Item"
+        assert result[0].title == "Bold Item"
         assert result[0].description == "Some & description"
 
     def test_html_entities(self):
@@ -134,7 +138,7 @@ class TestFlattenItems:
             },
         ]
         result = self._flatten(items)
-        assert result[0].title == "1 Item & Thing"
+        assert result[0].title == "Item & Thing"
 
     # --- Description truncation ---------------------------------------------
 
@@ -156,7 +160,7 @@ class TestFlattenItems:
         """CivicClerk sometimes uses 'name' instead of 'agendaObjectItemName'."""
         items = [{"id": 60, "name": "Alt Name", "itemNumber": "1"}]
         result = self._flatten(items)
-        assert result[0].title == "1 Alt Name"
+        assert result[0].title == "Alt Name"
 
     def test_children_field(self):
         """Some responses use 'children' instead of 'childItems'."""
@@ -171,7 +175,7 @@ class TestFlattenItems:
         ]
         result = self._flatten(items)
         assert len(result) == 1
-        assert result[0].title == "1 Child"
+        assert result[0].title == "Child"
 
     # --- Empty / edge cases -------------------------------------------------
 
@@ -544,3 +548,356 @@ class TestListedMeeting:
         meeting = _one(_event(573))
         assert meeting.agenda_url is None
         assert meeting.minutes_url is None
+
+
+# --- The items (plan mobile-agendas-flow-again, M2) ------------------------------
+#
+# meeting_473.json is the agenda of 2026-11-17 as Mobile's server returned it on
+# 2026-11-20, cut down to nine nodes: five headings and four items, each item
+# under the heading the city has it under. AgendaNotReady and split_item_name
+# are imported inside the tests, so this file still collects without them.
+
+CHICAGO_TODAY = datetime.now(ZoneInfo("America/Chicago")).date()
+YESTERDAY = CHICAGO_TODAY - timedelta(days=1)
+TOMORROW = CHICAGO_TODAY + timedelta(days=1)
+
+ARENA_NAME = (
+    "01-1211 Authorize Agreement with the Mobile County Commission for the design and "
+    "construction of the Regions Arena; $7,500,000.00 (sponsored by Mayor Cheriogotis) "
+    "(submitted by Robert Shreve, City Attorney)."
+)
+ARENA_TITLE = (
+    "01-1211 Authorize Agreement with the Mobile County Commission for the design and "
+    "construction of the Regions Arena; $7,500,000.00."
+)
+NUISANCE_TITLE = (
+    "40-1225 Declare the structure at 701 N. Joachim Street a public nuisance and "
+    "order it demolished."
+)
+HEARING_TITLE = (
+    "Public hearing to fix costs for demolition of the structure at 1423 Cedar Park "
+    "Drive; $4,000.00 (District 3)."
+)
+CHAPLAIN_TITLE = "Father Dan Good, Public Safety Chaplain"
+
+
+def _agenda() -> dict:
+    return _page("meeting_473.json")
+
+
+def _meeting(external_id: str = "501", meeting_date: date = date(2026, 11, 17)) -> RawMeeting:
+    return RawMeeting(
+        external_id=external_id,
+        municipality_slug="mobile",
+        title="City Council Meeting",
+        meeting_date=meeting_date,
+        meeting_type="council",
+        agenda_url=None,
+        minutes_url=None,
+        video_url=None,
+        source_url=f"https://mobileal.portal.civicclerk.com/event/{external_id}",
+    )
+
+
+def _listed() -> CivicClerkAdapter:
+    """An adapter that has listed the two fixture pages."""
+    adapter = _mobile()
+    _list(adapter, _page("events_page_1.json"), _page("events_page_2.json"))
+    return adapter
+
+
+def _fetch(adapter: CivicClerkAdapter, meeting: RawMeeting, *answers):
+    """Run fetch_agenda_items over the given answers (payloads or exceptions).
+
+    Returns (items or the exception raised, get mock, sleep mock)."""
+    with patch.object(adapter._session, "get") as get, patch(
+        "docket.adapters.civicclerk.time.sleep"
+    ) as sleep:
+        get.side_effect = [a if isinstance(a, Exception) else _response(a) for a in answers]
+        try:
+            outcome = adapter.fetch_agenda_items(meeting)
+        except Exception as e:  # noqa: BLE001 - the caller asserts on its type
+            outcome = e
+    return outcome, get, sleep
+
+
+def _items_of_473():
+    items, _, _ = _fetch(_listed(), _meeting(), _agenda())
+    assert isinstance(items, list), items
+    return {item.external_id: item for item in items}
+
+
+def _flat(nodes: list[dict]):
+    result = []
+    _mobile()._flatten_items(nodes, result, "501", index=0)
+    return result
+
+
+class TestFetchAgendaItems:
+    def test_items_come_from_the_events_agenda_id(self):
+        items, get, sleep = _fetch(_listed(), _meeting("501"), _agenda())
+
+        assert [item.external_id for item in items] == ["13498", "13505", "13520", "13512"]
+        assert {item.meeting_external_id for item in items} == {"501"}
+        urls = [_url(c) for c in get.call_args_list]
+        assert urls == ["https://mobileal.api.civicclerk.com/v1/Meetings/473"]
+        assert not any(u.endswith("/Meetings/501") for u in urls)
+        # The polite pause follows the one request.
+        assert [c.args[0] for c in sleep.call_args_list] == [1.0]
+
+    def test_agenda_id_is_looked_up_for_a_meeting_not_listed(self):
+        adapter = _mobile()
+        lookup = {"@odata.count": 1, "value": [_event(501)]}
+        items, get, sleep = _fetch(adapter, _meeting("501"), lookup, _agenda())
+
+        assert len(items) == 4
+        first, second = get.call_args_list
+        assert _url(first) == "https://mobileal.api.civicclerk.com/v1/Events"
+        assert _params(first) == {"$filter": "id eq 501"}
+        assert _url(second) == "https://mobileal.api.civicclerk.com/v1/Meetings/473"
+        # One pause after the lookup, one after the agenda.
+        assert [c.args[0] for c in sleep.call_args_list] == [1.0, 1.0]
+        assert adapter._agenda_ids == {"501": 473}
+
+        # The server knows no such event: an error, and the agenda is not asked for.
+        outcome, get, _ = _fetch(_mobile(), _meeting("501"), {"@odata.count": 0, "value": []})
+        assert isinstance(outcome, ValueError)
+        assert get.call_count == 1
+
+        # A row for another event is not this event.
+        outcome, get, _ = _fetch(_mobile(), _meeting("501"), {"value": [_event(500)]})
+        assert isinstance(outcome, ValueError)
+        assert get.call_count == 1
+
+        # An id that is not a whole number is let through as ValueError, with no request.
+        outcome, get, _ = _fetch(_mobile(), _meeting("event-2026-11-17"))
+        assert isinstance(outcome, ValueError)
+        assert get.call_count == 0
+
+    def test_no_agenda_id_raises_agenda_not_ready_without_a_request(self):
+        from docket.models.protocol import AgendaNotReady
+
+        outcome, get, _ = _fetch(_listed(), _meeting("573", date(2027, 8, 31)))
+        assert isinstance(outcome, AgendaNotReady)
+        assert get.call_count == 0
+
+        # Not listed by this adapter: the lookup is the only request.
+        outcome, get, _ = _fetch(
+            _mobile(), _meeting("573", date(2027, 8, 31)), {"value": [_event(573)]}
+        )
+        assert isinstance(outcome, AgendaNotReady)
+        assert [_url(c) for c in get.call_args_list] == [
+            "https://mobileal.api.civicclerk.com/v1/Events"
+        ]
+
+    def test_an_unpublished_agenda_raises_agenda_not_ready(self):
+        from docket.models.protocol import AgendaNotReady
+
+        unpublished = _agenda()
+        unpublished["agendaIsPublish"] = False
+        outcome, get, _ = _fetch(_listed(), _meeting("501", YESTERDAY), unpublished)
+        # Raised although the answer holds items and the meeting's date is past.
+        assert isinstance(outcome, AgendaNotReady)
+        assert get.call_count == 1
+
+        # An answer without the key is treated as published.
+        keyless = _agenda()
+        del keyless["agendaIsPublish"]
+        items, _, _ = _fetch(_listed(), _meeting("501", YESTERDAY), keyless)
+        assert len(items) == 4
+
+    def test_an_empty_agenda_of_a_coming_meeting_raises_agenda_not_ready(self):
+        from docket.models.protocol import AgendaNotReady
+
+        empty = {"id": 473, "agendaIsPublish": True, "items": []}
+        outcome, get, _ = _fetch(_listed(), _meeting("501", TOMORROW), empty)
+        assert isinstance(outcome, AgendaNotReady)
+        assert get.call_count == 1
+
+        # A meeting held today is still coming.
+        outcome, _, _ = _fetch(_listed(), _meeting("501", CHICAGO_TODAY), empty)
+        assert isinstance(outcome, AgendaNotReady)
+
+        # "Today" is the city's date, not the worker's: at 01:00 UTC on the 18th
+        # it is still 19:00 on the 17th in Mobile.
+        class Clock(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                instant = datetime(2026, 11, 18, 1, 0, tzinfo=timezone.utc)
+                return instant.astimezone(tz) if tz else instant.replace(tzinfo=None)
+
+        with patch("docket.adapters.civicclerk.datetime", Clock):
+            outcome, _, _ = _fetch(_listed(), _meeting("501", date(2026, 11, 17)), empty)
+            assert isinstance(outcome, AgendaNotReady)
+            outcome, _, _ = _fetch(_listed(), _meeting("501", date(2026, 11, 16)), empty)
+            assert outcome == []
+
+    def test_an_empty_agenda_of_a_past_meeting_returns_no_items(self):
+        empty = {"id": 473, "agendaIsPublish": True, "items": []}
+        outcome, get, _ = _fetch(_listed(), _meeting("501", YESTERDAY), empty)
+        assert outcome == []
+        assert get.call_count == 1
+
+        # Headings alone are no items either (every imported Mobile agenda).
+        headings = {"id": 270, "agendaIsPublish": True, "items": _agenda()["items"][:1]}
+        outcome, _, _ = _fetch(_listed(), _meeting("297", date(2023, 4, 25)), headings)
+        assert outcome == []
+
+    def test_a_failed_request_raises(self):
+        failure = requests.ConnectionError("handshake timed out")
+        outcome, get, _ = _fetch(_listed(), _meeting("501"), failure, failure, failure)
+        assert isinstance(outcome, requests.RequestException)
+        assert "https://mobileal.api.civicclerk.com/v1/Meetings/473" in str(outcome)
+        assert get.call_count == 3
+
+        # So does a failed lookup of the agenda id.
+        outcome, get, _ = _fetch(_mobile(), _meeting("501"), failure, failure, failure)
+        assert isinstance(outcome, requests.RequestException)
+        assert get.call_count == 3
+
+
+class TestItemsOfAnAgenda:
+    def test_section_headings_are_not_items(self):
+        nodes = _agenda()["items"]
+        assert len(nodes) + sum(len(n["childItems"]) for n in nodes) == 9
+        items = _flat(nodes)
+        assert [item.external_id for item in items] == ["13498", "13505", "13520", "13512"]
+        assert not {"7754", "7752", "7772", "7763", "7764"} & {i.external_id for i in items}
+
+    def test_an_item_under_a_consent_heading_is_a_consent_item(self):
+        items = _items_of_473()
+        assert items["13512"].is_consent is True
+        assert items["13498"].is_consent is False
+        assert items["13505"].is_consent is False
+        assert items["13520"].is_consent is False
+
+        def node(item_id, name, children=None, section=0, number="2026-1"):
+            return {
+                "id": item_id,
+                "isSection": section,
+                "agendaObjectItemName": name,
+                "agendaObjectItemNumber": "" if section else number,
+                "childItems": children or [],
+            }
+
+        tree = [
+            node(1, "Consent Resolutions Held Over", section=1, children=[
+                node(10, "Pay a claim"),
+                # A heading under a consent heading keeps its items on the consent agenda.
+                node(2, "ROADS", section=1, children=[node(11, "Resurface a street")]),
+            ]),
+            # The next heading starts again.
+            node(3, "ORDINANCES HELD OVER", section=1, children=[
+                node(12, "Amend the zoning code"),
+                # As before this plan, an item whose own name says so.
+                node(13, "Approve the consent agenda"),
+            ]),
+        ]
+        flags = {item.external_id: item.is_consent for item in _flat(tree)}
+        assert flags == {"10": True, "11": True, "12": False, "13": True}
+
+    def test_title_is_the_citys_item_name_and_keeps_its_code(self):
+        items = _items_of_473()
+        assert items["13520"].title == ARENA_TITLE
+        assert items["13512"].title == NUISANCE_TITLE
+        assert items["13505"].title == HEARING_TITLE
+        assert items["13498"].title == CHAPLAIN_TITLE
+        # The file number stays the item number and is no longer put before the title.
+        assert items["13520"].item_number == "2026-2408"
+        assert items["13512"].item_number == "2026-2400"
+        assert re.match(r"^(\d{2}-\d{3,4})\b", items["13520"].title).group(1) == "01-1211"
+
+        # An item with a file number and no name is not an item.
+        assert _flat([{"id": 5, "agendaObjectItemNumber": "2026-9", "agendaObjectItemName": " "}]) == []
+
+    def test_sponsor_and_submitter_are_split_from_the_name(self):
+        from docket.adapters.civicclerk import split_item_name
+
+        items = _items_of_473()
+        arena = items["13520"]
+        assert arena.sponsor == "Mayor Cheriogotis"
+        assert arena.sponsor != "Robert Shreve, City Attorney"
+        assert arena.description == "Submitted by Robert Shreve, City Attorney."
+        assert items["13512"].sponsor == "Councilmember Ingram"
+        assert items["13512"].description is None
+        assert items["13505"].sponsor is None
+        assert items["13498"].sponsor is None
+        assert items["13498"].description is None
+
+        assert split_item_name(ARENA_NAME) == (
+            ARENA_TITLE,
+            "Mayor Cheriogotis",
+            "Robert Shreve, City Attorney",
+        )
+        assert split_item_name(HEARING_TITLE) == (HEARING_TITLE, None, None)
+        assert split_item_name(CHAPLAIN_TITLE) == (CHAPLAIN_TITLE, None, None)
+        # Two names of Vestavia Hills': an entity, and a tag with a non-breaking space.
+        assert split_item_name("City Manager&rsquo;s Report") == (
+            "City Manager’s Report",
+            None,
+            None,
+        )
+        assert split_item_name(
+            "Public Hearing - Ordinance Number 3363 \xa0- Rezoning - "
+            '<a href="file://cityhall-smb/x.d">4616 Old Looney Mill Road</a>'
+        ) == (
+            "Public Hearing - Ordinance Number 3363 - Rezoning - 4616 Old Looney Mill Road",
+            None,
+            None,
+        )
+        # Case and spacing inside the parentheses do not matter; a submitter alone.
+        assert split_item_name("Pay a claim ( Submitted By  Jane Roe, Clerk ) ; $5.00") == (
+            "Pay a claim; $5.00",
+            None,
+            "Jane Roe, Clerk",
+        )
+        # The first of two is the one kept; both are taken out of the title.
+        assert split_item_name("X (sponsored by A) (sponsored by B) : y , z") == (
+            "X: y, z",
+            "A",
+            None,
+        )
+
+    def test_the_code_survives_enrichment(self):
+        from docket.services.enrichment import enrich_agenda_item
+
+        item = _items_of_473()["13512"]
+        enriched = enrich_agenda_item(item.title, item.description, True)
+        assert enriched["clean_title"] == item.title
+        assert re.match(r"^(\d{2}-\d{3,4})\b", enriched["clean_title"]).group(1) == "40-1225"
+        # Enrichment finds no attribution left in the title, so ingest keeps the adapter's.
+        assert enriched["sponsor"] is None
+        assert (enriched["sponsor"] or item.sponsor) == "Councilmember Ingram"
+
+    def test_description_is_read_from_the_citys_description_field(self):
+        def described(**keys):
+            node = {"id": 9, "agendaObjectItemNumber": "26-997", "agendaObjectItemName": "Item"}
+            node.update(keys)
+            (item,) = _flat([node])
+            return item
+
+        item = described(agendaObjectItemDescription="<p>Renews the lease &amp; sets the rent.</p>")
+        assert item.description == "Renews the lease & sets the rent."
+
+        # The city's key first; the older key only when the city's is empty.
+        item = described(agendaObjectItemDescription="The city's.", description="The older.")
+        assert item.description == "The city's."
+        item = described(agendaObjectItemDescription="", description="The older.")
+        assert item.description == "The older."
+        assert described(agendaObjectItemDescription=None).description is None
+
+        # The submitter follows the description, one space between.
+        item = described(
+            agendaObjectItemName="Item (submitted by Jane Roe, Clerk)",
+            agendaObjectItemDescription="Renews the lease.",
+        )
+        assert item.title == "Item"
+        assert item.description == "Renews the lease. Submitted by Jane Roe, Clerk."
+
+        # The 300-character cut is applied last, over the joined text.
+        item = described(
+            agendaObjectItemName="Item (submitted by Jane Roe, Clerk)",
+            agendaObjectItemDescription="x" * 290,
+        )
+        assert item.description == ("x" * 290 + " Submitted by Jane Roe, Clerk.")[:300]
+        assert len(item.description) == 300
