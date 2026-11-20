@@ -435,6 +435,15 @@ The observations below were made on 2026-11-20 by the session that executed M6. 
   Date/Author: 2026-11-20, M6 session.
 
 
+- Decision (M6): the debt rows are `D178` to `D184`. `D178` the operator's steps, with the trigger "When the pull request merges"; `D179` Mobile's 135 meetings whose items exist only in PDF files; `D180` the minutes links of imported events; `D181` "Scott" in the minutes of 2021, Jones's unfound last roll call, and `votes_scanned` on every CivicClerk meeting with minutes; `D182` Vestavia Hills' roster; `D183` an agenda stored before its meeting; `D184` the two returns of `ingest_municipality` that raise `TypeError`. `D175` is deleted, `D9` names the new spec, and `D12`'s trigger reads "Before the next Birmingham backfill wave" with a dated note.
+  Rationale: M6 lists the first six; the seventh is the row the M3 session left for this one (its decision above), and Jones's roll call is folded into `D181` as the M5 outcome asked. `D178` names each step and what it should show, and points at this plan's Validation and Acceptance and at `docs/specs/operations.md` for the command lines: a table cell cannot hold the `||` of the settings UPDATE or the pipes of the `PROD=` line without breaking the row. `D12`'s note says the CivicClerk backlog is brought in without paying the row, not that it "ran", since nothing has run. `D178` also carries the two looks no session could make (the portal-page link, Vestavia Hills' other bodies) and the Birmingham pending count the authoring decision on AI summaries asks to be recorded.
+  Date/Author: 2026-11-20, M6 session.
+
+- Decision (M6): `README.md` is not edited, and two limits found by earlier sessions are stated in the spec's "Known limits" and given no debt row of their own: an `eventDate` that cannot be parsed dates the meeting today (M1), and the down of migration 049 deletes by surname (M5; it is in that migration's test and this plan, and matters only to someone rolling the migration back).
+  Rationale: M6 says to correct in the README "only a sentence this plan made false", and the grep found none (Surprises). A debt row needs a trigger someone would act on; neither limit has been seen to bite, and the first is where a reader of the spec will look. The migration's down is not in the spec, which describes ingest.
+  Date/Author: 2026-11-20, M6 session.
+
+
 
 
 ## Outcomes & Retrospective
