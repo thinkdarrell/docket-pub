@@ -56,7 +56,7 @@ A heading (`isSection`, or a node with no number and at least one child) is not 
 - `item_number`: the city's file number (`2026-2408`), from `agendaObjectItemNumber`. It is not put before the title.
 - `sponsor`: what the first "(sponsored by ...)" says.
 - `description`: `agendaObjectItemDescription`, cleaned, followed by the sentence `Submitted by <submitter>.` when the name had a "(submitted by ...)", and cut at 300 characters.
-- `is_consent`: true when the nearest heading above the item has "consent" in its name (Mobile's `CONSENT RESOLUTIONS HELD OVER` and `CONSENT RESOLUTIONS BEING INTRODUCED`), or when the item's own title does.
+- `is_consent`: true when any heading above the item in the agenda's tree has "consent" in its name (Mobile's `CONSENT RESOLUTIONS HELD OVER` and `CONSENT RESOLUTIONS BEING INTRODUCED`), or when the item's own title does. The mark is carried down: an item under a heading that does not say "consent", itself under one that does, is a consent item. No agenda read had a heading under a heading.
 
 The function that splits a name is `split_item_name` in the adapter. After the split the title holds no attribution, so ingest's enrichment keeps the adapter's sponsor and leaves the title as it is.
 
