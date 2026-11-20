@@ -26,7 +26,7 @@ import psycopg2.extras
 from docket.adapters import get_adapter
 from docket.adapters._helpers import classify_title, normalize_title
 from docket.db import db, db_cursor
-from docket.models.protocol import RawMeeting
+from docket.models.protocol import AgendaNotReady, RawMeeting
 from docket.services import hearings, meeting_types
 from docket.services.enrichment import enrich_agenda_item
 from docket.services.member_votes import load_roster_index
@@ -101,6 +101,14 @@ def ingest_municipality(slug: str, since: date | None = None) -> IngestResult:
     3. Scrape meetings
     4. Upsert meetings into DB
     5. Scrape agenda items for new/updated meetings
+
+    Two optional settings of the city's ``adapter_config`` are read here,
+    for any adapter (`_backlog_settings`). ``backlog_floor`` is passed to
+    the adapter as ``since`` when the caller gave none. ``agenda_fetch_cap``
+    limits how many meetings whose agenda is waiting are fetched in this
+    run, newest meeting first. A city with neither is listed and fetched
+    as it always was. A value that cannot be read is reported as the one
+    error of the result, before any request.
     """
     errors: list[str] = []
 
@@ -122,6 +130,13 @@ def ingest_municipality(slug: str, since: date | None = None) -> IngestResult:
     adapter = get_adapter(muni["adapter_class"], slug, adapter_config)
     municipality_id = muni["id"]
 
+    try:
+        backlog_floor, agenda_fetch_cap = _backlog_settings(adapter_config)
+    except ValueError as reason:
+        return IngestResult(slug, 0, 0, 0, 0, 0, [f"Bad adapter_config for {slug}: {reason}"])
+    if since is None:
+        since = backlog_floor
+
     # Stage 1: Scrape meetings
     logger.info("Scraping meetings for %s...", slug)
     try:
@@ -133,15 +148,56 @@ def ingest_municipality(slug: str, since: date | None = None) -> IngestResult:
     inserted, updated = _upsert_meetings(municipality_id, raw_meetings)
     logger.info("Meetings: %d found, %d inserted, %d updated", len(raw_meetings), inserted, updated)
 
-    # Stage 3: Scrape agenda items for meetings that don't have them yet
+    # Stage 3: Scrape agenda items for meetings that don't have them yet.
+    # A meeting whose agenda the source has not published (AgendaNotReady)
+    # is passed by: unmarked, so the next run asks again, and not an error.
     total_items = 0
-    for raw_meeting in raw_meetings:
-        try:
-            count = _ingest_agenda_items(municipality_id, adapter, raw_meeting)
-            total_items += count
-        except Exception as e:
-            errors.append(f"Agenda items for {raw_meeting.external_id}: {e}")
-            logger.error("  Failed to scrape agenda for %s: %s", raw_meeting.external_id, e)
+    if agenda_fetch_cap is None:
+        for raw_meeting in raw_meetings:
+            try:
+                count = _ingest_agenda_items(municipality_id, adapter, raw_meeting)
+                total_items += count
+            except AgendaNotReady:
+                continue
+            except Exception as e:
+                errors.append(f"Agenda items for {raw_meeting.external_id}: {e}")
+                logger.error("  Failed to scrape agenda for %s: %s", raw_meeting.external_id, e)
+    else:
+        # Under a cap: newest meeting first (sorted() is stable, so two
+        # meetings on one date keep the adapter's order), and a meeting
+        # whose agenda is waiting is passed over once the cap is spent. A
+        # fetch that fails counts, so a failing site is not asked again and
+        # again in one run; a meeting not ready does not, so the scheduled
+        # meetings at the top of the list do not spend the cap on nothing.
+        # A meeting whose agenda is stored is handled as without a cap and
+        # never counts.
+        waiting = _waiting_external_ids(municipality_id)
+        fetches = 0
+        still_waiting = 0
+        for raw_meeting in sorted(raw_meetings, key=lambda m: m.meeting_date, reverse=True):
+            is_waiting = raw_meeting.external_id in waiting
+            if is_waiting and fetches >= agenda_fetch_cap:
+                still_waiting += 1
+                continue
+            try:
+                count = _ingest_agenda_items(municipality_id, adapter, raw_meeting)
+                total_items += count
+            except AgendaNotReady:
+                if is_waiting:
+                    still_waiting += 1
+                continue
+            except Exception as e:
+                errors.append(f"Agenda items for {raw_meeting.external_id}: {e}")
+                logger.error("  Failed to scrape agenda for %s: %s", raw_meeting.external_id, e)
+                if is_waiting:
+                    fetches += 1
+                    still_waiting += 1
+                continue
+            if is_waiting:
+                fetches += 1
+        logger.info(
+            "Agenda fetches: %d of cap %d, %d still waiting", fetches, agenda_fetch_cap, still_waiting
+        )
 
     logger.info("Agenda items: %d inserted", total_items)
 
@@ -207,6 +263,53 @@ def ingest_municipality(slug: str, since: date | None = None) -> IngestResult:
         votes_inserted=total_votes,
         errors=errors,
     )
+
+
+def _backlog_settings(adapter_config: dict) -> tuple[date | None, int | None]:
+    """The backlog floor and the per-run agenda cap of a city's ``adapter_config``.
+
+    ``backlog_floor`` is a date written ``YYYY-MM-DD``: the city's meetings
+    are listed from that date on. ``agenda_fetch_cap`` is a whole number of
+    0 or more: at most that many waiting agendas are fetched in one run (0
+    lists the meetings and fetches none). Each is optional, and an absent
+    or null key gives None: no floor, no cap. Raises ValueError, naming the
+    key, for any other value; true and false are not whole numbers here.
+    """
+    config = adapter_config or {}
+
+    floor = config.get("backlog_floor")
+    if floor is not None:
+        if not isinstance(floor, str):
+            raise ValueError(f"backlog_floor must be a date written YYYY-MM-DD, not {floor!r}")
+        try:
+            floor = date.fromisoformat(floor)
+        except ValueError:
+            raise ValueError(f"backlog_floor must be a date written YYYY-MM-DD, not {floor!r}") from None
+
+    cap = config.get("agenda_fetch_cap")
+    if cap is not None:
+        if isinstance(cap, bool) or not isinstance(cap, int) or cap < 0:
+            raise ValueError(f"agenda_fetch_cap must be a whole number of 0 or more, not {cap!r}")
+
+    return floor, cap
+
+
+def _waiting_external_ids(municipality_id: int) -> set[str]:
+    """The external ids of a city's meetings whose agenda is not marked fetched.
+
+    A meeting that has no ``processing_status`` row yet is waiting.
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT m.external_id
+            FROM meetings m
+            LEFT JOIN processing_status ps ON ps.meeting_id = m.id
+            WHERE m.municipality_id = %s AND ps.agenda_items_scraped IS NOT TRUE
+            """,
+            (municipality_id,),
+        )
+        return {row["external_id"] for row in cur.fetchall()}
 
 
 def _upsert_meetings(municipality_id: int, raw_meetings: list[RawMeeting]) -> tuple[int, int]:
@@ -654,6 +757,9 @@ def _ingest_agenda_items(
     PDF scrape and the meeting has since been recorded and reconciled),
     fall through to `_backfill_video_timestamps` which fetches the
     MediaPlayer index points and fills timestamps and chapter ids in place.
+    An adapter whose items never carry a video timestamp says so with the
+    class attribute `items_carry_video_timestamps = False`, and its stored
+    agendas are not fetched again; an adapter that says nothing is asked.
     """
     # Check if we already have agenda items for this meeting
     with db_cursor() as cur:
@@ -678,6 +784,8 @@ def _ingest_agenda_items(
         # Items exist; if any lack video timestamps AND this is an archived
         # (clip_id) meeting, try to backfill timestamps from MediaPlayer.
         # No-op once timestamps are filled or for upcoming meetings.
+        if not getattr(adapter, "items_carry_video_timestamps", True):
+            return 0
         if not raw_meeting.external_id.startswith("event-"):
             return _backfill_video_timestamps(adapter, meeting_id, raw_meeting)
         return 0
@@ -685,7 +793,9 @@ def _ingest_agenda_items(
     # Scrape agenda items via adapter
     raw_items = adapter.fetch_agenda_items(raw_meeting)
     if not raw_items:
-        # Mark as scraped even if empty so we don't re-try
+        # Mark as scraped even if empty so we don't re-try. An adapter that
+        # knows the agenda is not published yet raises AgendaNotReady
+        # instead, and the meeting stays unmarked.
         _update_processing_status(meeting_id, agenda_items_scraped=True)
         return 0
 

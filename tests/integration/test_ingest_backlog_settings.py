@@ -213,13 +213,14 @@ def test_cap_fetches_the_newest_waiting_meetings_first(monkeypatch, caplog):
     assert _marked() == set()
     assert _fetch_lines(caplog) == ["Agenda fetches: 0 of cap 0, 5 still waiting"]
 
-    # two meetings on one date are taken in the adapter's order
+    # two meetings on one date are taken in the adapter's order, which here
+    # is neither order of their ids
     _delete_seeded()
     tied = [
-        _meeting("900007", date(2026, 6, 2)),
-        _meeting("900009", date(2026, 6, 9)),
         _meeting("900006", date(2026, 6, 2)),
         _meeting("900008", date(2026, 6, 9)),
+        _meeting("900007", date(2026, 6, 2)),
+        _meeting("900009", date(2026, 6, 9)),
     ]
     adapter = _Adapter(tied)
     _use(monkeypatch, adapter)
@@ -227,13 +228,15 @@ def test_cap_fetches_the_newest_waiting_meetings_first(monkeypatch, caplog):
 
     ingest_municipality(SLUG)
 
-    assert adapter.fetched == ["900009", "900008", "900007"]
+    assert adapter.fetched == ["900008", "900009", "900006"]
 
 
 def test_a_second_run_takes_the_next_meetings(monkeypatch, caplog):
     from docket.services.ingest import ingest_municipality
 
-    adapter = _Adapter(FIVE)
+    # an adapter whose stored agendas are not asked for again, so what is
+    # recorded on a later run is the waiting meetings alone
+    adapter = _AdapterWithoutTimestamps(FIVE)
     _use(monkeypatch, adapter)
     _configure(agenda_fetch_cap=2)
 
@@ -295,7 +298,7 @@ def test_a_meeting_not_ready_is_left_unmarked_unreported_and_uncounted(monkeypat
     assert _fetch_lines(caplog) == []
 
 
-def test_a_failed_fetch_is_reported_left_unmarked_and_counted(monkeypatch):
+def test_a_failed_fetch_is_reported_left_unmarked_and_counted(monkeypatch, caplog):
     from docket.services.ingest import ingest_municipality
 
     three = [
@@ -307,12 +310,15 @@ def test_a_failed_fetch_is_reported_left_unmarked_and_counted(monkeypatch):
     _use(monkeypatch, adapter)
     _configure(agenda_fetch_cap=2)
 
-    result = ingest_municipality(SLUG)
+    with caplog.at_level(logging.INFO, logger="docket.services.ingest"):
+        result = ingest_municipality(SLUG)
 
     assert result.errors == ["Agenda items for 900003: the city did not answer"]
     assert adapter.fetched == ["900003", "900002"]
     assert _marked() == {"900002"}
     assert result.agenda_items_inserted == 1
+    # the meeting that failed and the one the cap passed over both still wait
+    assert _fetch_lines(caplog) == ["Agenda fetches: 2 of cap 2, 2 still waiting"]
 
 
 def test_a_stored_agenda_is_not_fetched_again_when_items_carry_no_timestamps(monkeypatch):
@@ -347,14 +353,25 @@ def test_a_stored_agenda_is_not_fetched_again_when_items_carry_no_timestamps(mon
     ingest_municipality(SLUG)
     assert silent.fetched == ["900002", "900001"]
 
-    # and under a cap a stored agenda is asked again without counting: with a
-    # cap of 1 the two stored agendas and the one waiting are all asked
+    # and under a cap a stored agenda is asked again whether or not the cap
+    # is spent, and never counts: with a cap of 1, the newest meeting waits
+    # and is fetched, the two stored agendas are then asked again, and the
+    # oldest, which waits too, is passed over
+    # (another city's waiting meeting with the id of one of the stored two
+    # is not this city's, and makes neither of them count)
+    with db_cursor() as cur:
+        cur.execute(
+            """INSERT INTO meetings (municipality_id, external_id, title, meeting_date, source_url)
+               SELECT id, '900002', %s, %s, 'https://example.com/event/900002'
+                 FROM municipalities WHERE slug = 'birmingham'""",
+            (PREFIX + "Another city's meeting", date(2026, 2, 3)),
+        )
     silent.fetched.clear()
-    silent.meetings = [*two, _meeting("900000", date(2025, 12, 2))]
+    silent.meetings = [_meeting("900000", date(2025, 12, 2)), *two, _meeting("900003", date(2026, 3, 3))]
     _configure(agenda_fetch_cap=1)
     ingest_municipality(SLUG)
-    assert silent.fetched == ["900002", "900001", "900000"]
-    assert _marked() == {"900002", "900001", "900000"}
+    assert silent.fetched == ["900003", "900002", "900001"]
+    assert _marked() == {"900003", "900002", "900001"}
 
 
 def test_a_listed_file_link_replaces_a_stored_page_link(monkeypatch):
@@ -440,6 +457,7 @@ def test_a_bad_setting_is_reported_and_nothing_is_fetched(monkeypatch):
 
     # and what a good row gives
     assert _backlog_settings(BASE) == (None, None)
+    assert _backlog_settings(None) == (None, None)
     assert _backlog_settings({**BASE, "backlog_floor": "2021-11-01", "agenda_fetch_cap": 10}) == (date(2021, 11, 1), 10)
     assert _backlog_settings({"agenda_fetch_cap": 0}) == (None, 0)
     assert _backlog_settings({"backlog_floor": None, "agenda_fetch_cap": None}) == (None, None)
