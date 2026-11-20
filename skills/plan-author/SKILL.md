@@ -302,6 +302,21 @@ constrains:
    M3 was ticked with both differences unexplained and the check of ids
    went to the operator's steps (debt row `D154`, step 4, since run and
    deleted: the ids were the same).
+   A request to a city's site is such a command too. `cycle-run` tells
+   every milestone session that nothing outside the repository is
+   available to it and that it must not go looking, so a fact the work
+   needs from a city's own system or documents is read by the author,
+   while authoring, and written into the plan with the request that
+   printed it; a milestone is never given a search of the city's site to
+   make, with or without a fallback for a session that cannot make it.
+   A fact the author could not find is written as open, with the value
+   the code takes meanwhile, and goes to the closing milestone's debt
+   row. Plan `mobile-agendas-flow-again` gave M5 up to 25 requests for the
+   last roll call that lists a departed member and a fallback date "if
+   the session has no network"; the session had a network and an
+   instruction not to use it, took the fallback, could meet neither arm
+   of the acceptance clause as written, and the migration shipped the
+   fallback date (debt row `D181`).
    An operator step that can only follow the merge (an API key created, a
    variable set on Railway, a deploy, a production backfill, a rebuilt
    image on the Legion) is never a clause of a milestone's acceptance or
