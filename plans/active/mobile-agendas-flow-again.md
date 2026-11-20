@@ -217,6 +217,19 @@ The observations below were made on 2026-11-20 by the session that executed M5. 
 
 - Observation (M5): from this migration on, a meeting of 2023-03-29 to 2023-08-07 resolves "Jones" to Scott Jones whether or not he still sat, and "Woods" to nobody; and "Scott", the 2021-11-02 minutes' word, resolves to nobody on any date. Both are for the stage that reads Mobile's minutes for votes, and M6 writes the debt row for the second.
 
+The observations below were made on 2026-11-20 by the session that executed M6. It ran no request to any city's site and no production query. It did run `git fetch origin`, `gh pr list --state open` and `gh pr diff 188`, which the numbering rule of the Decision Log needs.
+
+- Observation (M6): the starting state was green. `./tools/verify`, run before any edit, ended `verify: all 6 checks passed in 302s.` (unit+web+services 172s, integration 118s, transcriber 11s).
+
+- Observation (M6): the acceptance's counts at the session's start. `grep -c 'the pull request merges' docs/DEBT.md` printed `2` (rows `D64` and `D66`); `grep -c '^| D175 ' docs/DEBT.md` printed `1`; `git diff --stat origin/main -- src/docket/web/` printed nothing.
+
+- Observation (M6): the numbers free to take. After `git fetch origin`, `git ls-tree --name-only origin/main docs/decisions/` printed `0117-the-worker-schedule-is-stated-in-scheduler-py-and-printed-by-list.md` as the highest record, and the highest row id of `docs/DEBT.md`, on the branch and on `origin/main`, was `D177`. `gh pr list --state open` printed one pull request, #188 (`docs/afternoon-pass-first-observations`); `gh pr diff 188 --name-only` printed `docs/DEBT.md`, `docs/specs/operations.md` and `transcriber/README.md`, and the only debt id on an added line of its diff is `D176`, a row that already exists. So this session takes decisions from `0118` and debt ids from `D178`. A second `gh` request in the same command failed with `Post "https://api.github.com/graphql": net/http: TLS handshake timeout` after the two above had answered.
+
+- Observation (M6): `README.md` holds no sentence this plan made false. `grep -nE '0\.5|delay|CivicClerk|civicclerk' README.md` printed six lines and none with `0.5` or `delay`: the city table (lines 38 and 39), the adapters list (53), the diagram (115), the file tree (`civicclerk.py # REST API client for CivicClerk (OData)`, 588; `test_civicclerk.py # hierarchical agenda flattening`, 639) and the example (`CivicClerkAdapter('mobile', {'tenant': 'mobileal', 'category_id': 26})`, 724 and 725), which still builds the adapter. Line 639 names less than the test file now holds and is not false. `README.md` is not edited.
+
+- Observation (M6): pull request #188 edits `docs/DEBT.md` (row `D176`) and `docs/specs/operations.md` (the afternoon-pass paragraph), two files this milestone also edits, in other lines. Whichever merges second may have to be rebased; neither touches the other's rows or paragraph.
+
+
 
 
 ## Decision Log
