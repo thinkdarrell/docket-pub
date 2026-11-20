@@ -164,6 +164,16 @@ The observations below were made on 2026-11-20 by the session that executed M3. 
 
 - Observation (M3): under a cap, "still waiting" in the log line counts the listed meetings that were waiting at the start of stage 3 and are still unmarked at its end: those the cap passed over, those not ready, and those whose fetch failed. A waiting meeting the adapter did not list (one dated before the floor) is not in it. For Mobile the 42 scheduled meetings with no agenda are in it every day.
 
+The observations below were made on 2026-11-20 by the session that executed M4. It ran no request to any city's site and no production query.
+
+- Observation (M4): the starting state was green. `./tools/verify`, run before any edit, ended `verify: all 6 checks passed in 335s.` (unit+web+services 189s, integration 133s, transcriber 12s).
+
+- Observation (M4): `processing_status_audit` is still the one table whose foreign key to `agenda_items` neither cascades nor sets NULL, so the reset needs the four statements M4 names and no fifth.
+  Evidence: `\d agenda_items` on the throwaway database (`psql "$(tools/test-db)" -c '\d agenda_items'`) printed nine tables under `Referenced by:`. `ON DELETE CASCADE`: `agenda_item_badges`, `agenda_item_search_cards`, `ai_batch_items`, `public_hearing_items`, `vote_agenda_items`. `ON DELETE SET NULL`: `agenda_item_badges_audit`, `minutes_discrepancies`, `transcript_segments`. Neither: `TABLE "processing_status_audit" CONSTRAINT "processing_status_audit_agenda_item_id_fkey" FOREIGN KEY (agenda_item_id) REFERENCES agenda_items(id)`.
+
+- Observation (M4): on the unchanged ingest all five new tests fail. The commit that holds this entry holds `tests/integration/test_reset_agenda_items.py`, with `src/` and `scripts/` untouched. Each test imports `reset_agenda_items` inside the test function, so each fails at that import and the file collects.
+  Evidence: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/integration/test_reset_agenda_items.py -q -p no:cacheprovider; tools/test-db --drop` printed `5 failed, 1 warning in 0.57s`, naming the five tests M4 lists.
+
 
 
 ## Decision Log
