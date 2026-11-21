@@ -631,6 +631,6 @@ throwaway database it builds (`docs/specs/operations.md`).
   and its picture is colour bars, so it has no picture as well as no sound; clip
   2034 began recording long before the meeting, with about 40 minutes of nothing
   at its start, and the operator judged sending the reader to YouTube right for
-  it. The widths the pages were looked at were not recorded. No meeting named by
-  a journey under `content/how-it-works/` has a sound row, so that half of
-  `D173`'s trigger did not fire.
+  it. Both pages looked right at a desktop width; neither was looked at at a
+  phone width. No meeting named by a journey under `content/how-it-works/` has a
+  sound row, so that half of `D173`'s trigger did not fire.
