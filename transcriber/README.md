@@ -107,9 +107,11 @@ whose times `python -m docket.worker.scheduler --list` prints), so a recording
 Birmingham posts during the day is claimed that evening. A run by hand is still
 the command under "Running".
 
-When this was written the task had not fired once, so how long a scheduled run
-takes is not known. The operator records the first run's start and end, read
-from the log, here. Not yet recorded.
+The first scheduled run, read from the log: it started on 2026-11-19 at
+17:30:00 Central and ended at 17:43:14 with exit code 0, about thirteen minutes
+for ten meetings, and its last line was
+`done {'uploaded': 7, 'failed': 0, 'low_speech': 3} oom_fallbacks=0`. One run
+is one reading; a day with a long new recording will take longer.
 
 ## YouTube recordings
 
