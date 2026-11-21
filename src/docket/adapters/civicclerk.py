@@ -96,6 +96,8 @@ class CivicClerkAdapter:
         self.delay = max(MIN_DELAY, float(config.get("delay", MIN_DELAY)))
         self.base_url = f"https://{self.tenant}.api.civicclerk.com/v1"
         self._session = requests.Session()
+        # True once this instance has sent a request; every later one waits first.
+        self._requested = False
         # Event id -> the id of the event's agenda record, as last listed.
         # An agenda is a separate record with its own number; 0 means none yet.
         self._agenda_ids: dict[str, int] = {}
@@ -121,6 +123,11 @@ class CivicClerkAdapter:
         ``params``) or a full address, such as a next-page link, which is
         requested exactly as given with no params.
 
+        Every request this instance sends after its first waits before it is
+        sent, whether the one before it succeeded or failed, so no two requests
+        to the city's site are closer than the delay (GOALS.md Constraints).
+        This is the only place the adapter pauses.
+
         A failure is a connection error or timeout, a status the server
         rejects with, or a body that is empty or is not JSON. After the first
         failure the adapter waits its delay, after the second twice its delay,
@@ -137,6 +144,9 @@ class CivicClerkAdapter:
         for attempt in range(MAX_ATTEMPTS):
             if attempt:
                 time.sleep(self.delay * attempt)
+            elif self._requested:
+                time.sleep(self.delay)
+            self._requested = True
             try:
                 resp = self._session.get(url, params=params, timeout=REQUEST_TIMEOUT)
                 resp.raise_for_status()
@@ -176,7 +186,7 @@ class CivicClerkAdapter:
 
         The date filter is applied by the server, so a floor costs no extra
         pages. Pages are walked by the server's next-page link, each requested
-        exactly as given, after the delay.
+        exactly as given; ``_get`` keeps the delay between requests.
         """
         params: dict = {
             "$orderby": "eventDate desc",
@@ -203,7 +213,6 @@ class CivicClerkAdapter:
                     f"did not end after {MAX_PAGES} pages"
                 )
             self._check_next_link(next_link)
-            time.sleep(self.delay)
             data = self._get(next_link)
             all_events.extend(data.get("value", []))
             pages += 1
@@ -241,7 +250,6 @@ class CivicClerkAdapter:
             )
 
         data = self._get(f"Meetings/{agenda_id}")
-        time.sleep(self.delay)
 
         # An answer without the key is treated as published.
         if data.get("agendaIsPublish") is False:
@@ -263,7 +271,6 @@ class CivicClerkAdapter:
         """The agenda id of a meeting this instance did not list: one request for its event."""
         event_number = int(meeting.external_id)  # ValueError for an id that is not a whole number
         data = self._get("Events", {"$filter": f"id eq {event_number}"})
-        time.sleep(self.delay)
         for event in data.get("value", []):
             listed = self._event_to_meeting(event)
             if listed is not None and listed.external_id == str(event_number):

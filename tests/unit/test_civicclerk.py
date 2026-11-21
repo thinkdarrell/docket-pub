@@ -444,6 +444,45 @@ class TestGet:
                 adapter._get("Meetings/473")
         assert get.call_count == 3
 
+    def test_a_pause_of_the_delay_separates_every_two_requests(self):
+        """A one-page listing, a fetch that fails three times, then two fetches
+        that succeed: whatever came before a request, a wait of at least the
+        delay comes between it and the one before (GOALS.md Constraints)."""
+        adapter = _mobile()
+        trace: list[tuple[str, object]] = []
+        failure = requests.ConnectionError("handshake timed out")
+        last_page = copy.deepcopy(_page("events_page_2.json"))
+        last_page.pop("@odata.nextLink", None)
+        answers = [last_page, failure, failure, failure, _agenda(), _agenda()]
+
+        def get(url, **kwargs):
+            trace.append(("GET", url))
+            answer = answers.pop(0)
+            if isinstance(answer, Exception):
+                raise answer
+            return _response(answer)
+
+        with patch.object(adapter._session, "get", side_effect=get), patch(
+            "docket.adapters.civicclerk.time.sleep",
+            side_effect=lambda seconds: trace.append(("sleep", seconds)),
+        ):
+            adapter.list_meetings()
+            first, second, third = _meeting("901"), _meeting("902"), _meeting("903")
+            for m in (first, second, third):
+                adapter._agenda_ids[m.external_id] = 473
+            with pytest.raises(requests.RequestException):
+                adapter.fetch_agenda_items(first)
+            adapter.fetch_agenda_items(second)
+            adapter.fetch_agenda_items(third)
+
+        kinds = [kind for kind, _ in trace]
+        assert kinds.count("GET") == 6
+        assert kinds[0] == "GET"  # nothing to wait for before the first request
+        for i in range(1, len(trace)):
+            if trace[i][0] == "GET":
+                before = trace[i - 1]
+                assert before[0] == "sleep" and before[1] >= adapter.delay, trace
+
     def test_get_treats_an_empty_body_as_a_failure(self):
         adapter = _mobile()
         with patch.object(adapter._session, "get") as get, patch(
@@ -642,7 +681,7 @@ class TestFetchAgendaItems:
         urls = [_url(c) for c in get.call_args_list]
         assert urls == ["https://mobileal.api.civicclerk.com/v1/Meetings/473"]
         assert not any(u.endswith("/Meetings/501") for u in urls)
-        # The polite pause follows the one request.
+        # The polite pause comes before the request: the listing was the one before it.
         assert [c.args[0] for c in sleep.call_args_list] == [1.0]
         # A CivicClerk item has no video timestamp, and the adapter says so.
         assert CivicClerkAdapter.items_carry_video_timestamps is False
@@ -657,8 +696,8 @@ class TestFetchAgendaItems:
         assert _url(first) == "https://mobileal.api.civicclerk.com/v1/Events"
         assert _params(first) == {"$filter": "id eq 501"}
         assert _url(second) == "https://mobileal.api.civicclerk.com/v1/Meetings/473"
-        # One pause after the lookup, one after the agenda.
-        assert [c.args[0] for c in sleep.call_args_list] == [1.0, 1.0]
+        # The lookup is this instance's first request; one pause before the agenda.
+        assert [c.args[0] for c in sleep.call_args_list] == [1.0]
         assert adapter._agenda_ids == {"501": 473}
 
         # The server knows no such event: an error, and the agenda is not asked for.

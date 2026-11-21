@@ -32,7 +32,7 @@ It sends neither `$top` nor `$skip`. The server pages at 15 rows whatever is ask
 
 ## Requests and failures
 
-Every request goes through one `requests.Session` with a limit of ten seconds to connect and thirty to read. A request is tried three times, waiting the delay after the first failure and twice the delay after the second. A failure is a connection error or timeout, a status the server rejects with, or a body that is empty or is not JSON. After the third failure the adapter raises `requests.RequestException` naming the address.
+Every request goes through one `requests.Session` with a limit of ten seconds to connect and thirty to read. Every request an adapter instance sends after its first waits the delay before it is sent, whether the request before it succeeded or failed, and whether it was a listing page, an agenda or a lookup; the request helper (`_get`) is the only place the adapter pauses. A request is tried three times, waiting the delay after the first failure and twice the delay after the second. A failure is a connection error or timeout, a status the server rejects with, or a body that is empty or is not JSON. After the third failure the adapter raises `requests.RequestException` naming the address.
 
 A failed request is never an empty answer. A listing that fails ends the city's run. An agenda request that fails is recorded in the run's errors as `Agenda items for <event id>: <error>`, and the meeting stays unmarked, so the next run asks again.
 
