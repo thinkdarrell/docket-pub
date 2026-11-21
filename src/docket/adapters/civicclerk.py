@@ -236,10 +236,13 @@ class CivicClerkAdapter:
         """Fetch the items of a meeting's agenda, by the event's agenda id.
 
         Raises ``AgendaNotReady`` when the event has no agenda record yet (no
-        request is made for one), when the city has not published the agenda,
-        or when the agenda holds no item and the meeting's date, in the city's
-        own time zone, is today or later. An agenda with no item for an
-        earlier meeting is an empty list. A request that fails raises.
+        request is made for one), when the city has not published the agenda
+        and either the meeting's date, in the city's own time zone, is today
+        or later or the agenda holds no item, or when a published agenda holds
+        no item and the meeting's date is today or later. An unpublished
+        agenda that holds items for an earlier meeting is stored: the city
+        held the meeting on it. A published agenda with no item for an earlier
+        meeting is an empty list. A request that fails raises.
         """
         agenda_id = self._agenda_ids.get(meeting.external_id)
         if agenda_id is None:
@@ -251,17 +254,22 @@ class CivicClerkAdapter:
 
         data = self._get(f"Meetings/{agenda_id}")
 
-        # An answer without the key is treated as published.
-        if data.get("agendaIsPublish") is False:
-            raise AgendaNotReady(
-                f"CivicClerk agenda {agenda_id} (event {meeting.external_id}) is not published"
-            )
-
         item_list = data.get("items") or data.get("meetingItems") or []
         items: list[RawAgendaItem] = []
         self._flatten_items(item_list, items, meeting.external_id, index=0)
 
-        if not items and meeting.meeting_date >= datetime.now(CENTRAL).date():
+        held = meeting.meeting_date < datetime.now(CENTRAL).date()
+
+        # An answer without the key is treated as published. An unpublished
+        # agenda is not ready, except the one a meeting was already held on:
+        # Mobile published the packet and the minutes of 2026-11-10 and never
+        # set the flag on the agenda itself (issue #190).
+        if data.get("agendaIsPublish") is False and not (held and items):
+            raise AgendaNotReady(
+                f"CivicClerk agenda {agenda_id} (event {meeting.external_id}) is not published"
+            )
+
+        if not items and not held:
             raise AgendaNotReady(
                 f"CivicClerk agenda {agenda_id} (event {meeting.external_id}) has no item yet"
             )
