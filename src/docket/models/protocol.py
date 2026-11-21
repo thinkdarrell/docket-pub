@@ -59,6 +59,14 @@ class RawVote:
     raw_text: str | None = None
 
 
+class AgendaNotReady(Exception):
+    """The source has not published this meeting's agenda yet.
+
+    Raised by an adapter's ``fetch_agenda_items``; the caller leaves the
+    meeting to be asked again, and does not take it for an empty agenda.
+    """
+
+
 class MunicipalSourceAdapter(Protocol):
     """Contract every platform adapter must implement."""
 

@@ -1,0 +1,16 @@
+{
+  "@odata.context": "https://mobileal.api.civicclerk.com/v1/$metadata#Events",
+  "@odata.count": 4,
+  "value": [
+    {"id": 573, "eventName": "City Council Meeting", "eventDate": "2027-08-31T10:30:00Z",
+     "createdOn": "2026-08-18T12:00:00Z", "eventCategoryId": 26, "categoryName": "City Council",
+     "agendaId": 0, "hasAgenda": false, "publishedFiles": []},
+    {"id": 297, "eventName": "City Council Meeting", "eventDate": "2023-04-25T10:30:00Z",
+     "createdOn": "2024-07-25T00:00:00Z", "eventCategoryId": 26, "categoryName": "City Council",
+     "agendaId": 270, "hasAgenda": true,
+     "publishedFiles": [
+       {"fileId": 548, "type": "Agenda", "name": "2023-04-25_10_30_AM-Council_Members", "publishOn": "2024-07-25T00:00:00Z"},
+       {"fileId": 549, "type": "Minutes", "name": "2023-04-25_10-30_AM-Council_Members", "publishOn": "2024-07-25T00:00:00Z"}
+     ]}
+  ]
+}

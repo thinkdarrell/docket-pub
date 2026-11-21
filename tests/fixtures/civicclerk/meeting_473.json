@@ -1,0 +1,27 @@
+{
+  "id": 473, "agendaIsPublish": true,
+  "items": [
+    {"id": 7754, "isSection": 1, "agendaObjectItemName": "ROLL CALL", "agendaObjectItemNumber": "",
+     "agendaObjectItemDescription": null, "childItems": []},
+    {"id": 7752, "isSection": 1, "agendaObjectItemName": "INVOCATION", "agendaObjectItemNumber": "",
+     "agendaObjectItemDescription": null, "childItems": [
+      {"id": 13498, "isSection": 0, "agendaObjectItemNumber": "2026-2387", "agendaObjectItemDescription": "", "childItems": [],
+       "agendaObjectItemName": "Father Dan Good, Public Safety Chaplain"}
+     ]},
+    {"id": 7772, "isSection": 1, "agendaObjectItemName": "PUBLIC HEARINGS", "agendaObjectItemNumber": "",
+     "agendaObjectItemDescription": null, "childItems": [
+      {"id": 13505, "isSection": 0, "agendaObjectItemNumber": "2026-2394", "agendaObjectItemDescription": "", "childItems": [],
+       "agendaObjectItemName": "Public hearing to fix costs for demolition of the structure at 1423 Cedar Park Drive; $4,000.00 (District 3)."}
+     ]},
+    {"id": 7763, "isSection": 1, "agendaObjectItemName": "RESOLUTIONS HELD OVER", "agendaObjectItemNumber": "",
+     "agendaObjectItemDescription": null, "childItems": [
+      {"id": 13520, "isSection": 0, "agendaObjectItemNumber": "2026-2408", "agendaObjectItemDescription": "", "childItems": [],
+       "agendaObjectItemName": "01-1211 Authorize Agreement with the Mobile County Commission for the design and construction of the Regions Arena; $7,500,000.00 (sponsored by Mayor Cheriogotis) (submitted by Robert Shreve, City Attorney)."}
+     ]},
+    {"id": 7764, "isSection": 1, "agendaObjectItemName": "CONSENT RESOLUTIONS BEING INTRODUCED", "agendaObjectItemNumber": "",
+     "agendaObjectItemDescription": null, "childItems": [
+      {"id": 13512, "isSection": 0, "agendaObjectItemNumber": "2026-2400", "agendaObjectItemDescription": "", "childItems": [],
+       "agendaObjectItemName": "40-1225 Declare the structure at 701 N. Joachim Street a public nuisance and order it demolished (sponsored by Councilmember Ingram)."}
+     ]}
+  ]
+}
