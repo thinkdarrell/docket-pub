@@ -614,3 +614,23 @@ throwaway database it builds (`docs/specs/operations.md`).
   which is exactly 9 windows, set to `passed` with reason `operator`. Checked in
   a browser: item 687's "Watch this vote" opens YouTube at `t=2360s`, and the
   transcript page's item links read 13 on YouTube and 7 on Granicus.
+- 2026-11-21: `D170` step 6, the read of what the sound pass stored, after the
+  backlog runs of 2026-11-20 ended `remaining=0`. The read-only query above
+  printed 38 rows in `granicus_clip_sound`: 33 silent for their whole length and
+  5 in part (meetings 326, 74, 3197, 3242, and 3207). The two the plan measured
+  came back as expected: meeting 275, clip 1414, 2,516 and 2,516 seconds in one
+  span; meeting 3197, clip 2034, 6,019 and 2,719 seconds in five spans (0 to 60,
+  120 to 180, 240 to 720, 780 to 2,040, and 5,160 to 6,019). The alignments the
+  same day: 410 `passed` rows on 314 recordings (one with reason `operator`), 43
+  `rejected` (`score` 38, `no_window` 4, `margin` 1), and 6 `failed`, of which
+  clips 1662, 1666, and 1667 return 404 or 403 as before and clips 927, 929, and
+  930 failed on name resolution of `bhamal.granicus.com`. The public pages, read
+  by `curl`: `/al/birmingham/meetings/275/` labels the Granicus player "no
+  sound" and `/al/birmingham/meetings/3197/` "no sound for 45 of 100 minutes".
+  The operator opened both pages and played both players: clip 1414 is silent
+  and its picture is colour bars, so it has no picture as well as no sound; clip
+  2034 began recording long before the meeting, with about 40 minutes of nothing
+  at its start, and the operator judged sending the reader to YouTube right for
+  it. The widths the pages were looked at were not recorded. No meeting named by
+  a journey under `content/how-it-works/` has a sound row, so that half of
+  `D173`'s trigger did not fire.
