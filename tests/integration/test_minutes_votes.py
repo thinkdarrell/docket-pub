@@ -284,7 +284,7 @@ def test_every_position_is_stored_and_a_flagged_vote_is_medium_and_marked(mobile
     meeting = _meeting("e1", date(2021, 11, 23))
     pages = load_pages("mobile_2021-11-23.txt")
     pages.append("\n".join([
-        MOTION, "Ayes: Penn and Carroll", "Nays: Small, Reynolds, and Gregory", "Abstain: Jones", DECLARED,
+        MOTION, "Ayes: Penn, Carroll, and Small", "Nays: Reynolds and Gregory", "Abstain: Jones", DECLARED,
         MOTION, "Ayes: Penn", "Nays: None",
     ]))
 
@@ -297,10 +297,10 @@ def test_every_position_is_stored_and_a_flagged_vote_is_medium_and_marked(mobile
         ("Reynolds", "yea", "Ben Reynolds"), ("Jones", "yea", "Scott Jones"), ("Gregory", "yea", "Gina Gregory"),
         ("Daves", "absent", "Joel Daves"),
     ]
-    assert (second["yeas"], second["nays"], second["abstentions"]) == (2, 3, 1)
+    assert (second["yeas"], second["nays"], second["abstentions"]) == (3, 2, 1)
     assert _member_votes(second["id"]) == [
-        ("Penn", "yea", "Cory Penn"), ("Carroll", "yea", "William Carroll"),
-        ("Small", "nay", "C.J. Small"), ("Reynolds", "nay", "Ben Reynolds"), ("Gregory", "nay", "Gina Gregory"),
+        ("Penn", "yea", "Cory Penn"), ("Carroll", "yea", "William Carroll"), ("Small", "yea", "C.J. Small"),
+        ("Reynolds", "nay", "Ben Reynolds"), ("Gregory", "nay", "Gina Gregory"),
         ("Jones", "abstain", "Scott Jones"), ("Daves", "absent", "Joel Daves"),
     ]
     assert (second["confidence"], second["needs_review"]) == ("high", False)
