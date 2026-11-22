@@ -38,7 +38,12 @@ Dry run first, one city at a time:
 
 Against production the operator sets DATABASE_URL to DATABASE_PUBLIC_URL.
 Exits 2 for an unknown city, a city whose settings name no reader, and a
-setting that cannot be read, each before any request to the city.
+setting that cannot be read, each before any request to the city, and for
+nothing else. A file whose reading cannot be stored is that file's ``error``
+line and the run goes on. A run that fails once under way (the database goes
+away) ends with a traceback and exit status 1; with ``--apply`` the files
+before the failure are stored, though their lines were not printed, and the
+same command again reads the ones that are left.
 """
 
 import argparse
@@ -47,7 +52,7 @@ import sys
 from urllib.parse import urlsplit
 
 from docket.config import DATABASE_URL
-from docket.services.minutes_votes import read_city
+from docket.services.minutes_votes import Refused, read_city
 
 logging.basicConfig(level=logging.WARNING, format="%(message)s")
 
@@ -89,7 +94,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"database: {database_label(DATABASE_URL)}", flush=True)
     try:
         report = read_city(args.city, limit=args.limit, apply=args.apply)
-    except ValueError as e:
+    except Refused as e:
         print(e, file=sys.stderr)
         return 2
 

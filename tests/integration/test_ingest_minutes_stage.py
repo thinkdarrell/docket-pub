@@ -796,6 +796,20 @@ def test_the_script_refuses_an_unknown_city_and_a_bad_setting(monkeypatch, capsy
     assert adapter.since_calls == []
 
 
+def test_the_script_does_not_call_a_failure_of_the_run_a_refusal(monkeypatch, capsys):
+    """Exit 2 is a refusal before any request. A ValueError raised once the run is under way is not one."""
+    import scripts.read_minutes_votes as script
+
+    def under_way(slug, *, limit, apply):
+        raise ValueError("A string literal cannot contain NUL (0x00) characters.")
+
+    monkeypatch.setattr(script, "read_city", under_way)
+
+    with pytest.raises(ValueError, match="NUL"):
+        script.main(["--city", SLUG, "--limit", "2", "--apply"])
+
+
+
 @pytest.mark.parametrize("argv", [["--city", SLUG], ["--city", SLUG, "--limit", "-1"], ["--limit", "2"]])
 def test_the_script_requires_a_city_and_a_limit_of_zero_or_more(monkeypatch, capsys, argv):
     from scripts.read_minutes_votes import main

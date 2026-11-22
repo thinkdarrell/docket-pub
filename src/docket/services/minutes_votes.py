@@ -23,8 +23,9 @@ One file is one row of ``minutes_files``, whatever became of it:
 - ``not_minutes``: its heading lines print no one date.
 - ``no_meeting``: its date is before the city's ``backlog_floor``, or the
   city has no meeting, or more than one, on that date.
-- ``error``: the fetch or the read raised. It is tried again by a later run
-  until it has failed ``MAX_ATTEMPTS`` times.
+- ``error``: the fetch or the read raised, or the reading could not be
+  stored. It is tried again by a later run until it has failed
+  ``MAX_ATTEMPTS`` times.
 
 A file that is not paired stores no vote, and a meeting whose ``minutes_url``
 was that file's address loses the link (``docs/PRINCIPLES.md``, Source or
@@ -35,7 +36,8 @@ left.
 No transaction is open while a file is fetched or parsed. ``read_listed``
 first fetches and reads every file it took, holding the readings in memory,
 then stores them, one transaction per file; a dry run stores them all on one
-connection and rolls it back.
+connection and rolls it back. A reading whose store raises is undone alone
+and its file recorded ``error``; the run goes on to the next file.
 """
 
 from __future__ import annotations
@@ -55,6 +57,13 @@ from docket.models.protocol import RawMeeting, RawMinutesFile
 from docket.services.member_votes import RosterIndex, load_roster_index
 
 logger = logging.getLogger(__name__)
+
+
+class Refused(ValueError):
+    """``read_city`` will not run: an unknown city, no reader named, or a setting that cannot be read.
+
+    Raised before the adapter is built, so nothing has been asked of the city.
+    """
 
 # A reader is a module of `docket.analysis` with `READER_VERSION`,
 # `read_minutes(pages)` and `pages_from_pdf(pdf_bytes)`.
@@ -226,8 +235,10 @@ def read_listed(
 
     ``adapter`` gives ``listed_minutes_files()`` and, unless ``fetch_pages``
     is given, ``fetch_file(url)``. The files are taken newest event first. A
-    fetch or read that raises is that file's ``error`` and the run goes on.
-    In a dry run every statement is run and then rolled back. Raises
+    fetch or read that raises is that file's ``error`` and the run goes on;
+    so is a reading whose store raises, once what it wrote is undone. Only a
+    failure to write that ``error`` row ends the run. In a dry run every
+    statement is run and then rolled back. Raises
     ValueError for a city whose ``adapter_config`` names no reader.
     """
     # Inside the function: `docket.services.ingest` calls this module.
@@ -279,14 +290,37 @@ def read_listed(
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             return _store(cur, municipality_id, reader_name, version, floor, roster, read)
 
+    def not_stored(read: _Read, exc: Exception) -> _Read:
+        """The same file as one that failed: what its store wrote is undone, and it is recorded ``error``."""
+        logger.warning("Minutes file %s: not stored: %s", read.file.file_id, exc)
+        return _Read(read.file, None, read.page_count, str(exc) or type(exc).__name__)
+
     if dry_run:
         with db() as conn:
-            report.files = [store(conn, read) for read in reads]
+            for read in reads:
+                with conn.cursor() as cur:
+                    cur.execute("SAVEPOINT minutes_file")
+                try:
+                    outcome = store(conn, read)
+                except Exception as exc:
+                    if read.reading is None:
+                        raise
+                    with conn.cursor() as cur:
+                        cur.execute("ROLLBACK TO SAVEPOINT minutes_file")
+                    outcome = store(conn, not_stored(read, exc))
+                report.files.append(outcome)
             conn.rollback()
     else:
         for read in reads:
-            with db() as conn:
-                report.files.append(store(conn, read))
+            try:
+                with db() as conn:
+                    outcome = store(conn, read)
+            except Exception as exc:
+                if read.reading is None:
+                    raise
+                with db() as conn:
+                    outcome = store(conn, not_stored(read, exc))
+            report.files.append(outcome)
     return report
 
 
@@ -305,14 +339,15 @@ def link_votes_by_code(municipality_id: int) -> int:
 
 
 def read_city(slug: str, *, limit: int, apply: bool) -> ReadReport:
-    """The script's entry. ValueError for an unknown slug and for a city whose adapter_config names no reader.
+    """The script's entry. ``Refused`` for an unknown slug and for a city whose adapter_config names no reader.
 
     Lists the city's events from its ``backlog_floor`` with the city's own
     adapter, then reads up to ``limit`` waiting Minutes files as
     ``read_listed`` does: stored when ``apply`` is true, run and rolled back
     otherwise. Coded votes are attached to their agenda items only when
-    applying. A setting that cannot be read is a ValueError too, raised
-    before the adapter is built, so nothing is asked of the city.
+    applying. A setting that cannot be read is ``Refused`` too, raised
+    before the adapter is built, so nothing is asked of the city. Any other
+    exception comes from a run that was under way.
     """
     from docket.services.ingest import _backlog_settings
 
@@ -320,11 +355,14 @@ def read_city(slug: str, *, limit: int, apply: bool) -> ReadReport:
         cur.execute("SELECT id, adapter_class, adapter_config FROM municipalities WHERE slug = %s", (slug,))
         city = cur.fetchone()
     if city is None:
-        raise ValueError(f"Municipality '{slug}' not found")
-    reader_name, _ = reader_settings(city["adapter_config"])
+        raise Refused(f"Municipality '{slug}' not found")
+    try:
+        reader_name, _ = reader_settings(city["adapter_config"])
+        floor, _ = _backlog_settings(city["adapter_config"])
+    except ValueError as exc:
+        raise Refused(str(exc)) from exc
     if reader_name is None:
-        raise ValueError(f"adapter_config of {slug} names no minutes_reader")
-    floor, _ = _backlog_settings(city["adapter_config"])
+        raise Refused(f"adapter_config of {slug} names no minutes_reader")
 
     adapter = get_adapter(city["adapter_class"], slug, city["adapter_config"])
     adapter.list_meetings(since=floor)
