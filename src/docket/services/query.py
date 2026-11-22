@@ -577,6 +577,11 @@ def list_votes(meeting_id: int, *, include_excerpts: bool = False) -> list[Vote]
             video_timestamp=r.get("video_timestamp"),
             agenda_links=links_by_vote.get(r["id"], []),
             member_votes=members_by_vote.get(r["id"], []),
+            minutes_reader=r.get("minutes_reader"),
+            source_page=r.get("source_page"),
+            caption=r.get("caption"),
+            motion_text=r.get("motion_text"),
+            declared_text=r.get("declared_text"),
         )
         for r in vote_rows
     ]

@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
+
+_SAYS_FAILED = re.compile(r"\b(failed|denied)\b", re.IGNORECASE)
+_SAYS_NOT_DECIDED = re.compile(r"\b(tabled|held\s+over|laid\s+over|withdrawn)\b", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -58,6 +62,15 @@ class Vote:
     video_timestamp: float | None = None
     agenda_links: list[AgendaItemLink] = field(default_factory=list)
     member_votes: list[MemberVote] = field(default_factory=list)
+    # What a minutes reader stores (`votes.minutes_reader` and the four columns beside it);
+    # None on a row from any other writer. `minutes_page_url` is not a column: the page's
+    # query builds it from the meeting's minutes link with `page_link`.
+    minutes_reader: str | None = None
+    source_page: int | None = None
+    caption: str | None = None
+    motion_text: str | None = None
+    declared_text: str | None = None
+    minutes_page_url: str | None = None
 
     @property
     def active_links(self) -> list[AgendaItemLink]:
@@ -79,3 +92,33 @@ class Vote:
     @property
     def excluded_links(self) -> list[AgendaItemLink]:
         return [link for link in self.agenda_links if not link.is_active]
+
+
+def vote_label(result: str, declared_text: str | None) -> str:
+    """The declaration when the row has one, else the stored result."""
+    return declared_text or result
+
+
+def vote_tone(result: str, declared_text: str | None) -> str:
+    """How a page colours a vote: 'pass', 'fail', or '' for neither.
+
+    'fail' when the result is failed or the declaration says failed or denied;
+    '' when the declaration says tabled, held over, laid over or withdrawn, or the
+    result is neither passed nor failed; 'pass' when the result is passed otherwise.
+    Each word is matched whole, ignoring case. The first that applies decides, so a
+    motion to deny that carried (result passed, "the waiver denied") is 'fail': the
+    tone is about the thing voted on, as the declaration is.
+    """
+    declared = declared_text or ""
+    if result == "failed" or _SAYS_FAILED.search(declared):
+        return "fail"
+    if _SAYS_NOT_DECIDED.search(declared) or result != "passed":
+        return ""
+    return "pass"
+
+
+def page_link(url: str | None, page: int | None) -> str | None:
+    """url with any fragment removed and '#page=<page>' added; None unless both are given."""
+    if not url or page is None:
+        return None
+    return f"{url.split('#', 1)[0]}#page={page}"

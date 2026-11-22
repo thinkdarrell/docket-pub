@@ -60,6 +60,7 @@ MIGRATIONS = [
     "docket.migrations.047_public_hearings",
     "docket.migrations.048_granicus_clip_sound",
     "docket.migrations.049_mobile_council_terms",
+    "docket.migrations.050_minutes_votes",
 ]
 
 
