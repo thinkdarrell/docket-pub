@@ -345,8 +345,8 @@ constrains:
    reader had run on no whole file and that the figures were the
    author's, reproduced by no one, and the first comparison is the
    operator's dry run against the city after the merge and the deploy
-   (debt row `D187`, step 4), where a difference is a finding for a new
-   session.
+   (run on 2026-11-22, when every figure matched), where a difference
+   is a finding for a new session.
    An operator step that can only follow the merge (an API key created, a
    variable set on Railway, a deploy, a production backfill, a rebuilt
    image on the Legion) is never a clause of a milestone's acceptance or
