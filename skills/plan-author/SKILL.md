@@ -88,11 +88,11 @@ constrains:
    each pair has a test. Plan `mobile-votes-from-minutes` added
    `minutes_files` with five statuses and gave the rules for a file read
    once; M3 met the pairs a second read makes and settled some in its
-   Decision Log (decision `0130`, debt row `D191`), and the closing
+   Decision Log (decision `0130`, and a debt row since paid), and the closing
    review's three important findings were each a pair no rule covered: a
    first read that pairs a file to a meeting other than its event's, an
    `error` row whose next read no longer pairs, and a second read that
-   replaces votes whose link someone had removed (`D193`, `D191`, `D194`).
+   replaces votes whose link someone had removed (decisions `0131` and `0132` record the rules written afterwards).
    When the work inserts a new kind of row into a table other code already
    reads (a meeting with a new `external_id` prefix, a meeting with no
    recording), the same list is made for the row as a whole: every reader

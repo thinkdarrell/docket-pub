@@ -41,6 +41,7 @@ connection and rolls it back.
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import date
@@ -171,15 +172,18 @@ def reader_settings(adapter_config: dict) -> tuple[str | None, int]:
 def with_paired_links(municipality_id: int, raw_meetings: list[RawMeeting]) -> list[RawMeeting]:
     """The listed meetings with ``minutes_url`` decided by ``minutes_files``.
 
-    A meeting a ``paired`` row names gets that file's address. Any other
-    meeting keeps the link its listing gave only while the file that link
-    names has not been read (no row) or failed to read (``error``); once the
-    file has been read and is not this meeting's, the meeting has no link.
+    A meeting a ``paired`` row names gets that file's address. A meeting an
+    ``error`` row names keeps its stored link while that link is the row's
+    address: the file held the meeting and failed a later read, which says
+    nothing about the file. Any other meeting keeps the link its listing gave
+    only while the file that link names has not been read (no row) or failed
+    to read (``error``); once the file has been read and is not this
+    meeting's, the meeting has no link.
     """
     with db_cursor() as cur:
         cur.execute(
             """
-            SELECT mf.url, mf.status, m.external_id
+            SELECT mf.url, mf.status, m.external_id, m.minutes_url AS stored_url
               FROM minutes_files mf
               LEFT JOIN meetings m ON m.id = mf.meeting_id
              WHERE mf.municipality_id = %s
@@ -189,12 +193,19 @@ def with_paired_links(municipality_id: int, raw_meetings: list[RawMeeting]) -> l
         rows = cur.fetchall()
 
     paired = {r["external_id"]: r["url"] for r in rows if r["status"] == "paired" and r["external_id"] is not None}
+    still_held = {
+        r["external_id"]: r["url"]
+        for r in rows
+        if r["status"] == "error" and r["external_id"] is not None and r["stored_url"] == r["url"]
+    }
     status_of = {r["url"]: r["status"] for r in rows}
 
     decided: list[RawMeeting] = []
     for meeting in raw_meetings:
         if meeting.external_id in paired:
             url = paired[meeting.external_id]
+        elif meeting.external_id in still_held:
+            url = still_held[meeting.external_id]
         elif meeting.minutes_url is not None and status_of.get(meeting.minutes_url, "error") == "error":
             url = meeting.minutes_url
         else:
@@ -285,7 +296,8 @@ def link_votes_by_code(municipality_id: int) -> int:
     A vote's code is ``NN-NNN-YYYY`` and an item's title opens ``NN-NNN``. A
     vote with no such item, or two, gets nothing; a vote that has any link,
     active or not, is never touched, so a link an admin removed stays
-    removed. Returns how many links were made.
+    removed; ``_replace_votes`` carries such a link to the vote that replaces
+    its own. Returns how many links were made.
     """
     with db_cursor() as cur:
         cur.execute(_LINK_BY_CODE_SQL, (municipality_id,))
@@ -379,7 +391,7 @@ def _store(
     row["meeting_id"] = meeting["id"] if meeting is not None else None
 
     # A meeting this file held before and does not hold now loses the votes and the link it gave.
-    held = prior["meeting_id"] if prior is not None and prior["status"] == "paired" else None
+    held = _held_meeting(cur, prior)
     if held is not None and held != row["meeting_id"]:
         _delete_reader_votes(cur, held)
         cur.execute("UPDATE meetings SET minutes_url = NULL WHERE id = %s AND minutes_url = %s", (held, prior["url"]))
@@ -391,6 +403,11 @@ def _store(
         )
         row["votes_stored"] = _replace_votes(cur, meeting, reader_name, roster, reading.votes)
         cur.execute("UPDATE meetings SET minutes_url = %s WHERE id = %s", (file.url, meeting["id"]))
+        # The listing may have given this address to the meeting of the file's event; it is not that meeting's.
+        cur.execute(
+            "UPDATE meetings SET minutes_url = NULL WHERE municipality_id = %s AND minutes_url = %s AND id <> %s",
+            (municipality_id, file.url, meeting["id"]),
+        )
     else:
         cur.execute(
             "UPDATE meetings SET minutes_url = NULL WHERE municipality_id = %s AND minutes_url = %s",
@@ -401,6 +418,26 @@ def _store(
     return FileOutcome(
         file.file_id, file.event_external_id, reading.header_date, status, row["meeting_id"], row["votes_stored"], None
     )
+
+
+def _held_meeting(cur, prior: dict | None) -> int | None:
+    """The meeting a file's stored row holds, if any.
+
+    A ``paired`` row holds its meeting. An ``error`` row does while its
+    meeting's ``minutes_url`` is still its address: it was paired and failed a
+    later read, and no other file has taken the meeting since. A row that is
+    ``error`` after being ``superseded`` names a meeting whose link is
+    another file's, and holds nothing.
+    """
+    if prior is None or prior["meeting_id"] is None:
+        return None
+    if prior["status"] == "paired":
+        return prior["meeting_id"]
+    if prior["status"] == "error":
+        cur.execute("SELECT 1 FROM meetings WHERE id = %s AND minutes_url = %s", (prior["meeting_id"], prior["url"]))
+        if cur.fetchone() is not None:
+            return prior["meeting_id"]
+    return None
 
 
 def _pair(cur, municipality_id: int, floor: date | None, file: RawMinutesFile, header_date: date | None):
@@ -432,9 +469,19 @@ def _delete_reader_votes(cur, meeting_id: int) -> None:
 
 
 def _replace_votes(cur, meeting: dict, reader_name: str, roster: RosterIndex, votes) -> int:
-    """Replace the meeting's reader votes with these: two statements, whatever the count."""
+    """Replace the meeting's reader votes with these: two insert statements, whatever the count.
+
+    A link someone removed or set by hand on a vote being replaced is put on
+    the vote that replaces it (``_carry_hand_links``), a third statement only
+    where there is such a link.
+    """
+    hand_links = _hand_links(cur, meeting["id"])
     _delete_reader_votes(cur, meeting["id"])
     if not votes:
+        if hand_links:
+            logger.warning(
+                "Meeting %s: %d hand-made vote link(s) dropped, the file has no vote", meeting["id"], len(hand_links)
+            )
         return 0
 
     by_external_id = {f"{meeting['external_id']}-mv-{n}": vote for n, vote in enumerate(votes, start=1)}
@@ -459,4 +506,101 @@ def _replace_votes(cur, meeting: dict, reader_name: str, roster: RosterIndex, vo
                 member_rows.append((stored_vote["id"], roster.resolve(name, meeting["meeting_date"]), name, position))
     if member_rows:
         psycopg2.extras.execute_values(cur, _INSERT_MEMBER_VOTES_SQL, member_rows, page_size=len(member_rows))
+    if hand_links:
+        new_votes = [(stored_vote["id"], by_external_id[stored_vote["external_id"]]) for stored_vote in stored]
+        _carry_hand_links(cur, meeting["id"], hand_links, new_votes)
     return len(vote_rows)
+
+
+_LINK_COLUMNS = (
+    "agenda_item_id", "association_type", "match_method", "match_confidence", "excerpt_context",
+    "provisional", "is_manual", "is_active", "created_at", "updated_at",
+)
+
+
+def _hand_links(cur, meeting_id: int) -> list[dict]:
+    """The links of a meeting's reader votes that someone removed or set by hand, each with its vote's ``key``.
+
+    One statement where there is no such link, two where there is.
+    """
+    cur.execute(
+        f"""
+        SELECT x.vote_id, {", ".join("x." + c for c in _LINK_COLUMNS)}
+          FROM vote_agenda_items x
+          JOIN votes v ON v.id = x.vote_id
+         WHERE v.meeting_id = %s AND v.minutes_reader IS NOT NULL AND (x.is_manual OR NOT x.is_active)
+         ORDER BY x.id
+        """,
+        (meeting_id,),
+    )
+    links = [dict(r) for r in cur.fetchall()]
+    if not links:
+        return []
+    cur.execute(
+        "SELECT id, resolution_number, raw_text FROM votes WHERE meeting_id = %s AND minutes_reader IS NOT NULL",
+        (meeting_id,),
+    )
+    key_of = _vote_keys([(r["id"], r["resolution_number"], r["raw_text"]) for r in cur.fetchall()])
+    return [dict(link, key=key_of.get(link["vote_id"])) for link in links]
+
+
+def _vote_keys(votes: list[tuple[int, str | None, str | None]]) -> dict[int, tuple[str, str]]:
+    """vote id -> what tells it from the other votes given: its code, or failing that its own words.
+
+    ``votes`` is (id, code, raw text). A vote whose code no other vote here
+    has is ``('code', code)``; otherwise one whose text no other has is
+    ``('text', text)``; a vote that has neither has no key.
+    """
+    codes = Counter(code for _, code, _ in votes if code)
+    texts = Counter(text for _, _, text in votes if text)
+    keys: dict[int, tuple[str, str]] = {}
+    for vote_id, code, text in votes:
+        if code and codes[code] == 1:
+            keys[vote_id] = ("code", code)
+        elif text and texts[text] == 1:
+            keys[vote_id] = ("text", text)
+    return keys
+
+
+def _carry_hand_links(cur, meeting_id: int, hand_links: list[dict], new_votes: list[tuple[int, object]]) -> None:
+    """Put each hand-made link on the one new vote that is the vote it was on; drop it where that cannot be told.
+
+    The vote it was on is found by code, and by its own words where the code
+    does not tell it, never by its place in the file: a newer reader may find
+    a vote the older one missed, and every place after it moves. A link whose
+    vote is not found is dropped and logged, so the vote reads as never
+    linked and the code join may attach it (``docs/PRINCIPLES.md``, Source or
+    silence: no link is better than one moved to another vote).
+    """
+    triples = [(vote_id, vote.code, vote.raw_text) for vote_id, vote in new_votes]
+    # A new vote can be found by its code and, separately, by its words.
+    codes = Counter(code for _, code, _ in triples if code)
+    texts = Counter(text for _, _, text in triples if text)
+    found: dict[tuple[str, str], int] = {}
+    for vote_id, code, text in triples:
+        if code and codes[code] == 1:
+            found[("code", code)] = vote_id
+        if text and texts[text] == 1:
+            found[("text", text)] = vote_id
+
+    rows = []
+    dropped = 0
+    for link in hand_links:
+        new_id = found.get(link["key"]) if link["key"] is not None else None
+        if new_id is None:
+            dropped += 1
+            continue
+        rows.append((new_id, *(link[c] for c in _LINK_COLUMNS)))
+    if dropped:
+        logger.warning(
+            "Meeting %s: %d hand-made vote link(s) dropped, the vote each was on is not told apart in the new reading",
+            meeting_id, dropped,
+        )
+    if rows:
+        psycopg2.extras.execute_values(
+            cur,
+            f"INSERT INTO vote_agenda_items (vote_id, {', '.join(_LINK_COLUMNS)}) VALUES %s "
+            "ON CONFLICT (vote_id, agenda_item_id) DO NOTHING",
+            rows,
+            page_size=len(rows),
+        )

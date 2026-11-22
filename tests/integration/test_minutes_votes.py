@@ -770,6 +770,97 @@ def test_a_failed_reread_leaves_what_the_file_stored(mobile, monkeypatch):
     )
 
 
+def test_a_file_that_pairs_to_another_meeting_clears_its_address_from_the_meeting_that_listed_it(mobile):
+    """The listing gave the file to its event's meeting; its heading dates another. One meeting links it, not two."""
+    listed_on = _meeting("e1", date(2022, 3, 22), minutes_url=_url("211"))
+    dated = _meeting("e2", date(2022, 3, 15))
+    elsewhere = _meeting("b1", date(2022, 3, 22), slug="birmingham", minutes_url=_url("211"))
+
+    report = _run(mobile, [_file("211", "e1")], _Pages({"211": _text("MARCH 15, 2022", {})}))
+
+    assert _statuses(report) == [("211", "paired", 1)]
+    assert _file_row("211")["meeting_id"] == dated
+    assert _minutes_url(dated) == _url("211")
+    assert _minutes_url(listed_on) is None
+    assert _minutes_url(elsewhere) == _url("211")  # another city's meeting is not this city's to clear
+
+
+def test_a_failed_reread_and_then_a_read_that_no_longer_pairs_takes_the_votes_and_the_link(mobile, monkeypatch):
+    """The row is `error` between the two, and still holds its meeting: the votes do not outlast the file."""
+    from docket.analysis import mobile_minutes
+
+    meeting = _meeting("e1", date(2022, 3, 15))
+    files = [_file("211", "e7")]
+    _run(mobile, files, _Pages({"211": _text("MARCH 15, 2022", {})}))
+    monkeypatch.setattr(mobile_minutes, "READER_VERSION", 2)
+    _run(mobile, files, _Pages({"211": RuntimeError("no")}))
+    assert _file_row("211")["status"] == "error" and len(_votes(meeting)) == 1
+
+    report = _run(mobile, files, _Pages({"211": _text(None, {})}))
+
+    assert _statuses(report) == [("211", "not_minutes", 0)]
+    assert _votes(meeting) == [] and _minutes_url(meeting) is None
+    row = _file_row("211")
+    assert (row["status"], row["meeting_id"], row["votes_stored"]) == ("not_minutes", None, 0)
+
+
+def test_a_failed_reread_and_then_a_read_that_names_another_meeting_moves_the_votes_and_the_link(mobile, monkeypatch):
+    from docket.analysis import mobile_minutes
+
+    was = _meeting("e1", date(2022, 3, 15))
+    now = _meeting("e2", date(2022, 3, 22))
+    files = [_file("211", "e7")]
+    _run(mobile, files, _Pages({"211": _text("MARCH 15, 2022", {})}))
+    monkeypatch.setattr(mobile_minutes, "READER_VERSION", 2)
+    _run(mobile, files, _Pages({"211": RuntimeError("no")}))
+
+    report = _run(mobile, files, _Pages({"211": _text("MARCH 22, 2022", {}, {})}))
+
+    assert _statuses(report) == [("211", "paired", 2)]
+    assert _votes(was) == [] and _minutes_url(was) is None
+    assert len(_votes(now)) == 2 and _minutes_url(now) == _url("211")
+
+
+def test_a_failed_row_whose_meeting_another_file_has_taken_takes_nothing_with_it(mobile, monkeypatch):
+    """An `error` row holds its meeting only while the meeting's link is still its address."""
+    from docket.analysis import mobile_minutes
+
+    meeting = _meeting("e1", date(2022, 3, 15))
+    first, taker = _file("211", "e7"), _file("625", "e1")
+    _run(mobile, [first], _Pages({"211": _text("MARCH 15, 2022", {})}))
+    monkeypatch.setattr(mobile_minutes, "READER_VERSION", 2)
+    _run(mobile, [first], _Pages({"211": RuntimeError("no")}))
+    _run(mobile, [taker], _Pages({"625": _text("MARCH 15, 2022", {}, {})}))
+    assert (_file_row("211")["status"], _file_row("625")["status"]) == ("error", "paired")
+    kept = [v["id"] for v in _votes(meeting)]
+    assert len(kept) == 2
+
+    report = _run(mobile, [first], _Pages({"211": _text(None, {})}))
+
+    assert _statuses(report) == [("211", "not_minutes", 0)]
+    assert [v["id"] for v in _votes(meeting)] == kept
+    assert _minutes_url(meeting) == _url("625")
+
+
+def test_two_failed_rows_name_a_meeting_and_only_the_one_that_held_it_takes_its_votes(mobile, monkeypatch):
+    """The holder and a superseded file both fail a re-read; the superseded one, read later, deletes nothing."""
+    from docket.analysis import mobile_minutes
+
+    meeting = _meeting("e1", date(2022, 3, 15))
+    holder, second = _file("211", "e1"), _file("625", "e8")
+    _run(mobile, [holder, second], _Pages({"211": _text("MARCH 15, 2022", {}), "625": _text("MARCH 15, 2022", {})}))
+    monkeypatch.setattr(mobile_minutes, "READER_VERSION", 2)
+    _run(mobile, [holder, second], _Pages({"211": RuntimeError("no"), "625": RuntimeError("no")}))
+    assert (_file_row("211")["status"], _file_row("625")["status"]) == ("error", "error")
+    kept = [v["id"] for v in _votes(meeting)]
+
+    report = _run(mobile, [second], _Pages({"625": _text(None, {})}))
+
+    assert _statuses(report) == [("625", "not_minutes", 0)]
+    assert [v["id"] for v in _votes(meeting)] == kept
+    assert _minutes_url(meeting) == _url("211")
+
+
 def test_without_fetch_pages_the_adapter_fetches_and_the_reader_pages(mobile, monkeypatch):
     from docket.analysis import mobile_minutes
     from docket.services.minutes_votes import read_listed
@@ -986,6 +1077,109 @@ def test_link_votes_by_code_leaves_a_vote_that_has_any_link_and_another_citys_vo
     assert _links(other_citys) == []
 
 
+def _coded(code: str, **more) -> dict:
+    return {"code": code, **more}
+
+
+def _remove_by_hand(vote_id: int) -> None:
+    with db_cursor() as cur:
+        cur.execute("UPDATE vote_agenda_items SET is_active = FALSE, is_manual = TRUE WHERE vote_id = %s", (vote_id,))
+
+
+def test_a_link_removed_by_hand_survives_the_file_that_takes_the_meeting(mobile):
+    """A file on the meeting's own event replaces the votes; the removed link goes with the vote of the same code."""
+    from docket.services.minutes_votes import link_votes_by_code
+
+    meeting = _meeting("e1", date(2022, 3, 15))
+    item = _item(meeting, "i1", "40-948 Declare the structure")
+    pages = _text("MARCH 15, 2022", _coded("40-948-2022"), _coded("41-100-2022"))
+    _run(mobile, [_file("211", "e7")], _Pages({"211": pages}))
+    assert link_votes_by_code(mobile) == 1
+    [old] = [v for v in _votes(meeting) if v["resolution_number"] == "40-948-2022"]
+    _remove_by_hand(old["id"])
+
+    report = _run(mobile, [_file("625", "e1")], _Pages({"625": pages}))
+
+    assert _statuses(report) == [("625", "paired", 2)]
+    [new] = [v for v in _votes(meeting) if v["resolution_number"] == "40-948-2022"]
+    assert new["id"] != old["id"]
+    assert [(r["agenda_item_id"], r["is_active"], r["is_manual"]) for r in _links(new["id"])] == [(item, False, True)]
+    assert link_votes_by_code(mobile) == 0
+    assert [(r["agenda_item_id"], r["is_active"]) for r in _links(new["id"])] == [(item, False)]
+
+
+def test_a_link_set_by_hand_on_a_vote_with_no_code_survives_a_reread_by_the_votes_own_words(mobile, monkeypatch):
+    from docket.analysis import mobile_minutes
+
+    meeting = _meeting("e1", date(2022, 3, 15))
+    item = _item(meeting, "i1", "An item with no code")
+    files = [_file("211", "e7")]
+    pages = _text("MARCH 15, 2022", {"ayes": "Penn"}, {"ayes": "Small"})
+    _run(mobile, files, _Pages({"211": pages}))
+    first, second = _votes(meeting)
+    assert first["raw_text"] != second["raw_text"]
+    with db_cursor() as cur:
+        cur.execute(
+            "INSERT INTO vote_agenda_items (vote_id, agenda_item_id, association_type, match_method, "
+            "match_confidence, provisional, is_manual) VALUES (%s, %s, 'explicit', 'manual', 1.0, FALSE, TRUE)",
+            (second["id"], item),
+        )
+
+    monkeypatch.setattr(mobile_minutes, "READER_VERSION", 2)
+    _run(mobile, files, _Pages({"211": pages}))
+
+    new_first, new_second = _votes(meeting)
+    assert new_second["id"] != second["id"]
+    assert _links(new_first["id"]) == []
+    [link] = _links(new_second["id"])
+    assert (link["agenda_item_id"], link["is_manual"], link["is_active"], link["match_method"]) == (
+        item, True, True, "manual",
+    )
+
+
+def test_a_hand_link_is_not_carried_to_a_vote_that_cannot_be_told_from_another(mobile, monkeypatch):
+    """Two votes with the same words and no code: the link is dropped, not guessed onto one of them."""
+    from docket.analysis import mobile_minutes
+
+    meeting = _meeting("e1", date(2022, 3, 15))
+    item = _item(meeting, "i1", "An item with no code")
+    files = [_file("211", "e7")]
+    pages = _text("MARCH 15, 2022", {}, {})
+    _run(mobile, files, _Pages({"211": pages}))
+    first, second = _votes(meeting)
+    assert first["raw_text"] == second["raw_text"]
+    with db_cursor() as cur:
+        cur.execute(
+            "INSERT INTO vote_agenda_items (vote_id, agenda_item_id, association_type, match_confidence, is_manual) "
+            "VALUES (%s, %s, 'explicit', 1.0, TRUE)",
+            (second["id"], item),
+        )
+
+    monkeypatch.setattr(mobile_minutes, "READER_VERSION", 2)
+    _run(mobile, files, _Pages({"211": pages}))
+
+    assert [_links(v["id"]) for v in _votes(meeting)] == [[], []]
+
+
+def test_a_link_the_join_made_is_made_again_by_the_join_and_not_carried(mobile, monkeypatch):
+    from docket.analysis import mobile_minutes
+    from docket.services.minutes_votes import link_votes_by_code
+
+    meeting = _meeting("e1", date(2022, 3, 15))
+    _item(meeting, "i1", "40-948 Declare the structure")
+    files = [_file("211", "e7")]
+    pages = _text("MARCH 15, 2022", _coded("40-948-2022"))
+    _run(mobile, files, _Pages({"211": pages}))
+    assert link_votes_by_code(mobile) == 1
+
+    monkeypatch.setattr(mobile_minutes, "READER_VERSION", 2)
+    _run(mobile, files, _Pages({"211": pages}))
+
+    [vote] = _votes(meeting)
+    assert _links(vote["id"]) == []
+    assert link_votes_by_code(mobile) == 1
+
+
 def test_the_adoption_sweep_attaches_nothing_to_a_reader_vote(mobile):
     """The sweep finds Mobile's approval of minutes and marks the meeting; the matcher it calls passes over."""
     from docket.services.minutes_adoption import sweep_adoptions
@@ -1081,6 +1275,40 @@ def test_with_paired_links_gives_a_listed_paired_meeting_the_paired_file_not_the
 
     assert decided.minutes_url == _url("625")
     assert with_paired_links(mobile, []) == []
+
+
+def test_with_paired_links_keeps_the_stored_link_of_a_meeting_whose_file_failed_a_reread(mobile, monkeypatch):
+    """The two halves joined: the row is `error`, the meeting keeps its votes, and ingest does not blank its link."""
+    from docket.analysis import mobile_minutes
+    from docket.services.minutes_votes import with_paired_links
+
+    meeting = _meeting("e1", date(2022, 3, 15))
+    files = [_file("211", "e7")]
+    _run(mobile, files, _Pages({"211": _text("MARCH 15, 2022", {})}))
+    monkeypatch.setattr(mobile_minutes, "READER_VERSION", 2)
+    _run(mobile, files, _Pages({"211": RuntimeError("no")}))
+    assert _file_row("211")["status"] == "error" and len(_votes(meeting)) == 1
+
+    [decided] = with_paired_links(mobile, [_raw("e1", None)])
+
+    assert decided.minutes_url == _url("211")
+
+
+def test_with_paired_links_gives_no_link_from_a_failed_row_that_never_held_its_meeting(mobile):
+    """An `error` row that names a meeting whose stored link is not its address decides nothing."""
+    from docket.services.minutes_votes import with_paired_links
+
+    meeting = _meeting("e1", date(2022, 3, 15), minutes_url=_url("holder"))
+    with db_cursor() as cur:
+        cur.execute(
+            "INSERT INTO minutes_files (municipality_id, file_id, url, event_external_id, status, meeting_id, "
+            "reader_version) VALUES (%s, %s, %s, %s, 'error', %s, 1)",
+            (mobile, PREFIX + "second", _url("second"), PREFIX + "e9", meeting),
+        )
+
+    [decided] = with_paired_links(mobile, [_raw("e1", None)])
+
+    assert decided.minutes_url is None
 
 
 def test_reader_settings_reads_the_reader_and_the_cap():
