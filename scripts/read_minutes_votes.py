@@ -19,7 +19,10 @@ dry run inserts and rolls back every vote, so run it once.
 
 The first line printed names the database it is connected to, as the host
 and the database name of DATABASE_URL and nothing else of it. Then one line
-per file read, the totals, and ``dry run: nothing changed`` or ``applied``:
+per file read, the totals, and ``dry run: nothing changed``; with ``--apply``,
+``attached to agenda items by code: <n>``, the votes the run attached across
+the whole city (a vote stored by an earlier run whose item has arrived since
+is counted), and ``applied``:
 
     database: localhost/docket_test_5e7545f1
     file 3861 on event 500 names 2026-11-10 -> paired, 48 votes
@@ -38,7 +41,12 @@ Dry run first, one city at a time:
 
 Against production the operator sets DATABASE_URL to DATABASE_PUBLIC_URL.
 Exits 2 for an unknown city, a city whose settings name no reader, and a
-setting that cannot be read, each before any request to the city.
+setting that cannot be read, each before any request to the city, and for
+nothing else. A file whose reading cannot be stored is that file's ``error``
+line and the run goes on. A run that fails once under way (the database goes
+away) ends with a traceback and exit status 1; with ``--apply`` the files
+before the failure are stored, though their lines were not printed, and the
+same command again reads the ones that are left.
 """
 
 import argparse
@@ -47,7 +55,7 @@ import sys
 from urllib.parse import urlsplit
 
 from docket.config import DATABASE_URL
-from docket.services.minutes_votes import read_city
+from docket.services.minutes_votes import Refused, read_city
 
 logging.basicConfig(level=logging.WARNING, format="%(message)s")
 
@@ -89,7 +97,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"database: {database_label(DATABASE_URL)}", flush=True)
     try:
         report = read_city(args.city, limit=args.limit, apply=args.apply)
-    except ValueError as e:
+    except Refused as e:
         print(e, file=sys.stderr)
         return 2
 
@@ -102,6 +110,8 @@ def main(argv: list[str] | None = None) -> int:
         f"not_minutes: {counts['not_minutes']}  no_meeting: {counts['no_meeting']}  errors: {counts['error']}  "
         f"votes: {sum(o.votes for o in report.files)}  waiting: {report.waiting}"
     )
+    if report.linked is not None:
+        print(f"attached to agenda items by code: {report.linked}")
     print("applied" if args.apply else "dry run: nothing changed")
     return 0
 

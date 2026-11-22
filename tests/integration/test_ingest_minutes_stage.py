@@ -698,6 +698,7 @@ def test_the_script_with_apply_stores_and_joins_by_code(monkeypatch, capsys):
         f"file {PREFIX}f2 on event {PREFIX}2 names 2029-03-13 -> paired, 1 votes",
         f"file {PREFIX}f1 on event {PREFIX}1 names 2029-03-06 -> paired, 2 votes",
         "read: 3  paired: 3  superseded: 0  not_minutes: 0  no_meeting: 0  errors: 0  votes: 6  waiting: 0",
+        "attached to agenda items by code: 1",
         "applied",
     ]
     assert adapter.since_calls == [None]
@@ -712,6 +713,7 @@ def test_the_script_with_apply_stores_and_joins_by_code(monkeypatch, capsys):
     out = capsys.readouterr().out.splitlines()
     assert out[1:] == [
         "read: 0  paired: 0  superseded: 0  not_minutes: 0  no_meeting: 0  errors: 0  votes: 0  waiting: 0",
+        "attached to agenda items by code: 0",
         "applied",
     ]
 
@@ -796,6 +798,20 @@ def test_the_script_refuses_an_unknown_city_and_a_bad_setting(monkeypatch, capsy
     assert adapter.since_calls == []
 
 
+def test_the_script_does_not_call_a_failure_of_the_run_a_refusal(monkeypatch, capsys):
+    """Exit 2 is a refusal before any request. A ValueError raised once the run is under way is not one."""
+    import scripts.read_minutes_votes as script
+
+    def under_way(slug, *, limit, apply):
+        raise ValueError("A string literal cannot contain NUL (0x00) characters.")
+
+    monkeypatch.setattr(script, "read_city", under_way)
+
+    with pytest.raises(ValueError, match="NUL"):
+        script.main(["--city", SLUG, "--limit", "2", "--apply"])
+
+
+
 @pytest.mark.parametrize("argv", [["--city", SLUG], ["--city", SLUG, "--limit", "-1"], ["--limit", "2"]])
 def test_the_script_requires_a_city_and_a_limit_of_zero_or_more(monkeypatch, capsys, argv):
     from scripts.read_minutes_votes import main
@@ -817,10 +833,12 @@ def test_read_city_returns_the_report_of_the_read(monkeypatch):
     report = read_city(SLUG, limit=1, apply=False)
     assert [(o.file_id, o.status, o.votes) for o in report.files] == [(PREFIX + "f3", "paired", 3)]
     assert report.waiting == 2
+    assert report.linked is None  # a dry run attaches nothing, which is not the same as attaching none
     assert _file_rows() == {}
 
     report = read_city(SLUG, limit=0, apply=True)
     assert report.files == [] and report.waiting == 3
+    assert report.linked == 0
 
     report = read_city(SLUG, limit=1, apply=True)
     assert [(o.file_id, o.status, o.votes) for o in report.files] == [(PREFIX + "f3", "paired", 3)]

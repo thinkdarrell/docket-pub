@@ -961,8 +961,122 @@ def test_no_transaction_is_open_while_a_file_is_fetched(mobile, dry_run):
     assert (_file_row("211") is None) is dry_run
 
 
+def _store_failing_for(monkeypatch, tag: str, message: str) -> None:
+    """Make the store of one file's reading fail after a statement of its own; its `error` row is still writable."""
+    from docket.services import minutes_votes
+
+    real = minutes_votes._store
+
+    def failing(cur, municipality_id, reader_name, version, floor, roster, read):
+        if read.file.file_id == PREFIX + tag and read.reading is not None:
+            cur.execute("UPDATE meetings SET minutes_url = 'half' WHERE municipality_id = %s", (municipality_id,))
+            raise RuntimeError(message)
+        return real(cur, municipality_id, reader_name, version, floor, roster, read)
+
+    monkeypatch.setattr(minutes_votes, "_store", failing)
+
+
+def test_a_reading_that_cannot_be_stored_is_that_files_error_and_the_run_goes_on(mobile, monkeypatch):
+    """Nothing of the failed store is kept, the file has a row with its try counted, and the file after it is stored."""
+    first = _meeting("e1", date(2022, 3, 15))
+    second = _meeting("e2", date(2022, 3, 22))
+    third = _meeting("e3", date(2022, 3, 29))
+    files = [
+        _file("211", "e1", date(2026, 1, 3)), _file("300", "e2", date(2026, 1, 2)), _file("400", "e3", date(2026, 1, 1)),
+    ]
+    pages = _Pages({
+        "211": _text("MARCH 15, 2022", {}), "300": _text("MARCH 22, 2022", {}), "400": _text("MARCH 29, 2022", {}),
+    })
+    _store_failing_for(monkeypatch, "300", "this text cannot be stored")
+
+    report = _run(mobile, files, pages)
+
+    assert _statuses(report) == [("211", "paired", 1), ("300", "error", 0), ("400", "paired", 1)]
+    assert report.files[1].error == "this text cannot be stored"
+    assert len(_votes(first)) == 1 and len(_votes(third)) == 1
+    assert _votes(second) == [] and _minutes_url(second) is None
+    assert (_minutes_url(first), _minutes_url(third)) == (_url("211"), _url("400"))
+    row = _file_row("300")
+    assert (row["status"], row["attempts"], row["error"], row["meeting_id"], row["page_count"]) == (
+        "error", 1, "this text cannot be stored", None, 1,
+    )
+
+    again = _run(mobile, files, pages)
+    assert _statuses(again) == [("300", "error", 0)]
+    assert _file_row("300")["attempts"] == 2
+    _run(mobile, files, pages)
+    assert _file_row("300")["attempts"] == 3
+    assert _run(mobile, files, pages).files == []
+
+
+def test_a_dry_run_reports_a_reading_that_cannot_be_stored_and_keeps_nothing(mobile, monkeypatch):
+    _meeting("e1", date(2022, 3, 15))
+    _meeting("e2", date(2022, 3, 22))
+    _meeting("e3", date(2022, 3, 29))
+    files = [
+        _file("211", "e1", date(2026, 1, 3)), _file("300", "e2", date(2026, 1, 2)), _file("400", "e3", date(2026, 1, 1)),
+    ]
+    pages = _Pages({
+        "211": _text("MARCH 15, 2022", {}), "300": _text("MARCH 22, 2022", {}), "400": _text("MARCH 29, 2022", {}),
+    })
+    _store_failing_for(monkeypatch, "300", "this text cannot be stored")
+    before = _state()
+
+    report = _run(mobile, files, pages, dry_run=True)
+
+    assert _statuses(report) == [("211", "paired", 1), ("300", "error", 0), ("400", "paired", 1)]
+    assert _state() == before
+
+
+@pytest.mark.parametrize("dry_run", [True, False])
+def test_a_page_with_a_nul_character_is_that_files_error(mobile, dry_run):
+    """The reader takes the text and the database refuses it: one file's fault, not the run's."""
+    _meeting("e1", date(2022, 3, 15))
+    later = _meeting("e2", date(2022, 3, 22))
+    files = [_file("211", "e1", date(2026, 1, 2)), _file("300", "e2", date(2026, 1, 1))]
+    [page] = _text("MARCH 15, 2022", {})
+    pages = _Pages({"211": [page.replace("moved to adopt", "moved\x00 to adopt")], "300": _text("MARCH 22, 2022", {})})
+
+    report = _run(mobile, files, pages, dry_run=dry_run)
+
+    assert _statuses(report) == [("211", "error", 0), ("300", "paired", 1)]
+    assert "NUL" in report.files[0].error
+    if not dry_run:
+        assert (_file_row("211")["status"], _file_row("211")["attempts"]) == ("error", 1)
+        assert len(_votes(later)) == 1
+
+
+@pytest.mark.parametrize("dry_run", [True, False])
+def test_a_store_the_database_itself_fails_is_not_the_files_error_and_ends_the_run(mobile, monkeypatch, dry_run):
+    """A lost connection or a deadlock says nothing about the file: no try is spent, and the run stops as it did."""
+    from docket.services import minutes_votes
+
+    first = _meeting("e1", date(2022, 3, 15))
+    _meeting("e2", date(2022, 3, 22))
+    files = [_file("211", "e1", date(2026, 1, 2)), _file("300", "e2", date(2026, 1, 1))]
+    pages = _Pages({"211": _text("MARCH 15, 2022", {}), "300": _text("MARCH 22, 2022", {})})
+    real = minutes_votes._store
+    asked: list[bool] = []
+
+    def failing(cur, municipality_id, reader_name, version, floor, roster, read):
+        if read.file.file_id == PREFIX + "300":
+            asked.append(read.reading is not None)
+            raise psycopg2.OperationalError("server closed the connection unexpectedly")
+        return real(cur, municipality_id, reader_name, version, floor, roster, read)
+
+    monkeypatch.setattr(minutes_votes, "_store", failing)
+
+    with pytest.raises(psycopg2.OperationalError, match="closed the connection"):
+        _run(mobile, files, pages, dry_run=dry_run)
+
+    assert asked == [True]  # no `error` row was attempted for it
+    assert _file_row("300") is None
+    assert (_file_row("211") is None) is dry_run
+    assert len(_votes(first)) == (0 if dry_run else 1)
+
+
 def test_a_real_run_commits_each_file_on_its_own(mobile, monkeypatch):
-    """A store that fails on the second file leaves the first file stored."""
+    """A file whose store fails and whose `error` row cannot be written either stops the run; the first file stays stored."""
     from docket.services import minutes_votes
 
     meeting = _meeting("e1", date(2022, 3, 15))
