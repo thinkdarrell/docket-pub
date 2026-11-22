@@ -71,7 +71,7 @@ What the run reports. One line at INFO, `Minutes files: read=<n> paired=<n> supe
 
 By hand. `scripts/read_minutes_votes.py --city <slug> --limit <n> [--apply]` runs the same read for one city through `minutes_votes.read_city`, which lists the city from its `backlog_floor`; `--limit` is required and takes the place of the cap. Without `--apply` the files are fetched and read, the same statements run on one connection opened after the last file is read, and it is rolled back; the code join is not run. It prints `database: <host>/<name>` first, then one line per file (`file <id> on event <event> names <date> -> paired, <n> votes`, or `-> superseded`, `-> not_minutes`, `-> no_meeting`, `-> error: <reason>`, the date only where the heading printed one), the totals in the words of the log line, and `dry run: nothing changed` or `applied`. An unknown city, a city that names no reader and a setting that cannot be read each print their reason on stderr and exit 2 before any request to the city. `docs/specs/operations.md`, Railway specifics, gives the order it is run in.
 
-To stop the reading without a deploy, set `minutes_read_cap` to 0. A wrong reading is corrected in `mobile_minutes.py` with `READER_VERSION` raised: every file whose row is below it is read again, the cap a run, and each meeting's reader votes are replaced.
+How the reading is stopped without a deploy, and how the reader's work is taken out of production, are in `docs/specs/operations.md`, Railway specifics. A wrong reading is corrected in `mobile_minutes.py` with `READER_VERSION` raised: every file whose row is below it is read again, the cap a run, and each meeting's reader votes are replaced.
 
 ## What an item carries
 
