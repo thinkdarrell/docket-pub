@@ -329,7 +329,8 @@ constrains:
    the session has no network"; the session had a network and an
    instruction not to use it, took the fallback, could meet neither arm
    of the acceptance clause as written, and the migration shipped the
-   fallback date (debt row `D181`).
+   fallback date (debt row `D181`, paid and deleted by plan
+   `mobile-votes-from-minutes` on 2026-11-22 UTC).
    A figure the author read from a city's files with a script, and not
    with one statement, can be checked only while its printer exists. The
    script is committed with the plan, or the plan saves the whole text of
