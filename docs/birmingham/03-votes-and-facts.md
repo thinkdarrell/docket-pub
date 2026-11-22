@@ -4,7 +4,7 @@ Chapter 2 left a meeting with its agenda items and, when it had minutes, its vot
 
 ## Two sources of votes, kept apart
 
-Birmingham is the only city with votes, and its votes come from two documents that never merge (`docs/PRINCIPLES.md`, "Keep the sources apart"; decision `0005`):
+Birmingham is no longer the only city with votes: Mobile's are read from its minutes by a reader of its own (`docs/specs/votes.md`, "Votes read by a minutes reader"), which this tour does not follow. Birmingham's votes come from two documents that never merge (`docs/PRINCIPLES.md`, "Keep the sources apart"; decision `0005`):
 
 | | Official minutes | Video OCR |
 | --- | --- | --- |
