@@ -87,11 +87,13 @@ The function that splits a name is `split_item_name` in the adapter. After the s
 
 ## An agenda that is not ready
 
-`fetch_agenda_items` raises `AgendaNotReady` (`src/docket/models/protocol.py`) in three cases: the event's `agendaId` is 0 or absent (no request is made); the agenda the city returns says `agendaIsPublish` false, whatever it holds; or the agenda holds no item and the meeting's date is today or later, today being the date in `America/Chicago`. `hasAgenda` is not used to skip a request: it is true on a scheduled meeting whose agenda record is empty.
+`fetch_agenda_items` raises `AgendaNotReady` (`src/docket/models/protocol.py`) in three cases: the event's `agendaId` is 0 or absent (no request is made); the agenda the city returns says `agendaIsPublish` false, unless the meeting's date is past and the agenda holds items; or the agenda holds no item and the meeting's date is today or later, today being the date in `America/Chicago`. `hasAgenda` is not used to skip a request: it is true on a scheduled meeting whose agenda record is empty.
 
 Ingest passes such a meeting by. It is not marked `agenda_items_scraped`, nothing is reported, and under a cap it does not count as a fetch. The next run asks again, so an agenda is stored within a day of the city publishing it.
 
 An agenda with no item for a meeting already held returns an empty list, and the meeting is marked: an imported Mobile meeting, which has no structured items, is asked for once and not daily.
+
+An unpublished agenda that holds items for a meeting already held is stored as any other. Mobile held its meeting of 2026-11-10 (event 500, agenda 472) and published the Agenda Packet and the Minutes while the agenda itself still said `agendaIsPublish` false, with 57 items in it and `agendaPacketIsPublish` true; under the earlier rule it was asked for every run and never stored (issue #190). An unpublished agenda of a meeting today or later is passed by whatever it holds, and so is an unpublished agenda with no item after its meeting, which is asked for every run for as long as the city leaves it so.
 
 For a meeting the adapter instance did not list, the agenda id is looked up with one request, `Events?$filter=id eq <event id>`; an answer without that event raises `ValueError`.
 
