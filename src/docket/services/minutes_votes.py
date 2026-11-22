@@ -143,6 +143,7 @@ class FileOutcome:
 class ReadReport:
     files: list[FileOutcome]
     waiting: int  # candidates left unread by the cap
+    linked: int | None = None  # votes attached to agenda items by code; None where the join was not run
 
 
 @dataclass
@@ -345,7 +346,7 @@ def read_city(slug: str, *, limit: int, apply: bool) -> ReadReport:
     adapter, then reads up to ``limit`` waiting Minutes files as
     ``read_listed`` does: stored when ``apply`` is true, run and rolled back
     otherwise. Coded votes are attached to their agenda items only when
-    applying. A setting that cannot be read is ``Refused`` too, raised
+    applying, and the report's ``linked`` is how many were. A setting that cannot be read is ``Refused`` too, raised
     before the adapter is built, so nothing is asked of the city. Any other
     exception comes from a run that was under way.
     """
@@ -368,8 +369,8 @@ def read_city(slug: str, *, limit: int, apply: bool) -> ReadReport:
     adapter.list_meetings(since=floor)
     report = read_listed(city["id"], adapter, cap=limit, dry_run=not apply)
     if apply:
-        linked = link_votes_by_code(city["id"])
-        logger.info("Minutes votes linked by code: %d", linked)
+        report.linked = link_votes_by_code(city["id"])
+        logger.info("Minutes votes linked by code: %d", report.linked)
     return report
 
 

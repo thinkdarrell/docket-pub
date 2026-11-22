@@ -19,7 +19,10 @@ dry run inserts and rolls back every vote, so run it once.
 
 The first line printed names the database it is connected to, as the host
 and the database name of DATABASE_URL and nothing else of it. Then one line
-per file read, the totals, and ``dry run: nothing changed`` or ``applied``:
+per file read, the totals, and ``dry run: nothing changed``; with ``--apply``,
+``attached to agenda items by code: <n>``, the votes the run attached across
+the whole city (a vote stored by an earlier run whose item has arrived since
+is counted), and ``applied``:
 
     database: localhost/docket_test_5e7545f1
     file 3861 on event 500 names 2026-11-10 -> paired, 48 votes
@@ -107,6 +110,8 @@ def main(argv: list[str] | None = None) -> int:
         f"not_minutes: {counts['not_minutes']}  no_meeting: {counts['no_meeting']}  errors: {counts['error']}  "
         f"votes: {sum(o.votes for o in report.files)}  waiting: {report.waiting}"
     )
+    if report.linked is not None:
+        print(f"attached to agenda items by code: {report.linked}")
     print("applied" if args.apply else "dry run: nothing changed")
     return 0
 

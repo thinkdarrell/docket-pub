@@ -698,6 +698,7 @@ def test_the_script_with_apply_stores_and_joins_by_code(monkeypatch, capsys):
         f"file {PREFIX}f2 on event {PREFIX}2 names 2029-03-13 -> paired, 1 votes",
         f"file {PREFIX}f1 on event {PREFIX}1 names 2029-03-06 -> paired, 2 votes",
         "read: 3  paired: 3  superseded: 0  not_minutes: 0  no_meeting: 0  errors: 0  votes: 6  waiting: 0",
+        "attached to agenda items by code: 1",
         "applied",
     ]
     assert adapter.since_calls == [None]
@@ -712,6 +713,7 @@ def test_the_script_with_apply_stores_and_joins_by_code(monkeypatch, capsys):
     out = capsys.readouterr().out.splitlines()
     assert out[1:] == [
         "read: 0  paired: 0  superseded: 0  not_minutes: 0  no_meeting: 0  errors: 0  votes: 0  waiting: 0",
+        "attached to agenda items by code: 0",
         "applied",
     ]
 
@@ -831,10 +833,12 @@ def test_read_city_returns_the_report_of_the_read(monkeypatch):
     report = read_city(SLUG, limit=1, apply=False)
     assert [(o.file_id, o.status, o.votes) for o in report.files] == [(PREFIX + "f3", "paired", 3)]
     assert report.waiting == 2
+    assert report.linked is None  # a dry run attaches nothing, which is not the same as attaching none
     assert _file_rows() == {}
 
     report = read_city(SLUG, limit=0, apply=True)
     assert report.files == [] and report.waiting == 3
+    assert report.linked == 0
 
     report = read_city(SLUG, limit=1, apply=True)
     assert [(o.file_id, o.status, o.votes) for o in report.files] == [(PREFIX + "f3", "paired", 3)]
