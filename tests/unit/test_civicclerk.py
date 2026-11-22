@@ -736,16 +736,56 @@ class TestFetchAgendaItems:
 
         unpublished = _agenda()
         unpublished["agendaIsPublish"] = False
-        outcome, get, _ = _fetch(_listed(), _meeting("501", YESTERDAY), unpublished)
-        # Raised although the answer holds items and the meeting's date is past.
+        # Raised although the answer holds items: the meeting is still to come,
+        # and a meeting held today is still coming.
+        outcome, get, _ = _fetch(_listed(), _meeting("501", TOMORROW), unpublished)
         assert isinstance(outcome, AgendaNotReady)
         assert get.call_count == 1
+        outcome, _, _ = _fetch(_listed(), _meeting("501", CHICAGO_TODAY), unpublished)
+        assert isinstance(outcome, AgendaNotReady)
+
+        # An unpublished agenda with no item is not ready even after its
+        # meeting: nothing says the city has finished with it.
+        empty = {"id": 473, "agendaIsPublish": False, "items": []}
+        outcome, _, _ = _fetch(_listed(), _meeting("501", YESTERDAY), empty)
+        assert isinstance(outcome, AgendaNotReady)
+        headings = {"id": 473, "agendaIsPublish": False, "items": _agenda()["items"][:1]}
+        outcome, _, _ = _fetch(_listed(), _meeting("501", YESTERDAY), headings)
+        assert isinstance(outcome, AgendaNotReady)
 
         # An answer without the key is treated as published.
         keyless = _agenda()
         del keyless["agendaIsPublish"]
         items, _, _ = _fetch(_listed(), _meeting("501", YESTERDAY), keyless)
         assert len(items) == 4
+
+    def test_an_unpublished_agenda_of_a_held_meeting_is_stored(self):
+        from docket.models.protocol import AgendaNotReady
+
+        # Mobile held its meeting of 2026-11-10 (event 500, agenda 472) and
+        # published the packet and the minutes without ever setting
+        # agendaIsPublish; the agenda held 57 items (issue #190).
+        unpublished = _agenda()
+        unpublished["agendaIsPublish"] = False
+        items, get, _ = _fetch(_listed(), _meeting("501", YESTERDAY), unpublished)
+        assert isinstance(items, list), items
+        assert len(items) == 4
+        assert get.call_count == 1
+
+        # "Held" is the city's date, not the worker's: at 01:00 UTC on the 18th
+        # it is still the 17th in Mobile, so the meeting of the 17th is coming
+        # and the meeting of the 16th is held.
+        class Clock(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                instant = datetime(2026, 11, 18, 1, 0, tzinfo=timezone.utc)
+                return instant.astimezone(tz) if tz else instant.replace(tzinfo=None)
+
+        with patch("docket.adapters.civicclerk.datetime", Clock):
+            outcome, _, _ = _fetch(_listed(), _meeting("501", date(2026, 11, 17)), unpublished)
+            assert isinstance(outcome, AgendaNotReady)
+            outcome, _, _ = _fetch(_listed(), _meeting("501", date(2026, 11, 16)), unpublished)
+            assert isinstance(outcome, list) and len(outcome) == 4
 
     def test_an_empty_agenda_of_a_coming_meeting_raises_agenda_not_ready(self):
         from docket.models.protocol import AgendaNotReady
