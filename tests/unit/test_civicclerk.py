@@ -5,6 +5,7 @@ agenda gives (the right agenda, "not ready", and each item as the city titled it
 
 import copy
 import json
+import logging
 import re
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
@@ -1136,13 +1137,17 @@ class TestMinutesFiles:
         assert "%PDF-" in str(got)
         assert get.call_count == 3
 
-    def test_a_json_request_is_still_refused_an_empty_or_unparsable_body(self):
+    def test_a_json_request_is_still_refused_an_empty_or_unparsable_body(self, caplog):
         """_get keeps its own reading of a response beside fetch_file's."""
         adapter = _mobile()
         with patch.object(adapter._session, "get") as get, patch("docket.adapters.civicclerk.time.sleep"):
             get.side_effect = [_response(body=b""), _response(body=PDF), _response({"value": [7]})]
-            assert adapter._get("Events") == {"value": [7]}
+            with caplog.at_level(logging.WARNING, logger="docket.adapters.civicclerk"):
+                assert adapter._get("Events") == {"value": [7]}
         assert get.call_count == 3
+        reasons = [r.getMessage().rsplit(": ", 1)[-1] for r in caplog.records]
+        assert reasons[0] == "empty body"
+        assert "not JSON" in caplog.records[1].getMessage()
 
         with patch.object(adapter._session, "get") as get, patch("docket.adapters.civicclerk.time.sleep"):
             get.side_effect = [_response(body=PDF)] * 3

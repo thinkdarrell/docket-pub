@@ -391,9 +391,7 @@ class CivicClerkAdapter:
         # decided by reading it (docket.services.minutes_votes).
         minutes_url = None
         minutes_file = self._latest_file(event, "Minutes")
-        if minutes_file is None:
-            self._minutes_files.pop(str(event_id), None)
-        else:
+        if minutes_file is not None:
             file_url = self._file_url(minutes_file["fileId"])
             self._minutes_files[str(event_id)] = RawMinutesFile(
                 file_id=str(minutes_file["fileId"]),
