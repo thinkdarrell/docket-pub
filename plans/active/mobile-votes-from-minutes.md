@@ -99,6 +99,29 @@ The entries below are from the M2 session of 2026-11-22 (UTC).
 - Observation (M2, the session was cut off): the M2 session that wrote the failing tests at `f257511` stopped at a usage limit before it finished, and the operator's session committed what it left in the tree, unfinished and unverified, so the next M2 session starts on a clean tree.
   Evidence: at 2026-11-22 03:07Z `git status --short` printed five modified files (`src/docket/analysis/vote_matcher.py`, `src/docket/migrations/runner.py`, `src/docket/models/vote.py`, `src/docket/services/member_votes.py`, `src/docket/services/query.py`) and one untracked (`src/docket/migrations/050_minutes_votes.py`, 117 lines). No test and no `./tools/verify` was run on them after the cut-off. The next M2 session treats that commit as a draft: it reads each of those files against M2 in Plan of Work, runs the six test files named above, and finishes or corrects the work.
 
+The entries below are from the second M2 session of 2026-11-22 (UTC), the one that took up the draft commit `b2678b0`.
+
+- Observation (M2, second session, starting state): `./tools/verify`, run before any edit on a clean tree at `b2678b0` (the draft), passed.
+  Evidence: it printed `verify: unit+web+services ... ok (167s)`, `verify: integration ... ok (119s)`, `verify: judge-fixtures ... ok (1s)`, `verify: workflows ... ok (0s)`, `verify: transcriber ... ok (10s)`, `verify: plans ... ok (0s)`, `verify: all 6 checks passed in 297s.` and exited 0 at 03:13Z. So the draft, which its own commit calls not tested, was green on every tier before this session touched anything.
+
+- Observation (M2, the after state): with the draft's `src/` as committed at `b2678b0`, the command of the before state passes.
+  Evidence: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/integration/test_050_migration.py tests/integration/test_049_migration.py tests/unit/test_member_votes.py tests/unit/test_vote_matcher.py tests/unit/test_vote_dataclass.py tests/unit/test_query_list_votes.py -q -p no:cacheprovider` printed `78 passed, 1 warning in 5.31s` (the 21 that failed at `f257511` and the 57 that passed there; the warning is the `anyio` one M1 names). After this session's added assertions the same command printed `78 passed, 1 warning in 4.67s`: the assertions went into tests that were already there, so the count did not move.
+
+- Observation (M2, the draft read against M2 in Plan of Work): the six files of `src/` the draft changed were read line by line against the milestone, and this session changed none of them. The migration's SQL is that of Interfaces and Dependencies, statement for statement, with `ROSTER_SQL` exported and placed at the end of `SQL_UP`; the runner's list ends with `docket.migrations.050_minutes_votes`; `_ROSTER_SQL` selects `aliases`, `_roster_rows` returns five parts and `index_from_rows` takes four or five; the three SELECTs of `vote_matcher.py` named by M2 each gain `AND v.minutes_reader IS NULL` and nothing else in that module differs; `Vote` has the six fields and `vote.py` the three functions; `list_votes` passes the five columns.
+  Evidence: `git show b2678b0 -- src`, read whole; `git diff b2678b0 -- src` printed nothing at the end of this session's work.
+
+- Observation (M2, the removal check `skills/plan-execute/SKILL.md` asks for): 124 single alterations of the code were tried, each on a copy of one module's source held in memory (a pytest plugin in the session scratchpad puts a finder first on `sys.meta_path` that compiles the altered text for the one module, the migration and the runner's list among them; no committed file was edited, and each run printed that the altered copy was the one loaded). For an alteration of the migration or of the runner's list the disposable database was built again first, so no run saw what another left. Against the tests as committed failing at `f257511`, 112 failed a test and 12 failed none. Assertions were then added, each inside a test of the files M2 names, and 123 fail a test; the one left is told from its absence by nothing (next entry).
+  Evidence: first run `tried 124 failed-a-test 112 survived 12 errors 0`; after the additions `tried 124 failed-a-test 123 survived 1 errors 0`. What was altered: the three gates of the matcher, one at a time; in `member_votes.py` the `aliases` in the SELECT, the fifth part of a row, the alias loop, its tolerance of None, `normalize_name` on an alias, and the alias's member and each end of its term; in `vote.py` the two clauses of `vote_label`, every clause, word, word boundary and case flag of `vote_tone` and the order of its tests, the clauses of `page_link`, and each new field's default; each of the five columns `list_votes` passes; the runner's entry; and in the migration every `ADD COLUMN` and its `IF NOT EXISTS`, the type of `source_page`, the array type, `NOT NULL` and presence of `aliases`, the table, each `NOT NULL`, default, the CHECK and each of its five values, both foreign keys' `ON DELETE`, the UNIQUE and its city part, the index, its uniqueness, its `WHERE` and its `IF NOT EXISTS`, each part of `ROSTER_SQL` (the alias, the date and its value, the Mobile scope, each of the three surname clauses and their whole-word spaces, its place in the up), and each statement of the down with its `IF EXISTS`, its date and its two scopes. The 12 that failed nothing, and the test that now holds each: the left word boundary of `tabled`, `held over`, `laid over`, `withdrawn` and more than one space inside `held over` (`test_vote_tone_reads_the_result_and_the_declaration`, three phrases added: `the item upheld over objection`, `the untabled item adopted`, `the resolution Held  Over`); `minutes_files.municipality_id` cascading on the city's delete and its `NOT NULL`, and `NOT NULL` on `file_id`, `votes_stored`, `attempts` and `read_at` (`test_050_a_file_row_takes_its_defaults_and_is_one_per_city_and_file`: the NULL loop names nine columns where it named four, and a city built by the test under the slug `m050-city` is deleted and its file row is gone); the surname clauses `name = 'Jones'` and `'% Jones %'` (`test_050_roster_sql_alone_puts_the_row_right`: the row is respelled `Jones` and then `Scott Jones Jr.`, `ROSTER_SQL` finds it each time, and a `finally` puts the name, alias and date back); the Mobile scope of the down's date (`test_050_down_removes_all_of_it_and_the_up_applies_again`: the other city's `M050 Jones` is given an end of 2024-01-01, which the down must leave). All of these were added after the commit that holds the tests failing, in this session's commit of the tests.
+
+- Observation (M2): the down's `DROP INDEX IF EXISTS minutes_files_one_paired_per_meeting` cannot be told from its absence by any test, because the next statement drops the table and PostgreSQL drops a table's indexes with it.
+  Evidence: the alteration `down drops index` failed no test in either run of the 124. The statement stays, since the plan words the down as reversing each statement of the up; nothing was added for it.
+
+- Observation (M2): `tools/test-db` failed once, with exit status 1, when the removal check's driver called it for the first alteration that rebuilds the database, straight after 65 test runs on the same database; the driver did not keep its stderr. It did not fail again in the 250 or so builds that followed, by hand or from the driver.
+  Evidence: the driver's first run ended `subprocess.CalledProcessError: Command '['tools/test-db']' returned non-zero exit status 1.`; the same call from a Python subprocess a minute later returned 0 with `Applied migration 50` and `All migrations applied.` The cause was not found and is not this milestone's.
+
+- Observation (M2): `ruff`, which is not one of verify's checks, prints five style findings on the files this milestone touched and nothing of substance; they are left, as M1 left its five.
+  Evidence: `venv/bin/ruff check src/docket/migrations/050_minutes_votes.py src/docket/models/vote.py src/docket/services/member_votes.py tests/integration/test_050_migration.py tests/unit/test_vote_dataclass.py --output-format concise` printed one `I001` and two `C408` on `test_050_migration.py`, two `C408` on `test_vote_dataclass.py` (both in lines that were there before this plan), and `Found 5 errors.`
+
 
 ## Decision Log
 
@@ -209,6 +232,32 @@ The entries below were made by the M1 session of 2026-11-22 (UTC). Each resolves
 - Decision: `READER_VERSION` stays 1, and the five `ruff` findings left on the new files are left.
   Rationale: nothing has been stored under the reader yet. The findings are style; `ruff` is not a check of `./tools/verify`, and changing the module for one after the removal check would mean running the 96 again for no reader's benefit.
   Date/Author: 2026-11-22, M1 session.
+
+The entries below were made by the M2 sessions of 2026-11-22 (UTC): the first wrote the tests and the draft of the code and was cut off, the second read the draft, checked it and wrote these down. Each resolves a point M2 leaves open.
+
+- Decision: the draft commit `b2678b0` is kept as the code of M2, unchanged; the second session added assertions to tests and nothing to `src/`.
+  Rationale: read against M2 it does what the milestone says and no more, verify passed on it before any edit, the six test files pass on it, and 123 of 124 single alterations of it fail a test. Rewriting code that meets its acceptance would be work with no reader.
+  Date/Author: 2026-11-22, second M2 session.
+
+- Decision: an alias is compared as any stored name is (`normalize_name` on the alias when the index is built), and an alias that two seated members answer to resolves to nobody.
+  Rationale: `RosterIndex.resolve` normalises the name it is asked for, so an alias stored `Scott` must answer to `SCOTT`; and the resolver's existing rule for a name two seated members share is to leave it unresolved, which an alias gets by being one more variant (`test_an_alias_two_seated_members_share_is_unresolved`).
+  Date/Author: 2026-11-22, M2 sessions.
+
+- Decision: `index_from_rows` reads a fifth part that is None or empty as no alias, and `_roster_rows` always returns five parts.
+  Rationale: M2 says a row of four parts behaves as today; a caller that builds rows by hand with None in the fifth place (a test, a later service) should not need to know the column's default.
+  Date/Author: 2026-11-22, M2 sessions.
+
+- Decision: `vote_label` gives the stored result for a declaration that is the empty string as well as for None; in `vote_tone`, `held over` and `laid over` are matched with any run of white space between the two words, and the test for failed (the result, or `failed` or `denied` in the declaration) comes before the test for not decided.
+  Rationale: an empty head would print nothing where every other vote prints a word. A declaration is joined from lines of a PDF, where two spaces can stand between words. The order is the one Interfaces and Dependencies gives ("a failed result is tested first" in Expected readings), and it makes `the tabled item denied` read as failed, the thing voted on having been denied.
+  Date/Author: 2026-11-22, M2 sessions.
+
+- Decision: `match_all_unmatched` gains the gate although its SELECT, unlike the other two, does not name `minutes_text`; a meeting whose only unlinked votes are a reader's is not visited at all.
+  Rationale: M2 names the three SELECTs. Without the third the daily task would call `match_votes_for_meeting` for every Mobile meeting every day, to attach nothing: 225 meetings of wasted statements (Production is not a sandbox).
+  Date/Author: 2026-11-22, M2 sessions.
+
+- Decision: the migration's test file is `tests/integration/test_050_migration.py` and its test rows are meetings whose external id begins `m050-`, file rows whose `file_id` begins `m050-`, members whose name begins `M050 `, and one city under the slug `m050-city` that exists only inside one test.
+  Rationale: the pattern of `test_048_migration.py` and `test_049_migration.py`; a prefix per migration lets a test delete its own rows and no others.
+  Date/Author: 2026-11-22, M2 sessions.
 
 
 ## Outcomes & Retrospective

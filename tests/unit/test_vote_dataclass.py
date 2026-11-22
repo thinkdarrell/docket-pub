@@ -169,12 +169,14 @@ def test_vote_tone_reads_the_result_and_the_declaration():
     assert vote_tone("unknown", "the resolution denied") == "fail"
     # A declaration that says the item was not decided is neither.
     for declared in ("the waiver tabled", "the resolution held over until November 10, 2026",
-                     "the ordinance laid over", "the item withdrawn", "the item Laid  Over", "the motion TABLED"):
+                     "the ordinance laid over", "the item withdrawn", "the item Laid  Over", "the motion TABLED",
+                     "the resolution Held  Over"):
         assert vote_tone("passed", declared) == "", declared
     # Whole words: none of these says failed, denied, tabled, held over, laid over or withdrawn.
     for declared in ("the undenied claim approved", "the failedness noted", "the tabledness adopted",
                      "the withdrawnness adopted", "the item upheld overnight", "the relaid overpass approved",
-                     "the item held, over objection, adopted"):
+                     "the item held, over objection, adopted", "the item upheld over objection",
+                     "the untabled item adopted"):
         assert vote_tone("passed", declared) == "pass", declared
     # A motion that failed is failed whatever else its declaration says.
     assert vote_tone("failed", "the motion to table failed") == "fail"

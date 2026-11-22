@@ -244,9 +244,23 @@ def test_050_a_file_row_takes_its_defaults_and_is_one_per_city_and_file(applied_
         _file("B", status="read")
     for status in ("paired", "superseded", "not_minutes", "no_meeting", "error"):
         _file("status-" + status, status=status)
-    for column in ("url", "event_external_id", "status", "reader_version"):
+    for column in ("municipality_id", "file_id", "url", "event_external_id", "status", "reader_version",
+                   "votes_stored", "attempts", "read_at"):
         with pytest.raises(psycopg2.errors.NotNullViolation):
             _file("null-" + column, extra={column: None})
+    # A city that is deleted takes its file rows with it.
+    with db_cursor() as cur:
+        cur.execute(
+            "INSERT INTO municipalities (slug, name, state, adapter_class, active) "
+            "VALUES ('m050-city', 'M050 City', 'AL', 'CivicClerkAdapter', FALSE)")
+    try:
+        gone = _file("A", status="no_meeting", slug="m050-city")
+    finally:
+        with db_cursor() as cur:
+            cur.execute("DELETE FROM municipalities WHERE slug = 'm050-city'")
+    with db_cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM minutes_files WHERE id = %s", (gone,))
+        assert cur.fetchone()["n"] == 0
 
 
 def test_050_a_meeting_has_one_paired_file_and_keeps_its_file_rows_when_it_goes(applied_050):
@@ -287,15 +301,43 @@ def test_050_roster_sql_alone_puts_the_row_right(applied_050):
     assert _aliases()["Scott Jones"] == ["Scott"]
     assert _aliases()["M050 Jonesboro"] == [] and _aliases("vestavia_hills")["M050 Jones"] == []
 
+    # The row is found by its whole-word surname however it is spelled, as migration 049 finds it.
+    mobile = _city_id("mobile")
+    try:
+        for spelling in ("Jones", "Scott Jones Jr."):
+            with db_cursor() as cur:
+                cur.execute(
+                    "UPDATE council_members SET name = %s, aliases = '{}', term_end = DATE '2023-08-08' "
+                    "WHERE municipality_id = %s AND 'Scott' = ANY(aliases)", (spelling, mobile))
+                assert cur.rowcount == 1, spelling
+                cur.execute(module.ROSTER_SQL)
+                assert cur.rowcount == 1, spelling
+            assert next(row for row in _terms() if row[0] == spelling) == (
+                spelling, date(2021, 11, 2), date(2023, 4, 11), False)
+            assert _aliases()[spelling] == ["Scott"]
+    finally:
+        with db_cursor() as cur:
+            cur.execute(
+                "UPDATE council_members SET name = 'Scott Jones', aliases = ARRAY['Scott'], "
+                "term_end = DATE '2023-04-11' WHERE municipality_id = %s AND name IN ('Jones', 'Scott Jones Jr.')",
+                (mobile,))
+    assert _jones() == ("Scott Jones", date(2021, 11, 2), date(2023, 4, 11), False)
+
 
 def test_050_down_removes_all_of_it_and_the_up_applies_again(applied_050):
     meeting = _meeting("A")
     _file("A", meeting_id=meeting)
     _bystanders()
+    # Another city's Jones, on a date of his own: the down moves no date outside Mobile.
+    with db_cursor() as cur:
+        cur.execute("UPDATE council_members SET term_end = DATE '2024-01-01' WHERE name = 'M050 Jones'")
+        assert cur.rowcount == 1
     terms_before = _terms()
 
     with db() as conn:
         runner.rollback_migration(conn, 50)
+    assert [row for row in _terms("vestavia_hills") if row[0] == "M050 Jones"] == [
+        ("M050 Jones", date(2020, 1, 1), date(2024, 1, 1), True)]
 
     with db() as conn:
         assert 50 not in runner.applied_versions(conn)
