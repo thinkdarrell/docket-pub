@@ -85,6 +85,17 @@ The entries below are from the M1 session of 2026-11-22 (UTC).
 - Observation (M1): the check that the fall-back test of the "new item" clause was in the failing-first commit was made, not assumed.
   Evidence: the test file as committed at `76e494a`, copied beside the others under a scratch name and removed after, run against the module with each of the two alterations of that clause: both printed `FAILED ...::test_a_malformed_code_line_is_not_read_and_the_item_before_it_does_not_leak` and `1 failed, 28 passed`.
 
+The entries below are from the M2 session of 2026-11-22 (UTC).
+
+- Observation (M2, starting state): `./tools/verify`, run before any edit on a clean tree at `3dd67ca`, passed.
+  Evidence: it printed `verify: unit+web+services ... ok (170s)`, `verify: integration ... ok (120s)`, `verify: judge-fixtures ... ok (1s)`, `verify: workflows ... ok (0s)`, `verify: transcriber ... ok (11s)`, `verify: plans ... ok (0s)`, `verify: all 6 checks passed in 302s.` and exited 0 at 02:54Z.
+
+- Observation (M2): the new migration's number is `050`, taken after looking for a taker.
+  Evidence: `git fetch origin` then `git ls-tree --name-only origin/main src/docket/migrations/` ended at `049_mobile_council_terms.py`; `gh pr list --state open` with each pull request's files filtered to paths holding `migrations`, `decisions` or `DEBT` printed one line, `192 civicclerk: store an unpublished agenda that holds items once its meeting is held (issue #190)`, with no such path after it. The file is `src/docket/migrations/050_minutes_votes.py`.
+
+- Observation (M2, the before state): with the tests written and `src/` untouched, 21 tests of the six test files fail and the 57 that were there, with one new one, pass; every file collects.
+  Evidence: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/integration/test_050_migration.py tests/integration/test_049_migration.py tests/unit/test_member_votes.py tests/unit/test_vote_matcher.py tests/unit/test_vote_dataclass.py tests/unit/test_query_list_votes.py -q -p no:cacheprovider` printed `21 failed, 57 passed, 1 warning in 3.25s`. The 21: all six of `test_050_migration.py`; all five of `test_049_migration.py` (its expectations now name the row the new migration writes, and one test is new, `test_049_scott_is_scott_jones`); in `test_member_votes.py`, `test_an_alias_resolves_within_the_members_term`, `test_an_alias_two_seated_members_share_is_unresolved` and `test_the_roster_read_carries_each_members_aliases`; in `test_vote_matcher.py`, `test_text_rules_pass_over_a_minutes_reader_vote` and `test_match_all_unmatched_does_not_list_a_meeting_whose_only_unlinked_votes_are_reader_votes`; in `test_vote_dataclass.py`, the four new tests of the `Vote` fields, `vote_label`, `vote_tone` and `page_link`; in `test_query_list_votes.py`, `test_list_votes_carries_what_a_minutes_reader_stored`. The one new test that passes before the code is `test_a_four_part_row_has_no_alias`, which is what M2 says of it ("A row of four parts behaves as today"). The commit that holds this state is the one whose subject begins `M2: the tests of the schema, the roster and the matcher's gate, failing`.
+
 
 ## Decision Log
 
