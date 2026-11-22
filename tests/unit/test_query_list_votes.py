@@ -106,3 +106,25 @@ def test_list_votes_returns_empty_for_meeting_without_votes():
             with conn.cursor() as cur:
                 cur.execute("DELETE FROM meetings WHERE id = %s", (mid,))
             conn.commit()
+
+
+def test_list_votes_carries_what_a_minutes_reader_stored(vote_with_two_links):
+    """Plan `mobile-votes-from-minutes`, M2: the five columns a minutes reader writes reach the `Vote`."""
+    names = ("minutes_reader", "source_page", "caption", "motion_text", "declared_text")
+    vote = list_votes(vote_with_two_links["meeting_id"])[0]
+    assert [getattr(vote, name) for name in names] == [None] * 5
+
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE votes SET minutes_reader = 'mobile', source_page = 5, caption = 'A CAPTION', "
+                "motion_text = 'Councilmember A moved', declared_text = 'the resolution adopted' WHERE id = %s",
+                (vote_with_two_links["vote_id"],),
+            )
+        conn.commit()
+
+    vote = list_votes(vote_with_two_links["meeting_id"])[0]
+    assert [getattr(vote, name) for name in names] == [
+        "mobile", 5, "A CAPTION", "Councilmember A moved", "the resolution adopted"]
+    # The page link is built by the page's query from the meeting's minutes link, in a later milestone.
+    assert vote.minutes_page_url is None

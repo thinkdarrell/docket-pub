@@ -105,6 +105,14 @@ def create_app() -> Flask:
     # it; every other template is handed a finished ``VideoLink`` by its
     # service.
     app.jinja_env.globals["video_link"] = video_links.link_for
+    # ``vote_label`` and ``vote_tone`` own what a page prints for a vote's
+    # result and how it colours it: the declaration a minutes reader stored
+    # when the row has one, the stored result otherwise. The meeting, item and
+    # member templates call them and decide neither.
+    from docket.models.vote import vote_label, vote_tone
+
+    app.jinja_env.globals["vote_label"] = vote_label
+    app.jinja_env.globals["vote_tone"] = vote_tone
 
     # ``today`` — re-evaluated per request so templates can flag meetings
     # as upcoming via ``{% if meeting.meeting_date >= today %}``. Used by

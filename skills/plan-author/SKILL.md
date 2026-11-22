@@ -80,6 +80,19 @@ constrains:
    written to exclude, a worker `low_speech` row that a re-claim moved to
    `claimed` and so made public for the run, because the research reasoned
    about that value only as an end state.
+   The same trace is made for a status column the plan itself adds, when
+   its rows are processed again (a re-read, a retry, a newer version): for
+   every pair of the status a row can hold, none included, and the
+   outcome the next processing can give, the plan says what becomes of
+   the rows that hang on it (the votes it stored, the link it set), and
+   each pair has a test. Plan `mobile-votes-from-minutes` added
+   `minutes_files` with five statuses and gave the rules for a file read
+   once; M3 met the pairs a second read makes and settled some in its
+   Decision Log (decision `0130`, and a debt row since paid), and the closing
+   review's three important findings were each a pair no rule covered: a
+   first read that pairs a file to a meeting other than its event's, an
+   `error` row whose next read no longer pairs, and a second read that
+   replaces votes whose link someone had removed (decisions `0131` and `0132` record the rules written afterwards).
    When the work inserts a new kind of row into a table other code already
    reads (a meeting with a new `external_id` prefix, a meeting with no
    recording), the same list is made for the row as a whole: every reader
@@ -316,7 +329,24 @@ constrains:
    the session has no network"; the session had a network and an
    instruction not to use it, took the fallback, could meet neither arm
    of the acceptance clause as written, and the migration shipped the
-   fallback date (debt row `D181`).
+   fallback date (debt row `D181`, paid and deleted by plan
+   `mobile-votes-from-minutes` on 2026-11-22 UTC).
+   A figure the author read from a city's files with a script, and not
+   with one statement, can be checked only while its printer exists. The
+   script is committed with the plan, or the plan saves the whole text of
+   at least one source document as a fixture beside the reading the
+   script gave of it, so that the milestone which writes the code runs it
+   on a whole document and compares; excerpts prove the rules on the
+   lines the author chose. Plan `mobile-votes-from-minutes` took 8,354
+   votes in 254 Minutes files, and a vote count for each of 225 meetings,
+   from a script it did not commit, kept no copy of the files, and saved
+   thirteen fixture files of excerpts and invented text; five of its six
+   milestone sessions and its closing review each recorded that the
+   reader had run on no whole file and that the figures were the
+   author's, reproduced by no one, and the first comparison is the
+   operator's dry run against the city after the merge and the deploy
+   (debt row `D187`, step 4), where a difference is a finding for a new
+   session.
    An operator step that can only follow the merge (an API key created, a
    variable set on Railway, a deploy, a production backfill, a rebuilt
    image on the Legion) is never a clause of a milestone's acceptance or

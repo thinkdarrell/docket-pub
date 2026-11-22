@@ -25,6 +25,21 @@ class RawMeeting:
 
 
 @dataclass(frozen=True)
+class RawMinutesFile:
+    """A Minutes file a source lists, and the event it is attached to.
+
+    The event is where the source filed it, which is not always the meeting
+    the file is the minutes of; `docket.services.minutes_votes` pairs a file
+    to a meeting by the date its own first page prints.
+    """
+
+    file_id: str
+    url: str
+    event_external_id: str  # the external id of the meeting made from that event
+    event_date: date
+
+
+@dataclass(frozen=True)
 class RawAgendaItem:
     """An agenda item as returned by a platform adapter."""
 

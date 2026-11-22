@@ -996,3 +996,89 @@ def test_item_index_for_vote_table():
     assert item_index_for_vote(ts, 2256.0 + NEAR_CUE_S + 0.5) == 3
     assert item_index_for_vote(ts, 2300.0) == 3
     assert item_index_for_vote(ts, 2085.0 + NEAR_CUE_S / 2) == 0
+
+
+def _links(vote_id: int) -> list[tuple]:
+    from docket.db import db_cursor
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT association_type, match_method FROM vote_agenda_items WHERE vote_id = %s "
+            "ORDER BY agenda_item_id", (vote_id,))
+        return [(r["association_type"], r["match_method"]) for r in cur.fetchall()]
+
+
+def _set_reader(vote_id: int, reader: str | None) -> None:
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE votes SET minutes_reader = %s WHERE id = %s", (reader, vote_id))
+        conn.commit()
+
+
+def test_text_rules_pass_over_a_minutes_reader_vote(sample_vote_and_item, consent_block_meeting):
+    """A vote a minutes reader wrote (`minutes_reader` set) is not the text rules' to attach.
+
+    Plan `mobile-votes-from-minutes`, M2. The rules were written for Birmingham's minutes; a reader
+    attaches its own votes by the code the minutes print. The same two votes, with the marker
+    cleared, are attached as before: one by its resolution number, one as a consent block.
+    """
+    from docket.analysis.vote_matcher import match_votes_for_meeting
+
+    substantive, consent = sample_vote_and_item, consent_block_meeting
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE agenda_items SET title = 'Resolution 1854-25 Test' WHERE id = %s",
+                        (substantive["agenda_item_id"],))
+            cur.execute("UPDATE votes SET resolution_number = '1854-25', match_context = 'context' WHERE id = %s",
+                        (substantive["vote_id"],))
+        conn.commit()
+    _set_reader(substantive["vote_id"], "mobile")
+    _set_reader(consent["vote_id"], "mobile")
+
+    first = match_votes_for_meeting(substantive["meeting_id"])
+    second = match_votes_for_meeting(consent["meeting_id"])
+
+    assert first["substantive_matched"] == 0 and first["consent_matched"] == 0
+    assert second["substantive_matched"] == 0 and second["consent_matched"] == 0
+    assert _links(substantive["vote_id"]) == [] and _links(consent["vote_id"]) == []
+
+    _set_reader(substantive["vote_id"], None)
+    _set_reader(consent["vote_id"], None)
+
+    assert match_votes_for_meeting(substantive["meeting_id"])["substantive_matched"] == 1
+    assert match_votes_for_meeting(consent["meeting_id"])["consent_matched"] == 3
+    assert _links(substantive["vote_id"]) == [("explicit", "resolution_number")]
+    assert _links(consent["vote_id"]) == [
+        ("consent_named", "consent_block_named"),
+        ("consent_implicit", "consent_block_default"),
+        ("consent_implicit", "consent_block_default"),
+    ]
+
+
+def test_match_all_unmatched_does_not_list_a_meeting_whose_only_unlinked_votes_are_reader_votes(
+    sample_vote_and_item, consent_block_meeting, monkeypatch,
+):
+    """The daily task visits a meeting for its unlinked votes, and a reader's votes are not among them."""
+    from docket.analysis import vote_matcher
+
+    visited: list[int] = []
+
+    def record(meeting_id: int) -> dict:
+        visited.append(meeting_id)
+        return {"timestamp_matched": 0, "substantive_matched": 0, "consent_matched": 0}
+
+    monkeypatch.setattr(vote_matcher, "match_votes_for_meeting", record)
+    reader_only, other = sample_vote_and_item["meeting_id"], consent_block_meeting["meeting_id"]
+    _set_reader(sample_vote_and_item["vote_id"], "mobile")
+
+    result = vote_matcher.match_all_unmatched()
+
+    assert reader_only not in visited
+    # A meeting with an unlinked vote no reader wrote is still listed, once.
+    assert visited.count(other) == 1
+    assert result["meetings"] == len(visited)
+
+    # The same meeting is listed again once its vote is no reader's.
+    _set_reader(sample_vote_and_item["vote_id"], None)
+    visited.clear()
+    vote_matcher.match_all_unmatched()
+    assert visited.count(reader_only) == 1 and visited.count(other) == 1

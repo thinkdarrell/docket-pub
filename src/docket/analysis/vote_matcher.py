@@ -247,6 +247,7 @@ def _match_substantive(meeting_id: int) -> int:
                    FROM votes v
                    LEFT JOIN vote_agenda_items vai ON vai.vote_id = v.id AND vai.is_active
                    WHERE v.meeting_id = %s AND v.source = 'minutes_text'
+                     AND v.minutes_reader IS NULL
                      AND vai.id IS NULL""",
                 (meeting_id,),
             )
@@ -317,6 +318,7 @@ def _match_consent_block(meeting_id: int) -> int:
                    FROM votes v
                    LEFT JOIN vote_agenda_items vai ON vai.vote_id = v.id AND vai.is_active
                    WHERE v.meeting_id = %s AND v.source = 'minutes_text'
+                     AND v.minutes_reader IS NULL
                      AND vai.id IS NULL""",
                 (meeting_id,),
             )
@@ -824,6 +826,7 @@ def match_all_unmatched() -> dict:
                FROM votes v
                LEFT JOIN vote_agenda_items vai ON vai.vote_id = v.id AND vai.is_active
                WHERE vai.id IS NULL
+                 AND v.minutes_reader IS NULL
                ORDER BY v.meeting_id"""
         )
         meeting_ids = [r["meeting_id"] for r in cur.fetchall()]

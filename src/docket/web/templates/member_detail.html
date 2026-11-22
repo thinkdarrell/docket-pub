@@ -116,10 +116,14 @@
               {% elif row.agenda_links %}
                 Consent block — {{ row.agenda_links | length }} items
               {% else %}
-                {{ row.meeting_title[:120] }}{% if row.meeting_title | length > 120 %}…{% endif %}
+                {# A vote with no agenda item is titled by the caption the minutes
+                   print for it, where a minutes reader stored one, and by the
+                   meeting otherwise. #}
+                {% set row_title = row.caption or row.meeting_title %}
+                {{ row_title[:120] }}{% if row_title | length > 120 %}…{% endif %}
               {% endif %}
             </div>
-            <div class="t-meta">{{ row.yeas }}–{{ row.nays }} · {{ row.result }}</div>
+            <div class="t-meta{% if row.declared_text %} vote-block-result--declared{% endif %}">{{ row.yeas }}–{{ row.nays }} · {{ vote_label(row.result, row.declared_text) }}</div>
           </div>
           <span class="member-history-source t-meta">{{ 'video OCR' if row.source == 'video_ocr' else 'official minutes' }}</span>
           <span class="chip chip-{{ row.position }}">{{ row.position | upper }}</span>

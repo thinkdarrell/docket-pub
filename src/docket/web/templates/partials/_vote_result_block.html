@@ -12,7 +12,15 @@
      municipality — dict with .slug (for url_for in source link macro)
 
    Source-link priority within the macro: video link > minutes PDF >
-   meeting_detail#vote-N fallback. The video link is a finished VideoLink
+   meeting_detail#vote-N fallback. A vote a minutes reader wrote carries
+   the page it is printed on: its minutes link is v.minutes_page_url
+   (the meeting's minutes link at that page, set by
+   query.get_vote_for_item) and the link's words name the page; where
+   that address is not a safe one the fallback is printed and no minutes
+   link. The printed result is vote_label's and the colour vote_tone's
+   (docket.models.vote): the declaration the reader stored when the vote
+   has one, in the minutes' own case, and the stored result otherwise.
+   The video link is a finished VideoLink
    from docket.services.video_links, which query.get_vote_for_item sets as
    v.video_link on a vote read off the video: YouTube at the converted
    second when a measured recording covers the item's moment, the Granicus
@@ -30,7 +38,14 @@
        target="_blank" rel="noreferrer">
       Watch this vote{% if v.video_link.label %} on {{ v.video_link.label }}{% endif %}{% if v.video_link.no_sound %} (no sound){% endif %} ↗
     </a>
-  {%- elif v.minutes_url -%}
+  {%- elif is_source_url_safe(v.minutes_page_url) -%}
+    <a class="link t-meta"
+       href="{{ v.minutes_page_url }}"
+       data-item-id="{{ item.id }}"
+       target="_blank" rel="noreferrer">
+      Read minutes, page {{ v.source_page }} ↗
+    </a>
+  {%- elif v.minutes_url and not v.minutes_page_url -%}
     <a class="link t-meta"
        href="{{ v.minutes_url }}"
        data-item-id="{{ item.id }}"
@@ -47,9 +62,10 @@
 {% if vote_data %}
 {% set prevailing = vote_data.prevailing %}
 <section class="item-vote-result">
-    <div class="vote-block {{ 'is-pass' if prevailing.result == 'passed' else 'is-fail' if prevailing.result == 'failed' else '' }}">
+    {% set tone = vote_tone(prevailing.result, prevailing.declared_text) %}
+    <div class="vote-block {{ 'is-pass' if tone == 'pass' else 'is-fail' if tone == 'fail' else '' }}">
         <div class="vote-block-head">
-            <span class="vote-block-result">{{ prevailing.result }}</span>
+            <span class="vote-block-result{% if prevailing.declared_text %} vote-block-result--declared{% endif %}">{{ vote_label(prevailing.result, prevailing.declared_text) }}</span>
             <span class="t-mono" style="font-size: 18px; font-weight: 500;">
                 {{ prevailing.yeas }}–{{ prevailing.nays }}{% if prevailing.abstentions %}<span class="t-meta"> · {{ prevailing.abstentions }} abstain</span>{% endif %}
             </span>
@@ -74,8 +90,9 @@
         <summary class="t-mono">View vote history ({{ vote_data.history | length }}) ▾</summary>
         <ul class="vote-history-list">
             {% for h in vote_data.history %}
-            <li class="vote-history-row {{ 'is-pass' if h.result == 'passed' else 'is-fail' if h.result == 'failed' else '' }}">
-                <span class="vote-history-result t-mono">{{ h.result }}</span>
+            {% set h_tone = vote_tone(h.result, h.declared_text) %}
+            <li class="vote-history-row {{ 'is-pass' if h_tone == 'pass' else 'is-fail' if h_tone == 'fail' else '' }}">
+                <span class="vote-history-result t-mono{% if h.declared_text %} vote-block-result--declared{% endif %}">{{ vote_label(h.result, h.declared_text) }}</span>
                 <span class="t-mono">{{ h.yeas }}–{{ h.nays }}</span>
                 {% if h.meeting_date %}<span class="t-meta">{{ h.meeting_date.strftime('%b %-d, %Y') }}</span>{% endif %}
                 <span class="t-meta">·</span>

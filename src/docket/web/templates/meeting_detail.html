@@ -178,9 +178,14 @@
 
     <div style="display: flex; flex-direction: column; gap: 12px;">
     {% for vote in votes %}
-        <div id="vote-{{ vote.id }}" class="vote-block {{ 'is-pass' if vote.result == 'passed' else 'is-fail' if vote.result == 'failed' else '' }} {{ 'is-consent-block' if vote.is_consent_block else 'is-substantive' }}">
+        {# What the head prints and how the block is coloured are vote_label's and
+           vote_tone's (docket.models.vote): the declaration a minutes reader stored
+           when the vote has one, the stored result otherwise. A declaration is
+           printed in the minutes' own case. #}
+        {% set tone = vote_tone(vote.result, vote.declared_text) %}
+        <div id="vote-{{ vote.id }}" class="vote-block {{ 'is-pass' if tone == 'pass' else 'is-fail' if tone == 'fail' else '' }} {{ 'is-consent-block' if vote.is_consent_block else 'is-substantive' }}">
             <div class="vote-block-head">
-                <span class="vote-block-result">{{ vote.result }}</span>
+                <span class="vote-block-result{% if vote.declared_text %} vote-block-result--declared{% endif %}">{{ vote_label(vote.result, vote.declared_text) }}</span>
                 <span style="display: flex; align-items: center; gap: 8px;">
                     <span class="t-meta t-mono" style="font-size: 10px;">#{{ vote.id }}</span>
                     {% if vote.has_provisional_links %}
@@ -245,10 +250,25 @@
                     <span class="chip" style="font-size: 9px; height: 16px; padding: 0 5px; margin-left: 4px;">{{ vote.primary_link.match_method | replace('_', ' ') }}{% if vote.primary_link.match_confidence %} · {{ "%.0f"|format(vote.primary_link.match_confidence * 100) }}%{% endif %}</span>
                     {% endif %}
                 </div>
-            {% else %}
+            {% elif not vote.minutes_reader %}
                 <div style="margin-top: 4px; padding: 6px 10px;">
                     <em class="t-meta">No agenda item linked.</em>
                 </div>
+            {% endif %}
+
+            {# A vote a minutes reader wrote says what was voted on in the minutes'
+               own words: the code and caption they print for the item, where they
+               print them, and the motion. It may have no agenda item (the city's
+               system holds none for the meeting), which is why the sentence above
+               is not printed for it. #}
+            {% if vote.minutes_reader and (vote.resolution_number or vote.caption) %}
+                <div class="vote-block-minutes-item" style="padding: 0 10px; font-size: 13px;">
+                    {% if vote.resolution_number %}<span class="t-mono t-meta">{{ vote.resolution_number }}</span>{% endif %}
+                    {% if vote.caption %}<span>{{ vote.caption }}</span>{% endif %}
+                </div>
+            {% endif %}
+            {% if vote.motion_text %}
+                <div class="vote-block-motion t-meta" style="padding: 0 10px;">{{ vote.motion_text }}</div>
             {% endif %}
 
             <div style="display: flex; gap: 16px; align-items: baseline;">
@@ -260,6 +280,16 @@
                 {% for mv in vote.member_votes %}
                 <span class="chip chip-{{ mv.position }}">{{ mv.member_name }} · {{ mv.position | upper }}</span>
                 {% endfor %}
+            </div>
+            {% endif %}
+            {# The page of the city's Minutes file the vote is printed on. The city
+               serves the file as a download, so the fragment may do nothing and the
+               link's words carry the page. A vote with no page, or on a meeting
+               with no minutes link, has no address here, and is_source_url_safe
+               says no to that as it does to an address outside the allowlist. #}
+            {% if is_source_url_safe(vote.minutes_page_url) %}
+            <div>
+                <a class="link t-meta" href="{{ vote.minutes_page_url }}" target="_blank" rel="noreferrer">Minutes, page {{ vote.source_page }} ↗</a>
             </div>
             {% endif %}
             {% if vote.needs_review %}

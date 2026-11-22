@@ -549,6 +549,10 @@
   text-transform: uppercase; letter-spacing: 0.08em; font-size: 10px;
   color: var(--ink-2);
 }
+/* A result printed in the minutes' own words ("the resolution adopted") keeps
+   their case. It follows .vote-block-result and .vote-history-result, which
+   have its specificity, so that it wins on both. */
+.vote-block-result--declared { text-transform: none; letter-spacing: normal; }
 .vote-history-spacer { flex: 1 1 auto; }
 
 /* No-vote fallback — quieter than the banner, still scannable. */

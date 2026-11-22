@@ -42,7 +42,7 @@ PREFIXES: tuple[str, ...] = ("O'", "Mc", "Mac")
 _LOGGED_UNRESOLVED_NAMES = 30
 
 _ROSTER_SQL = """
-    SELECT id, name, term_start, term_end
+    SELECT id, name, term_start, term_end, aliases
       FROM council_members
      WHERE municipality_id = %s
      ORDER BY id
@@ -144,20 +144,27 @@ class RosterIndex:
         return None
 
 
-def index_from_rows(
-    rows: Iterable[tuple[int, str, date | None, date | None]],
-) -> RosterIndex:
-    """Build an index from ``(id, name, term_start, term_end)`` roster rows."""
+def index_from_rows(rows: Iterable[tuple]) -> RosterIndex:
+    """Build an index from ``(id, name, term_start, term_end)`` roster rows.
+
+    A row may carry a fifth part, the member's aliases (``council_members.aliases``:
+    other names a source prints for the member, as Mobile's minutes print "Scott"
+    for Scott Jones). Each alias answers under the member's own term, compared as
+    any stored name is. A row of four parts, or one whose fifth part is empty or
+    None, has only the variants of its name.
+    """
     entries: list[RosterVariant] = []
-    for member_id, name, term_start, term_end in rows:
+    for member_id, name, term_start, term_end, *rest in rows:
         for variant in name_variants(name):
             entries.append(RosterVariant(variant, member_id, term_start, term_end))
+        for alias in (rest[0] if rest else None) or ():
+            entries.append(RosterVariant(normalize_name(alias), member_id, term_start, term_end))
     return RosterIndex(entries)
 
 
-def _roster_rows(cur, municipality_id: int) -> list[tuple[int, str, date | None, date | None]]:
+def _roster_rows(cur, municipality_id: int) -> list[tuple[int, str, date | None, date | None, list[str]]]:
     cur.execute(_ROSTER_SQL, (municipality_id,))
-    return [(r["id"], r["name"], r["term_start"], r["term_end"]) for r in cur.fetchall()]
+    return [(r["id"], r["name"], r["term_start"], r["term_end"], r["aliases"]) for r in cur.fetchall()]
 
 
 def load_roster_index(municipality_id: int) -> RosterIndex:

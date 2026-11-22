@@ -77,3 +77,69 @@ def test_resolve_null_meeting_date_is_unresolved():
 def test_resolve_null_terms_match_any_date():
     index = index_from_rows([(7, "Ashley Curry", None, None)])
     assert index.resolve("Curry", date(1999, 1, 1)) == 7
+
+
+def test_an_alias_resolves_within_the_members_term():
+    """A fifth part of a roster row is the member's aliases: other names the source prints for them.
+
+    Plan `mobile-votes-from-minutes`, M2: Mobile's minutes print "Scott" for Scott Jones.
+    """
+    index = index_from_rows([
+        (61, "Scott Jones", date(2021, 11, 2), date(2023, 4, 11), ["Scott", "  S.  JONES-Smith "]),
+        (62, "Josh Woods", date(2023, 8, 8), None, []),
+        (63, "Cory Penn", date(2021, 11, 2), None, None),
+    ])
+    assert index.resolve("Scott", date(2021, 11, 2)) == 61
+    assert index.resolve("Scott", date(2023, 4, 10)) == 61
+    # The alias is under the member's own term: nobody the day it ends, nobody before it starts.
+    assert index.resolve("Scott", date(2023, 4, 11)) is None
+    assert index.resolve("Scott", date(2021, 11, 1)) is None
+    # The surname still answers, to the same member, and an alias is compared as any name is.
+    assert index.resolve("Jones", date(2022, 9, 13)) == 61
+    assert index.resolve("SCOTT", date(2022, 9, 13)) == 61
+    assert index.resolve("s. jones-smith", date(2022, 9, 13)) == 61
+    # A member with no alias, or none stored, answers as before, and to nobody's first name.
+    assert index.resolve("Woods", date(2023, 8, 8)) == 62
+    assert index.resolve("Penn", date(2022, 1, 1)) == 63
+    assert index.resolve("Josh", date(2024, 1, 1)) is None
+    assert index.resolve("Cory", date(2024, 1, 1)) is None
+
+
+def test_an_alias_two_seated_members_share_is_unresolved():
+    index = index_from_rows([
+        (61, "Scott Jones", date(2021, 11, 2), None, ["Scott"]),
+        (64, "Dana Scott", date(2021, 11, 2), None, []),
+    ])
+    assert index.resolve("Scott", date(2022, 1, 1)) is None
+    assert index.resolve("Jones", date(2022, 1, 1)) == 61
+
+
+def test_a_four_part_row_has_no_alias():
+    index = index_from_rows([(61, "Scott Jones", date(2021, 11, 2), date(2023, 4, 11))])
+    assert index.resolve("Jones", date(2022, 9, 13)) == 61
+    assert index.resolve("Scott", date(2022, 9, 13)) is None
+
+
+def test_the_roster_read_carries_each_members_aliases():
+    """`load_roster_index` reads the column: what `index_from_rows` is given comes from `_ROSTER_SQL`."""
+    from docket.services import member_votes
+
+    class Cursor:
+        def execute(self, sql, params):
+            self.sql, self.params = sql, params
+
+        def fetchall(self):
+            return [
+                {"id": 61, "name": "Scott Jones", "term_start": date(2021, 11, 2),
+                 "term_end": date(2023, 4, 11), "aliases": ["Scott"]},
+                {"id": 62, "name": "Josh Woods", "term_start": date(2023, 8, 8), "term_end": None, "aliases": []},
+            ]
+
+    cur = Cursor()
+    rows = member_votes._roster_rows(cur, 7)
+    assert cur.params == (7,) and "aliases" in cur.sql
+    assert rows == [
+        (61, "Scott Jones", date(2021, 11, 2), date(2023, 4, 11), ["Scott"]),
+        (62, "Josh Woods", date(2023, 8, 8), None, []),
+    ]
+    assert index_from_rows(rows).resolve("Scott", date(2022, 1, 1)) == 61

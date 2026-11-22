@@ -7,6 +7,12 @@ collects before the migration exists.
 The roll calls below are the ones the plan's author read in the city's minutes (the migration's
 docstring gives each with its event id, file id and words). Every row whose name begins `M049 `
 is built by a test and is not a member any city seated.
+
+Plan `mobile-votes-from-minutes`, M2: the migration after this one (`050_minutes_votes`) reads the
+roll calls of 2021 to 2023 and corrects Scott Jones's row: he answers to "Scott" as well, and his
+term ends on 2023-04-11. `EXPECTED` is what the migrations together leave; `JONES_AS_049_WROTE_HIM`
+is the row this migration alone writes, which the down-and-up test sees between its own steps and
+puts right before it ends by running 050's `ROSTER_SQL`.
 """
 import importlib
 from datetime import date
@@ -23,9 +29,10 @@ pytestmark = pytest.mark.skipif(
 )
 
 MODULE = "docket.migrations.049_mobile_council_terms"
+MODULE_050 = "docket.migrations.050_minutes_votes"
 TEST_NAMES = "M049 %"
 
-# name, district number, term_start, term_end, active: what the migration leaves, by district then term.
+# name, district number, term_start, term_end, active: what the migrations leave, by district then term.
 EXPECTED = [
     ("Cory Penn", 1, date(2021, 11, 2), None, True),
     ("William Carroll", 2, date(2021, 11, 2), date(2025, 11, 4), False),
@@ -34,10 +41,13 @@ EXPECTED = [
     ("Ben Reynolds", 4, date(2021, 11, 2), None, True),
     ("Joel Daves", 5, date(2021, 11, 2), date(2025, 11, 4), False),
     ("Beau Fleming", 5, date(2025, 11, 4), None, True),
-    ("Scott Jones", 6, date(2021, 11, 2), date(2023, 8, 8), False),
+    ("Scott Jones", 6, date(2021, 11, 2), date(2023, 4, 11), False),
     ("Josh Woods", 6, date(2023, 8, 8), None, True),
     ("Gina Gregory", 7, date(2021, 11, 2), None, True),
 ]
+
+# The row migration 049 writes on its own, before 050 moves the end of the term.
+JONES_AS_049_WROTE_HIM = ("Scott Jones", 6, date(2021, 11, 2), date(2023, 8, 8), False)
 
 # What migration 005 seeded, which the down restores.
 SEEDED = [
@@ -51,7 +61,7 @@ SEEDED = [
 ]
 
 # The roll call of each date, by surname, as the city's minutes print it. On 2021-11-02 the minutes
-# print "Scott" for the seventh member; see test_049_names_that_must_not_resolve.
+# print "Scott" for the seventh member; see test_049_scott_is_scott_jones.
 _SIX = ["Penn", "Carroll", "Small", "Reynolds", "Daves", "Gregory"]
 _WITH_JONES = _SIX + ["Jones"]
 _WITH_WOODS = ["Penn", "Carroll", "Small", "Reynolds", "Daves", "Woods", "Gregory"]
@@ -136,7 +146,7 @@ def test_049_the_seated_seven_are_the_active_members(applied_049):
     assert [(name, district, end) for name, district, _start, end, is_active in _roster() if not is_active] == [
         ("William Carroll", 2, date(2025, 11, 4)),
         ("Joel Daves", 5, date(2025, 11, 4)),
-        ("Scott Jones", 6, date(2023, 8, 8)),
+        ("Scott Jones", 6, date(2023, 4, 11)),
     ]
 
 
@@ -151,13 +161,32 @@ def test_049_every_surname_of_the_saved_roll_calls_resolves_on_its_date(applied_
             assert names[member_id].endswith(" " + surname), (meeting_date, surname, names[member_id])
 
 
+def test_049_scott_is_scott_jones(applied_049):
+    """ "Scott" is how the minutes of November 2021 to July 2022 print the seventh member.
+
+    Migration 050 gives Scott Jones's row the alias, from the roll calls its docstring cites, so the
+    name resolves to him inside his term and to nobody outside it.
+    """
+    index = load_roster_index(_city_id("mobile"))
+    names = _names_by_id()
+    for name, meeting_date in [
+        ("Scott", date(2021, 11, 2)),
+        ("Scott", date(2022, 7, 19)),
+        ("Jones", date(2021, 11, 9)),
+        ("Scott", date(2023, 4, 10)),
+    ]:
+        assert names[index.resolve(name, meeting_date)] == "Scott Jones", (name, meeting_date)
+    assert index.resolve("Scott", date(2021, 11, 2)) == index.resolve("Jones", date(2021, 11, 2))
+    for meeting_date in (date(2021, 11, 1), date(2023, 4, 11), date(2023, 8, 8)):
+        assert index.resolve("Scott", meeting_date) is None, meeting_date
+
+
 def test_049_names_that_must_not_resolve(applied_049):
     """A member is seated when term_start <= date < term_end, so nobody answers outside their term.
 
-    "Scott" is how the minutes of 2021-11-02 print the seventh member. It is probably Scott Jones
-    written by his first name; no document read says so. The resolver answers to a surname or an
-    initial with a surname, never to a first name, so the row `Scott Jones` does not answer to it,
-    and the stage that reads Mobile's minutes for votes must settle it.
+    Scott Jones's term ends on 2023-04-11, the date of the first roll call that does not list him
+    (migration 050), so "Jones" answers on no date from then on, the day before Josh Woods's term
+    begins included.
     """
     index = load_roster_index(_city_id("mobile"))
     for name, meeting_date in [
@@ -167,12 +196,13 @@ def test_049_names_that_must_not_resolve(applied_049):
         ("Fleming", date(2025, 10, 28)),
         ("Woods", date(2023, 3, 28)),
         ("Jones", date(2023, 8, 8)),
-        ("Scott", date(2021, 11, 2)),
+        ("Jones", date(2023, 8, 7)),
+        ("Jones", date(2023, 4, 11)),
     ]:
         assert index.resolve(name, meeting_date) is None, (name, meeting_date)
     # The day before each boundary, the member who is leaving still answers.
     names = _names_by_id()
-    assert names[index.resolve("Jones", date(2023, 8, 7))] == "Scott Jones"
+    assert names[index.resolve("Jones", date(2023, 4, 10))] == "Scott Jones"
     assert names[index.resolve("Carroll", date(2025, 11, 3))] == "William Carroll"
     assert names[index.resolve("Daves", date(2025, 11, 3))] == "Joel Daves"
     # Nobody answers before the first roll call read.
@@ -266,7 +296,9 @@ def test_049_down_restores_the_seeded_roster_and_the_up_applies_again(applied_04
                      "Josh Woods": "Woods", "Beau Fleming": "Beau Fleming III"}
         expected = [
             (respelled.get(name, name), district, date(2019, 11, 5) if name == "Gina Gregory" else start, end, active)
-            for name, district, start, end, active in EXPECTED
+            for name, district, start, end, active in [
+                JONES_AS_049_WROTE_HIM if row[0] == "Scott Jones" else row for row in EXPECTED
+            ]
             if name not in ("Samantha Ingram", "Joel Daves")
         ] + [("Daves", None, None, None, True)]
         assert sorted(city_rows(), key=lambda r: (r[1] or 0, r[0])) == sorted(expected, key=lambda r: (r[1] or 0, r[0]))
@@ -288,5 +320,13 @@ def test_049_down_restores_the_seeded_roster_and_the_up_applies_again(applied_04
         with db() as conn:
             runner.rollback_migration(conn, 49)
             runner.apply_migrations(conn)
+        # 049 has just written Scott Jones as it alone knows him; 050 is still recorded as applied
+        # and will not run again, so its roster statements are run here, whatever failed above.
+        with db_cursor() as cur:
+            cur.execute(importlib.import_module(MODULE_050).ROSTER_SQL)
 
     assert _roster() == EXPECTED
+    with db_cursor() as cur:
+        cur.execute("SELECT aliases FROM council_members WHERE municipality_id = %s AND name = 'Scott Jones'",
+                    (mobile,))
+        assert cur.fetchone()["aliases"] == ["Scott"]
