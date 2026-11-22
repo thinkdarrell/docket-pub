@@ -267,7 +267,7 @@
                     {% if vote.caption %}<span>{{ vote.caption }}</span>{% endif %}
                 </div>
             {% endif %}
-            {% if vote.minutes_reader and vote.motion_text %}
+            {% if vote.motion_text %}
                 <div class="vote-block-motion t-meta" style="padding: 0 10px;">{{ vote.motion_text }}</div>
             {% endif %}
 
@@ -284,8 +284,10 @@
             {% endif %}
             {# The page of the city's Minutes file the vote is printed on. The city
                serves the file as a download, so the fragment may do nothing and the
-               link's words carry the page. #}
-            {% if vote.minutes_page_url and is_source_url_safe(vote.minutes_page_url) %}
+               link's words carry the page. A vote with no page, or on a meeting
+               with no minutes link, has no address here, and is_source_url_safe
+               says no to that as it does to an address outside the allowlist. #}
+            {% if is_source_url_safe(vote.minutes_page_url) %}
             <div>
                 <a class="link t-meta" href="{{ vote.minutes_page_url }}" target="_blank" rel="noreferrer">Minutes, page {{ vote.source_page }} ↗</a>
             </div>

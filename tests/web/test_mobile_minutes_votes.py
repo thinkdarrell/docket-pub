@@ -93,11 +93,13 @@ def seeded():
     Mobile, 2026-11-03, with the city's minutes link: an older and a newer reader
     vote joined to one agenda item (`amendment`, `coded`), a reader vote with no item
     and no caption (`bare`), a flagged one (`flagged`), a carried motion to deny
-    (`denied`) and an item held over (`held`). Mobile, 2026-10-27, no minutes link
-    (`unlinked`). Mobile, 2026-10-20, a minutes link on a host outside the allowlist
+    (`denied`) and an item held over, with a code and no caption (`held`). The older
+    vote on the item is an amendment tabled. Mobile, 2026-10-27, no minutes link: a
+    reader vote (`unlinked`) and one whose declaration is the empty string (`empty`).
+    Mobile, 2026-10-20, a minutes link on a host outside the allowlist
     (`unsafe`). Mobile, 2026-10-13, a minutes vote no reader wrote (`plain`).
-    Birmingham, 2026-11-04: a minutes vote (`bham_minutes`) and a video vote
-    (`bham_video`).
+    Birmingham, 2026-11-04: a minutes vote that carries a resolution number
+    (`bham_minutes`) and a video vote (`bham_video`).
     """
     _cleanup()
     ids: dict[str, int] = {}
@@ -120,7 +122,7 @@ def seeded():
             )
             ids["item"] = cur.fetchone()["id"]
             ids["amendment"] = _vote(
-                cur, main, yeas=6, nays=1, page=4, declared="the amendment adopted",
+                cur, main, yeas=6, nays=1, page=4, declared="the amendment tabled",
                 code="40-948-2026", caption=CAPTION,
                 motion="Councilmember Small moved to amend the resolution.")
             ids["coded"] = _vote(
@@ -147,12 +149,13 @@ def seeded():
                 motion="Councilmember Gregory moved to deny the waiver.", member_id=member)
             ids["held"] = _vote(
                 cur, main, page=12, declared="the ordinance held over until November 10, 2026",
-                code="64-042-2026", caption="AMEND THE EXAMPLE CODE")
+                code="64-042-2026")
 
             ids["unlinked_meeting"] = _meeting(
                 cur, "mobile", "unlinked", "M5TEST no minutes link", "2026-10-27")
             ids["unlinked"] = _vote(
                 cur, ids["unlinked_meeting"], page=3, declared="the resolution adopted")
+            ids["empty"] = _vote(cur, ids["unlinked_meeting"], page=6, declared="")
             ids["unsafe_meeting"] = _meeting(
                 cur, "mobile", "unsafe", "M5TEST unsafe minutes link", "2026-10-20", UNSAFE_URL)
             ids["unsafe"] = _vote(
@@ -165,7 +168,7 @@ def seeded():
             bham = ids["bham"] = _meeting(
                 cur, "birmingham", "bham", "M5TEST Birmingham council", "2026-11-04",
                 BHAM_MINUTES_URL, BHAM_VIDEO_URL)
-            ids["bham_minutes"] = _vote(cur, bham, yeas=9, reader=None)
+            ids["bham_minutes"] = _vote(cur, bham, yeas=9, reader=None, code="R-900001-26")
             ids["bham_video"] = _vote(
                 cur, bham, yeas=3, nays=5, result="failed", source="video_ocr", reader=None)
         conn.commit()
@@ -194,7 +197,7 @@ def _text(html: str) -> str:
 
 def _links(html: str) -> list[tuple[str, str]]:
     """(the whole opening tag, the link's text) of every link in a fragment."""
-    return [(tag, _text(body)) for tag, body in re.findall(r"(<a\b[^>]*>)(.*?)</a>", html, re.S)]
+    return [(tag, _text(body)) for tag, body in re.findall(r"(<a\b[^>]*>)(.*?)</a>", html, re.DOTALL)]
 
 
 def _main(client, ids) -> str:
@@ -206,7 +209,7 @@ def _main(client, ids) -> str:
 
 def test_a_reader_vote_prints_the_declaration_in_its_head(client, seeded):
     block = _block(_main(client, seeded), seeded["coded"])
-    head = re.search(r'<span class="vote-block-result[^"]*">(.*?)</span>', block, re.S)
+    head = re.search(r'<span class="vote-block-result[^"]*">(.*?)</span>', block, re.DOTALL)
     assert head is not None
     assert head.group(1).strip() == "the resolution adopted"
 
@@ -270,6 +273,7 @@ def test_a_reader_vote_with_no_item_and_no_caption_does_not_say_no_item_is_linke
     assert "Councilmember Small moved to adopt the agenda." in block
     # Nothing stands where the code and caption would: the motion follows the head.
     assert "None" not in _text(block)
+    assert "vote-block-minutes-item" not in block
 
 
 def test_a_reader_vote_with_a_caption_and_no_item_prints_the_caption_alone(client, seeded):
@@ -277,6 +281,17 @@ def test_a_reader_vote_with_a_caption_and_no_item_prints_the_caption_alone(clien
     assert "No agenda item linked." not in block
     assert "APPEAL OF A NOISE WAIVER FOR 3 EXAMPLE ROAD" in block
     assert "None" not in _text(block)
+
+
+def test_a_reader_vote_with_a_code_and_no_caption_prints_the_code_alone(client, seeded):
+    block = _block(_main(client, seeded), seeded["held"])
+    assert "64-042-2026" in block
+    assert "None" not in _text(block)
+
+
+def test_a_declaration_that_is_the_empty_string_is_no_declaration(client, seeded):
+    html = _page(client, f"/al/mobile/meetings/{seeded['unlinked_meeting']}/")
+    assert '<span class="vote-block-result">passed</span>' in _block(html, seeded["empty"])
 
 
 def test_a_flagged_reader_vote_prints_the_review_callout(client, seeded):
@@ -287,6 +302,8 @@ def test_a_flagged_reader_vote_prints_the_review_callout(client, seeded):
     assert '<span class="vote-block-result">unknown</span>' in block
     assert "NOISE WAIVER FOR 2 EXAMPLE AVENUE" in block
     assert "Minutes, page 9" in _text(block)
+    # It has no motion, and nothing stands where one would.
+    assert "None" not in _text(block)
 
 
 def test_the_declared_head_has_its_class_and_no_other_head_does(client, seeded):
@@ -331,6 +348,8 @@ def test_a_birmingham_minutes_vote_and_a_video_vote_render_as_before(client, see
     for block in (minutes, video):
         assert "#page=" not in block
         assert "Minutes, page" not in block
+    # The resolution number of a vote no reader wrote is not printed as the minutes' code.
+    assert "R-900001-26" not in minutes
 
 
 def test_a_minutes_vote_no_reader_wrote_renders_as_before_in_a_reader_city(client, seeded):
@@ -372,7 +391,7 @@ def test_the_item_pages_history_row_prints_its_own_declaration_and_page(client, 
     history = section[section.index('<details class="vote-history">'):]
     assert re.search(
         r'<span class="vote-history-result t-mono vote-block-result--declared">\s*'
-        r'the amendment adopted\s*</span>', history)
+        r'the amendment tabled\s*</span>', history)
     (tag, text), = _links(history)
     assert text.rstrip(" ↗") == "Read minutes, page 4"
     assert f'href="{MINUTES_URL}#page=4"' in tag
@@ -391,14 +410,49 @@ def test_the_item_page_prints_no_page_link_for_an_address_that_is_not_safe(clien
     assert "Vote in meeting context" in section
 
 
+def _set_declarations(ids, coded, amendment) -> None:
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE votes SET declared_text = %s WHERE id = %s", (coded, ids["coded"]))
+            cur.execute("UPDATE votes SET declared_text = %s WHERE id = %s",
+                        (amendment, ids["amendment"]))
+        conn.commit()
+
+
+def test_the_item_page_is_coloured_by_what_was_declared(client, seeded):
+    section = _vote_result(client, seeded)
+    # The amendment was tabled: its row is neither a pass nor a fail.
+    assert re.search(r'<li class="vote-history-row\s*">', section)
+    _set_declarations(seeded, "the resolution denied", "the amendment failed")
+    section = _vote_result(client, seeded)
+    assert re.search(r'<div class="vote-block is-fail\s*">', section)
+    assert re.search(r'<li class="vote-history-row is-fail\s*">', section)
+
+
+def test_the_item_page_prints_the_stored_result_of_a_vote_with_no_declaration(client, seeded):
+    _set_declarations(seeded, None, None)
+    section = _vote_result(client, seeded)
+    assert '<span class="vote-block-result">passed</span>' in section
+    assert '<span class="vote-history-result t-mono">passed</span>' in section
+    assert re.search(r'<div class="vote-block is-pass\s*">', section)
+    assert re.search(r'<li class="vote-history-row is-pass\s*">', section)
+    assert "Read minutes, page 5" in _text(section)
+
+
 # ── The member page ───────────────────────────────────────────────────────
 
 
 def _history_rows(client, ids) -> dict[int, str]:
     html = _page(client, f"/al/mobile/council/{ids['member']}/")
     rows = re.findall(r'<a class="member-history-row vote-row"\s+href="[^"]*#vote-(\d+)">(.*?)</a>',
-                      html, re.S)
+                      html, re.DOTALL)
     return {int(vote_id): _text(body) for vote_id, body in rows}
+
+
+def test_the_member_pages_declared_line_has_the_class_and_no_other_line_does(client, seeded):
+    html = _page(client, f"/al/mobile/council/{seeded['member']}/")
+    assert '<div class="t-meta vote-block-result--declared">7–0 · the resolution adopted</div>' in html
+    assert '<div class="t-meta">1–0 · passed</div>' in html
 
 
 def test_the_member_page_prints_the_declaration_after_the_count(client, seeded):

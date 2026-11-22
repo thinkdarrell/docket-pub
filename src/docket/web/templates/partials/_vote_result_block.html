@@ -38,7 +38,7 @@
        target="_blank" rel="noreferrer">
       Watch this vote{% if v.video_link.label %} on {{ v.video_link.label }}{% endif %}{% if v.video_link.no_sound %} (no sound){% endif %} ↗
     </a>
-  {%- elif v.minutes_page_url and is_source_url_safe(v.minutes_page_url) -%}
+  {%- elif is_source_url_safe(v.minutes_page_url) -%}
     <a class="link t-meta"
        href="{{ v.minutes_page_url }}"
        data-item-id="{{ item.id }}"
