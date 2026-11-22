@@ -1,0 +1,31 @@
+=====PAGE 1=====
+RESOLUTIONS BEING INTRODUCED
+FIRST THING. The following resolution was held over until the regular meeting of May 15, 2029.
+RESOLUTION: 01-100-2029
+BE IT RESOLVED that the first thing is done.
+SECOND THING. The following resolution was introduced by Councilmember Alpha.
+RESOLUTION: 1-101-2029
+BE IT RESOLVED that the second thing is done.
+The resolution was read by the City Clerk, whereupon Councilmember Alpha moved to adopt the
+resolution, which was seconded by Councilmember Beta and the vote was as follows:
+Ayes: Alpha, Beta, Gamma, and Delta
+Nays: None
+The vote was then announced by the City Clerk, whereupon the Presiding Officer declared
+the resolution adopted.
+THIRD THING FOR THE PARKS; $1,000.00. The
+following resolution was introduced by Councilmember Alpha.
+RESOLUTION: 01-102-2029
+BE IT RESOLVED that the third thing is done.
+Councilmember Beta moved to recess the meeting for five minutes, which was seconded by
+Councilmember Gamma and the vote was as follows:
+Ayes: Alpha, Beta, Gamma, and Delta
+Nays: None
+The vote was then announced by the City Clerk, whereupon the Presiding Officer declared
+the meeting in recess.
+The resolution was read by the City Clerk, whereupon Councilmember Alpha moved to adopt the
+resolution, which was seconded by Councilmember Beta and the vote was as follows:
+Ayes: Alpha and Beta
+Nays: Gamma and Delta
+Abstained: Epsilon
+The vote was then announced by the City Clerk, whereupon the Presiding Officer declared
+the resolution failed.

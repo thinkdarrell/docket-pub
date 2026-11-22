@@ -50,6 +50,17 @@ As authored on 2026-11-21, no milestone has been executed, so nothing below this
 - Observation (authoring): what the minutes declare is about the thing voted on, not about the motion. "declared the waiver denied" follows a 7 to 0 vote on a motion to deny; "declared the ordinance failed" follows 4 ayes and 2 nays.
   Evidence: Context and Orientation, "What the minutes declare"; it is why the result rule reads the motion as well.
 
+The entries below are from the M1 session of 2026-11-22 (UTC).
+
+- Observation (M1, starting state): `./tools/verify`, run before any edit, passed.
+  Evidence: it printed `verify: unit+web+services ... ok (173s)`, `verify: integration ... ok (119s)`, `verify: judge-fixtures ... ok (1s)`, `verify: workflows ... ok (0s)`, `verify: transcriber ... ok (11s)`, `verify: plans ... ok (0s)`, `verify: all 6 checks passed in 305s.` and exited 0 at 02:32Z.
+
+- Observation (M1, the before state): with the thirteen fixture files and `tests/unit/test_mobile_minutes.py` in place and `src/` untouched, every one of the file's 29 tests fails on the import of the module, and the file collects.
+  Evidence: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_mobile_minutes.py -q -p no:cacheprovider` printed 29 lines `FAILED tests/unit/test_mobile_minutes.py::<test> - ModuleNotFoundError: No module named 'docket.analysis.mobile_minutes'` (the short summary cuts the message to `ModuleNotF...`) and `29 failed, 1 warning in 0.16s`. The tests import the module inside each test function, as `skills/plan-execute/SKILL.md` asks, so the failure is 29 failed tests and not one collection error; M1's acceptance words it as "fails on import of `docket.analysis.mobile_minutes`", which is what each of the 29 does. The commit that holds this state is the one whose subject begins `M1: the saved Mobile minutes text and the reader's tests, failing`.
+
+- Observation (M1): the fixture files were not typed by hand. A scratch script cut them out of this file's section "The saved minutes text" (each block of lines indented four spaces under a backquoted file name, the indent removed), so each file is this plan's text byte for byte.
+  Evidence: the script printed the line count of each file it wrote: `mobile_2026-11-03.txt 152`, `mobile_2021-11-23.txt 33`, `mobile_2024-06-18.txt 22`, `mobile_2022-02-22.txt 12`, `mobile_2022-03-15.txt 20`, `mobile_2022-07-12.txt 8`, `mobile_2024-07-16.txt 9`, `mobile_2025-11-18.txt 14`, `mobile_2026-11-10.txt 9`, `not_minutes_agenda.txt 9`, `not_minutes_letter.txt 5`, `invented_chain.txt 28`, `invented_closing.txt 31`.
+
 
 ## Decision Log
 
