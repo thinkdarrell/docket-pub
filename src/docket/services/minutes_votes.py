@@ -306,7 +306,7 @@ def _store(
     """Write one file's outcome on the caller's transaction."""
     file = read.file
     cur.execute(
-        "SELECT status, attempts, reader_version, header_date, meeting_id, page_count, votes_stored "
+        "SELECT url, status, attempts, reader_version, header_date, meeting_id, page_count, votes_stored "
         "FROM minutes_files WHERE municipality_id = %s AND file_id = %s FOR UPDATE",
         (municipality_id, file.file_id),
     )
@@ -342,10 +342,11 @@ def _store(
     row["status"] = status
     row["meeting_id"] = meeting["id"] if meeting is not None else None
 
-    # A meeting this file held before and does not hold now loses the votes it gave.
-    if prior is not None and prior["status"] == "paired" and prior["meeting_id"] is not None:
-        if status != "paired" or prior["meeting_id"] != row["meeting_id"]:
-            cur.execute("DELETE FROM votes WHERE meeting_id = %s AND minutes_reader IS NOT NULL", (prior["meeting_id"],))
+    # A meeting this file held before and does not hold now loses the votes and the link it gave.
+    held = prior["meeting_id"] if prior is not None and prior["status"] == "paired" else None
+    if held is not None and held != row["meeting_id"]:
+        _delete_reader_votes(cur, held)
+        cur.execute("UPDATE meetings SET minutes_url = NULL WHERE id = %s AND minutes_url = %s", (held, prior["url"]))
 
     if status == "paired":
         cur.execute(
@@ -389,9 +390,14 @@ def _pair(cur, municipality_id: int, floor: date | None, file: RawMinutesFile, h
     return "superseded", meeting
 
 
+def _delete_reader_votes(cur, meeting_id: int) -> None:
+    """A meeting's votes from a reader; their member votes and links go by cascade. No other vote is touched."""
+    cur.execute("DELETE FROM votes WHERE meeting_id = %s AND minutes_reader IS NOT NULL", (meeting_id,))
+
+
 def _replace_votes(cur, meeting: dict, reader_name: str, roster: RosterIndex, votes) -> int:
     """Replace the meeting's reader votes with these: two statements, whatever the count."""
-    cur.execute("DELETE FROM votes WHERE meeting_id = %s AND minutes_reader IS NOT NULL", (meeting["id"],))
+    _delete_reader_votes(cur, meeting["id"])
     if not votes:
         return 0
 

@@ -18,7 +18,7 @@ import json
 from datetime import date
 
 import psycopg2
-import psycopg2.errors
+import psycopg2.extras
 import pytest
 
 from docket.config import DATABASE_URL
@@ -426,10 +426,15 @@ def test_a_file_on_the_meetings_own_event_replaces_the_first_files_votes(mobile)
 
     _run(mobile, [first], pages)
     old = _votes(meeting)
+    with db_cursor() as cur:
+        cur.execute(
+            "INSERT INTO votes (meeting_id, result, source) VALUES (%s, 'passed', 'video_ocr') RETURNING id", (meeting,))
+        from_video = cur.fetchone()["id"]
     report = _run(mobile, [first, own], pages)
 
     assert _statuses(report) == [("625", "paired", 1)]
-    [vote] = _votes(meeting)
+    [vote] = [v for v in _votes(meeting) if v["id"] != from_video]
+    assert [v["id"] for v in _votes(meeting) if v["minutes_reader"] is None] == [from_video]
     assert vote["id"] not in [v["id"] for v in old]
     assert (vote["external_id"], vote["resolution_number"]) == (PREFIX + "e1-mv-1", "40-100-2022")
     assert _member_votes(vote["id"]) == [("Gregory", "yea", "Gina Gregory")]
@@ -439,7 +444,7 @@ def test_a_file_on_the_meetings_own_event_replaces_the_first_files_votes(mobile)
     assert (_file_row("625")["status"], _file_row("625")["votes_stored"]) == ("paired", 1)
 
     assert _statuses(_run(mobile, [first, own, third], pages)) == [("999", "superseded", 0)]
-    assert [v["id"] for v in _votes(meeting)] == [vote["id"]]
+    assert [v["id"] for v in _votes(meeting)] == [from_video, vote["id"]]
     assert _minutes_url(meeting) == _url("625")
 
 
@@ -537,11 +542,18 @@ def test_a_file_that_failed_and_then_reads_is_stored_with_its_attempts(mobile):
     row = _file_row("211")
     assert (row["status"], row["attempts"], row["error"]) == ("error", 1, "ValueError")
 
-    report = _run(mobile, files, _Pages({"211": _text("MARCH 15, 2022", {})}))
+    from docket.models.protocol import RawMinutesFile
+
+    moved = RawMinutesFile(PREFIX + "211", _url("211-moved"), PREFIX + "e5", date(2026, 11, 3))
+    report = _run(mobile, [moved], _Pages({"211": _text("MARCH 15, 2022", {})}))
 
     assert _statuses(report) == [("211", "paired", 1)]
+    first_read_at = row["read_at"]
     row = _file_row("211")
     assert (row["status"], row["attempts"], row["error"], row["meeting_id"]) == ("paired", 2, None, meeting)
+    assert (row["url"], row["event_external_id"]) == (_url("211-moved"), PREFIX + "e5")
+    assert row["read_at"] > first_read_at
+    assert _minutes_url(meeting) == _url("211-moved")
 
 
 def test_a_second_run_with_nothing_new_reads_nothing_and_writes_nothing(mobile):
@@ -649,6 +661,89 @@ def test_a_file_that_no_longer_pairs_takes_its_votes_and_its_link_with_it(mobile
     assert _votes(meeting) == [] and _minutes_url(meeting) is None
     assert len(_votes(other)) == 1 and _minutes_url(other) == _url("300")
     assert (_file_row("211")["status"], _file_row("211")["meeting_id"]) == ("no_meeting", None)
+
+
+def test_a_file_that_now_names_another_meeting_moves_its_votes_and_its_link(mobile, monkeypatch):
+    """Read again under a newer version the heading gives another date: the first meeting keeps nothing of it."""
+    from docket.analysis import mobile_minutes
+
+    was = _meeting("e1", date(2022, 3, 15))
+    now = _meeting("e2", date(2022, 3, 22))
+    files = [_file("211", "e7")]
+    _run(mobile, files, _Pages({"211": _text("MARCH 15, 2022", {})}))
+    assert len(_votes(was)) == 1 and _minutes_url(was) == _url("211")
+
+    monkeypatch.setattr(mobile_minutes, "READER_VERSION", 2)
+    report = _run(mobile, files, _Pages({"211": _text("MARCH 22, 2022", {}, {}) + [""]}))
+
+    assert _statuses(report) == [("211", "paired", 2)]
+    assert _votes(was) == [] and _minutes_url(was) is None
+    assert len(_votes(now)) == 2 and _minutes_url(now) == _url("211")
+    row = _file_row("211")
+    assert (row["meeting_id"], row["header_date"], row["page_count"]) == (now, date(2022, 3, 22), 2)
+
+
+def test_a_superseded_file_that_no_longer_names_the_meeting_leaves_the_paired_files_votes(mobile, monkeypatch):
+    """Only the file that holds a meeting takes votes with it; a row that merely names the meeting does not."""
+    from docket.analysis import mobile_minutes
+
+    meeting = _meeting("e1", date(2022, 3, 15))
+    holder, second = _file("211", "e1"), _file("625", "e8")
+    _run(mobile, [holder, second], _Pages({"211": _text("MARCH 15, 2022", {}), "625": _text("MARCH 15, 2022", {})}))
+    assert (_file_row("211")["status"], _file_row("625")["status"]) == ("paired", "superseded")
+    kept = [v["id"] for v in _votes(meeting)]
+
+    monkeypatch.setattr(mobile_minutes, "READER_VERSION", 2)
+    report = _run(mobile, [second], _Pages({"625": _text("JULY 4, 2023", {})}))
+
+    assert _statuses(report) == [("625", "no_meeting", 0)]
+    assert [v["id"] for v in _votes(meeting)] == kept
+    assert _minutes_url(meeting) == _url("211")
+
+
+def test_a_files_votes_and_its_member_votes_are_two_insert_statements(mobile, monkeypatch):
+    """Seven votes and forty-nine member votes go in as one statement each, not one a row."""
+    real = psycopg2.extras.execute_values
+    sent: list[tuple[int, int]] = []
+
+    def counting(cur, sql, argslist, template=None, page_size=100, fetch=False):
+        sent.append((len(argslist), page_size))
+        return real(cur, sql, argslist, template=template, page_size=page_size, fetch=fetch)
+
+    monkeypatch.setattr(psycopg2.extras, "execute_values", counting)
+    _meeting("e499", date(2026, 11, 3))
+
+    _run(mobile, [_file("3854", "e499")], _Pages({"3854": load_pages("mobile_2026-11-03.txt")}))
+
+    assert [rows for rows, _ in sent] == [7, 49]
+    assert all(page_size >= rows for rows, page_size in sent)
+
+
+def test_a_minutes_file_with_no_vote_is_paired_and_gives_its_meeting_the_link(mobile):
+    meeting = _meeting("e1", date(2022, 3, 15))
+
+    report = _run(mobile, [_file("211", "e7")], _Pages({"211": _text("MARCH 15, 2022")}))
+
+    assert _statuses(report) == [("211", "paired", 0)]
+    assert _votes(meeting) == [] and _minutes_url(meeting) == _url("211")
+    assert (_file_row("211")["status"], _file_row("211")["votes_stored"]) == ("paired", 0)
+
+
+def test_only_a_paired_row_holds_a_meeting(mobile):
+    """A superseded or failed row that names the meeting does not keep another file from it."""
+    meeting = _meeting("e1", date(2022, 3, 15))
+    with db_cursor() as cur:
+        for tag, status in (("lost", "superseded"), ("failed", "error")):
+            cur.execute(
+                "INSERT INTO minutes_files (municipality_id, file_id, url, event_external_id, status, meeting_id, "
+                "reader_version, attempts) VALUES (%s, %s, %s, %s, %s, %s, 1, 3)",
+                (mobile, PREFIX + tag, _url(tag), PREFIX + "e7", status, meeting),
+            )
+
+    report = _run(mobile, [_file("211", "e7")], _Pages({"211": _text("MARCH 15, 2022", {})}))
+
+    assert _statuses(report) == [("211", "paired", 1)]
+    assert (_file_row("lost")["status"], _file_row("failed")["status"]) == ("superseded", "error")
 
 
 def test_a_failed_reread_leaves_what_the_file_stored(mobile, monkeypatch):
@@ -832,8 +927,16 @@ def test_link_votes_by_code_attaches_a_coded_vote_to_the_one_item_that_opens_wit
             (meeting,),
         )
         not_a_readers = cur.fetchone()["id"]
+        cur.execute(
+            "INSERT INTO votes (meeting_id, result, source, resolution_number, minutes_reader) "
+            "VALUES (%s, 'passed', 'minutes_text', '40-9482-2026', 'mobile') RETURNING id",
+            (meeting,),
+        )
+        four_digits = cur.fetchone()["id"]
+    _item(meeting, "i7", "40-94821 A number that only begins with a four-digit code")
 
     assert link_votes_by_code(mobile) == 1
+    assert [row["agenda_item_id"] for row in _links(four_digits)] == []
 
     [link] = _links(coded["40-948-2026"]["id"])
     assert link["agenda_item_id"] == item
