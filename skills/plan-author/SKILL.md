@@ -317,6 +317,22 @@ constrains:
    instruction not to use it, took the fallback, could meet neither arm
    of the acceptance clause as written, and the migration shipped the
    fallback date (debt row `D181`).
+   A figure the author read from a city's files with a script, and not
+   with one statement, can be checked only while its printer exists. The
+   script is committed with the plan, or the plan saves the whole text of
+   at least one source document as a fixture beside the reading the
+   script gave of it, so that the milestone which writes the code runs it
+   on a whole document and compares; excerpts prove the rules on the
+   lines the author chose. Plan `mobile-votes-from-minutes` took 8,354
+   votes in 254 Minutes files, and a vote count for each of 225 meetings,
+   from a script it did not commit, kept no copy of the files, and saved
+   thirteen fixture files of excerpts and invented text; five of its six
+   milestone sessions and its closing review each recorded that the
+   reader had run on no whole file and that the figures were the
+   author's, reproduced by no one, and the first comparison is the
+   operator's dry run against the city after the merge and the deploy
+   (debt row `D187`, step 4), where a difference is a finding for a new
+   session.
    An operator step that can only follow the merge (an API key created, a
    variable set on Railway, a deploy, a production backfill, a rebuilt
    image on the Legion) is never a clause of a milestone's acceptance or
