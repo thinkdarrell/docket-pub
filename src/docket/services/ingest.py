@@ -11,6 +11,10 @@ Pipeline stages per meeting:
     4. Votes from the minutes: each member vote is resolved to its
        council member at insert through docket.services.member_votes
        (the roster rule; a name not on the roster stays NULL)
+    4b. For a city whose settings name a minutes reader: its listed
+       Minutes files are read, paired to their meetings and stored by
+       docket.services.minutes_votes, and coded votes are attached to
+       their agenda items
 """
 
 from __future__ import annotations
@@ -27,7 +31,7 @@ from docket.adapters import get_adapter
 from docket.adapters._helpers import classify_title, normalize_title
 from docket.db import db, db_cursor
 from docket.models.protocol import AgendaNotReady, RawMeeting
-from docket.services import hearings, meeting_types
+from docket.services import hearings, meeting_types, minutes_votes
 from docket.services.enrichment import enrich_agenda_item
 from docket.services.member_votes import load_roster_index
 
@@ -109,6 +113,14 @@ def ingest_municipality(slug: str, since: date | None = None) -> IngestResult:
     run, newest meeting first. A city with neither is listed and fetched
     as it always was. A value that cannot be read is reported as the one
     error of the result, before any request.
+
+    Two more name a minutes reader (`minutes_votes.reader_settings`), and
+    are read the same way. A city with ``minutes_reader`` has each listed
+    meeting's minutes link decided by the files already read
+    (`minutes_votes.with_paired_links`) before the meetings are stored, and
+    after stage 4 has up to ``minutes_read_cap`` of its listed Minutes
+    files read and stored and its coded votes attached to their agenda
+    items (stage 4b). A city without it is not touched by any of that.
     """
     errors: list[str] = []
 
@@ -121,7 +133,7 @@ def ingest_municipality(slug: str, since: date | None = None) -> IngestResult:
         muni = cur.fetchone()
 
     if muni is None:
-        return IngestResult(slug, 0, 0, 0, 0, [f"Municipality '{slug}' not found"])
+        return IngestResult(slug, 0, 0, 0, 0, 0, [f"Municipality '{slug}' not found"])
 
     adapter_config = muni["adapter_config"]
     if isinstance(adapter_config, str):
@@ -132,6 +144,7 @@ def ingest_municipality(slug: str, since: date | None = None) -> IngestResult:
 
     try:
         backlog_floor, agenda_fetch_cap = _backlog_settings(adapter_config)
+        minutes_reader, minutes_read_cap = minutes_votes.reader_settings(adapter_config)
     except ValueError as reason:
         return IngestResult(slug, 0, 0, 0, 0, 0, [f"Bad adapter_config for {slug}: {reason}"])
     if since is None:
@@ -142,7 +155,13 @@ def ingest_municipality(slug: str, since: date | None = None) -> IngestResult:
     try:
         raw_meetings = adapter.list_meetings(since=since)
     except Exception as e:
-        return IngestResult(slug, 0, 0, 0, 0, [f"Failed to scrape meetings: {e}"])
+        return IngestResult(slug, 0, 0, 0, 0, 0, [f"Failed to scrape meetings: {e}"])
+
+    # A reader city: the files already read decide each meeting's minutes
+    # link, so the upsert below does not write the listing's link over a
+    # pairing (an imported event's listing gives none).
+    if minutes_reader is not None:
+        raw_meetings = minutes_votes.with_paired_links(municipality_id, raw_meetings)
 
     # Stage 2: Upsert meetings
     inserted, updated = _upsert_meetings(municipality_id, raw_meetings)
@@ -245,6 +264,31 @@ def ingest_municipality(slug: str, since: date | None = None) -> IngestResult:
             logger.error("  Failed to parse votes for %s: %s", raw_meeting.external_id, e)
 
     logger.info("Votes: %d inserted", total_votes)
+
+    # Stage 4b: a reader city's listed Minutes files, at most the cap a run.
+    # The adapter is the one that listed the events above, so the city is
+    # not asked for the listing twice. `votes_scanned` is not consulted.
+    if minutes_reader is not None:
+        try:
+            report = minutes_votes.read_listed(municipality_id, adapter, cap=minutes_read_cap)
+            counts = dict.fromkeys(("paired", "superseded", "not_minutes", "no_meeting", "error"), 0)
+            stored_votes = 0
+            for outcome in report.files:
+                counts[outcome.status] += 1
+                stored_votes += outcome.votes
+                if outcome.status == "error":
+                    errors.append(f"Minutes file {outcome.file_id}: {outcome.error}")
+            total_votes += stored_votes
+            logger.info(
+                "Minutes files: read=%d paired=%d superseded=%d not_minutes=%d no_meeting=%d errors=%d votes=%d waiting=%d",
+                len(report.files), counts["paired"], counts["superseded"], counts["not_minutes"],
+                counts["no_meeting"], counts["error"], stored_votes, report.waiting,
+            )
+            linked = minutes_votes.link_votes_by_code(municipality_id)
+            logger.info("Minutes votes linked by code: %d", linked)
+        except Exception as e:
+            errors.append(f"Minutes files: {e}")
+            logger.error("  Failed to read minutes files for %s: %s", slug, e)
 
     # Stage 5: Sweep for adoption-pattern agenda items and resolve minutes_adopted_at
     try:

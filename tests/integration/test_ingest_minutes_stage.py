@@ -305,7 +305,8 @@ def _two_meetings_two_files() -> _Adapter:
         [_meeting("1", FIRST, minutes="f1"), _meeting("2", SECOND)],
         files=[_file("f1", "1", FIRST), _file("f2", "2", SECOND)],
         pages={
-            "f1": _text("MARCH 6, 2029", {"code": "40-948-2029"}, {"ayes": "Penn and Small"}),
+            # The uncoded vote comes first: a vote after a coded item takes that item's code.
+            "f1": _text("MARCH 6, 2029", {"ayes": "Penn and Small"}, {"code": "40-948-2029"}),
             "f2": _text("MARCH 13, 2029", {}),
         },
         items={"1": "40-948 Declare the structure a public nuisance."},
@@ -339,15 +340,15 @@ def test_a_reader_city_gets_its_votes_from_one_ingest_run_a_scanned_meeting_incl
     assert [v["external_id"] for v in first] == [f"{PREFIX}1-mv-1", f"{PREFIX}1-mv-2"]
     assert [v["external_id"] for v in second] == [f"{PREFIX}2-mv-1"]
     assert {(v["source"], v["minutes_reader"]) for v in first + second} == {("minutes_text", "mobile")}
-    assert [v["resolution_number"] for v in first] == ["40-948-2029", None]
-    assert (first[1]["yeas"], first[1]["nays"]) == (2, 0)
+    assert [v["resolution_number"] for v in first] == [None, "40-948-2029"]
+    assert (first[0]["yeas"], first[0]["nays"]) == (2, 0)
 
     assert _row("1")["minutes_url"] == _url("f1")
     assert _row("2")["minutes_url"] == _url("f2")
     assert _file_rows() == {"f1": "paired", "f2": "paired"}
 
     # The coded vote is attached to the item ingest stored in this same run.
-    assert _links(first[0]["id"]) == [
+    assert _links(first[1]["id"]) == [
         {
             "association_type": "explicit",
             "match_method": "minutes_code",
@@ -355,7 +356,7 @@ def test_a_reader_city_gets_its_votes_from_one_ingest_run_a_scanned_meeting_incl
             "title": "40-948 Declare the structure a public nuisance.",
         }
     ]
-    assert _links(first[1]["id"]) == []
+    assert _links(first[0]["id"]) == []
 
     assert _lines(caplog, "Minutes files:") == [
         "Minutes files: read=2 paired=2 superseded=0 not_minutes=0 no_meeting=0 errors=0 votes=3 waiting=0"
@@ -643,7 +644,7 @@ def _script_setup(monkeypatch, *, floor: str | None = "2021-11-01", reader: bool
         [_meeting("1", FIRST), _meeting("2", SECOND), _meeting("3", third)],
         files=[_file("f1", "1", FIRST), _file("f2", "2", SECOND), _file("f3", "3", third)],
         pages={
-            "f1": _text("MARCH 6, 2029", {"code": "40-948-2029"}, {}),
+            "f1": _text("MARCH 6, 2029", {}, {"code": "40-948-2029"}),
             "f2": _text("MARCH 13, 2029", {}),
             "f3": _text("MARCH 20, 2029", {}, {}, {}),
         },
@@ -703,7 +704,7 @@ def test_the_script_with_apply_stores_and_joins_by_code(monkeypatch, capsys):
     assert _file_rows() == {"f1": "paired", "f2": "paired", "f3": "paired"}
     assert [len(_votes(tag)) for tag in ("1", "2", "3")] == [2, 1, 3]
     assert _row("3")["minutes_url"] == _url("f3")
-    coded = _votes("1")[0]
+    coded = _votes("1")[1]
     assert [link["match_method"] for link in _links(coded["id"])] == ["minutes_code"]
 
     # A second run has nothing to read.
@@ -722,7 +723,7 @@ def test_the_script_dry_run_does_not_join_by_code(monkeypatch):
 
     _script_setup(monkeypatch)
     assert main(["--city", SLUG, "--limit", "3", "--apply"]) == 0
-    coded = _votes("1")[0]
+    coded = _votes("1")[1]
     with db_cursor() as cur:
         cur.execute("DELETE FROM vote_agenda_items WHERE vote_id = %s", (coded["id"],))
 

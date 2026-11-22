@@ -3,7 +3,11 @@
 A city whose ``adapter_config`` names a ``minutes_reader`` has its listed
 Minutes files read by that reader (``docket.analysis.mobile_minutes`` for
 ``mobile``). This module owns everything that reading writes. Plan
-`mobile-votes-from-minutes`, M3.
+`mobile-votes-from-minutes`, M3 and M4.
+
+Two callers: stage 4b of ``docket.services.ingest.ingest_municipality``, every
+day, with the adapter that listed the city's events; and ``read_city``, the
+entry of ``scripts/read_minutes_votes.py``, which lists them itself.
 
 One file is one row of ``minutes_files``, whatever became of it:
 
@@ -43,6 +47,7 @@ from datetime import date
 
 import psycopg2.extras
 
+from docket.adapters import get_adapter
 from docket.analysis import mobile_minutes
 from docket.db import db, db_cursor
 from docket.models.protocol import RawMeeting, RawMinutesFile
@@ -285,6 +290,37 @@ def link_votes_by_code(municipality_id: int) -> int:
     with db_cursor() as cur:
         cur.execute(_LINK_BY_CODE_SQL, (municipality_id,))
         return cur.rowcount
+
+
+def read_city(slug: str, *, limit: int, apply: bool) -> ReadReport:
+    """The script's entry. ValueError for an unknown slug and for a city whose adapter_config names no reader.
+
+    Lists the city's events from its ``backlog_floor`` with the city's own
+    adapter, then reads up to ``limit`` waiting Minutes files as
+    ``read_listed`` does: stored when ``apply`` is true, run and rolled back
+    otherwise. Coded votes are attached to their agenda items only when
+    applying. A setting that cannot be read is a ValueError too, raised
+    before the adapter is built, so nothing is asked of the city.
+    """
+    from docket.services.ingest import _backlog_settings
+
+    with db_cursor() as cur:
+        cur.execute("SELECT id, adapter_class, adapter_config FROM municipalities WHERE slug = %s", (slug,))
+        city = cur.fetchone()
+    if city is None:
+        raise ValueError(f"Municipality '{slug}' not found")
+    reader_name, _ = reader_settings(city["adapter_config"])
+    if reader_name is None:
+        raise ValueError(f"adapter_config of {slug} names no minutes_reader")
+    floor, _ = _backlog_settings(city["adapter_config"])
+
+    adapter = get_adapter(city["adapter_class"], slug, city["adapter_config"])
+    adapter.list_meetings(since=floor)
+    report = read_listed(city["id"], adapter, cap=limit, dry_run=not apply)
+    if apply:
+        linked = link_votes_by_code(city["id"])
+        logger.info("Minutes votes linked by code: %d", linked)
+    return report
 
 
 def _is_waiting(row: dict | None, version: int) -> bool:

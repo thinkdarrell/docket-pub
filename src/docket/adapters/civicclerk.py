@@ -23,6 +23,11 @@ published yet raises ``AgendaNotReady``; a request that fails raises, and is
 never an empty agenda. Each item is titled with the city's own item name (its
 ordinance or resolution code first), with the "(sponsored by ...)" and
 "(submitted by ...)" parentheticals split out of it.
+
+The adapter reads no vote. It lists the Minutes file of every event it listed
+(``listed_minutes_files``) and fetches one as bytes (``fetch_file``);
+``docket.services.minutes_votes`` reads them, for a city whose settings name a
+reader.
 """
 
 from __future__ import annotations
@@ -31,6 +36,7 @@ import html
 import logging
 import re
 import time
+from collections.abc import Callable
 from datetime import date, datetime, timezone
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
@@ -38,7 +44,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 from docket.adapters._helpers import classify_meeting, is_consent_item
-from docket.models.protocol import AgendaNotReady, RawAgendaItem, RawMeeting, RawVote
+from docket.models.protocol import AgendaNotReady, RawAgendaItem, RawMeeting, RawMinutesFile, RawVote
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +107,9 @@ class CivicClerkAdapter:
         # Event id -> the id of the event's agenda record, as last listed.
         # An agenda is a separate record with its own number; 0 means none yet.
         self._agenda_ids: dict[str, int] = {}
+        # Event id -> the event's Minutes file, as last listed, whether or
+        # not the event's meeting was given it as a minutes link.
+        self._minutes_files: dict[str, RawMinutesFile] = {}
 
     # --- URL builders -------------------------------------------------------
 
@@ -117,11 +126,32 @@ class CivicClerkAdapter:
     # --- HTTP helper --------------------------------------------------------
 
     def _get(self, endpoint: str, params: dict | None = None) -> dict | list:
-        """One GET, tried up to three times.
+        """One GET of JSON, tried up to three times.
 
         ``endpoint`` is either a path under the base address (sent with
         ``params``) or a full address, such as a next-page link, which is
         requested exactly as given with no params.
+
+        The pause and the three tries are those of ``_request``. A body that
+        is empty or is not JSON is a failure like any other.
+        """
+        if endpoint.startswith(("https://", "http://")):
+            url = endpoint
+            params = None
+        else:
+            url = f"{self.base_url}/{endpoint}"
+        return self._request(url, params, self._json_body)
+
+    def fetch_file(self, url: str) -> bytes:
+        """One of the city's files. Waits and retries as _get does; ValueError for an address
+        outside this adapter's base; requests.RequestException after three failures or when
+        the body does not begin b'%PDF-'."""
+        if not self._is_own_address(url):
+            raise ValueError(f"CivicClerk file address is not under {self.base_url}: {url!r}")
+        return self._request(url, None, self._pdf_body)
+
+    def _request(self, url: str, params: dict | None, read: Callable[[requests.Response], object]):
+        """One GET, tried up to three times; ``read`` turns the response into what is returned.
 
         Every request this instance sends after its first waits before it is
         sent, whether the one before it succeeded or failed, so no two requests
@@ -129,17 +159,12 @@ class CivicClerkAdapter:
         This is the only place the adapter pauses.
 
         A failure is a connection error or timeout, a status the server
-        rejects with, or a body that is empty or is not JSON. After the first
-        failure the adapter waits its delay, after the second twice its delay,
-        and after the third it raises ``requests.RequestException``. A failed
-        request is never an empty answer.
+        rejects with, or a body ``read`` refuses with
+        ``requests.RequestException``. After the first failure the adapter
+        waits its delay, after the second twice its delay, and after the third
+        it raises ``requests.RequestException``. A failed request is never an
+        empty answer.
         """
-        if endpoint.startswith(("https://", "http://")):
-            url = endpoint
-            params = None
-        else:
-            url = f"{self.base_url}/{endpoint}"
-
         last_error: Exception | None = None
         for attempt in range(MAX_ATTEMPTS):
             if attempt:
@@ -150,12 +175,7 @@ class CivicClerkAdapter:
             try:
                 resp = self._session.get(url, params=params, timeout=REQUEST_TIMEOUT)
                 resp.raise_for_status()
-                if not resp.content:
-                    raise requests.RequestException("empty body")
-                try:
-                    return resp.json()
-                except ValueError as e:
-                    raise requests.RequestException(f"body is not JSON: {e}") from e
+                return read(resp)
             except requests.RequestException as e:
                 last_error = e
                 logger.warning(
@@ -166,15 +186,34 @@ class CivicClerkAdapter:
             f"CivicClerk request failed after {MAX_ATTEMPTS} attempts: {url}: {last_error}"
         ) from last_error
 
+    @staticmethod
+    def _json_body(resp: requests.Response) -> dict | list:
+        if not resp.content:
+            raise requests.RequestException("empty body")
+        try:
+            return resp.json()
+        except ValueError as e:
+            raise requests.RequestException(f"body is not JSON: {e}") from e
+
+    @staticmethod
+    def _pdf_body(resp: requests.Response) -> bytes:
+        if not resp.content.startswith(b"%PDF-"):
+            raise requests.RequestException("body does not begin %PDF-")
+        return resp.content
+
+    def _is_own_address(self, address: str) -> bool:
+        """Whether an address is https, on this adapter's own host, under its base path."""
+        parts = urlsplit(address)
+        base = urlsplit(self.base_url)
+        return (
+            parts.scheme == "https"
+            and parts.netloc.lower() == base.netloc.lower()
+            and parts.path.startswith(base.path + "/")
+        )
+
     def _check_next_link(self, link: str) -> None:
         """Refuse a next-page link that does not lead back to this adapter's own address."""
-        parts = urlsplit(link)
-        base = urlsplit(self.base_url)
-        if (
-            parts.scheme != "https"
-            or parts.netloc.lower() != base.netloc.lower()
-            or not parts.path.startswith(base.path + "/")
-        ):
+        if not self._is_own_address(link):
             raise ValueError(
                 f"CivicClerk next-page link is not under {self.base_url}: {link!r}"
             )
@@ -200,6 +239,7 @@ class CivicClerkAdapter:
         if filters:
             params["$filter"] = " and ".join(filters)
 
+        self._minutes_files = {}
         logger.info("Fetching events from %s (filter: %s)", self.base_url, params.get("$filter"))
         data = self._get("Events", params)
         all_events = list(data.get("value", []))
@@ -226,6 +266,7 @@ class CivicClerkAdapter:
             if meeting is None:
                 continue
             if since and meeting.meeting_date < since:
+                self._minutes_files.pop(meeting.external_id, None)
                 continue
             meetings.append(meeting)
 
@@ -284,8 +325,17 @@ class CivicClerkAdapter:
         return None
 
     def fetch_votes(self, meeting: RawMeeting) -> list[RawVote]:
-        """CivicClerk doesn't provide structured vote data."""
+        """No vote: the city's system holds none as data.
+
+        A city's votes are read from its Minutes files by
+        ``docket.services.minutes_votes``, which asks this adapter for
+        ``listed_minutes_files`` and ``fetch_file``, not for this.
+        """
         return []
+
+    def listed_minutes_files(self) -> list[RawMinutesFile]:
+        """The Minutes file of every event the last list_meetings listed, imported or not."""
+        return list(self._minutes_files.values())
 
     # --- Internal helpers ---------------------------------------------------
 
@@ -337,10 +387,22 @@ class CivicClerkAdapter:
         # the city entered on or before its own date. An event created after its
         # date is an after-the-fact import, and the Minutes file attached to one
         # is often another meeting's (docs/PRINCIPLES.md, "Source or silence").
+        # The file itself is listed either way: which meeting it belongs to is
+        # decided by reading it (docket.services.minutes_votes).
         minutes_url = None
         minutes_file = self._latest_file(event, "Minutes")
-        if minutes_file is not None and not self._is_imported(event):
-            minutes_url = self._file_url(minutes_file["fileId"])
+        if minutes_file is None:
+            self._minutes_files.pop(str(event_id), None)
+        else:
+            file_url = self._file_url(minutes_file["fileId"])
+            self._minutes_files[str(event_id)] = RawMinutesFile(
+                file_id=str(minutes_file["fileId"]),
+                url=file_url,
+                event_external_id=str(event_id),
+                event_date=meeting_date,
+            )
+            if not self._is_imported(event):
+                minutes_url = file_url
 
         return RawMeeting(
             external_id=str(event_id),
@@ -380,7 +442,11 @@ class CivicClerkAdapter:
         already the city's wall clock. The fraction of a second is cut off
         first: the city prints it with one to three digits and Python 3.10's
         ``fromisoformat`` refuses two. An event with no readable ``createdOn``
-        or ``eventDate`` is treated as imported, so it gets no minutes link.
+        or ``eventDate`` is treated as imported, so it gets no minutes link
+        from the listing. For a city whose settings name a minutes reader that
+        is not the last word: ``docket.services.minutes_votes`` reads the
+        file, pairs it to the meeting its first page dates, and that pairing
+        gives an imported event's meeting its link.
         """
         try:
             created = (
