@@ -455,6 +455,17 @@ def test_running_line_and_page_number_are_not_content():
         "as amended.\n",
     )
     assert reading.votes[0].declared_text == "the plan adopted in 2029 as amended"
+    # A line is read without the spaces around it.
+    reading = read_text(
+        "   Ayes: Alpha  \n"
+        "\n"
+        "  Nays: None\n"
+        "   The Presiding Officer declared the plan adopted.  \n"
+    )
+    assert reading.votes[0].ayes == ("Alpha",)
+    assert reading.votes[0].raw_text == (
+        "Ayes: Alpha\nNays: None\nThe Presiding Officer declared the plan adopted."
+    )
 
 
 def test_a_vote_is_paged_where_its_ayes_line_is_printed():
@@ -495,6 +506,28 @@ def test_abstain_before_nays_is_read():
     )
     assert reading.votes[0].nays == ("Beta",)
     assert reading.votes[0].declared_text is None
+    # Nor is a second `Abstain:` line.
+    reading = read_text(
+        "Councilmember Alpha moved to adopt the plan and the vote was as follows:\n"
+        "Ayes: Alpha\n"
+        "Abstain: Gamma\n"
+        "Abstain: Delta.\n"
+        "The Presiding Officer declared the plan adopted.\n"
+    )
+    assert reading.votes[0].abstain == ("Gamma",)
+    assert reading.votes[0].declared_text is None
+    # The first line that is none of these ends the block: a `Nays:` line
+    # after it belongs to nothing.
+    reading = read_text(
+        "Councilmember Alpha moved to adopt the plan and the vote was as follows:\n"
+        "Aye: Alpha\n"
+        "The Presiding Officer declared the plan adopted.\n"
+        "Nays: Beta\n"
+    )
+    vote = reading.votes[0]
+    assert vote.ayes == ("Alpha",)  # printed `Aye:`
+    assert vote.nays == ()
+    assert vote.declared_text == "the plan adopted"
 
 
 def test_a_vote_with_no_declaration_is_unknown_and_flagged():
@@ -524,6 +557,17 @@ def test_a_vote_with_no_declaration_is_unknown_and_flagged():
         "the Presiding Officer declared the plan adopted.\n"
     )
     assert reading.votes[0].declared_text is None
+    # A declaration is never read past the `Ayes:` line of the next vote.
+    reading = read_text(
+        "Councilmember Alpha moved to adopt the plan and the vote was as follows:\n"
+        "Ayes: Alpha\n"
+        "Nays: None\n"
+        "Ayes: Beta\n"
+        "Nays: None\n"
+        "The Presiding Officer declared the plan adopted.\n"
+    )
+    assert [v.declared_text for v in reading.votes] == [None, "the plan adopted"]
+    assert [v.ayes for v in reading.votes] == [("Alpha",), ("Beta",)]
 
 
 def test_denied_on_a_motion_to_deny_is_passed():
@@ -619,6 +663,7 @@ def test_absent_members_come_from_the_attendance_block_in_force():
         "Chairman: Alpha\n"
         "Vice-Chairman: Beta\n"
         "Councilmembers: Gamma and Delta\n"
+        "The roll was called by the City Clerk.\n"
         "Absent: Gamma\n"
         + motion
         + "Ayes: Alpha\nNays: None\n"
@@ -666,6 +711,34 @@ def test_an_item_held_over_without_a_vote_gives_no_code_to_the_next_vote():
         )
         assert reading.votes[0].code is None
         assert reading.votes[0].caption is None
+    # What closes an item is "was held over" in its opening sentence, read to
+    # that sentence's period and no further, and not where the sentence goes
+    # on to say the item was called up.
+    for opening in (
+        # held over and called up, the two on one item
+        (
+            "The following resolution which was introduced on May 1, 2029 and was held over until\n"
+            "the regular meeting of May 8, 2029 was called up by the Presiding Officer.\n"
+        ),
+        # "and held over", with no "was" and no "called up"
+        "The following resolution which was introduced on May 1, 2029, and held over until today.\n",
+        # the words are in the sentence after the opening sentence
+        (
+            "The following resolution was introduced by Councilmember Alpha.\n"
+            "An earlier version was held over in April.\n"
+        ),
+    ):
+        reading = read_text(
+            "FIRST THING. "
+            + opening
+            + "RESOLUTION: 01-100-2029\n"
+            "Councilmember Alpha moved to adopt the resolution and the vote was as follows:\n"
+            "Ayes: Alpha\n"
+            "Nays: None\n"
+            "The Presiding Officer declared the resolution adopted.\n"
+        )
+        assert reading.votes[0].code == "01-100-2029", opening
+        assert reading.votes[0].caption == "FIRST THING", opening
 
 
 def test_a_pending_item_carries_across_an_amendment_and_ends_at_a_heading():
@@ -694,6 +767,26 @@ def test_a_pending_item_carries_across_an_amendment_and_ends_at_a_heading():
             "The Presiding Officer declared the staff thanked.\n"
         )
         assert reading.votes[0].code is None, heading
+    # An item's opening sentence is not looked for before the vote that
+    # precedes its code line: a code line printed after a vote, with no
+    # sentence of its own, has no caption, not the caption of the item before.
+    reading = read_text(
+        "FIRST THING. The following resolution was introduced by Councilmember Alpha.\n"
+        "RESOLUTION: 01-100-2029\n"
+        "Councilmember Alpha moved to adopt the resolution and the vote was as follows:\n"
+        "Ayes: Alpha\n"
+        "Nays: None\n"
+        "The Presiding Officer declared the resolution adopted.\n"
+        "RESOLUTION: 01-101-2029\n"
+        "Councilmember Alpha moved to adopt the resolution and the vote was as follows:\n"
+        "Ayes: Alpha\n"
+        "Nays: None\n"
+        "The Presiding Officer declared the resolution adopted.\n"
+    )
+    assert [(v.code, v.caption) for v in reading.votes] == [
+        ("01-100-2029", "FIRST THING"),
+        ("01-101-2029", None),
+    ]
 
 
 def test_a_malformed_code_line_is_not_read_and_the_item_before_it_does_not_leak():
@@ -756,6 +849,62 @@ def test_a_procedural_motion_takes_no_code_and_the_item_keeps_it():
             "The Presiding Officer declared the resolution adopted.\n"
         )
         assert [v.code for v in reading.votes] == [None, "01-100-2029"], motion
+    # Where the motion is read from (Rule 7). `called for the vote` opens a
+    # motion as `moved` does.
+    assert read_text(
+        "The Presiding Officer called for the vote on the plan and the\n"
+        "vote was as follows:\n"
+        "Ayes: Alpha\nNays: None\n" "The Presiding Officer declared the plan adopted.\n"
+    ).votes[0].motion_text == (
+        "The Presiding Officer called for the vote on the plan and the vote was as follows:"
+    )
+    # With neither, the nearest line that says `motion`.
+    assert read_text(
+        "The clerk read the plan.\n"
+        "A motion to adopt it was then made and seconded.\n"
+        "The vote was as follows:\n"
+        "Ayes: Alpha\nNays: None\n" "The Presiding Officer declared the plan adopted.\n"
+    ).votes[0].motion_text == (
+        "A motion to adopt it was then made and seconded. The vote was as follows:"
+    )
+    # Of two lines that say `moved`, the nearer.
+    assert read_text(
+        "Councilmember Beta moved a chair.\n"
+        "Councilmember Alpha moved to adopt the plan and the vote was as follows:\n"
+        "Ayes: Alpha\nNays: None\n" "The Presiding Officer declared the plan adopted.\n"
+    ).votes[0].motion_text == (
+        "Councilmember Alpha moved to adopt the plan and the vote was as follows:"
+    )
+    # Eight lines back and no further.
+    filler = "".join(f"Line {n} of the plan.\n" for n in range(7))
+    eight_back = read_text("Councilmember Alpha moved to adopt the plan and the vote was as follows:\n" + filler + "Ayes: Alpha\nNays: None\n" "The Presiding Officer declared the plan adopted.\n")
+    assert eight_back.votes[0].motion_text.startswith("Councilmember Alpha moved")
+    nine_back = read_text(
+        "Councilmember Alpha moved to adopt the plan and the vote was as follows:\n" + filler + "Line 7 of the plan.\n" + "Ayes: Alpha\nNays: None\n" "The Presiding Officer declared the plan adopted.\n"
+    )
+    assert nine_back.votes[0].motion_text is None
+    # Never into the vote before: its declaration says `moved`, and the next
+    # vote has no motion of its own.
+    reading = read_text(
+        "Councilmember Alpha moved to adopt the plan and the vote was as follows:\n"
+        "Ayes: Alpha\nNays: None\n"
+        "The Presiding Officer declared the meeting moved into executive session.\n"
+        "Following a roll call, the vote was as follows:\n"
+        "Ayes: Alpha\nNays: None\n" "The Presiding Officer declared the plan adopted.\n"
+    )
+    assert reading.votes[1].motion_text is None
+    assert reading.votes[1].raw_text.startswith("Ayes: Alpha")
+    # A `moved` line that begins lowercase takes the line before it, but not
+    # when that line is the end of the vote before.
+    reading = read_text(
+        "Councilmember Alpha moved to adopt the plan and the vote was as follows:\n"
+        "Ayes: Alpha\nNays: None\n" "The Presiding Officer declared the plan adopted.\n"
+        "moved to adopt the second plan and the vote was as follows:\n"
+        "Ayes: Alpha\nNays: None\n" "The Presiding Officer declared the plan adopted.\n"
+    )
+    assert reading.votes[1].motion_text == (
+        "moved to adopt the second plan and the vote was as follows:"
+    )
 
 
 def test_code_without_a_colon_and_with_a_space_is_normalised():
@@ -763,6 +912,42 @@ def test_code_without_a_colon_and_with_a_space_is_normalised():
     # Printed `ORDINANCE 12- 345-2029`.
     assert first.code == "12-345-2029"
     assert first.kind == "ORDINANCE"
+    assert first.caption == "WIDGET ORDINANCE HELD OVER FROM LAST WEEK"
+    vote = "".join(
+        [
+            "Councilmember Alpha moved to adopt the resolution and the vote was as follows:\n",
+            "Ayes: Alpha\n",
+            "Nays: None\n",
+            "The Presiding Officer declared the resolution adopted.\n",
+        ]
+    )
+    # The caption does not run up into the code line of the item above it.
+    reading = read_text(
+        "FIRST THING. The following resolution was introduced by Councilmember Alpha.\n"
+        "RESOLUTION: 01-100-2029\n"
+        "SECOND THING. The following resolution was introduced by Councilmember Alpha.\n"
+        "RESOLUTION: 01-101-2029\n" + vote
+    )
+    assert reading.votes[0].code == "01-101-2029"
+    assert reading.votes[0].caption == "SECOND THING"
+    # It takes the line of the opening sentence and at most ten lines above.
+    numbers = "ONE TWO THREE FOUR FIVE SIX SEVEN EIGHT NINE TEN ELEVEN".split()
+    reading = read_text(
+        "".join(f"LINE {n}\n" for n in numbers)
+        + "LINE TWELVE. The following resolution was introduced by Councilmember Alpha.\n"
+        "RESOLUTION: 01-100-2029\n" + vote
+    )
+    assert reading.votes[0].caption == " ".join(
+        [f"LINE {n}" for n in numbers[1:]] + ["LINE TWELVE"]
+    )
+    # An opening sentence with nothing in capitals before it has no caption.
+    reading = read_text(
+        "Sponsored by somebody.\n"
+        "The following resolution was introduced by Councilmember Alpha.\n"
+        "RESOLUTION: 01-100-2029\n" + vote
+    )
+    assert reading.votes[0].code == "01-100-2029"
+    assert reading.votes[0].caption is None
 
 
 def test_a_letter_and_an_agenda_have_no_header_date():
@@ -780,6 +965,11 @@ def test_a_letter_and_an_agenda_have_no_header_date():
     # A heading that names a day no month has is not a date.
     assert read_text(
         "MUNICIPAL BUILDING, MOBILE, ALABAMA, FEBRUARY 30, 2029\n"
+    ).header_date is None
+    # Nor does it agree with a heading that names a real one.
+    assert read_text(
+        "MUNICIPAL BUILDING, MOBILE, ALABAMA, MAY 8, 2029\n",
+        "MUNICIPAL BUILDING, MOBILE, ALABAMA, FEBRUARY 30, 2029\n",
     ).header_date is None
 
 

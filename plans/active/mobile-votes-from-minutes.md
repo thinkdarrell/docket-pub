@@ -61,6 +61,24 @@ The entries below are from the M1 session of 2026-11-22 (UTC).
 - Observation (M1): the fixture files were not typed by hand. A scratch script cut them out of this file's section "The saved minutes text" (each block of lines indented four spaces under a backquoted file name, the indent removed), so each file is this plan's text byte for byte.
   Evidence: the script printed the line count of each file it wrote: `mobile_2026-11-03.txt 152`, `mobile_2021-11-23.txt 33`, `mobile_2024-06-18.txt 22`, `mobile_2022-02-22.txt 12`, `mobile_2022-03-15.txt 20`, `mobile_2022-07-12.txt 8`, `mobile_2024-07-16.txt 9`, `mobile_2025-11-18.txt 14`, `mobile_2026-11-10.txt 9`, `not_minutes_agenda.txt 9`, `not_minutes_letter.txt 5`, `invented_chain.txt 28`, `invented_closing.txt 31`.
 
+- Correction (M1) to the before-state entry above, which says all 29 failures print `ModuleNotFoundError`: 28 do and one prints another import error. The entry stands as written; this is what was observed when the run was repeated with the module set aside (moved to the session scratchpad and moved back, `git stash` not used).
+  Evidence: `... pytest tests/unit/test_mobile_minutes.py -q -p no:cacheprovider 2>&1 | grep "^E  .*Error" | sort | uniq -c` printed `28 E       ModuleNotFoundError: No module named 'docket.analysis.mobile_minutes'` and `1 E       ImportError: cannot import name 'mobile_minutes' from 'docket.analysis' (.../src/docket/analysis/__init__.py)`; the one is `test_pages_from_pdf_keeps_an_empty_page`, which imports the module by `from docket.analysis import mobile_minutes` so that it can patch `pdfplumber.open` on it. The summary line was `29 failed, 1 warning in 0.16s` both times.
+
+- Observation (M1, the after state): with `src/docket/analysis/mobile_minutes.py` written, the same command passes, and the purity check prints nothing.
+  Evidence: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/unit/test_mobile_minutes.py -q -p no:cacheprovider` printed `29 passed, 1 warning in 0.10s` (the warning is `PytestRemovedIn10Warning` from `anyio`'s plugin, there before this plan). `git grep -n "db_cursor\|db()\|import requests" -- src/docket/analysis/mobile_minutes.py`, run with the file staged (`git grep` does not read an untracked file, and its first run here, before `git add`, proved nothing), printed nothing and exited 1; `git grep -c "" -- src/docket/analysis/mobile_minutes.py` printed `src/docket/analysis/mobile_minutes.py:439`, so the file was read.
+
+- Observation (M1): the rules as this plan words them gave every reading of "Expected readings" on the first run of the first draft; no rule and no expected line disagreed, so nothing was bent.
+  Evidence: a scratch script printed each vote of each fixture from the draft before any test ran against it, and the 13 per-fixture tests, written from "Expected readings" and not from that print, passed on their first run (`29 passed`).
+
+- Observation (M1, the removal check `skills/plan-execute/SKILL.md` asks for): 96 single alterations of the module were tried, each on a copy of the source held in memory (a pytest plugin in the session scratchpad compiles the altered text and installs it as `docket.analysis.mobile_minutes`; the committed file was not edited). Against the tests as committed failing, 76 failed a test and 20 failed none. Assertions were then added, each inside a test this plan names, and all 96 fail a test.
+  Evidence: first run `tried 96 failed-a-test 76 survived 20`; after the additions `tried 96 failed-a-test 96 survived 0`. The 20 that failed nothing, and the test that now holds each: a line is read without the spaces around it (`test_running_line_and_page_number_are_not_content`); a heading whose date is no date agrees with no other heading (`test_a_letter_and_an_agenda_have_no_header_date`); `Absent:` on the fifth line after the roll call's first is still read (`test_absent_members_come_from_the_attendance_block_in_force`, by one line added to its third roll call); `Aye:` opens a vote, a second `Abstain:` line is not part of the block, and the first other line ends the block (`test_abstain_before_nays_is_read`); a declaration is never read past the next `Ayes:` line (`test_a_vote_with_no_declaration_is_unknown_and_flagged`); six clauses of Rule 7, the motion (eight lines back and not nine, not into the vote before, `called for the vote`, the fall-back to `motion`, the nearest line, and a lowercase line directly after the vote before; all in `test_a_procedural_motion_takes_no_code_and_the_item_keeps_it`, the one named test that is about motions); `called up` keeps an item that `was held over`, `and held over` without `was` does not close one, and the opening sentence ends at its period (`test_an_item_held_over_without_a_vote_gives_no_code_to_the_next_vote`); the opening sentence is not looked for before the vote that precedes the code line (`test_a_pending_item_carries_across_an_amendment_and_ends_at_a_heading`); the caption takes at most ten lines above, stops at a code line, and is None when empty (`test_code_without_a_colon_and_with_a_space_is_normalised`). Every assertion added uses text written in the test, in the invented style of `invented_chain.txt`, not the city's words; the fixture files are as this plan gives them. All of them were added after the commit that holds the tests failing, in the commit that adds the module.
+
+- Observation (M1): the fixtures alone leave Rule 9's "a new item has begun" clause indistinguishable from its absence in the one place the plan names for it. In `invented_closing.txt` the item before the malformed line `RESOLUTION: 1-101-2029` is `01-100-2029`, which its own opening sentence closes ("was held over until"), so nothing is pending for the clause to clear and `test_a_malformed_code_line_is_not_read_and_the_item_before_it_does_not_leak` would pass without it.
+  Evidence: the test as committed failing already carried a second case written in the test (an item introduced and coded, then an item with a malformed code line, then a vote), in both the one-line and the two-line spelling of `The following`; the two alterations `9 a new item clears` and `9 new item across two lines` failed that test in the first run of 96. The fixture file is unchanged.
+
+- Observation (M1): `ruff` is installed in the venv and is not one of verify's checks. On the two new files it prints seven style findings and no error of substance; two (`ISC004`, two strings side by side inside a tuple of test cases) were fixed by parentheses, and five are left (`FURB188` in the module; `C408`, `FLY002` twice and `SIM905` in the test).
+  Evidence: `venv/bin/ruff check src/docket/analysis/mobile_minutes.py tests/unit/test_mobile_minutes.py --output-format concise` printed `Found 7 errors.` before and no `ISC004` line after.
+
 
 ## Decision Log
 
@@ -137,6 +155,40 @@ The seven entries below were added on 2026-11-21 by a revision made before any m
 - Decision: the debt row M6 writes for the seven malformed code lines says that whether any of the seven is a real code with a digit dropped (`1-101-2026` for `01-101-2026`) was not checked against an agenda.
   Rationale: the review asked; the author's scratch copies of the files are deleted and a revision sends no request to the city, so the question is recorded as open where the lines already are.
   Date/Author: 2026-11-21, Claude in the operator's session, from the outside review.
+
+The entries below were made by the M1 session of 2026-11-22 (UTC). Each resolves a point the rules of M1 leave open; none changes a reading of "Expected readings", and the author's count over the 254 files (8,354 votes) was made by a script this session does not have, so whether any of them moves that count is for the operator's dry run (step 4) to show.
+
+- Decision: `^Ayes?:`, `^Nays?:` and `^Absent:` are matched as printed, case and all; only the abstain line and the patterns Rule 1, Rule 2, Rule 6, Rule 9's procedural motion and Rule 10 say "ignoring case" for ignore it.
+  Rationale: Rule 5 puts "(ignoring case)" after the abstain pattern alone. Reading it as covering the whole sentence would make `AYES:` open a vote, which the author's count of lines "beginning `Ayes:`" does not include.
+  Date/Author: 2026-11-22, M1 session.
+
+- Decision: in Rule 6, when four lines have been joined and the text still does not end with a period, those four lines are the text that is tested; a match is a declaration of four lines.
+  Rationale: the rule says "taking at most four lines" and then "if the joined text matches". The other reading (no period within four lines, so no declaration) would drop a declaration whose last line the PDF cut differently; the test of a fifth-line `declared` holds either way.
+  Date/Author: 2026-11-22, M1 session.
+
+- Decision: `declared_text` is the text after the first `declared` in the sentence, the word matched whole and ignoring case.
+  Rationale: Rule 6 says "the text after the word `declared`" and does not say which when there are two; the first keeps the whole of what was declared.
+  Date/Author: 2026-11-22, M1 session.
+
+- Decision: a heading line whose date is no date (`FEBRUARY 30`) counts as a heading that agrees with no other, so `header_date` is None for a file that has one.
+  Rationale: Rule 2 gives a date only when all heading lines name the same one. Dropping the bad line and pairing on the others would pair a file on less than the rule asks; None makes it `not_minutes` in M3, which stores nothing (Source or silence).
+  Date/Author: 2026-11-22, M1 session.
+
+- Decision: in Rule 9, `The following` and `(resolution|ordinance)`, `was held over`, `called up`, the code line and the section headings are matched in the case the rule prints; a line's test against "no lowercase letter" for the caption uses `str.islower` on each character.
+  Rationale: the rule says "ignoring case" only for the procedural-motion pattern; captions and headings are capitals in every fixture and sentences are not, which is the distinction the rule relies on.
+  Date/Author: 2026-11-22, M1 session.
+
+- Decision: in Rule 9 the lines walked for a vote are those after the previous vote's last line (its block, or its declaration when it has one), and Rule 3's attendance blocks are looked for in the same lines; a line inside a vote's block or declaration is neither.
+  Rationale: Rule 9 says "between the previous vote's end and this vote's `Ayes:` line"; Rule 3 says "the latest one opened before it", and no attendance block is printed inside a vote.
+  Date/Author: 2026-11-22, M1 session.
+
+- Decision: the tests import `docket.analysis.mobile_minutes` inside each test function, not at the top of the file.
+  Rationale: `skills/plan-execute/SKILL.md` asks for it, so the before state reads as 29 failed tests in a file that collects; M1's acceptance ("fails on import of `docket.analysis.mobile_minutes`") is met by each test failing on that import.
+  Date/Author: 2026-11-22, M1 session.
+
+- Decision: `READER_VERSION` stays 1, and the five `ruff` findings left on the new files are left.
+  Rationale: nothing has been stored under the reader yet. The findings are style; `ruff` is not a check of `./tools/verify`, and changing the module for one after the removal check would mean running the 96 again for no reader's benefit.
+  Date/Author: 2026-11-22, M1 session.
 
 
 ## Outcomes & Retrospective
