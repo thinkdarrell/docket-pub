@@ -13,7 +13,7 @@ from typing import Iterable, Sequence
 from docket.db import db_cursor
 from docket.models.agenda import AgendaItem
 from docket.models.meeting import Meeting
-from docket.models.vote import AgendaItemLink, MemberVote, Vote
+from docket.models.vote import AgendaItemLink, MemberVote, Vote, page_link
 from docket.services import video_links
 from docket.services.meeting_time import UPCOMING_PREDICATE_SQL as _RAW_UPCOMING_PREDICATE
 from docket.services.search_query import (
@@ -497,6 +497,11 @@ def list_votes(meeting_id: int, *, include_excerpts: bool = False) -> list[Vote]
     Three queries: votes, vote_agenda_items joined to agenda_items, member_votes.
     Grouped in Python — three round-trips per page regardless of vote count.
 
+    A vote a minutes reader wrote carries the page it is printed on
+    (``source_page``); its ``minutes_page_url`` is the meeting's minutes link at
+    that page (:func:`docket.models.vote.page_link`), and None on a vote with no
+    page or a meeting with no minutes link.
+
     include_excerpts: when False (default), excerpt_context is NULL'd out in the
     SELECT to keep payloads small. Templates and audit views that need the
     snippet should pass include_excerpts=True.
@@ -505,7 +510,9 @@ def list_votes(meeting_id: int, *, include_excerpts: bool = False) -> list[Vote]
 
     with db_cursor() as cur:
         cur.execute(
-            "SELECT * FROM votes WHERE meeting_id = %s ORDER BY id",
+            "SELECT v.*, m.minutes_url AS meeting_minutes_url "
+            "FROM votes v JOIN meetings m ON m.id = v.meeting_id "
+            "WHERE v.meeting_id = %s ORDER BY v.id",
             (meeting_id,),
         )
         vote_rows = cur.fetchall()
@@ -582,6 +589,7 @@ def list_votes(meeting_id: int, *, include_excerpts: bool = False) -> list[Vote]
             caption=r.get("caption"),
             motion_text=r.get("motion_text"),
             declared_text=r.get("declared_text"),
+            minutes_page_url=page_link(r.get("meeting_minutes_url"), r.get("source_page")),
         )
         for r in vote_rows
     ]
@@ -889,7 +897,8 @@ def list_member_voting_history(
 
     Returns ``{rows: list[dict], next_cursor: str | None}``. Each row:
         vote_id, meeting_id, meeting_date, meeting_title, position, result,
-        yeas, nays, agenda_links (list of {item_number, item_title}).
+        yeas, nays, declared_text and caption (what a minutes reader stored;
+        None on any other vote), agenda_links (list of {item_number, item_title}).
     """
     where_filter = ""
     if filter_mode == "dissent":
@@ -922,7 +931,8 @@ def list_member_voting_history(
                    CASE WHEN mv.position IN ('yea','yes') THEN 'yea'
                         WHEN mv.position IN ('nay','no')  THEN 'nay'
                         ELSE mv.position END AS position,
-                   m.id AS meeting_id, m.meeting_date, m.title AS meeting_title
+                   m.id AS meeting_id, m.meeting_date, m.title AS meeting_title,
+                   v.declared_text, v.caption
             FROM member_votes mv
             JOIN votes v    ON mv.vote_id = v.id
             {source_join}
@@ -4095,6 +4105,11 @@ class VoteEntry:
     the template: video link > minutes PDF > meeting_detail#vote-N fallback
     (constructed with url_for).
 
+    ``declared_text`` and ``source_page`` are what a minutes reader stored (None
+    on any other vote), and ``minutes_page_url`` is ``minutes_url`` at that page
+    (:func:`docket.models.vote.page_link`), which the template prints in place
+    of the plain minutes link and names the page of.
+
     ``video_link`` is a finished :class:`docket.services.video_links.VideoLink`
     on a vote that has both a ``video_timestamp`` and a ``video_url``, and
     None on every other; :func:`get_vote_for_item` sets it. The template
@@ -4115,6 +4130,9 @@ class VoteEntry:
     video_url: str | None
     minutes_url: str | None
     video_link: object | None = None  # video_links.VideoLink | None
+    declared_text: str | None = None
+    source_page: int | None = None
+    minutes_page_url: str | None = None
 
     @property
     def is_consent_block(self) -> bool:
@@ -4162,6 +4180,8 @@ def get_vote_for_item(item_id: int) -> ItemVoteData | None:
               v.result,
               v.yeas, v.nays, v.abstentions, v.source,
               v.video_timestamp,
+              v.declared_text,
+              v.source_page,
               m.meeting_date,
               m.video_url,
               m.minutes_url,
@@ -4207,6 +4227,9 @@ def get_vote_for_item(item_id: int) -> ItemVoteData | None:
             video_timestamp=r["video_timestamp"],
             video_url=r["video_url"],
             minutes_url=r["minutes_url"],
+            declared_text=r["declared_text"],
+            source_page=r["source_page"],
+            minutes_page_url=page_link(r["minutes_url"], r["source_page"]),
         )
         for r in rows
     ]
