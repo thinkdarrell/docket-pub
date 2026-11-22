@@ -22,7 +22,7 @@ docket.pub ingests, parses, and indexes the public meeting records of Alabama mu
 
 ## Scope
 
-Alabama municipalities whose meeting platforms the adapters support: Granicus (Birmingham), CivicClerk (Vestavia Hills, Mobile), generic HTML archives (Homewood), and CivicPlus (adapter exists, no city yet produces data). Birmingham is the deep case and the only city with video OCR and transcripts; Mobile has votes read from its council minutes, each linked to the page of the minutes it is printed on (in the code since plan `mobile-votes-from-minutes`; on production once the operator's steps of `D187` in `docs/DEBT.md` are run). One operator runs the project.
+Alabama municipalities whose meeting platforms the adapters support: Granicus (Birmingham), CivicClerk (Vestavia Hills, Mobile), generic HTML archives (Homewood), and CivicPlus (adapter exists, no city yet produces data). Birmingham is the deep case and the only city with video OCR and transcripts; Mobile has votes read from its council minutes, each linked to the page of the minutes it is printed on (plan `mobile-votes-from-minutes`; on production since the operator's backfill of 2026-11-22). One operator runs the project.
 
 The repository is the project's only memory. Multi-file or multi-session work runs under a plan in `plans/active/` following `plans/PLANS.md`. Design specs and plans written before this convention arrived live under `docs/superpowers/` and are history, not current behaviour.
 
