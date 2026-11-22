@@ -80,6 +80,19 @@ constrains:
    written to exclude, a worker `low_speech` row that a re-claim moved to
    `claimed` and so made public for the run, because the research reasoned
    about that value only as an end state.
+   The same trace is made for a status column the plan itself adds, when
+   its rows are processed again (a re-read, a retry, a newer version): for
+   every pair of the status a row can hold, none included, and the
+   outcome the next processing can give, the plan says what becomes of
+   the rows that hang on it (the votes it stored, the link it set), and
+   each pair has a test. Plan `mobile-votes-from-minutes` added
+   `minutes_files` with five statuses and gave the rules for a file read
+   once; M3 met the pairs a second read makes and settled some in its
+   Decision Log (decision `0130`, debt row `D191`), and the closing
+   review's three important findings were each a pair no rule covered: a
+   first read that pairs a file to a meeting other than its event's, an
+   `error` row whose next read no longer pairs, and a second read that
+   replaces votes whose link someone had removed (`D193`, `D191`, `D194`).
    When the work inserts a new kind of row into a table other code already
    reads (a meeting with a new `external_id` prefix, a meeting with no
    recording), the same list is made for the row as a whole: every reader
