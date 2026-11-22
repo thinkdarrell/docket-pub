@@ -1046,6 +1046,35 @@ def test_a_page_with_a_nul_character_is_that_files_error(mobile, dry_run):
         assert len(_votes(later)) == 1
 
 
+@pytest.mark.parametrize("dry_run", [True, False])
+def test_a_store_the_database_itself_fails_is_not_the_files_error_and_ends_the_run(mobile, monkeypatch, dry_run):
+    """A lost connection or a deadlock says nothing about the file: no try is spent, and the run stops as it did."""
+    from docket.services import minutes_votes
+
+    first = _meeting("e1", date(2022, 3, 15))
+    _meeting("e2", date(2022, 3, 22))
+    files = [_file("211", "e1", date(2026, 1, 2)), _file("300", "e2", date(2026, 1, 1))]
+    pages = _Pages({"211": _text("MARCH 15, 2022", {}), "300": _text("MARCH 22, 2022", {})})
+    real = minutes_votes._store
+    asked: list[bool] = []
+
+    def failing(cur, municipality_id, reader_name, version, floor, roster, read):
+        if read.file.file_id == PREFIX + "300":
+            asked.append(read.reading is not None)
+            raise psycopg2.OperationalError("server closed the connection unexpectedly")
+        return real(cur, municipality_id, reader_name, version, floor, roster, read)
+
+    monkeypatch.setattr(minutes_votes, "_store", failing)
+
+    with pytest.raises(psycopg2.OperationalError, match="closed the connection"):
+        _run(mobile, files, pages, dry_run=dry_run)
+
+    assert asked == [True]  # no `error` row was attempted for it
+    assert _file_row("300") is None
+    assert (_file_row("211") is None) is dry_run
+    assert len(_votes(first)) == (0 if dry_run else 1)
+
+
 def test_a_real_run_commits_each_file_on_its_own(mobile, monkeypatch):
     """A file whose store fails and whose `error` row cannot be written either stops the run; the first file stays stored."""
     from docket.services import minutes_votes

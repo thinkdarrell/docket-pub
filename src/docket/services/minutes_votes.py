@@ -37,7 +37,9 @@ No transaction is open while a file is fetched or parsed. ``read_listed``
 first fetches and reads every file it took, holding the readings in memory,
 then stores them, one transaction per file; a dry run stores them all on one
 connection and rolls it back. A reading whose store raises is undone alone
-and its file recorded ``error``; the run goes on to the next file.
+and its file recorded ``error``; the run goes on to the next file. A fault
+of the connection or the server (``psycopg2.OperationalError``) is not the
+file's: it ends the run and spends no try.
 """
 
 from __future__ import annotations
@@ -237,8 +239,9 @@ def read_listed(
     ``adapter`` gives ``listed_minutes_files()`` and, unless ``fetch_pages``
     is given, ``fetch_file(url)``. The files are taken newest event first. A
     fetch or read that raises is that file's ``error`` and the run goes on;
-    so is a reading whose store raises, once what it wrote is undone. Only a
-    failure to write that ``error`` row ends the run. In a dry run every
+    so is a reading whose store raises, once what it wrote is undone. A
+    store that raises ``psycopg2.OperationalError``, or a failure to write
+    that ``error`` row, ends the run. In a dry run every
     statement is run and then rolled back. Raises
     ValueError for a city whose ``adapter_config`` names no reader.
     """
@@ -304,7 +307,7 @@ def read_listed(
                 try:
                     outcome = store(conn, read)
                 except Exception as exc:
-                    if read.reading is None:
+                    if not _is_the_files(read, exc):
                         raise
                     with conn.cursor() as cur:
                         cur.execute("ROLLBACK TO SAVEPOINT minutes_file")
@@ -317,7 +320,7 @@ def read_listed(
                 with db() as conn:
                     outcome = store(conn, read)
             except Exception as exc:
-                if read.reading is None:
+                if not _is_the_files(read, exc):
                     raise
                 with db() as conn:
                     outcome = store(conn, not_stored(read, exc))
@@ -372,6 +375,20 @@ def read_city(slug: str, *, limit: int, apply: bool) -> ReadReport:
         report.linked = link_votes_by_code(city["id"])
         logger.info("Minutes votes linked by code: %d", report.linked)
     return report
+
+
+def _is_the_files(read: _Read, exc: Exception) -> bool:
+    """Whether a store that raised is to be recorded as its file's ``error``.
+
+    Not when the store was already of an ``error`` row, and not for
+    ``psycopg2.OperationalError`` (a lost connection, a deadlock, a
+    serialization failure, the server out of memory or disk): that is the
+    database's state and says nothing about the file, so no try is spent and
+    the run ends. Anything else (the database refusing the data, a
+    constraint, a fault in the code) is counted against the file, so that one
+    file cannot hold up the files behind it for more than three runs.
+    """
+    return read.reading is not None and not isinstance(exc, psycopg2.OperationalError)
 
 
 def _is_waiting(row: dict | None, version: int) -> bool:
