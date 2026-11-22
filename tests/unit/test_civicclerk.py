@@ -959,3 +959,198 @@ class TestItemsOfAnAgenda:
         )
         assert item.description == ("x" * 290 + " Submitted by Jane Roe, Clerk.")[:300]
         assert len(item.description) == 300
+
+
+# --- The Minutes files (plan mobile-votes-from-minutes, M4) ----------------------
+#
+# The adapter lists the Minutes file of every event it listed, whether or not the
+# event gets a minutes link, and fetches one file as bytes under the same pause
+# and three tries as every other request. The PDF bodies are built here.
+
+PDF = b"%PDF-1.7 built for a test"
+
+
+def _both_pages() -> tuple[dict, dict]:
+    last = copy.deepcopy(_page("events_page_2.json"))
+    last.pop("@odata.nextLink", None)
+    return _page("events_page_1.json"), last
+
+
+def _fetch_file(adapter: CivicClerkAdapter, url: str, *answers):
+    """Run fetch_file over the answers given; returns (bytes or the exception, get mock, sleep mock)."""
+    with patch.object(adapter._session, "get") as get, patch(
+        "docket.adapters.civicclerk.time.sleep"
+    ) as sleep:
+        get.side_effect = list(answers)
+        try:
+            got = adapter.fetch_file(url)
+        except Exception as e:  # handed back for the test to look at
+            got = e
+    return got, get, sleep
+
+
+class TestMinutesFiles:
+    def test_listed_minutes_files_gives_one_record_per_listed_event_with_a_minutes_file(self):
+        """Event 500 (not imported, linked) and event 297 (imported, not linked) each
+        have a Minutes file; 501 and 573 have none."""
+        from docket.models.protocol import RawMinutesFile
+
+        adapter = _mobile()
+        assert adapter.listed_minutes_files() == []
+
+        meetings, _, _ = _list(adapter, *_both_pages())
+        by_id = {m.external_id: m for m in meetings}
+        assert by_id["500"].minutes_url == f"{FILE_BASE}(fileId=3861,plainText=false)"
+        assert by_id["297"].minutes_url is None
+
+        files = adapter.listed_minutes_files()
+        assert sorted(files, key=lambda f: f.file_id) == [
+            RawMinutesFile(
+                file_id="3861",
+                url=f"{FILE_BASE}(fileId=3861,plainText=false)",
+                event_external_id="500",
+                event_date=date(2026, 11, 10),
+            ),
+            RawMinutesFile(
+                file_id="549",
+                url=f"{FILE_BASE}(fileId=549,plainText=false)",
+                event_external_id="297",
+                event_date=date(2023, 4, 25),
+            ),
+        ]
+        # The event's id is the external id of the meeting made from it: the
+        # "own event" rule of docket.services.minutes_votes compares the two.
+        assert {f.event_external_id for f in files} <= set(by_id)
+        # A list of its own: a caller that empties it changes nothing.
+        files.clear()
+        assert len(adapter.listed_minutes_files()) == 2
+
+    def test_listed_minutes_files_are_those_of_the_last_listing(self):
+        adapter = _mobile()
+        _list(adapter, *_both_pages())
+        assert len(adapter.listed_minutes_files()) == 2
+
+        # Listed again: event 500 now has a newer Minutes file, 297 is not listed.
+        row = _event(500)
+        row["publishedFiles"].append(
+            {"fileId": 3999, "type": "Minutes", "name": "corrected", "publishOn": "2027-01-05T09:00:00Z"}
+        )
+        _list(adapter, {"@odata.count": 1, "value": [row]})
+        assert [(f.file_id, f.event_external_id) for f in adapter.listed_minutes_files()] == [("3999", "500")]
+
+        # Listed again with the Minutes file gone: no file.
+        row = _event(500)
+        row["publishedFiles"] = [f for f in row["publishedFiles"] if f["type"] != "Minutes"]
+        _list(adapter, {"@odata.count": 1, "value": [row]})
+        assert adapter.listed_minutes_files() == []
+
+    def test_an_event_the_listing_drops_as_before_since_lists_no_file(self):
+        adapter = _mobile()
+        meetings, _, _ = _list(adapter, *_both_pages(), since=date(2024, 1, 1))
+        assert "297" not in {m.external_id for m in meetings}
+        assert [f.event_external_id for f in adapter.listed_minutes_files()] == ["500"]
+
+    def test_fetch_file_returns_the_bytes_and_waits_the_delay_first(self):
+        adapter = _mobile({"tenant": "mobileal", "delay": 1.5})
+        url = f"{FILE_BASE}(fileId=3861,plainText=false)"
+
+        # The first request of an instance does not wait.
+        got, get, sleep = _fetch_file(adapter, url, _response(body=PDF))
+        assert got == PDF
+        assert sleep.call_args_list == []
+        assert get.call_count == 1
+        assert _url(get.call_args) == url
+        assert _params(get.call_args) is None
+        assert get.call_args.kwargs["timeout"] == (10, 30)
+
+        # Every later one waits the delay, after a file as after a listing.
+        got, get, sleep = _fetch_file(adapter, url, _response(body=PDF))
+        assert got == PDF
+        assert [c.args[0] for c in sleep.call_args_list] == [1.5]
+
+        adapter = _mobile()
+        _list(adapter, {"@odata.count": 0, "value": []})
+        got, _, sleep = _fetch_file(adapter, url, _response(body=PDF))
+        assert got == PDF
+        assert [c.args[0] for c in sleep.call_args_list] == [1.0]
+
+        # And a request after a file waits too.
+        with patch.object(adapter._session, "get") as get, patch(
+            "docket.adapters.civicclerk.time.sleep"
+        ) as sleep:
+            get.side_effect = [_response({"value": []})]
+            adapter._get("Events")
+        assert [c.args[0] for c in sleep.call_args_list] == [1.0]
+
+    def test_fetch_file_retries_twice_then_raises(self):
+        url = f"{FILE_BASE}(fileId=3861,plainText=false)"
+
+        adapter = _mobile({"tenant": "mobileal", "delay": 1.5})
+        got, get, sleep = _fetch_file(
+            adapter, url, requests.Timeout("read timed out"), _response({"error": "x"}, status=503), _response(body=PDF)
+        )
+        assert got == PDF
+        assert get.call_count == 3
+        # The delay after the first failure, twice the delay after the second.
+        assert [c.args[0] for c in sleep.call_args_list] == [1.5, 3.0]
+
+        adapter = _mobile()
+        failure = requests.ConnectionError("handshake timed out")
+        got, get, sleep = _fetch_file(adapter, url, failure, failure, failure, _response(body=PDF))
+        assert isinstance(got, requests.RequestException)
+        assert url in str(got) and "handshake timed out" in str(got)
+        assert get.call_count == 3
+        assert [c.args[0] for c in sleep.call_args_list] == [1.0, 2.0]
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://evil.example/v1/Meetings/GetMeetingFileStream(fileId=3861,plainText=false)",
+            "http://mobileal.api.civicclerk.com/v1/Meetings/GetMeetingFileStream(fileId=3861,plainText=false)",
+            "https://mobileal.api.civicclerk.com/v2/Meetings/GetMeetingFileStream(fileId=3861,plainText=false)",
+            "https://mobileal.api.civicclerk.com.evil.example/v1/Meetings/x",
+            "https://vestaviahillsal.api.civicclerk.com/v1/Meetings/GetMeetingFileStream(fileId=1,plainText=false)",
+            "",
+        ],
+    )
+    def test_fetch_file_refuses_an_address_outside_the_adapters_base(self, url):
+        got, get, sleep = _fetch_file(_mobile(), url, _response(body=PDF))
+        assert isinstance(got, ValueError)
+        assert "https://mobileal.api.civicclerk.com/v1" in str(got) and repr(url) in str(got)
+        assert get.call_count == 0
+        assert sleep.call_count == 0
+
+    def test_fetch_file_accepts_the_host_in_any_case(self):
+        url = "https://MobileAL.api.civicclerk.com/v1/Meetings/GetMeetingFileStream(fileId=3861,plainText=false)"
+        got, get, _ = _fetch_file(_mobile(), url, _response(body=PDF))
+        assert got == PDF and get.call_count == 1
+
+    @pytest.mark.parametrize(
+        "body",
+        [b"<html>Sign in</html>", b"", b"%PDF", b" %PDF-1.7", b'{"value": []}'],
+    )
+    def test_fetch_file_raises_when_the_body_is_not_a_pdf(self, body):
+        url = f"{FILE_BASE}(fileId=3861,plainText=false)"
+        got, get, _ = _fetch_file(_mobile(), url, *[_response(body=body)] * 3)
+        assert isinstance(got, requests.RequestException)
+        assert "%PDF-" in str(got)
+        assert get.call_count == 3
+
+    def test_a_json_request_is_still_refused_an_empty_or_unparsable_body(self):
+        """_get keeps its own reading of a response beside fetch_file's."""
+        adapter = _mobile()
+        with patch.object(adapter._session, "get") as get, patch("docket.adapters.civicclerk.time.sleep"):
+            get.side_effect = [_response(body=b""), _response(body=PDF), _response({"value": [7]})]
+            assert adapter._get("Events") == {"value": [7]}
+        assert get.call_count == 3
+
+        with patch.object(adapter._session, "get") as get, patch("docket.adapters.civicclerk.time.sleep"):
+            get.side_effect = [_response(body=PDF)] * 3
+            with pytest.raises(requests.RequestException) as raised:
+                adapter._get("Events")
+        assert "not JSON" in str(raised.value)
+
+    def test_a_next_page_link_is_still_refused_in_its_own_words(self):
+        with pytest.raises(ValueError) as raised:
+            _mobile()._check_next_link("https://evil.example/v1/Events?$skip=15")
+        assert "next-page link is not under https://mobileal.api.civicclerk.com/v1" in str(raised.value)
