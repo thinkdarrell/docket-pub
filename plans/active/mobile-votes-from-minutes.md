@@ -127,6 +127,14 @@ The entries below are from the second M2 session of 2026-11-22 (UTC), the one th
 - Observation (M2, the finished state): `./tools/verify`, run on a clean tree at commit `9568e72` (the draft's code, the tests with the added assertions; nothing edited while it ran), passed.
   Evidence: it printed `verify: unit+web+services ... ok (177s)`, `verify: integration ... ok (122s)`, `verify: judge-fixtures ... ok (1s)`, `verify: workflows ... ok (0s)`, `verify: transcriber ... ok (11s)`, `verify: plans ... ok (0s)`, `verify: all 6 checks passed in 311s.` and exited 0 at 03:35Z on 2026-11-22; `git status --short` printed nothing before and after. That is 14 seconds over this session's starting run (297s) and 131 over the 180-second budget of `AGENTS.md` (`D93`; M6 records the times).
 
+The entries below are from the M3 session of 2026-11-22 (UTC).
+
+- Observation (M3, starting state): `./tools/verify`, run before any edit on a clean tree at `929cc03`, passed.
+  Evidence: it printed `verify: unit+web+services ... ok (174s)`, `verify: integration ... ok (120s)`, `verify: judge-fixtures ... ok (1s)`, `verify: workflows ... ok (0s)`, `verify: transcriber ... ok (11s)`, `verify: plans ... ok (0s)`, `verify: all 6 checks passed in 306s.` and exited 0 at 03:46Z; `git status --short` printed nothing after it.
+
+- Observation (M3, the before state): with `tests/integration/test_minutes_votes.py` written and `src/` untouched, every one of its 39 tests fails on an import and the file collects.
+  Evidence: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/integration/test_minutes_votes.py -q -p no:cacheprovider` printed `39 failed, 1 warning in 2.86s`; the same run piped through `grep "^E  .*Error" | sort | uniq -c` printed `23 E       ImportError: cannot import name 'RawMinutesFile' from 'docket.models.protocol'`, `1 E       ImportError: cannot import name 'minutes_votes' from 'docket.services'` and `15 E       ModuleNotFoundError: No module named 'docket.services.minutes_votes'`. The 23 are the tests that build a listed file before they call the service (the helper `_file` imports `RawMinutesFile` inside itself); the rest reach the service's import first. The commit that holds this state is the one whose subject begins `M3: the tests of the service that reads, pairs and stores, failing`.
+
 
 ## Decision Log
 
