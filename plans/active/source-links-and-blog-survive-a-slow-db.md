@@ -359,6 +359,27 @@ The session's last `./tools/verify`, at `fd93cb1` with a clean tree, exited 0 wi
 
 The first tier's 3801 is the start's 3797 and the four new service tests. No acceptance clause of M1 is unmet. M2 is next.
 
+### M2, observed on 2026-11-23
+
+The session's first `./tools/verify`, at `00a148c` with a clean tree and before any edit, exited 0:
+
+    3801 passed, 5 skipped, 4 xfailed, 2 warnings in 198.61s (0:03:18)
+    1164 passed, 2 warnings in 129.44s (0:02:09)
+    judge fixtures: 12 of 12 passed
+    147 passed, 1 warning in 10.26s
+    plans: 1 of 1 ok
+    verify: all 6 checks passed in 341s.
+
+The before state, with the fourteen tests of `TestAllowlistWhenTheQueryFails` written, the two older classes' set-up and tear-down calling `forget_allowlist()`, `test_db_failure_caches_static_fallback_for_ttl` renamed, and no file under `src/` changed: the one-file command on `tests/unit/test_source_security.py` printed
+
+    62 passed, 1 warning, 24 errors in 0.95s
+
+The 24 are the fourteen new tests and the ten tests of `TestAllowlistCache` and `TestRefreshSourceSecurityRoute`, every one erroring in set-up on `AttributeError: module 'docket.web.source_security' has no attribute 'forget_allowlist'`, as Plan of Work said this run would. Because that one missing name hides what each test would say of today's behaviour, the file was run a second time with a pytest plugin in the session scratchpad that sets `source_security.forget_allowlist = source_security.invalidate_cache` on the unchanged module (nothing in the worktree was edited for it). It printed
+
+    12 failed, 74 passed, 1 warning in 5.85s
+
+the twelve being every test of the new class but two. `test_a_reread_that_follows_no_failure_logs_nothing` passes on today's code, which logs nothing at all (Plan of Work says so). `test_forget_allowlist_drops_the_last_list` passes too under that stand-in: today's module keeps no last list and logs no recovery, so both of its assertions hold; what it guards is the state M2 adds.
+
 ## Interfaces and Dependencies
 
 No library is added. The names that must exist at the end of each milestone:
