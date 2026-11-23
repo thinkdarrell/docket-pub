@@ -15,7 +15,7 @@ How someone sees it. In the repository, the line that starts the web service (in
 ## Progress
 
 - [x] (2026-11-23 18:05Z) M1: the web service's start line in `Dockerfile` and in `Procfile` asks gunicorn for one worker and four threads, and `tests/unit/test_web_start_line.py` pins both lines and shows, on a gunicorn started on the test machine with the `Dockerfile`'s options, a second request answered while a first is held.
-- [ ] M2: the documents say it: `docs/specs/operations.md` and `docs/specs/votes.md` state one worker with four threads and what a viewer fetch now holds, a decision record under `docs/decisions/` says why threads and not more workers, `D197` in `docs/DEBT.md` is rewritten to its open half, and `D188` gains the operator's readings after the one deploy.
+- [x] (2026-11-23 18:28Z) M2: the documents say it: `docs/specs/operations.md` and `docs/specs/votes.md` state one worker with four threads and what a viewer fetch now holds, a decision record under `docs/decisions/` says why threads and not more workers, `D197` in `docs/DEBT.md` is rewritten to its open half, and `D188` gains the operator's readings after the one deploy.
 
 ## Surprises & Discoveries
 
@@ -66,6 +66,8 @@ As authored on 2026-11-23, nothing has been executed, so no milestone has a surp
 - 2026-11-23, M2. The script of step 1 of `D206` (the reading before the deploy) was run again by this session before it was written on the row, against the throwaway database with the two variables set as the row sets them: `reading: ('30s',)`. The `railway ssh` wrapper was not run; no production command was.
 
 - 2026-11-23, M2, a trial merge of `main`, made without touching the worktree: `git merge-tree --write-tree --name-only HEAD origin/main` at `a7abab5` against `4ac1708` printed one conflict, `CONFLICT (content): Merge conflict in docs/DEBT.md`, and `Auto-merging` for the two specs. In the tree it wrote, the only conflict markers in `docs/DEBT.md` are around the `D197` row (this branch's row above, `main`'s old row with its last words removed below); the `D188` row is gone, `D206` is present, and neither merged spec holds the word `D188`. So the pull request needs one resolution, this branch's `D197` row, and nothing else (Decision Log).
+
+- 2026-11-23, M2, the closing state. `./tools/verify` exited 0: `verify: all 6 checks passed in 346s.`, with `3797 passed, 5 skipped, 4 xfailed` in unit, web and services (200 s), `1164 passed` in integration (134 s), `judge fixtures: 12 of 12 passed`, `147 passed` in the transcriber suite, `plans: 1 of 1 ok`: the opening run's totals, tier for tier.
 
 ## Decision Log
 
@@ -154,6 +156,8 @@ As authored on 2026-11-23, nothing has been executed, so no milestone has a surp
 As authored on 2026-11-23, nothing has been executed and there is no outcome to report.
 
 2026-11-23, after M1. The two start lines ask for one worker, four threads, a 30-second statement limit, a 10-second connection limit and `exec`, and `tests/unit/test_web_start_line.py` holds them: 4 failed and 1 passed on the old lines (commit `262d3e8`), 5 passed on the new, and each of 22 single removals from the lines failed a test. The docket application answered 80 of 80 requests under the committed options with five threads in its one worker. All four clauses of M1's acceptance were met as stated, with no carve-out. Not done and not M1's: the documents (M2), and everything on production, which is the operator's; the specs still describe the build production runs. M2 is next.
+
+2026-11-23, after M2. The documents say what the start line is: `docs/specs/operations.md` and `docs/specs/votes.md` state one worker with four threads, the two database limits and what a viewer fetch now holds; decision `0135` says why threads and not workers; `D197` is its open half; the tour's cell names the `Dockerfile`. Acceptance one, two, four and five were met as stated. Acceptance three was met except where it names `D188`, and that is a carve-out by fact, not by choice: `main` paid and deleted `D188` between M1 and M2, so nothing was added to it (the row is untouched on this branch, the numstat is `2 1` and not `2 2`, and no row holds `(8)`, `(9)`, `(10)`); the operator's reading before the deploy and the four steps after it are on the new row `D206`, numbered 1 to 5, which spends a debt id the plan had said it would not. The Progress line for M2 still says "`D188` gains the operator's readings", because a Progress entry is not reworded; read it with this paragraph. Left for whoever closes the plan: `main` is two commits ahead of the branch's base and a trial merge shows one conflict, the `D197` row, to be resolved with this branch's text; and nothing on production has been read or changed, which is `D206`. No milestone remains; the factory's retro stage is next.
 
 ## Context and Orientation
 
