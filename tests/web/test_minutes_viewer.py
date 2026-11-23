@@ -147,13 +147,23 @@ def test_a_page_of_the_minutes_is_shown_inline_with_the_citys_link(client, seede
     body = resp.get_data(as_text=True)
     assert "Minutes, page 2 of 4" in body
     assert '<meta name="robots" content="noindex">' in body
+    title = re.search(r"<title>Minutes, page 2 — (.+) — docket\.pub</title>", body)
+    assert title, "the title names the page and the meeting"
+    assert "Minutes · November 3, 2026" in body
+    # The meeting is named after the link back to it.
+    assert re.search(
+        r"← Back to the meeting</a>\s*· " + re.escape(title.group(1)) + r"\s*</p>", body
+    )
 
     city = _one(body, "a", "minutes-city-file")
     assert f'href="{MINUTES_URL}#page=2"' in city
     assert 'target="_blank"' in city
     assert 'rel="noreferrer"' in city
-    assert "The city&#39;s own file (PDF) ↗" in body or "The city's own file (PDF) ↗" in body
-    assert "This is page 2 as docket.pub drew it from the city's file" in body
+    assert re.search(re.escape(city) + r"The city's own file \(PDF\) ↗</a>", body)
+    assert (
+        "This is page 2 as docket.pub drew it from the city's file; "
+        "the city's file is the record." in body
+    )
     assert "could not open the city's file" not in body
 
     image = _one(body, "img", "minutes-page-image")
@@ -162,12 +172,16 @@ def test_a_page_of_the_minutes_is_shown_inline_with_the_citys_link(client, seede
     assert base64.b64decode(src.split(",", 1)[1])[:4] == b"RIFF"
     assert 'width="1200"' in image
     assert 'height="1553"' in image
-    assert "Page 2 of the minutes of the" in image
+    assert (
+        'alt="Page 2 of the minutes of the November 3, 2026 meeting, as the city published it"'
+        in image
+    )
 
     hrefs = _hrefs(body)
     assert _path(seeded["good"], 1) in hrefs
     assert _path(seeded["good"], 3) in hrefs
-    assert f"/al/mobile/meetings/{seeded['good']}/" in hrefs
+    back = re.search(r'<a class="link" href="([^"]*)">← Back to the meeting</a>', body)
+    assert back.group(1) == f"/al/mobile/meetings/{seeded['good']}/"
 
     assert fetched == [MINUTES_URL]
 
@@ -253,7 +267,7 @@ def test_a_page_past_the_files_end_is_not_found_but_still_shows_the_citys_file(
     assert fetched == [MINUTES_URL]
 
     body = resp.get_data(as_text=True)
-    assert "Minutes, page 5" in body
+    assert ">Minutes, page 5</h1>" in body
     assert "Minutes, page 5 of" not in body
     assert "The city's file ends at page 4; there is no page 5." in body
     assert "The city may have replaced the file since docket.pub read it." in body
@@ -266,6 +280,20 @@ def test_a_page_past_the_files_end_is_not_found_but_still_shows_the_citys_file(
     assert "Go to page 4" in body
     assert _tags(body, "img", "minutes-page-image") == []
     assert "minutes-page-nav" not in body
+
+
+def test_a_file_with_no_pages_offers_no_last_page(client, seeded, monkeypatch):
+    def no_pages(url, page):
+        raise minutes_viewer.NoSuchPage("page 1 of 0", page_count=0)
+
+    monkeypatch.setattr(minutes_viewer, "page_view", no_pages)
+    resp = client.get(_path(seeded["good"], 1))
+    assert resp.status_code == 404
+    body = resp.get_data(as_text=True)
+    assert "The city's file ends at page 0; there is no page 1." in body
+    assert len(_tags(body, "a", "minutes-city-file")) == 1
+    assert "minutes-page-last" not in body
+    assert _path(seeded["good"], 0) not in _hrefs(body)
 
 
 @pytest.mark.parametrize("key", ["none", "unsafe", "http"])
@@ -337,7 +365,7 @@ def test_a_file_that_cannot_be_fetched_shows_the_citys_link_alone(
     assert calls == [MINUTES_URL]
 
     body = resp.get_data(as_text=True)
-    assert "Minutes, page 2" in body
+    assert ">Minutes, page 2</h1>" in body
     assert "of 4" not in body
     city = _one(body, "a", "minutes-city-file")
     assert f'href="{MINUTES_URL}#page=2"' in city

@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{#
+  The minutes page viewer (plan minutes-open-at-the-vote-page, M3): one page
+  of a meeting's minutes, drawn by docket.pub from the city's own file.
+
+  Three states, set by the route:
+    - view is set: the page was drawn; the picture and the links to the
+      pages before and after are shown.
+    - last_page is set: the city's file is in hand and ends before this
+      page (the response is a 404); city_url is the file with no page.
+    - neither: the city's file could not be fetched or read just now.
+  The link to the city's own file is printed in every state.
+#}
+{% block title %}Minutes, page {{ page }} — {{ meeting_label(meeting) or meeting.title }} — docket.pub{% endblock %}
+{% block head %}<meta name="robots" content="noindex">{% endblock %}
+{% block content %}
+{% macro page_nav(label) %}
+  <nav class="minutes-page-nav t-meta" aria-label="{{ label }}">
+    {% if page > 1 %}<a class="link minutes-page-prev" rel="prev nofollow" href="{{ url_for('public.minutes_page', slug=municipality.slug, meeting_id=meeting.id, page=page - 1) }}">← Page {{ page - 1 }}</a>{% endif %}
+    {% if page < view.page_count %}<a class="link minutes-page-next" rel="next nofollow" href="{{ url_for('public.minutes_page', slug=municipality.slug, meeting_id=meeting.id, page=page + 1) }}">Page {{ page + 1 }} →</a>{% endif %}
+  </nav>
+{% endmacro %}
+<section class="hero hero--detail">
+  <div class="t-eyebrow">Minutes · {{ meeting.meeting_date | format_date }}</div>
+  <h1 class="hero-title t-display">{% if view %}Minutes, page {{ page }} of {{ view.page_count }}{% else %}Minutes, page {{ page }}{% endif %}</h1>
+  <p class="t-meta">
+    <a class="link" href="{{ url_for('public.meeting_detail', slug=municipality.slug, meeting_id=meeting.id) }}">← Back to the meeting</a>
+    · {{ meeting_label(meeting) or meeting.title }}
+  </p>
+  <p class="minutes-page-source">
+    <a class="link minutes-city-file" href="{{ city_url }}" target="_blank" rel="noreferrer">The city's own file (PDF) ↗</a>
+    {% if view -%}
+    This is page {{ page }} as docket.pub drew it from the city's file; the city's file is the record.
+    {%- elif last_page is not none -%}
+    The city's file ends at page {{ last_page }}; there is no page {{ page }}. The city may have replaced the file since docket.pub read it.
+    {% if last_page >= 1 %}<a class="link minutes-page-last" rel="nofollow" href="{{ url_for('public.minutes_page', slug=municipality.slug, meeting_id=meeting.id, page=last_page) }}">Go to page {{ last_page }}</a>{% endif %}
+    {%- else -%}
+    docket.pub could not open the city's file just now. Open it and go to page {{ page }}.
+    {%- endif %}
+  </p>
+</section>
+{% if view %}
+<section class="feed minutes-page">
+  {{ page_nav("Minutes pages") }}
+  <img class="minutes-page-image" src="data:{{ view.mime }};base64,{{ image_b64 }}" width="{{ view.width }}" height="{{ view.height }}" alt="Page {{ page }} of the minutes of the {{ meeting.meeting_date | format_date }} meeting, as the city published it">
+  {{ page_nav("Minutes pages, below the page") }}
+</section>
+{% endif %}
+{% endblock %}

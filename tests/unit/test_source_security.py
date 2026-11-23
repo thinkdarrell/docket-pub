@@ -479,6 +479,7 @@ _VIEWER_NO_THOUGH_SAFE = [
     "https://user@mobileal.api.civicclerk.com/x",
     "https://mobileal.api.civicclerk.com:8443/x",
     r"https://evil.example\@mobileal.api.civicclerk.com/x",
+    r"https://mobileal.api.civicclerk.com/a\b.pdf",  # only the backslash rule refuses this one
     " " + _MOBILE_MINUTES,
     _MOBILE_MINUTES + "\n",
     "https://mobileal.api.civicclerk.com/a file.pdf",
@@ -505,6 +506,13 @@ class TestViewerUrl:
         from docket.web.source_security import is_viewer_url
 
         assert is_viewer_url("https://minutes.example.org/file.pdf", _CIVICCLERK) is False
+
+    def test_the_allowlist_given_is_the_one_asked(self):
+        from docket.web.source_security import is_viewer_url
+
+        url = "https://minutes.example.org/file.pdf"
+        assert is_viewer_url(url, frozenset({"example.org"})) is True
+        assert is_viewer_url(_MOBILE_MINUTES, frozenset({"example.org"})) is False
 
     @pytest.mark.parametrize("bad", [None, 42, [], b"https://mobileal.api.civicclerk.com/x", ""])
     def test_what_is_not_an_address_is_not_a_viewer_address(self, bad):

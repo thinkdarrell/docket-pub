@@ -6,6 +6,8 @@ Business logic stays in services, not here.
 
 from __future__ import annotations
 
+import base64
+import logging
 import re
 import threading
 import time
@@ -27,9 +29,12 @@ from flask import (
 
 from docket.enrichment.topics import all_topics, get_topic_display_name
 from docket.models.data_quality import friendly_label
-from docket.services import briefing, coming_up, query, video_links
+from docket.models.vote import page_link
+from docket.services import briefing, coming_up, minutes_viewer, query, video_links
 from docket.services import how_it_works as how_it_works_service
-from docket.web import ics
+from docket.web import ics, source_security
+
+logger = logging.getLogger(__name__)
 
 bp = Blueprint("public", __name__)
 
@@ -340,6 +345,67 @@ def meeting_transcript(slug, meeting_id):
     template = "partials/transcript_body.html" if is_partial else "transcript.html"
     resp = make_response(render_template(template, full_page=not is_partial, **ctx))
     resp.headers["Vary"] = "HX-Request"
+    return resp
+
+
+@bp.route("/al/<slug>/meetings/<int:meeting_id>/minutes/page/<int:page>/")
+def minutes_page(slug, meeting_id, page):
+    """One page of the meeting's minutes, drawn from the city's own file.
+
+    The address fetched is the one stored on the meeting, after the
+    allowlist has passed it; nothing in the request names an address. A
+    page the viewer cannot show still shows the link to the city's file.
+    Plan `minutes-open-at-the-vote-page`, M3.
+    """
+    municipality = query.get_municipality(slug)
+    if not municipality:
+        abort(404)
+    meeting = query.get_meeting(meeting_id)
+    if not meeting or meeting.municipality_id != municipality["id"]:
+        abort(404)
+    if meeting.is_hidden and not session.get("admin_user"):
+        abort(404)
+    if not meeting.minutes_url or not source_security.is_viewer_url(meeting.minutes_url):
+        abort(404)
+
+    ctx = {
+        "municipality": municipality,
+        "meeting": meeting,
+        "page": page,
+        "city_url": page_link(meeting.minutes_url, page),
+        "view": None,
+        "image_b64": None,
+        "last_page": None,
+    }
+    status = 200
+    cache_control = "no-store"
+    try:
+        view = minutes_viewer.page_view(meeting.minutes_url, page)
+    except minutes_viewer.NoSuchPage as exc:
+        if exc.page_count is None:
+            # Below 1 or above the bound: nothing was fetched.
+            abort(404)
+        # The file is in hand and ends before this page. Still a 404, but
+        # one that keeps the reader's way to the city's record.
+        ctx["last_page"] = exc.page_count
+        ctx["city_url"] = meeting.minutes_url
+        status = 404
+    except minutes_viewer.Unavailable:
+        logger.warning(
+            "minutes viewer: unavailable city=%s meeting=%s page=%s",
+            municipality["slug"],
+            meeting.id,
+            page,
+        )
+    else:
+        ctx["view"] = view
+        ctx["image_b64"] = base64.b64encode(view.image).decode("ascii")
+        if not meeting.is_hidden:
+            cache_control = "private, max-age=600"
+
+    resp = make_response(render_template("minutes_page.html", **ctx), status)
+    resp.headers["Cache-Control"] = cache_control
+    resp.headers["X-Robots-Tag"] = "noindex"
     return resp
 
 

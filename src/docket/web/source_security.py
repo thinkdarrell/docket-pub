@@ -42,7 +42,7 @@ from __future__ import annotations
 import time
 from threading import Lock
 from typing import Callable, ContextManager
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlsplit
 
 
 # Platform domains hardcoded — every supported CMS plus public video hosts.
@@ -109,6 +109,44 @@ def is_url_safe(
         if host == domain or host.endswith("." + domain):
             return True
     return False
+
+
+def is_viewer_url(
+    url: object,
+    allowed_domains: frozenset[str] | None = None,
+) -> bool:
+    """True iff ``url`` is an address the minutes page viewer may fetch.
+
+    Stricter than :func:`is_url_safe`, because a yes here lets the web
+    process make a request to the address and not only print a link to it:
+
+    * a string with no backslash, no white space and no control character
+      anywhere in it (the characters on which URL readers disagree: the
+      allowlist reads ``https://evil.example\\@city.civicclerk.com/x`` as
+      the city's host, the library that makes the fetch as ``evil.example``);
+    * ``https`` (the fetch refuses anything else);
+    * no user name or password, and no port but 443;
+    * and :func:`is_url_safe` says yes.
+
+    Never raises. Registered in :func:`docket.web.create_app` as the Jinja
+    global ``is_minutes_viewer_url``. Plan `minutes-open-at-the-vote-page`,
+    M3.
+    """
+    if not isinstance(url, str):
+        return False
+    if any(ch == "\\" or ord(ch) < 33 or ord(ch) == 127 for ch in url):
+        return False
+    if not url.lower().startswith("https://"):
+        return False
+    try:
+        parts = urlsplit(url)
+        if parts.username is not None or parts.password is not None:
+            return False
+        if parts.port not in (None, 443):
+            return False
+    except ValueError:  # a port that cannot be read, a malformed host
+        return False
+    return is_url_safe(url, allowed_domains)
 
 
 def load_municipality_hosts(
