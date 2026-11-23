@@ -18,4 +18,4 @@ Whether this is enough is the operator's to judge from a real browser, which no 
 
 ## Status
 
-accepted
+superseded by 0134

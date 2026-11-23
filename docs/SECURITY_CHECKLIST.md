@@ -91,7 +91,7 @@ Pre-deployment security requirements and ongoing concerns. Nothing here is urgen
 
 - [ ] **Homewood adapter** stores direct PDF URLs from a third-party CDN (`irp.cdn-website.com`). We don't validate these are actually PDFs
 - [ ] **Content-Type verification** — if serving or proxying PDFs, verify the `Content-Type` header
-- [ ] **Don't proxy blindly** — link to source PDFs, don't download and re-serve them (avoids liability and storage costs)
+- [ ] **Don't proxy blindly** — link to source PDFs and never store them (avoids liability and storage costs). The one place a city's PDF is fetched for a reader is the minutes page viewer (`docs/specs/votes.md`): it fetches only a meeting's stored `https` address that passed the allowlist and the stricter `is_viewer_url`, never an address from the request, follows no redirect, checks the body is a PDF, keeps it in memory only, and serves a picture of one page beside the link to the city's own file
 
 ---
 
