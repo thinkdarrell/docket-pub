@@ -175,3 +175,53 @@ def test_the_module_does_not_load_the_pdf_library_when_imported(pp):
     top_level = [line for line in source.splitlines() if line.startswith(("import ", "from "))]
 
     assert not any("pypdfium2" in line or "PIL" in line for line in top_level)
+
+
+def _watched_library(pp, monkeypatch):
+    """Put a stand-in for the PDF library in place whose documents record
+    whether the module's lock was held when they were opened, and that they
+    were closed. Everything else is the real library's."""
+    import sys
+    import types
+
+    seen = {"locked": [], "closed": 0}
+
+    class _Watched(pypdfium2.PdfDocument):
+        def __init__(self, *args, **kwargs):
+            seen["locked"].append(pp._lock.locked())
+            super().__init__(*args, **kwargs)
+
+        def close(self):
+            seen["closed"] += 1
+            super().close()
+
+    monkeypatch.setitem(sys.modules, "pypdfium2", types.SimpleNamespace(PdfDocument=_Watched))
+    return seen
+
+
+def test_render_page_holds_the_lock_and_closes_the_document(pp, fixture_pdf, monkeypatch):
+    seen = _watched_library(pp, monkeypatch)
+
+    assert pp.render_page(fixture_pdf, 2).page_count == 4
+
+    assert seen == {"locked": [True], "closed": 1}
+    assert not pp._lock.locked()
+
+
+def test_page_count_holds_the_lock_and_closes_the_document(pp, fixture_pdf, monkeypatch):
+    seen = _watched_library(pp, monkeypatch)
+
+    assert pp.page_count(fixture_pdf) == 4
+
+    assert seen == {"locked": [True], "closed": 1}
+    assert not pp._lock.locked()
+
+
+def test_the_lock_is_released_when_the_page_is_out_of_range(pp, fixture_pdf, monkeypatch):
+    seen = _watched_library(pp, monkeypatch)
+
+    with pytest.raises(pp.PageOutOfRange):
+        pp.render_page(fixture_pdf, 9)
+
+    assert seen == {"locked": [True], "closed": 1}
+    assert not pp._lock.locked()
