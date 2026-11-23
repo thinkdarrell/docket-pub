@@ -198,6 +198,8 @@ Lifecycle. The durable behaviour is in `docs/specs/operations.md` and `docs/spec
 
 Not decided by this pass, the operator's to settle: whether `D207` and `D208` are mended before step 2 of `D206` (the deploy) or met as they come, given that both need a database slower than the new limits and the first hides source links; who resolves the `D197` conflict at the pull request, and when; and whether the look at `https://docket.pub/blog` that `D208` names is added to the steps of `D206`.
 
+Correction to the entry above, appended by the same pass after the move. Its second no-change item says `skills/plan-author/SKILL.md` "already asks that a claim about what code does be tested against the thing itself". Those are this plan's Decision Log's words for the skill, not the skill's: a search of the skill for them printed nothing. What the skill holds is narrower (step 3: a bound the plan states on what code does with a slow or oversized answer from a network has one test that runs the code against what the bound is about, because a faked call proves the fake). The disposition stands on its other ground, one sighting found before execution, and no edit was made to the skill.
+
 ## Context and Orientation
 
 ### The repository, for a reader new to it
