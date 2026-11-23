@@ -49,6 +49,8 @@ As authored on 2026-11-23, nothing has been executed, so no milestone has a disc
   Evidence: the removal runs under "M2, observed on 2026-11-23" in Artifacts and Notes.
 - Correction (M2, 2026-11-23, to the entry above and to the M2 text committed in `46b8263`): the rules the tests as first committed left free were four, not five, and that entry said they "failed no test" before any such run had been made. The run was then made: the five removals against the test file as `39f2b9b` holds it (copied to the session scratchpad from `git show`), with the module as `46b8263` holds it. Four failed no test; the fifth, the error text on one line, failed the real-socket test, whose `"\n" not in message` was already in `39f2b9b`. So were the `"\n"` assertion in the test of the logged error and its `next try in 30 s`; the Decision Log entry of M2 that lists them as added after `39f2b9b` is wrong on those three and right on the rest.
   Evidence: unaltered `86 passed`; the ten-minute expiry counted from entry `86 passed`; no check under the lock `86 passed`; a caller with nothing not waiting `86 passed`; nothing in hand after a refresh `86 passed`; the error text not collapsed `1 failed, 85 passed` (`test_a_database_that_never_answers_is_logged_and_the_loaded_list_is_kept`).
+- Observation (M3, 2026-11-23): one of the ten tests, `test_a_start_with_the_database_leaves_nothing_pending`, passes on the tree before the change, where the acceptance clause says the one-file command "failed". The command did fail (nine of ten); this test cannot fail there, because a start with the database is what today's code already does right, in the way Plan of Work says of M2's `test_a_reread_that_follows_no_failure_logs_nothing`.
+  Evidence: `9 failed, 1 passed` under "M3, observed on 2026-11-23" in Artifacts and Notes.
 
 ## Decision Log
 
@@ -428,6 +430,32 @@ The session's last `./tools/verify`, at `e6a5011` with a clean tree, exited 0 wi
     verify: all 6 checks passed in 330s.
 
 The first tier's 3815 is the start's 3801 and the fourteen new tests. No acceptance clause of M2 is unmet. M3 is next.
+
+### M3, observed on 2026-11-23
+
+The session's first `./tools/verify`, at `a47ff1c` with a clean tree and before any edit, exited 0:
+
+    3815 passed, 5 skipped, 4 xfailed, 2 warnings in 195.85s (0:03:15)
+    1164 passed, 2 warnings in 128.16s (0:02:08)
+    judge fixtures: 12 of 12 passed
+    147 passed, 1 warning in 10.20s
+    plans: 1 of 1 ok
+    verify: all 6 checks passed in 337s.
+
+The before state, with `tests/web/test_blog_state_recovery.py` written (ten tests) and no file under `src/` changed: the one-file command on it printed
+
+    FAILED tests/web/test_blog_state_recovery.py::test_a_start_without_the_database_is_logged_and_the_blog_is_empty
+    FAILED tests/web/test_blog_state_recovery.py::test_the_posts_return_on_a_later_request_once_the_database_answers
+    FAILED tests/web/test_blog_state_recovery.py::test_a_request_before_the_retry_interval_does_not_load_again
+    FAILED tests/web/test_blog_state_recovery.py::test_a_retry_that_fails_is_logged_and_waits_the_interval_again
+    FAILED tests/web/test_blog_state_recovery.py::test_a_retry_that_fails_with_a_different_error_is_logged_with_its_traceback
+    FAILED tests/web/test_blog_state_recovery.py::test_an_error_that_is_not_the_databases_is_logged_and_bounded_the_same_way
+    FAILED tests/web/test_blog_state_recovery.py::test_the_asset_route_is_served_while_the_posts_are_pending
+    FAILED tests/web/test_blog_state_recovery.py::test_only_one_thread_loads_again_and_the_others_do_not_wait
+    FAILED tests/web/test_blog_state_recovery.py::test_a_database_that_never_answers_at_start_then_answers
+    9 failed, 1 passed, 1 warning in 2.76s
+
+Three of the nine failed on a log record that does not exist (`assert 0 == 1` on the error records, the real-socket test among them, after `create_app()` had returned from the socket that never answers), four on `KeyError: 'BLOG_STATE_PENDING'`, and two on the import of `BLOG_RETRY_SECONDS` inside the test. The one that passed is `test_a_start_with_the_database_leaves_nothing_pending`: today's code loads the posts at a start with the database, sets no pending key and logs no error, so every assertion of it holds; what it guards is the code M3 writes (Surprises, M3).
 
 ## Interfaces and Dependencies
 
