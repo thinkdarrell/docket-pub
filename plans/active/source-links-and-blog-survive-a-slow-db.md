@@ -18,7 +18,7 @@ Neither change shows on a page while the database is well, so the observation th
 
 - [x] (2026-11-23 22:35Z) M1: the source-link allowlist's one SQL statement is asked through `docket.services.query` and `src/docket/web/source_security.py` executes none, with the allowlist's behaviour unchanged, the row `D7` in `docs/DEBT.md` no longer naming that module, and `./tools/verify` exiting zero.
 - [x] (2026-11-23 22:59Z) M2: when the allowlist's query fails or times out, `get_allowlist` logs the error, keeps serving the last list the database gave (the six fixed domains alone only when none has loaded in the process), and asks again after a retry interval shorter than ten minutes without making a caller that has a list wait; tests show each, one of them against a local socket that never answers; the row `D207` is deleted and `docs/specs/operations.md` and `docs/specs/votes.md` say what happens; `./tools/verify` exits zero.
-- [ ] M3: when the database does not answer while `create_app` starts, the failure is logged at error level and a later request to a blog address loads the posts, with no redeploy; tests show the start, the recovery, the bound on how often it is tried and that one thread reads at a time, one of them against a local socket that never answers; the row `D208` is deleted, step 4 of `D206` and `docs/specs/operations.md` say what to read in the log, and the rows `D34` and `D21` record that this plan re-deferred them; `./tools/verify` exits zero.
+- [x] (2026-11-23 23:27Z) M3: when the database does not answer while `create_app` starts, the failure is logged at error level and a later request to a blog address loads the posts, with no redeploy; tests show the start, the recovery, the bound on how often it is tried and that one thread reads at a time, one of them against a local socket that never answers; the row `D208` is deleted, step 4 of `D206` and `docs/specs/operations.md` say what to read in the log, and the rows `D34` and `D21` record that this plan re-deferred them; `./tools/verify` exits zero.
 - [ ] M4: the closing documents: one decision record under `docs/decisions/` holds the two choices and why, a new row in `docs/DEBT.md` records that the request path has still not been read for other handlers that answer without the database, `docs/birmingham/06-reader-surfaces.md` names the templates that ask the allowlist, the cross-checks of Validation and Acceptance print what they should, and `./tools/verify` exits zero.
 
 ## Surprises & Discoveries
@@ -489,6 +489,20 @@ The greps after the document edits (`docs/specs/operations.md`; in `docs/DEBT.md
     grep -c 'blog: posts loaded on a later request' docs/DEBT.md             1
     grep -c 'deploy `docket-web` again' docs/DEBT.md                         0
     grep -c 'source-links-and-blog-survive-a-slow-db' docs/DEBT.md           4 (lines 8, 20, 32 and 155: rows D7, D21, D34 and D206)
+
+The session's last `./tools/verify`, at `d2d40d8` with a clean tree, exited 0 with every summary line `ok`:
+
+    3825 passed, 5 skipped, 4 xfailed, 2 warnings in 204.33s (0:03:24)
+    1164 passed, 2 warnings in 132.40s (0:02:12)
+    judge fixtures: 12 of 12 passed
+    workflows: 2 of 2 ok
+    147 passed, 1 warning in 10.44s
+    plans: 1 of 1 ok
+    verify: unit+web+services ... ok (206s)
+    verify: integration ... ok (133s)
+    verify: all 6 checks passed in 351s.
+
+The first tier's 3825 is the start's 3815 and the ten new tests. One carve-out against M3's acceptance, on its first clause: the one-file command run before the code changed failed nine of the ten tests, and the tenth, `test_a_start_with_the_database_leaves_nothing_pending`, passed there (Surprises, M3). Every other clause is met as printed above. M4 is next.
 
 ## Interfaces and Dependencies
 
