@@ -6,17 +6,16 @@ Covers the URL safety helper that gates the source-anchor button
 * ``is_url_safe(url, allowed_domains)`` — pure function used by the
   Jinja global. Static + dynamic concerns are exercised against a
   fixed allowlist.
-* ``load_municipality_hosts(db_cursor_fn)`` /
-  ``build_allowlist(db_cursor_fn)`` — DB-loading helpers. Tested with
-  a fake cursor that mimics ``docket.db.db_cursor`` enough to avoid
-  needing a live PostgreSQL.
+* ``load_municipality_hosts(urls_fn)`` /
+  ``build_allowlist(urls_fn)`` — helpers that read the stored base
+  addresses. Tested with a plain function standing in for
+  ``docket.services.query.list_active_base_urls``, so no live
+  PostgreSQL is needed.
 
 No network, no DB, no Flask app — pure unit coverage.
 """
 
 from __future__ import annotations
-
-from contextlib import contextmanager
 
 import pytest
 
@@ -144,31 +143,17 @@ class TestStaticAllowlistNormalization:
 
 
 # ---------------------------------------------------------------------------
-# Dynamic allowlist — load_municipality_hosts with a fake cursor
+# Dynamic allowlist — load_municipality_hosts with an injected function
 # ---------------------------------------------------------------------------
 
 
-class _FakeCursor:
-    """Minimal cursor mimic that supports ``.execute`` / ``.fetchall``
-    and is usable as a context manager via ``_FakeCursorFactory``."""
+def _make_urls_fn(urls):
+    """Return a ``urls_fn`` replacement: a function returning the list it
+    was given, as ``docket.services.query.list_active_base_urls`` returns
+    the stored values."""
 
-    def __init__(self, rows):
-        self._rows = rows
-        self.last_query: str | None = None
-
-    def execute(self, query, params=None):
-        self.last_query = query
-
-    def fetchall(self):
-        return list(self._rows)
-
-
-def _make_cursor_fn(rows):
-    """Return a ``db_cursor_fn`` replacement yielding a ``_FakeCursor``."""
-
-    @contextmanager
     def _fn():
-        yield _FakeCursor(rows)
+        return list(urls)
 
     return _fn
 
@@ -176,10 +161,10 @@ def _make_cursor_fn(rows):
 class TestDynamicAllowlist:
     def test_dynamic_allowlist_extracts_municipality_hosts(self):
         rows = [
-            {"url": "https://bhamal.granicus.com"},
-            {"url": "https://vestaviahillsal.api.civicclerk.com"},
+            "https://bhamal.granicus.com",
+            "https://vestaviahillsal.api.civicclerk.com",
         ]
-        hosts = load_municipality_hosts(_make_cursor_fn(rows))
+        hosts = load_municipality_hosts(_make_urls_fn(rows))
         assert "bhamal.granicus.com" in hosts
         assert "vestaviahillsal.api.civicclerk.com" in hosts
 
@@ -187,10 +172,10 @@ class TestDynamicAllowlist:
         """A row whose ``adapter_config->>'base_url'`` is None
         shouldn't poison the result."""
         rows = [
-            {"url": None},
-            {"url": "https://bhamal.granicus.com"},
+            None,
+            "https://bhamal.granicus.com",
         ]
-        hosts = load_municipality_hosts(_make_cursor_fn(rows))
+        hosts = load_municipality_hosts(_make_urls_fn(rows))
         assert hosts == frozenset({"bhamal.granicus.com"})
 
     def test_dynamic_allowlist_skips_malformed_urls(self):
@@ -198,22 +183,22 @@ class TestDynamicAllowlist:
         skipped silently — one bad config row doesn't break the
         whole allowlist."""
         rows = [
-            {"url": "not-a-url-at-all"},
-            {"url": "http:///"},  # parses, empty netloc
-            {"url": "https://granicus.com"},
+            "not-a-url-at-all",
+            "http:///",  # parses, empty netloc
+            "https://granicus.com",
         ]
-        hosts = load_municipality_hosts(_make_cursor_fn(rows))
+        hosts = load_municipality_hosts(_make_urls_fn(rows))
         assert hosts == frozenset({"granicus.com"})
 
     def test_dynamic_allowlist_normalizes_case_and_port(self):
         rows = [
-            {"url": "https://BhamAL.granicus.com:8443"},
+            "https://BhamAL.granicus.com:8443",
         ]
-        hosts = load_municipality_hosts(_make_cursor_fn(rows))
+        hosts = load_municipality_hosts(_make_urls_fn(rows))
         assert hosts == frozenset({"bhamal.granicus.com"})
 
     def test_dynamic_allowlist_empty_when_no_rows(self):
-        hosts = load_municipality_hosts(_make_cursor_fn([]))
+        hosts = load_municipality_hosts(_make_urls_fn([]))
         assert hosts == frozenset()
 
 
@@ -225,10 +210,10 @@ class TestDynamicAllowlist:
 class TestBuildAllowlist:
     def test_build_allowlist_combines_static_and_dynamic(self):
         rows = [
-            {"url": "https://bhamal.granicus.com"},
-            {"url": "https://homewoodal.gov"},
+            "https://bhamal.granicus.com",
+            "https://homewoodal.gov",
         ]
-        merged = build_allowlist(_make_cursor_fn(rows))
+        merged = build_allowlist(_make_urls_fn(rows))
         # Static set is a subset.
         assert STATIC_ALLOWED_DOMAINS <= merged
         # Dynamic hosts are present.
@@ -236,12 +221,12 @@ class TestBuildAllowlist:
         assert "homewoodal.gov" in merged
 
     def test_build_allowlist_returns_frozenset(self):
-        merged = build_allowlist(_make_cursor_fn([]))
+        merged = build_allowlist(_make_urls_fn([]))
         assert isinstance(merged, frozenset)
 
     def test_build_allowlist_falls_back_safely_on_empty_dynamic(self):
         """No municipalities yet — merged set equals the static set."""
-        merged = build_allowlist(_make_cursor_fn([]))
+        merged = build_allowlist(_make_urls_fn([]))
         assert merged == STATIC_ALLOWED_DOMAINS
 
 
@@ -293,14 +278,13 @@ class TestAllowlistCache:
     def teardown_method(self):
         source_security.invalidate_cache()
 
-    def _counting_cursor_fn(self, rows, counter):
-        """Like ``_make_cursor_fn`` but increments ``counter[0]`` on each
-        ``execute()`` so we can assert how many DB queries happened."""
+    def _counting_cursor_fn(self, urls, counter):
+        """Like ``_make_urls_fn`` but increments ``counter[0]`` on each
+        call of the function so we can assert how many DB reads happened."""
 
-        @contextmanager
         def _fn():
             counter[0] += 1
-            yield _FakeCursor(rows)
+            return list(urls)
 
         return _fn
 
@@ -308,7 +292,7 @@ class TestAllowlistCache:
         """Cold cache → DB read → static + dynamic merged."""
         calls = [0]
         fn = self._counting_cursor_fn(
-            [{"url": "https://newcity.example.gov"}], calls
+            ["https://newcity.example.gov"], calls
         )
         result = source_security.get_allowlist(fn)
         assert calls[0] == 1
@@ -320,7 +304,7 @@ class TestAllowlistCache:
         """Warm cache → no DB query."""
         calls = [0]
         fn = self._counting_cursor_fn(
-            [{"url": "https://newcity.example.gov"}], calls
+            ["https://newcity.example.gov"], calls
         )
         first = source_security.get_allowlist(fn)
         second = source_security.get_allowlist(fn)
@@ -332,7 +316,7 @@ class TestAllowlistCache:
         the very next ``get_allowlist`` re-runs the DB query."""
         calls = [0]
         fn = self._counting_cursor_fn(
-            [{"url": "https://newcity.example.gov"}], calls
+            ["https://newcity.example.gov"], calls
         )
         source_security.get_allowlist(fn)
         source_security.invalidate_cache()
@@ -344,10 +328,8 @@ class TestAllowlistCache:
         allowlist — better to render every link via the static set than
         to silently suppress every source-anchor button."""
 
-        @contextmanager
         def _failing_fn():
             raise RuntimeError("DB down")
-            yield  # unreachable, but keeps the contextmanager shape
 
         result = source_security.get_allowlist(_failing_fn)
         assert result == STATIC_ALLOWED_DOMAINS
@@ -358,11 +340,9 @@ class TestAllowlistCache:
         already down. The next refresh cycle / admin invalidate retries."""
         calls = [0]
 
-        @contextmanager
         def _failing_fn():
             calls[0] += 1
             raise RuntimeError("DB down")
-            yield  # unreachable
 
         source_security.get_allowlist(_failing_fn)
         source_security.get_allowlist(_failing_fn)
@@ -373,7 +353,7 @@ class TestAllowlistCache:
         the cache — that's the production code path the Jinja global
         flows through."""
         # Prime the cache with a fake municipality.
-        fn = _make_cursor_fn([{"url": "https://newcity.example.gov"}])
+        fn = _make_urls_fn(["https://newcity.example.gov"])
         source_security.get_allowlist(fn)
         # No second arg → use cache → newcity should be allowed.
         assert source_security.is_url_safe("https://newcity.example.gov/page")
@@ -422,7 +402,7 @@ class TestRefreshSourceSecurityRoute:
         """Authenticated POST clears ``_CACHE``."""
         app = self._make_app()
         # Prime the cache with a fake DB read so we have something to clear.
-        fn = _make_cursor_fn([{"url": "https://newcity.example.gov"}])
+        fn = _make_urls_fn(["https://newcity.example.gov"])
         source_security.get_allowlist(fn)
         assert source_security._CACHE is not None
 

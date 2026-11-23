@@ -84,6 +84,24 @@ def list_municipalities() -> list[dict]:
         return [dict(row) for row in cur.fetchall()]
 
 
+def list_active_base_urls() -> list[str | None]:
+    """Return the stored ``base_url`` of every active municipality that has one.
+
+    The values are returned exactly as stored, with no parsing: the caller,
+    the source-link allowlist (``docket.web.source_security``), reads the
+    host out of each and skips what it cannot read. An inactive city's
+    address is not returned, so a deactivated city does not widen the list.
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT adapter_config->>'base_url' AS url "
+            "FROM municipalities "
+            "WHERE active = TRUE "
+            "  AND adapter_config ? 'base_url'"
+        )
+        return [row["url"] for row in cur.fetchall()]
+
+
 def get_municipality(slug: str) -> dict | None:
     """Return a single municipality by slug."""
     with db_cursor() as cur:

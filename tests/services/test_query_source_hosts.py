@@ -72,12 +72,16 @@ def test_the_seeded_birmingham_row_is_present(seeded):
     assert BIRMINGHAM_URL in list_active_base_urls()
 
 
-def test_every_element_is_a_string_or_none_and_a_city_without_the_key_adds_none(seeded):
+def test_every_element_is_a_string_or_none_and_a_city_without_the_key_adds_none():
     from docket.services.query import list_active_base_urls
 
-    before_seed_count = 1  # Birmingham, the one base_url the migrations store
+    before = list_active_base_urls()
+    _city("active", {"base_url": ACTIVE_URL})
+    _city("inactive", {"base_url": INACTIVE_URL}, active=False)
+    _city("no_base_url", {"tenant": "srchosttest"})
     urls = list_active_base_urls()
     assert isinstance(urls, list)
     assert all(u is None or isinstance(u, str) for u in urls)
-    # The active row with no base_url key and the inactive row add nothing.
-    assert len(urls) == before_seed_count + 1
+    # Of the three rows only the active one that stores a base_url adds an
+    # element: the inactive row and the row with no base_url key add nothing.
+    assert len(urls) == len(before) + 1

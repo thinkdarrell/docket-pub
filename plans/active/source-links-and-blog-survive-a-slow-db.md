@@ -325,6 +325,16 @@ The before state, with `tests/services/test_query_source_hosts.py` written (four
 
 each of the four failing on the import of `list_active_base_urls` inside the test; the 72 are `tests/unit/test_source_security.py` as it stood. The commit that holds the test file holds no change under `src/`.
 
+After the change (`list_active_base_urls` added to `src/docket/services/query.py`, the three functions of `src/docket/web/source_security.py` taking `urls_fn`, the unit file's fake cursor replaced by `_make_urls_fn`), the same command printed `76 passed, 1 warning in 1.21s`, and the one-file command on `tests/unit/test_source_security.py` alone printed `72 passed, 1 warning in 1.00s`, the count it had at the start. The greps:
+
+    grep -c 'execute(' src/docket/web/source_security.py                     0
+    grep -n 'docket.db' src/docket/web/source_security.py                    nothing (exit 1)
+    grep -c 'Overdue for `source_security.py` too' docs/DEBT.md              0
+    grep -c 'Six web modules' docs/DEBT.md                                   0
+    grep -c 'list_active_base_urls' docs/DEBT.md                             1
+
+The rules taken out of a copy, one at a time (a pytest plugin in the session scratchpad that compiles `list_active_base_urls` from its source with one string replaced and sets it on `docket.services.query`; the committed file was not edited), against `tests/services/test_query_source_hosts.py`: three removals tried, three failed a test. Without `active = TRUE`, `test_an_inactive_citys_base_url_is_absent` and the count test failed (`2 failed, 2 passed`); without `adapter_config ? 'base_url'`, the count test failed (`1 failed, 3 passed`); with the value lower-cased before it is returned, `test_an_active_citys_base_url_is_returned_exactly_as_stored` failed (`1 failed, 3 passed`); the unaltered copy printed `4 passed`. One assertion was changed after the commit that holds the tests failing (`2dcf24a`): the fourth test first asserted that the result had two elements, which holds only while no other test leaves a `base_url` row behind; it now reads the service before and after it seeds its three rows and asserts one element more. It failed on the import in `2dcf24a` in either form.
+
 ## Interfaces and Dependencies
 
 No library is added. The names that must exist at the end of each milestone:

@@ -41,7 +41,7 @@ from __future__ import annotations
 
 import time
 from threading import Lock
-from typing import Callable, ContextManager
+from typing import Callable, Iterable
 from urllib.parse import urlparse, urlsplit
 
 
@@ -150,52 +150,46 @@ def is_viewer_url(
 
 
 def load_municipality_hosts(
-    db_cursor_fn: Callable[[], ContextManager],
+    urls_fn: Callable[[], Iterable[str | None]],
 ) -> frozenset[str]:
-    """Read distinct municipality ``base_url`` hosts from ``adapter_config`` JSONB.
+    """Return the distinct hosts of the municipalities' stored ``base_url`` values.
 
-    ``db_cursor_fn`` is :func:`docket.db.db_cursor` (kept as a parameter
-    so tests can inject a fake cursor without monkey-patching). Returns
-    a frozenset of normalized hosts. Skips rows whose ``adapter_config``
-    has no ``base_url`` or whose URL is malformed — a single bad row
+    ``urls_fn`` takes nothing and returns those stored values; in
+    production it is :func:`docket.services.query.list_active_base_urls`,
+    which owns the one SQL statement (active municipalities whose
+    ``adapter_config`` has a ``base_url``; deactivated cities shouldn't
+    widen the allowlist). This module executes no SQL. It is kept as a
+    parameter so tests can inject a plain function without
+    monkey-patching. Returns a frozenset of normalized hosts. Skips a
+    value that is empty or whose URL is malformed — a single bad row
     doesn't poison the whole allowlist.
-
-    Only ``active=TRUE`` municipalities are included; deactivated cities
-    shouldn't widen the allowlist.
     """
     hosts: set[str] = set()
-    with db_cursor_fn() as cur:
-        cur.execute(
-            "SELECT adapter_config->>'base_url' AS url "
-            "FROM municipalities "
-            "WHERE active = TRUE "
-            "  AND adapter_config ? 'base_url'"
-        )
-        for row in cur.fetchall():
-            url = row["url"]
-            if not url:
-                continue
-            try:
-                parsed = urlparse(url.strip())
-            except (ValueError, AttributeError):
-                continue
-            host = _normalize_host(parsed.netloc)
-            if host:
-                hosts.add(host)
+    for url in urls_fn():
+        if not url:
+            continue
+        try:
+            parsed = urlparse(url.strip())
+        except (ValueError, AttributeError):
+            continue
+        host = _normalize_host(parsed.netloc)
+        if host:
+            hosts.add(host)
     return frozenset(hosts)
 
 
 def build_allowlist(
-    db_cursor_fn: Callable[[], ContextManager],
+    urls_fn: Callable[[], Iterable[str | None]],
 ) -> frozenset[str]:
     """Combine static + dynamic allowlist.
 
-    Pure DB read + union — no caching here. Used by :func:`get_allowlist`
-    on cache miss, and retained as a public function so existing tests
-    (and any future operator script) can build the allowlist directly
-    without touching the cache.
+    One call of ``urls_fn`` (see :func:`load_municipality_hosts`) and a
+    union — no caching here. Used by :func:`get_allowlist` on cache miss,
+    and retained as a public function so existing tests (and any future
+    operator script) can build the allowlist directly without touching
+    the cache.
     """
-    return STATIC_ALLOWED_DOMAINS | load_municipality_hosts(db_cursor_fn)
+    return STATIC_ALLOWED_DOMAINS | load_municipality_hosts(urls_fn)
 
 
 # ---------------------------------------------------------------------------
@@ -223,12 +217,13 @@ _CACHE_LOCK = Lock()
 
 
 def get_allowlist(
-    db_cursor_fn: Callable[[], ContextManager] | None = None,
+    urls_fn: Callable[[], Iterable[str | None]] | None = None,
 ) -> frozenset[str]:
     """Return the cached allowlist, refreshing from DB if expired.
 
-    ``db_cursor_fn`` defaults to :func:`docket.db.db_cursor`, but is
-    parameterized so tests can inject a fake cursor without
+    ``urls_fn`` defaults to
+    :func:`docket.services.query.list_active_base_urls`, but is
+    parameterized so tests can inject a plain function without
     monkey-patching. The default lookup is deferred (lazy import) so
     importing this module never requires a DB connection.
 
@@ -249,10 +244,10 @@ def get_allowlist(
         # running a redundant DB query.
         if _CACHE is not None and _CACHE[0] > now:
             return _CACHE[1]
-        if db_cursor_fn is None:
-            from docket.db import db_cursor as db_cursor_fn  # noqa: F811
+        if urls_fn is None:
+            from docket.services.query import list_active_base_urls as urls_fn  # noqa: F811
         try:
-            allowlist = build_allowlist(db_cursor_fn)
+            allowlist = build_allowlist(urls_fn)
         except Exception:
             # If the DB is unreachable we'd rather render every link via
             # the static set than render none at all. The next refresh
