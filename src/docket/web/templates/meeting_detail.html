@@ -282,12 +282,19 @@
                 {% endfor %}
             </div>
             {% endif %}
-            {# The page of the city's Minutes file the vote is printed on. The city
-               serves the file as a download, so the fragment may do nothing and the
+            {# The page of the city's Minutes file the vote is printed on. The link
+               opens docket.pub's viewer of that page (public.minutes_page), which
+               shows the city's own file address. An address the viewer cannot
+               fetch (http) keeps the direct link to the city's file, which the
+               city serves as a download, so the fragment may do nothing and the
                link's words carry the page. A vote with no page, or on a meeting
-               with no minutes link, has no address here, and is_source_url_safe
-               says no to that as it does to an address outside the allowlist. #}
-            {% if is_source_url_safe(vote.minutes_page_url) %}
+               with no minutes link, has no minutes_page_url, and both predicates
+               say no to that as they do to an address outside the allowlist. #}
+            {% if is_minutes_viewer_url(vote.minutes_page_url) and vote.source_page %}
+            <div>
+                <a class="link t-meta" rel="nofollow" href="{{ url_for('public.minutes_page', slug=municipality.slug, meeting_id=meeting.id, page=vote.source_page) }}">Minutes, page {{ vote.source_page }}</a>
+            </div>
+            {% elif is_source_url_safe(vote.minutes_page_url) %}
             <div>
                 <a class="link t-meta" href="{{ vote.minutes_page_url }}" target="_blank" rel="noreferrer">Minutes, page {{ vote.source_page }} ↗</a>
             </div>

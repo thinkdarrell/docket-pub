@@ -290,6 +290,7 @@ def test_source_link_opens_the_minutes_viewer_for_a_vote_with_a_page(render_part
     assert 'href="/al/birmingham/meetings/100/minutes/page/5/"' in tag
     assert 'rel="nofollow"' in tag
     assert "target=" not in tag
+    assert 'data-item-id="42"' in tag
 
 
 def test_source_link_keeps_the_citys_page_link_when_the_vote_has_no_meeting_id(render_partial):
@@ -309,6 +310,64 @@ def test_source_link_keeps_the_citys_page_link_when_the_vote_has_no_meeting_id(r
     assert " ".join(text.split()) == "Read minutes, page 5 ↗"
     assert 'href="https://mobileal.api.civicclerk.com/v1/x#page=5"' in tag
     assert 'target="_blank"' in tag
+    assert "/minutes/page/" not in html
+
+
+def test_source_link_keeps_the_citys_page_link_for_an_address_the_viewer_cannot_fetch(
+    render_partial,
+):
+    # The viewer fetches `https` only; an `http` address on the allowlist keeps
+    # the direct link to the city's file at the page.
+    html = _render(
+        render_partial,
+        vote_data=_FakeData(
+            prevailing=_FakeVote(
+                minutes_page_url="http://mobileal.api.civicclerk.com/v1/x#page=5",
+                source_page=5,
+            )
+        ),
+    )
+    (tag, text), = re.findall(r"(<a\b[^>]*>)(.*?)</a>", html, re.DOTALL)
+    assert " ".join(text.split()) == "Read minutes, page 5 ↗"
+    assert 'href="http://mobileal.api.civicclerk.com/v1/x#page=5"' in tag
+    assert "/minutes/page/" not in html
+
+
+def test_source_link_builds_no_viewer_address_for_a_vote_with_no_page(render_partial):
+    # A row with a page address and no page renders without raising, from the
+    # arm that printed it before the viewer.
+    html = _render(
+        render_partial,
+        vote_data=_FakeData(
+            prevailing=_FakeVote(
+                minutes_page_url="https://mobileal.api.civicclerk.com/v1/x#page=5",
+                source_page=None,
+            )
+        ),
+    )
+    assert 'href="https://mobileal.api.civicclerk.com/v1/x#page=5"' in html
+    assert "/minutes/page/" not in html
+
+
+def test_source_link_prefers_the_video_link_to_the_minutes_viewer(render_partial):
+    from docket.services.video_links import VideoLink
+
+    player = "https://bhamal.granicus.com/MediaPlayer.php?view_id=2&clip_id=1986"
+    html = _render(
+        render_partial,
+        vote_data=_FakeData(
+            prevailing=_FakeVote(
+                video_timestamp=123.4,
+                video_url=player,
+                video_link=VideoLink(url=player + "&meta_id=371164", site="granicus",
+                                     label="Granicus", seconds=None, timed=True),
+                minutes_page_url="https://mobileal.api.civicclerk.com/v1/x#page=5",
+                source_page=5,
+            )
+        ),
+    )
+    assert "Watch this vote on Granicus ↗" in html
+    assert "Read minutes" not in html
     assert "/minutes/page/" not in html
 
 
