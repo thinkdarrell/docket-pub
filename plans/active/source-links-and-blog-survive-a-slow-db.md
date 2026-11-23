@@ -304,6 +304,27 @@ The greps the acceptance clauses start from:
 
 The development machine's `grep` is ugrep; each line above ran under it as written.
 
+### M1, observed on 2026-11-23
+
+The session's first `./tools/verify`, at `5fd3f3c` with a clean tree and before any edit, exited 0:
+
+    3797 passed, 5 skipped, 4 xfailed, 2 warnings in 188.70s (0:03:08)
+    1164 passed, 2 warnings in 126.78s (0:02:06)
+    judge fixtures: 12 of 12 passed
+    147 passed, 1 warning in 10.37s
+    plans: 1 of 1 ok
+    verify: all 6 checks passed in 329s.
+
+The before state, with `tests/services/test_query_source_hosts.py` written (four tests) and no code changed: `DATABASE_URL=$(tools/test-db) venv/bin/python -m pytest tests/services/test_query_source_hosts.py tests/unit/test_source_security.py -q -p no:cacheprovider; tools/test-db --drop` printed
+
+    FAILED tests/services/test_query_source_hosts.py::test_an_active_citys_base_url_is_returned_exactly_as_stored
+    FAILED tests/services/test_query_source_hosts.py::test_an_inactive_citys_base_url_is_absent
+    FAILED tests/services/test_query_source_hosts.py::test_the_seeded_birmingham_row_is_present
+    FAILED tests/services/test_query_source_hosts.py::test_every_element_is_a_string_or_none_and_a_city_without_the_key_adds_none
+    4 failed, 72 passed, 1 warning in 1.27s
+
+each of the four failing on the import of `list_active_base_urls` inside the test; the 72 are `tests/unit/test_source_security.py` as it stood. The commit that holds the test file holds no change under `src/`.
+
 ## Interfaces and Dependencies
 
 No library is added. The names that must exist at the end of each milestone:
