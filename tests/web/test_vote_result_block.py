@@ -10,6 +10,7 @@ the resolution rule itself is covered by
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import date, time
 
@@ -31,6 +32,10 @@ class _FakeVote:
     video_timestamp: float | None = None
     video_url: str | None = None
     minutes_url: str | None = None
+    # The meeting's minutes link at the vote's page, and the page: set by
+    # query.get_vote_for_item on a vote a minutes reader wrote.
+    minutes_page_url: str | None = None
+    source_page: int | None = None
     # A docket.services.video_links.VideoLink, set by query.get_vote_for_item
     # on a vote that has both a video_timestamp and a video_url.
     video_link: object | None = None
@@ -266,6 +271,45 @@ def test_source_link_falls_back_to_minutes_when_no_timestamp(render_partial):
     )
     assert "Read minutes" in html
     assert "https://example.test/minutes.pdf" in html
+
+
+def test_source_link_opens_the_minutes_viewer_for_a_vote_with_a_page(render_partial):
+    # Plan `minutes-open-at-the-vote-page`, M4. civicclerk.com is on the static
+    # allowlist and render_partial builds the real app, so the predicate is the real one.
+    html = _render(
+        render_partial,
+        vote_data=_FakeData(
+            prevailing=_FakeVote(
+                minutes_page_url="https://mobileal.api.civicclerk.com/v1/x#page=5",
+                source_page=5,
+            )
+        ),
+    )
+    (tag, text), = re.findall(r"(<a\b[^>]*>)(.*?)</a>", html, re.DOTALL)
+    assert " ".join(text.split()) == "Read minutes, page 5"
+    assert 'href="/al/birmingham/meetings/100/minutes/page/5/"' in tag
+    assert 'rel="nofollow"' in tag
+    assert "target=" not in tag
+
+
+def test_source_link_keeps_the_citys_page_link_when_the_vote_has_no_meeting_id(render_partial):
+    # A row with a page address and no meeting id prints the link it printed
+    # before the viewer, and url_for is never asked for an address without one.
+    html = _render(
+        render_partial,
+        vote_data=_FakeData(
+            prevailing=_FakeVote(
+                meeting_id=None,
+                minutes_page_url="https://mobileal.api.civicclerk.com/v1/x#page=5",
+                source_page=5,
+            )
+        ),
+    )
+    (tag, text), = re.findall(r"(<a\b[^>]*>)(.*?)</a>", html, re.DOTALL)
+    assert " ".join(text.split()) == "Read minutes, page 5 ↗"
+    assert 'href="https://mobileal.api.civicclerk.com/v1/x#page=5"' in tag
+    assert 'target="_blank"' in tag
+    assert "/minutes/page/" not in html
 
 
 def test_source_link_final_fallback_to_meeting_anchor(render_partial):

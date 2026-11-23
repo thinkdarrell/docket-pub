@@ -1,10 +1,11 @@
-"""What a reader sees of a vote a minutes reader wrote (plan `mobile-votes-from-minutes`, M5).
+"""What a reader sees of a vote a minutes reader wrote (plan `mobile-votes-from-minutes`, M5;
+the page link opens the viewer since plan `minutes-open-at-the-vote-page`, M4).
 
 The three routes that print a vote (the meeting page, the item page and the
 member page) are rendered over seeded rows. A vote with `minutes_reader` set
 prints what the minutes declare in place of the stored result, the code and
-caption the minutes print, the motion, and a link to the page of the city's
-Minutes file it is printed on; a vote from any other writer renders as it did.
+caption the minutes print, the motion, and a link to docket.pub's viewer of
+that page; a vote from any other writer renders as it did.
 
 The meetings are seeded under external ids that begin `m5-test-` and the
 council member under a name that begins `M5TEST`, and both are removed after.
@@ -27,6 +28,7 @@ MINUTES_URL = (
     "GetMeetingFileStream(fileId=3854,plainText=false)"
 )
 UNSAFE_URL = "https://minutes.example.org/file.pdf"
+HTTP_MINUTES_URL = "http://" + MINUTES_URL[len("https://"):]
 BHAM_MINUTES_URL = "https://bhamal.granicus.com/MinutesViewer.php?view_id=2&clip_id=900001"
 BHAM_VIDEO_URL = "https://bhamal.granicus.com/MediaPlayer.php?view_id=2&clip_id=900001"
 
@@ -204,6 +206,11 @@ def _main(client, ids) -> str:
     return _page(client, f"/al/mobile/meetings/{ids['main']}/")
 
 
+def _viewer(meeting_id, page) -> str:
+    """The address of docket.pub's viewer of one page of a Mobile meeting's minutes."""
+    return f"/al/mobile/meetings/{meeting_id}/minutes/page/{page}/"
+
+
 # ── The meeting page ──────────────────────────────────────────────────────
 
 
@@ -230,23 +237,25 @@ def test_a_reader_vote_links_to_its_page_of_the_minutes(client, seeded):
     links = [(tag, text) for tag, text in _links(block) if "Minutes" in text]
     assert len(links) == 1
     tag, text = links[0]
-    assert text.rstrip(" ↗") == "Minutes, page 5"
-    assert f'href="{MINUTES_URL}#page=5"' in tag
-    assert block.count("#page=") == 1
+    assert text == "Minutes, page 5"
+    assert f'href="{_viewer(seeded["main"], 5)}"' in tag
+    # The link is docket.pub's viewer, not the city's file, which a browser saves.
+    assert "#page=" not in block
+    assert MINUTES_URL not in block
 
 
-def test_the_page_link_opens_in_a_new_tab_without_a_referrer(client, seeded):
+def test_the_page_link_opens_in_the_same_tab_and_is_not_followed(client, seeded):
     block = _block(_main(client, seeded), seeded["coded"])
     (tag, _), = [(tag, text) for tag, text in _links(block) if "Minutes" in text]
-    assert 'target="_blank"' in tag
-    assert 'rel="noreferrer"' in tag
+    assert 'rel="nofollow"' in tag
+    assert "target=" not in tag
 
 
 def test_each_reader_vote_links_to_its_own_page(client, seeded):
     html = _main(client, seeded)
-    assert f'href="{MINUTES_URL}#page=4"' in _block(html, seeded["amendment"])
+    assert f'href="{_viewer(seeded["main"], 4)}"' in _block(html, seeded["amendment"])
     assert "Minutes, page 4" in _text(_block(html, seeded["amendment"]))
-    assert f'href="{MINUTES_URL}#page=2"' in _block(html, seeded["bare"])
+    assert f'href="{_viewer(seeded["main"], 2)}"' in _block(html, seeded["bare"])
     assert "Minutes, page 2" in _text(_block(html, seeded["bare"]))
 
 
@@ -256,6 +265,7 @@ def test_a_reader_vote_on_a_meeting_with_no_minutes_link_prints_no_link(client, 
     assert "the resolution adopted" in block
     assert "#page=" not in block
     assert "Minutes, page" not in block
+    assert "/minutes/page/" not in block
 
 
 def test_a_reader_vote_whose_minutes_link_is_not_a_safe_address_prints_no_link(client, seeded):
@@ -265,6 +275,24 @@ def test_a_reader_vote_whose_minutes_link_is_not_a_safe_address_prints_no_link(c
     assert "#page=" not in block
     assert "Minutes, page" not in block
     assert UNSAFE_URL not in block
+    assert "/minutes/page/" not in block
+
+
+def test_a_reader_vote_on_an_http_minutes_address_keeps_the_citys_link(client, seeded):
+    # The viewer fetches `https` only, so this vote keeps the direct link it had
+    # (plan `minutes-open-at-the-vote-page`, M4).
+    with db() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            meeting = _meeting(cur, "mobile", "http", "M5TEST http minutes link", "2026-10-06",
+                               HTTP_MINUTES_URL)
+            vote = _vote(cur, meeting, page=3, declared="the resolution adopted")
+        conn.commit()
+    block = _block(_page(client, f"/al/mobile/meetings/{meeting}/"), vote)
+    (tag, text), = [(tag, text) for tag, text in _links(block) if "Minutes" in text]
+    assert text == "Minutes, page 3 ↗"
+    assert f'href="{HTTP_MINUTES_URL}#page=3"' in tag
+    assert 'target="_blank"' in tag
+    assert "/minutes/page/" not in block
 
 
 def test_a_reader_vote_with_no_item_and_no_caption_does_not_say_no_item_is_linked(client, seeded):
@@ -348,6 +376,7 @@ def test_a_birmingham_minutes_vote_and_a_video_vote_render_as_before(client, see
     for block in (minutes, video):
         assert "#page=" not in block
         assert "Minutes, page" not in block
+        assert "/minutes/page/" not in block
     # The resolution number of a vote no reader wrote is not printed as the minutes' code.
     assert "R-900001-26" not in minutes
 
@@ -358,6 +387,7 @@ def test_a_minutes_vote_no_reader_wrote_renders_as_before_in_a_reader_city(clien
     assert '<span class="vote-block-result">passed</span>' in block
     assert "No agenda item linked." in block
     assert "#page=" not in block
+    assert "/minutes/page/" not in block
 
 
 # ── The item page ─────────────────────────────────────────────────────────
@@ -380,10 +410,10 @@ def test_the_item_pages_vote_link_names_the_page(client, seeded):
     section = _vote_result(client, seeded)
     banner = section[: section.index('<details class="vote-history">')]
     (tag, text), = _links(banner)
-    assert text.rstrip(" ↗") == "Read minutes, page 5"
-    assert f'href="{MINUTES_URL}#page=5"' in tag
-    assert 'target="_blank"' in tag
-    assert 'rel="noreferrer"' in tag
+    assert text == "Read minutes, page 5"
+    assert f'href="{_viewer(seeded["main"], 5)}"' in tag
+    assert 'rel="nofollow"' in tag
+    assert "target=" not in tag
 
 
 def test_the_item_pages_history_row_prints_its_own_declaration_and_page(client, seeded):
@@ -393,8 +423,8 @@ def test_the_item_pages_history_row_prints_its_own_declaration_and_page(client, 
         r'<span class="vote-history-result t-mono vote-block-result--declared">\s*'
         r'the amendment tabled\s*</span>', history)
     (tag, text), = _links(history)
-    assert text.rstrip(" ↗") == "Read minutes, page 4"
-    assert f'href="{MINUTES_URL}#page=4"' in tag
+    assert text == "Read minutes, page 4"
+    assert f'href="{_viewer(seeded["main"], 4)}"' in tag
 
 
 def test_the_item_page_prints_no_page_link_for_an_address_that_is_not_safe(client, seeded):
@@ -407,6 +437,7 @@ def test_the_item_page_prints_no_page_link_for_an_address_that_is_not_safe(clien
     assert "the resolution adopted" in section
     assert "#page=" not in section
     assert UNSAFE_URL not in section
+    assert "/minutes/page/" not in section
     assert "Vote in meeting context" in section
 
 

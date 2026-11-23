@@ -420,3 +420,39 @@ def test_the_viewer_predicate_is_a_template_global():
 
     app = create_app()
     assert app.jinja_env.globals["is_minutes_viewer_url"] is source_security.is_viewer_url
+
+
+# --- the link that leads here (plan `minutes-open-at-the-vote-page`, M4) ------
+
+
+def test_the_meeting_pages_link_opens_a_viewer_page_that_answers(client, seeded, fetched):
+    with db() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """INSERT INTO votes (meeting_id, source, result, yeas, nays, abstentions,
+                                      confidence, needs_review, minutes_reader, source_page,
+                                      declared_text)
+                   VALUES (%s, 'minutes_text', 'passed', 7, 0, 0, 'high', FALSE, 'mobile', 2,
+                           'the agenda adopted')
+                   RETURNING id""",
+                (seeded["good"],),
+            )
+            vote_id = cur.fetchone()["id"]
+            cur.execute(
+                "INSERT INTO member_votes (vote_id, council_member_id, member_name, position) "
+                "VALUES (%s, NULL, 'Penn', 'yea')",
+                (vote_id,),
+            )
+        conn.commit()
+
+    meeting = client.get(f"/al/mobile/meetings/{seeded['good']}/")
+    assert meeting.status_code == 200
+    links = re.findall(r'<a\b[^>]*\bhref="([^"]*)"[^>]*>\s*Minutes, page 2\s*</a>',
+                       meeting.get_data(as_text=True))
+    assert links == [_path(seeded["good"], 2)]
+    assert fetched == [], "printing the link asks the city for nothing"
+
+    resp = client.get(links[0])
+    assert resp.status_code == 200
+    assert "Minutes, page 2 of 4" in resp.get_data(as_text=True)
+    assert fetched == [MINUTES_URL]
