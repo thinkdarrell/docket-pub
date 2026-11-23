@@ -16,7 +16,7 @@ PDF header in its first 1,024 bytes is refused.
 The constants are read when ``fetch_pdf`` is called, so a test can change
 them.
 
-Plan `minutes-open-at-the-vote-page`, M1.
+Plan `minutes-open-at-the-vote-page`, M1; M2b added ``Accept-Encoding``.
 """
 
 from __future__ import annotations
@@ -68,7 +68,13 @@ def fetch_pdf(url: str) -> bytes:
             stream=True,
             allow_redirects=False,
             timeout=(CONNECT_TIMEOUT_S, READ_TIMEOUT_S),
-            headers={"User-Agent": USER_AGENT, "Accept": "application/pdf"},
+            # The body as it is, not gzipped: Content-Length then counts the
+            # bytes that arrive, and it is the request the city was seen to answer.
+            headers={
+                "User-Agent": USER_AGENT,
+                "Accept": "application/pdf",
+                "Accept-Encoding": "identity",
+            },
         )
         status = response.status_code
         if status != 200:

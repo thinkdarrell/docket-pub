@@ -961,6 +961,28 @@ def test_a_caller_who_waited_on_a_fetch_that_left_nothing_makes_no_fetch_of_its_
     assert mv._failures == {}
 
 
+def test_a_caller_who_waited_on_a_fetch_of_bytes_that_are_not_a_pdf_is_handed_nothing(
+    mv, monkeypatch, fixture_pdf
+):
+    slow = "https://slow.example/minutes.pdf"
+    fake = _Slow(fixture_pdf, slow, answer=NOT_A_PDF)
+    monkeypatch.setattr(mv, "_fetch", fake)
+    results = {}
+
+    first = _start(mv, results, "first", slow, 1)
+    assert fake.entered.wait(JOIN_S)
+    second = _start(mv, results, "second", slow, 2)
+    _wait_until(lambda: not second.is_alive() or mv._inflight.get(slow) is not None)
+    time.sleep(0.05)
+    fake.release.set()
+    _join(first, second)
+
+    # Only a file that was checked and stored is handed to a waiter.
+    assert isinstance(results["first"], mv.Unavailable)
+    assert isinstance(results["second"], mv.Unavailable)
+    assert fake.calls == [slow]
+
+
 def test_a_second_address_on_a_host_waits_for_the_first_and_is_not_sent_once_the_host_is_down(
     mv, monkeypatch, fixture_pdf
 ):

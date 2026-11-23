@@ -16,7 +16,7 @@ per process: two web processes each have their own.
 What keeps a reader's clicks polite to the city:
 
 - one fetch for callers who ask for the same file at once (the others wait
-  for it, at most ``WAIT_S``);
+  for it, at most ``WAIT_S``, and are handed the file it brought);
 - at least ``HOST_GAP_S`` between one request to a host ending and the
   next beginning, kept by a lock per host held across that host's wait and
   fetch;
@@ -32,7 +32,9 @@ the host, gets ``Unavailable`` and no failure is remembered for it.
 Every constant, and ``_fetch``, ``_now`` and ``_sleep``, are read when
 ``page_view`` is called, so a test can change them.
 
-Plan `minutes-open-at-the-vote-page`, M2.
+Plan `minutes-open-at-the-vote-page`, M2; M2b made the cache sixteen
+files, put the file's page count on ``NoSuchPage``, and hands a caller who
+waited the file the fetch it waited for brought.
 """
 
 from __future__ import annotations
@@ -51,7 +53,7 @@ from docket.analysis import pdf_page
 logger = logging.getLogger(__name__)
 
 MAX_PAGE = 2000
-CACHE_FILES = 4
+CACHE_FILES = 16
 CACHE_BYTES = 40 * 1024 * 1024
 CACHE_TTL_S = 3600.0
 FAILURE_TTL_S = 60.0
@@ -75,7 +77,16 @@ class PageView:
 
 
 class NoSuchPage(Exception):
-    """The page is outside the bound, or past the file's last page."""
+    """The page is outside the bound, or past the file's last page.
+
+    ``page_count`` is the file's page count when the file was in hand (the
+    page is past its end), and None when the page is outside 1 to
+    ``MAX_PAGE`` and nothing was fetched.
+    """
+
+    def __init__(self, message: str = "", page_count: int | None = None):
+        super().__init__(message)
+        self.page_count = page_count
 
 
 class Unavailable(Exception):
@@ -88,13 +99,22 @@ class _Entry(NamedTuple):
     fetched_at: float
 
 
+class _Flight:
+    """A fetch now running: its event, and the entry it stored (None until
+    it has stored one, and for ever if it ends any other way)."""
+
+    def __init__(self) -> None:
+        self.event = threading.Event()
+        self.entry: _Entry | None = None
+
+
 _state_lock = threading.Lock()
 # address -> _Entry, least recently used first
 _files: OrderedDict[str, _Entry] = OrderedDict()
 # an address, or "host:" + host for a host that did not answer -> when it failed
 _failures: dict[str, float] = {}
-# address -> the event of the fetch now running for it
-_inflight: dict[str, threading.Event] = {}
+# address -> the fetch now running for it
+_inflight: dict[str, _Flight] = {}
 # host -> [its lock, when the last request to it returned or raised (None: never)]
 _hosts: dict[str, list] = {}
 
@@ -121,12 +141,12 @@ def page_view(minutes_url: str, page: int) -> PageView:
     # Held in a local, so nothing another thread drops can take it away.
     entry = _entry(minutes_url)
     if page > entry.page_count:
-        raise NoSuchPage(f"page {page} of {entry.page_count}")
+        raise NoSuchPage(f"page {page} of {entry.page_count}", page_count=entry.page_count)
 
     try:
         rendered = pdf_page.render_page(entry.data, page)
     except pdf_page.PageOutOfRange as exc:
-        raise NoSuchPage(str(exc)) from exc
+        raise NoSuchPage(str(exc), page_count=exc.page_count) from exc
     except pdf_page.UnreadablePdf as exc:
         logger.warning(
             "minutes viewer: page %d could not be drawn url=%s reason=%s", page, minutes_url, exc
@@ -190,27 +210,27 @@ def _entry(url: str) -> _Entry:
         entry = _cached(url, host)
         if entry is not None:
             return entry
-        event = _inflight.get(url)
-        fetcher = event is None
+        flight = _inflight.get(url)
+        fetcher = flight is None
         if fetcher:
-            event = _inflight[url] = threading.Event()
+            flight = _inflight[url] = _Flight()
 
     if fetcher:
-        return _fetch_and_store(url, host, event)
+        return _fetch_and_store(url, host, flight)
 
     # A waiter: someone else is fetching this address.
-    if not event.wait(WAIT_S):
+    if not flight.event.wait(WAIT_S):
         logger.warning("minutes viewer: gave up waiting for a fetch in flight url=%s", url)
         raise Unavailable("waited too long")
-    # Second and last pass: what that fetch left behind, and no fetch of our own.
-    with _state_lock:
-        entry = _cached(url, host)
+    # Handed the file that fetch brought: the cache is not read again (the
+    # entry may already have been dropped from it), and no fetch of our own.
+    entry = flight.entry
     if entry is None:
         raise Unavailable("the fetch waited for left nothing")
     return entry
 
 
-def _fetch_and_store(url: str, host: str, event: threading.Event) -> _Entry:
+def _fetch_and_store(url: str, host: str, flight: _Flight) -> _Entry:
     """The fetcher's part: wait for the host, fetch, check, store. Under no lock on entry."""
     try:
         data, fetched_at = _fetch_politely(url, host)
@@ -238,12 +258,14 @@ def _fetch_and_store(url: str, host: str, event: threading.Event) -> _Entry:
                 or sum(len(kept.data) for kept in _files.values()) > CACHE_BYTES
             ):
                 _files.popitem(last=False)
+        # For the callers waiting on this fetch, before the event is set.
+        flight.entry = entry
         return entry
     finally:
         # Whatever the outcome, no waiter is left waiting on a fetch that ended.
         with _state_lock:
             _inflight.pop(url, None)
-        event.set()
+        flight.event.set()
 
 
 def _fetch_politely(url: str, host: str) -> tuple[bytes, float]:

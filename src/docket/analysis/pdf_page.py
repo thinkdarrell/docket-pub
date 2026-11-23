@@ -13,11 +13,14 @@ the image library can write: lossless WebP, then PNG.
 ``pypdfium2`` and ``PIL`` are imported inside the functions, not at the top
 of the module, so that a bundled binary that will not load is an
 ``UnreadablePdf`` for the one caller and not an import error for the site.
-The PDF library is not safe to call from two threads at once, so both
-functions run under one lock. The constants are read at call time, so a
-test can change them.
+The PDF library is not safe to call from two threads at once, so its work
+(open, measure, draw, close) runs under one lock. The picture is encoded
+after the lock is released: encoding takes several times as long as
+drawing and uses the image library only. The constants are read at call
+time, so a test can change them.
 
-Plan `minutes-open-at-the-vote-page`, M1.
+Plan `minutes-open-at-the-vote-page`, M1; M2b moved the encoding outside
+the lock.
 """
 
 from __future__ import annotations
@@ -73,16 +76,19 @@ def page_count(pdf_bytes: bytes) -> int:
 
 def render_page(pdf_bytes: bytes, page: int, *, width_px: int = WIDTH_PX) -> RenderedPage:
     """Page `page` (1-based) of a PDF as a picture, with the file's page count."""
-    with _lock:
-        try:
-            return _render(pdf_bytes, page, width_px)
-        except PageOutOfRange:
-            raise
-        except Exception as exc:
-            raise UnreadablePdf(f"{type(exc).__name__}: {exc}") from exc
+    try:
+        with _lock:
+            image, count = _draw(pdf_bytes, page, width_px)
+        # Outside the lock: the PDF library is no longer in use.
+        return _encode(image, count)
+    except PageOutOfRange:
+        raise
+    except Exception as exc:
+        raise UnreadablePdf(f"{type(exc).__name__}: {exc}") from exc
 
 
-def _render(pdf_bytes: bytes, page: int, width_px: int) -> RenderedPage:
+def _draw(pdf_bytes: bytes, page: int, width_px: int):
+    """The page as an image, and the file's page count. Under the lock."""
     import pypdfium2
 
     pdf = pypdfium2.PdfDocument(pdf_bytes)
@@ -104,7 +110,11 @@ def _render(pdf_bytes: bytes, page: int, width_px: int) -> RenderedPage:
             pdf_page.close()
     finally:
         pdf.close()
+    return image, count
 
+
+def _encode(image, count: int) -> RenderedPage:
+    """The image as picture bytes, in the first format that can be written."""
     if image.mode != "RGB":
         image = image.convert("RGB")
     width, height = image.size

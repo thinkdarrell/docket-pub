@@ -306,3 +306,25 @@ def test_a_picture_no_format_can_write_is_unreadable_with_the_lock_released(
 
     assert picture.saved_locked == [False, False]
     assert not pp._lock.locked()
+
+
+def test_an_error_while_the_picture_is_encoded_is_unreadable_with_the_lock_released(
+    pp, fixture_pdf, monkeypatch
+):
+    class _Unconvertible(_Picture):
+        mode = "L"
+
+        def convert(self, mode):
+            self.saved_locked.append(self._pp._lock.locked())
+            raise ValueError("cannot convert to " + mode)
+
+    picture = _Unconvertible(pp)
+    _watched_library(pp, monkeypatch, picture=picture)
+
+    # Outside the lock, and still UnreadablePdf: what render_page raises
+    # does not depend on where the lock ends.
+    with pytest.raises(pp.UnreadablePdf, match="ValueError: cannot convert to RGB"):
+        pp.render_page(fixture_pdf, 2)
+
+    assert picture.saved_locked == [False]
+    assert not pp._lock.locked()
