@@ -1507,9 +1507,20 @@
 
 /* The minutes page viewer (plan minutes-open-at-the-vote-page, M3): one page
    of the city's minutes as a picture. width: 100% with height: auto fits the
-   picture to the column, and so to a phone, whatever its size in pixels. The
-   third rule keeps "Page 2" at the right edge on page 1, where it is the
-   nav's only child. */
+   picture to the column, and so to a phone, whatever its size in pixels.
+   The pager above and below it is three columns: the page before at the
+   left, "Page n of m" in the middle, the page after at the right. Each link
+   names its column, so "Page 2" stays at the right edge on page 1, where no
+   link stands at the left. The links are 44 pixels tall, a thumb's width. */
 .minutes-page-image { display: block; width: 100%; max-width: 1200px; height: auto; border: 1px solid var(--rule); background: #fff; }
-.minutes-page-nav { display: flex; justify-content: space-between; gap: 16px; padding: 8px 0; }
-.minutes-page-next { margin-left: auto; }
+.minutes-page-nav { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: var(--space-3); max-width: 1200px; padding: var(--space-3) 0; }
+.minutes-page-step { display: inline-flex; align-items: center; min-height: 44px; padding: var(--space-2) var(--space-4); border: 1px solid var(--rule-strong); border-radius: var(--radius); background: var(--paper); color: var(--ink); font-family: var(--font-ui); font-size: 1rem; font-weight: 500; text-decoration: none; white-space: nowrap; }
+.minutes-page-step:hover { border-color: var(--ink-3); background: var(--paper-2); }
+.minutes-page-prev { grid-column: 1; justify-self: start; }
+.minutes-page-count { grid-column: 2; font-family: var(--font-ui); font-size: 1rem; color: var(--ink-2); white-space: nowrap; }
+.minutes-page-next { grid-column: 3; justify-self: end; }
+@media (max-width: 480px) {
+  .minutes-page-nav { gap: var(--space-2); }
+  .minutes-page-step { padding: var(--space-2) var(--space-3); font-size: 0.9375rem; }
+  .minutes-page-count { font-size: 0.875rem; }
+}

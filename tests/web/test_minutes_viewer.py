@@ -406,13 +406,24 @@ def test_an_unavailable_page_of_a_hidden_meeting_is_not_stored(
 
 def test_the_stylesheet_fits_the_picture_and_keeps_the_next_link_at_the_right():
     css = re.sub(r"\s+", " ", LAYOUT_CSS.read_text(encoding="utf-8"))
-    assert ".minutes-page-next { margin-left: auto; }" in css
     image = re.search(r"\.minutes-page-image \{([^}]*)\}", css).group(1)
     assert "width: 100%;" in image
     assert "height: auto;" in image
     assert "max-width: 1200px;" in image
+    # Three columns; each link names its own, so the link to the next page
+    # is at the right edge on page 1, where it has no link at the left.
     nav = re.search(r"\.minutes-page-nav \{([^}]*)\}", css).group(1)
-    assert "justify-content: space-between;" in nav
+    assert "grid-template-columns: 1fr auto 1fr;" in nav
+    assert ".minutes-page-prev { grid-column: 1; justify-self: start; }" in css
+    assert ".minutes-page-next { grid-column: 3; justify-self: end; }" in css
+    # A link a thumb can hit.
+    step = re.search(r"\.minutes-page-step \{([^}]*)\}", css).group(1)
+    assert "min-height: 44px;" in step
+
+
+def test_each_nav_says_which_page_of_how_many(client, seeded):
+    body = client.get(_path(seeded["good"], 2)).get_data(as_text=True)
+    assert body.count('<span class="minutes-page-count">Page 2 of 4</span>') == 2
 
 
 def test_the_viewer_predicate_is_a_template_global():
