@@ -19,7 +19,7 @@ Neither change shows on a page while the database is well, so the observation th
 - [x] (2026-11-23 22:35Z) M1: the source-link allowlist's one SQL statement is asked through `docket.services.query` and `src/docket/web/source_security.py` executes none, with the allowlist's behaviour unchanged, the row `D7` in `docs/DEBT.md` no longer naming that module, and `./tools/verify` exiting zero.
 - [x] (2026-11-23 22:59Z) M2: when the allowlist's query fails or times out, `get_allowlist` logs the error, keeps serving the last list the database gave (the six fixed domains alone only when none has loaded in the process), and asks again after a retry interval shorter than ten minutes without making a caller that has a list wait; tests show each, one of them against a local socket that never answers; the row `D207` is deleted and `docs/specs/operations.md` and `docs/specs/votes.md` say what happens; `./tools/verify` exits zero.
 - [x] (2026-11-23 23:27Z) M3: when the database does not answer while `create_app` starts, the failure is logged at error level and a later request to a blog address loads the posts, with no redeploy; tests show the start, the recovery, the bound on how often it is tried and that one thread reads at a time, one of them against a local socket that never answers; the row `D208` is deleted, step 4 of `D206` and `docs/specs/operations.md` say what to read in the log, and the rows `D34` and `D21` record that this plan re-deferred them; `./tools/verify` exits zero.
-- [ ] M4: the closing documents: one decision record under `docs/decisions/` holds the two choices and why, a new row in `docs/DEBT.md` records that the request path has still not been read for other handlers that answer without the database, `docs/birmingham/06-reader-surfaces.md` names the templates that ask the allowlist, the cross-checks of Validation and Acceptance print what they should, and `./tools/verify` exits zero.
+- [x] (2026-11-23 23:47Z) M4: the closing documents: one decision record under `docs/decisions/` holds the two choices and why, a new row in `docs/DEBT.md` records that the request path has still not been read for other handlers that answer without the database, `docs/birmingham/06-reader-surfaces.md` names the templates that ask the allowlist, the cross-checks of Validation and Acceptance print what they should, and `./tools/verify` exits zero.
 
 ## Surprises & Discoveries
 
@@ -516,6 +516,44 @@ The session's last `./tools/verify`, at `d2d40d8` with a clean tree, exited 0 wi
     verify: all 6 checks passed in 351s.
 
 The first tier's 3825 is the start's 3815 and the ten new tests. One carve-out against M3's acceptance, on its first clause: the one-file command run before the code changed failed nine of the ten tests, and the tenth, `test_a_start_with_the_database_leaves_nothing_pending`, passed there (Surprises, M3). Every other clause is met as printed above. M4 is next.
+### M4, observed on 2026-11-23
+
+The session's first `./tools/verify`, at `e33323c` with a clean tree and before any edit, exited 0:
+
+    3825 passed, 5 skipped, 4 xfailed, 2 warnings in 199.31s (0:03:19)
+    1164 passed, 2 warnings in 130.04s (0:02:10)
+    judge fixtures: 12 of 12 passed
+    147 passed, 1 warning in 11.67s
+    plans: 1 of 1 ok
+    verify: all 6 checks passed in 345s.
+
+What was written: `docs/decisions/0136-a-web-read-the-database-does-not-answer-is-logged-served-from-what-last-loaded-and-asked-again.md` (commit `89e4d62`), row `D209` in `docs/DEBT.md` after row `D206` (`857b678`), and the sentence of `docs/birmingham/06-reader-surfaces.md` line 95 (`0d0320b`). No file under `src/` or `tests/` changed in this milestone. How the two numbers were taken is in the Decision Log (M4).
+
+The cross-checks, run at `0d0320b` with a clean tree:
+
+    ls docs/decisions | grep -c 'a-web-read-the-database-does-not-answer'                    1
+    grep -n '^## ' docs/decisions/0136-*.md                                                  Decision, Rationale, Date, Status (lines 3, 7, 19, 23)
+    grep -c 'no current template includes' docs/birmingham/06-reader-surfaces.md             1
+    grep -c 'meeting_detail.html.*is_viewer_url' docs/birmingham/06-reader-surfaces.md       1
+    grep -c '^| D209 ' docs/DEBT.md                                                          1
+    grep -E 'D20[78]' docs/DEBT.md | cut -c1-7                                               | D70 |
+    git diff --stat origin/main -- Dockerfile Procfile tests/unit/test_web_start_line.py     nothing
+
+`git diff --name-only origin/main` printed fifteen files, each one this plan names: `docs/DEBT.md`, `docs/birmingham/06-reader-surfaces.md`, the record `0136`, `docs/specs/operations.md`, `docs/specs/votes.md`, this file, `src/docket/blog/loader.py`, `src/docket/services/query.py`, `src/docket/web/__init__.py`, `src/docket/web/admin.py`, `src/docket/web/blog.py`, `src/docket/web/source_security.py`, `tests/services/test_query_source_hosts.py`, `tests/unit/test_source_security.py` and `tests/web/test_blog_state_recovery.py`.
+
+The session's last `./tools/verify`, at `0d0320b` with a clean tree, exited 0 with every summary line `ok`:
+
+    3825 passed, 5 skipped, 4 xfailed, 2 warnings in 197.40s (0:03:17)
+    1164 passed, 2 warnings in 131.70s (0:02:11)
+    judge fixtures: 12 of 12 passed
+    workflows: 2 of 2 ok
+    147 passed, 1 warning in 11.57s
+    plans: 1 of 1 ok
+    verify: unit+web+services ... ok (200s)
+    verify: integration ... ok (132s)
+    verify: all 6 checks passed in 344s.
+
+The counts are those of the session's start, this milestone having changed documents only. No acceptance clause of M4 is unmet. M4 is the last milestone: what follows is the retro stage, which writes Outcomes & Retrospective and moves this file, and after the merge the operator's steps of row `D206`. Not done by any session of this plan, and not claimed: a deploy, or any reading of production under the new behaviour.
 
 ## Interfaces and Dependencies
 
