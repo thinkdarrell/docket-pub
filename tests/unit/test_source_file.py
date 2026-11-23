@@ -79,6 +79,9 @@ def test_a_pdf_body_is_returned_whole_from_one_bounded_request(sf, monkeypatch):
     assert kwargs["headers"]["User-Agent"] == sf.USER_AGENT
     assert "docket.pub" in sf.USER_AGENT
     assert kwargs["headers"]["Accept"] == "application/pdf"
+    # The body as it is: the request Mobile was watched answering asked for
+    # no encoding, and Content-Length then counts the bytes that arrive.
+    assert kwargs["headers"]["Accept-Encoding"] == "identity"
     assert response.chunk_sizes == [sf.CHUNK_BYTES]
     assert response.closed
 

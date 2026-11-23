@@ -15,7 +15,8 @@ The module is imported inside each test (through the ``mv`` fixture) so
 that this file collects, and each test fails by itself, before the module
 exists.
 
-Plan `minutes-open-at-the-vote-page`, M2.
+Plan `minutes-open-at-the-vote-page`, M2; M2b changed what a caller who
+waited is handed, the number of files kept, and what ``NoSuchPage`` carries.
 """
 
 from __future__ import annotations
@@ -115,7 +116,7 @@ def _unavailable(mv, url, page=1):
 
 def test_the_constants_are_the_plans(mv):
     assert mv.MAX_PAGE == 2000
-    assert mv.CACHE_FILES == 4
+    assert mv.CACHE_FILES == 16
     assert mv.CACHE_BYTES == 40 * 1024 * 1024
     assert mv.CACHE_TTL_S == 3600.0
     assert mv.FAILURE_TTL_S == 60.0
@@ -181,10 +182,12 @@ def test_the_last_page_and_the_first_are_pages(mv, fetch):
 
 @pytest.mark.parametrize("page", [0, -1, 2001])
 def test_a_page_outside_the_bound_is_no_such_page_with_no_fetch(mv, fetch, page):
-    with pytest.raises(mv.NoSuchPage):
+    with pytest.raises(mv.NoSuchPage) as raised:
         mv.page_view(URL, page)
 
     assert fetch.calls == []
+    # No file is in hand, so nothing says how many pages it has.
+    assert raised.value.page_count is None
 
 
 def test_the_bound_is_read_when_the_page_is_asked_for(mv, fetch, monkeypatch):
@@ -208,14 +211,16 @@ def test_a_page_past_the_files_end_is_no_such_page_after_one_fetch_and_is_not_dr
 
     monkeypatch.setattr(pdf_page, "render_page", counting)
 
-    with pytest.raises(mv.NoSuchPage):
+    with pytest.raises(mv.NoSuchPage) as raised:
         mv.page_view(URL, 5)
     assert fetch.calls == [URL]
+    assert raised.value.page_count == 4
 
-    with pytest.raises(mv.NoSuchPage):
+    with pytest.raises(mv.NoSuchPage) as raised:
         mv.page_view(URL, 5)
     assert fetch.calls == [URL]
     assert drawn == []
+    assert raised.value.page_count == 4
 
 
 def test_a_file_is_fetched_again_after_an_hour(mv, fetch, clock):
@@ -396,6 +401,22 @@ def test_a_page_the_drawing_says_is_out_of_range_is_no_such_page(mv, fetch, monk
     assert URL in mv._files
 
 
+def test_no_such_page_from_the_drawing_carries_the_drawings_page_count(mv, fetch, monkeypatch):
+    def out_of_range(data, page, **kwargs):
+        raise pdf_page.PageOutOfRange(3, 2)
+
+    monkeypatch.setattr(pdf_page, "render_page", out_of_range)
+
+    with pytest.raises(mv.NoSuchPage) as raised:
+        mv.page_view(URL, 3)
+    assert raised.value.page_count == 2
+
+
+def test_no_such_page_keeps_no_page_count_unless_given_one(mv):
+    assert mv.NoSuchPage("page 0").page_count is None
+    assert mv.NoSuchPage("page 9 of 4", page_count=4).page_count == 4
+
+
 def test_a_failed_fetch_is_logged_with_the_address_the_reason_and_the_time(
     mv, fetch, clock, caplog
 ):
@@ -453,8 +474,9 @@ def test_bytes_that_are_not_a_pdf_are_logged(mv, fetch, caplog):
 # The cache.
 
 
-def test_the_cache_drops_the_least_recently_used_file(mv, fetch):
+def test_the_cache_drops_the_least_recently_used_file(mv, fetch, monkeypatch):
     a, b, c, d, e = (f"https://{name}.example/minutes.pdf" for name in "abcde")
+    monkeypatch.setattr(mv, "CACHE_FILES", 4)
 
     for url in (a, b, c, d):
         mv.page_view(url, 1)
@@ -491,8 +513,28 @@ def test_a_file_fetched_again_after_its_hour_is_the_most_recently_used(
     assert fetch.calls == [a, b, a, c]
 
 
-def test_the_cache_holds_four_files(mv, fetch):
+def test_the_cache_holds_sixteen_files_and_drops_the_least_recently_used_for_a_seventeenth(
+    mv, fetch
+):
+    urls = [f"https://h{n}.example/minutes.pdf" for n in range(17)]
+
+    for url in urls:
+        mv.page_view(url, 1)
+    assert len(fetch.calls) == 17
+
+    for url in urls[1:]:
+        mv.page_view(url, 2)
+    assert len(fetch.calls) == 17
+    assert len(mv._files) == 16
+
+    # The first was the least recently used when the seventeenth was stored.
+    mv.page_view(urls[0], 1)
+    assert len(fetch.calls) == 18
+
+
+def test_the_cache_holds_four_files(mv, fetch, monkeypatch):
     a, b, c, d = (f"https://{name}.example/minutes.pdf" for name in "abcd")
+    monkeypatch.setattr(mv, "CACHE_FILES", 4)
 
     for url in (a, b, c, d):
         mv.page_view(url, 1)
@@ -772,6 +814,53 @@ def test_two_callers_of_one_file_share_one_fetch(mv, monkeypatch, fixture_pdf):
     assert isinstance(results["second"], mv.PageView) and results["second"].page == 2
     assert fake.calls == [slow]
     assert mv._inflight == {}
+
+
+def test_a_caller_who_waited_is_handed_the_file_the_fetch_brought(mv, monkeypatch, fixture_pdf):
+    slow = "https://slow.example/minutes.pdf"
+    fake = _Slow(fixture_pdf, slow)
+    monkeypatch.setattr(mv, "_fetch", fake)
+    # No entry in the cache is ever fresh: a waiter that looked there again
+    # after the fetch would find nothing to use.
+    monkeypatch.setattr(mv, "CACHE_TTL_S", 0)
+    results = {}
+
+    first = _start(mv, results, "first", slow, 1)
+    assert fake.entered.wait(JOIN_S)
+    second = _start(mv, results, "second", slow, 2)
+    _wait_until(lambda: not second.is_alive() or mv._inflight.get(slow) is not None)
+    time.sleep(0.05)  # let the second caller reach its wait
+    fake.release.set()
+    _join(first, second)
+
+    assert isinstance(results["first"], mv.PageView) and results["first"].page == 1
+    assert isinstance(results["second"], mv.PageView) and results["second"].page == 2
+    assert fake.calls == [slow]
+    assert mv._inflight == {}
+
+
+def test_a_caller_who_waited_does_not_look_at_the_failure_memory_again(
+    mv, monkeypatch, fixture_pdf, clock
+):
+    slow = "https://slow.example/minutes.pdf"
+    fake = _Slow(fixture_pdf, slow)
+    monkeypatch.setattr(mv, "_fetch", fake)
+    results = {}
+
+    first = _start(mv, results, "first", slow, 1)
+    assert fake.entered.wait(JOIN_S)
+    second = _start(mv, results, "second", slow, 2)
+    _wait_until(lambda: not second.is_alive() or mv._inflight.get(slow) is not None)
+    time.sleep(0.05)  # let the second caller reach its wait
+    # Something is remembered against the host while both are inside.
+    with mv._state_lock:
+        mv._failures["host:slow.example"] = clock.now()
+    fake.release.set()
+    _join(first, second)
+
+    # The fetch it waited for succeeded, and its file is what the waiter gets.
+    assert isinstance(results["second"], mv.PageView) and results["second"].page == 2
+    assert fake.calls == [slow]
 
 
 def test_a_cached_page_is_served_while_another_file_is_being_fetched(

@@ -9,7 +9,8 @@ The module is imported inside each test (through the ``pp`` fixture) so
 that this file collects, and each test fails by itself, before the module
 exists.
 
-Plan `minutes-open-at-the-vote-page`, M1.
+Plan `minutes-open-at-the-vote-page`, M1; M2b moved the encoding of the
+picture outside the module's lock.
 """
 
 from __future__ import annotations
@@ -177,22 +178,46 @@ def test_the_module_does_not_load_the_pdf_library_when_imported(pp):
     assert not any("pypdfium2" in line or "PIL" in line for line in top_level)
 
 
-def _watched_library(pp, monkeypatch):
+def _watched_library(pp, monkeypatch, picture=None):
     """Put a stand-in for the PDF library in place whose documents record
     whether the module's lock was held when they were opened, and that they
-    were closed. Everything else is the real library's."""
+    were closed. Everything else is the real library's, unless ``picture``
+    is given: then every page of a document is a stand-in whose
+    ``render(...).to_pil()`` returns that picture."""
     import sys
     import types
 
     seen = {"locked": [], "closed": 0}
+
+    class _Bitmap:
+        def to_pil(self):
+            seen.setdefault("to_pil_locked", []).append(pp._lock.locked())
+            return picture
+
+    class _Page:
+        def get_size(self):
+            return (612.0, 792.0)
+
+        def render(self, scale=1):
+            seen.setdefault("scales", []).append(scale)
+            return _Bitmap()
+
+        def close(self):
+            seen["page_closed_locked"] = pp._lock.locked()
 
     class _Watched(pypdfium2.PdfDocument):
         def __init__(self, *args, **kwargs):
             seen["locked"].append(pp._lock.locked())
             super().__init__(*args, **kwargs)
 
+        def __getitem__(self, index):
+            if picture is None:
+                return super().__getitem__(index)
+            return _Page()
+
         def close(self):
             seen["closed"] += 1
+            seen["closed_locked"] = pp._lock.locked()
             super().close()
 
     monkeypatch.setitem(sys.modules, "pypdfium2", types.SimpleNamespace(PdfDocument=_Watched))
@@ -204,7 +229,7 @@ def test_render_page_holds_the_lock_and_closes_the_document(pp, fixture_pdf, mon
 
     assert pp.render_page(fixture_pdf, 2).page_count == 4
 
-    assert seen == {"locked": [True], "closed": 1}
+    assert (seen["locked"], seen["closed"]) == ([True], 1)
     assert not pp._lock.locked()
 
 
@@ -213,7 +238,7 @@ def test_page_count_holds_the_lock_and_closes_the_document(pp, fixture_pdf, monk
 
     assert pp.page_count(fixture_pdf) == 4
 
-    assert seen == {"locked": [True], "closed": 1}
+    assert (seen["locked"], seen["closed"]) == ([True], 1)
     assert not pp._lock.locked()
 
 
@@ -223,5 +248,61 @@ def test_the_lock_is_released_when_the_page_is_out_of_range(pp, fixture_pdf, mon
     with pytest.raises(pp.PageOutOfRange):
         pp.render_page(fixture_pdf, 9)
 
-    assert seen == {"locked": [True], "closed": 1}
+    assert (seen["locked"], seen["closed"]) == ([True], 1)
+    assert not pp._lock.locked()
+
+
+class _Picture:
+    """A stand-in for the drawn picture that records, when it is saved,
+    whether the module's lock is held."""
+
+    mode = "RGB"
+    size = (1200, 1553)
+
+    def __init__(self, pp):
+        self._pp = pp
+        self.saved_locked = []
+        self.saved_as = []
+
+    def save(self, buf, name, **options):
+        self.saved_locked.append(self._pp._lock.locked())
+        self.saved_as.append((name, options))
+        buf.write(b"stand-in")
+
+
+def test_the_picture_is_encoded_after_the_lock_is_released(pp, fixture_pdf, monkeypatch):
+    picture = _Picture(pp)
+    seen = _watched_library(pp, monkeypatch, picture=picture)
+
+    rendered = pp.render_page(fixture_pdf, 2)
+
+    assert rendered.image == b"stand-in"
+    assert rendered.mime == "image/webp"
+    assert (rendered.page_count, rendered.width, rendered.height) == (4, 1200, 1553)
+    # The PDF library's work is under the lock: open, draw, to_pil, close.
+    assert (seen["locked"], seen["closed"]) == ([True], 1)
+    assert seen["to_pil_locked"] == [True]
+    assert seen["page_closed_locked"] is True
+    assert seen["closed_locked"] is True
+    # The encoding is not.
+    assert picture.saved_locked == [False]
+    assert picture.saved_as == [("WEBP", {"lossless": True})]
+    assert not pp._lock.locked()
+
+
+def test_a_picture_no_format_can_write_is_unreadable_with_the_lock_released(
+    pp, fixture_pdf, monkeypatch
+):
+    class _Unwritable(_Picture):
+        def save(self, buf, name, **options):
+            self.saved_locked.append(self._pp._lock.locked())
+            raise OSError("cannot write " + name)
+
+    picture = _Unwritable(pp)
+    _watched_library(pp, monkeypatch, picture=picture)
+
+    with pytest.raises(pp.UnreadablePdf):
+        pp.render_page(fixture_pdf, 2)
+
+    assert picture.saved_locked == [False, False]
     assert not pp._lock.locked()
