@@ -16,7 +16,7 @@ Neither change shows on a page while the database is well, so the observation th
 
 ## Progress
 
-- [ ] M1: the source-link allowlist's one SQL statement is asked through `docket.services.query` and `src/docket/web/source_security.py` executes none, with the allowlist's behaviour unchanged, the row `D7` in `docs/DEBT.md` no longer naming that module, and `./tools/verify` exiting zero.
+- [x] (2026-11-23 22:35Z) M1: the source-link allowlist's one SQL statement is asked through `docket.services.query` and `src/docket/web/source_security.py` executes none, with the allowlist's behaviour unchanged, the row `D7` in `docs/DEBT.md` no longer naming that module, and `./tools/verify` exiting zero.
 - [ ] M2: when the allowlist's query fails or times out, `get_allowlist` logs the error, keeps serving the last list the database gave (the six fixed domains alone only when none has loaded in the process), and asks again after a retry interval shorter than ten minutes without making a caller that has a list wait; tests show each, one of them against a local socket that never answers; the row `D207` is deleted and `docs/specs/operations.md` and `docs/specs/votes.md` say what happens; `./tools/verify` exits zero.
 - [ ] M3: when the database does not answer while `create_app` starts, the failure is logged at error level and a later request to a blog address loads the posts, with no redeploy; tests show the start, the recovery, the bound on how often it is tried and that one thread reads at a time, one of them against a local socket that never answers; the row `D208` is deleted, step 4 of `D206` and `docs/specs/operations.md` say what to read in the log, and the rows `D34` and `D21` record that this plan re-deferred them; `./tools/verify` exits zero.
 - [ ] M4: the closing documents: one decision record under `docs/decisions/` holds the two choices and why, a new row in `docs/DEBT.md` records that the request path has still not been read for other handlers that answer without the database, `docs/birmingham/06-reader-surfaces.md` names the templates that ask the allowlist, the cross-checks of Validation and Acceptance print what they should, and `./tools/verify` exits zero.
@@ -37,6 +37,10 @@ As authored on 2026-11-23, nothing has been executed, so no milestone has a disc
 
 - Observation (revision, 2026-11-23, a production read the operator asked for): production's allowlist adds nothing to the six fixed domains today. Rows `D207` and the closing review that found it left this unread; it means the links `D207` describes as withheld were, on this day, none, and the defect is one that waits for the first city whose files are on its own host (the operator's next cities). The plan's work stands: the handler was silent and the rule was lossy, and the test hosts (`newcity.example.gov`) are that future city.
   Evidence: on the Legion's WSL, with the address from `railway variables --service worker --kv` and `PGOPTIONS="-c default_transaction_read_only=on"`, `psql` ran `SELECT slug, active, adapter_config->>'base_url' FROM municipalities WHERE adapter_config ? 'base_url' ORDER BY active DESC, slug` and printed one line, `birmingham | t | https://bhamal.granicus.com`; `SELECT count(*) FILTER (WHERE active), count(*) FROM municipalities` printed `4 | 4`.
+- Observation (M1, 2026-11-23): Artifacts and Notes says of `tests/unit/test_source_security.py` "84 at the end of M2", where M2's text and its acceptance say fourteen tests are added and `86 passed`. The 84 is the figure from before the revision that added two tests; 72 and fourteen is 86, and the acceptance clause is the one M2 is held to. The sentence is left as written and corrected here.
+  Evidence: the one-file command printed `72 passed` at the start and the end of M1; `grep -n '84 at the end\|86 passed' plans/active/source-links-and-blog-survive-a-slow-db.md` shows both figures.
+- Observation (M1, 2026-11-23): no test calls `get_allowlist()` with no argument and asserts on what it asked, so the default (`docket.services.query.list_active_base_urls`, imported inside the function) is exercised only by the web and integration tiers rendering pages against the test database, where a wrong default would raise into the handler and be served as the fixed set, unseen. M2's real-socket test (`test_a_database_that_never_answers_is_logged_and_the_loaded_list_is_kept`) calls it with no argument and reads the driver's error, which pins the default; M1 adds no test for it, the plan having said none is added to the unit file.
+  Evidence: `grep -n 'get_allowlist()' tests -r` read for a call with no argument: none in `tests/unit/test_source_security.py`.
 
 ## Decision Log
 
@@ -77,6 +81,12 @@ As authored on 2026-11-23, nothing has been executed, so no milestone has a disc
 - Decision: not taken from the review, and why. No guard on `PGSSLMODE` or `PGOPTIONS` in the real-socket tests (measured: neither changes the 2.0 seconds; Surprises). No call of `get_allowlist()` inside `create_app` to warm the list: a database that is not answering when the process starts fails that call too, so it moves the wait from the first request to the start and adds an error line to every tool and test that builds an application without a database; the case it would help is the one in which the first request's read succeeds anyway. No 503 from the blog (already decided above; the review agrees while the blog is unlinked, and its point about a cached 404 once posts are linked from elsewhere is carried into the decision record M4 writes). Not in this plan and written on M4's debt row with what would prompt each: logging set up for the web process, which would let recovery lines be info and is a change to every web log line and to tests that read them; the refresh route reading the database in the request and reporting the outcome, which changes `src/docket/web/admin.py`, a module `D7` still names; a health check address, which needs a Railway setting this repository does not hold; and a shared helper for the rule, which two hand-written copies do not yet justify.
   Rationale: each is either measured unnecessary, already decided with its reason, or work with its own tests that the goal (two rows paid before a deploy) does not need. The cold start is the one edge left: a process that starts while the database is not answering allows only the six fixed domains until a read succeeds, asked again every 30 seconds. On a database built from the migrations that loses nothing (Surprises, first entry: the one stored `base_url` is already under `granicus.com`); whether production holds a city host outside the six is the read M4's row records as not done. (Added later on 2026-11-23: the operator asked for that read and it was run; production holds none. Surprises has what printed, and M4's row now records the result.)
   Date/Author: 2026-11-23, revision before any milestone ran (Claude).
+- Decision (M1): the parameter `urls_fn` is annotated `Callable[[], Iterable[str | None]]`, and `ContextManager` leaves the module's imports for `Iterable`; the helper `_counting_cursor_fn` in `tests/unit/test_source_security.py` keeps its name though it no longer holds a cursor.
+  Rationale: the plan gives the signatures without annotations and says the helper "counts calls of the function" under its present name. `load_municipality_hosts` only iterates what the function returns, so `Iterable` is the honest type and the service's `list[str | None]` satisfies it. Renaming the helper was weighed: M2 adds fourteen tests beside it and its text names no helper, so a rename is free to that session, and this one changes no name the plan did not say to change.
+  Date/Author: 2026-11-23, M1 session (Claude).
+- Decision (M1): the fourth test of `tests/services/test_query_source_hosts.py` asserts that seeding the three rows adds exactly one element to the result, read before and after, in place of the plan's bare "every element is a string or `None`".
+  Rationale: with only the plan's four assertions, taking `adapter_config ? 'base_url'` out of the statement fails nothing (the row with no key adds a `None`, which the type assertion allows), and `skills/plan-execute/SKILL.md` asks that a removal that fails no test get an assertion. The count is relative so that a `base_url` row another test of the tier might leave does not fail it.
+  Date/Author: 2026-11-23, M1 session (Claude).
 
 ## Outcomes & Retrospective
 
@@ -334,6 +344,20 @@ After the change (`list_active_base_urls` added to `src/docket/services/query.py
     grep -c 'list_active_base_urls' docs/DEBT.md                             1
 
 The rules taken out of a copy, one at a time (a pytest plugin in the session scratchpad that compiles `list_active_base_urls` from its source with one string replaced and sets it on `docket.services.query`; the committed file was not edited), against `tests/services/test_query_source_hosts.py`: three removals tried, three failed a test. Without `active = TRUE`, `test_an_inactive_citys_base_url_is_absent` and the count test failed (`2 failed, 2 passed`); without `adapter_config ? 'base_url'`, the count test failed (`1 failed, 3 passed`); with the value lower-cased before it is returned, `test_an_active_citys_base_url_is_returned_exactly_as_stored` failed (`1 failed, 3 passed`); the unaltered copy printed `4 passed`. One assertion was changed after the commit that holds the tests failing (`2dcf24a`): the fourth test first asserted that the result had two elements, which holds only while no other test leaves a `base_url` row behind; it now reads the service before and after it seeds its three rows and asserts one element more. It failed on the import in `2dcf24a` in either form.
+
+The session's last `./tools/verify`, at `fd93cb1` with a clean tree, exited 0 with every summary line `ok`:
+
+    3801 passed, 5 skipped, 4 xfailed, 2 warnings in 186.96s (0:03:06)
+    1164 passed, 2 warnings in 126.94s (0:02:06)
+    judge fixtures: 12 of 12 passed
+    workflows: 2 of 2 ok
+    147 passed, 1 warning in 10.23s
+    plans: 1 of 1 ok
+    verify: unit+web+services ... ok (188s)
+    verify: integration ... ok (128s)
+    verify: all 6 checks passed in 327s.
+
+The first tier's 3801 is the start's 3797 and the four new service tests. No acceptance clause of M1 is unmet. M2 is next.
 
 ## Interfaces and Dependencies
 
