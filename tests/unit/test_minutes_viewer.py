@@ -240,6 +240,18 @@ def test_the_hour_counts_from_the_fetch_and_not_from_the_last_use(mv, fetch, clo
     assert len(fetch.calls) == 2
 
 
+def test_the_hour_counts_from_when_the_file_arrived(mv, fetch, clock):
+    def takes_two_seconds(url):
+        clock.t += 2.0
+
+    fetch.during = takes_two_seconds
+    mv.page_view(URL, 1)  # sent at 100.0, arrived at 102.0
+
+    clock.t = 102.0 + 3599
+    mv.page_view(URL, 1)
+    assert len(fetch.calls) == 1
+
+
 # Failures.
 
 
@@ -291,6 +303,21 @@ def test_a_host_that_did_not_answer_is_remembered_for_every_address_on_it(mv, fe
     assert fetch.calls == [one, three, two]
 
 
+def test_a_cached_file_is_unavailable_while_its_host_is_remembered_as_down(mv, fetch, clock):
+    # The failure memory is looked at before the cache, as the plan orders it.
+    bad = "https://a.example/bad.pdf"
+    fetch.answers[bad] = SourceFileError("timed out", host_down=True)
+
+    assert mv.page_view(URL, 1).page == 1
+    clock.t = 110.0
+    _unavailable(mv, bad)
+    _unavailable(mv, URL)
+
+    clock.t = 171.0
+    assert mv.page_view(URL, 2).page == 2
+    assert fetch.calls == [URL, bad]
+
+
 def test_bytes_that_are_not_a_pdf_are_unavailable_not_kept_and_not_fetched_again_for_a_minute(
     mv, fetch, clock
 ):
@@ -314,16 +341,23 @@ def test_bytes_that_are_not_a_pdf_are_unavailable_not_kept_and_not_fetched_again
 
 
 def test_a_page_that_cannot_be_drawn_is_unavailable_and_the_file_is_dropped(
-    mv, fetch, clock, monkeypatch
+    mv, fetch, clock, monkeypatch, caplog
 ):
     def broken(data, page, **kwargs):
         raise pdf_page.UnreadablePdf("the picture could not be written")
 
     with monkeypatch.context() as patch:
         patch.setattr(pdf_page, "render_page", broken)
-        _unavailable(mv, URL, 2)
+        with caplog.at_level(logging.WARNING, logger="docket.services.minutes_viewer"):
+            _unavailable(mv, URL, 2)
         assert fetch.calls == [URL]
         assert URL not in mv._files
+
+    messages = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(messages) == 1
+    assert messages[0].startswith("minutes viewer:")
+    assert URL in messages[0]
+    assert "the picture could not be written" in messages[0]
 
     # Remembered as a failure: a minute passes before the address is tried again.
     clock.t = 159.0
@@ -333,6 +367,22 @@ def test_a_page_that_cannot_be_drawn_is_unavailable_and_the_file_is_dropped(
     clock.t = 161.0
     assert mv.page_view(URL, 2).page == 2
     assert len(fetch.calls) == 2
+
+
+def test_a_page_that_cannot_be_drawn_drops_only_the_entry_it_was_drawn_from(
+    mv, fetch, monkeypatch
+):
+    newer = object()
+
+    def broken(data, page, **kwargs):
+        # Another caller replaced the file while this one was drawing.
+        mv._files[URL] = newer
+        raise pdf_page.UnreadablePdf("the picture could not be written")
+
+    monkeypatch.setattr(pdf_page, "render_page", broken)
+
+    _unavailable(mv, URL, 2)
+    assert mv._files[URL] is newer
 
 
 def test_a_page_the_drawing_says_is_out_of_range_is_no_such_page(mv, fetch, monkeypatch):
@@ -424,6 +474,23 @@ def test_the_cache_drops_the_least_recently_used_file(mv, fetch):
     assert len(fetch.calls) == 6
 
 
+def test_a_file_fetched_again_after_its_hour_is_the_most_recently_used(
+    mv, fetch, clock, monkeypatch
+):
+    a, b, c = (f"https://{name}.example/minutes.pdf" for name in "abc")
+    monkeypatch.setattr(mv, "CACHE_FILES", 2)
+
+    mv.page_view(a, 1)
+    mv.page_view(b, 1)
+    clock.t += 3601
+    mv.page_view(a, 1)  # fetched again, in place of its stale entry
+    assert fetch.calls == [a, b, a]
+
+    mv.page_view(c, 1)  # drops B, the least recently used
+    mv.page_view(a, 1)
+    assert fetch.calls == [a, b, a, c]
+
+
 def test_the_cache_holds_four_files(mv, fetch):
     a, b, c, d = (f"https://{name}.example/minutes.pdf" for name in "abcd")
 
@@ -473,6 +540,7 @@ def test_clear_forgets_files_failures_and_host_times(mv, fetch, clock):
     fetch.answers[bad] = SourceFileError("timed out", host_down=True)
     mv.page_view("https://b.example/minutes.pdf", 1)
     _unavailable(mv, bad)
+    mv._inflight["https://c.example/minutes.pdf"] = threading.Event()
 
     mv.clear()
 
@@ -665,7 +733,7 @@ def _start(mv, results, key, url, page):
     def run():
         try:
             results[key] = mv.page_view(url, page)
-        except Exception as exc:  # the test asserts on what was raised
+        except Exception as exc:  # noqa: BLE001 - the test asserts on what was raised
             results[key] = exc
 
     thread = threading.Thread(target=run, daemon=True)
@@ -732,7 +800,7 @@ def test_a_cached_page_is_served_while_another_file_is_being_fetched(
 
 
 def test_a_wait_that_times_out_is_unavailable_and_is_not_remembered_as_a_failure(
-    mv, monkeypatch, fixture_pdf
+    mv, monkeypatch, fixture_pdf, caplog
 ):
     slow = "https://slow.example/minutes.pdf"
     fake = _Slow(fixture_pdf, slow)
@@ -743,8 +811,15 @@ def test_a_wait_that_times_out_is_unavailable_and_is_not_remembered_as_a_failure
     thread = _start(mv, results, "slow", slow, 1)
     assert fake.entered.wait(JOIN_S)
 
-    _unavailable(mv, slow)
+    began = time.monotonic()
+    with caplog.at_level(logging.WARNING, logger="docket.services.minutes_viewer"):
+        _unavailable(mv, slow)
+    assert time.monotonic() - began < 2, "the wait is WAIT_S, read when the page is asked for"
     assert mv._failures == {}
+    messages = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(messages) == 1
+    assert messages[0].startswith("minutes viewer: gave up waiting for a fetch in flight")
+    assert slow in messages[0]
 
     fake.release.set()
     _join(thread)
@@ -775,6 +850,28 @@ def test_a_caller_who_waited_on_a_fetch_that_failed_is_unavailable_without_a_sec
     assert fake.calls == [slow]
 
 
+def test_a_caller_who_waited_on_a_fetch_that_left_nothing_makes_no_fetch_of_its_own(
+    mv, monkeypatch, fixture_pdf
+):
+    slow = "https://slow.example/minutes.pdf"
+    fake = _Slow(fixture_pdf, slow, answer=RuntimeError("boom"))
+    monkeypatch.setattr(mv, "_fetch", fake)
+    results = {}
+
+    first = _start(mv, results, "first", slow, 1)
+    assert fake.entered.wait(JOIN_S)
+    second = _start(mv, results, "second", slow, 2)
+    _wait_until(lambda: not second.is_alive() or mv._inflight.get(slow) is not None)
+    time.sleep(0.05)
+    fake.release.set()
+    _join(first, second)
+
+    assert isinstance(results["first"], RuntimeError)
+    assert isinstance(results["second"], mv.Unavailable)
+    assert fake.calls == [slow]
+    assert mv._failures == {}
+
+
 def test_a_second_address_on_a_host_waits_for_the_first_and_is_not_sent_once_the_host_is_down(
     mv, monkeypatch, fixture_pdf
 ):
@@ -803,7 +900,7 @@ def test_a_second_address_on_a_host_waits_for_the_first_and_is_not_sent_once_the
 
 
 def test_a_fetcher_that_cannot_get_the_host_in_time_is_unavailable_and_nothing_is_remembered(
-    mv, monkeypatch, fixture_pdf
+    mv, monkeypatch, fixture_pdf, caplog
 ):
     one = "https://slow.example/one.pdf"
     two = "https://slow.example/two.pdf"
@@ -815,7 +912,14 @@ def test_a_fetcher_that_cannot_get_the_host_in_time_is_unavailable_and_nothing_i
     thread = _start(mv, results, "one", one, 1)
     assert fake.entered.wait(JOIN_S)
 
-    _unavailable(mv, two)
+    began = time.monotonic()
+    with caplog.at_level(logging.WARNING, logger="docket.services.minutes_viewer"):
+        _unavailable(mv, two)
+    assert time.monotonic() - began < 2, "the wait is WAIT_S, read when the page is asked for"
+    messages = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(messages) == 1
+    assert messages[0].startswith("minutes viewer: gave up waiting for the host")
+    assert two in messages[0]
     assert fake.calls == [one]
     assert mv._failures == {}
     assert two not in mv._inflight
