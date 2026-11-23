@@ -173,7 +173,7 @@ def test_the_open_questions_are_listed_under_their_heading(page):
 
 def test_the_page_links_its_own_stylesheet(page):
     hrefs = [link.get("href", "") for link in page.find_all("link", rel="stylesheet")]
-    assert any(href.endswith("/static/css/how_it_works.css") for href in hrefs)
+    assert any(href.split("?")[0].endswith("/static/css/how_it_works.css") for href in hrefs)
 
 
 def test_a_city_with_no_explainer_is_404(client):

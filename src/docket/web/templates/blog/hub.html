@@ -6,7 +6,7 @@
 <link rel="alternate" type="application/atom+xml"
       title="docket.pub blog"
       href="{{ url_for('blog.hub_feed') }}">
-<link rel="stylesheet" href="/static/blog/blog.css">
+<link rel="stylesheet" href="{{ url_for('static', filename='blog/blog.css') }}">
 {% endblock %}
 
 {% block content %}

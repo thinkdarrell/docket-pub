@@ -21,7 +21,7 @@
 {% for css in post.extra_css %}
 <link rel="stylesheet" href="/blog/assets/{{ post.city }}/{{ post.slug }}/{{ css }}">
 {% endfor %}
-<link rel="stylesheet" href="/static/blog/blog.css">
+<link rel="stylesheet" href="{{ url_for('static', filename='blog/blog.css') }}">
 {% endblock %}
 
 {% block content %}
