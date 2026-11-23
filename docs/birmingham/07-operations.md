@@ -6,7 +6,7 @@ One operator runs docket.pub from one machine, the Legion, with the production p
 
 | Where | Runs | Notes |
 | --- | --- | --- |
-| **Railway, service `docket-web`** | the Flask site, under gunicorn | the Procfile runs the migrations, then the server |
+| **Railway, service `docket-web`** | the Flask site, under gunicorn | the `Dockerfile`'s start line runs the migrations, then the server (`docs/specs/operations.md`, Railway specifics) |
 | **Railway, service `worker`** | the APScheduler process, `python -m docket.worker.scheduler` | a separate service (`0023`); idles near 954 MB, and a video OCR scan adds about 750 MB, so nothing may start a second heavy process on it |
 | **Railway, PostgreSQL 18** | the one database | 1 GB volume; bulk changes are one targeted statement (`0026`) |
 | **Railway, `analytics` + Valkey** | Umami | its own `umami` database; read through views only (`0024`) |
