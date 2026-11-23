@@ -92,7 +92,7 @@ Three pages state the policy in words a reader can quote: `/about/how-we-read-mi
 ## Behind the page
 
 - **Analytics**: a self-hosted Umami tracker, cookieless, with two custom events (`outbound_source_click`, `search_submit`) and a guard that drops long string properties; the operator reads it only through the `v_*` views (`0024`, `docs/runbooks/analytics.md`).
-- **Security**: HSTS without subdomains (`0025`); Secure, HttpOnly, SameSite cookies outside development; CSRF on every admin form. `source_security.py` is an allowlist for source-anchor URLs (Granicus, CivicClerk, CivicPlus, YouTube, Vimeo, and each city's own host) whose one calling partial no current template includes.
+- **Security**: HSTS without subdomains (`0025`); Secure, HttpOnly, SameSite cookies outside development; CSRF on every admin form. `source_security.py` is an allowlist for source-anchor URLs (Granicus, CivicClerk, CivicPlus, YouTube, Vimeo, and each city's own host) that is asked before a link is printed or a file fetched: the meeting page (`meeting_detail.html`) and the vote result block (`partials/_vote_result_block.html`) ask it before printing a vote's link to the minutes, the minutes page viewer's route asks the stricter `is_viewer_url` before fetching the city's file, and the partial `source_anchor_button.html` asks it too, but no current template includes that partial.
 - **Styling**: `styles.css` (tokens), `layout.css`, `councilmatic.css`, `tweaks.css`, `css/smart_brevity.css`, and `mobile.css` last with one 768 px breakpoint; IBM Plex Sans, JetBrains Mono, Source Serif 4; HTMX 2 for the transcript tab and the badge-landing filters.
 
 Next: [7. Where it runs, and the daily rhythm](07-operations.md).
