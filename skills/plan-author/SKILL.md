@@ -208,6 +208,21 @@ constrains:
    swaps without reloading the page; three sessions each looked for a browser,
    found none, and recorded the layout and the swap as unobserved, and the
    operator's look was first written down by the closing milestone (debt row `D125`, paid and deleted on 2026-11-16).
+   A bound the plan states on what code does with a slow or oversized
+   answer from a network (a deadline, a wait, a cap on bytes) has one test
+   that runs the code against what the bound is about: a socket server on
+   the local machine that misbehaves the way the bound is meant to stop,
+   with the time or size that run printed asserted. A faked library call
+   proves the fake, which hands over the pieces the test chose at the
+   moments the test chose. `minutes-open-at-the-vote-page` reasoned its
+   fetch's worst case from its constants twice: the first figure, 20
+   seconds, was wrong by its own rule and a revision made it 12, and the
+   closing review showed 12 wrong as well, because the library hands back
+   nothing until a whole chunk of a body of declared length has arrived, so
+   the deadline was not looked at when the plan said it was (16 seconds on
+   a local server; debt row `D204`, paid and deleted on 2026-11-23, before
+   the merge, by reading the body as it arrives). By then the figure was in the spec, a
+   docstring, a debt row and the sizing of a second constant.
    Take the acceptance-first order seriously — it is the
    only reliable sizing test, and writing the story first produces
    milestones whose acceptance is invented afterwards to fit.

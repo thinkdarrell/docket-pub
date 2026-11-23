@@ -1504,3 +1504,12 @@
 .search-moment { font-size: 14px; line-height: 1.5; max-width: 80ch; }
 .search-moment .t-mono { margin-right: var(--space-1); }
 .search-moments-label { margin-top: var(--space-1); }
+
+/* The minutes page viewer (plan minutes-open-at-the-vote-page, M3): one page
+   of the city's minutes as a picture. width: 100% with height: auto fits the
+   picture to the column, and so to a phone, whatever its size in pixels. The
+   third rule keeps "Page 2" at the right edge on page 1, where it is the
+   nav's only child. */
+.minutes-page-image { display: block; width: 100%; max-width: 1200px; height: auto; border: 1px solid var(--rule); background: #fff; }
+.minutes-page-nav { display: flex; justify-content: space-between; gap: 16px; padding: 8px 0; }
+.minutes-page-next { margin-left: auto; }

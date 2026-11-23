@@ -113,6 +113,7 @@ Allow: /
 Disallow: /admin/
 Disallow: /search
 Disallow: /*?
+Disallow: /al/*/meetings/*/minutes/
 """
 
 

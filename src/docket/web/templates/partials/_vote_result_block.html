@@ -11,13 +11,18 @@
      meeting      — Meeting (for minutes_url fallback link)
      municipality — dict with .slug (for url_for in source link macro)
 
-   Source-link priority within the macro: video link > minutes PDF >
-   meeting_detail#vote-N fallback. A vote a minutes reader wrote carries
-   the page it is printed on: its minutes link is v.minutes_page_url
-   (the meeting's minutes link at that page, set by
-   query.get_vote_for_item) and the link's words name the page; where
-   that address is not a safe one the fallback is printed and no minutes
-   link. The printed result is vote_label's and the colour vote_tone's
+   Source-link priority within the macro: video link > minutes page
+   viewer > minutes PDF > meeting_detail#vote-N fallback. A vote a
+   minutes reader wrote carries the page it is printed on:
+   v.minutes_page_url is the meeting's minutes link at that page (set by
+   query.get_vote_for_item) and the link's words name the page. The link
+   opens docket.pub's viewer of that page (public.minutes_page), which
+   shows the city's own file address; an address the viewer cannot fetch
+   (http), or a vote with no meeting id, keeps the direct link to the
+   city's file at the page, which the city serves as a download; where
+   the address is not a safe one both predicates say no, the fallback is
+   printed and no minutes link.
+   The printed result is vote_label's and the colour vote_tone's
    (docket.models.vote): the declaration the reader stored when the vote
    has one, in the minutes' own case, and the stored result otherwise.
    The video link is a finished VideoLink
@@ -37,6 +42,12 @@
        data-item-id="{{ item.id }}"
        target="_blank" rel="noreferrer">
       Watch this vote{% if v.video_link.label %} on {{ v.video_link.label }}{% endif %}{% if v.video_link.no_sound %} (no sound){% endif %} ↗
+    </a>
+  {%- elif is_minutes_viewer_url(v.minutes_page_url) and v.meeting_id and v.source_page -%}
+    <a class="link t-meta" rel="nofollow"
+       href="{{ url_for('public.minutes_page', slug=municipality.slug, meeting_id=v.meeting_id, page=v.source_page) }}"
+       data-item-id="{{ item.id }}">
+      Read minutes, page {{ v.source_page }}
     </a>
   {%- elif is_source_url_safe(v.minutes_page_url) -%}
     <a class="link t-meta"
