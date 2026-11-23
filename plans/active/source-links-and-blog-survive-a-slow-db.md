@@ -41,6 +41,12 @@ As authored on 2026-11-23, nothing has been executed, so no milestone has a disc
   Evidence: the one-file command printed `72 passed` at the start and the end of M1; `grep -n '84 at the end\|86 passed' plans/active/source-links-and-blog-survive-a-slow-db.md` shows both figures.
 - Observation (M1, 2026-11-23): no test calls `get_allowlist()` with no argument and asserts on what it asked, so the default (`docket.services.query.list_active_base_urls`, imported inside the function) is exercised only by the web and integration tiers rendering pages against the test database, where a wrong default would raise into the handler and be served as the fixed set, unseen. M2's real-socket test (`test_a_database_that_never_answers_is_logged_and_the_loaded_list_is_kept`) calls it with no argument and reads the driver's error, which pins the default; M1 adds no test for it, the plan having said none is added to the unit file.
   Evidence: `grep -n 'get_allowlist()' tests -r` read for a call with no argument: none in `tests/unit/test_source_security.py`.
+- Observation (M2, 2026-11-23): the driver's error text ends in a line break (`... failed: timeout expired` and a newline), so a log line built from `str(exc)` as it comes is two lines, and the contract says each line is one. The handler joins the text's white-space-separated words with single spaces before logging it.
+  Evidence: with that join taken out of a copy of the module held in memory, the real-socket test failed on `assert '\n' not in message`, the captured line breaking after `timeout expired`.
+- Observation (M2, 2026-11-23): after a failed read in a process where no list has loaded, `_CACHE` holds the fixed set with a 30-second expiry, so from then on a caller has a list in hand (the fixed set) and does not wait for another thread's retry. Only before the first attempt of the process has ended does a caller wait. That is what the contract's words give ("the expired list if `_CACHE` holds one"), and it is written here because "only a caller with nothing to serve waits" might be read as every caller of a process with no loaded list.
+  Evidence: read from the code as written; `test_a_failed_query_is_asked_again_after_the_retry_interval_and_not_before` runs that path in one thread.
+- Observation (M2, 2026-11-23): the fourteen tests as Plan of Work words them left five rules of the contract free. Taken out of a copy one at a time, these failed no test: the ten-minute expiry counted from the end of a read that succeeds (the plan's test of the count is for a failed read only), a caller with nothing to serve waiting for the lock, the check under the lock for a list another thread just stored, the list in hand after `invalidate_cache()` being the last one loaded while a read is in flight, and the error text on one line. Each now has an assertion inside a test the plan names (Decision Log, M2), and Artifacts and Notes has the count.
+  Evidence: the removal runs under "M2, observed on 2026-11-23" in Artifacts and Notes.
 
 ## Decision Log
 
@@ -87,6 +93,12 @@ As authored on 2026-11-23, nothing has been executed, so no milestone has a disc
 - Decision (M1): the fourth test of `tests/services/test_query_source_hosts.py` asserts that seeding the three rows adds exactly one element to the result, read before and after, in place of the plan's bare "every element is a string or `None`".
   Rationale: with only the plan's four assertions, taking `adapter_config ? 'base_url'` out of the statement fails nothing (the row with no key adds a `None`, which the type assertion allows), and `skills/plan-execute/SKILL.md` asks that a removal that fails no test get an assertion. The count is relative so that a `base_url` row another test of the tier might leave does not fail it.
   Date/Author: 2026-11-23, M1 session (Claude).
+- Decision (M2): `<n> hosts` in the two lines that carry it is the length of the list being served, the six fixed domains counted with the city hosts; and the exception's text is logged with its white space collapsed to single spaces.
+  Rationale: the plan gives the lines and does not say what `<n>` counts. The list served is one frozenset, and which of its members came from the database is not kept (a city host under a fixed domain is both), so the only count that needs no second piece of state is its length; an operator comparing the failure line's number with the recovery line's sees whether the list changed, which is the use of it. The white space: Surprises, the driver's text ends in a newline, and "each log line is one line" is the contract.
+  Date/Author: 2026-11-23, M2 session (Claude).
+- Decision (M2): assertions were added to two of the plan's fourteen tests beyond what Plan of Work words, after the commit that holds the tests failing (`39f2b9b`), and no fifteenth test was written. `test_the_list_the_database_gives_again_replaces_the_kept_one` gives its recovering read a function that sleeps 0.3 seconds and asserts `_CACHE[0] - t > _CACHE_TTL_SECONDS - 0.1`. `test_a_caller_with_a_list_does_not_wait_for_a_reread_in_flight` goes on, while the first thread's read is still in flight, to call `invalidate_cache()` and ask again (answered in under half a second with the loaded host, its function not called), and then, after `forget_allowlist()`, starts a second read in flight and asks with nothing in hand: that call waits more than 0.2 seconds (the read is released after 0.3), calls nothing itself, and returns the list the other thread stored. The second and third tests also assert `"\n" not in message`, and the test of the logged error asserts `next try in 30 s`.
+  Rationale: `skills/plan-execute/SKILL.md` asks that a rule whose removal fails no test get an assertion inside a test the plan names, or a Surprises entry saying nothing can tell it from its absence; each of the five could be told, so each got the assertion. A fifteenth test for the caller that waits was weighed and lost: the acceptance clause is `86 passed`, 72 and fourteen, and the plan says the class holds fourteen. The cost is a test whose name speaks of a caller with a list and whose last third is about one without; a comment in the test says so.
+  Date/Author: 2026-11-23, M2 session (Claude).
 
 ## Outcomes & Retrospective
 
@@ -379,6 +391,25 @@ The 24 are the fourteen new tests and the ten tests of `TestAllowlistCache` and 
     12 failed, 74 passed, 1 warning in 5.85s
 
 the twelve being every test of the new class but two. `test_a_reread_that_follows_no_failure_logs_nothing` passes on today's code, which logs nothing at all (Plan of Work says so). `test_forget_allowlist_drops_the_last_list` passes too under that stand-in: today's module keeps no last list and logs no recovery, so both of its assertions hold; what it guards is the state M2 adds.
+
+After the change (`src/docket/web/source_security.py`: the logger, `_LAST_LOADED`, `_LAST_ATTEMPT_FAILED`, `_RETRY_SECONDS`, `forget_allowlist`, and `get_allowlist` rewritten to the contract; one sentence in `refresh_source_security`'s docstring), the one-file command with `--durations=5` printed
+
+    2.00s call     tests/unit/test_source_security.py::TestAllowlistWhenTheQueryFails::test_a_database_that_never_answers_is_logged_and_the_loaded_list_is_kept
+    0.30s call     tests/unit/test_source_security.py::TestAllowlistWhenTheQueryFails::test_the_retry_interval_is_counted_from_the_end_of_the_failed_query
+    86 passed, 1 warning in 3.35s
+
+so the real-socket test took 2.00 seconds against the socket that never answers. The line it captured, read from a run in which the test was made to fail: `source allowlist: query failed (OperationalError: connection to server at "127.0.0.1", port 56037 failed: timeout expired); serving the last list that loaded (7 hosts); next try in 30 s`.
+
+The rules taken out of a copy, one at a time (a pytest plugin in the session scratchpad that compiles the module's source with one piece replaced and executes it into `docket.web.source_security` before collection; the committed file was not edited), each run against the whole file: 23 removals tried, 23 failed a test, and the unaltered copy printed `86 passed`. They were: a failed read serving the fixed set where a list had loaded (5 failed); no warning line (2); the no-list line at warning, and absent (1 each); a failure kept for the ten minutes (1); the retry expiry counted from entry (1); a success not recorded as the last list (7); no recovery line (2); a recovery line after every read (6); a failure not recorded in `_LAST_ATTEMPT_FAILED` (2); `invalidate_cache` dropping the last list (2) and clearing the flag (1); `forget_allowlist` keeping the last list (4) and the flag (3); a caller with a list waiting for the lock (1); a success kept for 30 seconds (1); the ten-minute expiry counted from entry (1); no check under the lock (1); a caller with nothing not waiting (1); nothing in hand after a refresh (1); the error text not collapsed (1); both expiries on `time.time()` (1); the line without the error's type (3). Five of the 23 were pinned only by assertions added after `39f2b9b` (Surprises and Decision Log, M2); before those were added the file was not run against them, the gaps having been read from the test text, so no "failed no test" run is recorded for them. Not tried, because nothing a test can do tells it from its absence: the lock released in a `finally` (every exception of the read is caught inside it, so only an error raised by the logging call or an interrupt would leave by that path).
+
+The greps after the document edits (`docs/specs/operations.md`, `docs/specs/votes.md`, row `D207` deleted):
+
+    grep -c 'time\.time()' src/docket/web/source_security.py                 0
+    grep -c '^| D207 ' docs/DEBT.md                                          0
+    grep -c 'logging nothing' docs/specs/operations.md                       0
+    grep -c 'source allowlist:' docs/specs/operations.md                     1
+    grep -c 'never a wider one' docs/specs/votes.md                          1
+    grep -E 'D20[78]' docs/DEBT.md | cut -c1-7                               | D70 |, | D206 , | D208
 
 ## Interfaces and Dependencies
 

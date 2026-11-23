@@ -420,7 +420,10 @@ def refresh_source_security():
     will be picked up automatically within the TTL window; this endpoint
     forces an immediate refresh by clearing the cache. The next render
     that calls ``is_source_url_safe`` (or any direct call to
-    :func:`source_security.get_allowlist`) re-reads from the DB.
+    :func:`source_security.get_allowlist`) re-reads from the DB. A
+    re-read that fails serves the last list that loaded and is logged
+    (``source allowlist: query failed``); it is tried again 30 seconds
+    later.
 
     POST-only so accidental browser navigation (`GET /admin/source-
     security/refresh`) can't trigger a refresh — defense against the

@@ -543,13 +543,21 @@ class TestAllowlistWhenTheQueryFails:
         _expire()
         source_security.get_allowlist(_failing_fn)
         _expire()
+
+        def _slow_working_fn():
+            time.sleep(0.3)
+            return [_B]
+
         with caplog.at_level(logging.DEBUG, logger=_LOGGER):
-            result = source_security.get_allowlist(_make_urls_fn([_B]))
+            result = source_security.get_allowlist(_slow_working_fn)
+        t = time.monotonic()
         assert "othercity.example.org" in result
         assert "newcity.example.gov" not in result
+        assert source_security._CACHE[0] - t > source_security._RETRY_SECONDS
+        # The ten minutes too are counted from the end of the read.
         assert (
-            source_security._CACHE[0] - time.monotonic()
-            > source_security._RETRY_SECONDS
+            source_security._CACHE[0] - t
+            > source_security._CACHE_TTL_SECONDS - 0.1
         )
         recovered = [
             r for r in _records(caplog) if "answered again" in r.getMessage()
@@ -652,10 +660,40 @@ class TestAllowlistWhenTheQueryFails:
             started = time.monotonic()
             result = source_security.get_allowlist(_must_not_be_called)
             elapsed = time.monotonic() - started
+            # After a refresh the list in hand is the last one loaded,
+            # and that caller does not wait either.
+            source_security.invalidate_cache()
+            started = time.monotonic()
+            after_refresh = source_security.get_allowlist(_must_not_be_called)
+            elapsed_after_refresh = time.monotonic() - started
         finally:
             release.set()
             thread.join(5)
         assert elapsed < 0.5
+        assert elapsed_after_refresh < 0.5
+        assert called[0] == 0
+        assert "newcity.example.gov" in result
+        assert "newcity.example.gov" in after_refresh
+
+        # A caller with nothing to serve waits for the read in flight and
+        # takes the list that read stored, asking nothing itself.
+        source_security.forget_allowlist()
+        asking.clear()
+        release.clear()
+        thread = threading.Thread(
+            target=source_security.get_allowlist, args=(_blocking_fn,)
+        )
+        thread.start()
+        try:
+            assert asking.wait(3)
+            threading.Timer(0.3, release.set).start()
+            started = time.monotonic()
+            result = source_security.get_allowlist(_must_not_be_called)
+            elapsed = time.monotonic() - started
+        finally:
+            release.set()
+            thread.join(5)
+        assert elapsed > 0.2
         assert called[0] == 0
         assert "newcity.example.gov" in result
 

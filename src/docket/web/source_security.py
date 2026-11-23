@@ -20,12 +20,20 @@ a link to ``https://attacker.tld/cookie-grabber.html`` if a malformed
 ``source_anchor`` row ever gets stored. The closed allowlist makes it a
 defense-in-depth check rather than a single-line gate.
 
-Caching: the dynamic side is cached at module level with a 10-minute TTL
-(see :func:`get_allowlist`). Onboarding a new municipality previously
-required a redeploy to refresh the allowlist; now the new city is visible
-within 10 minutes automatically, and the admin endpoint
+Caching: the merged list is kept at module level and read again from
+the database ten minutes after a read that succeeded (see
+:func:`get_allowlist`), so a new city is visible within ten minutes
+with no redeploy, and the admin endpoint
 ``POST /admin/source-security/refresh`` (see :mod:`docket.web.admin`)
-forces an immediate refresh by calling :func:`invalidate_cache`.
+forces the next call to read by calling :func:`invalidate_cache`.
+
+When the read fails or times out, the error is logged in a line that
+begins ``source allowlist:``, the last list the database gave goes on
+being served (never a wider one), and the read is tried again 30
+seconds after the failed attempt ended. The fixed domains stand alone
+only when no list has loaded in the process, which is logged as an
+error. The line ``source allowlist: the database answered again``
+records the recovery.
 
 Usage from Jinja::
 
@@ -39,10 +47,13 @@ stay in-memory.
 
 from __future__ import annotations
 
+import logging
 import time
 from threading import Lock
 from typing import Callable, Iterable
 from urllib.parse import urlparse, urlsplit
+
+logger = logging.getLogger(__name__)
 
 
 # Platform domains hardcoded — every supported CMS plus public video hosts.
@@ -193,33 +204,46 @@ def build_allowlist(
 
 
 # ---------------------------------------------------------------------------
-# Module-level TTL cache for the dynamic+static allowlist.
+# Module-level state for the merged (fixed + city hosts) allowlist.
 #
-# Onboarding a new municipality previously required a Railway redeploy to
-# rebuild ``app.config['SOURCE_DOMAIN_ALLOWLIST']`` from the
-# ``municipalities`` table. That's operational debt for a non-developer
-# task. We now cache the merged allowlist with a 10-minute TTL so a new
-# city is visible without any redeploy, and an admin endpoint
-# (``POST /admin/source-security/refresh``) calls :func:`invalidate_cache`
-# for instant onboarding.
+# ``_CACHE`` is the list being served and when it is due to be read
+# again: ten minutes (``_CACHE_TTL_SECONDS``) after a read that succeeded,
+# so a new city is visible without a redeploy, and 30 seconds
+# (``_RETRY_SECONDS``) after a read that failed. Both are counted on
+# ``time.monotonic()``, which a stepped wall clock cannot lengthen or cut
+# short, and from the end of the attempt: an attempt can last as long as
+# the web process's statement limit (30 seconds), and an expiry counted
+# from before it would already be past.
 #
-# Thread-safety: gunicorn forks per-worker, so each worker has its own
-# ``_CACHE`` — but a single worker still serves multiple threads
-# concurrently. The Lock prevents thundering-herd refresh: if N threads
-# all observe an expired cache simultaneously, only one runs the DB
-# query; the others block on the lock and pick up the freshly-cached
-# value via the re-check inside the critical section.
+# ``_LAST_LOADED`` is the last list a read that succeeded gave (``None``
+# until one succeeds in this process). It is what a failed read serves,
+# so a city host the database allowed a moment ago is still allowed, and
+# it is exactly a list the database gave, never a wider one: the minutes
+# page viewer fetches from hosts on this list.
+#
+# ``_LAST_ATTEMPT_FAILED`` is true from a failed attempt until the next
+# one that succeeds, which logs the recovery.
+#
+# Thread-safety: the web process is one gunicorn worker with four
+# threads. Only the thread holding ``_CACHE_LOCK`` asks the database. A
+# thread that finds the list due while another is asking serves the list
+# it has and does not wait; only a thread with nothing to serve (no list
+# has loaded or been stored in the process) waits for the lock, and picks
+# up what the other stored via the re-check inside the critical section.
 # ---------------------------------------------------------------------------
 
-_CACHE: tuple[float, frozenset[str]] | None = None  # (expiry_unix_ts, allowlist)
-_CACHE_TTL_SECONDS = 600  # 10 minutes
+_CACHE: tuple[float, frozenset[str]] | None = None  # (expiry by time.monotonic(), the list served)
+_LAST_LOADED: frozenset[str] | None = None  # the last list a successful read gave
+_LAST_ATTEMPT_FAILED: bool = False  # true from a failed attempt to the next that succeeds
+_CACHE_TTL_SECONDS = 600  # 10 minutes, after a read that succeeded
+_RETRY_SECONDS = 30  # after a read that failed
 _CACHE_LOCK = Lock()
 
 
 def get_allowlist(
     urls_fn: Callable[[], Iterable[str | None]] | None = None,
 ) -> frozenset[str]:
-    """Return the cached allowlist, refreshing from DB if expired.
+    """Return the allowlist, reading it from the database when it is due.
 
     ``urls_fn`` defaults to
     :func:`docket.services.query.list_active_base_urls`, but is
@@ -227,43 +251,101 @@ def get_allowlist(
     monkey-patching. The default lookup is deferred (lazy import) so
     importing this module never requires a DB connection.
 
-    On a fresh cache, a single DB query runs and the result is memoized
-    until ``_CACHE_TTL_SECONDS`` elapses. On DB failure, falls back to
-    :data:`STATIC_ALLOWED_DOMAINS` rather than serving an empty allowlist
-    that would suppress every source-anchor button — a degraded-but-
-    functional render is preferable to silently dropping every link.
-    The next request after the cache expires will retry the DB.
+    A list that is not yet due is returned without the lock. A read that
+    succeeds is served for ``_CACHE_TTL_SECONDS`` and remembered as the
+    last list that loaded. A read that raises anything (the database
+    down, a connection or statement ended by the web process's limits)
+    is logged with the error's type and text, and what is served in its
+    place, for ``_RETRY_SECONDS``, is the last list that loaded (a
+    warning) or, when none has loaded in this process,
+    :data:`STATIC_ALLOWED_DOMAINS` alone (an error). The first read that
+    succeeds after a failure logs ``the database answered again``; a
+    read that follows no failure logs nothing.
+
+    A caller that has a list to serve (the one that is due, or after
+    :func:`invalidate_cache` the last one that loaded) never waits for
+    another thread's read: it returns that list. Never raises on a
+    failed read.
     """
-    global _CACHE
-    now = time.time()
-    if _CACHE is not None and _CACHE[0] > now:
-        return _CACHE[1]
-    with _CACHE_LOCK:
-        # Re-check inside the lock — another thread may have refreshed
-        # while we were blocked. If so, return its value instead of
-        # running a redundant DB query.
-        if _CACHE is not None and _CACHE[0] > now:
-            return _CACHE[1]
+    global _CACHE, _LAST_LOADED, _LAST_ATTEMPT_FAILED
+    cached = _CACHE
+    if cached is not None and cached[0] > time.monotonic():
+        return cached[1]
+    in_hand = cached[1] if cached is not None else _LAST_LOADED
+    if in_hand is None:
+        # Nothing to serve: wait for whoever is asking.
+        _CACHE_LOCK.acquire()
+    elif not _CACHE_LOCK.acquire(blocking=False):
+        # Another thread is asking the database; its answer is not
+        # needed to serve this caller.
+        return in_hand
+    try:
+        # Re-check inside the lock, on a clock read again — another
+        # thread may have just stored a list, and a caller that waited
+        # may have waited as long as a connection attempt lasts.
+        cached = _CACHE
+        if cached is not None and cached[0] > time.monotonic():
+            return cached[1]
         if urls_fn is None:
             from docket.services.query import list_active_base_urls as urls_fn  # noqa: F811
         try:
             allowlist = build_allowlist(urls_fn)
-        except Exception:
-            # If the DB is unreachable we'd rather render every link via
-            # the static set than render none at all. The next refresh
-            # cycle (10 min) will retry; admin endpoint can also force
-            # a retry via invalidate_cache().
-            allowlist = STATIC_ALLOWED_DOMAINS
-        _CACHE = (now + _CACHE_TTL_SECONDS, allowlist)
+        except Exception as exc:
+            error = f"{type(exc).__name__}: {' '.join(str(exc).split())}"
+            if _LAST_LOADED is not None:
+                served = _LAST_LOADED
+                logger.warning(
+                    "source allowlist: query failed (%s); serving the last "
+                    "list that loaded (%d hosts); next try in %d s",
+                    error, len(served), _RETRY_SECONDS,
+                )
+            else:
+                served = STATIC_ALLOWED_DOMAINS
+                logger.error(
+                    "source allowlist: query failed (%s); no list has loaded "
+                    "in this process, so only the fixed domains are allowed; "
+                    "next try in %d s",
+                    error, _RETRY_SECONDS,
+                )
+            _LAST_ATTEMPT_FAILED = True
+            _CACHE = (time.monotonic() + _RETRY_SECONDS, served)
+            return served
+        _LAST_LOADED = allowlist
+        _CACHE = (time.monotonic() + _CACHE_TTL_SECONDS, allowlist)
+        if _LAST_ATTEMPT_FAILED:
+            _LAST_ATTEMPT_FAILED = False
+            logger.warning(
+                "source allowlist: the database answered again (%d hosts)",
+                len(allowlist),
+            )
         return allowlist
+    finally:
+        _CACHE_LOCK.release()
 
 
 def invalidate_cache() -> None:
-    """Clear the cached allowlist.
+    """Make the next call of :func:`get_allowlist` ask the database.
 
-    The next call to :func:`get_allowlist` will refresh from the DB.
     Used by the admin refresh endpoint (instant onboarding for a newly-
-    added municipality) and by tests that need a clean cache state.
+    added municipality). It clears the list being served and keeps the
+    last list that loaded and the record of a failed attempt: if the
+    re-read then fails, that last list is served and the failure logged,
+    so pressing refresh while the database is failing neither withholds
+    a city's links nor hides the recovery line.
     """
     global _CACHE
     _CACHE = None
+
+
+def forget_allowlist() -> None:
+    """Forget everything the module holds: the list being served, the
+    last list that loaded, and whether the last attempt failed.
+
+    For tests only, which need a clean state between cases. Nothing in
+    the application calls it; the operator's refresh is
+    :func:`invalidate_cache`.
+    """
+    global _CACHE, _LAST_LOADED, _LAST_ATTEMPT_FAILED
+    _CACHE = None
+    _LAST_LOADED = None
+    _LAST_ATTEMPT_FAILED = False
