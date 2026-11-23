@@ -118,9 +118,10 @@ _CACHE_TTL = 300  # 5 minutes
 # F5 fix-up (R1 + D4 / Override 2): symmetric thread safety. Module-level
 # Lock + double-checked locking shields the cache-miss + render + set
 # sequence from the thundering-herd race when multiple workers/threads
-# request the same cold key simultaneously. Latent today (single-worker
-# sync gunicorn per Procfile + Dockerfile), but cheap to fix while the
-# helper is small. Mirrors the lock we add to ``_rss_cached`` below.
+# request the same cold key simultaneously. Latent when written (single-worker
+# sync gunicorn per Procfile + Dockerfile), and live since both start lines
+# ask for four threads (decision 0135). Mirrors the lock we add to
+# ``_rss_cached`` below.
 _overview_lock = threading.Lock()
 
 
