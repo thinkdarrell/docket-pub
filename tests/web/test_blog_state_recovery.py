@@ -64,11 +64,14 @@ def content_root(tmp_path: Path, monkeypatch, caplog) -> Path:
 class _DatabaseDown:
     """Stands in for ``list_municipalities``: counts its calls and raises the driver's error."""
 
-    def __init__(self) -> None:
+    def __init__(self, seconds: float = 0.0) -> None:
         self.calls = 0
+        self.seconds = seconds
 
     def __call__(self):
         self.calls += 1
+        if self.seconds:
+            time.sleep(self.seconds)
         raise psycopg2.OperationalError("timeout expired")
 
 
@@ -84,6 +87,29 @@ class _Counting:
         return self._real()
 
 
+class _WatchedLock:
+    """Stands in for the pending object's lock: counts the tries to take it,
+    and may do something just before one succeeds, which is how a test puts
+    another thread's work between a request's first look and its lock."""
+
+    def __init__(self, before_taking=None) -> None:
+        self.tries = 0
+        self._before_taking = before_taking
+        self._lock = threading.Lock()
+
+    def acquire(self, blocking: bool = True) -> bool:
+        self.tries += 1
+        if self._before_taking is not None:
+            self._before_taking()
+        return self._lock.acquire(blocking)
+
+    def release(self) -> None:
+        self._lock.release()
+
+    def locked(self) -> bool:
+        return self._lock.locked()
+
+
 def _records(caplog, level: int) -> list[logging.LogRecord]:
     return [r for r in caplog.records if r.name == BLOG_LOGGER and r.levelno == level]
 
@@ -93,7 +119,7 @@ def _hub(app) -> tuple[int, str]:
     return resp.status_code, resp.get_data(as_text=True)
 
 
-def _start_without_the_database(monkeypatch):
+def _start_without_the_database(monkeypatch, seconds: float = 0.0):
     """Build an application while ``list_municipalities`` raises.
 
     Returns the application, the failing stand-in and the real function.
@@ -101,7 +127,7 @@ def _start_without_the_database(monkeypatch):
     from docket.services import query
 
     real = query.list_municipalities
-    down = _DatabaseDown()
+    down = _DatabaseDown(seconds)
     monkeypatch.setattr(LIST_MUNICIPALITIES, down)
     return create_app(), down, real
 
@@ -153,12 +179,34 @@ def test_a_request_before_the_retry_interval_does_not_load_again(
 ):
     from docket.web.blog import BLOG_RETRY_SECONDS
 
-    app, down, _real = _start_without_the_database(monkeypatch)
+    # The failed read lasts a second, so an interval counted from before it
+    # (about BLOG_RETRY_SECONDS - 1 left) reads differently from one counted
+    # from its end.
+    app, down, _real = _start_without_the_database(monkeypatch, seconds=1.0)
+    after_start = time.monotonic()
     pending = app.config["BLOG_STATE_PENDING"]
     assert 0 < pending.next_try - time.monotonic() <= BLOG_RETRY_SECONDS
+    assert pending.next_try - after_start > BLOG_RETRY_SECONDS - 0.5
 
+    # A request before the interval is over does not so much as try the lock.
+    watched = _WatchedLock()
+    pending.lock = watched
     assert _hub(app)[0] == 200
     assert _hub(app)[0] == 200
+    assert down.calls == 1
+    assert watched.tries == 0
+
+    # A request that saw the retry due, and took the lock only after another
+    # thread's failed attempt had moved the next try on, does not load either.
+    def another_attempt_just_failed():
+        pending.next_try = time.monotonic() + BLOG_RETRY_SECONDS
+
+    watched = _WatchedLock(before_taking=another_attempt_just_failed)
+    pending.lock = watched
+    pending.next_try = 0.0
+    assert _hub(app)[0] == 200
+    assert watched.tries == 1
+    assert not watched.locked()
     assert down.calls == 1
 
 
@@ -191,6 +239,15 @@ def test_a_retry_that_fails_is_logged_and_waits_the_interval_again(
     assert BLOG_RETRY_SECONDS - 5 < pending.next_try - time.monotonic() <= BLOG_RETRY_SECONDS
     assert _hub(app)[0] == 200
     assert down.calls == 2
+
+    # The interval is counted from the end of a failed retry, not its start:
+    # one that lasts half a second leaves nearly the whole interval after it.
+    down.seconds = 0.5
+    pending.next_try = 0.0
+    assert _hub(app)[0] == 200
+    after_request = time.monotonic()
+    assert down.calls == 3
+    assert pending.next_try - after_request > BLOG_RETRY_SECONDS - 0.3
 
 
 def test_a_retry_that_fails_with_a_different_error_is_logged_with_its_traceback(
@@ -271,6 +328,17 @@ def test_a_start_with_the_database_leaves_nothing_pending(
     assert counting.calls == 1
     assert _records(caplog, logging.ERROR) == []
 
+    # A start that succeeds leaves the key absent whatever was there before.
+    from docket.web.blog import init_blog_state
+
+    app.config["BLOG_STATE_PENDING"] = object()
+    init_blog_state(
+        app,
+        content_root=content_root,
+        authors_yaml=content_root.parent / "authors.yaml",
+    )
+    assert app.config.get("BLOG_STATE_PENDING") is None
+
 
 def test_the_asset_route_is_served_while_the_posts_are_pending(
     content_root, monkeypatch
@@ -298,7 +366,26 @@ def test_the_asset_route_is_served_while_the_posts_are_pending(
 def test_only_one_thread_loads_again_and_the_others_do_not_wait(
     content_root, monkeypatch, caplog
 ):
-    app, _down, real = _start_without_the_database(monkeypatch)
+    app, down, real = _start_without_the_database(monkeypatch)
+    pending = app.config["BLOG_STATE_PENDING"]
+
+    # First, without a second thread: a request that saw the posts pending,
+    # and took the lock only after another thread had loaded them and removed
+    # the key, holds an object that is no longer pending and does not load.
+    def another_thread_just_loaded():
+        del app.config["BLOG_STATE_PENDING"]
+
+    own_lock = pending.lock
+    pending.lock = _WatchedLock(before_taking=another_thread_just_loaded)
+    pending.next_try = 0.0
+    assert _hub(app)[0] == 200
+    assert pending.lock.tries == 1
+    assert not pending.lock.locked()
+    assert down.calls == 1
+    assert _records(caplog, logging.ERROR)[1:] == []
+    pending.lock = own_lock
+    app.config["BLOG_STATE_PENDING"] = pending
+
     started = threading.Event()
     release = threading.Event()
     calls = []
