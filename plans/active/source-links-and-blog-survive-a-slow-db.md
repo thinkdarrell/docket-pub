@@ -480,6 +480,16 @@ What the operator would read, printed by Python's last-resort handler (no loggin
 
 The rules taken out of a copy, one at a time (a pytest plugin in the session scratchpad that reads the source of `docket.web.blog`, replaces one piece and executes the result into the module before collection, so `create_app` takes the altered blueprint and function; the committed file was not edited), each run against `tests/web/test_blog_state_recovery.py` and `tests/web/test_blog_routes.py`. The first run was against the test file as `6ab380e` holds it: 30 removals tried, 24 failed a test, the unaltered copy `33 passed`. The six that failed no test (`33 passed` each): the first retry's interval counted from before the failed start; the pending key left by a start that succeeds; no look at the clock before the lock; no look at the clock under the lock; no check under the lock that the pending object is still the one in `app.config`; a failed retry's interval counted from before the attempt. Assertions were then added inside four of the ten tests (Decision Log, M3) and the 30 run again: 30 failed a test, the unaltered copy `33 passed`. The 30 were: the start's failure logged at warning, and not logged (4 failed each); the start's line without its traceback (1); no pending object after a failed start (8); the first retry due at once (3), after ten minutes (1), counted from before the attempt (1); the pending key kept by a start that succeeds (1); the asset route not skipped (1); no clock check before the lock (1), under the lock (1), at all (4); a request waiting for the lock (1); no lock (1); no identity check under the lock (1); the next try not moved after a failed retry (1), moved ten minutes (1), counted from before the attempt (1); the error's type not remembered (1); a traceback at every failed retry (2), at none (1); a failed retry logged at warning, and not logged (2 each); the loaded state not stored (4); the pending key kept after a retry that succeeds (1); the recovery line at info, and absent (2 each); the lock not released (4, one before the assertions were added); the error text not collapsed (1); the line without the error's type (5).
 
+The greps after the document edits (`docs/specs/operations.md`; in `docs/DEBT.md` row `D208` deleted, step 4 of `D206` rewritten, a sentence appended to the Why deferred cell of `D34` and of `D21`):
+
+    git diff --stat origin/main -- tests/web/test_blog_routes.py tests/integration/test_blog_integration.py    nothing
+    grep -c '^| D208 ' docs/DEBT.md                                          0
+    grep -E 'D20[78]' docs/DEBT.md | cut -c1-7                               | D70 |
+    grep -c -E 'D20[78]' docs/specs/operations.md                            0
+    grep -c 'blog: posts loaded on a later request' docs/DEBT.md             1
+    grep -c 'deploy `docket-web` again' docs/DEBT.md                         0
+    grep -c 'source-links-and-blog-survive-a-slow-db' docs/DEBT.md           4 (lines 8, 20, 32 and 155: rows D7, D21, D34 and D206)
+
 ## Interfaces and Dependencies
 
 No library is added. The names that must exist at the end of each milestone:
