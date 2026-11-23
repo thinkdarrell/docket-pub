@@ -220,7 +220,8 @@ constrains:
    closing review showed 12 wrong as well, because the library hands back
    nothing until a whole chunk of a body of declared length has arrived, so
    the deadline was not looked at when the plan said it was (16 seconds on
-   a local server; debt row `D204`). By then the figure was in the spec, a
+   a local server; debt row `D204`, paid and deleted on 2026-11-23, before
+   the merge, by reading the body as it arrives). By then the figure was in the spec, a
    docstring, a debt row and the sizing of a second constant.
    Take the acceptance-first order seriously — it is the
    only reliable sizing test, and writing the story first produces
