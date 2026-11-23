@@ -296,7 +296,7 @@ def test_the_subscribe_link_is_the_feeds_address(client):
 def test_the_page_links_its_own_stylesheet(client):
     hrefs = [link["href"] for link in _page(client).select('link[rel="stylesheet"]')]
 
-    assert any(href.endswith("/static/css/coming_up.css") for href in hrefs)
+    assert any(href.split("?")[0].endswith("/static/css/coming_up.css") for href in hrefs)
 
 
 # --- dates ------------------------------------------------------------------

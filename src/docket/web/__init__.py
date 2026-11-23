@@ -40,6 +40,32 @@ def create_app() -> Flask:
     # canonical URLs are wrong).
     app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
+    # A static file's address carries a short hash of its bytes (?v=...), so
+    # a browser holding last week's stylesheet asks for this week's after a
+    # deploy that changed it. Static files are served with a four-hour
+    # max-age, and without this a returning reader sees new markup under old
+    # styles until that runs out (seen on production on 2026-11-23, twice).
+    import hashlib as _hashlib
+    import os as _os
+
+    _static_versions: dict[tuple[str, float], str] = {}
+
+    @app.url_defaults
+    def _version_static(endpoint, values):
+        if endpoint != "static" or "v" in values or not values.get("filename"):
+            return
+        path = _os.path.join(app.static_folder, values["filename"])
+        try:
+            key = (path, _os.path.getmtime(path))
+        except OSError:
+            return  # no such file: the address is left as written
+        version = _static_versions.get(key)
+        if version is None:
+            with open(path, "rb") as fh:
+                version = _hashlib.sha1(fh.read()).hexdigest()[:10]
+            _static_versions[key] = version
+        values["v"] = version
+
     app.config["SECRET_KEY"] = SECRET_KEY
     app.config["ADMIN_EMAIL"] = ADMIN_EMAIL
 
