@@ -451,3 +451,90 @@ class TestRefreshSourceSecurityRoute:
             resp = client.post("/admin/source-security/refresh")
         assert resp.status_code in (302, 303)
         assert "/admin/login" in resp.headers.get("Location", "")
+
+
+# ---------------------------------------------------------------------------
+# is_viewer_url: an address the minutes page viewer may fetch (plan
+# `minutes-open-at-the-vote-page`, M3). Stricter than is_url_safe, because
+# its yes lets the web process make a request and not only print a link.
+# The predicate is imported inside each test so that this file still
+# collects where the function does not exist.
+# ---------------------------------------------------------------------------
+
+_CIVICCLERK = frozenset({"civicclerk.com"})
+_MOBILE_MINUTES = (
+    "https://mobileal.api.civicclerk.com/v1/Meetings/"
+    "GetMeetingFileStream(fileId=3854,plainText=false)"
+)
+_VIEWER_YES = [
+    _MOBILE_MINUTES,
+    _MOBILE_MINUTES + "#page=5",
+    "HTTPS://MobileAL.api.civicclerk.com/x",
+    "https://mobileal.api.civicclerk.com:443/x",
+]
+# Each passes is_url_safe and is refused by is_viewer_url.
+_VIEWER_NO_THOUGH_SAFE = [
+    "http://" + _MOBILE_MINUTES[len("https://"):],
+    "https://user:pw@mobileal.api.civicclerk.com/x",
+    "https://user@mobileal.api.civicclerk.com/x",
+    "https://mobileal.api.civicclerk.com:8443/x",
+    r"https://evil.example\@mobileal.api.civicclerk.com/x",
+    " " + _MOBILE_MINUTES,
+    _MOBILE_MINUTES + "\n",
+    "https://mobileal.api.civicclerk.com/a file.pdf",
+    "https://mobileal.api.civicclerk.com/x\x7f",
+    "https://mobileal.api.civicclerk.com:abc/x",
+]
+
+
+class TestViewerUrl:
+    @pytest.mark.parametrize("url", _VIEWER_YES)
+    def test_an_https_address_on_the_allowlist_is_a_viewer_address(self, url):
+        from docket.web.source_security import is_viewer_url
+
+        assert is_viewer_url(url, _CIVICCLERK) is True
+
+    @pytest.mark.parametrize("url", _VIEWER_NO_THOUGH_SAFE)
+    def test_an_address_the_allowlist_passes_can_still_be_refused(self, url):
+        from docket.web.source_security import is_viewer_url
+
+        assert is_url_safe(url, _CIVICCLERK)
+        assert is_viewer_url(url, _CIVICCLERK) is False
+
+    def test_an_address_outside_the_allowlist_is_not_a_viewer_address(self):
+        from docket.web.source_security import is_viewer_url
+
+        assert is_viewer_url("https://minutes.example.org/file.pdf", _CIVICCLERK) is False
+
+    @pytest.mark.parametrize("bad", [None, 42, [], b"https://mobileal.api.civicclerk.com/x", ""])
+    def test_what_is_not_an_address_is_not_a_viewer_address(self, bad):
+        from docket.web.source_security import is_viewer_url
+
+        assert is_viewer_url(bad, _CIVICCLERK) is False
+
+    def test_a_port_that_cannot_be_read_is_a_no_and_does_not_raise(self):
+        from docket.web.source_security import is_viewer_url
+
+        assert is_viewer_url("https://mobileal.api.civicclerk.com:99999999/x", _CIVICCLERK) is False
+
+    @pytest.mark.parametrize("url", _VIEWER_YES)
+    def test_the_host_fetched_is_the_host_the_allowlist_judged(self, url):
+        """`requests` connects to the host urllib3 reads; the service and the
+        allowlist read the address with urllib.parse. They must agree on every
+        address the predicate says yes to."""
+        from urllib.parse import urlsplit
+
+        from urllib3.util import parse_url
+
+        from docket.web.source_security import is_viewer_url
+
+        assert is_viewer_url(url, _CIVICCLERK) is True
+        assert parse_url(url).host.lower() == urlsplit(url).hostname
+
+    def test_the_allowlist_defaults_to_the_cached_one(self, monkeypatch):
+        from docket.web.source_security import is_viewer_url
+
+        monkeypatch.setattr(source_security, "get_allowlist", lambda: _CIVICCLERK)
+        assert is_viewer_url(_MOBILE_MINUTES) is True
+        monkeypatch.setattr(source_security, "get_allowlist", lambda: frozenset())
+        assert is_viewer_url(_MOBILE_MINUTES) is False

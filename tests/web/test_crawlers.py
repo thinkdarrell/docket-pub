@@ -97,6 +97,16 @@ def test_robots_welcomes_everyone_on_public_pages(client):
     assert "Disallow: /*?" in general
 
 
+def test_robots_keeps_crawlers_off_the_minutes_viewer(client):
+    """Each crawl of a viewer address could be a request to the city (plan
+    `minutes-open-at-the-vote-page`, M3)."""
+    body = client.get("/robots.txt").get_data(as_text=True)
+    general = body.split("User-agent: *", 1)[1].split("\n\n", 1)[0]
+    assert "Disallow: /al/*/meetings/*/minutes/\n" in general + "\n"
+    # After the rules it joins, so the group still opens with its welcome.
+    assert general.index("Disallow: /*?") < general.index("Disallow: /al/*/meetings/*/minutes/")
+
+
 @pytest.mark.parametrize(
     "agent",
     ["GPTBot", "ClaudeBot", "Google-Extended", "Applebot-Extended",
