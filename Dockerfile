@@ -26,5 +26,5 @@ RUN pip install --no-cache-dir -e . --no-deps
 
 EXPOSE ${PORT:-5000}
 
-# Run migrations then start gunicorn
-CMD ["sh", "-c", "python -m docket.migrations.runner && gunicorn 'docket.web:create_app()' --bind 0.0.0.0:${PORT:-5000}"]
+# Run migrations then start gunicorn: one worker, four threads, database limits (docs/specs/operations.md)
+CMD ["sh", "-c", "python -m docket.migrations.runner && exec gunicorn 'docket.web:create_app()' --bind 0.0.0.0:${PORT:-5000} --workers 1 --threads 4 --env 'PGOPTIONS=-c statement_timeout=30000' --env PGCONNECT_TIMEOUT=10"]
