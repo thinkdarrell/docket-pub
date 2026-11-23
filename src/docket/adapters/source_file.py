@@ -9,14 +9,21 @@ module makes the one request and bounds it.
 One attempt. ``https`` only. No redirect is followed, so the request stays
 on the address the caller's allowlist passed. The body is streamed and
 refused once it is over ``MAX_BYTES``; the fetch is given up once
-``DEADLINE_S`` has passed, which is looked at between chunks, so one read
-of up to ``READ_TIMEOUT_S`` can outlast it. A body that does not carry a
-PDF header in its first 1,024 bytes is refused.
+``DEADLINE_S`` has passed. The body is read with ``response.raw.read1``,
+which returns whatever has arrived (at most ``CHUNK_BYTES``) after one read
+of the socket, and the deadline is looked at after each such read, so the
+fetch ends within ``DEADLINE_S`` plus one read of up to ``READ_TIMEOUT_S``,
+however slowly the body trickles in. (``iter_content`` is not used: for a
+body with a ``Content-Length`` it hands nothing back until a whole chunk has
+arrived, so a slow sender that never fell silent went unchecked; debt row
+``D204``, paid here.) A body that does not carry a PDF header in its first
+1,024 bytes is refused.
 
 The constants are read when ``fetch_pdf`` is called, so a test can change
 them.
 
-Plan `minutes-open-at-the-vote-page`, M1; M2b added ``Accept-Encoding``.
+Plan `minutes-open-at-the-vote-page`, M1; M2b added ``Accept-Encoding``;
+the read by ``read1`` came after the plan closed, before its merge.
 """
 
 from __future__ import annotations
@@ -24,6 +31,7 @@ from __future__ import annotations
 import time
 
 import requests
+import urllib3
 
 CONNECT_TIMEOUT_S = 3.0
 READ_TIMEOUT_S = 4.0
@@ -86,8 +94,12 @@ def fetch_pdf(url: str) -> bytes:
             raise SourceFileError(f"content-length {declared} is over {MAX_BYTES} bytes")
 
         body = bytearray()
-        for chunk in response.iter_content(chunk_size=CHUNK_BYTES):
-            body.extend(chunk)
+        while True:
+            # One read of the socket: what has arrived, not a full chunk.
+            piece = response.raw.read1(CHUNK_BYTES)
+            if not piece:
+                break
+            body.extend(piece)
             if len(body) > MAX_BYTES:
                 raise SourceFileError(f"the body is over {MAX_BYTES} bytes")
             if _now() - started > DEADLINE_S:
@@ -98,7 +110,8 @@ def fetch_pdf(url: str) -> bytes:
         if _PDF_MARK not in bytes(body[:_PDF_MARK_WITHIN]):
             raise SourceFileError("the body is not a PDF")
         return bytes(body)
-    except requests.RequestException as exc:
+    except (requests.RequestException, urllib3.exceptions.HTTPError, OSError) as exc:
+        # read1 is urllib3's own, so its errors arrive unwrapped by requests.
         raise SourceFileError(f"{type(exc).__name__}: {exc}", host_down=True) from exc
     finally:
         if response is not None:
