@@ -141,6 +141,21 @@ constrains:
    row, which lists the rows a pull request spent, and its own decision
    `0066` kept citing the `D68` row the plan deleted; each became a
    carve-out the session recorded in place of a check the author had run.
+   The debt rows the work passes by are found by grep, not by reading the
+   register: for every file the Plan of Work edits, the research greps
+   `docs/DEBT.md` for the file's path and for its bare name in backticks,
+   reads the trigger column of each row that prints, and Context lists
+   every one as paid, as tripped (taken by a milestone, or re-deferred in
+   the Decision Log with a dated sentence on the row for the closing
+   milestone to write), or as not tripped with the words of the trigger
+   that say so. A trigger worded "the next plan that touches" a file fires
+   on any edit to it, whatever function the edit is in. Two consecutive
+   plans edited a file such a trigger names without naming the row:
+   `admin-routes-call-services` and `D121` (`non_meetings.py`), then
+   `admin-profile-and-coverage-after-login` and `D209` (`admin.py`), whose
+   Context listed five of the nine rows that grep prints for the module;
+   each was found after the milestones closed, by the gardening pass and
+   by the closing review, which rated it important.
    When the work has a page write a sentence about a row (the council
    met, an item passed, a vote failed, this was the largest), the research
    lists the states of that row's table that would make the sentence
