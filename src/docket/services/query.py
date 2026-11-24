@@ -4297,13 +4297,12 @@ def _attach_video_links(item_id: int, entries: list[VoteEntry]) -> None:
 # --- Reads behind the admin pages (docket.web.admin) -------------------------
 
 
-def get_admin_profile(admin_user_id) -> dict | None:
+def get_admin_profile(admin_user_id: int) -> dict | None:
     """The username and display name of one admin, or None when no such row.
 
-    ``admin_user_id`` goes to the statement as given, with no conversion and
-    no check: the route passes whatever its session holds under
-    ``admin_user`` (plan `admin-routes-call-services` carried that as it
-    found it).
+    ``admin_user_id`` is ``admin_users.id``, which the profile route reads
+    from the session a login filled (plan
+    `admin-profile-and-coverage-after-login`, M1).
     """
     with db_cursor() as cur:
         cur.execute(
