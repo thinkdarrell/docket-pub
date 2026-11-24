@@ -385,86 +385,26 @@ def ai_panel():
     from docket.ai.prompts import ITEM_PROMPT_VERSION, MEETING_PROMPT_VERSION
     from docket.config import AI_DAILY_BUDGET_USD, AI_ITEM_DEBOUNCE_MINUTES
 
-    with db_cursor() as cur:
-        cur.execute(
-            """
-            SELECT COUNT(*) AS pending FROM agenda_items
-             WHERE (ai_prompt_version IS NULL OR ai_prompt_version < %s)
-               AND created_at < NOW() - (%s || ' minutes')::interval
-            """,
-            (ITEM_PROMPT_VERSION, AI_ITEM_DEBOUNCE_MINUTES),
-        )
-        items_pending = cur.fetchone()["pending"]
-
-        cur.execute(
-            """
-            SELECT COUNT(*) AS pending FROM meetings m
-             WHERE (
-               ((m.ai_prompt_version IS NULL OR m.ai_prompt_version < %s)
-                AND m.minutes_adopted_at IS NULL
-                AND NOT EXISTS (
-                  SELECT 1 FROM agenda_items ai
-                   WHERE ai.meeting_id = m.id
-                     AND (ai.ai_prompt_version IS NULL OR ai.ai_prompt_version < %s)
-                ))
-               OR (m.minutes_adopted_at IS NOT NULL
-                   AND COALESCE(m.ai_metadata->>'phase', '') != 'adopted')
-             )
-            """,
-            (MEETING_PROMPT_VERSION, ITEM_PROMPT_VERSION),
-        )
-        meetings_pending = cur.fetchone()["pending"]
-
-        cur.execute(
-            """
-            SELECT COALESCE(SUM(cost_usd), 0)::float AS total,
-                   COALESCE(SUM((usage->>'cache_read_input_tokens')::int), 0) AS cache_reads,
-                   COALESCE(SUM((usage->>'input_tokens')::int), 0) AS regular_reads
-              FROM ai_runs
-             WHERE started_at > NOW() - INTERVAL '7 days'
-            """
-        )
-        seven_day = dict(cur.fetchone())
-
-        cur.execute(
-            """
-            SELECT id, started_at, stage, model, rows_processed, rows_failed, cost_usd
-              FROM ai_runs
-             ORDER BY id DESC
-             LIMIT 20
-            """
-        )
-        runs = [dict(row) for row in cur.fetchall()]
+    pipeline = query.ai_pipeline_summary(
+        ITEM_PROMPT_VERSION, MEETING_PROMPT_VERSION, AI_ITEM_DEBOUNCE_MINUTES
+    )
 
     from docket.services import discrepancies as dsvc
-    with db_cursor() as cur:
-        cur.execute("SELECT status, count(*) AS n FROM transcripts GROUP BY status ORDER BY status")
-        transcript_status_counts = [dict(r) for r in cur.fetchall()]
-        cur.execute("""SELECT stage, count(*) AS runs, COALESCE(SUM(cost_usd), 0)::float AS cost,
-                              SUM(rows_processed) AS rows_processed, SUM(rows_failed) AS rows_failed
-                         FROM ai_runs WHERE stage LIKE 'transcript_%%' AND started_at > NOW() - INTERVAL '7 days'
-                        GROUP BY stage ORDER BY stage""")
-        transcript_stage_costs = [dict(r) for r in cur.fetchall()]
-        cur.execute("""SELECT prompt_version, count(*) AS total,
-                              count(*) FILTER (WHERE citation_match = 'missing') AS missing,
-                              round(100.0 * count(*) FILTER (WHERE citation_match = 'missing') / count(*), 1) AS rate
-                         FROM minutes_discrepancies WHERE review_state <> 'dismissed_by_model'
-                        GROUP BY prompt_version ORDER BY prompt_version""")
-        citation_missing = [dict(r) for r in cur.fetchall()]
+    transcripts = query.transcript_pipeline_summary()
     gate = dsvc.approval_ratio()
     mvv_flag = bool(current_app.config.get("MINUTES_VS_VIDEO_UI"))
 
     return render_template(
         "admin/ai_panel.html",
-        transcript_status_counts=transcript_status_counts,
-        transcript_stage_costs=transcript_stage_costs,
-        citation_missing=citation_missing,
+        transcript_status_counts=transcripts["transcript_status_counts"],
+        transcript_stage_costs=transcripts["transcript_stage_costs"],
+        citation_missing=transcripts["citation_missing"],
         gate=gate,
         mvv_flag=mvv_flag,
-        items_pending=items_pending,
-        meetings_pending=meetings_pending,
-        seven_day=seven_day,
-        runs=runs,
+        items_pending=pipeline["items_pending"],
+        meetings_pending=pipeline["meetings_pending"],
+        seven_day=pipeline["seven_day"],
+        runs=pipeline["runs"],
         budget=AI_DAILY_BUDGET_USD,
         item_version=ITEM_PROMPT_VERSION,
         meeting_version=MEETING_PROMPT_VERSION,
@@ -929,61 +869,9 @@ def coverage_list():
     )  # 'draft' / 'proposed' / 'published' / 'rejected' / None=all
     kind_filter = request.args.get("kind")  # 'note' / 'citation' / None=both
 
-    where = []
-    params = []
-    if status_filter:
-        where.append("ce.status = %s")
-        params.append(status_filter)
-    if kind_filter:
-        where.append("ce.kind = %s")
-        params.append(kind_filter)
-    where_sql = (" WHERE " + " AND ".join(where)) if where else ""
-
-    with db_cursor() as cur:
-        cur.execute(
-            f"""SELECT ce.id, ce.kind, ce.status, ce.body, ce.headline,
-                       ce.updated_at, ce.featured_until,
-                       COALESCE(au.display_name, au.username) AS author_label,
-                       o.name AS outlet_name
-                  FROM coverage_entries ce
-                  JOIN admin_users au ON au.id = ce.author_id
-             LEFT JOIN outlets o ON o.id = ce.outlet_id
-              {where_sql}
-              ORDER BY ce.updated_at DESC
-              LIMIT 200""",
-            tuple(params),
-        )
-        rows = cur.fetchall()
-
-        cur.execute(
-            """SELECT status, COUNT(*) AS n FROM coverage_entries GROUP BY status"""
-        )
-        counts = {r["status"]: r["n"] for r in cur.fetchall()}
-
-        # Fetch attached subjects for each row in one bulk query
-        row_ids = [r["id"] for r in rows]
-        subjects_by_coverage_id = {}
-        if row_ids:
-            cur.execute(
-                """
-                SELECT csl.coverage_id, csl.subject_type,
-                       COALESCE(
-                         (SELECT title FROM agenda_items     WHERE id   = csl.subject_id),
-                         (SELECT title FROM meetings         WHERE id   = csl.subject_id),
-                         (SELECT name  FROM council_members  WHERE id   = csl.subject_id),
-                         (SELECT name  FROM priority_badge_templates WHERE slug = csl.subject_slug),
-                         ''
-                       ) AS label
-                  FROM coverage_subject_links csl
-                 WHERE csl.coverage_id = ANY(%s)
-                 ORDER BY csl.coverage_id, csl.id
-                """,
-                (row_ids,),
-            )
-            for r in cur.fetchall():
-                subjects_by_coverage_id.setdefault(r["coverage_id"], []).append(
-                    {"subject_type": r["subject_type"], "label": r["label"] or ""}
-                )
+    rows, counts, subjects_by_coverage_id = query.list_coverage_for_admin(
+        status_filter, kind_filter
+    )
 
     return render_template(
         "admin/coverage/list.html",
@@ -1001,11 +889,7 @@ def coverage_new():
     kind = request.args.get("kind", "note")
     if kind not in ("note", "citation"):
         abort(400)
-    with db_cursor() as cur:
-        cur.execute(
-            "SELECT id, slug, name FROM outlets WHERE is_active = TRUE ORDER BY name"
-        )
-        outlets = cur.fetchall()
+    outlets = query.list_active_outlets()
     template = (
         "admin/coverage/new_note.html"
         if kind == "note"
@@ -1066,26 +950,10 @@ def coverage_create():
 
 @bp.route("/coverage/<int:coverage_id>/edit", methods=["GET"])
 def coverage_edit(coverage_id: int):
-    with db_cursor() as cur:
-        cur.execute("SELECT * FROM coverage_entries WHERE id = %s", (coverage_id,))
-        entry = cur.fetchone()
-        if not entry:
-            abort(404)
-        cur.execute(
-            """SELECT subject_type, subject_id, subject_slug
-                 FROM coverage_subject_links WHERE coverage_id = %s""",
-            (coverage_id,),
-        )
-        subjects = cur.fetchall()
-        # CRITICAL: include the citation's current outlet even if it's been
-        # deactivated since the entry was created.
-        cur.execute(
-            "SELECT id, slug, name FROM outlets "
-            "WHERE is_active = TRUE OR id = %s "
-            "ORDER BY name",
-            (entry["outlet_id"],),
-        )
-        outlets = cur.fetchall()
+    found = query.get_coverage_for_edit(coverage_id)
+    if found is None:
+        abort(404)
+    entry, subjects, outlets = found
     return render_template(
         "admin/coverage/edit.html", entry=entry, subjects=subjects, outlets=outlets
     )
@@ -1181,45 +1049,11 @@ def coverage_unfeature(coverage_id: int):
 def coverage_search():
     subject_type = request.args.get("subject_type", "agenda_item")
     q = (request.args.get("q") or "").strip()
-    results = []
     if not q:
         return render_template(
             "admin/coverage/_search_results.html", results=[], subject_type=subject_type
         )
-    needle = f"%{_escape_like(q)}%"
-    with db_cursor() as cur:
-        if subject_type == "agenda_item":
-            cur.execute(
-                "SELECT id, title FROM agenda_items "
-                "WHERE title ILIKE %s ESCAPE '\\' ORDER BY id DESC LIMIT 15",
-                (needle,),
-            )
-            results = [{"id": r["id"], "label": r["title"]} for r in cur.fetchall()]
-        elif subject_type == "meeting":
-            cur.execute(
-                "SELECT id, title, meeting_date FROM meetings "
-                "WHERE title ILIKE %s ESCAPE '\\' "
-                "ORDER BY meeting_date DESC LIMIT 15",
-                (needle,),
-            )
-            results = [
-                {"id": r["id"], "label": f"{r['title']} ({r['meeting_date']:%Y-%m-%d})"}
-                for r in cur.fetchall()
-            ]
-        elif subject_type == "council_member":
-            cur.execute(
-                "SELECT id, name FROM council_members "
-                "WHERE name ILIKE %s ESCAPE '\\' LIMIT 15",
-                (needle,),
-            )
-            results = [{"id": r["id"], "label": r["name"]} for r in cur.fetchall()]
-        elif subject_type == "badge":
-            cur.execute(
-                "SELECT slug, name FROM priority_badge_templates "
-                "WHERE name ILIKE %s ESCAPE '\\' OR slug ILIKE %s ESCAPE '\\' LIMIT 15",
-                (needle, needle),
-            )
-            results = [{"id": r["slug"], "label": r["name"]} for r in cur.fetchall()]
+    results = query.search_coverage_subjects(subject_type, q)
     return render_template(
         "admin/coverage/_search_results.html",
         results=results,
@@ -1245,16 +1079,6 @@ def _parse_subjects_from_form(form) -> list:
             except ValueError:
                 continue
     return out
-
-
-def _escape_like(s: str) -> str:
-    """Escape Postgres LIKE/ILIKE wildcards in user input.
-
-    A bare ``%`` in admin input would otherwise match every row (the entire
-    table dump), and ``_`` would match any single char. Escape both, and
-    escape backslashes first so we don't double-escape our own escapes.
-    """
-    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 # --- Outlets ---------------------------------------------------------------

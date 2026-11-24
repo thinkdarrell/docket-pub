@@ -304,6 +304,7 @@ def test_transcript_pipeline_summary_sums_a_transcript_stage_over_seven_days():
     _run(stage=OWN_STAGE, days_old=1, cost="0.4000", rows_processed=3, rows_failed=1)
     _run(stage=OWN_STAGE, days_old=5, cost="0.2500", rows_processed=4, rows_failed=2)
     _run(stage=OWN_STAGE, days_old=8, cost="9.0000", rows_processed=100, rows_failed=100)
+    _run(stage=OWN_STAGE + "_b", days_old=1, cost="0.1000", rows_processed=1)
 
     rows = _transcripts()["transcript_stage_costs"]
 
@@ -313,6 +314,7 @@ def test_transcript_pipeline_summary_sums_a_transcript_stage_over_seven_days():
     assert mine[0] == {"stage": OWN_STAGE, "runs": 2, "rows_processed": 7, "rows_failed": 3}
     stages = [r["stage"] for r in rows]
     assert stages == sorted(stages)
+    assert stages.index(OWN_STAGE) < stages.index(OWN_STAGE + "_b")
 
 
 def test_transcript_pipeline_summary_lists_transcript_compare_and_no_other_kind_of_stage():
@@ -336,6 +338,7 @@ def test_transcript_pipeline_summary_gives_the_citation_missing_rate_of_a_prompt
     _discrepancy(meeting, citation_match="exact")
     _discrepancy(meeting, citation_match="missing", review_state="dismissed_by_model")
     _discrepancy(meeting, citation_match="missing", prompt_version=OWN_PROMPT_VERSION + 1)
+    _discrepancy(meeting, citation_match="exact", prompt_version=OWN_PROMPT_VERSION + 2)
 
     rows = _transcripts()["citation_missing"]
 
@@ -345,6 +348,10 @@ def test_transcript_pipeline_summary_gives_the_citation_missing_rate_of_a_prompt
          "rate": decimal.Decimal("50.0")}
     ]
     assert str(mine[0]["rate"]) == "50.0"
+    assert [dict(r) for r in rows if r["prompt_version"] == OWN_PROMPT_VERSION + 1] == [
+        {"prompt_version": OWN_PROMPT_VERSION + 1, "total": 1, "missing": 1,
+         "rate": decimal.Decimal("100.0")}
+    ]
     versions = [r["prompt_version"] for r in rows]
     assert versions == sorted(versions)
-    assert OWN_PROMPT_VERSION + 1 in versions
+    assert OWN_PROMPT_VERSION + 1 in versions and OWN_PROMPT_VERSION + 2 in versions

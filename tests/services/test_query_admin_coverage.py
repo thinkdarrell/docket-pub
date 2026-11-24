@@ -342,6 +342,14 @@ def test_list_coverage_for_admin_labels_the_subjects_of_each_entry_in_link_order
     _link(first, "badge", subject_slug=badge)
     _link(first, "agenda_item", subject_id=item)
     _link(first, "meeting", subject_id=meeting)
+    # Rewrite the first link, so the table no longer holds the four in the
+    # order they were made and only the statement's ORDER BY gives it back.
+    with db_cursor() as cur:
+        cur.execute(
+            "UPDATE coverage_subject_links SET created_at = created_at - INTERVAL '1 hour' "
+            "WHERE coverage_id = %s AND subject_type = 'council_member'",
+            (first,),
+        )
     second = _note(author)
     _link(second, "agenda_item", subject_id=NO_SUCH_ID)
     bare = _note(author)
