@@ -4292,3 +4292,42 @@ def _attach_video_links(item_id: int, entries: list[VoteEntry]) -> None:
                 cue_s=item["video_timestamp_seconds"], external_id=item["external_id"])
         else:
             entry.video_link = video_links.link_for(video, seconds=entry.video_timestamp)
+
+
+# --- Reads behind the admin pages (docket.web.admin) -------------------------
+
+
+def get_admin_profile(admin_user_id) -> dict | None:
+    """The username and display name of one admin, or None when no such row.
+
+    ``admin_user_id`` goes to the statement as given, with no conversion and
+    no check: the route passes whatever its session holds under
+    ``admin_user`` (plan `admin-routes-call-services` carried that as it
+    found it).
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT username, display_name FROM admin_users WHERE id = %s",
+            (admin_user_id,),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def list_district_names(municipality_id: int) -> list[str]:
+    """The names of a municipality's districts, ordered by district number."""
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT name FROM districts WHERE municipality_id = %s ORDER BY number",
+            (municipality_id,),
+        )
+        return [row["name"] for row in cur.fetchall()]
+
+
+def list_outlets() -> list[dict]:
+    """Every outlet, active or not, by name: id, slug, name, homepage, is_active."""
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT id, slug, name, homepage, is_active FROM outlets ORDER BY name"
+        )
+        return [dict(row) for row in cur.fetchall()]

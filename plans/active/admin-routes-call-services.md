@@ -18,7 +18,7 @@ Second, `grep -rl 'db_cursor\|db()' src/docket/web` prints four files where toda
 
 ## Progress
 
-- [ ] M1: the council-member, admin-profile and outlet-list statements of `src/docket/web/admin.py` are asked through `docket.services` (seven of the module's 27 transaction blocks gone), each new service function has a test under `tests/services/`, the member routes have route tests that were written and passed before the move, no existing admin test file is changed, and `./tools/verify` exits zero.
+- [x] (2026-11-24 04:13Z) M1: the council-member, admin-profile and outlet-list statements of `src/docket/web/admin.py` are asked through `docket.services` (seven of the module's 27 transaction blocks gone), each new service function has a test under `tests/services/`, the member routes have route tests that were written and passed before the move, no existing admin test file is changed, and `./tools/verify` exits zero.
 - [ ] M2: the errors-queue, manual-badge and conflict-form statements of `src/docket/web/admin.py` are asked through `docket.services` (nine more blocks gone), an unknown item still answers 404 with nothing written, each new service function has a test under `tests/services/`, row `D25` and the calibration spec name the new homes of the two statements they cite, no existing admin test file is changed, and `./tools/verify` exits zero.
 - [ ] M3: the editorial-coverage reads and the AI dashboard reads of `src/docket/web/admin.py` are asked through `docket.services.query` (six more blocks gone), each new service function has a test under `tests/services/`, no existing admin test file is changed, and `./tools/verify` exits zero.
 - [ ] M4: the meeting statements of `src/docket/web/admin.py` (the city-slug lookup, hide, unhide, the video-OCR rescan, the hidden list) are asked through `docket.services`, the module no longer imports `docket.db` and executes no statement, each new service function has a test under `tests/services/`, no existing admin test file is changed, and `./tools/verify` exits zero.
@@ -44,6 +44,10 @@ As authored on 2026-11-24 (UTC), nothing has been executed, so no milestone has 
   Evidence: `sed -n` of the lines named in Context, `grep -n -A4 '^### D7' docs/DEBT.md`, and `grep -n 'psycopg2\|docket.db' src/docket/web/admin.py`, which printed lines 23 and 364.
 - Observation (M1, 2026-11-24): no template prints the district names the add-member form is handed. `add_member`'s GET branch builds `districts_by_city` and passes it to `admin/member_form.html`, whose District field is a plain text input; so the route test Plan of Work asks for ("a GET of `/admin/members/add` answers 200 and lists a seeded district name") cannot read the name in the response body.
   Evidence: `grep -rn 'districts_by_city' src/docket/web/templates` printed nothing; the template was read whole. The Decision Log's M1 entry says what the test asserts instead.
+- Observation (M1, 2026-11-24): every rule of the seven moved statements is pinned by a service test. Each rule was taken out of a copy of the module compiled in memory (a pytest plugin in the session scratchpad that replaces one piece of the source text and executes the result into the imported module; no committed file was edited), one at a time, and the three new service test files were run against each copy: 23 removals tried, 23 failed at least one test. No assertion was added after the commit that holds the service tests failing (`5df8dda`).
+  Evidence: the 23 were, for `add_member`, the empty-name guard, the city in the district lookup, the name in the district lookup, the use of the district found, `active` TRUE, the email and the photo URL stored; for `update_member`, the `WHERE id` and each of the four SET columns; for `deactivate_member`, the `WHERE id` and the FALSE; for `set_display_name`, the `WHERE id` and a `None` stored as NULL; for `get_admin_profile`, the `WHERE id` and the `display_name` column; for `list_district_names`, the city and the `ORDER BY number`; for `list_outlets`, the `ORDER BY name`, the absence of an active filter, and the `homepage` column. The run's last line was `23 of 23 removals failed a test`.
+- Observation (M1, 2026-11-24): `ruff check src/docket/web/admin.py` reports an unsorted import block (`I001`) before and after this milestone, and six other findings before (four after, the two gone being nested `with` blocks that left). Nothing in `./tools/verify` runs ruff. The findings were left as they stand; the import this milestone added is written in sorted order inside its own statement.
+  Evidence: `ruff check --statistics` on the file printed `Found 7 errors` after the move and, on `git show HEAD:src/docket/web/admin.py` before it, `Found 9 errors`, each with `1 I001`. The five new test files and two new service modules printed `All checks passed!`.
 
 ## Decision Log
 
@@ -98,10 +102,15 @@ As authored on 2026-11-24 (UTC), nothing has been executed, so no milestone has 
 - Decision (M1): the GET test of `/admin/members/add` asserts the district names in the context the route hands the template, read through Flask's `template_rendered` signal, and not in the response body. It asserts the seeded city's list equals the two seeded names in `number` order, the names being stored so that alphabetical order would reverse them.
   Rationale: the page does not print the names (Surprises, M1), and the statement M1 moves is the one that fills that context value; a test of the body could not tell the statement from its absence. Editing the template to print them would be a change of what a person sees, which this plan does not make. The alternative of dropping the test would leave the moved loop with no route test.
   Date/Author: 2026-11-24, M1 session.
+- Decision (M1): the three new readers return plain dictionaries (`dict(row)`), where the routes handed the template the cursor's own rows. `update_member` and `deactivate_member` use `db_cursor()` where the routes used `db()` with a tuple cursor.
+  Rationale: `query.py` returns `dict(row)` everywhere else, the templates read the rows by key either way, and neither UPDATE reads a row, so the cursor kind changes nothing stored or shown. Interfaces allows either cursor for a function that returns plain values.
+  Date/Author: 2026-11-24, M1 session.
 
 ## Outcomes & Retrospective
 
 As authored on 2026-11-24 (UTC), nothing has been executed and there is no outcome to report. Each milestone's session adds its entry beneath this sentence.
+
+M1 (2026-11-24). Seven of the 27 transaction blocks of `src/docket/web/admin.py` and 8 of its 54 statements are gone: the four member routes, the outlet list and the two profile routes call `docket.services`. The acceptance was met with no carve-out; one of its route tests reads the template context where the plan's wording expected the response body, because the page does not print district names (Surprises and Decision Log, M1). Twenty blocks and 46 statements remain, for M2 to M4. What a later session should know: the import in `admin.py` is now a parenthesised block that M2 adds `badges` and `errors_queue` to, and the reads for the admin pages sit at the end of `src/docket/services/query.py` under the comment heading `Reads behind the admin pages (docket.web.admin)`, where M2 to M4 append theirs.
 
 ## Context and Orientation
 
@@ -273,6 +282,40 @@ Service tests, written next and run before any service function existed (this is
     tests/services/test_council_members_writer.py   8 failed, 1 warning in 0.40s   ModuleNotFoundError: No module named 'docket.services.council_members_writer'
     tests/services/test_admin_users.py              3 failed, 1 warning in 0.07s   ModuleNotFoundError: No module named 'docket.services.admin_users'
     tests/services/test_query_admin_roster.py       7 failed, 1 warning in 0.14s   ImportError: cannot import name 'get_admin_profile' / 'list_district_names' / 'list_outlets' from 'docket.services.query'
+
+After the service functions were written and before any route changed (the two counting greps still `27` and `54`):
+
+    tests/services/test_council_members_writer.py   8 passed, 1 warning in 0.54s
+    tests/services/test_admin_users.py              3 passed, 1 warning in 0.13s
+    tests/services/test_query_admin_roster.py       7 passed, 1 warning in 0.30s
+
+After the routes were changed to call them:
+
+    tests/integration/test_admin_members.py         7 passed, 1 warning in 1.79s
+    tests/integration/test_admin_profile.py         3 passed, 1 warning in 1.24s
+    tests/services/test_council_members_writer.py   8 passed, 1 warning in 0.99s
+    tests/services/test_admin_users.py              3 passed, 1 warning in 0.14s
+    tests/services/test_query_admin_roster.py       7 passed, 1 warning in 0.29s
+    tests/integration/test_admin_outlets.py         2 passed, 1 warning in 0.99s
+    tests/integration/test_admin_coverage.py        12 passed, 1 warning in 2.80s
+    $ grep -c 'with db()\|with db_cursor()' src/docket/web/admin.py
+    20
+    $ grep -c '\.execute(' src/docket/web/admin.py
+    46
+    $ git diff --stat $(git merge-base origin/main HEAD) -- <the ten existing admin test files of Concrete Steps>
+    (no output)
+    $ ./tools/verify          (on the tree the M1 code commit holds; exit status 0)
+    verify: unit+web+services ... ok (195s)      3843 passed, 5 skipped, 4 xfailed
+    verify: integration ... ok (129s)            1174 passed
+    verify: judge-fixtures ... ok (0s)           12 of 12 passed
+    verify: workflows ... ok (0s)
+    verify: transcriber ... ok (11s)             147 passed
+    verify: plans ... ok (0s)
+    verify: all 6 checks passed in 335s.
+
+Against the authoring baseline the first tier rose by 18 (3825 to 3843: the 18 tests of the three new files under `tests/services/`) and the integration tier by 10 (1164 to 1174: the two new route test files).
+
+The tests that call each M1 service function. `council_members_writer.add_member`: `test_add_member_stores_the_row_under_the_named_district_of_that_city`, `test_add_member_with_an_unknown_district_name_stores_a_null_district`, `test_add_member_with_an_empty_district_name_looks_nothing_up`. `council_members_writer.update_member`: `test_update_member_changes_the_four_fields_of_that_member_only`, `test_update_member_with_none_email_and_photo_url_stores_null`, `test_update_member_for_an_id_with_no_row_changes_no_seeded_member`. `council_members_writer.deactivate_member`: `test_deactivate_member_sets_active_false_on_that_member_only`, `test_deactivate_member_for_an_id_with_no_row_changes_no_seeded_member` (all in `tests/services/test_council_members_writer.py`). `admin_users.set_display_name`: `test_set_display_name_stores_the_name_on_that_user_only`, `test_set_display_name_with_none_stores_null`, `test_set_display_name_for_an_id_with_no_row_changes_no_seeded_user` (`tests/services/test_admin_users.py`). `query.get_admin_profile`: `test_get_admin_profile_returns_the_username_and_display_name_of_that_id`, `test_get_admin_profile_with_no_display_name_holds_none_under_the_key`, `test_get_admin_profile_for_an_id_with_no_row_is_none`. `query.list_district_names`: `test_list_district_names_is_that_citys_names_in_number_order`, `test_list_district_names_for_a_city_with_no_district_is_an_empty_list`. `query.list_outlets`: `test_list_outlets_holds_the_five_columns_of_a_seeded_outlet_active_or_not`, `test_list_outlets_is_ordered_by_name` (all in `tests/services/test_query_admin_roster.py`). Through the routes, the ten tests of `tests/integration/test_admin_members.py` and `tests/integration/test_admin_profile.py` and the existing `test_outlets_list_includes_seed` and `test_profile_display_name_update` reach the same functions.
 
 ## Interfaces and Dependencies
 

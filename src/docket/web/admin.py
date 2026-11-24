@@ -21,7 +21,13 @@ from werkzeug.routing.exceptions import BuildError
 
 from docket.adapters._helpers import MEETING_TYPES, SESSION_KINDS
 from docket.db import db, db_cursor
-from docket.services import meeting_types, non_meetings, query
+from docket.services import (
+    admin_users,
+    council_members_writer,
+    meeting_types,
+    non_meetings,
+    query,
+)
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
 
@@ -76,26 +82,13 @@ def add_member():
         if not muni:
             abort(404)
 
-        with db_cursor() as cur:
-            # Resolve district if provided
-            district_id = None
-            if district_name:
-                cur.execute(
-                    "SELECT id FROM districts WHERE municipality_id = %s AND name = %s",
-                    (muni["id"], district_name),
-                )
-                row = cur.fetchone()
-                if row:
-                    district_id = row["id"]
-
-            cur.execute(
-                """
-                INSERT INTO council_members
-                    (municipality_id, district_id, name, email, photo_url, active)
-                VALUES (%s, %s, %s, %s, %s, TRUE)
-                """,
-                (muni["id"], district_id, name, email, photo_url),
-            )
+        council_members_writer.add_member(
+            municipality_id=muni["id"],
+            name=name,
+            district_name=district_name,
+            email=email,
+            photo_url=photo_url,
+        )
 
         return redirect(url_for("admin.list_members"))
 
@@ -103,12 +96,7 @@ def add_member():
     # Fetch districts for each municipality
     districts_by_city = {}
     for muni in municipalities:
-        with db_cursor() as cur:
-            cur.execute(
-                "SELECT name FROM districts WHERE municipality_id = %s ORDER BY number",
-                (muni["id"],),
-            )
-            districts_by_city[muni["slug"]] = [row["name"] for row in cur.fetchall()]
+        districts_by_city[muni["slug"]] = query.list_district_names(muni["id"])
 
     return render_template(
         "admin/member_form.html",
@@ -131,16 +119,9 @@ def edit_member(member_id):
         photo_url = request.form.get("photo_url", "").strip() or None
         active = request.form.get("active") == "on"
 
-        with db() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    UPDATE council_members
-                    SET name = %s, email = %s, photo_url = %s, active = %s
-                    WHERE id = %s
-                    """,
-                    (name, email, photo_url, active, member_id),
-                )
+        council_members_writer.update_member(
+            member_id, name=name, email=email, photo_url=photo_url, active=active
+        )
 
         return redirect(url_for("admin.list_members"))
 
@@ -155,12 +136,7 @@ def edit_member(member_id):
 @bp.route("/members/<int:member_id>/deactivate", methods=["POST"])
 def deactivate_member(member_id):
     """Deactivate a council member (term ended)."""
-    with db() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "UPDATE council_members SET active = FALSE WHERE id = %s",
-                (member_id,),
-            )
+    council_members_writer.deactivate_member(member_id)
 
     return redirect(url_for("admin.list_members"))
 
@@ -1495,11 +1471,7 @@ def _escape_like(s: str) -> str:
 
 @bp.route("/outlets", methods=["GET"])
 def outlets_list():
-    with db_cursor() as cur:
-        cur.execute(
-            "SELECT id, slug, name, homepage, is_active FROM outlets ORDER BY name"
-        )
-        outlets = cur.fetchall()
+    outlets = query.list_outlets()
     return render_template("admin/outlets/list.html", outlets=outlets)
 
 
@@ -1549,11 +1521,7 @@ def outlets_activate(outlet_id: int):
 @bp.route("/profile", methods=["GET"])
 def profile():
     uid = session["admin_user"]
-    with db_cursor() as cur:
-        cur.execute(
-            "SELECT username, display_name FROM admin_users WHERE id = %s", (uid,)
-        )
-        user = cur.fetchone()
+    user = query.get_admin_profile(uid)
     return render_template("admin/profile.html", user=user)
 
 
@@ -1561,10 +1529,7 @@ def profile():
 def profile_update_display_name():
     uid = session["admin_user"]
     new_name = (request.form.get("display_name") or "").strip() or None
-    with db_cursor() as cur:
-        cur.execute(
-            "UPDATE admin_users SET display_name = %s WHERE id = %s", (new_name, uid)
-        )
+    admin_users.set_display_name(uid, new_name)
     return redirect(url_for("admin.profile"))
 
 
