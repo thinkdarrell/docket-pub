@@ -124,6 +124,12 @@ As authored on 2026-11-24 (UTC), nothing has been executed, so no milestone has 
 - Decision (M2): `add_manual_badge` was given three tests beyond the plan's list (over a badge the pipeline attached, that item only, the kind of a `process` template) and the two errors-queue functions one each (that item only).
   Rationale: each pins a clause of a moved statement that the plan's list left free: `ON CONFLICT` against a row the function did not write, the `WHERE id` of each UPDATE, and the `kind` read from the template. The removal check in Surprises shows them doing so.
   Date/Author: 2026-11-24, M2 session.
+- Decision (M3): the opening `./tools/verify` was skipped, under the revision entry above.
+  Rationale: at the session's start the M2 entry was ticked with its closing run recorded in Artifacts and Notes (`verify: all 6 checks passed in 337s.`), `git rev-parse HEAD` printed `fd0c36582da1f1587aa4677392cac2391770d536`, `git status --short` printed nothing, and `git log --merges --oneline bff4c27..HEAD` printed nothing. The two counting greps printed `11` and `29`, as M2 left them.
+  Date/Author: 2026-11-24, M3 session.
+- Decision (M3): a subject a coverage test links to (an agenda item, a meeting, a council member) is seeded under an explicit id in a range of its own (987650100, 987650200 and 987650300 upward), not under the id the sequence would give.
+  Rationale: the label statement of the coverage list looks one `subject_id` up in `agenda_items`, then `meetings`, then `council_members`, whatever the link's type, and takes the first title it finds; on a fresh database the sequences of the three tables start together, so a meeting and an item seeded by one test can share an id and the meeting's link would be labelled with the item's title. The statement moves as it stands; the test keeps its ids apart so that what it asserts does not depend on what else the database holds.
+  Date/Author: 2026-11-24, M3 session.
 
 ## Outcomes & Retrospective
 
@@ -396,6 +402,17 @@ After the routes were changed to call them and the three documents edited:
 Against M1's closing run the first tier rose by 25 (3843 to 3868: the 25 tests of the three new files under `tests/services/`) and the integration tier by 2 (1174 to 1176: the new route test file).
 
 The tests that call each M2 service function. `errors_queue.retry_item`: `test_retry_item_returns_the_prior_status_and_resets_the_five_columns`, `test_retry_item_writes_one_audit_row_with_action_retry`, `test_retry_item_touches_that_item_only`, `test_retry_item_for_an_unknown_item_is_none_and_writes_nothing`. `errors_queue.escalate_item`: `test_escalate_item_keeps_the_keys_already_there_and_adds_the_two`, `test_escalate_item_on_null_score_overrides_stores_exactly_the_two_keys`, `test_escalate_item_writes_one_audit_row_whose_from_and_to_status_are_equal`, `test_escalate_item_touches_that_item_only`, `test_escalate_item_for_an_unknown_item_is_none_and_writes_nothing` (all in `tests/services/test_errors_queue.py`). `badges.add_manual_badge`: `test_add_manual_badge_writes_the_badge_and_one_audit_row` (once for a `policy` slug, once for a `process` one), `test_add_manual_badge_repeated_is_false_with_no_second_audit_row`, `test_add_manual_badge_over_a_pipeline_badge_is_false_and_leaves_it`, `test_add_manual_badge_touches_that_item_only`, `test_add_manual_badge_for_an_unknown_item_is_none_and_writes_nothing`, `test_add_manual_badge_for_an_unknown_slug_is_none_and_writes_nothing`. `badges.remove_manual_badge`: `test_remove_manual_badge_deletes_that_badge_and_writes_one_audit_row`, `test_remove_manual_badge_not_attached_is_false_with_no_audit_row`, `test_remove_manual_badge_for_an_unknown_item_is_false_with_no_audit_row` (all in `tests/services/test_badges_manual.py`). `query.get_item_for_badge_manage`: `test_get_item_for_badge_manage_returns_the_seven_columns_of_that_item`, `test_get_item_for_badge_manage_for_an_unknown_item_is_none`. `query.get_conflict_form_item`: `test_get_conflict_form_item_returns_id_facts_and_status_as_text`, `test_get_conflict_form_item_with_no_facts_holds_none_under_the_key`, `test_get_conflict_form_item_for_an_unknown_item_is_none` (all in `tests/services/test_query_admin_items.py`). Through the routes, the two tests of `tests/integration/test_admin_not_found_paths.py` and the existing tests of `tests/integration/test_admin_queues.py`, `tests/integration/test_admin_badge_audit.py` and `tests/integration/test_conflict_resolution.py` reach the same functions.
+
+### M3, observed on 2026-11-24 (UTC)
+
+The opening `./tools/verify` was skipped (Decision Log, M3). One throwaway database (`docket_test_fdb4ad9a`, built by `tools/test-db`) served every single-file run below. Each run is `DATABASE_URL=<that database> venv/bin/python -m pytest <file> -q -p no:cacheprovider`. No route test was written first: Plan of Work says the existing files cover the five routes, and run together against the unchanged module (`grep -c` of the two patterns `11` and `29`) they printed:
+
+    tests/integration/test_admin_coverage.py tests/integration/test_admin_ai_panel_transcripts.py   13 passed, 1 warning in 3.26s
+
+Service tests, written next and run before any service function existed (this is the state of the commit that holds them):
+
+    tests/services/test_query_admin_coverage.py   39 failed, 1 warning in 1.39s   ImportError: cannot import name 'list_coverage_for_admin' / 'list_active_outlets' / 'get_coverage_for_edit' / 'search_coverage_subjects' from 'docket.services.query'
+    tests/services/test_query_ai_summaries.py     14 failed, 1 warning in 0.61s   ImportError: cannot import name 'ai_pipeline_summary' / 'transcript_pipeline_summary' from 'docket.services.query'
 
 ## Interfaces and Dependencies
 
