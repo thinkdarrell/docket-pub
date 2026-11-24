@@ -145,6 +145,12 @@ As authored on 2026-11-24 (UTC), nothing has been executed, so no milestone has 
 - Decision (M3): tests beyond the plan's list were written for clauses it left free: the order and the 200 of the coverage list, both halves of the author label, the order of the outlet lists, the order and the 15 of each search statement, the case-blind match, the slug of a badge, each arm of the meetings-pending count and which version each placeholder gets, the debounce, the 20 runs, and the status counts. The wildcard needles run against all four subject types, not one.
   Rationale: each is a clause of a moved statement; the removal check in Surprises shows them pinned. The plan's list says "at least".
   Date/Author: 2026-11-24, M3 session.
+- Decision (M4): the opening `./tools/verify` was skipped, under the revision entry above.
+  Rationale: at the session's start the M3 entry was ticked with its closing run recorded in Artifacts and Notes (`verify: all 6 checks passed in 347s.`), `git rev-parse HEAD` printed `745589ea1a6bf900b729bd5ea244e88886b2d331`, `git status --short` printed nothing, and `git log --merges --oneline bff4c27..HEAD` printed nothing. The two counting greps printed `5` and `11`, as M3 left them.
+  Date/Author: 2026-11-24, M4 session.
+- Decision (M4): the pin's finder is a function of source text (`findings(source)` in `tests/unit/test_admin_module_has_no_sql.py`), and the file holds, beside the one test that reads `admin.py`, eleven that hand the finder a few lines of source: ten that each hold one forbidden import or call and one that holds none. Beyond the names the revision entry gives, the finder also reports `from docket import db` and `import docket.db`, which name the same module.
+  Rationale: once the module is clean the pin passes, and a pin that only ever passes has not shown it can fail; the ten samples are that showing, kept in `./tools/verify`. Without the two extra import forms a later edit could bring the helper back under another spelling and the plan's grep for `db()` would be the only thing to catch it.
+  Date/Author: 2026-11-24, M4 session.
 
 ## Outcomes & Retrospective
 
@@ -466,6 +472,27 @@ After the routes were changed to call them, `_escape_like` had left `admin.py`, 
 Against M2's closing run the first tier rose by 53 (3868 to 3921: the 39 and 14 tests of the two new files under `tests/services/`) and the integration tier did not change (1176: this milestone wrote no route test).
 
 The tests that call each M3 service function. `query.list_coverage_for_admin`: `test_list_coverage_for_admin_with_no_filter_holds_the_nine_columns_of_each_entry`, `test_list_coverage_for_admin_is_newest_update_first`, `test_list_coverage_for_admin_with_a_status_filter_holds_that_status_only`, `test_list_coverage_for_admin_with_a_kind_filter_holds_that_kind_only`, `test_list_coverage_for_admin_with_both_filters_holds_rows_that_meet_both`, `test_list_coverage_for_admin_with_a_kind_no_entry_of_that_status_has`, `test_list_coverage_for_admin_returns_at_most_two_hundred_rows`, `test_list_coverage_for_admin_counts_every_status_whatever_the_filter`, `test_list_coverage_for_admin_labels_the_subjects_of_each_entry_in_link_order`, `test_list_coverage_for_admin_holds_subjects_only_for_the_rows_it_returns`. `query.list_active_outlets`: `test_list_active_outlets_holds_three_columns_and_leaves_out_an_inactive_outlet`, `test_list_active_outlets_is_ordered_by_name`. `query.get_coverage_for_edit`: `test_get_coverage_for_edit_returns_the_entry_its_links_and_the_outlets`, `test_get_coverage_for_edit_of_a_note_lists_active_outlets_only`, `test_get_coverage_for_edit_for_an_unknown_id_is_none`. `query.search_coverage_subjects`: `test_search_coverage_subjects_finds_a_row_of_that_type_whatever_its_case` and `test_search_coverage_subjects_returns_at_most_fifteen` (each once per subject type), `test_search_coverage_subjects_takes_a_wildcard_character_literally` (once per subject type and needle, twelve in all), `test_search_coverage_subjects_for_agenda_items_is_highest_id_first`, `test_search_coverage_subjects_for_meetings_is_latest_date_first`, `test_search_coverage_subjects_for_badges_matches_the_slug_too_and_returns_it_as_id`, `test_search_coverage_subjects_for_an_unknown_subject_type_is_an_empty_list` (all in `tests/services/test_query_admin_coverage.py`). `query.ai_pipeline_summary`: `test_ai_pipeline_summary_returns_the_four_keys`, `test_ai_pipeline_summary_counts_an_item_with_no_version_or_an_older_one`, `test_ai_pipeline_summary_measures_items_against_the_item_version_it_is_given`, `test_ai_pipeline_summary_leaves_out_an_item_younger_than_the_debounce`, `test_ai_pipeline_summary_counts_an_unadopted_meeting_whose_items_are_all_done`, `test_ai_pipeline_summary_measures_meetings_against_both_versions_it_is_given`, `test_ai_pipeline_summary_counts_an_adopted_meeting_until_its_phase_is_adopted`, `test_ai_pipeline_summary_sums_cost_and_tokens_of_the_last_seven_days`, `test_ai_pipeline_summary_lists_the_last_twenty_runs_newest_id_first`. `query.transcript_pipeline_summary`: `test_transcript_pipeline_summary_returns_the_three_keys`, `test_transcript_pipeline_summary_counts_transcripts_by_status_in_status_order`, `test_transcript_pipeline_summary_sums_a_transcript_stage_over_seven_days`, `test_transcript_pipeline_summary_lists_transcript_compare_and_no_other_kind_of_stage`, `test_transcript_pipeline_summary_gives_the_citation_missing_rate_of_a_prompt_version` (all in `tests/services/test_query_ai_summaries.py`). Through the routes, the existing tests of `tests/integration/test_admin_coverage.py` and `tests/integration/test_admin_ai_panel_transcripts.py` reach the same functions.
+
+### M4, observed on 2026-11-24 (UTC)
+
+The opening `./tools/verify` was skipped (Decision Log, M4). One throwaway database (`docket_test_fdb4ad9a`, built by `tools/test-db`) served every single-file run below. Each run is `DATABASE_URL=<that database> venv/bin/python -m pytest <file> -q -p no:cacheprovider`.
+
+The pin, written first and run alone against the module as M3 left it (`grep -c` of the two patterns `5` and `11`; this is the state of the commit that holds it):
+
+    tests/unit/test_admin_module_has_no_sql.py   1 failed, 11 passed, 1 warning in 0.03s
+    FAILED tests/unit/test_admin_module_has_no_sql.py::test_the_admin_module_imports_no_database_helper_and_executes_no_statement
+    E   AssertionError: src/docket/web/admin.py reaches the database itself; move each statement into docket.services and call it from the route (ARCHITECTURE.md, Layer map):
+    E       line 23: from docket.db import db, db_cursor
+    E       line 1156: a call of db_cursor()
+    E       line 1157: a call of execute()
+    E       line 1210: a call of db()
+    E       (and thirteen more lines: 17 in all, the import, the five blocks and the 11 statements)
+
+The eleven that passed there hand the finder sample source and do not read the module (Decision Log, M4).
+
+Route tests, written next and run against the unchanged module:
+
+    tests/integration/test_admin_meeting_not_found.py   2 passed, 1 warning in 0.99s
 
 ## Interfaces and Dependencies
 
