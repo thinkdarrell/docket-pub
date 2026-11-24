@@ -20,8 +20,15 @@ from flask import (
 from werkzeug.routing.exceptions import BuildError
 
 from docket.adapters._helpers import MEETING_TYPES, SESSION_KINDS
-from docket.db import db, db_cursor
-from docket.services import meeting_types, non_meetings, query
+from docket.services import (
+    admin_users,
+    badges,
+    council_members_writer,
+    errors_queue,
+    meeting_types,
+    non_meetings,
+    query,
+)
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
 
@@ -76,26 +83,13 @@ def add_member():
         if not muni:
             abort(404)
 
-        with db_cursor() as cur:
-            # Resolve district if provided
-            district_id = None
-            if district_name:
-                cur.execute(
-                    "SELECT id FROM districts WHERE municipality_id = %s AND name = %s",
-                    (muni["id"], district_name),
-                )
-                row = cur.fetchone()
-                if row:
-                    district_id = row["id"]
-
-            cur.execute(
-                """
-                INSERT INTO council_members
-                    (municipality_id, district_id, name, email, photo_url, active)
-                VALUES (%s, %s, %s, %s, %s, TRUE)
-                """,
-                (muni["id"], district_id, name, email, photo_url),
-            )
+        council_members_writer.add_member(
+            municipality_id=muni["id"],
+            name=name,
+            district_name=district_name,
+            email=email,
+            photo_url=photo_url,
+        )
 
         return redirect(url_for("admin.list_members"))
 
@@ -103,12 +97,7 @@ def add_member():
     # Fetch districts for each municipality
     districts_by_city = {}
     for muni in municipalities:
-        with db_cursor() as cur:
-            cur.execute(
-                "SELECT name FROM districts WHERE municipality_id = %s ORDER BY number",
-                (muni["id"],),
-            )
-            districts_by_city[muni["slug"]] = [row["name"] for row in cur.fetchall()]
+        districts_by_city[muni["slug"]] = query.list_district_names(muni["id"])
 
     return render_template(
         "admin/member_form.html",
@@ -131,16 +120,9 @@ def edit_member(member_id):
         photo_url = request.form.get("photo_url", "").strip() or None
         active = request.form.get("active") == "on"
 
-        with db() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    UPDATE council_members
-                    SET name = %s, email = %s, photo_url = %s, active = %s
-                    WHERE id = %s
-                    """,
-                    (name, email, photo_url, active, member_id),
-                )
+        council_members_writer.update_member(
+            member_id, name=name, email=email, photo_url=photo_url, active=active
+        )
 
         return redirect(url_for("admin.list_members"))
 
@@ -155,12 +137,7 @@ def edit_member(member_id):
 @bp.route("/members/<int:member_id>/deactivate", methods=["POST"])
 def deactivate_member(member_id):
     """Deactivate a council member (term ended)."""
-    with db() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "UPDATE council_members SET active = FALSE WHERE id = %s",
-                (member_id,),
-            )
+    council_members_writer.deactivate_member(member_id)
 
     return redirect(url_for("admin.list_members"))
 
@@ -281,42 +258,9 @@ def errors_retry(item_id: int):
     """
     actor = session.get("admin_user", "unknown")
 
-    with db() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT processing_status::text FROM agenda_items WHERE id = %s",
-                (item_id,),
-            )
-            row = cur.fetchone()
-            if row is None:
-                abort(404)
-            from_status = row[0]
-
-            cur.execute(
-                """
-                UPDATE agenda_items
-                   SET processing_status = 'pending'::processing_status_enum,
-                       processing_attempts = 0,
-                       backfill_session_id = NULL,
-                       last_error_at = NULL,
-                       last_error_message = NULL
-                 WHERE id = %s
-                """,
-                (item_id,),
-            )
-
-            cur.execute(
-                """
-                INSERT INTO processing_status_audit
-                  (agenda_item_id, from_status, to_status, action,
-                   actor, actor_role, reason)
-                VALUES
-                  (%s, %s::processing_status_enum,
-                   'pending'::processing_status_enum,
-                   'retry', %s, 'admin', %s)
-                """,
-                (item_id, from_status, actor, "Admin retry from errors queue"),
-            )
+    from_status = errors_queue.retry_item(item_id, actor)
+    if from_status is None:
+        abort(404)
 
     current_app.logger.info(
         "admin retry: item_id=%s actor=%s from_status=%s",
@@ -345,56 +289,9 @@ def errors_escalate(item_id: int):
     """
     actor = session.get("admin_user", "unknown")
 
-    with db() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT processing_status::text, score_overrides
-                  FROM agenda_items
-                 WHERE id = %s
-                """,
-                (item_id,),
-            )
-            row = cur.fetchone()
-            if row is None:
-                abort(404)
-            from_status, existing_overrides = row[0], row[1]
-
-            # Merge admin_escalated into existing score_overrides
-            # without clobbering Stage 2.5 floor data. psycopg2 returns
-            # JSONB as a Python dict (or None when NULL).
-            merged = dict(existing_overrides) if existing_overrides else {}
-            merged["admin_escalated"] = True
-            merged["admin_escalated_by"] = actor
-
-            cur.execute(
-                """
-                UPDATE agenda_items
-                   SET score_overrides = %s::jsonb
-                 WHERE id = %s
-                """,
-                (json.dumps(merged), item_id),
-            )
-
-            cur.execute(
-                """
-                INSERT INTO processing_status_audit
-                  (agenda_item_id, from_status, to_status, action,
-                   actor, actor_role, reason, payload)
-                VALUES
-                  (%s, %s::processing_status_enum,
-                   %s::processing_status_enum,
-                   'escalate', %s, 'admin', %s, %s::jsonb)
-                """,
-                (
-                    item_id,
-                    from_status,
-                    from_status,
-                    actor,
-                    "Admin escalated from errors queue (manual review needed)",
-                    json.dumps({"admin_escalated": True}),
-                ),
-            )
+    from_status = errors_queue.escalate_item(item_id, actor)
+    if from_status is None:
+        abort(404)
 
     current_app.logger.info(
         "admin escalate: item_id=%s actor=%s status=%s",
@@ -487,86 +384,26 @@ def ai_panel():
     from docket.ai.prompts import ITEM_PROMPT_VERSION, MEETING_PROMPT_VERSION
     from docket.config import AI_DAILY_BUDGET_USD, AI_ITEM_DEBOUNCE_MINUTES
 
-    with db_cursor() as cur:
-        cur.execute(
-            """
-            SELECT COUNT(*) AS pending FROM agenda_items
-             WHERE (ai_prompt_version IS NULL OR ai_prompt_version < %s)
-               AND created_at < NOW() - (%s || ' minutes')::interval
-            """,
-            (ITEM_PROMPT_VERSION, AI_ITEM_DEBOUNCE_MINUTES),
-        )
-        items_pending = cur.fetchone()["pending"]
-
-        cur.execute(
-            """
-            SELECT COUNT(*) AS pending FROM meetings m
-             WHERE (
-               ((m.ai_prompt_version IS NULL OR m.ai_prompt_version < %s)
-                AND m.minutes_adopted_at IS NULL
-                AND NOT EXISTS (
-                  SELECT 1 FROM agenda_items ai
-                   WHERE ai.meeting_id = m.id
-                     AND (ai.ai_prompt_version IS NULL OR ai.ai_prompt_version < %s)
-                ))
-               OR (m.minutes_adopted_at IS NOT NULL
-                   AND COALESCE(m.ai_metadata->>'phase', '') != 'adopted')
-             )
-            """,
-            (MEETING_PROMPT_VERSION, ITEM_PROMPT_VERSION),
-        )
-        meetings_pending = cur.fetchone()["pending"]
-
-        cur.execute(
-            """
-            SELECT COALESCE(SUM(cost_usd), 0)::float AS total,
-                   COALESCE(SUM((usage->>'cache_read_input_tokens')::int), 0) AS cache_reads,
-                   COALESCE(SUM((usage->>'input_tokens')::int), 0) AS regular_reads
-              FROM ai_runs
-             WHERE started_at > NOW() - INTERVAL '7 days'
-            """
-        )
-        seven_day = dict(cur.fetchone())
-
-        cur.execute(
-            """
-            SELECT id, started_at, stage, model, rows_processed, rows_failed, cost_usd
-              FROM ai_runs
-             ORDER BY id DESC
-             LIMIT 20
-            """
-        )
-        runs = [dict(row) for row in cur.fetchall()]
+    pipeline = query.ai_pipeline_summary(
+        ITEM_PROMPT_VERSION, MEETING_PROMPT_VERSION, AI_ITEM_DEBOUNCE_MINUTES
+    )
 
     from docket.services import discrepancies as dsvc
-    with db_cursor() as cur:
-        cur.execute("SELECT status, count(*) AS n FROM transcripts GROUP BY status ORDER BY status")
-        transcript_status_counts = [dict(r) for r in cur.fetchall()]
-        cur.execute("""SELECT stage, count(*) AS runs, COALESCE(SUM(cost_usd), 0)::float AS cost,
-                              SUM(rows_processed) AS rows_processed, SUM(rows_failed) AS rows_failed
-                         FROM ai_runs WHERE stage LIKE 'transcript_%%' AND started_at > NOW() - INTERVAL '7 days'
-                        GROUP BY stage ORDER BY stage""")
-        transcript_stage_costs = [dict(r) for r in cur.fetchall()]
-        cur.execute("""SELECT prompt_version, count(*) AS total,
-                              count(*) FILTER (WHERE citation_match = 'missing') AS missing,
-                              round(100.0 * count(*) FILTER (WHERE citation_match = 'missing') / count(*), 1) AS rate
-                         FROM minutes_discrepancies WHERE review_state <> 'dismissed_by_model'
-                        GROUP BY prompt_version ORDER BY prompt_version""")
-        citation_missing = [dict(r) for r in cur.fetchall()]
+    transcripts = query.transcript_pipeline_summary()
     gate = dsvc.approval_ratio()
     mvv_flag = bool(current_app.config.get("MINUTES_VS_VIDEO_UI"))
 
     return render_template(
         "admin/ai_panel.html",
-        transcript_status_counts=transcript_status_counts,
-        transcript_stage_costs=transcript_stage_costs,
-        citation_missing=citation_missing,
+        transcript_status_counts=transcripts["transcript_status_counts"],
+        transcript_stage_costs=transcripts["transcript_stage_costs"],
+        citation_missing=transcripts["citation_missing"],
         gate=gate,
         mvv_flag=mvv_flag,
-        items_pending=items_pending,
-        meetings_pending=meetings_pending,
-        seven_day=seven_day,
-        runs=runs,
+        items_pending=pipeline["items_pending"],
+        meetings_pending=pipeline["meetings_pending"],
+        seven_day=pipeline["seven_day"],
+        runs=pipeline["runs"],
         budget=AI_DAILY_BUDGET_USD,
         item_version=ITEM_PROMPT_VERSION,
         meeting_version=MEETING_PROMPT_VERSION,
@@ -694,26 +531,9 @@ def badges_manage_item(item_id: int):
 
     404 if the item doesn't exist. Auth via blueprint hook.
     """
-    with db_cursor() as cur:
-        cur.execute(
-            """
-            SELECT ai.id, ai.title,
-                   m.id   AS municipality_id,
-                   m.slug AS municipality_slug,
-                   m.name AS municipality_name,
-                   mt.id  AS meeting_id,
-                   mt.meeting_date
-              FROM agenda_items ai
-              JOIN meetings mt ON mt.id = ai.meeting_id
-              JOIN municipalities m ON m.id = mt.municipality_id
-             WHERE ai.id = %s
-            """,
-            (item_id,),
-        )
-        item = cur.fetchone()
-        if item is None:
-            abort(404)
-        item = dict(item)
+    item = query.get_item_for_badge_manage(item_id)
+    if item is None:
+        abort(404)
 
     current = query.list_badges_on_item(item_id)
     attached_slugs = {b["slug"] for b in current}
@@ -756,68 +576,16 @@ def badge_add(item_id: int, slug: str):
     """
     actor = session.get("admin_user", "unknown")
 
-    with db() as conn:
-        with conn.cursor() as cur:
-            # Look up item + city + slug template in one round-trip.
-            cur.execute(
-                """
-                SELECT m.id          AS city_id,
-                       t.kind        AS kind
-                  FROM agenda_items ai
-                  JOIN meetings mt ON mt.id = ai.meeting_id
-                  JOIN municipalities m ON m.id = mt.municipality_id
-                  LEFT JOIN priority_badge_templates t ON t.slug = %s
-                 WHERE ai.id = %s
-                """,
-                (slug, item_id),
-            )
-            row = cur.fetchone()
-            if row is None:
-                abort(404)
-            city_id, kind = row
-            if kind is None:
-                # Slug not in templates → reject.
-                abort(404)
-
-            # Refactor #2 retro [MEDIUM #1]: status='applied' set explicitly
-            # — admin manual adds are always citizen-visible by intent. The
-            # decision lane for the LLM-suggested policy-badge path lives in
-            # docket.ai.badges_policy.decide_status_and_confidence.
-            cur.execute(
-                """
-                INSERT INTO agenda_item_badges
-                  (agenda_item_id, city_id, badge_slug, kind, confidence,
-                   source, matching_metadata, status)
-                VALUES (%s, %s, %s, %s, 0.95, 'manual', %s::jsonb, 'applied')
-                ON CONFLICT (agenda_item_id, badge_slug) DO NOTHING
-                RETURNING id
-                """,
-                (
-                    item_id,
-                    city_id,
-                    slug,
-                    kind,
-                    json.dumps({"manual": True, "added_by": actor}),
-                ),
-            )
-            inserted = cur.fetchone()
-
-            if inserted is not None:
-                cur.execute(
-                    """
-                    INSERT INTO agenda_item_badges_audit
-                      (agenda_item_id, badge_slug, action, actor, actor_role)
-                    VALUES (%s, %s, 'added', %s, 'admin')
-                    """,
-                    (item_id, slug, actor),
-                )
+    inserted = badges.add_manual_badge(item_id, slug, actor)
+    if inserted is None:
+        abort(404)
 
     current_app.logger.info(
         "admin badge add: item_id=%s slug=%s actor=%s inserted=%s",
         item_id,
         slug,
         actor,
-        inserted is not None,
+        inserted,
     )
     return _render_manage_panel(item_id)
 
@@ -825,23 +593,9 @@ def badge_add(item_id: int, slug: str):
 def _render_manage_panel(item_id: int):
     """Re-fetch the manage state and render the swap-target partial.
     Shared by add/remove handlers."""
-    with db_cursor() as cur:
-        cur.execute(
-            """
-            SELECT ai.id, ai.title,
-                   m.id   AS municipality_id,
-                   m.slug AS municipality_slug
-              FROM agenda_items ai
-              JOIN meetings mt ON mt.id = ai.meeting_id
-              JOIN municipalities m ON m.id = mt.municipality_id
-             WHERE ai.id = %s
-            """,
-            (item_id,),
-        )
-        item = cur.fetchone()
-        if item is None:
-            abort(404)
-        item = dict(item)
+    item = query.get_item_for_badge_manage(item_id)
+    if item is None:
+        abort(404)
 
     current = query.list_badges_on_item(item_id)
     attached_slugs = {b["slug"] for b in current}
@@ -893,38 +647,8 @@ def badge_remove(item_id: int, slug: str):
     """
     actor = session.get("admin_user", "unknown")
 
-    with db() as conn:
-        with conn.cursor() as cur:
-            # First confirm the item exists at all (separate from the
-            # badge presence — we want 404 in either of the two
-            # not-found cases).
-            cur.execute(
-                "SELECT 1 FROM agenda_items WHERE id = %s",
-                (item_id,),
-            )
-            if cur.fetchone() is None:
-                abort(404)
-
-            cur.execute(
-                """
-                DELETE FROM agenda_item_badges
-                 WHERE agenda_item_id = %s AND badge_slug = %s
-                RETURNING id
-                """,
-                (item_id, slug),
-            )
-            removed = cur.fetchone()
-            if removed is None:
-                abort(404)
-
-            cur.execute(
-                """
-                INSERT INTO agenda_item_badges_audit
-                  (agenda_item_id, badge_slug, action, actor, actor_role)
-                VALUES (%s, %s, 'removed', %s, 'admin')
-                """,
-                (item_id, slug, actor),
-            )
+    if not badges.remove_manual_badge(item_id, slug, actor):
+        abort(404)
 
     current_app.logger.info(
         "admin badge remove: item_id=%s slug=%s actor=%s",
@@ -992,12 +716,7 @@ def conflict_form_accept_s1(item_id: int):
 
     Pre-conditional: the item must exist and be in cross_stage_conflict;
     otherwise 404 to avoid leaking the form for a completed item."""
-    with db_cursor() as cur:
-        cur.execute(
-            "SELECT id, title, processing_status::text FROM agenda_items WHERE id = %s",
-            (item_id,),
-        )
-        row = cur.fetchone()
+    row = query.get_conflict_form_item(item_id)
     if row is None or row["processing_status"] != "cross_stage_conflict":
         abort(404)
 
@@ -1040,12 +759,7 @@ def conflict_accept_stage_1(item_id: int):
 
 @bp.route("/review/conflicts/<int:item_id>/_form/re-prompt")
 def conflict_form_re_prompt(item_id: int):
-    with db_cursor() as cur:
-        cur.execute(
-            "SELECT id, processing_status::text FROM agenda_items WHERE id = %s",
-            (item_id,),
-        )
-        row = cur.fetchone()
+    row = query.get_conflict_form_item(item_id)
     if row is None or row["processing_status"] != "cross_stage_conflict":
         abort(404)
     return render_template(
@@ -1080,15 +794,7 @@ def conflict_re_prompt_stage_2(item_id: int):
 
 @bp.route("/review/conflicts/<int:item_id>/_form/edit-facts")
 def conflict_form_edit_facts(item_id: int):
-    with db_cursor() as cur:
-        cur.execute(
-            """
-            SELECT id, extracted_facts, processing_status::text
-              FROM agenda_items WHERE id = %s
-            """,
-            (item_id,),
-        )
-        row = cur.fetchone()
+    row = query.get_conflict_form_item(item_id)
     if row is None or row["processing_status"] != "cross_stage_conflict":
         abort(404)
 
@@ -1162,61 +868,9 @@ def coverage_list():
     )  # 'draft' / 'proposed' / 'published' / 'rejected' / None=all
     kind_filter = request.args.get("kind")  # 'note' / 'citation' / None=both
 
-    where = []
-    params = []
-    if status_filter:
-        where.append("ce.status = %s")
-        params.append(status_filter)
-    if kind_filter:
-        where.append("ce.kind = %s")
-        params.append(kind_filter)
-    where_sql = (" WHERE " + " AND ".join(where)) if where else ""
-
-    with db_cursor() as cur:
-        cur.execute(
-            f"""SELECT ce.id, ce.kind, ce.status, ce.body, ce.headline,
-                       ce.updated_at, ce.featured_until,
-                       COALESCE(au.display_name, au.username) AS author_label,
-                       o.name AS outlet_name
-                  FROM coverage_entries ce
-                  JOIN admin_users au ON au.id = ce.author_id
-             LEFT JOIN outlets o ON o.id = ce.outlet_id
-              {where_sql}
-              ORDER BY ce.updated_at DESC
-              LIMIT 200""",
-            tuple(params),
-        )
-        rows = cur.fetchall()
-
-        cur.execute(
-            """SELECT status, COUNT(*) AS n FROM coverage_entries GROUP BY status"""
-        )
-        counts = {r["status"]: r["n"] for r in cur.fetchall()}
-
-        # Fetch attached subjects for each row in one bulk query
-        row_ids = [r["id"] for r in rows]
-        subjects_by_coverage_id = {}
-        if row_ids:
-            cur.execute(
-                """
-                SELECT csl.coverage_id, csl.subject_type,
-                       COALESCE(
-                         (SELECT title FROM agenda_items     WHERE id   = csl.subject_id),
-                         (SELECT title FROM meetings         WHERE id   = csl.subject_id),
-                         (SELECT name  FROM council_members  WHERE id   = csl.subject_id),
-                         (SELECT name  FROM priority_badge_templates WHERE slug = csl.subject_slug),
-                         ''
-                       ) AS label
-                  FROM coverage_subject_links csl
-                 WHERE csl.coverage_id = ANY(%s)
-                 ORDER BY csl.coverage_id, csl.id
-                """,
-                (row_ids,),
-            )
-            for r in cur.fetchall():
-                subjects_by_coverage_id.setdefault(r["coverage_id"], []).append(
-                    {"subject_type": r["subject_type"], "label": r["label"] or ""}
-                )
+    rows, counts, subjects_by_coverage_id = query.list_coverage_for_admin(
+        status_filter, kind_filter
+    )
 
     return render_template(
         "admin/coverage/list.html",
@@ -1234,11 +888,7 @@ def coverage_new():
     kind = request.args.get("kind", "note")
     if kind not in ("note", "citation"):
         abort(400)
-    with db_cursor() as cur:
-        cur.execute(
-            "SELECT id, slug, name FROM outlets WHERE is_active = TRUE ORDER BY name"
-        )
-        outlets = cur.fetchall()
+    outlets = query.list_active_outlets()
     template = (
         "admin/coverage/new_note.html"
         if kind == "note"
@@ -1299,26 +949,10 @@ def coverage_create():
 
 @bp.route("/coverage/<int:coverage_id>/edit", methods=["GET"])
 def coverage_edit(coverage_id: int):
-    with db_cursor() as cur:
-        cur.execute("SELECT * FROM coverage_entries WHERE id = %s", (coverage_id,))
-        entry = cur.fetchone()
-        if not entry:
-            abort(404)
-        cur.execute(
-            """SELECT subject_type, subject_id, subject_slug
-                 FROM coverage_subject_links WHERE coverage_id = %s""",
-            (coverage_id,),
-        )
-        subjects = cur.fetchall()
-        # CRITICAL: include the citation's current outlet even if it's been
-        # deactivated since the entry was created.
-        cur.execute(
-            "SELECT id, slug, name FROM outlets "
-            "WHERE is_active = TRUE OR id = %s "
-            "ORDER BY name",
-            (entry["outlet_id"],),
-        )
-        outlets = cur.fetchall()
+    found = query.get_coverage_for_edit(coverage_id)
+    if found is None:
+        abort(404)
+    entry, subjects, outlets = found
     return render_template(
         "admin/coverage/edit.html", entry=entry, subjects=subjects, outlets=outlets
     )
@@ -1414,45 +1048,11 @@ def coverage_unfeature(coverage_id: int):
 def coverage_search():
     subject_type = request.args.get("subject_type", "agenda_item")
     q = (request.args.get("q") or "").strip()
-    results = []
     if not q:
         return render_template(
             "admin/coverage/_search_results.html", results=[], subject_type=subject_type
         )
-    needle = f"%{_escape_like(q)}%"
-    with db_cursor() as cur:
-        if subject_type == "agenda_item":
-            cur.execute(
-                "SELECT id, title FROM agenda_items "
-                "WHERE title ILIKE %s ESCAPE '\\' ORDER BY id DESC LIMIT 15",
-                (needle,),
-            )
-            results = [{"id": r["id"], "label": r["title"]} for r in cur.fetchall()]
-        elif subject_type == "meeting":
-            cur.execute(
-                "SELECT id, title, meeting_date FROM meetings "
-                "WHERE title ILIKE %s ESCAPE '\\' "
-                "ORDER BY meeting_date DESC LIMIT 15",
-                (needle,),
-            )
-            results = [
-                {"id": r["id"], "label": f"{r['title']} ({r['meeting_date']:%Y-%m-%d})"}
-                for r in cur.fetchall()
-            ]
-        elif subject_type == "council_member":
-            cur.execute(
-                "SELECT id, name FROM council_members "
-                "WHERE name ILIKE %s ESCAPE '\\' LIMIT 15",
-                (needle,),
-            )
-            results = [{"id": r["id"], "label": r["name"]} for r in cur.fetchall()]
-        elif subject_type == "badge":
-            cur.execute(
-                "SELECT slug, name FROM priority_badge_templates "
-                "WHERE name ILIKE %s ESCAPE '\\' OR slug ILIKE %s ESCAPE '\\' LIMIT 15",
-                (needle, needle),
-            )
-            results = [{"id": r["slug"], "label": r["name"]} for r in cur.fetchall()]
+    results = query.search_coverage_subjects(subject_type, q)
     return render_template(
         "admin/coverage/_search_results.html",
         results=results,
@@ -1480,26 +1080,12 @@ def _parse_subjects_from_form(form) -> list:
     return out
 
 
-def _escape_like(s: str) -> str:
-    """Escape Postgres LIKE/ILIKE wildcards in user input.
-
-    A bare ``%`` in admin input would otherwise match every row (the entire
-    table dump), and ``_`` would match any single char. Escape both, and
-    escape backslashes first so we don't double-escape our own escapes.
-    """
-    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-
-
 # --- Outlets ---------------------------------------------------------------
 
 
 @bp.route("/outlets", methods=["GET"])
 def outlets_list():
-    with db_cursor() as cur:
-        cur.execute(
-            "SELECT id, slug, name, homepage, is_active FROM outlets ORDER BY name"
-        )
-        outlets = cur.fetchall()
+    outlets = query.list_outlets()
     return render_template("admin/outlets/list.html", outlets=outlets)
 
 
@@ -1549,11 +1135,7 @@ def outlets_activate(outlet_id: int):
 @bp.route("/profile", methods=["GET"])
 def profile():
     uid = session["admin_user"]
-    with db_cursor() as cur:
-        cur.execute(
-            "SELECT username, display_name FROM admin_users WHERE id = %s", (uid,)
-        )
-        user = cur.fetchone()
+    user = query.get_admin_profile(uid)
     return render_template("admin/profile.html", user=user)
 
 
@@ -1561,10 +1143,7 @@ def profile():
 def profile_update_display_name():
     uid = session["admin_user"]
     new_name = (request.form.get("display_name") or "").strip() or None
-    with db_cursor() as cur:
-        cur.execute(
-            "UPDATE admin_users SET display_name = %s WHERE id = %s", (new_name, uid)
-        )
+    admin_users.set_display_name(uid, new_name)
     return redirect(url_for("admin.profile"))
 
 
@@ -1573,15 +1152,10 @@ def profile_update_display_name():
 
 def _meeting_page(meeting_id: int) -> str | None:
     """The public URL of a meeting, or None when no such meeting exists."""
-    with db_cursor() as cur:
-        cur.execute(
-            "SELECT m.slug FROM meetings mt JOIN municipalities m ON m.id = mt.municipality_id WHERE mt.id = %s",
-            (meeting_id,),
-        )
-        row = cur.fetchone()
-    if row is None:
+    slug = query.get_meeting_city_slug(meeting_id)
+    if slug is None:
         return None
-    return url_for("public.meeting_detail", slug=row["slug"], meeting_id=meeting_id)
+    return url_for("public.meeting_detail", slug=slug, meeting_id=meeting_id)
 
 
 @bp.post("/meetings/<int:meeting_id>/type")
@@ -1627,22 +1201,8 @@ def hide_meeting(meeting_id: int):
     reason ``admin`` (migration 044). The blueprint-level before_request
     handler enforces login.
     """
-    with db() as conn, conn.cursor() as cur:
-        cur.execute("SELECT id FROM meetings WHERE id = %s", (meeting_id,))
-        if cur.fetchone() is None:
-            abort(404)
-        cur.execute(
-            """
-            UPDATE meetings
-               SET is_hidden = TRUE,
-                   hidden_at = NOW(),
-                   hidden_by = %s,
-                   hidden_reason = 'admin'
-             WHERE id = %s
-            """,
-            (session.get("admin_user_id"), meeting_id),
-        )
-        conn.commit()
+    if not non_meetings.hide_by_admin(meeting_id, session.get("admin_user_id")):
+        abort(404)
     flash(f"Meeting {meeting_id} hidden.")
     # Redirect back where the action was triggered if a referer is present;
     # fall back to the hidden-meetings admin index.
@@ -1664,23 +1224,8 @@ def unhide_meeting(meeting_id: int):
     rule does not hide a row an admin brought back
     (``docket.services.non_meetings``).
     """
-    with db() as conn, conn.cursor() as cur:
-        cur.execute("SELECT id FROM meetings WHERE id = %s", (meeting_id,))
-        if cur.fetchone() is None:
-            abort(404)
-        cur.execute(
-            """
-            UPDATE meetings
-               SET is_hidden = FALSE,
-                   hidden_at = NULL,
-                   hidden_by = NULL,
-                   hidden_reason = NULL,
-                   keep_visible_at = NOW()
-             WHERE id = %s
-            """,
-            (meeting_id,),
-        )
-        conn.commit()
+    if not non_meetings.unhide_by_admin(meeting_id):
+        abort(404)
     flash(f"Meeting {meeting_id} unhidden.")
     referer = request.headers.get("Referer")
     if referer:
@@ -1705,46 +1250,15 @@ def rescan_meeting_ocr(meeting_id: int):
     an OCR-algorithm bugfix that produces different terminal frames would
     otherwise stack new rows next to the bad ones.
     """
-    with db_cursor() as cur:
-        cur.execute(
-            """SELECT mu.slug
-                 FROM meetings m
-                 JOIN municipalities mu ON mu.id = m.municipality_id
-                WHERE m.id = %s""",
-            [meeting_id],
-        )
-        row = cur.fetchone()
-        if row is None:
-            abort(404)
-        muni_slug = row["slug"]
+    # Imported here, not at the top: the module pulls in the OCR libraries
+    # (numpy, OpenCV, Tesseract's wrapper), which the web process otherwise
+    # never loads.
+    from docket.services import video_ocr
 
-        cur.execute(
-            "SELECT COUNT(*) AS n FROM votes WHERE meeting_id = %s AND source = 'video_ocr'",
-            [meeting_id],
-        )
-        deleted_count = cur.fetchone()["n"]
-
-        cur.execute(
-            """DELETE FROM member_votes
-                WHERE vote_id IN (
-                    SELECT id FROM votes
-                     WHERE meeting_id = %s AND source = 'video_ocr'
-                )""",
-            [meeting_id],
-        )
-        cur.execute(
-            "DELETE FROM votes WHERE meeting_id = %s AND source = 'video_ocr'",
-            [meeting_id],
-        )
-        cur.execute(
-            """UPDATE processing_status
-                  SET video_ocr_scanned = FALSE,
-                      video_ocr_attempts = 0,
-                      video_ocr_last_attempted_at = NULL,
-                      video_ocr_last_error = NULL
-                WHERE meeting_id = %s""",
-            [meeting_id],
-        )
+    result = video_ocr.reset_for_rescan(meeting_id)
+    if result is None:
+        abort(404)
+    muni_slug, deleted_count = result
 
     flash(
         f"Cleared {deleted_count} video-OCR vote(s); meeting will be rescanned at the next cron tick.",
@@ -1766,22 +1280,5 @@ def list_hidden_meetings():
     ``non_meetings`` rule would hide but for a transcript with speech; they
     are visible, and the operator hides one from its meeting page.
     """
-    with db_cursor() as cur:
-        cur.execute(
-            """
-            SELECT
-                m.id, m.title, m.meeting_date,
-                m.hidden_at,
-                m.hidden_reason,
-                mu.name AS city_name,
-                mu.slug AS city_slug,
-                au.username AS hidden_by_username
-              FROM meetings m
-              JOIN municipalities mu ON mu.id = m.municipality_id
-              LEFT JOIN admin_users au ON au.id = m.hidden_by
-             WHERE m.is_hidden = TRUE
-             ORDER BY m.hidden_at DESC NULLS LAST, m.id DESC
-            """
-        )
-        rows = [dict(r) for r in cur.fetchall()]
+    rows = query.list_hidden_meetings()
     return render_template("admin/hidden_meetings.html", rows=rows, held_back=non_meetings.held_back())

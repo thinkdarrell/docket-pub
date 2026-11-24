@@ -7,11 +7,12 @@ config row is mutated by the admin UI (added in a later phase).
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
 
-from docket.db import db_cursor
+from docket.db import db, db_cursor
 
 
 @dataclass(frozen=True)
@@ -147,3 +148,103 @@ def record_badge_action(
         """,
         [agenda_item_id, badge_slug, action, actor, actor_role, reason],
     )
+
+
+def add_manual_badge(item_id: int, slug: str, actor: str) -> bool | None:
+    """Attach a badge to an item by the admin's hand, with its audit row.
+
+    One transaction. ``city_id`` comes from the item's meeting's
+    municipality and ``kind`` from the slug's row in
+    ``priority_badge_templates``. Confidence is fixed at 0.95, below the 1.0
+    that marks an AI-verified badge; source is ``'manual'``; the actor is
+    recorded in ``matching_metadata`` and in the audit row.
+
+    Returns ``None``, having written nothing, when the item does not exist
+    or the slug is not a template; ``True`` when the badge was inserted (and
+    the audit row written); ``False`` when the item already carried the
+    badge (no audit row).
+    """
+    with db() as conn:
+        with conn.cursor() as cur:
+            # Look up item + city + slug template in one round-trip.
+            cur.execute(
+                """
+                SELECT m.id          AS city_id,
+                       t.kind        AS kind
+                  FROM agenda_items ai
+                  JOIN meetings mt ON mt.id = ai.meeting_id
+                  JOIN municipalities m ON m.id = mt.municipality_id
+                  LEFT JOIN priority_badge_templates t ON t.slug = %s
+                 WHERE ai.id = %s
+                """,
+                (slug, item_id),
+            )
+            row = cur.fetchone()
+            if row is None:
+                return None
+            city_id, kind = row
+            if kind is None:
+                # Slug not in templates.
+                return None
+
+            # status='applied' is set explicitly: admin manual adds are
+            # always citizen-visible by intent. The decision lane for the
+            # LLM-suggested policy-badge path lives in
+            # docket.ai.badges_policy.decide_status_and_confidence.
+            cur.execute(
+                """
+                INSERT INTO agenda_item_badges
+                  (agenda_item_id, city_id, badge_slug, kind, confidence,
+                   source, matching_metadata, status)
+                VALUES (%s, %s, %s, %s, 0.95, 'manual', %s::jsonb, 'applied')
+                ON CONFLICT (agenda_item_id, badge_slug) DO NOTHING
+                RETURNING id
+                """,
+                (
+                    item_id,
+                    city_id,
+                    slug,
+                    kind,
+                    json.dumps({"manual": True, "added_by": actor}),
+                ),
+            )
+            inserted = cur.fetchone() is not None
+
+            if inserted:
+                record_badge_action(cur, item_id, slug, 'added', 'admin', actor=actor)
+    return inserted
+
+
+def remove_manual_badge(item_id: int, slug: str, actor: str) -> bool:
+    """Delete a badge from an item by the admin's hand, with its audit row.
+
+    One transaction. The badges table has no ``is_active`` column, so this
+    is a real DELETE and the audit row is the historical record. Returns
+    ``False``, having written nothing, when the item does not exist or does
+    not carry the badge; ``True`` when the badge was deleted.
+    """
+    with db() as conn:
+        with conn.cursor() as cur:
+            # First confirm the item exists at all (separate from the
+            # badge presence).
+            cur.execute(
+                "SELECT 1 FROM agenda_items WHERE id = %s",
+                (item_id,),
+            )
+            if cur.fetchone() is None:
+                return False
+
+            cur.execute(
+                """
+                DELETE FROM agenda_item_badges
+                 WHERE agenda_item_id = %s AND badge_slug = %s
+                RETURNING id
+                """,
+                (item_id, slug),
+            )
+            removed = cur.fetchone()
+            if removed is None:
+                return False
+
+            record_badge_action(cur, item_id, slug, 'removed', 'admin', actor=actor)
+    return True

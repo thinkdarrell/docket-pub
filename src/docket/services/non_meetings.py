@@ -212,3 +212,57 @@ def hide_non_meetings(*, dry_run: bool = False, today: date | None = None) -> di
                 ids = sorted(r[0] for r in cur.fetchall())
         result[slug] = (ids, [r["id"] for r in held])
     return result
+
+
+# --- The admin's own hide and unhide (the buttons on a meeting's page) -------
+
+
+def hide_by_admin(meeting_id: int, admin_user_id: int | None) -> bool:
+    """Hide one meeting by an admin's hand; False when no such meeting exists.
+
+    Sets ``is_hidden`` with the ``hidden_at``/``hidden_by`` audit columns and
+    the reason ``admin`` (migration 044), in one transaction with the lookup.
+    Nothing is written for an unknown meeting.
+    """
+    with db() as conn, conn.cursor() as cur:
+        cur.execute("SELECT id FROM meetings WHERE id = %s", (meeting_id,))
+        if cur.fetchone() is None:
+            return False
+        cur.execute(
+            """
+            UPDATE meetings
+               SET is_hidden = TRUE,
+                   hidden_at = NOW(),
+                   hidden_by = %s,
+                   hidden_reason = 'admin'
+             WHERE id = %s
+            """,
+            (admin_user_id, meeting_id),
+        )
+    return True
+
+
+def unhide_by_admin(meeting_id: int) -> bool:
+    """Bring one meeting back and exempt it; False when no such meeting exists.
+
+    Clears the hidden flag, the audit columns and the reason. ``keep_visible_at``
+    is set and never cleared: the rule above does not hide a row an admin
+    brought back. Nothing is written for an unknown meeting.
+    """
+    with db() as conn, conn.cursor() as cur:
+        cur.execute("SELECT id FROM meetings WHERE id = %s", (meeting_id,))
+        if cur.fetchone() is None:
+            return False
+        cur.execute(
+            """
+            UPDATE meetings
+               SET is_hidden = FALSE,
+                   hidden_at = NULL,
+                   hidden_by = NULL,
+                   hidden_reason = NULL,
+                   keep_visible_at = NOW()
+             WHERE id = %s
+            """,
+            (meeting_id,),
+        )
+    return True

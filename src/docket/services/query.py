@@ -4292,3 +4292,398 @@ def _attach_video_links(item_id: int, entries: list[VoteEntry]) -> None:
                 cue_s=item["video_timestamp_seconds"], external_id=item["external_id"])
         else:
             entry.video_link = video_links.link_for(video, seconds=entry.video_timestamp)
+
+
+# --- Reads behind the admin pages (docket.web.admin) -------------------------
+
+
+def get_admin_profile(admin_user_id) -> dict | None:
+    """The username and display name of one admin, or None when no such row.
+
+    ``admin_user_id`` goes to the statement as given, with no conversion and
+    no check: the route passes whatever its session holds under
+    ``admin_user`` (plan `admin-routes-call-services` carried that as it
+    found it).
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT username, display_name FROM admin_users WHERE id = %s",
+            (admin_user_id,),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def list_district_names(municipality_id: int) -> list[str]:
+    """The names of a municipality's districts, ordered by district number."""
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT name FROM districts WHERE municipality_id = %s ORDER BY number",
+            (municipality_id,),
+        )
+        return [row["name"] for row in cur.fetchall()]
+
+
+def list_outlets() -> list[dict]:
+    """Every outlet, active or not, by name: id, slug, name, homepage, is_active."""
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT id, slug, name, homepage, is_active FROM outlets ORDER BY name"
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+
+def get_item_for_badge_manage(item_id: int) -> dict | None:
+    """One agenda item with its meeting and city, or None when no such item.
+
+    Keys: id, title, municipality_id, municipality_slug, municipality_name,
+    meeting_id, meeting_date. Read by the badge-manage page and by the panel
+    the add and remove buttons swap back in.
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT ai.id, ai.title,
+                   m.id   AS municipality_id,
+                   m.slug AS municipality_slug,
+                   m.name AS municipality_name,
+                   mt.id  AS meeting_id,
+                   mt.meeting_date
+              FROM agenda_items ai
+              JOIN meetings mt ON mt.id = ai.meeting_id
+              JOIN municipalities m ON m.id = mt.municipality_id
+             WHERE ai.id = %s
+            """,
+            (item_id,),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def get_conflict_form_item(item_id: int) -> dict | None:
+    """What the inline conflict forms read of an item, or None when no such item.
+
+    Keys: id, extracted_facts, processing_status (as text). The route decides
+    whether the status lets the form be shown.
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, extracted_facts, processing_status::text
+              FROM agenda_items WHERE id = %s
+            """,
+            (item_id,),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def list_coverage_for_admin(
+    status: str | None, kind: str | None
+) -> tuple[list[dict], dict[str, int], dict[int, list[dict]]]:
+    """The coverage list of the admin page: rows, counts by status, subjects.
+
+    The rows are the newest 200 entries under the optional ``status`` and
+    ``kind`` filters; the counts are of every entry by status, whatever the
+    filters; the subjects are keyed by coverage id and hold, for each row
+    returned that has any, ``{"subject_type", "label"}`` in link order.
+    """
+    where = []
+    params = []
+    if status:
+        where.append("ce.status = %s")
+        params.append(status)
+    if kind:
+        where.append("ce.kind = %s")
+        params.append(kind)
+    where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+
+    with db_cursor() as cur:
+        cur.execute(
+            f"""SELECT ce.id, ce.kind, ce.status, ce.body, ce.headline,
+                       ce.updated_at, ce.featured_until,
+                       COALESCE(au.display_name, au.username) AS author_label,
+                       o.name AS outlet_name
+                  FROM coverage_entries ce
+                  JOIN admin_users au ON au.id = ce.author_id
+             LEFT JOIN outlets o ON o.id = ce.outlet_id
+              {where_sql}
+              ORDER BY ce.updated_at DESC
+              LIMIT 200""",
+            tuple(params),
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+
+        cur.execute(
+            """SELECT status, COUNT(*) AS n FROM coverage_entries GROUP BY status"""
+        )
+        counts = {r["status"]: r["n"] for r in cur.fetchall()}
+
+        # Fetch attached subjects for each row in one bulk query
+        row_ids = [r["id"] for r in rows]
+        subjects_by_coverage_id: dict[int, list[dict]] = {}
+        if row_ids:
+            cur.execute(
+                """
+                SELECT csl.coverage_id, csl.subject_type,
+                       COALESCE(
+                         (SELECT title FROM agenda_items     WHERE id   = csl.subject_id),
+                         (SELECT title FROM meetings         WHERE id   = csl.subject_id),
+                         (SELECT name  FROM council_members  WHERE id   = csl.subject_id),
+                         (SELECT name  FROM priority_badge_templates WHERE slug = csl.subject_slug),
+                         ''
+                       ) AS label
+                  FROM coverage_subject_links csl
+                 WHERE csl.coverage_id = ANY(%s)
+                 ORDER BY csl.coverage_id, csl.id
+                """,
+                (row_ids,),
+            )
+            for r in cur.fetchall():
+                subjects_by_coverage_id.setdefault(r["coverage_id"], []).append(
+                    {"subject_type": r["subject_type"], "label": r["label"] or ""}
+                )
+
+    return rows, counts, subjects_by_coverage_id
+
+
+def list_active_outlets() -> list[dict]:
+    """The active outlets, by name: id, slug, name."""
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT id, slug, name FROM outlets WHERE is_active = TRUE ORDER BY name"
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+
+def get_coverage_for_edit(
+    coverage_id: int,
+) -> tuple[dict, list[dict], list[dict]] | None:
+    """One coverage entry for its edit form, or None when no such entry.
+
+    Returns the entry (every column), its subject links (subject_type,
+    subject_id, subject_slug) and the outlets the form may offer (id, slug,
+    name; by name).
+    """
+    with db_cursor() as cur:
+        cur.execute("SELECT * FROM coverage_entries WHERE id = %s", (coverage_id,))
+        entry = cur.fetchone()
+        if not entry:
+            return None
+        cur.execute(
+            """SELECT subject_type, subject_id, subject_slug
+                 FROM coverage_subject_links WHERE coverage_id = %s""",
+            (coverage_id,),
+        )
+        subjects = [dict(row) for row in cur.fetchall()]
+        # CRITICAL: include the citation's current outlet even if it's been
+        # deactivated since the entry was created.
+        cur.execute(
+            "SELECT id, slug, name FROM outlets "
+            "WHERE is_active = TRUE OR id = %s "
+            "ORDER BY name",
+            (entry["outlet_id"],),
+        )
+        outlets = [dict(row) for row in cur.fetchall()]
+    return dict(entry), subjects, outlets
+
+
+def _escape_like(s: str) -> str:
+    """Escape Postgres LIKE/ILIKE wildcards in user input.
+
+    A bare ``%`` in admin input would otherwise match every row (the entire
+    table dump), and ``_`` would match any single char. Escape both, and
+    escape backslashes first so we don't double-escape our own escapes.
+    """
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def search_coverage_subjects(subject_type: str, q: str) -> list[dict]:
+    """Up to 15 subjects of one type whose name holds ``q``: ``{"id", "label"}``.
+
+    ``subject_type`` is ``agenda_item``, ``meeting``, ``council_member`` or
+    ``badge`` (whose id is its slug, and whose slug is searched too); any
+    other gives an empty list and runs no statement. ``q`` is taken
+    literally: its wildcards are escaped here. The caller passes a non-empty
+    ``q``.
+    """
+    results: list[dict] = []
+    needle = f"%{_escape_like(q)}%"
+    with db_cursor() as cur:
+        if subject_type == "agenda_item":
+            cur.execute(
+                "SELECT id, title FROM agenda_items "
+                "WHERE title ILIKE %s ESCAPE '\\' ORDER BY id DESC LIMIT 15",
+                (needle,),
+            )
+            results = [{"id": r["id"], "label": r["title"]} for r in cur.fetchall()]
+        elif subject_type == "meeting":
+            cur.execute(
+                "SELECT id, title, meeting_date FROM meetings "
+                "WHERE title ILIKE %s ESCAPE '\\' "
+                "ORDER BY meeting_date DESC LIMIT 15",
+                (needle,),
+            )
+            results = [
+                {"id": r["id"], "label": f"{r['title']} ({r['meeting_date']:%Y-%m-%d})"}
+                for r in cur.fetchall()
+            ]
+        elif subject_type == "council_member":
+            cur.execute(
+                "SELECT id, name FROM council_members "
+                "WHERE name ILIKE %s ESCAPE '\\' LIMIT 15",
+                (needle,),
+            )
+            results = [{"id": r["id"], "label": r["name"]} for r in cur.fetchall()]
+        elif subject_type == "badge":
+            cur.execute(
+                "SELECT slug, name FROM priority_badge_templates "
+                "WHERE name ILIKE %s ESCAPE '\\' OR slug ILIKE %s ESCAPE '\\' LIMIT 15",
+                (needle, needle),
+            )
+            results = [{"id": r["slug"], "label": r["name"]} for r in cur.fetchall()]
+    return results
+
+
+def ai_pipeline_summary(
+    item_version: int, meeting_version: int, debounce_minutes: int
+) -> dict:
+    """The first half of the AI dashboard, read in one transaction.
+
+    Keys: ``items_pending`` (items never summarised or summarised under an
+    older item prompt version, and older than the debounce),
+    ``meetings_pending``, ``seven_day`` (``total``, ``cache_reads``,
+    ``regular_reads`` over the last seven days of ``ai_runs``) and ``runs``
+    (the last twenty runs, newest id first).
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT COUNT(*) AS pending FROM agenda_items
+             WHERE (ai_prompt_version IS NULL OR ai_prompt_version < %s)
+               AND created_at < NOW() - (%s || ' minutes')::interval
+            """,
+            (item_version, debounce_minutes),
+        )
+        items_pending = cur.fetchone()["pending"]
+
+        cur.execute(
+            """
+            SELECT COUNT(*) AS pending FROM meetings m
+             WHERE (
+               ((m.ai_prompt_version IS NULL OR m.ai_prompt_version < %s)
+                AND m.minutes_adopted_at IS NULL
+                AND NOT EXISTS (
+                  SELECT 1 FROM agenda_items ai
+                   WHERE ai.meeting_id = m.id
+                     AND (ai.ai_prompt_version IS NULL OR ai.ai_prompt_version < %s)
+                ))
+               OR (m.minutes_adopted_at IS NOT NULL
+                   AND COALESCE(m.ai_metadata->>'phase', '') != 'adopted')
+             )
+            """,
+            (meeting_version, item_version),
+        )
+        meetings_pending = cur.fetchone()["pending"]
+
+        cur.execute(
+            """
+            SELECT COALESCE(SUM(cost_usd), 0)::float AS total,
+                   COALESCE(SUM((usage->>'cache_read_input_tokens')::int), 0) AS cache_reads,
+                   COALESCE(SUM((usage->>'input_tokens')::int), 0) AS regular_reads
+              FROM ai_runs
+             WHERE started_at > NOW() - INTERVAL '7 days'
+            """
+        )
+        seven_day = dict(cur.fetchone())
+
+        cur.execute(
+            """
+            SELECT id, started_at, stage, model, rows_processed, rows_failed, cost_usd
+              FROM ai_runs
+             ORDER BY id DESC
+             LIMIT 20
+            """
+        )
+        runs = [dict(row) for row in cur.fetchall()]
+
+    return {
+        "items_pending": items_pending,
+        "meetings_pending": meetings_pending,
+        "seven_day": seven_day,
+        "runs": runs,
+    }
+
+
+def transcript_pipeline_summary() -> dict:
+    """The transcript half of the AI dashboard, read in one transaction.
+
+    Keys: ``transcript_status_counts`` (status, n), ``transcript_stage_costs``
+    (per ``transcript_`` stage over seven days: stage, runs, cost,
+    rows_processed, rows_failed) and ``citation_missing`` (per prompt
+    version, leaving out what the model dismissed: prompt_version, total,
+    missing, rate). The stage statement is executed with no parameters, so
+    both percent signs of its pattern reach the server, where two wildcards
+    match what one does.
+    """
+    with db_cursor() as cur:
+        cur.execute("SELECT status, count(*) AS n FROM transcripts GROUP BY status ORDER BY status")
+        transcript_status_counts = [dict(r) for r in cur.fetchall()]
+        cur.execute("""SELECT stage, count(*) AS runs, COALESCE(SUM(cost_usd), 0)::float AS cost,
+                              SUM(rows_processed) AS rows_processed, SUM(rows_failed) AS rows_failed
+                         FROM ai_runs WHERE stage LIKE 'transcript_%%' AND started_at > NOW() - INTERVAL '7 days'
+                        GROUP BY stage ORDER BY stage""")
+        transcript_stage_costs = [dict(r) for r in cur.fetchall()]
+        cur.execute("""SELECT prompt_version, count(*) AS total,
+                              count(*) FILTER (WHERE citation_match = 'missing') AS missing,
+                              round(100.0 * count(*) FILTER (WHERE citation_match = 'missing') / count(*), 1) AS rate
+                         FROM minutes_discrepancies WHERE review_state <> 'dismissed_by_model'
+                        GROUP BY prompt_version ORDER BY prompt_version""")
+        citation_missing = [dict(r) for r in cur.fetchall()]
+
+    return {
+        "transcript_status_counts": transcript_status_counts,
+        "transcript_stage_costs": transcript_stage_costs,
+        "citation_missing": citation_missing,
+    }
+
+
+def get_meeting_city_slug(meeting_id: int) -> str | None:
+    """The slug of the city a meeting belongs to, or None when no such meeting exists."""
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT m.slug FROM meetings mt JOIN municipalities m ON m.id = mt.municipality_id WHERE mt.id = %s",
+            (meeting_id,),
+        )
+        row = cur.fetchone()
+    if row is None:
+        return None
+    return row["slug"]
+
+
+def list_hidden_meetings() -> list[dict]:
+    """Every currently-hidden meeting, for the admin index, latest hidden first.
+
+    Joins to admin_users for the "hidden by" column (NULL when an older
+    backfill hid the row without an actor) and to municipalities for city.
+    ``hidden_reason`` says which writer hid the row (NULL on a row hidden
+    before migration 044).
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+                m.id, m.title, m.meeting_date,
+                m.hidden_at,
+                m.hidden_reason,
+                mu.name AS city_name,
+                mu.slug AS city_slug,
+                au.username AS hidden_by_username
+              FROM meetings m
+              JOIN municipalities mu ON mu.id = m.municipality_id
+              LEFT JOIN admin_users au ON au.id = m.hidden_by
+             WHERE m.is_hidden = TRUE
+             ORDER BY m.hidden_at DESC NULLS LAST, m.id DESC
+            """
+        )
+        return [dict(r) for r in cur.fetchall()]
