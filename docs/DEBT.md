@@ -161,7 +161,7 @@
 
 ### D7 — SQL in the web layer
 
-The rule in `ARCHITECTURE.md` says routes call services. The six modules named in the row call `db_cursor()` directly, mostly in admin forms and auth (`public.py` no longer does). Fixed means each query becomes a function in `src/docket/services/` with a unit test, and `grep -rl 'db_cursor\|db()' src/docket/web` prints nothing. Pay it down module by module inside plans that already touch each module; do not open a plan for it alone.
+The rule in `ARCHITECTURE.md` says routes call services. The five modules named in the row call `db_cursor()` directly, mostly in admin forms and auth (`public.py` no longer does). Fixed means each query becomes a function in `src/docket/services/` with a unit test, and `grep -rl 'db_cursor\|db()' src/docket/web` prints nothing. Pay it down module by module inside plans that already touch each module; do not open a plan for it alone.
 
 ### D12 — Consent item text recovery
 
