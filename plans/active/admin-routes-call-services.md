@@ -42,6 +42,8 @@ As authored on 2026-11-24 (UTC), nothing has been executed, so no milestone has 
   Evidence: against a throwaway database built by `tools/test-db`, `psql "$U" -c "SELECT username FROM admin_users WHERE id = 'test-admin'"` printed `ERROR:  invalid input syntax for type integer: "test-admin"`.
 - Observation (revision, 2026-11-24): what the outside review asked to be confirmed in the module, read at `bff4c27`, each as the plan assumed. `badges.record_badge_action` executes one INSERT and reads no row, so it works on the tuple cursor `badge_add` and `badge_remove` use. `badge_remove` calls a bare `abort(404)` in both not-found cases, with no message and no log line, so one `False` loses nothing. The item lookups of `badges_manage_item` and `_render_manage_panel` have the same two inner JOINs and the same WHERE and differ only in three columns. `hide_meeting` passes `session.get("admin_user_id")`, the numeric id, so it is not part of the session-key mismatch. The Details paragraph of `D7` is the second line after its heading, inside what `grep -A3` prints. `tests/integration/test_admin_coverage.py` already posts to `/admin/profile/display-name` (`test_profile_display_name_update`); no test requests `GET /admin/profile` or clears the name. The comment at line 364 of `admin.py` holds the word `psycopg2`; it sits inside the escalate block and leaves with it in M2.
   Evidence: `sed -n` of the lines named in Context, `grep -n -A4 '^### D7' docs/DEBT.md`, and `grep -n 'psycopg2\|docket.db' src/docket/web/admin.py`, which printed lines 23 and 364.
+- Observation (M1, 2026-11-24): no template prints the district names the add-member form is handed. `add_member`'s GET branch builds `districts_by_city` and passes it to `admin/member_form.html`, whose District field is a plain text input; so the route test Plan of Work asks for ("a GET of `/admin/members/add` answers 200 and lists a seeded district name") cannot read the name in the response body.
+  Evidence: `grep -rn 'districts_by_city' src/docket/web/templates` printed nothing; the template was read whole. The Decision Log's M1 entry says what the test asserts instead.
 
 ## Decision Log
 
@@ -90,6 +92,12 @@ As authored on 2026-11-24 (UTC), nothing has been executed, so no milestone has 
 - Decision (revision): the debt row M5 writes for the session-key mismatch says it is an error on a real login today, not a hazard, and names the test that hides it.
   Rationale: the Surprises entry of the revision shows the error; a row worded as untidiness would sit behind rows that are.
   Date/Author: 2026-11-24, revision at the operator's request.
+- Decision (M1): the opening `./tools/verify` was skipped, under the revision entry above.
+  Rationale: at the session's start `git rev-parse HEAD` printed `0fd31a845b74de8cb4a42777e4289321e338d60f`, `git status --short` printed nothing, and `git diff --stat bff4c27 -- . ':(exclude)plans'` printed nothing, so the tree outside `plans/` is the one the authoring baseline passed on.
+  Date/Author: 2026-11-24, M1 session.
+- Decision (M1): the GET test of `/admin/members/add` asserts the district names in the context the route hands the template, read through Flask's `template_rendered` signal, and not in the response body. It asserts the seeded city's list equals the two seeded names in `number` order, the names being stored so that alphabetical order would reverse them.
+  Rationale: the page does not print the names (Surprises, M1), and the statement M1 moves is the one that fills that context value; a test of the body could not tell the statement from its absence. Editing the template to print them would be a change of what a person sees, which this plan does not make. The alternative of dropping the test would leave the moved loop with no route test.
+  Date/Author: 2026-11-24, M1 session.
 
 ## Outcomes & Retrospective
 
@@ -250,6 +258,15 @@ Authoring baseline, observed on 2026-11-24 (UTC) at `bff4c27`:
 Blocks and statements per milestone, counted from the `with` lines listed in Context: M1 seven blocks and 8 statements, M2 nine and 17, M3 six and 18, M4 five and 11; 27 and 54 in all.
 
 Each milestone's session adds a heading here with what it ran and what was printed.
+
+### M1, observed on 2026-11-24 (UTC)
+
+The opening `./tools/verify` was skipped (Decision Log, M1). One throwaway database (`docket_test_fdb4ad9a`, built by `tools/test-db`) served every single-file run below and was dropped before the closing `./tools/verify`. Each run is `DATABASE_URL=<that database> venv/bin/python -m pytest <file> -q -p no:cacheprovider`.
+
+Route tests, written first and run against the unchanged module (`grep -c` of the two patterns still `27` and `54`):
+
+    tests/integration/test_admin_members.py     7 passed, 1 warning in 1.70s
+    tests/integration/test_admin_profile.py     3 passed, 1 warning in 1.12s
 
 ## Interfaces and Dependencies
 
