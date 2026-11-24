@@ -97,6 +97,36 @@ As authored on 2026-11-24 (UTC), nothing has been executed and there is no outco
 
 M1, 2026-11-24 14:38Z (observed by the M1 session). Against the Purpose: the three routes of `src/docket/web/admin.py` (`profile`, `profile_update_display_name`, `coverage_create`) read `session.get("admin_user_id")` and redirect to `/admin/login` when it is missing. The two test files sign in by posting to `/admin/login`; they printed `9 failed, 10 passed` at commit `5964fdf` (tests, routes unmended) and `19 passed` with the mend that commit `fcc5ef6` holds. The tests show, after a real login through the form: the profile page answers 200 with the username and the display name; a display name is stored stripped, and an empty one as NULL, on the signed-in admin's own row; a note saved through `POST /admin/coverage` has `author_id` equal to that admin's id; a citation saved with `publish_now` has that `author_id`, status `published` and byline `Test Admin`; and a session holding `admin_user` alone is answered 302 to `/admin/login` by each of the three routes. The `D212` row is deleted from `docs/DEBT.md`. The closing `./tools/verify` exited 0 with `verify: all 6 checks passed in 352s.` and `1182 passed` in the integration tier. No carve-out against M1's acceptance. What remains is outside the milestone: the operator's check on production after a merge and a deploy (Validation, last paragraph), which no session made; and the plan's closing retrospective and move to `plans/completed/`, which the retro stage does.
 
+Closing retrospective, 2026-11-24 14:56Z (the retro, per `skills/retro/SKILL.md`; it changed no code and no test).
+
+Purpose against outcome. The Purpose asked that an admin who signs in through `/admin/login` can open the profile page, save a byline name, and save a coverage entry under their own `admin_users.id`, and that a session with no id be sent to sign in. The record shows all four on a throwaway database, through tests that sign in by the form: `9 failed, 10 passed` at `5964fdf` before the mend, `19 passed` with it, and the closing `./tools/verify` at 352 s with `1182 passed` in the integration tier. The plan ran as authored: one milestone, one session, three commits in the order named, every expected count met, no carve-out, no split, no decision reversed. The retro's own `./tools/verify`, begun at `a692135` while it committed edits to documents, exited 0 and printed `3954 passed, 5 skipped, 4 xfailed`, `1182 passed`, `147 passed` and `verify: all 6 checks passed in 353s.` The differences between intention and record are therefore not in the milestone; they are the three findings of the closing review and what the plan's own Surprises left unrouted.
+
+What was not achieved and remains open. Nothing was seen on production: no request was made there and no session has signed in, so row `D212` was deleted on tests alone. The operator's look after the merge and a deploy is now row `D216`. The refresh-route proposal of row `D209` is overdue (below). The two minor review findings are not mended and are not carried as debt (below).
+
+Reflected into specs. `docs/specs/admin-sign-in.md`, new and indexed in `docs/specs/index.md`: how an admin signs in, the two session keys and which routes read which, what the three mended routes do with the id, and what a session without it is answered with. No spec described the admin session before, and the defect lasted because the two keys were taken for one another, so the present-tense statement has a reader.
+
+Decisions graduated. None. Each entry of the Decision Log either governed how this plan was run (one milestone, tests committed failing, the opening run read from the plan, what was left unedited) or is a choice about three routes that the spec above now states as behaviour and the comments and tests beside the code explain (the redirect with no `next`, the id read before the form, tests that sign in through the form). None binds work outside those routes, so none earns a record under `docs/decisions/`, and no number was taken.
+
+Lessons routed, one owner each, each in its own commit.
+
+- The review's important finding: this plan edited `src/docket/web/admin.py` and so fired the refresh-route trigger of `D209` ("the next plan that touches `admin.py`") without taking or re-deferring the proposal. Owner: the `D209` row of `docs/DEBT.md`, which now says the trigger fired unanswered and that the clause is overdue. The retro did not re-defer it; that is a decision for the next plan or the operator.
+- Why that happened, as a procedure: the plan's Context listed five of the nine debt rows that name `admin.py` (`D7`, `D14`, `D212`, `D213`, `D215`; not `D26`, `D119`, `D209`, `D214`), from reading the register and not from a grep, and the plan before it missed `D121` the same way. It recurs, each miss costs a review finding and a gardening edit, and the remedy is a grep an author can run. Owner: `skills/plan-author/SKILL.md`, step 2.
+- The operator's production look had no row, though the house rule for a step no session can take is a row with the merge as its trigger. Owner: `docs/DEBT.md`, new row `D216` (taken after `git ls-remote` showed `origin/main` at `0fadc41` with `D215` its highest and `gh pr list --state open` printed `[]`).
+- `./tools/verify` took 352 s against the "about 150 seconds" of `AGENTS.md` (second Surprises entry). Already known and tracked. Owner: the `D93` row of `docs/DEBT.md`, which takes this plan's three readings.
+
+Discarded, with the question that failed.
+
+- Review, minor: a session whose `admin_user_id` names a deleted row gets a blank profile page and a silent zero-row save. Will it recur: no. `grep -rn 'DELETE FROM admin_users' src scripts` printed nothing, so no code removes an admin row, and there is one admin. The spec's Known limits says it is unhandled.
+- Review, minor: the guard redirects with no message and no log line. Costs more than its fix: no. The guard is reachable only by a cookie older than commit `2c321f7` or a session built by hand (Decision Log, third entry), so the missing message is met by nobody a debt row would serve. The spec states the behaviour as it is.
+- `tests/integration/test_admin_outlets.py` still writes an integer under `admin_user`. Costs more than its fix: no. The outlet routes read no id, so it hides no error today, and the spec's "How it is checked" says which fixture suits which route.
+- The reviewers could not re-run the tests because the checkout has one throwaway database name. Already owned by rows `D201` and `D82`; nothing new was learned.
+- The zsh and ugrep observation (fifth Surprises entry). Already stated in `skills/plan-author/SKILL.md`, step 8.
+- The meeting uniqueness constraint and the `finally` cleanup (fourth Surprises entry). Will it recur: not as a structure; the plan saw it at authoring and handled it in the two tests it touched.
+- Decision `0137` still cites the deleted `D212`. Dated history, as Context says; no change.
+- The opening sentences of Surprises and of this section still say nothing has been executed. They are dated "As authored" and the record is not reworded.
+
+Undecided. Nothing was left without a disposition. One thing the retro could not see: whether the routes work on production, which is `D216`.
+
 ## Context and Orientation
 
 ### How an admin session is filled
