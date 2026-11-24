@@ -339,6 +339,34 @@ Service tests, written next and run before any service function existed (this is
 
 The one test of `test_badges_manual.py` that passed there calls no service: `test_the_two_slugs_are_templates_of_different_kinds` reads `priority_badge_templates` to show the two slugs the file uses are seeded by the migrations, one `policy` and one `process`.
 
+After the service functions were written and before any route changed (the two counting greps still `20` and `46`):
+
+    tests/services/test_errors_queue.py         9 passed, 1 warning in 0.54s
+    tests/services/test_badges_manual.py        11 passed, 1 warning in 0.65s
+    tests/services/test_query_admin_items.py    5 passed, 1 warning in 0.29s
+
+After the routes were changed to call them and the three documents edited:
+
+    tests/integration/test_admin_not_found_paths.py   2 passed, 1 warning in 1.01s
+    tests/services/test_errors_queue.py               9 passed, 1 warning in 0.55s
+    tests/services/test_badges_manual.py              11 passed, 1 warning in 0.65s
+    tests/services/test_query_admin_items.py          5 passed, 1 warning in 0.29s
+    tests/integration/test_admin_queues.py            26 passed, 1 warning in 1.97s
+    tests/integration/test_admin_badge_audit.py       40 passed, 1 warning in 3.14s
+    tests/integration/test_conflict_resolution.py     45 passed, 1 warning in 3.01s
+    $ grep -c 'with db()\|with db_cursor()' src/docket/web/admin.py
+    11
+    $ grep -c '\.execute(' src/docket/web/admin.py
+    29
+    $ git diff --stat $(git merge-base origin/main HEAD) -- <the ten existing admin test files of Concrete Steps>
+    (no output)
+    $ grep '^| D25 ' docs/DEBT.md | cut -d'|' -f4
+     `src/docket/ai/badges_process.py`, `src/docket/ai/pipeline.py`, `src/docket/services/badges.py`, `src/docket/web/admin_badge_review.py`
+    $ grep -c 'admin.py:300-311' src/docket/services/conflict_resolution.py
+    0
+    $ grep -c 'errors_queue' docs/specs/calibration.md
+    1
+
 ## Interfaces and Dependencies
 
 No new library. Services import `db` or `db_cursor` from `docket.db` and nothing from `flask` or `docket.web`. A function whose rows a template reads by key uses `db_cursor()`; one that returns plain values may use either. Every function below opens exactly one transaction.

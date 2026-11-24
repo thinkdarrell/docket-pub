@@ -84,7 +84,7 @@ def _audit(cur, item_id: int, from_status: str, to_status: str,
             payload: dict | None = None) -> None:
     """Write a single processing_status_audit row.
 
-    Mirrors the G2 retry/escalate pattern (admin.py:300-311) for shape
+    Mirrors the G2 retry/escalate pattern (``docket.services.errors_queue``) for shape
     consistency."""
     cur.execute(
         """

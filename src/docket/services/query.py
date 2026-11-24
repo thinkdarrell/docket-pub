@@ -4331,3 +4331,48 @@ def list_outlets() -> list[dict]:
             "SELECT id, slug, name, homepage, is_active FROM outlets ORDER BY name"
         )
         return [dict(row) for row in cur.fetchall()]
+
+
+def get_item_for_badge_manage(item_id: int) -> dict | None:
+    """One agenda item with its meeting and city, or None when no such item.
+
+    Keys: id, title, municipality_id, municipality_slug, municipality_name,
+    meeting_id, meeting_date. Read by the badge-manage page and by the panel
+    the add and remove buttons swap back in.
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT ai.id, ai.title,
+                   m.id   AS municipality_id,
+                   m.slug AS municipality_slug,
+                   m.name AS municipality_name,
+                   mt.id  AS meeting_id,
+                   mt.meeting_date
+              FROM agenda_items ai
+              JOIN meetings mt ON mt.id = ai.meeting_id
+              JOIN municipalities m ON m.id = mt.municipality_id
+             WHERE ai.id = %s
+            """,
+            (item_id,),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def get_conflict_form_item(item_id: int) -> dict | None:
+    """What the inline conflict forms read of an item, or None when no such item.
+
+    Keys: id, extracted_facts, processing_status (as text). The route decides
+    whether the status lets the form be shown.
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, extracted_facts, processing_status::text
+              FROM agenda_items WHERE id = %s
+            """,
+            (item_id,),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None

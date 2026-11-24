@@ -23,7 +23,9 @@ from docket.adapters._helpers import MEETING_TYPES, SESSION_KINDS
 from docket.db import db, db_cursor
 from docket.services import (
     admin_users,
+    badges,
     council_members_writer,
+    errors_queue,
     meeting_types,
     non_meetings,
     query,
@@ -257,42 +259,9 @@ def errors_retry(item_id: int):
     """
     actor = session.get("admin_user", "unknown")
 
-    with db() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT processing_status::text FROM agenda_items WHERE id = %s",
-                (item_id,),
-            )
-            row = cur.fetchone()
-            if row is None:
-                abort(404)
-            from_status = row[0]
-
-            cur.execute(
-                """
-                UPDATE agenda_items
-                   SET processing_status = 'pending'::processing_status_enum,
-                       processing_attempts = 0,
-                       backfill_session_id = NULL,
-                       last_error_at = NULL,
-                       last_error_message = NULL
-                 WHERE id = %s
-                """,
-                (item_id,),
-            )
-
-            cur.execute(
-                """
-                INSERT INTO processing_status_audit
-                  (agenda_item_id, from_status, to_status, action,
-                   actor, actor_role, reason)
-                VALUES
-                  (%s, %s::processing_status_enum,
-                   'pending'::processing_status_enum,
-                   'retry', %s, 'admin', %s)
-                """,
-                (item_id, from_status, actor, "Admin retry from errors queue"),
-            )
+    from_status = errors_queue.retry_item(item_id, actor)
+    if from_status is None:
+        abort(404)
 
     current_app.logger.info(
         "admin retry: item_id=%s actor=%s from_status=%s",
@@ -321,56 +290,9 @@ def errors_escalate(item_id: int):
     """
     actor = session.get("admin_user", "unknown")
 
-    with db() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT processing_status::text, score_overrides
-                  FROM agenda_items
-                 WHERE id = %s
-                """,
-                (item_id,),
-            )
-            row = cur.fetchone()
-            if row is None:
-                abort(404)
-            from_status, existing_overrides = row[0], row[1]
-
-            # Merge admin_escalated into existing score_overrides
-            # without clobbering Stage 2.5 floor data. psycopg2 returns
-            # JSONB as a Python dict (or None when NULL).
-            merged = dict(existing_overrides) if existing_overrides else {}
-            merged["admin_escalated"] = True
-            merged["admin_escalated_by"] = actor
-
-            cur.execute(
-                """
-                UPDATE agenda_items
-                   SET score_overrides = %s::jsonb
-                 WHERE id = %s
-                """,
-                (json.dumps(merged), item_id),
-            )
-
-            cur.execute(
-                """
-                INSERT INTO processing_status_audit
-                  (agenda_item_id, from_status, to_status, action,
-                   actor, actor_role, reason, payload)
-                VALUES
-                  (%s, %s::processing_status_enum,
-                   %s::processing_status_enum,
-                   'escalate', %s, 'admin', %s, %s::jsonb)
-                """,
-                (
-                    item_id,
-                    from_status,
-                    from_status,
-                    actor,
-                    "Admin escalated from errors queue (manual review needed)",
-                    json.dumps({"admin_escalated": True}),
-                ),
-            )
+    from_status = errors_queue.escalate_item(item_id, actor)
+    if from_status is None:
+        abort(404)
 
     current_app.logger.info(
         "admin escalate: item_id=%s actor=%s status=%s",
@@ -670,26 +592,9 @@ def badges_manage_item(item_id: int):
 
     404 if the item doesn't exist. Auth via blueprint hook.
     """
-    with db_cursor() as cur:
-        cur.execute(
-            """
-            SELECT ai.id, ai.title,
-                   m.id   AS municipality_id,
-                   m.slug AS municipality_slug,
-                   m.name AS municipality_name,
-                   mt.id  AS meeting_id,
-                   mt.meeting_date
-              FROM agenda_items ai
-              JOIN meetings mt ON mt.id = ai.meeting_id
-              JOIN municipalities m ON m.id = mt.municipality_id
-             WHERE ai.id = %s
-            """,
-            (item_id,),
-        )
-        item = cur.fetchone()
-        if item is None:
-            abort(404)
-        item = dict(item)
+    item = query.get_item_for_badge_manage(item_id)
+    if item is None:
+        abort(404)
 
     current = query.list_badges_on_item(item_id)
     attached_slugs = {b["slug"] for b in current}
@@ -732,68 +637,16 @@ def badge_add(item_id: int, slug: str):
     """
     actor = session.get("admin_user", "unknown")
 
-    with db() as conn:
-        with conn.cursor() as cur:
-            # Look up item + city + slug template in one round-trip.
-            cur.execute(
-                """
-                SELECT m.id          AS city_id,
-                       t.kind        AS kind
-                  FROM agenda_items ai
-                  JOIN meetings mt ON mt.id = ai.meeting_id
-                  JOIN municipalities m ON m.id = mt.municipality_id
-                  LEFT JOIN priority_badge_templates t ON t.slug = %s
-                 WHERE ai.id = %s
-                """,
-                (slug, item_id),
-            )
-            row = cur.fetchone()
-            if row is None:
-                abort(404)
-            city_id, kind = row
-            if kind is None:
-                # Slug not in templates → reject.
-                abort(404)
-
-            # Refactor #2 retro [MEDIUM #1]: status='applied' set explicitly
-            # — admin manual adds are always citizen-visible by intent. The
-            # decision lane for the LLM-suggested policy-badge path lives in
-            # docket.ai.badges_policy.decide_status_and_confidence.
-            cur.execute(
-                """
-                INSERT INTO agenda_item_badges
-                  (agenda_item_id, city_id, badge_slug, kind, confidence,
-                   source, matching_metadata, status)
-                VALUES (%s, %s, %s, %s, 0.95, 'manual', %s::jsonb, 'applied')
-                ON CONFLICT (agenda_item_id, badge_slug) DO NOTHING
-                RETURNING id
-                """,
-                (
-                    item_id,
-                    city_id,
-                    slug,
-                    kind,
-                    json.dumps({"manual": True, "added_by": actor}),
-                ),
-            )
-            inserted = cur.fetchone()
-
-            if inserted is not None:
-                cur.execute(
-                    """
-                    INSERT INTO agenda_item_badges_audit
-                      (agenda_item_id, badge_slug, action, actor, actor_role)
-                    VALUES (%s, %s, 'added', %s, 'admin')
-                    """,
-                    (item_id, slug, actor),
-                )
+    inserted = badges.add_manual_badge(item_id, slug, actor)
+    if inserted is None:
+        abort(404)
 
     current_app.logger.info(
         "admin badge add: item_id=%s slug=%s actor=%s inserted=%s",
         item_id,
         slug,
         actor,
-        inserted is not None,
+        inserted,
     )
     return _render_manage_panel(item_id)
 
@@ -801,23 +654,9 @@ def badge_add(item_id: int, slug: str):
 def _render_manage_panel(item_id: int):
     """Re-fetch the manage state and render the swap-target partial.
     Shared by add/remove handlers."""
-    with db_cursor() as cur:
-        cur.execute(
-            """
-            SELECT ai.id, ai.title,
-                   m.id   AS municipality_id,
-                   m.slug AS municipality_slug
-              FROM agenda_items ai
-              JOIN meetings mt ON mt.id = ai.meeting_id
-              JOIN municipalities m ON m.id = mt.municipality_id
-             WHERE ai.id = %s
-            """,
-            (item_id,),
-        )
-        item = cur.fetchone()
-        if item is None:
-            abort(404)
-        item = dict(item)
+    item = query.get_item_for_badge_manage(item_id)
+    if item is None:
+        abort(404)
 
     current = query.list_badges_on_item(item_id)
     attached_slugs = {b["slug"] for b in current}
@@ -869,38 +708,8 @@ def badge_remove(item_id: int, slug: str):
     """
     actor = session.get("admin_user", "unknown")
 
-    with db() as conn:
-        with conn.cursor() as cur:
-            # First confirm the item exists at all (separate from the
-            # badge presence — we want 404 in either of the two
-            # not-found cases).
-            cur.execute(
-                "SELECT 1 FROM agenda_items WHERE id = %s",
-                (item_id,),
-            )
-            if cur.fetchone() is None:
-                abort(404)
-
-            cur.execute(
-                """
-                DELETE FROM agenda_item_badges
-                 WHERE agenda_item_id = %s AND badge_slug = %s
-                RETURNING id
-                """,
-                (item_id, slug),
-            )
-            removed = cur.fetchone()
-            if removed is None:
-                abort(404)
-
-            cur.execute(
-                """
-                INSERT INTO agenda_item_badges_audit
-                  (agenda_item_id, badge_slug, action, actor, actor_role)
-                VALUES (%s, %s, 'removed', %s, 'admin')
-                """,
-                (item_id, slug, actor),
-            )
+    if not badges.remove_manual_badge(item_id, slug, actor):
+        abort(404)
 
     current_app.logger.info(
         "admin badge remove: item_id=%s slug=%s actor=%s",
@@ -968,12 +777,7 @@ def conflict_form_accept_s1(item_id: int):
 
     Pre-conditional: the item must exist and be in cross_stage_conflict;
     otherwise 404 to avoid leaking the form for a completed item."""
-    with db_cursor() as cur:
-        cur.execute(
-            "SELECT id, title, processing_status::text FROM agenda_items WHERE id = %s",
-            (item_id,),
-        )
-        row = cur.fetchone()
+    row = query.get_conflict_form_item(item_id)
     if row is None or row["processing_status"] != "cross_stage_conflict":
         abort(404)
 
@@ -1016,12 +820,7 @@ def conflict_accept_stage_1(item_id: int):
 
 @bp.route("/review/conflicts/<int:item_id>/_form/re-prompt")
 def conflict_form_re_prompt(item_id: int):
-    with db_cursor() as cur:
-        cur.execute(
-            "SELECT id, processing_status::text FROM agenda_items WHERE id = %s",
-            (item_id,),
-        )
-        row = cur.fetchone()
+    row = query.get_conflict_form_item(item_id)
     if row is None or row["processing_status"] != "cross_stage_conflict":
         abort(404)
     return render_template(
@@ -1056,15 +855,7 @@ def conflict_re_prompt_stage_2(item_id: int):
 
 @bp.route("/review/conflicts/<int:item_id>/_form/edit-facts")
 def conflict_form_edit_facts(item_id: int):
-    with db_cursor() as cur:
-        cur.execute(
-            """
-            SELECT id, extracted_facts, processing_status::text
-              FROM agenda_items WHERE id = %s
-            """,
-            (item_id,),
-        )
-        row = cur.fetchone()
+    row = query.get_conflict_form_item(item_id)
     if row is None or row["processing_status"] != "cross_stage_conflict":
         abort(404)
 
