@@ -46,6 +46,19 @@ neither the starting state nor the finished one, and the session then owes a
 Decision Log entry explaining a result it cannot stand behind. A failure that
 was already there is a finding to record, and it is not this milestone's job
 to quietly absorb it.
+The run may be read from the plan in place of being made when the plan
+already holds a passing run of the command on this tree: the plan names the
+commit a passing run was made on (the closing run of the milestone before,
+or the authoring baseline), `git status --short` prints nothing, and
+`git diff --stat <that commit> HEAD -- . ':(exclude)plans'` prints nothing,
+so nothing but the plan file differs from the tree that run measured. The
+session writes in the Decision Log that it did not make the run and what
+the two commands printed; when either prints anything, or the plan names no
+such commit, it makes the run. The closing run of the milestone is always
+made. Plan `admin-routes-call-services` gave its five sessions this rule
+in a Decision Log entry (its test of the tree was that no merge had landed
+since the base, which the diff above replaces), each skipped a run of about
+340 seconds, and each milestone's closing run passed.
 
 Do this milestone's work and nothing adjacent to it. Improvements you notice
 in passing go to `docs/DEBT.md`, or into the plan as a later milestone, or
