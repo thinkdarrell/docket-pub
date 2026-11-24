@@ -494,6 +494,12 @@ Route tests, written next and run against the unchanged module:
 
     tests/integration/test_admin_meeting_not_found.py   2 passed, 1 warning in 0.99s
 
+Service tests, written next and run before any service function existed (this is the state of the commit that holds them):
+
+    tests/services/test_non_meetings_admin_hide.py   8 failed, 1 warning in 0.62s   ImportError: cannot import name 'hide_by_admin' / 'unhide_by_admin' from 'docket.services.non_meetings'
+    tests/services/test_video_ocr_reset.py           7 failed, 1 warning in 0.27s   ImportError: cannot import name 'reset_for_rescan' from 'docket.services.video_ocr'
+    tests/services/test_query_admin_meetings.py      6 failed, 1 warning in 0.21s   ImportError: cannot import name 'get_meeting_city_slug' / 'list_hidden_meetings' from 'docket.services.query'
+
 ## Interfaces and Dependencies
 
 No new library. Services import `db` or `db_cursor` from `docket.db` and nothing from `flask` or `docket.web`. A function whose rows a template reads by key uses `db_cursor()`; one that returns plain values may use either. Every function below opens exactly one transaction.
