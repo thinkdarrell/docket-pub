@@ -9,7 +9,6 @@ from pathlib import Path
 from flask import Flask, render_template
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from docket.blog.loader import load_blog_state
 from docket.blog.types import Post
 from docket.config import (
     ADMIN_EMAIL,
@@ -248,27 +247,20 @@ def create_app() -> Flask:
     from docket.web.admin_badge_review import bp as admin_badge_review_bp
     from docket.web.auth import bp as auth_bp
     from docket.web.blog import bp as blog_bp
+    from docket.web.blog import init_blog_state
     from docket.web.public import bp as public_bp
 
     app.config["BLOG_CONTENT_ROOT"] = BLOG_CONTENT_ROOT
     app.config["BLOG_PREVIEW_TOKEN"] = BLOG_PREVIEW_TOKEN
-    try:
-        known_city_slugs = {m["slug"] for m in _query.list_municipalities()}
-        app.config["BLOG_STATE"] = load_blog_state(
-            content_root=Path(BLOG_CONTENT_ROOT),
-            authors_yaml=Path(BLOG_AUTHORS_YAML),
-            known_city_slugs=known_city_slugs,
-        )
-    except Exception:
-        # If the DB is unavailable at app-factory time (unusual: only happens
-        # in tooling contexts), boot with an empty city set and an empty
-        # BlogState. The loader/shortcode resolution will hit the DB again
-        # during the next process start.
-        from docket.blog.types import BlogState
-        app.config["BLOG_STATE"] = BlogState(
-            posts=[], posts_by_id={}, posts_by_item_id={},
-            posts_by_meeting_id={}, authors={},
-        )
+    # Reads the posts. If the database does not answer (tooling without one,
+    # or a database slow to answer within the web process's limits), the
+    # process starts with an empty BlogState, logs the error, and a later
+    # request to a blog address reads the posts again (docket.web.blog).
+    init_blog_state(
+        app,
+        content_root=Path(BLOG_CONTENT_ROOT),
+        authors_yaml=Path(BLOG_AUTHORS_YAML),
+    )
 
     # Single source of truth for a post's canonical URL — used by templates,
     # OG tags, canonical link, Atom feed. Avoids hand-coding /al/<city>/blog

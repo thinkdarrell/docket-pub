@@ -201,7 +201,8 @@ def load_blog_state(
     known_city_slugs: set[str],
 ) -> "BlogState":
     """Top-level loader: walks content/blog/, parses, resolves authors + shortcodes,
-    renders to HTML, builds reverse indexes. Called once at process start."""
+    renders to HTML, builds reverse indexes. Called when the process starts,
+    and again on a later request if that load failed (``src/docket/web/blog.py``)."""
     from docket.blog.authors import AuthorsRegistry, load_authors_registry
     from docket.blog.render import (
         compute_reading_time,
