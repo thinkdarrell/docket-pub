@@ -331,6 +331,14 @@ Route tests, written first and run against the unchanged module (`grep -c` of th
 
     tests/integration/test_admin_not_found_paths.py   2 passed, 1 warning in 1.02s
 
+Service tests, written next and run before any service function existed (this is the state of the commit that holds them):
+
+    tests/services/test_errors_queue.py         9 failed, 1 warning in 0.33s              ModuleNotFoundError: No module named 'docket.services.errors_queue'
+    tests/services/test_badges_manual.py        10 failed, 1 passed, 1 warning in 0.23s   ImportError: cannot import name 'add_manual_badge' / 'remove_manual_badge' from 'docket.services.badges'
+    tests/services/test_query_admin_items.py    5 failed, 1 warning in 0.18s              ImportError: cannot import name 'get_item_for_badge_manage' / 'get_conflict_form_item' from 'docket.services.query'
+
+The one test of `test_badges_manual.py` that passed there calls no service: `test_the_two_slugs_are_templates_of_different_kinds` reads `priority_badge_templates` to show the two slugs the file uses are seeded by the migrations, one `policy` and one `process`.
+
 ## Interfaces and Dependencies
 
 No new library. Services import `db` or `db_cursor` from `docket.db` and nothing from `flask` or `docket.web`. A function whose rows a template reads by key uses `db_cursor()`; one that returns plain values may use either. Every function below opens exactly one transaction.
