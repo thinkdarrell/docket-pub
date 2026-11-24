@@ -24,7 +24,7 @@ Every page below is served by the Flask app in `src/docket/web/` (routes in `pub
 | Editorial coverage, blog | `/coverage/`, `/al/birmingham/blog` | markdown in `content/`, not meeting data |
 | About, methodology, corrections | `/about/`, `/about/how-we-read-minutes/`, `/about/corrections/` | static |
 
-Not public: `/login`, `/logout`, and everything under `/admin/`. There is no API, and no redirect route for source links: every link to an agenda, minutes PDF, or video is a plain link to the city's own URL (`GOALS.md` Non-goals).
+Not public: everything under `/admin/`, the sign-in form at `/admin/login` and `/admin/logout` included (`docs/specs/admin-sign-in.md`). There is no API, and no redirect route for source links: every link to an agenda, minutes PDF, or video is a plain link to the city's own URL (`GOALS.md` Non-goals).
 
 Two things every page shares. A context processor fixes "today" to America/Chicago, so a 7 pm meeting does not become tomorrow's in UTC. The Jinja global `meeting_label` turns a meeting's classification into the name a reader sees ("City Council meeting", "Finance Committee", "… (cancelled)"), so the clip's raw title never appears as a heading (chapter 2).
 
