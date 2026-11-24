@@ -38,6 +38,8 @@ As authored on 2026-11-24 (UTC), nothing has been executed, so no milestone has 
   Evidence: `select conname, pg_get_constraintdef(oid) from pg_constraint where conrelid='meetings'::regclass and contype='u'` printed `meetings_municipality_id_external_id_key|UNIQUE (municipality_id, external_id)`; the test's cleanup is its last block, outside any `try`.
 - Observation (authoring, 2026-11-24): the development machine's shell is zsh and its `grep` is ugrep. An unquoted `--include=*.py` is refused by the shell (`no matches found`); quote it. Recursive `grep` prints paths without a leading `./`.
   Evidence: the unquoted form printed `(eval):1: no matches found: --include=*.py`.
+- Observation (M1, 2026-11-24 14:31Z): with the two test files rewritten and the routes unmended, the hand run printed the count the plan expected, and each of the nine failed for the reason Validation gives.
+  Evidence: the Concrete Steps line printed `9 failed, 10 passed, 1 warning in 5.55s` (and `in 4.99s` on a second run with `--tb=line`, on a database built afresh). The nine named by the summary: in `tests/integration/test_admin_profile.py` the three existing tests and the three cases of `test_a_session_without_the_admin_id_is_sent_to_sign_in`; in `tests/integration/test_admin_coverage.py` `test_coverage_post_creates_note_and_redirects`, `test_coverage_post_publishes_a_citation_under_the_signed_in_admin` and `test_profile_display_name_update`. A run of the guard test alone printed `3 failed`: the two profile cases with `psycopg2.errors.InvalidTextRepresentation: invalid input syntax for type integer: "admprof_test_operator"`, and the coverage case with `AssertionError` on `'/admin/coverage/new?kind=note'.endswith('/admin/login')`. The three coverage-file failures raised the same error with `"admin-cov-test"`.
 
 ## Decision Log
 
@@ -65,6 +67,12 @@ As authored on 2026-11-24 (UTC), nothing has been executed, so no milestone has 
 - Decision: the session that executes M1 may read its starting `./tools/verify` run from this plan, under the rule in `skills/plan-execute/SKILL.md`.
   Rationale: the operator said to keep that rule ("we can let it skip if plan names a commit"). The commit a passing run was made on is `0fadc41`, the commit this branch was cut from; the run is the second entry of Surprises & Discoveries. The session runs `git status --short` and `git diff --stat 0fadc41 HEAD -- . ':(exclude)plans'`; when both print nothing it does not make the opening run and writes in this log that it did not and what the two commands printed, and when either prints anything it makes the run. The closing run is always made.
   Date/Author: 2026-11-24, plan author.
+- Decision: the M1 session did not make the opening `./tools/verify` run and read it from this plan (the run at `0fadc41`, second entry of Surprises & Discoveries).
+  Rationale: the rule in the entry above. At `32f3348`, before any edit, `git status --short` printed nothing and `git diff --stat 0fadc41 HEAD -- . ':(exclude)plans'` printed nothing, so nothing but the plan file differed from the tree that run measured.
+  Date/Author: 2026-11-24, M1 session.
+- Decision: the rewritten tests were written by a scratch script of exact-text replacements (each asserted to match once), not committed; the ten untouched tests of the coverage file were not edited.
+  Rationale: the plan names the edits; the script only applies them. `git diff --stat` after it printed two files, `124 insertions(+), 33 deletions(-)`.
+  Date/Author: 2026-11-24, M1 session.
 
 ## Outcomes & Retrospective
 
