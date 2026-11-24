@@ -14,7 +14,7 @@ How to see it working. The tests of `tests/integration/test_admin_profile.py` an
 
 ## Progress
 
-- [ ] M1: an admin who signed in through `/admin/login` can open `/admin/profile`, save a display name and save a coverage entry: the three routes of `src/docket/web/admin.py` read the id the login stored, a session that holds no id is sent to sign in, the tests of `tests/integration/test_admin_profile.py` and `tests/integration/test_admin_coverage.py` sign in through the login form and were committed failing before the mend, the `D212` row is gone from `docs/DEBT.md`, and `./tools/verify` exits zero.
+- [x] (2026-11-24 14:38Z) M1: an admin who signed in through `/admin/login` can open `/admin/profile`, save a display name and save a coverage entry: the three routes of `src/docket/web/admin.py` read the id the login stored, a session that holds no id is sent to sign in, the tests of `tests/integration/test_admin_profile.py` and `tests/integration/test_admin_coverage.py` sign in through the login form and were committed failing before the mend, the `D212` row is gone from `docs/DEBT.md`, and `./tools/verify` exits zero.
 
 ## Surprises & Discoveries
 
@@ -42,6 +42,8 @@ As authored on 2026-11-24 (UTC), nothing has been executed, so no milestone has 
   Evidence: the Concrete Steps line printed `9 failed, 10 passed, 1 warning in 5.55s` (and `in 4.99s` on a second run with `--tb=line`, on a database built afresh). The nine named by the summary: in `tests/integration/test_admin_profile.py` the three existing tests and the three cases of `test_a_session_without_the_admin_id_is_sent_to_sign_in`; in `tests/integration/test_admin_coverage.py` `test_coverage_post_creates_note_and_redirects`, `test_coverage_post_publishes_a_citation_under_the_signed_in_admin` and `test_profile_display_name_update`. A run of the guard test alone printed `3 failed`: the two profile cases with `psycopg2.errors.InvalidTextRepresentation: invalid input syntax for type integer: "admprof_test_operator"`, and the coverage case with `AssertionError` on `'/admin/coverage/new?kind=note'.endswith('/admin/login')`. The three coverage-file failures raised the same error with `"admin-cov-test"`.
 - Observation (M1, 2026-11-24 14:32Z): with the three routes mended, the same hand run passed whole.
   Evidence: on the tree with the mend applied to commit `5964fdf` (the failing-tests commit), the Concrete Steps line printed `19 passed, 1 warning in 5.21s`. `git diff --stat` before the commit printed four files, `22 insertions(+), 16 deletions(-)`: `src/docket/web/admin.py`, `src/docket/services/query.py`, `src/docket/services/admin_users.py`, `tests/services/test_admin_users.py`.
+- Observation (M1, 2026-11-24 14:38Z): the closing greps and the closing `./tools/verify` printed what Concrete Steps and Validation expect.
+  Evidence: on the tree of commit `fcc5ef6` with the `D212` line deleted from `docs/DEBT.md` (`git diff --stat` printed `docs/DEBT.md | 1 -`, the line that was number 159), `grep -n 'session\["admin_user"\]' src/docket/web/admin.py` printed nothing; `grep -c 'session.get("admin_user_id")' src/docket/web/admin.py` printed `5`; the grep for the three stale phrases over `src tests` printed nothing; the grep for the hand-written session keys in the two test files printed nothing; `grep -c '^| D212 ' docs/DEBT.md` printed `0` and exited 1; `git diff --stat 0fadc41 HEAD -- src/docket/web/auth.py tests/integration/test_admin_outlets.py tests/integration/conftest.py tests/integration/test_auth_session.py` printed nothing. `./tools/verify` exited 0 and printed `3954 passed, 5 skipped, 4 xfailed, 2 warnings in 205.17s`, `1182 passed, 2 warnings in 132.66s`, `judge fixtures: 12 of 12 passed`, `147 passed, 1 warning in 10.29s` and `verify: all 6 checks passed in 352s.` The integration figure is the baseline 1178 plus the four tests the plan names; no further test was added.
 
 ## Decision Log
 
@@ -75,10 +77,18 @@ As authored on 2026-11-24 (UTC), nothing has been executed, so no milestone has 
 - Decision: the rewritten tests were written by a scratch script of exact-text replacements (each asserted to match once), not committed; the ten untouched tests of the coverage file were not edited.
   Rationale: the plan names the edits; the script only applies them. `git diff --stat` after it printed two files, `124 insertions(+), 33 deletions(-)`.
   Date/Author: 2026-11-24, M1 session.
+- Decision: the removal check of `skills/plan-execute/SKILL.md` (take each rule out of a copy of the code and watch a test fail) was not made.
+  Rationale: the skill asks it of new tests that pass on the first run of the code. The four tests M1 added (three guard cases and the citation test) and every assertion it changed failed at commit `5964fdf`, before the mend, as the Surprises entry of 14:31Z records; the session added no test the plan does not name.
+  Date/Author: 2026-11-24, M1 session.
+- Decision: the guard's explanation in `src/docket/web/admin.py` is a one-line comment above each read, not a docstring, and the closing `./tools/verify` was run with the `D212` deletion in the working tree and uncommitted.
+  Rationale: the plan allows "a one-line docstring or comment"; the three functions had no docstring and a comment sits beside the line it explains. The commit that follows the run holds only that deletion and this plan file, so the tree the run measured is the tree committed, apart from the plan.
+  Date/Author: 2026-11-24, M1 session.
 
 ## Outcomes & Retrospective
 
 As authored on 2026-11-24 (UTC), nothing has been executed and there is no outcome to report. The session that executes M1 writes here, beneath this sentence, what the milestone achieved against the Purpose, with the commands it ran and what they printed.
+
+M1, 2026-11-24 14:38Z (observed by the M1 session). Against the Purpose: the three routes of `src/docket/web/admin.py` (`profile`, `profile_update_display_name`, `coverage_create`) read `session.get("admin_user_id")` and redirect to `/admin/login` when it is missing. The two test files sign in by posting to `/admin/login`; they printed `9 failed, 10 passed` at commit `5964fdf` (tests, routes unmended) and `19 passed` with the mend that commit `fcc5ef6` holds. The tests show, after a real login through the form: the profile page answers 200 with the username and the display name; a display name is stored stripped, and an empty one as NULL, on the signed-in admin's own row; a note saved through `POST /admin/coverage` has `author_id` equal to that admin's id; a citation saved with `publish_now` has that `author_id`, status `published` and byline `Test Admin`; and a session holding `admin_user` alone is answered 302 to `/admin/login` by each of the three routes. The `D212` row is deleted from `docs/DEBT.md`. The closing `./tools/verify` exited 0 with `verify: all 6 checks passed in 352s.` and `1182 passed` in the integration tier. No carve-out against M1's acceptance. What remains is outside the milestone: the operator's check on production after a merge and a deploy (Validation, last paragraph), which no session made; and the plan's closing retrospective and move to `plans/completed/`, which the retro stage does.
 
 ## Context and Orientation
 
