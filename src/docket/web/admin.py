@@ -901,12 +901,15 @@ def coverage_new():
 def coverage_create():
     from docket.services.coverage_writer import create_note, create_citation
 
+    # The author is admin_users.id as the login stored it; a session without it is sent to sign in.
+    author_id = session.get("admin_user_id")
+    if author_id is None:
+        return redirect(url_for("auth.login"))
     kind = request.form.get("kind")
     subjects = _parse_subjects_from_form(request.form)
     if not subjects:
         flash("Attach to at least one subject.")
         return redirect(url_for("admin.coverage_new", kind=kind or "note"))
-    author_id = session["admin_user"]
     status = "published" if request.form.get("publish_now") == "on" else "draft"
     if kind == "note":
         body = (request.form.get("body") or "").strip()
@@ -1134,14 +1137,20 @@ def outlets_activate(outlet_id: int):
 
 @bp.route("/profile", methods=["GET"])
 def profile():
-    uid = session["admin_user"]
+    # The id is admin_users.id as the login stored it; a session without it is sent to sign in.
+    uid = session.get("admin_user_id")
+    if uid is None:
+        return redirect(url_for("auth.login"))
     user = query.get_admin_profile(uid)
     return render_template("admin/profile.html", user=user)
 
 
 @bp.route("/profile/display-name", methods=["POST"])
 def profile_update_display_name():
-    uid = session["admin_user"]
+    # The id is admin_users.id as the login stored it; a session without it is sent to sign in.
+    uid = session.get("admin_user_id")
+    if uid is None:
+        return redirect(url_for("auth.login"))
     new_name = (request.form.get("display_name") or "").strip() or None
     admin_users.set_display_name(uid, new_name)
     return redirect(url_for("admin.profile"))

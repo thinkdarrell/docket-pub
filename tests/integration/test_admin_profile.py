@@ -4,13 +4,12 @@ Written against ``src/docket/web/admin.py`` while the two routes still
 executed their own SQL, and seen to pass there (plan
 `admin-routes-call-services`, M1).
 
-The session here holds the seeded row's integer id under ``admin_user``.
-That is the shape ``tests/integration/test_admin_coverage.py`` uses and it
-is NOT how a login fills the session: ``docket.web.auth`` stores the
-username under that key and the id under ``admin_user_id``. The two routes
-compare the value with ``admin_users.id``, so this file follows the mismatch
-the plan carries unchanged; it does not show the routes work after a real
-login.
+The fixture signs in by posting the seeded row's username and password to
+``/admin/login``, as a browser does, so the session holds what a login
+stores: the username under ``admin_user`` and the row's id under
+``admin_user_id`` (plan `admin-profile-and-coverage-after-login`, M1). The
+guard test alone builds a session by hand, because it needs one a login
+cannot produce: ``admin_user`` with no ``admin_user_id``.
 
 One ``admin_users`` row is seeded whose username begins ``admprof_test_``;
 the autouse fixture deletes by that prefix before and after every test.
@@ -19,11 +18,13 @@ the autouse fixture deletes by that prefix before and after every test.
 from __future__ import annotations
 
 import pytest
+from werkzeug.security import generate_password_hash
 
 from docket.db import db_cursor
 
 PREFIX = "admprof_test_"
 USERNAME = PREFIX + "operator"
+PASSWORD = "admprof-test-pw-do-not-reuse"
 
 
 def _delete_seeded() -> None:
@@ -40,16 +41,17 @@ def _clean():
 
 @pytest.fixture
 def profile_client(client):
-    """A client whose session holds the seeded admin's integer id."""
+    """A client signed in as the seeded admin through ``/admin/login``."""
     with db_cursor() as cur:
         cur.execute(
             "INSERT INTO admin_users (username, password_hash, display_name) "
-            "VALUES (%s, 'unused', 'Profile Test Byline') RETURNING id",
-            (USERNAME,),
+            "VALUES (%s, %s, 'Profile Test Byline') RETURNING id",
+            (USERNAME, generate_password_hash(PASSWORD)),
         )
         uid = cur.fetchone()["id"]
-    with client.session_transaction() as sess:
-        sess["admin_user"] = uid
+    resp = client.post("/admin/login", data={"username": USERNAME, "password": PASSWORD})
+    # A failed login answers 200 with the form again.
+    assert resp.status_code == 302
     return client, uid
 
 
@@ -80,3 +82,19 @@ def test_a_display_name_is_stored_stripped(profile_client):
     resp = client.post("/admin/profile/display-name", data={"display_name": "  New Byline "})
     assert resp.status_code == 302
     assert _display_name(uid) == "New Byline"
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("get", "/admin/profile"),
+        ("post", "/admin/profile/display-name"),
+        ("post", "/admin/coverage"),
+    ],
+)
+def test_a_session_without_the_admin_id_is_sent_to_sign_in(client, method, path):
+    with client.session_transaction() as sess:
+        sess["admin_user"] = USERNAME
+    resp = getattr(client, method)(path)
+    assert resp.status_code == 302
+    assert resp.headers["Location"].endswith("/admin/login")

@@ -1,9 +1,8 @@
 """docket.services.admin_users.set_display_name: the admin's byline write.
 
 The one statement POST /admin/profile/display-name executed itself before
-plan `admin-routes-call-services`, M1. The function takes the id as given,
-with no conversion (the plan carries the admin session-key mismatch
-unchanged), so these tests pass the integer id the table holds.
+plan `admin-routes-call-services`, M1. The function takes ``admin_users.id``,
+so these tests pass the integer id the table holds.
 
 Two ``admin_users`` rows are seeded whose usernames begin ``admusr_test_``
 and are deleted before and after every test. The service's name is imported

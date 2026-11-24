@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import pytest
+from werkzeug.security import generate_password_hash
 
 from docket.config import DATABASE_URL
 from docket.db import db
@@ -21,21 +22,34 @@ def app():
     return app
 
 
+_USERNAME = 'admin-cov-test'
+_PASSWORD = 'admin-cov-test-pw-do-not-reuse'
+
+
 @pytest.fixture
 def client_logged_in(app):
+    """A client signed in through /admin/login, so the session holds what a
+    login stores (plan `admin-profile-and-coverage-after-login`, M1)."""
     with db() as conn:
         with conn.cursor() as cur:
+            # What a previous aborted run left behind.
+            cur.execute(
+                "DELETE FROM coverage_entries WHERE author_id IN "
+                "(SELECT id FROM admin_users WHERE username = %s)",
+                (_USERNAME,),
+            )
+            cur.execute("DELETE FROM admin_users WHERE username = %s", (_USERNAME,))
             cur.execute(
                 "INSERT INTO admin_users (username, password_hash, display_name) "
                 "VALUES (%s, %s, %s) RETURNING id",
-                ('admin-cov-test', 'unused', 'Test Admin'),
+                (_USERNAME, generate_password_hash(_PASSWORD), 'Test Admin'),
             )
             uid = cur.fetchone()[0]
         conn.commit()
     with app.test_client() as c:
-        with c.session_transaction() as sess:
-            sess['admin_user'] = uid
-            sess['admin_username'] = 'admin-cov-test'
+        resp = c.post('/admin/login', data={'username': _USERNAME, 'password': _PASSWORD})
+        # A failed login answers 200 with the form again.
+        assert resp.status_code == 302
         yield c, uid
     with db() as conn:
         with conn.cursor() as cur:
@@ -117,7 +131,7 @@ def test_coverage_new_note_form_renders(client_logged_in):
 
 
 def test_coverage_post_creates_note_and_redirects(client_logged_in):
-    c, _ = client_logged_in
+    c, uid = client_logged_in
     # First seed an item to attach to
     with db() as conn:
         with conn.cursor() as cur:
@@ -133,27 +147,86 @@ def test_coverage_post_creates_note_and_redirects(client_logged_in):
             )
             item_id = cur.fetchone()[0]
         conn.commit()
-    resp = c.post('/admin/coverage', data={
-        'kind': 'note',
-        'body': 'A new note from the form.',
-        'partner_credit': '',
-        'subject[]': [f'agenda_item:{item_id}'],
-    })
-    assert resp.status_code in (302, 303)
+    try:
+        resp = c.post('/admin/coverage', data={
+            'kind': 'note',
+            'body': 'A new note from the form.',
+            'partner_credit': '',
+            'subject[]': [f'agenda_item:{item_id}'],
+        })
+        assert resp.status_code in (302, 303)
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT id, author_id FROM coverage_entries WHERE body = %s",
+                    ('A new note from the form.',),
+                )
+                row = cur.fetchone()
+                assert row is not None
+                assert row[1] == uid
+    finally:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM coverage_entries WHERE body = 'A new note from the form.'")
+                cur.execute("DELETE FROM agenda_items WHERE id = %s", (item_id,))
+                cur.execute("DELETE FROM meetings WHERE id = %s", (mtg_id,))
+            conn.commit()
+
+
+def test_coverage_post_publishes_a_citation_under_the_signed_in_admin(client_logged_in):
+    """A citation saved with publish_now carries the signed-in admin's id as
+    author_id and their display name as byline."""
+    c, uid = client_logged_in
+    headline = 'Cite post headline from the form'
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT id FROM coverage_entries WHERE body = %s",
-                ('A new note from the form.',),
+                "INSERT INTO outlets (slug, name) VALUES (%s, %s) RETURNING id",
+                ('test-cite-post-outlet', 'Cite Post Outlet'),
             )
-            assert cur.fetchone() is not None
-    # Cleanup
-    with db() as conn:
-        with conn.cursor() as cur:
-            cur.execute("DELETE FROM coverage_entries WHERE body = 'A new note from the form.'")
-            cur.execute("DELETE FROM agenda_items WHERE id = %s", (item_id,))
-            cur.execute("DELETE FROM meetings WHERE id = %s", (mtg_id,))
+            outlet_id = cur.fetchone()[0]
+            cur.execute(
+                "INSERT INTO meetings (municipality_id, external_id, title, meeting_date) "
+                "VALUES ((SELECT id FROM municipalities LIMIT 1), %s, %s, NOW()) RETURNING id",
+                ('cite-post-mtg', 'Cite Post Test'),
+            )
+            mtg_id = cur.fetchone()[0]
+            cur.execute(
+                "INSERT INTO agenda_items (meeting_id, title) VALUES (%s, %s) RETURNING id",
+                (mtg_id, 'Cite Post Test Item'),
+            )
+            item_id = cur.fetchone()[0]
         conn.commit()
+    try:
+        resp = c.post('/admin/coverage', data={
+            'kind': 'citation',
+            'outlet_id': str(outlet_id),
+            'external_url': 'https://example.test/cite-post',
+            'headline': headline,
+            'subject[]': [f'agenda_item:{item_id}'],
+            'publish_now': 'on',
+        })
+        assert resp.status_code in (302, 303)
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT author_id, status, byline FROM coverage_entries "
+                    "WHERE headline = %s",
+                    (headline,),
+                )
+                row = cur.fetchone()
+                assert row is not None
+                assert row[0] == uid
+                assert row[1] == 'published'
+                assert row[2] == 'Test Admin'
+    finally:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM coverage_entries WHERE headline = %s", (headline,))
+                cur.execute("DELETE FROM agenda_items WHERE id = %s", (item_id,))
+                cur.execute("DELETE FROM meetings WHERE id = %s", (mtg_id,))
+                cur.execute("DELETE FROM outlets WHERE id = %s", (outlet_id,))
+            conn.commit()
 
 
 def test_edit_form_includes_deactivated_outlet_when_citation_uses_it(client_logged_in):
