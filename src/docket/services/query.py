@@ -4646,3 +4646,44 @@ def transcript_pipeline_summary() -> dict:
         "transcript_stage_costs": transcript_stage_costs,
         "citation_missing": citation_missing,
     }
+
+
+def get_meeting_city_slug(meeting_id: int) -> str | None:
+    """The slug of the city a meeting belongs to, or None when no such meeting exists."""
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT m.slug FROM meetings mt JOIN municipalities m ON m.id = mt.municipality_id WHERE mt.id = %s",
+            (meeting_id,),
+        )
+        row = cur.fetchone()
+    if row is None:
+        return None
+    return row["slug"]
+
+
+def list_hidden_meetings() -> list[dict]:
+    """Every currently-hidden meeting, for the admin index, latest hidden first.
+
+    Joins to admin_users for the "hidden by" column (NULL when an older
+    backfill hid the row without an actor) and to municipalities for city.
+    ``hidden_reason`` says which writer hid the row (NULL on a row hidden
+    before migration 044).
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+                m.id, m.title, m.meeting_date,
+                m.hidden_at,
+                m.hidden_reason,
+                mu.name AS city_name,
+                mu.slug AS city_slug,
+                au.username AS hidden_by_username
+              FROM meetings m
+              JOIN municipalities mu ON mu.id = m.municipality_id
+              LEFT JOIN admin_users au ON au.id = m.hidden_by
+             WHERE m.is_hidden = TRUE
+             ORDER BY m.hidden_at DESC NULLS LAST, m.id DESC
+            """
+        )
+        return [dict(r) for r in cur.fetchall()]

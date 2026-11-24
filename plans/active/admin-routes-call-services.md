@@ -58,6 +58,12 @@ As authored on 2026-11-24 (UTC), nothing has been executed, so no milestone has 
   Evidence: the last run's final line was `112 of 118 removals failed a test; survived: ['list: no subject statement when no rows', "list: subject label '' in SQL", "list: subject label or '' in Python", 'search: the five ESCAPE clauses', 'stage costs: ORDER BY stage', 'stage costs: cost COALESCE']`. The six, and why no test can see them. (a) `list_coverage_for_admin` runs the subject statement only when it has rows; with no rows the statement is `= ANY('{}')` and returns nothing, the same empty dictionary. (b) and (c) The label has two guards against NULL, the `''` that ends the SQL `COALESCE` and the `or ""` in Python; either alone gives the empty string, so neither can be told from its absence while the other stands. (d) `ESCAPE '\'` on the five ILIKE predicates names the escape character PostgreSQL uses by default. The escaping of the needle itself is pinned: without `_escape_like`, or without any one of its three replacements, a wildcard test fails. (e) `ORDER BY stage` on the stage-cost statement: the planner groups by sorting (`EXPLAIN` printed `GroupAggregate` over `Sort  Sort Key: stage`), so the rows come in stage order without it; `ORDER BY stage DESC` in its place does fail a test. (f) `COALESCE(SUM(cost_usd), 0)` in the same statement: `ai_runs.cost_usd` is `NOT NULL` and a group holds at least one row, so the sum is never NULL. The same `COALESCE` in the seven-day statement, which has no GROUP BY, is pinned. The 112 that failed a test cover, for `list_coverage_for_admin`, each filter and their AND, each of the nine columns, both halves of the author label, the LEFT JOIN, the order, the 200, the counts and their grouping, each of the four label lookups, the restriction of subjects to the rows returned, link order and `subject_type`; for `list_active_outlets`, the filter, the order and the columns; for `get_coverage_for_edit`, the not-found guard, each `WHERE`, the columns, the three ways the outlet predicate can go wrong and the order; for `search_coverage_subjects`, the escaping, the wildcards around the needle, ILIKE, the order and the 15 of each statement, the date in a meeting's label, and the name and the slug of a badge; for `ai_pipeline_summary`, every predicate of the two pending counts, which version each placeholder gets, the debounce, the seven days, each of the three sums and its zero, and the order, the 20 and each column of the runs; for `transcript_pipeline_summary`, the grouping and order of the status counts, the `transcript_` pattern, the seven days, each aggregate of the stage costs, and for the citation rate the dismissed rows left out, the count of missing, the percentage, its one decimal, the grouping and the order.
 - Observation (M3, 2026-11-24): `ruff check` reports nothing new. On `src/docket/web/admin.py` it prints the three findings M2 left (`I001`, `SIM102`, `RUF019`); on `src/docket/services/query.py` it prints `Found 6 errors` before and after this milestone; the two new test files print `All checks passed!`.
   Evidence: `venv/bin/ruff check --statistics` on each file, and on `git show HEAD:src/docket/services/query.py` saved to the scratchpad.
+- Observation (M4, 2026-11-24): `docket.services.video_ocr`, the home Interfaces gives `reset_for_rescan`, imports the OCR libraries when it is imported (`docket.analysis.ocr.pipeline` brings numpy, OpenCV and pytesseract), and nothing under `src/docket/web/` imported it before. Named in the import block at the top of `admin.py`, it made every web process load them at start: 188 more modules and 33 MB more resident memory on the development machine. The import was moved inside `rescan_meeting_ocr`, which brings the start of the web process back to what it was. What is left is new and is not mended here: the first click of Rescan in a web process loads those libraries into that process, where before this milestone the route ran its five statements and loaded nothing. No response changes. No production process was measured.
+  Evidence: the three lines under "What the web process loads" in Artifacts and Notes, M4; the first of them shows `docket.services.video_ocr` absent from `sys.modules` after `create_app()` on the module as M3 left it, and `git grep -n 'video_ocr' HEAD -- 'src/docket/web/*.py' | grep -i import`, run before this milestone's code commit, printed nothing.
+- Observation (M4, 2026-11-24): of 55 removals from the moved statements, 53 fail a service test and two cannot be told from their absence. Each rule was taken out of, or changed in, a copy of its module compiled in memory (the pytest plugin in the session scratchpad that M1 to M3 used; no committed file was edited), one at a time, and the test file of that function was run against each copy. No assertion was added after the commit that holds the service tests failing (`f370039`).
+  Evidence: the run's last line was `53 of 55 removals failed a test; survived: ['reset: DELETE member_votes statement', 'hidden: then id DESC']; errors of the check itself: []`. The two, and why no test can see them. (a) `reset_for_rescan` deletes the member votes of the meeting's `video_ocr` votes and then the votes; `member_votes.vote_id` is declared `ON DELETE CASCADE` (`\d member_votes`), so the second DELETE removes them without the first. The same statement with its `source = 'video_ocr'` predicate taken out does fail a test, because it then deletes the member votes of a vote that stays. It moved as it stood. (b) The second key of the hidden list's order, `m.id DESC`: with it taken out, the two seeded rows hidden at the same moment still came back highest id first, by the order the sort happened to leave them in; `m.id ASC` in its place does fail the test. The 53 that failed a test cover, for `hide_by_admin` and `unhide_by_admin`, the not-found guard, every column each UPDATE sets, the actor passed through, the reason `admin`, the `WHERE id`, the UPDATE itself and the returned `True`; for `reset_for_rescan`, the not-found guard, the slug and whose it is, both predicates of the count and the count returned, the DELETE of the votes and both its predicates, the `video_ocr` predicate of the member-vote DELETE, each of the four columns of the UPDATE, its `WHERE` and the UPDATE itself; for `get_meeting_city_slug`, the `WHERE`, the column and the not-found guard; for `list_hidden_meetings`, seven of its columns (`id` is what the tests find their rows by), which admin's username, the LEFT JOIN, the `is_hidden` filter, latest first, `NULLS LAST`, the direction of the second key, and the plain dictionaries.
+- Observation (M4, 2026-11-24): `ruff check` reports nothing new. On `src/docket/web/admin.py` it prints the three findings M3 left (`I001`, `SIM102`, `RUF019`); the five new test files print `All checks passed!`; `src/docket/services/non_meetings.py` and `src/docket/services/video_ocr.py` together print two findings (`I001`, `UP035`), both on import lines this milestone did not write.
+  Evidence: `venv/bin/ruff check --statistics` on each.
 
 ## Decision Log
 
@@ -150,6 +156,15 @@ As authored on 2026-11-24 (UTC), nothing has been executed, so no milestone has 
   Date/Author: 2026-11-24, M4 session.
 - Decision (M4): the pin's finder is a function of source text (`findings(source)` in `tests/unit/test_admin_module_has_no_sql.py`), and the file holds, beside the one test that reads `admin.py`, eleven that hand the finder a few lines of source: ten that each hold one forbidden import or call and one that holds none. Beyond the names the revision entry gives, the finder also reports `from docket import db` and `import docket.db`, which name the same module.
   Rationale: once the module is clean the pin passes, and a pin that only ever passes has not shown it can fail; the ten samples are that showing, kept in `./tools/verify`. Without the two extra import forms a later edit could bring the helper back under another spelling and the plan's grep for `db()` would be the only thing to catch it.
+  Date/Author: 2026-11-24, M4 session.
+- Decision (M4): `rescan_meeting_ocr` imports `docket.services.video_ocr` inside the function, with a comment saying why; the module is not added to the import block at the top of `admin.py`.
+  Rationale: the top-level import made every web process load numpy, OpenCV and pytesseract at start (Surprises, M4), which the Constraints of `GOALS.md` on memory count against and which is a change in what runs for every request, not for one button. The module already imports inside a function where a top-level import would cost (`ai_panel` and `docket.services.discrepancies`). Two alternatives lost: putting `reset_for_rescan` in another service module, which leaves the home Interfaces names and the table's other writers; and making `video_ocr.py`'s own imports lazy, which edits code this milestone has no acceptance for. What the lazy import leaves, a first Rescan click that loads the libraries into one web process, is for M5's session or the operator to weigh as a debt row; this session files none.
+  Date/Author: 2026-11-24, M4 session.
+- Decision (M4): `hide_by_admin` and `unhide_by_admin` keep the tuple cursor (`db()` and `conn.cursor()`) the routes used; `reset_for_rescan` keeps `db_cursor()`; the two readers return a `str` and a list of `dict(row)`. The explicit `conn.commit()` of the two hide blocks is dropped, the third tidying the plan allows. The route docstrings were left as they were; the paragraph of `list_hidden_meetings`'s docstring about the columns is repeated on the service function.
+  Rationale: the M2 entry on cursors and on docstrings, applied again. Both hide tests of `tests/integration/test_admin_hide_meeting.py` and both of `tests/web/test_hidden_meetings_admin.py` read the stored row after the POST and pass, so the write is committed without the explicit call.
+  Date/Author: 2026-11-24, M4 session.
+- Decision (M4): tests beyond the plan's list were written for clauses it left free: a hide with no actor, a hide that leaves `keep_visible_at` as it stood, that meeting only for each of the three writers, the columns `reset_for_rescan` does not touch, a hidden row nobody is recorded as hiding, a visible meeting left out of the hidden list, and the list's order.
+  Rationale: each is a clause of a moved statement; the removal check in Surprises shows them pinned. The plan's list says "at least".
   Date/Author: 2026-11-24, M4 session.
 
 ## Outcomes & Retrospective
@@ -499,6 +514,41 @@ Service tests, written next and run before any service function existed (this is
     tests/services/test_non_meetings_admin_hide.py   8 failed, 1 warning in 0.62s   ImportError: cannot import name 'hide_by_admin' / 'unhide_by_admin' from 'docket.services.non_meetings'
     tests/services/test_video_ocr_reset.py           7 failed, 1 warning in 0.27s   ImportError: cannot import name 'reset_for_rescan' from 'docket.services.video_ocr'
     tests/services/test_query_admin_meetings.py      6 failed, 1 warning in 0.21s   ImportError: cannot import name 'get_meeting_city_slug' / 'list_hidden_meetings' from 'docket.services.query'
+
+After the service functions were written and before any route changed (the two counting greps still `5` and `11`):
+
+    tests/services/test_non_meetings_admin_hide.py   8 passed, 1 warning in 0.91s
+    tests/services/test_video_ocr_reset.py           7 passed, 1 warning in 0.61s
+    tests/services/test_query_admin_meetings.py      6 passed, 1 warning in 0.31s
+
+After the routes were changed to call them and the import of `docket.db` was deleted:
+
+    tests/unit/test_admin_module_has_no_sql.py          12 passed, 1 warning in 0.02s
+    tests/integration/test_admin_meeting_not_found.py   2 passed, 1 warning in 1.05s
+    tests/services/test_non_meetings_admin_hide.py      8 passed, 1 warning in 0.95s
+    tests/services/test_video_ocr_reset.py              7 passed, 1 warning in 0.59s
+    tests/services/test_query_admin_meetings.py         6 passed, 1 warning in 0.34s
+    tests/integration/test_admin_hide_meeting.py        18 passed, 1 warning in 3.38s
+    tests/web/test_hidden_meetings_admin.py             5 passed, 1 warning in 1.37s
+    tests/integration/test_video_ocr_rescan.py          2 passed, 1 warning in 1.07s
+    tests/integration/test_admin_meeting_type.py        8 passed, 1 warning in 2.10s
+    $ grep -n 'db_cursor\|db()\|\.execute(' src/docket/web/admin.py
+    (no output; exit status 1)
+    $ grep -c 'docket\.db\|psycopg2' src/docket/web/admin.py
+    0
+    $ grep -rl 'db_cursor\|db()' src/docket/web
+    src/docket/web/create_admin.py
+    src/docket/web/admin_badge_review.py
+    src/docket/web/auth.py
+    src/docket/web/admin_transcripts.py
+    $ git diff --stat $(git merge-base origin/main HEAD) -- <the ten existing admin test files of Concrete Steps>
+    (no output)
+
+What the web process loads, read by a scratch script that calls `create_app()` and then looks in `sys.modules` for `cv2`, `numpy`, `pytesseract`, `PIL`, `docket.services.video_ocr` and `docket.analysis.ocr.pipeline` (Surprises and Decision Log, M4):
+
+    the module as M3 left it                                      loaded: [] | modules: 2063 | maxrss MB: 217
+    `video_ocr` imported at the top of `admin.py` (not kept)      loaded: ['PIL', 'cv2', 'docket.analysis.ocr.pipeline', 'docket.services.video_ocr', 'numpy', 'pytesseract'] | modules: 2251 | maxrss MB: 250
+    `video_ocr` imported inside `rescan_meeting_ocr` (committed)  loaded: [] | modules: 2063 | maxrss MB: 217
 
 ## Interfaces and Dependencies
 

@@ -20,7 +20,6 @@ from flask import (
 from werkzeug.routing.exceptions import BuildError
 
 from docket.adapters._helpers import MEETING_TYPES, SESSION_KINDS
-from docket.db import db, db_cursor
 from docket.services import (
     admin_users,
     badges,
@@ -1153,15 +1152,10 @@ def profile_update_display_name():
 
 def _meeting_page(meeting_id: int) -> str | None:
     """The public URL of a meeting, or None when no such meeting exists."""
-    with db_cursor() as cur:
-        cur.execute(
-            "SELECT m.slug FROM meetings mt JOIN municipalities m ON m.id = mt.municipality_id WHERE mt.id = %s",
-            (meeting_id,),
-        )
-        row = cur.fetchone()
-    if row is None:
+    slug = query.get_meeting_city_slug(meeting_id)
+    if slug is None:
         return None
-    return url_for("public.meeting_detail", slug=row["slug"], meeting_id=meeting_id)
+    return url_for("public.meeting_detail", slug=slug, meeting_id=meeting_id)
 
 
 @bp.post("/meetings/<int:meeting_id>/type")
@@ -1207,22 +1201,8 @@ def hide_meeting(meeting_id: int):
     reason ``admin`` (migration 044). The blueprint-level before_request
     handler enforces login.
     """
-    with db() as conn, conn.cursor() as cur:
-        cur.execute("SELECT id FROM meetings WHERE id = %s", (meeting_id,))
-        if cur.fetchone() is None:
-            abort(404)
-        cur.execute(
-            """
-            UPDATE meetings
-               SET is_hidden = TRUE,
-                   hidden_at = NOW(),
-                   hidden_by = %s,
-                   hidden_reason = 'admin'
-             WHERE id = %s
-            """,
-            (session.get("admin_user_id"), meeting_id),
-        )
-        conn.commit()
+    if not non_meetings.hide_by_admin(meeting_id, session.get("admin_user_id")):
+        abort(404)
     flash(f"Meeting {meeting_id} hidden.")
     # Redirect back where the action was triggered if a referer is present;
     # fall back to the hidden-meetings admin index.
@@ -1244,23 +1224,8 @@ def unhide_meeting(meeting_id: int):
     rule does not hide a row an admin brought back
     (``docket.services.non_meetings``).
     """
-    with db() as conn, conn.cursor() as cur:
-        cur.execute("SELECT id FROM meetings WHERE id = %s", (meeting_id,))
-        if cur.fetchone() is None:
-            abort(404)
-        cur.execute(
-            """
-            UPDATE meetings
-               SET is_hidden = FALSE,
-                   hidden_at = NULL,
-                   hidden_by = NULL,
-                   hidden_reason = NULL,
-                   keep_visible_at = NOW()
-             WHERE id = %s
-            """,
-            (meeting_id,),
-        )
-        conn.commit()
+    if not non_meetings.unhide_by_admin(meeting_id):
+        abort(404)
     flash(f"Meeting {meeting_id} unhidden.")
     referer = request.headers.get("Referer")
     if referer:
@@ -1285,46 +1250,15 @@ def rescan_meeting_ocr(meeting_id: int):
     an OCR-algorithm bugfix that produces different terminal frames would
     otherwise stack new rows next to the bad ones.
     """
-    with db_cursor() as cur:
-        cur.execute(
-            """SELECT mu.slug
-                 FROM meetings m
-                 JOIN municipalities mu ON mu.id = m.municipality_id
-                WHERE m.id = %s""",
-            [meeting_id],
-        )
-        row = cur.fetchone()
-        if row is None:
-            abort(404)
-        muni_slug = row["slug"]
+    # Imported here, not at the top: the module pulls in the OCR libraries
+    # (numpy, OpenCV, Tesseract's wrapper), which the web process otherwise
+    # never loads.
+    from docket.services import video_ocr
 
-        cur.execute(
-            "SELECT COUNT(*) AS n FROM votes WHERE meeting_id = %s AND source = 'video_ocr'",
-            [meeting_id],
-        )
-        deleted_count = cur.fetchone()["n"]
-
-        cur.execute(
-            """DELETE FROM member_votes
-                WHERE vote_id IN (
-                    SELECT id FROM votes
-                     WHERE meeting_id = %s AND source = 'video_ocr'
-                )""",
-            [meeting_id],
-        )
-        cur.execute(
-            "DELETE FROM votes WHERE meeting_id = %s AND source = 'video_ocr'",
-            [meeting_id],
-        )
-        cur.execute(
-            """UPDATE processing_status
-                  SET video_ocr_scanned = FALSE,
-                      video_ocr_attempts = 0,
-                      video_ocr_last_attempted_at = NULL,
-                      video_ocr_last_error = NULL
-                WHERE meeting_id = %s""",
-            [meeting_id],
-        )
+    result = video_ocr.reset_for_rescan(meeting_id)
+    if result is None:
+        abort(404)
+    muni_slug, deleted_count = result
 
     flash(
         f"Cleared {deleted_count} video-OCR vote(s); meeting will be rescanned at the next cron tick.",
@@ -1346,22 +1280,5 @@ def list_hidden_meetings():
     ``non_meetings`` rule would hide but for a transcript with speech; they
     are visible, and the operator hides one from its meeting page.
     """
-    with db_cursor() as cur:
-        cur.execute(
-            """
-            SELECT
-                m.id, m.title, m.meeting_date,
-                m.hidden_at,
-                m.hidden_reason,
-                mu.name AS city_name,
-                mu.slug AS city_slug,
-                au.username AS hidden_by_username
-              FROM meetings m
-              JOIN municipalities mu ON mu.id = m.municipality_id
-              LEFT JOIN admin_users au ON au.id = m.hidden_by
-             WHERE m.is_hidden = TRUE
-             ORDER BY m.hidden_at DESC NULLS LAST, m.id DESC
-            """
-        )
-        rows = [dict(r) for r in cur.fetchall()]
+    rows = query.list_hidden_meetings()
     return render_template("admin/hidden_meetings.html", rows=rows, held_back=non_meetings.held_back())

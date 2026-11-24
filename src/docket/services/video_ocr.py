@@ -220,3 +220,59 @@ def _ocr_one_meeting(meeting: dict) -> dict:
         _mark_ocr_failed(meeting_id, str(e))
         log.exception("OCR failed for meeting %s", meeting_id)
         return {"meeting_id": meeting_id, "votes": 0, "error": str(e)}
+
+
+def reset_for_rescan(meeting_id: int) -> tuple[str, int] | None:
+    """Force-rescan: delete a meeting's video_ocr votes and reset its OCR flags.
+
+    Returns the city slug and the number of ``video_ocr`` votes deleted, or
+    None, having written nothing, when no such meeting exists. One
+    transaction. Votes of any other source are left. The next worker tick
+    re-OCRs the meeting.
+
+    Spec §7: necessary because the persistence ON CONFLICT is timestamp-stable;
+    an OCR-algorithm bugfix that produces different terminal frames would
+    otherwise stack new rows next to the bad ones.
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            """SELECT mu.slug
+                 FROM meetings m
+                 JOIN municipalities mu ON mu.id = m.municipality_id
+                WHERE m.id = %s""",
+            [meeting_id],
+        )
+        row = cur.fetchone()
+        if row is None:
+            return None
+        muni_slug = row["slug"]
+
+        cur.execute(
+            "SELECT COUNT(*) AS n FROM votes WHERE meeting_id = %s AND source = 'video_ocr'",
+            [meeting_id],
+        )
+        deleted_count = cur.fetchone()["n"]
+
+        cur.execute(
+            """DELETE FROM member_votes
+                WHERE vote_id IN (
+                    SELECT id FROM votes
+                     WHERE meeting_id = %s AND source = 'video_ocr'
+                )""",
+            [meeting_id],
+        )
+        cur.execute(
+            "DELETE FROM votes WHERE meeting_id = %s AND source = 'video_ocr'",
+            [meeting_id],
+        )
+        cur.execute(
+            """UPDATE processing_status
+                  SET video_ocr_scanned = FALSE,
+                      video_ocr_attempts = 0,
+                      video_ocr_last_attempted_at = NULL,
+                      video_ocr_last_error = NULL
+                WHERE meeting_id = %s""",
+            [meeting_id],
+        )
+
+    return muni_slug, deleted_count
