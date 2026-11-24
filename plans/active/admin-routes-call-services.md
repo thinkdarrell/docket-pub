@@ -268,6 +268,12 @@ Route tests, written first and run against the unchanged module (`grep -c` of th
     tests/integration/test_admin_members.py     7 passed, 1 warning in 1.70s
     tests/integration/test_admin_profile.py     3 passed, 1 warning in 1.12s
 
+Service tests, written next and run before any service function existed (this is the state of the commit that holds them):
+
+    tests/services/test_council_members_writer.py   8 failed, 1 warning in 0.40s   ModuleNotFoundError: No module named 'docket.services.council_members_writer'
+    tests/services/test_admin_users.py              3 failed, 1 warning in 0.07s   ModuleNotFoundError: No module named 'docket.services.admin_users'
+    tests/services/test_query_admin_roster.py       7 failed, 1 warning in 0.14s   ImportError: cannot import name 'get_admin_profile' / 'list_district_names' / 'list_outlets' from 'docket.services.query'
+
 ## Interfaces and Dependencies
 
 No new library. Services import `db` or `db_cursor` from `docket.db` and nothing from `flask` or `docket.web`. A function whose rows a template reads by key uses `db_cursor()`; one that returns plain values may use either. Every function below opens exactly one transaction.
