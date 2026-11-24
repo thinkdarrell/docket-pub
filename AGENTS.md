@@ -45,7 +45,7 @@ Run from the repository root (or the worktree root) with that checkout's own `ve
 - Nothing material lives outside the repo. If it was decided, it is written here.
 - This file is a map, not an encyclopedia. Keep it under about 100 lines; content that wants to grow moves into `docs/` and leaves a one-line map entry.
 - Before changing anything under `src/docket/adapters/`, `src/docket/analysis/`, `src/docket/services/ingest.py`, or a template that renders data, read `docs/PRINCIPLES.md`.
-- Routes, worker tasks, and CLIs call `docket.services.*`; services own transactions. Known violations are `D7`.
+- Routes, worker tasks, and CLIs call `docket.services.*`; services own transactions. Known violations are `D7` (web modules), `D65` (worker tasks), and `D92` and `D111` (layers under the services).
 - The Constraints in `GOALS.md` bind every change: production volume and worker memory, polite scraping, deploy from `main` only, commit identity.
 - Feature branches (`feat/*` by hand, `plan/<slug>` from the factory) merge to `main` by pull request.
 - Each worktree needs its own `venv/`; `docs/specs/operations.md` says why and how.
