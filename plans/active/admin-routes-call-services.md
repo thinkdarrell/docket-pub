@@ -105,6 +105,12 @@ As authored on 2026-11-24 (UTC), nothing has been executed, so no milestone has 
 - Decision (M1): the three new readers return plain dictionaries (`dict(row)`), where the routes handed the template the cursor's own rows. `update_member` and `deactivate_member` use `db_cursor()` where the routes used `db()` with a tuple cursor.
   Rationale: `query.py` returns `dict(row)` everywhere else, the templates read the rows by key either way, and neither UPDATE reads a row, so the cursor kind changes nothing stored or shown. Interfaces allows either cursor for a function that returns plain values.
   Date/Author: 2026-11-24, M1 session.
+- Decision (M2): the opening `./tools/verify` was skipped, under the revision entry above.
+  Rationale: at the session's start the M1 entry was ticked with its closing run recorded in Artifacts and Notes (`verify: all 6 checks passed in 335s.`), `git rev-parse HEAD` printed `e0364cca1a8db16881f26671c2f6bd564faef3c9`, `git status --short` printed nothing, and `git log --merges --oneline bff4c27..HEAD` printed nothing. The two counting greps printed `20` and `46`, as M1 left them.
+  Date/Author: 2026-11-24, M2 session.
+- Decision (M2): the route test of the two unknown-item POSTs reads the count and the highest id of `processing_status_audit` before the request and after it and asserts the two readings equal. It asserts no fixed size.
+  Rationale: Plan of Work asks that the count stay where it was; Context forbids asserting a whole table's size, and allows the difference between two readings. Tests in a tier run one after another, so nothing else writes between the two readings.
+  Date/Author: 2026-11-24, M2 session.
 
 ## Outcomes & Retrospective
 
@@ -316,6 +322,14 @@ After the routes were changed to call them:
 Against the authoring baseline the first tier rose by 18 (3825 to 3843: the 18 tests of the three new files under `tests/services/`) and the integration tier by 10 (1164 to 1174: the two new route test files).
 
 The tests that call each M1 service function. `council_members_writer.add_member`: `test_add_member_stores_the_row_under_the_named_district_of_that_city`, `test_add_member_with_an_unknown_district_name_stores_a_null_district`, `test_add_member_with_an_empty_district_name_looks_nothing_up`. `council_members_writer.update_member`: `test_update_member_changes_the_four_fields_of_that_member_only`, `test_update_member_with_none_email_and_photo_url_stores_null`, `test_update_member_for_an_id_with_no_row_changes_no_seeded_member`. `council_members_writer.deactivate_member`: `test_deactivate_member_sets_active_false_on_that_member_only`, `test_deactivate_member_for_an_id_with_no_row_changes_no_seeded_member` (all in `tests/services/test_council_members_writer.py`). `admin_users.set_display_name`: `test_set_display_name_stores_the_name_on_that_user_only`, `test_set_display_name_with_none_stores_null`, `test_set_display_name_for_an_id_with_no_row_changes_no_seeded_user` (`tests/services/test_admin_users.py`). `query.get_admin_profile`: `test_get_admin_profile_returns_the_username_and_display_name_of_that_id`, `test_get_admin_profile_with_no_display_name_holds_none_under_the_key`, `test_get_admin_profile_for_an_id_with_no_row_is_none`. `query.list_district_names`: `test_list_district_names_is_that_citys_names_in_number_order`, `test_list_district_names_for_a_city_with_no_district_is_an_empty_list`. `query.list_outlets`: `test_list_outlets_holds_the_five_columns_of_a_seeded_outlet_active_or_not`, `test_list_outlets_is_ordered_by_name` (all in `tests/services/test_query_admin_roster.py`). Through the routes, the ten tests of `tests/integration/test_admin_members.py` and `tests/integration/test_admin_profile.py` and the existing `test_outlets_list_includes_seed` and `test_profile_display_name_update` reach the same functions.
+
+### M2, observed on 2026-11-24 (UTC)
+
+The opening `./tools/verify` was skipped (Decision Log, M2). One throwaway database (`docket_test_fdb4ad9a`, built by `tools/test-db`) served every single-file run below. Each run is `DATABASE_URL=<that database> venv/bin/python -m pytest <file> -q -p no:cacheprovider`.
+
+Route tests, written first and run against the unchanged module (`grep -c` of the two patterns still `20` and `46`):
+
+    tests/integration/test_admin_not_found_paths.py   2 passed, 1 warning in 1.02s
 
 ## Interfaces and Dependencies
 
