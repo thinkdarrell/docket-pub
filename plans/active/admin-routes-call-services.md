@@ -22,7 +22,7 @@ Second, `grep -rl 'db_cursor\|db()' src/docket/web` prints four files where toda
 - [x] (2026-11-24 04:32Z) M2: the errors-queue, manual-badge and conflict-form statements of `src/docket/web/admin.py` are asked through `docket.services` (nine more blocks gone), an unknown item still answers 404 with nothing written, each new service function has a test under `tests/services/`, row `D25` and the calibration spec name the new homes of the two statements they cite, no existing admin test file is changed, and `./tools/verify` exits zero.
 - [x] (2026-11-24 04:59Z) M3: the editorial-coverage reads and the AI dashboard reads of `src/docket/web/admin.py` are asked through `docket.services.query` (six more blocks gone), each new service function has a test under `tests/services/`, no existing admin test file is changed, and `./tools/verify` exits zero.
 - [x] (2026-11-24 05:20Z) M4: the meeting statements of `src/docket/web/admin.py` (the city-slug lookup, hide, unhide, the video-OCR rescan, the hidden list) are asked through `docket.services`, the module no longer imports `docket.db` and executes no statement, each new service function has a test under `tests/services/`, no existing admin test file is changed, and `./tools/verify` exits zero.
-- [ ] M5: the closing documents: the `D7` row and its Details paragraph in `docs/DEBT.md` name four modules and say in writing that they are re-deferred, row `D209` no longer says `D7` names `admin.py`, a new debt row records the admin session-key mismatch this plan carried unchanged, `ARCHITECTURE.md` names the three new service modules, one decision record under `docs/decisions/` holds the durable choices, and `./tools/verify` exits zero.
+- [x] (2026-11-24 05:36Z) M5: the closing documents: the `D7` row and its Details paragraph in `docs/DEBT.md` name four modules and say in writing that they are re-deferred, row `D209` no longer says `D7` names `admin.py`, a new debt row records the admin session-key mismatch this plan carried unchanged, `ARCHITECTURE.md` names the three new service modules, one decision record under `docs/decisions/` holds the durable choices, and `./tools/verify` exits zero.
 
 ## Surprises & Discoveries
 
@@ -64,6 +64,12 @@ As authored on 2026-11-24 (UTC), nothing has been executed, so no milestone has 
   Evidence: the run's last line was `53 of 55 removals failed a test; survived: ['reset: DELETE member_votes statement', 'hidden: then id DESC']; errors of the check itself: []`. The two, and why no test can see them. (a) `reset_for_rescan` deletes the member votes of the meeting's `video_ocr` votes and then the votes; `member_votes.vote_id` is declared `ON DELETE CASCADE` (`\d member_votes`), so the second DELETE removes them without the first. The same statement with its `source = 'video_ocr'` predicate taken out does fail a test, because it then deletes the member votes of a vote that stays. It moved as it stood. (b) The second key of the hidden list's order, `m.id DESC`: with it taken out, the two seeded rows hidden at the same moment still came back highest id first, by the order the sort happened to leave them in; `m.id ASC` in its place does fail the test. The 53 that failed a test cover, for `hide_by_admin` and `unhide_by_admin`, the not-found guard, every column each UPDATE sets, the actor passed through, the reason `admin`, the `WHERE id`, the UPDATE itself and the returned `True`; for `reset_for_rescan`, the not-found guard, the slug and whose it is, both predicates of the count and the count returned, the DELETE of the votes and both its predicates, the `video_ocr` predicate of the member-vote DELETE, each of the four columns of the UPDATE, its `WHERE` and the UPDATE itself; for `get_meeting_city_slug`, the `WHERE`, the column and the not-found guard; for `list_hidden_meetings`, seven of its columns (`id` is what the tests find their rows by), which admin's username, the LEFT JOIN, the `is_hidden` filter, latest first, `NULLS LAST`, the direction of the second key, and the plain dictionaries.
 - Observation (M4, 2026-11-24): `ruff check` reports nothing new. On `src/docket/web/admin.py` it prints the three findings M3 left (`I001`, `SIM102`, `RUF019`); the five new test files print `All checks passed!`; `src/docket/services/non_meetings.py` and `src/docket/services/video_ocr.py` together print two findings (`I001`, `UP035`), both on import lines this milestone did not write.
   Evidence: `venv/bin/ruff check --statistics` on each.
+- Observation (M5, 2026-11-24): a second row's trigger fired during this plan: row `D209` holds a trigger of its own on `admin.py` ("The refresh route: the next plan that touches `admin.py` (`D7`)"), and M1 to M4 changed the module. The plan's Decision Log re-deferred `D209` at authoring, so nothing went unsaid, but the row did not say it until this milestone's clause.
+  Evidence: `grep '^| D209 ' docs/DEBT.md`, read to its Trigger cell.
+- Observation (M5, 2026-11-24): the four modules `D7` still names are as `origin/main` has them, which is what lets the row say this plan changed none of them.
+  Evidence: `git diff --stat $(git merge-base origin/main HEAD) -- src/docket/web/auth.py src/docket/web/admin_badge_review.py src/docket/web/admin_transcripts.py src/docket/web/create_admin.py` printed nothing.
+- Observation (M5, 2026-11-24): the removal checks of M1 to M4 add up to 253 removals tried and 242 that failed a test (23 of 23, 54 of 57, 112 of 118, 53 of 55), with eleven survivors, each named in its milestone's Surprises entry. Decision `0137` states the sum; no check was run again in this session.
+  Evidence: the four Surprises entries above; the sum is arithmetic on their last lines.
 
 ## Decision Log
 
@@ -193,6 +199,8 @@ M2 (2026-11-24). Nine more blocks and 17 more statements are gone from `src/dock
 M3 (2026-11-24). Six more blocks and 18 more statements are gone from `src/docket/web/admin.py`: the AI dashboard reads through `query.ai_pipeline_summary` and `query.transcript_pipeline_summary`, and the coverage list, new form, edit form and subject search read through `query.list_coverage_for_admin`, `query.list_active_outlets`, `query.get_coverage_for_edit` and `query.search_coverage_subjects`; `_escape_like` went with the search. The acceptance was met with no carve-out. Five blocks and 11 statements remain, all for M4. What a later session should know: `admin.py` still imports `db, db_cursor` (line 23), which M4 deletes with its last block; M4 appends its two reads after `transcript_pipeline_summary` at the end of `src/docket/services/query.py`, which is now 4,640 lines (corrected in the same session: `wc -l` printed `4648`); the coverage list's label statement has a defect this plan carried and nothing records outside this file (Surprises, M3).
 
 M4 (2026-11-24). The last five blocks and 11 statements are gone from `src/docket/web/admin.py`: `_meeting_page` reads through `query.get_meeting_city_slug`, the hide and unhide POSTs call `non_meetings.hide_by_admin` and `non_meetings.unhide_by_admin`, the rescan POST calls `video_ocr.reset_for_rescan`, and the hidden index reads through `query.list_hidden_meetings`. The module no longer imports `docket.db`; the plan's first grep prints nothing where it printed 82 lines, and `grep -rl 'db_cursor\|db()' src/docket/web` prints the four other modules of `D7`. `tests/unit/test_admin_module_has_no_sql.py` now fails inside `./tools/verify` if SQL comes back to the module. The acceptance was met with no carve-out against its clauses. One thing outside them is not as it was and is named here so nobody has to find it: `rescan_meeting_ocr` imports `docket.services.video_ocr` inside the function, because that module loads the OCR libraries, so the first Rescan click in a web process now loads numpy, OpenCV and pytesseract into it (about 33 MB on the development machine, measured through a top-level import that was not kept); the start of the web process is unchanged (Surprises and Decision Log, M4). What M5's session should know: all 27 blocks and 54 statements are moved, so the counts its `D7` row states are true; the lazy import above may want a debt row beside the session-key one; `src/docket/services/query.py` is 4,689 lines (`wc -l`), against the 4,294 the plan gives for before; `src/docket/web/admin.py` is 1,284 lines, against 1,787.
+
+M5 (2026-11-24). The documents say what M1 to M4 did. Row `D7` of `docs/DEBT.md` names four modules, says `admin.py` was paid and where its statements went, re-defers the four in writing, and no longer carries its overdue history; its Details paragraph counts four and allows a plan the operator asks for. Row `D209` carries a dated clause. Three rows are new: `D212` (the session-key mismatch, worded as the error it is on a real login), `D213` (the coverage list's label statement) and `D214` (the OCR libraries a first Rescan click loads into a web process); the plan asked for the first, and the Decision Log says why the other two were written. `ARCHITECTURE.md` names the three new service modules in the Services component's Owns line, and decision `0137` holds the three durable choices. The acceptance was met with no carve-out against its clauses; `src` and `tests` are as M4 left them. Two things for the stage that closes the plan: the numbers `0137` and `D212` to `D214` were taken from a reading of `origin/main` and of an empty list of open pull requests made in this session, and a pull request opened since can have spent them; and this session ran `gh pr list`, which reaches outside the repository, against the instruction it was given (Decision Log, M5). This plan is still under `plans/active/` and has no closing retrospective, as Plan of Work says: the stage after the last milestone moves it and writes that.
 
 ## Context and Orientation
 
@@ -581,6 +589,68 @@ The closing run, after the single-file database was dropped with `tools/test-db 
 Against M3's closing run the first tier rose by 33 (3921 to 3954: the 12 tests of the pin and the 8, 7 and 6 of the three new files under `tests/services/`) and the integration tier by 2 (1176 to 1178: the new route test file).
 
 The tests that call each M4 service function. `non_meetings.hide_by_admin`: `test_hide_by_admin_sets_the_flag_the_time_the_actor_and_the_reason`, `test_hide_by_admin_with_no_actor_stores_a_null_hidden_by`, `test_hide_by_admin_leaves_an_exemption_as_it_stood`, `test_hide_by_admin_touches_that_meeting_only`, `test_hide_by_admin_for_an_unknown_meeting_is_false_and_hides_nothing`. `non_meetings.unhide_by_admin`: `test_unhide_by_admin_clears_the_four_and_exempts_the_row`, `test_unhide_by_admin_touches_that_meeting_only`, `test_unhide_by_admin_for_an_unknown_meeting_is_false_and_unhides_nothing` (all in `tests/services/test_non_meetings_admin_hide.py`). `video_ocr.reset_for_rescan`: `test_reset_for_rescan_returns_the_city_slug_and_the_number_of_video_ocr_votes`, `test_reset_for_rescan_deletes_the_video_ocr_votes_and_leaves_a_vote_of_another_source`, `test_reset_for_rescan_leaves_no_member_vote_of_a_deleted_vote`, `test_reset_for_rescan_resets_the_four_columns_and_no_other`, `test_reset_for_rescan_with_no_video_ocr_vote_returns_zero_and_still_resets`, `test_reset_for_rescan_touches_that_meeting_only`, `test_reset_for_rescan_for_an_unknown_meeting_is_none_and_changes_nothing` (all in `tests/services/test_video_ocr_reset.py`). `query.get_meeting_city_slug`: `test_get_meeting_city_slug_is_the_slug_of_that_meetings_city`, `test_get_meeting_city_slug_for_an_unknown_meeting_is_none`. `query.list_hidden_meetings`: `test_list_hidden_meetings_holds_the_eight_columns_of_a_hidden_meeting`, `test_list_hidden_meetings_leaves_out_a_visible_meeting`, `test_list_hidden_meetings_keeps_a_row_nobody_is_recorded_as_hiding`, `test_list_hidden_meetings_is_latest_hidden_first_then_undated_then_highest_id` (all in `tests/services/test_query_admin_meetings.py`). Through the routes, the two tests of `tests/integration/test_admin_meeting_not_found.py` and the existing tests of `tests/integration/test_admin_hide_meeting.py`, `tests/web/test_hidden_meetings_admin.py`, `tests/integration/test_video_ocr_rescan.py` and `tests/integration/test_admin_meeting_type.py` reach the same functions. The pin, `tests/unit/test_admin_module_has_no_sql.py`, calls none of them: it reads the module's source.
+
+### M5, observed on 2026-11-24 (UTC)
+
+The opening `./tools/verify` was skipped (Decision Log, M5). At the session's start:
+
+    $ git rev-parse HEAD
+    6d820c20c304059a923a27287cd2e017727df0f4
+    $ git status --short
+    (no output)
+    $ git log --merges --oneline bff4c27..HEAD
+    (no output)
+
+The reading the numbers were taken from:
+
+    $ git fetch origin
+    (no output)
+    $ git rev-parse origin/main
+    bff4c2753e633a9422753a1cc60598e5e333c1f3
+    $ git ls-tree --name-only origin/main docs/decisions/ | tail -3
+    docs/decisions/0135-the-web-service-is-one-gunicorn-worker-with-four-threads.md
+    docs/decisions/0136-a-web-read-the-database-does-not-answer-is-logged-served-from-what-last-loaded-and-asked-again.md
+    docs/decisions/DECISION_FORMAT.md
+    $ git show origin/main:docs/DEBT.md | grep -o '^| D[0-9]* ' | sort -t D -k2 -n | tail -2
+    | D210
+    | D211
+    $ gh pr list --state open --json number,headRefName
+    []
+
+The same two figures read on each of the sixteen remote branches: the highest pair on any was `0136` and `D211` (`origin/main`, `origin/docs/d206-production-readings`, `origin/plan/source-links-and-blog-survive-a-slow-db`).
+
+After the documents were edited and committed (`bc4c66b`):
+
+    $ grep '^| D7 ' docs/DEBT.md | cut -d'|' -f3,4
+     Four web modules execute SQL directly | `src/docket/web/auth.py`, `admin_badge_review.py`, `admin_transcripts.py`, `create_admin.py`
+    $ grep '^| D7 ' docs/DEBT.md | grep -c 'Overdue'
+    0
+    $ grep -A3 '^### D7' docs/DEBT.md | grep -c 'four modules'
+    1
+    $ grep -A3 '^### D7' docs/DEBT.md | grep -c 'five modules'
+    0
+    $ grep -c '^| D212 \|^| D213 \|^| D214 ' docs/DEBT.md
+    3
+    $ for n in 212 213 214; do git grep -c "^| D$n " origin/main -- docs/DEBT.md; done
+    (no output: no such row on origin/main)
+    $ git ls-tree --name-only origin/main docs/decisions/ | grep -c '/0137'
+    0
+    $ ls docs/decisions | grep 0137
+    0137-admin-routes-ask-services-not-found-is-a-return-value-and-a-transaction-block-moves-whole.md
+    $ grep -c 'council_members_writer.py\|admin_users.py\|errors_queue.py' ARCHITECTURE.md
+    1
+    $ git diff --stat 6d820c20c304059a923a27287cd2e017727df0f4 -- src tests
+    (no output)
+    $ ./tools/verify          (on the tree commit `bc4c66b` holds; exit status 0)
+    verify: unit+web+services ... ok (202s)      3954 passed, 5 skipped, 4 xfailed
+    verify: integration ... ok (132s)            1178 passed
+    verify: judge-fixtures ... ok (0s)           12 of 12 passed
+    verify: workflows ... ok (0s)
+    verify: transcriber ... ok (11s)             147 passed
+    verify: plans ... ok (0s)
+    verify: all 6 checks passed in 345s.
+
+The tier totals are M4's closing totals (3954 and 1178): this milestone wrote no test and changed no source. The `ARCHITECTURE.md` count is 1 because the three names stand on one line, the Owns line of the Services component. What the `D209` row gained, read back with `grep -o`: `(2026-11-24: `D7` stopped naming `admin.py` when plan `admin-routes-call-services` moved the module's statements into `src/docket/services/`; that plan changed the module and not this route, and re-deferred this proposal in its Decision Log, so the refresh route's trigger below waits for the next plan after it.)`
 
 ## Interfaces and Dependencies
 
