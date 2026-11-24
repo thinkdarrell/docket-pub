@@ -1,0 +1,212 @@
+# The admin profile and coverage routes work after a real login
+
+This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
+
+This document must be maintained in accordance with `plans/PLANS.md`.
+
+## Purpose / Big Picture
+
+docket.pub has an admin area under `/admin/` that its one operator uses. Three of its routes fail today for anyone who signs in the way the site intends, through the form at `/admin/login`: `GET /admin/profile` (the page that shows the admin's username and byline name), `POST /admin/profile/display-name` (the button that saves the byline name), and `POST /admin/coverage` (the form that saves an editorial note or a citation of a news article). Each ends in a database error, because the route hands the admin's username to a statement that compares it with a numeric id. Row `D212` of `docs/DEBT.md`, the repository's register of deliberate deferrals, records this.
+
+After this plan, an admin who signs in through `/admin/login` can open the profile page and see their username and byline name, can save a new byline name and find it stored on their own `admin_users` row, and can save a coverage entry whose `author_id` is their own `admin_users.id`. An admin whose session somehow holds no id is sent to the sign-in form, where a page that fails would otherwise be shown.
+
+How to see it working. The tests of `tests/integration/test_admin_profile.py` and `tests/integration/test_admin_coverage.py` are changed to sign in by posting a username and password to `/admin/login`, as a browser does. Nine of them then fail against the code as it stands today and all nineteen pass after the three routes are mended; the failing state is committed before the mend, so it can be read from git. `./tools/verify`, the repository's one check command, passes. And the `D212` row is deleted, which is how this register closes a row.
+
+## Progress
+
+- [ ] M1: an admin who signed in through `/admin/login` can open `/admin/profile`, save a display name and save a coverage entry: the three routes of `src/docket/web/admin.py` read the id the login stored, a session that holds no id is sent to sign in, the tests of `tests/integration/test_admin_profile.py` and `tests/integration/test_admin_coverage.py` sign in through the login form and were committed failing before the mend, the `D212` row is gone from `docs/DEBT.md`, and `./tools/verify` exits zero.
+
+## Surprises & Discoveries
+
+As authored on 2026-11-24 (UTC), nothing has been executed, so no milestone has a discovery to record. What the authoring ran is written here because a later session would otherwise meet it as a surprise.
+
+- Observation (authoring, 2026-11-24): the error `D212` describes was seen through the routes themselves, which neither the row nor the scope brief had done. On a throwaway database at commit `0fadc41`, a scratch script (not committed) seeded an `admin_users` row with a real password hash, posted the username and password to `/admin/login` with Flask's test client, and asked the three routes.
+  Evidence: the script printed
+
+        login -> 302 /admin/members/
+        session: ['admin_user', 'admin_user_id'] True True
+        GET /admin/profile -> raised InvalidTextRepresentation: invalid input syntax for type integer: "probe_d212_user"
+        POST /admin/profile/display-name -> raised InvalidTextRepresentation: invalid input syntax for type integer: "probe_d212_user"
+        POST /admin/coverage -> raised InvalidTextRepresentation: invalid input syntax for type integer: "probe_d212_user"
+
+  The two `True` values are that the session's `admin_user` equals the username and its `admin_user_id` equals the row's id. With a session that held `admin_user` alone, the first two routes raised the same error, and `POST /admin/coverage` with an empty form answered `302 /admin/coverage/new?kind=note`, the "attach to at least one subject" redirect, which the route takes before it reads the session.
+- Observation (authoring, 2026-11-24): `./tools/verify` took 352 seconds in this worktree, not the "about 150 seconds" `AGENTS.md` states.
+  Evidence: at `0fadc41`, `./tools/verify` printed `verify: unit+web+services ... ok (206s)`, `verify: integration ... ok (133s)`, `verify: all 6 checks passed in 352s.` and exited 0; the tiers printed `3954 passed, 5 skipped, 4 xfailed, 2 warnings` and `1178 passed, 2 warnings`, and the producer suite `147 passed, 1 warning`.
+- Observation (authoring, 2026-11-24): the two test files pass today, by hand, against a database built by `tools/test-db`, with the command line Concrete Steps gives.
+  Evidence: `venv/bin/python -m pytest tests/integration/test_admin_profile.py tests/integration/test_admin_coverage.py -q -p no:cacheprovider` printed `15 passed, 1 warning in 2.74s` at `0fadc41` (three tests in the first file, twelve in the second).
+- Observation (authoring, 2026-11-24): `meetings` has the constraint `UNIQUE (municipality_id, external_id)`, and `test_coverage_post_creates_note_and_redirects` deletes the meeting it seeds (external id `post-mtg`) only after its assertions. A run in which that test fails therefore leaves the meeting behind, and a second run on the same database fails on the insert. This matters here because the plan asks for a failing run and then a passing run by hand on one database; Plan of Work has the test clean up in a `finally`.
+  Evidence: `select conname, pg_get_constraintdef(oid) from pg_constraint where conrelid='meetings'::regclass and contype='u'` printed `meetings_municipality_id_external_id_key|UNIQUE (municipality_id, external_id)`; the test's cleanup is its last block, outside any `try`.
+- Observation (authoring, 2026-11-24): the development machine's shell is zsh and its `grep` is ugrep. An unquoted `--include=*.py` is refused by the shell (`no matches found`); quote it. Recursive `grep` prints paths without a leading `./`.
+  Evidence: the unquoted form printed `(eval):1: no matches found: --include=*.py`.
+
+## Decision Log
+
+- Decision: one milestone holds all of the work, the deletion of the debt row included.
+  Rationale: the mend is three routes, two docstrings and two test files, and the row can be deleted truthfully only by the session that has seen the mend pass, so a second, closing milestone would hold one deleted line. One code milestone also means row `D131` of `docs/DEBT.md` is not tripped: its trigger is "the next plan with two or more code milestones", and it concerns a check `skills/plan-execute/SKILL.md` asks only of new tests that pass on their first run, which this plan's new tests do not (see the next entry). The plan does not move itself to `plans/completed/` or write the closing retrospective; the retro stage that follows the milestone does both.
+  Date/Author: 2026-11-24, plan author.
+- Decision: the tests are committed failing before the mend, and every assertion this plan adds or changes fails at that commit.
+  Rationale: `skills/plan-execute/SKILL.md` says to commit a test failing before the code that makes it pass, so the before state is readable from git, and it asks for a second check (take each rule out of a copy of the code and watch a test fail) only of new tests that pass on the first run of the code. The authoring worked each case against the code at `0fadc41` and Validation lists which nine tests fail and why. If the session adds a test this plan does not name and it passes at the failing-tests commit, the skill's check applies to that test and the session records what it did.
+  Date/Author: 2026-11-24, plan author.
+- Decision: a session that holds `admin_user` and no `admin_user_id` is answered with a redirect to `/admin/login` by each of the three routes; the routes read the id with `session.get("admin_user_id")`.
+  Rationale: the operator's goal says the routes should read `session["admin_user_id"]`, and the scope brief left open what a session without that key gets. A plain key read raises `KeyError` and answers 500 with no hint of what to do; signing in again is the whole remedy, since a successful login clears the session and stores both keys, so the route sends the admin there. Such a session cannot come from today's login code (`src/docket/web/auth.py` has stored both keys since commit `2c321f7` of 2026-05-20, and the application sets no permanent session lifetime), so this is a guard for a cookie older than that commit or a session built by hand, not a path anyone is expected to take. The redirect carries no `next` parameter: the blueprint's own guard sends `next=request.path`, which for the two POST routes would be a path that answers 405 to the GET a login redirects with, and one rule for all three is simpler than a destination per route. The session is not cleared: the other admin pages use `admin_user` as a label and still work, and a successful login clears it anyway. `session.get("admin_user_id")` is also how the two routes in the same module that already use the id read it (`set_meeting_type` and `hide_meeting`).
+  Date/Author: 2026-11-24, plan author.
+- Decision: `coverage_create` reads the id as its first statement, before it parses the form.
+  Rationale: today the route redirects a form with no subject to `/admin/coverage/new` before it reads the session. If the guard stayed below that, a session with no id would be told to attach a subject, would do so, and only then be sent to sign in; and the guard's test would need a valid subject to reach it. Read first, the guard is one empty POST away and the admin is told the real problem at once.
+  Date/Author: 2026-11-24, plan author.
+- Decision: the two test files sign in by posting to `/admin/login`; they do not write the two keys into the session by hand.
+  Rationale: the defect lasted because tests wrote the session themselves and wrote it wrong. A test that goes through the login form holds whatever the login stores, so a later change to the login's keys reaches these tests. The cost is one password hash per test, which `tests/integration/test_auth_session.py` already pays the same way. The three tests of the guard are the exception: they need a session the login cannot produce, so they write `admin_user` alone by hand.
+  Date/Author: 2026-11-24, plan author.
+- Decision: `src/docket/web/auth.py` is read and not edited, and no other test file is changed.
+  Rationale: the mend needs nothing from the login but the two keys it already stores. `auth.py` executes its own SQL, which row `D7` of `docs/DEBT.md` defers until "the next plan touching each module"; leaving the file untouched leaves that trigger unfired. `tests/integration/test_admin_outlets.py` also writes an integer under `admin_user` (and an `admin_username` key no source file reads), but the outlet routes never read the id, so it hides no error; and the shared fixture `authed_admin_client` in `tests/integration/conftest.py` writes `admin_user` alone, which is right for the routes that use the username as a label. Neither is named by the goal or by `D212`.
+  Date/Author: 2026-11-24, plan author.
+- Decision: no file under `docs/specs/` changes, and no record under `docs/decisions/` is written by the milestone.
+  Rationale: no spec describes these routes (the scope brief's grep of `docs/specs` for `admin/profile`, `admin_user_id` and `session[` printed nothing). The choices above are readable from six lines of route code and the tests beside them; whether any is durable enough for a record is the retro's reading. If the retro graduates one, the number is the lowest above every number spent on `origin/main` and on any open pull request at that moment (row `D70`); this plan names no figure. The same rule would govern a new debt row, and the milestone is expected to add none.
+  Date/Author: 2026-11-24, plan author.
+- Decision: the session that executes M1 may read its starting `./tools/verify` run from this plan, under the rule in `skills/plan-execute/SKILL.md`.
+  Rationale: the operator said to keep that rule ("we can let it skip if plan names a commit"). The commit a passing run was made on is `0fadc41`, the commit this branch was cut from; the run is the second entry of Surprises & Discoveries. The session runs `git status --short` and `git diff --stat 0fadc41 HEAD -- . ':(exclude)plans'`; when both print nothing it does not make the opening run and writes in this log that it did not and what the two commands printed, and when either prints anything it makes the run. The closing run is always made.
+  Date/Author: 2026-11-24, plan author.
+
+## Outcomes & Retrospective
+
+As authored on 2026-11-24 (UTC), nothing has been executed and there is no outcome to report. The session that executes M1 writes here, beneath this sentence, what the milestone achieved against the Purpose, with the commands it ran and what they printed.
+
+## Context and Orientation
+
+### How an admin session is filled
+
+`src/docket/web/auth.py` is the login. Its `login` route, at `/admin/login`, reads `username` and `password` from the posted form, selects the `admin_users` row with that username, and checks the password against the row's `password_hash` with werkzeug's `check_password_hash`. On success it clears the session and stores two keys: `session["admin_user"]`, the username (a string), and `session["admin_user_id"]`, the row's `id` (an integer; the column is `SERIAL`). It then redirects, to `/admin/members/` when no `next` parameter is given. On failure it shows the form again with status 200. "Session" here is Flask's signed cookie: a small dictionary the browser carries and the server reads on each request.
+
+`src/docket/web/admin.py` is one Flask blueprint with the prefix `/admin`. A `before_request` hook near its top (`require_login`) redirects to the login any request whose session has no `admin_user` key; it does not look at `admin_user_id`. Most routes in the module use `session.get("admin_user", "unknown")` as an actor label written to audit rows, which is correct: that key is the username. Two routes already use the id correctly, by `session.get("admin_user_id")`: `set_meeting_type` and `hide_meeting`.
+
+### The three routes that are wrong
+
+In `src/docket/web/admin.py` at commit `0fadc41`:
+
+`coverage_create` (the `POST /admin/coverage` route) has, at line 909, `author_id = session["admin_user"]`, after it has parsed the form's subjects and redirected a form with none. It passes `author_id` to `create_note` or `create_citation` in `src/docket/services/coverage_writer.py`, which insert a `coverage_entries` row with that value in the integer column `author_id` (the column is `NOT NULL`). When the form has `publish_now` set to `on`, the entry is created as `published`, and the writer then stores the entry's `byline` from the `admin_users` row with that id: the row's `display_name`, or its `username` when the display name is NULL.
+
+`profile` (the `GET /admin/profile` route) has, at line 1137, `uid = session["admin_user"]`, and passes it to `query.get_admin_profile` in `src/docket/services/query.py` (line 4300), which runs `SELECT username, display_name FROM admin_users WHERE id = %s`. The result goes to the template `src/docket/web/templates/admin/profile.html`, which prints the username and puts the display name in a text input. The template is not edited.
+
+`profile_update_display_name` (the `POST /admin/profile/display-name` route) has, at line 1144, `uid = session["admin_user"]`, and passes it to `admin_users.set_display_name` in `src/docket/services/admin_users.py`, which runs `UPDATE admin_users SET display_name = %s WHERE id = %s`. The route stores an empty or all-space name as NULL and redirects to `/admin/profile`.
+
+In each case PostgreSQL is handed a string such as `test-admin` for an integer and refuses with `invalid input syntax for type integer`. The first entry of Surprises & Discoveries is that error, seen through each route after a real login.
+
+### Why the tests did not catch it
+
+`tests/integration/test_admin_profile.py` (three tests) has a fixture, `profile_client`, that seeds one `admin_users` row and writes that row's integer id into the session under `admin_user`. Its module docstring says so, and says the file "follows the mismatch". `tests/integration/test_admin_coverage.py` (twelve tests) has a fixture, `client_logged_in`, that does the same at line 37 and also writes an `admin_username` key that no source file reads. With an integer under the username key the three routes work, so the tests pass. A real login never produces that session.
+
+`tests/integration/test_auth_session.py` is the model for signing in properly: it seeds an `admin_users` row whose `password_hash` is `werkzeug.security.generate_password_hash` of a known password, posts the username and password to `/admin/login`, and asserts a redirect and both session keys. It is read, not edited.
+
+Two helpers differ between the two files and must not be mixed up. `tests/integration/test_admin_profile.py` uses `docket.db.db_cursor`, a context manager that yields a cursor whose rows are dictionaries (`cur.fetchone()["id"]`), and the `client` fixture of `tests/integration/conftest.py`. `tests/integration/test_admin_coverage.py` uses `docket.db.db`, which yields a connection whose cursors return tuples (`cur.fetchone()[0]`), and its own `app` fixture. Both context managers commit when their block ends normally.
+
+### The sentences that describe the defect as carried
+
+Three docstrings say the defect is carried unchanged, and go stale with the mend. The authoring's search `grep -rn 'carried that as it\|carries the admin session-key\|follows the mismatch' src tests` printed four lines: `src/docket/services/query.py` line 4305 and `src/docket/services/admin_users.py` line 12 (both "plan `admin-routes-call-services` carried that as it found it", in the docstrings of `get_admin_profile` and `set_display_name`), `tests/services/test_admin_users.py` line 5 ("the plan carries the admin session-key mismatch unchanged"), and `tests/integration/test_admin_profile.py` line 11. All four are edited by M1.
+
+The id `D212` appears in two files: its row in `docs/DEBT.md` (line 159; the file's Details section does not mention it) and `docs/decisions/0137-admin-routes-ask-services-not-found-is-a-return-value-and-a-transaction-block-moves-whole.md`, which says the earlier plan carried the defect and cites the row. That record is dated history and is left as it is, so no check in this plan says `D212` prints nowhere; the check is that no row of the register begins with it.
+
+### Debt rows this work touches or passes by
+
+`D212` is paid and its row deleted; in this register a closed row is deleted and its number is never reused. Its own trigger ("the next change to admin login or to one of the three routes") is this work. `D131` (a committed runner for the removal check) is not tripped, as the Decision Log says. `D7` is not tripped, because `src/docket/web/auth.py` is not edited. `D14` (no CSRF protection on the POST routes of `admin.py`, issue #83) covers the two POST routes mended here; its trigger is a second admin user or public launch, and this plan does not change it. `D213` and `D215` are in the admin area and neither is triggered: the mend adds no SQL to `admin.py`, so `tests/unit/test_admin_module_has_no_sql.py` is unaffected.
+
+No other plan is in flight: `plans/active/` held only `.gitkeep` at authoring.
+
+### Running tests here
+
+`./tools/verify` builds a throwaway database from the migrations, runs every test tier against it, and drops it. `tools/test-db` builds the same database by hand and prints its URL; `tools/test-db --drop` removes it. `tests/conftest.py` refuses, with exit 2, any `DATABASE_URL` whose database is not named `docket_test_*`, so a bare `pytest` in a worktree whose `.env` names `docket_db` does not run. `tools/test-db` and `./tools/verify` use one database name per checkout, so do not run them at the same time. Use this worktree's own `venv/`.
+
+## Plan of Work
+
+The work is one milestone, M1, in three commits. Every commit of a milestone session must change this plan file (decision `0037` in `docs/decisions/`), so each commit carries the session's record of what it just observed.
+
+First, the tests. In `tests/integration/test_admin_profile.py`, the fixture `profile_client` seeds its row with `password_hash` set to `generate_password_hash` of a password constant defined in the file, keeps the display name `Profile Test Byline`, then posts `username` and `password` to `/admin/login` on the `client` fixture and asserts the answer is a redirect (status 302) before returning `(client, uid)`; it no longer opens `session_transaction`. The assertion matters: a failed login answers 200, and without it every test would fail with a confusing redirect to the login. The three existing tests keep their names and bodies. One new test function is added, `test_a_session_without_the_admin_id_is_sent_to_sign_in`, parametrized with `pytest.mark.parametrize` over three cases, `("get", "/admin/profile")`, `("post", "/admin/profile/display-name")` and `("post", "/admin/coverage")`: it writes `sess["admin_user"] = USERNAME` alone into the session of the plain `client` fixture (no row need exist), makes the request with no form data, and asserts status 302 and that the `Location` header ends with `/admin/login`. The module docstring is rewritten to say that the fixture signs in through `/admin/login`, so the session holds what a login stores, and that the guard test alone builds a session by hand; the sentence about following the mismatch goes.
+
+In `tests/integration/test_admin_coverage.py`, the fixture `client_logged_in` first deletes anything a previous aborted run left (coverage entries whose author is the user `admin-cov-test`, then that user), inserts the user with a real password hash and the display name `Test Admin`, posts the username and password to `/admin/login` inside `app.test_client()`, asserts a redirect, and yields `(c, uid)`; the two hand-written session keys go, and its teardown stays as it is. `test_coverage_post_creates_note_and_redirects` selects `author_id` with the row and asserts it equals the fixture's `uid`, and its cleanup moves into a `finally` so that a failing run leaves no meeting behind (the fourth entry of Surprises & Discoveries says why). One new test is added, `test_coverage_post_publishes_a_citation_under_the_signed_in_admin`: it seeds an outlet (`INSERT INTO outlets (slug, name)`, with a slug of its own such as `test-cite-post-outlet`), a meeting with an external id of its own such as `cite-post-mtg`, and an agenda item, as the neighbouring tests do; posts to `/admin/coverage` the fields `kind` = `citation`, `outlet_id`, `external_url`, `headline` (a headline of its own), `subject[]` = `agenda_item:<item id>` and `publish_now` = `on`; asserts a redirect; and asserts that the `coverage_entries` row with that headline has `author_id` equal to `uid`, `status` equal to `published` and `byline` equal to `Test Admin`. It deletes its rows in a `finally` (the entry, the item, the meeting, the outlet, in that order). The other ten tests are not edited; they use the fixture and none asks a mended route, so they pass before and after.
+
+The session then runs the two files by hand (Concrete Steps) and expects `9 failed, 10 passed`, records what it saw, and commits the two test files with the plan. This is the failing-tests commit.
+
+Second, the mend. In `src/docket/web/admin.py`, `profile` and `profile_update_display_name` each begin
+
+        uid = session.get("admin_user_id")
+        if uid is None:
+            return redirect(url_for("auth.login"))
+
+in place of `uid = session["admin_user"]`, and `coverage_create` begins, directly after its import line and before `kind = request.form.get("kind")`,
+
+        author_id = session.get("admin_user_id")
+        if author_id is None:
+            return redirect(url_for("auth.login"))
+
+with the old line 909 deleted. `redirect`, `url_for` and `session` are already imported at the top of the module. Each of the three functions gets a one-line docstring or comment saying the id is `admin_users.id` as the login stored it and that a session without it is sent to sign in; that text must not contain the characters `session["admin_user"]`, because an acceptance check greps the module for them. In `src/docket/services/query.py`, `get_admin_profile` is annotated `admin_user_id: int` and its docstring's second paragraph is replaced with a sentence saying `admin_user_id` is `admin_users.id`, which the profile route reads from the session a login filled. In `src/docket/services/admin_users.py`, `set_display_name` gets the same annotation and the same replacement. In `tests/services/test_admin_users.py`, the docstring sentence in lines 3 to 6 is rewritten to say the function takes `admin_users.id`, so the tests pass the integer id the table holds, with no mention of a carried mismatch. A docstring that cites a plan names it by its slug (plan `admin-profile-and-coverage-after-login`, M1), never by a `plans/active/` path. The session runs the two files again, expects `19 passed`, and commits these four source and test files with the plan.
+
+Third, the register. In `docs/DEBT.md`, the one line that begins `| D212 |` is deleted and nothing else on the page changes. The session runs the acceptance greps and `./tools/verify`, writes the living sections (Progress ticked by changing `- [ ]` to `- [x] (YYYY-MM-DD HH:MMZ)` and nothing else on the line, Surprises, Decision Log, Outcomes), and commits `docs/DEBT.md` with the plan.
+
+## Concrete Steps
+
+All commands run from the root of this worktree, `.claude/worktrees/admin-profile-and-coverage-after-login` under the repository, with its own `venv/`.
+
+The starting state. Either read the baseline run from this plan under the rule in the Decision Log's last entry, after
+
+        git status --short
+        git diff --stat 0fadc41 HEAD -- . ':(exclude)plans'
+
+have both printed nothing, or run `./tools/verify` and wait for its exit line before any edit.
+
+The two test files by hand, as one line so the variable reaches the test run. This line was run at authoring and printed `15 passed, 1 warning in 2.74s`:
+
+        export DATABASE_URL=$(tools/test-db 2>/dev/null) && venv/bin/python -m pytest tests/integration/test_admin_profile.py tests/integration/test_admin_coverage.py -q -p no:cacheprovider; tools/test-db --drop
+
+Expected after the tests are rewritten and before the mend (expected, not observed): `9 failed, 10 passed`. Expected after the mend: `19 passed`.
+
+The closing checks, with what each is expected to print:
+
+        grep -n 'session\["admin_user"\]' src/docket/web/admin.py
+        grep -c 'session.get("admin_user_id")' src/docket/web/admin.py
+        grep -rn 'carried that as it\|carries the admin session-key\|follows the mismatch' src tests
+        grep -n "admin_user'\] = uid\|admin_user\"\] = uid\|admin_username" tests/integration/test_admin_profile.py tests/integration/test_admin_coverage.py
+        grep -c '^| D212 ' docs/DEBT.md
+        git diff --stat 0fadc41 HEAD -- src/docket/web/auth.py tests/integration/test_admin_outlets.py tests/integration/conftest.py tests/integration/test_auth_session.py
+        ./tools/verify
+
+The first prints nothing (at authoring it printed lines 909, 1137 and 1144). The second prints `5` (at authoring `2`, the lines of `set_meeting_type` and `hide_meeting`; `grep -c` counts lines, and the mend adds three). The third prints nothing (at authoring, four lines). The fourth prints nothing (at authoring, three lines: line 52 of the profile file and lines 37 and 38 of the coverage file). The fifth prints `0` (and so exits 1, which is `grep`'s way of saying no line matched). The sixth prints nothing. The last prints `verify: all 6 checks passed` and exits 0.
+
+## Validation and Acceptance
+
+M1 is accepted when all of the following have been run in this worktree and seen.
+
+At the failing-tests commit, the hand run of the two files prints `9 failed, 10 passed`. The nine, and why each fails against the unmended routes: in `tests/integration/test_admin_profile.py`, the three existing tests (the session now holds the username under `admin_user`, so `GET /admin/profile` and `POST /admin/profile/display-name` raise `invalid input syntax for type integer`), and the three cases of the guard test (the two profile requests raise the same error, and the empty `POST /admin/coverage` is redirected to `/admin/coverage/new?kind=note`, not to `/admin/login`); in `tests/integration/test_admin_coverage.py`, `test_coverage_post_creates_note_and_redirects`, `test_profile_display_name_update` and the new citation test (each raises the same error). The authoring saw each of these behaviours on the unmended routes with a scratch script (Surprises & Discoveries, first entry) but did not write or run the tests, so the count is expected, not observed. If the count differs, the session finds out why before it mends anything and records it; a test that passes here when this plan says it fails has not yet shown it tests the mend.
+
+After the mend, the same run prints `19 passed`, and the commit that holds the mend is later than the commit that holds the failing tests, readable with `git log --oneline 0fadc41..HEAD`.
+
+The closing greps of Concrete Steps print what that section says.
+
+`./tools/verify` exits 0 with `verify: all 6 checks passed`. Its integration tier prints `1182 passed` if the session added exactly the four tests this plan names (the baseline at `0fadc41` is `1178 passed`; the guard test collects three, one per case, and the citation test one); the other tier and the producer suite print their baseline figures, `3954 passed, 5 skipped, 4 xfailed` and `147 passed`. A session that added a further test states the figure it saw and which test accounts for the difference.
+
+What a session cannot do, and the operator may after the merge and a deploy (humans deploy, from a clean `main`): sign in at `https://docket.pub/admin/login`, open `/admin/profile`, and see the username; save a display name and see it on the page. No production request was made at authoring, and none is part of M1's acceptance.
+
+## Idempotence and Recovery
+
+Every step can be repeated. The hand test run builds and drops its own database; if a run is interrupted, `tools/test-db --drop` removes the database and the next run builds it again. The rewritten fixtures delete what a previous aborted run left before they insert, and the two coverage tests that seed a meeting clean up in a `finally`, so a failing run can be followed by another on the same database. The edits to source are small and local; `git diff` shows them and `git checkout -- <file>` undoes an uncommitted one. Never use `git stash`: every worktree on the machine shares its stack. If the failing-tests commit was missed and the mend is already in the working tree, recover the before state as `skills/plan-execute/SKILL.md` says: save `git diff -- src` to a patch in the session scratchpad, revert `src/`, run the tests, apply the patch back. Git hooks live in `tools/hooks/` and are never disabled or bypassed; the pre-commit hook checks this plan file's living sections whenever it is staged.
+
+If the milestone will not fit in the session, split it in place in Progress (completed: X; remaining: Y) without rewording the existing line's text, record the split in the Decision Log, and stop.
+
+## Artifacts and Notes
+
+The session with which a real login leaves the test client, from the authoring's scratch script: keys `admin_user` and `admin_user_id`, the first equal to the username and the second to the row's id; the login answered `302` with `Location: /admin/members/`.
+
+The route code after the mend, for `profile` (the other two follow Plan of Work):
+
+        @bp.route("/profile", methods=["GET"])
+        def profile():
+            uid = session.get("admin_user_id")
+            if uid is None:
+                return redirect(url_for("auth.login"))
+            user = query.get_admin_profile(uid)
+            return render_template("admin/profile.html", user=user)
+
+## Interfaces and Dependencies
+
+No new module, function, route, template, migration or dependency. At the end of M1: `docket.services.query.get_admin_profile(admin_user_id: int) -> dict | None` and `docket.services.admin_users.set_display_name(admin_user_id: int, display_name: str | None) -> None` keep their names and behaviour and say in their docstrings that the argument is `admin_users.id`; `docket.services.coverage_writer.create_note` and `create_citation` are unchanged and receive an integer `author_id`; the routes `admin.profile`, `admin.profile_update_display_name` and `admin.coverage_create` keep their paths and methods. The tests use `werkzeug.security.generate_password_hash`, already a dependency through Flask and already used by `tests/integration/test_auth_session.py`.
+
+## Revision note
+
+2026-11-24 (UTC), authoring. This is the first version of the plan. What it deliberately leaves out, from the scope brief the operator's goal was studied into and from the operator's own message. The operator's message had three parts: mend `D212`, keep the rule that a session may skip its opening `./tools/verify` when the plan names a commit, and fix having to rebuild the removal check in every session. This plan is the first; it honours the second by naming its baseline commit, and changes nothing in `skills/plan-execute/SKILL.md`. The third is row `D131`, a runner committed under `tools/` with its own tests and acceptance; it is not in this plan, nothing here carries it forward, and it still needs a plan of its own. Also left out: `tests/integration/test_admin_outlets.py`, which writes an integer under `admin_user` but hides no error; the shared fixture `authed_admin_client` and the roughly twenty test files that write `admin_user` alone; CSRF protection on the admin POST routes (`D14`, issue #83); the SQL still in `src/docket/web/auth.py` and three other web modules (`D7`); `D213` and `D215`; any check of production for the error, and the deploy, which are the operator's; and any change under `docs/specs/`, where nothing describes these routes. The scope brief left one choice to the plan, what a session without `admin_user_id` gets, and the Decision Log settles it as a redirect to sign in. The brief did not list the docstring of `tests/services/test_admin_users.py` among the sentences to correct; the authoring's grep found it and M1 edits it.
